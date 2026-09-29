@@ -13,11 +13,15 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  # The release workflow runs the gate on the tagged commit.
+  workflow_call:
 
 # A new push to a pull request cancels the run of its earlier push. Runs
-# on main and in the merge queue always finish.
+# on main, in the merge queue and of a release always finish. The group
+# names this workflow literally: a called workflow sees the name of its
+# caller in `github.workflow`, and the release run holds that group.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: CI-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:

@@ -1,12 +1,13 @@
 # Release the Client App
 
-The server release must exist before the client can publish. Run
-`cargo xtask release` first. It publishes the Computer image, the Headless
-Server image, the server package of each client platform (the signed macOS
-disk image and a Linux archive for each architecture), and one Runtime Lock
-for each client platform:
+A `v*` tag starts the release workflow (`docs/RELEASING-SERVER.md`). Its
+server half pushes the Computer image and the Headless Server image, and
+creates the draft GitHub Release of the tag with the server package of each
+client platform (the signed macOS disk image and a Linux archive for each
+architecture) and one Runtime Lock for each client platform:
 `runtime-lock-darwin-arm64.json`, `runtime-lock-linux-x64.json` and
-`runtime-lock-linux-arm64.json`. It does not build or publish a client.
+`runtime-lock-linux-arm64.json`. The client jobs of the same run build the
+clients from those locks.
 
 The server release scans for secrets before anything becomes public
 (`docs/RELEASING-SERVER.md`, "The secret scan"). Its gate scans the
@@ -16,9 +17,22 @@ A finding stops the release. When a finding is a secret, revoke it at its
 provider and make a new one. Removal from the tree is not enough, because
 the secret stays valid.
 
-The macOS client and the Linux client are released one after the other, and
-each one in two phases. The split keeps the package bytes stable while a clean
-machine tests them.
+Each client is released in two phases. The split keeps the package bytes
+stable while a clean machine tests them:
+
+1. **Prepare.** The client jobs build and sign the exact packages, attest
+   their provenance, and store them as artifacts of the run.
+2. **Publish.** A maintainer tests the prepared packages on clean machines
+   and uploads the proofs to the draft. Then the maintainer approves the
+   publication jobs, which wait in the `release` environment. They validate
+   each proof against the exact bytes, upload the packages to the draft
+   without overwrite, and publish the release.
+
+Download the prepared packages from the run page (the `client-macos` and
+`client-linux` artifacts), or with
+`gh run download <run> --name client-macos --name client-linux`. Upload the
+proofs with `gh release upload v0.1.0 dist/distribution-proof*.json`. The
+proofs stay on the release as its evidence.
 
 ## How the server artifacts relate to this release
 
@@ -46,8 +60,8 @@ and the version rule. What the client release depends on:
 
 ### Prepare the exact client
 
-Download the server package and `runtime-lock-darwin-arm64.json` from the
-release into `dist/`. Then run:
+The **prepare signed DMG** job downloads the server package and
+`runtime-lock-darwin-arm64.json` from the draft into `dist/` and runs:
 
 ```bash
 cargo xtask desktop --tag v0.1.0 --prepare
@@ -59,12 +73,13 @@ name. Set `APPLE_KEYCHAIN` too when the profile is in a non-default keychain.
 The server release also accepts these inputs. `PAGIS_SERVER_SIGN_IDENTITY` and
 `PAGIS_NOTARY_KEYCHAIN_PROFILE` are the explicit server names.
 
-CI can instead set `CSC_LINK` (the Developer ID Application certificate, a
-base64 `.p12`), `CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`,
-and `APPLE_TEAM_ID` as repository secrets. `scripts/signing-secrets.sh` walks
-the account holder through the certificate, the `.p12` export and the
-app-specific password, and sets the five secrets with `gh secret set`. The
-release tools never export the key. Missing inputs stop a tag build. An Apple Development or Apple Distribution identity does not meet this
+CI instead reads `CSC_LINK` (the Developer ID Application certificate, a
+base64 `.p12`), `CSC_KEY_PASSWORD`, and an App Store Connect API key:
+`APPLE_API_KEY` is the path of its `.p8` file, which the job writes from the
+`APPLE_API_KEY_P8` secret, with `APPLE_API_KEY_ID` and `APPLE_API_ISSUER`.
+`scripts/signing-secrets.sh` walks the account holder through the
+certificate, the `.p12` export and the API key, and sets the secrets with
+`gh secret set`. The release tools never export the key. Missing inputs stop a tag build. An Apple Development or Apple Distribution identity does not meet this
 gate.
 
 `--prepare` signs the outer DMG, submits it for notarization, and staples the
@@ -136,11 +151,12 @@ older signed server refuses the Workspace before it opens data.
 ### Publish the proven bytes
 
 The server release that the lock names passed the secret scan of the
-tree and of each image, because `cargo xtask release` publishes nothing
+tree and of each image, because the release workflow publishes nothing
 after a finding. Do not publish a client until each found secret is revoked
 and replaced.
 
-Copy the proof back beside the unchanged prepared package. Run:
+Upload `dist/distribution-proof.json` to the draft, then approve the
+**publish the macOS client** job. To check the proof before the upload:
 
 ```bash
 cargo xtask distribution-proof validate \
@@ -148,14 +164,21 @@ cargo xtask distribution-proof validate \
   dist/runtime-lock-darwin-arm64.json \
   desktop/release/Pagis-0.1.0-arm64.dmg \
   0.1.0
+```
 
+The job puts the prepared DMG in `desktop/release/`, the lock, the server
+package and the proof from the draft in `dist/`, and runs:
+
+```bash
 cargo xtask desktop --tag v0.1.0 --publish-existing
 ```
 
-The publish command does not rebuild or re-notarize. It mounts the exact DMG
+The publish command does not rebuild, re-sign or re-notarize, so it needs no
+signing input. It mounts the exact DMG
 again and repeats the local package checks against its app. It also compares
-the local server package and Runtime Lock with the existing release, resolves the
-immutable Computer image, and uploads the client without `--clobber`.
+the local server package and Runtime Lock with the draft, pulls the
+immutable Computer image with no credentials, and uploads the client without
+`--clobber`.
 Missing, changed, unsigned, or unproven artifacts stop publication.
 
 ## Linux
@@ -168,15 +191,20 @@ archive of its architecture (ADR-0025).
 
 The release key is an OpenPGP key that the maintainers hold. Its public half
 is `docs/release-key.asc` in the repository, and the tag must contain it. Publication fails when the file is missing, and when the signature
-does not verify with exactly that file. To make the key once:
+does not verify with exactly that file. `scripts/signing-secrets.sh` makes
+the key once, with no passphrase:
 
 ```bash
-gpg --quick-generate-key "Pagis release <release@example.invalid>" ed25519 sign 2y
+gpg --batch --pinentry-mode loopback --passphrase '' \
+  --quick-generate-key "Pagis release <release@example.invalid>" ed25519 sign 2y
 gpg --armor --export <fingerprint> > docs/release-key.asc
 ```
 
-Keep the private half off CI. Publication runs on a maintainer's machine, and
-`gpg` reads the key from the local agent.
+The private half is the `PAGIS_RELEASE_GPG_PRIVATE_KEY` secret of the
+`release` environment. Only a job of a `v*` tag in that environment reads
+it, and each such job waits for a reviewer. The publication job signs with
+no person present, which is why the key has no passphrase. The approval of
+the environment protects it instead.
 
 ### Prepare the exact packages
 
@@ -193,7 +221,8 @@ checks that each unpacked client and each exact deb carry the lock of their
 architecture and no server, runs the compiled installer against a real
 archive, smoke tests the amd64 client under a virtual display, and writes
 `Pagis-0.1.0-linux.SHA256SUMS`. It uploads the four packages and the list as
-the `pagis-client-linux-v0.1.0` artifact. It signs and publishes nothing.
+the `client-linux` artifact, and attests the provenance of each package. It
+publishes nothing, and it does not sign the checksum list.
 
 ### Record distribution proof
 
@@ -244,17 +273,19 @@ As on macOS, the server release that the locks name passed the secret
 scan of the tree and of each image. Do not publish a client until each found
 secret is revoked and replaced.
 
-Put the four packages and the checksum list from the CI artifact in
-`desktop/release/`, the proofs and both locks in `dist/`, and set
-`PAGIS_RELEASE_GPG_KEY` to the fingerprint of the release key. On any host:
+Upload both proofs to the draft, then approve the **publish the Linux
+clients** job. The job puts the four packages and the checksum list in
+`desktop/release/`, the proofs and both locks from the draft in `dist/`,
+imports the release key, sets `PAGIS_RELEASE_GPG_KEY` to its fingerprint,
+and runs:
 
 ```bash
 cargo xtask desktop --linux --tag v0.1.0 --publish-existing
 ```
 
 It does not rebuild. It validates both proofs against the exact packages and
-locks, compares the locks and archives with the release and resolves the
-Computer image, checks every hash in the list, signs the list with the release
+locks, compares the locks and archives with the draft, pulls the Computer
+image with no credentials, checks every hash in the list, signs the list with the release
 key into `Pagis-0.1.0-linux.SHA256SUMS.asc`, verifies that signature with
 `docs/release-key.asc`, and uploads the four packages, the list and the
 signature without `--clobber`.

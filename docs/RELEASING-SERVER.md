@@ -45,10 +45,11 @@ from the rest.
 | Server and the data it opens | The release marker under the state directory is a one-way high-water mark | A server older than the data refuses to open it, before it migrates anything |
 | Headless Server image and Postgres | The image carries the PostgreSQL client that `pagis backup` runs | A client older than the server refuses to dump it; keep the image's major version and the database's equal |
 
-**What the Headless Server image does not promise.** It is not signed, not
-notarized and not stapled, because there is no platform gatekeeper to
-satisfy and no Client App to be the trust root. Its trust root is the
-registry and the digest a deployment pins. It holds no Client Credential,
+**What the Headless Server image does not promise.** It is not notarized
+and not stapled, because there is no platform gatekeeper to satisfy and no
+Client App to be the trust root. Its trust root is the registry, the digest
+a deployment pins, and the provenance attestation of that digest ("The
+provenance attestations" below). It holds no Client Credential,
 so no client trades a file for a Session against it (ADR-0024): a person
 on a server signs in with an address and a password. It makes no promise
 about two daemons against one database, which is not a supported shape.
@@ -78,8 +79,11 @@ this repository.
 
 The architecture that the host does not run builds under emulation and
 takes much longer than the native one, because the image compiles wlroots
-and labwc from source. `cargo xtask release` pushes the same image as one
-of its steps, so a release needs no separate publish.
+and labwc from source. The images stage of a release pushes the same image
+when the registry does not hold its version yet, so a release needs no
+separate publish. A published image version is never pushed again: every
+release that pins it pulls the same bytes. A change to the image takes a
+new version in `computer/Dockerfile` and in `crates/pagis-versions`.
 
 ## Building the Headless Server image
 
@@ -140,7 +144,7 @@ So gitleaks scans each of them before it becomes public:
 
 - **The tree.** The gate scans the tracked files as the working tree
   holds them. `cargo xtask full` runs the scan, `cargo xtask dev` runs it
-  for each change, and `cargo xtask release` runs the gate first. The scan
+  for each change, and the release workflow runs the gate first. The scan
   does not read an untracked or ignored
   file, such as a local `.env`, because such a file does not enter the
   public tree.
@@ -191,7 +195,7 @@ advisories:
 The checks run apart from the gate, so a newly published advisory does
 not block an unrelated pull request. They run in these places:
 
-- `cargo xtask release` runs the advisory checks before it builds. Then
+- The images stage of a release runs the advisory checks before it builds. Then
   Trivy scans each image after its secret scan and before its push, and the
   package tree of each Server Package before it is signed, packed and
   published. `cargo xtask image` and `cargo xtask server-image` scan each
@@ -236,75 +240,113 @@ npm audit has no list of exceptions. When a parent package does not accept
 the fixed version of a dependency, an `overrides` entry in `package.json`
 selects it.
 
-## The release command
+## The release workflow
+
+A `v*` tag starts `.github/workflows/release.yml`. The tag names the
+workspace version in `Cargo.toml` (`v0.1.0` for `0.1.0`), and a tag that
+names another version stops the release in its first stage. To release:
 
 ```bash
-cargo xtask release --dry-run  # print the plan
-cargo xtask release            # gate, build, publish
+git tag v0.1.0
+git push origin v0.1.0
 ```
 
-The command needs Docker for `cross` and the images, `gh` signed in to the
-repository, a Docker login to GHCR, and the macOS release tools. Set
-`PAGIS_SERVER_SIGN_IDENTITY` to a Developer ID Application identity, or
-leave it unset when the keychain holds one such identity. Notarization
-uses `PAGIS_NOTARY_KEYCHAIN_PROFILE` when it is set, and else `APPLE_ID`,
-`APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID`. The release version is
-the workspace version in `Cargo.toml`. The Computer Image tag is the pin in
-`pagis-versions`.
+The workflow runs `cargo xtask release <stage>` for the four stages of the
+server half, each in a job on the host it needs (`release_plan` in
+`xtask/src/release.rs`). A stage stops at its first failed step, and the
+workflow runs no job after a failed one. `cargo xtask release <stage>
+--dry-run` prints the plan of one stage on any host.
 
 Two third-party programs ship with a release, each pinned and each with its
 license under `third_party/`: `gog` (MIT), the Google provider in every
 server package, and uBlock Origin Lite (GPL-3.0-only), the content blocker
 that the Chromium of the Computer Image loads.
 
+## What the workflow needs
+
+The repository administrator sets these once. `scripts/signing-secrets.sh`
+walks the Apple Developer Account Holder through each of them and sets them
+with `gh`:
+
+| Name | Where | What it holds |
+| --- | --- | --- |
+| `CSC_LINK` | Repository secret | The Developer ID Application certificate and its private key, a base64 `.p12` |
+| `CSC_KEY_PASSWORD` | Repository secret | The password of the `.p12` |
+| `APPLE_API_KEY_P8` | Repository secret | The text of the `.p8` file of an App Store Connect API key with the Developer role |
+| `APPLE_API_KEY_ID` | Repository secret | The Key ID of that key |
+| `APPLE_API_ISSUER` | Repository secret | The Issuer ID of the team |
+| `PAGIS_RELEASE_GPG_PRIVATE_KEY` | Secret of the `release` environment | The private half of the Linux release key, with no passphrase |
+
+- **The `release` environment.** Each publication job waits in it until a
+  required reviewer approves it. Make the maintainers its reviewers.
+- **The release key.** Its public half is `docs/release-key.asc`, and the
+  tag must contain it (`docs/RELEASING-CLIENT.md`).
+- **The packages.** The images job pushes with the job token, so the
+  organization must let a workflow publish packages. The first push of each
+  image makes a private GHCR package. The anonymous pull then stops the
+  images job: make `pagis-computer` and `pagis-server` public on their
+  package pages and run the failed job again.
+
+A local run of a stage reads the same inputs from the machine: a Docker
+login to GHCR with `write:packages` and `gh` signed in to the repository.
+The macOS stage signs with `PAGIS_SERVER_SIGN_IDENTITY`, or with the one
+Developer ID Application identity of the keychain when it is unset.
+Notarization uses `PAGIS_NOTARY_KEYCHAIN_PROFILE` or
+`APPLE_KEYCHAIN_PROFILE` when one is set, and else the API key in
+`APPLE_API_KEY` (the path of the `.p8` file), `APPLE_API_KEY_ID` and
+`APPLE_API_ISSUER`.
+
 ## The order
 
-`cargo xtask release` runs these steps in this order (`release_plan` in
-`xtask/src/release.rs`), and ADR-0025 holds why. It stops at the first
-step that fails, so no later step runs:
+The workflow runs these jobs in this order, and ADR-0025 holds why:
 
-1. **The gate and the advisory checks.** `cargo xtask full` and the
-   advisory checks run first, and a red result stops the release. The gate
-   scans the tracked files for secrets.
-2. **The Computer Image.** Build it for both architectures and export its
-   filesystem. Scan the export for secrets, then for known
-   vulnerabilities. Push the image only after both scans pass, from the
-   same build cache, then resolve its immutable digest.
-3. **The Headless Server image.** Build it for both architectures against
-   that digest and export its filesystem. Scan the export for secrets,
-   then for known vulnerabilities, and push the image only after both
-   scans pass. It comes before anything is signed, so a release that
-   cannot produce it stops early.
-4. **The anonymous pull.** Pull the manifest of the Computer image and of
-   the Headless Server image with an anonymous registry token, as a new
-   person does. A registry that refuses stops the release: make the
-   package public on GHCR and run the release again.
-5. **The builds.** Build the Product App, then build `pagis` for macOS
-   arm64, Linux amd64 and Linux arm64 with that exact image reference, and
-   assemble each target with its pinned, hash-checked `gog` and the
-   notices. Each build is a `cargo auditable` build with the pinned,
-   hash-checked cargo-auditable. The macOS build runs it on the host. The
-   Linux builds run `cross`, which runs `cargo build` in a Docker image of
-   the target and runs no other cargo subcommand there. So the release
-   gives `cross` an image of its own (`CROSS_BUILD_DOCKERFILE`): the default
-   image of the target, with cargo-auditable and a `cargo` that starts the
-   `cargo` of the toolchain as `cargo auditable`. The images of `cross`
-   are linux/amd64, and the Dockerfile names that platform, so an arm64
-   host builds and runs the image under emulation with no other setting.
-   Scan each assembled package tree for known vulnerabilities.
-6. **The macOS server package.** Sign `pagis` and `gog`, build the macOS
-   arm64 disk image, notarize and staple it, and write
-   `dist/runtime-lock-darwin-arm64.json` from the final bytes.
-7. **The Linux server packages.** Pack the gzip tar archive of each Linux
-   architecture.
-8. **The Linux locks.** Write `dist/runtime-lock-linux-x64.json` and
-   `dist/runtime-lock-linux-arm64.json` from the finished archive of each
-   architecture and the files it extracts to.
-9. **Validation.** Check every server package and every Runtime Lock. A
-   missing target, a stale Product App, a changed file, a wrong code
-   signature or a mutable Computer image stops the release here.
-10. **Publish.** Create the GitHub Release with the three server packages
-    and the three locks, and nothing else.
+1. **The gate.** The CI workflow runs on the tagged commit, and a red
+   result stops the release. The gate scans the tracked files for secrets.
+2. **The images** (`cargo xtask release images`, Linux). The advisory
+   checks run first. Then the stage builds the Computer Image for both
+   architectures and exports its filesystem, scans the export for
+   secrets, then for known vulnerabilities, and pushes the image only
+   after both scans pass, from the same build cache. When the registry
+   already holds the pinned version, the stage skips the build and the
+   push. It then resolves the immutable digest. It builds the Headless
+   Server image against that digest in the same way. Last, it pulls the
+   manifest of both images with an anonymous registry token, as a new
+   person does. The job attests the provenance of both digests.
+3. **The server packages.** Two jobs build them at the same time with the
+   exact image reference. Each builds the Product App, then `pagis` with
+   the pinned, hash-checked cargo-auditable, assembles each target with its
+   pinned, hash-checked `gog` and the notices, and scans each package tree
+   for known vulnerabilities.
+   - `cargo xtask release linux` (Linux) builds Linux amd64 and arm64 with
+     `cross`, which runs `cargo build` in a Docker image of the target and
+     runs no other cargo subcommand there. So the stage gives `cross` an
+     image of its own (`CROSS_BUILD_DOCKERFILE`): the default image of the
+     target, with cargo-auditable and a `cargo` that starts the `cargo` of
+     the toolchain as `cargo auditable`. The images of `cross` are
+     linux/amd64, and the Dockerfile names that platform, so an arm64 host
+     builds and runs the image under emulation with no other setting. The
+     stage packs the gzip tar archive of each architecture and writes
+     `dist/runtime-lock-linux-x64.json` and
+     `dist/runtime-lock-linux-arm64.json` from the finished archive and the
+     files it extracts to.
+   - `cargo xtask release macos` (macOS arm64) builds on the host. The job
+     imports the certificate into a keychain of its own
+     (`.github/scripts/import-signing-identity.sh`). The stage signs
+     `pagis` and `gog`, builds the disk image, notarizes and staples it,
+     and writes `dist/runtime-lock-darwin-arm64.json` from the final bytes.
+4. **The draft** (`cargo xtask release draft`, macOS). Check every server
+   package and every Runtime Lock. A missing target, a changed file, a
+   wrong code signature or a mutable Computer image stops the release here.
+   Then create the draft GitHub Release of the tag with the three server
+   packages and the three locks, and nothing else. The job attests the
+   provenance of each package and lock.
+5. **The clients.** The macOS and Linux client jobs build their packages
+   from the locks of the draft, sign the macOS one, and attest each package
+   (`docs/RELEASING-CLIENT.md`).
+6. **The publication.** The publication jobs wait in the `release`
+   environment. Approve them after the distribution proof of each client
+   platform is on the draft. They upload the proved client packages to the
+   draft, and the last job publishes it.
 
 A finding of the secret scan stops the release before the release
 pushes anything that holds it. When the finding is a secret, revoke it
@@ -312,10 +354,19 @@ at its provider and make a new one before the next run ("The secret
 scan" above). A finding of a vulnerability scan also stops the release
 before the push or the publication ("The advisory checks" above).
 
-The command does not build or publish the Client App. A `v*` tag starts
-the CI jobs that prepare the macOS and Linux clients, and each client
-publishes only after its exact bytes pass the clean-machine proof in
-`docs/RELEASING-CLIENT.md`.
+## The provenance attestations
+
+The workflow attests the provenance of every artifact it builds with
+`actions/attest-build-provenance`: both image digests, each server package,
+each Runtime Lock and each client package. An attestation is a Sigstore
+signature of the digest, the workflow and the commit that built it. The
+image attestations are also on the registry beside the image. To verify an
+artifact:
+
+```bash
+gh attestation verify oci://ghcr.io/pagis-co/pagis-server:0.1.0 --repo pagis-co/pagis
+gh attestation verify pagis-server-0.1.0-x86_64-unknown-linux-gnu.tar.gz --repo pagis-co/pagis
+```
 
 ## Private vulnerability reporting
 

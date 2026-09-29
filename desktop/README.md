@@ -358,15 +358,17 @@ keychain, offline, Docker, installation reuse, downgrade and forward-update
 checks. Record those results in `dist/distribution-proof.json`.
 `--publish-existing` does not rebuild. It validates the proof against the
 exact client and Runtime Lock hashes, downloads and compares the server
-tuple, checks the Computer image digest, and uploads without overwrite. See
+tuple, pulls the Computer image digest with no credentials, and uploads
+without overwrite. See
 [`docs/RELEASING-CLIENT.md`](../docs/RELEASING-CLIENT.md), which also
 holds the Linux release.
 
 Signing can use `CSC_NAME` with a Developer ID Application fingerprint, or
 `CSC_LINK` and `CSC_KEY_PASSWORD` for an imported certificate. Notarization
-can use `APPLE_KEYCHAIN_PROFILE`, with optional `APPLE_KEYCHAIN`, or
-`APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID`. A tag build
-fails when neither complete route exists.
+can use `APPLE_KEYCHAIN_PROFILE`, with optional `APPLE_KEYCHAIN`, or an App
+Store Connect API key: `APPLE_API_KEY` (the path of its `.p8` file),
+`APPLE_API_KEY_ID` and `APPLE_API_ISSUER`. A tag build fails when neither
+complete route exists. The publication signs nothing, so it needs neither.
 
 `desktop/scripts/check-package.mjs` holds the package to a size ceiling.
 During setup, free disk space must cover the Client App, the locked server

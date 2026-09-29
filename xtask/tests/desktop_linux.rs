@@ -223,7 +223,8 @@ fn publication_reuses_the_proved_bytes_and_signs_their_checksums() {
         tuple.contains("pagis-server-1.2.3-aarch64-unknown-linux-gnu.tar.gz"),
         "{tuple}"
     );
-    assert!(tuple.contains("imagetools inspect"), "{tuple}");
+    assert!(tuple.contains("anonymous_pull \"$image\""), "{tuple}");
+    assert!(!tuple.contains("imagetools"), "{tuple}");
     let sign = joined(step(&steps, "sign-checksums"));
     assert!(sign.contains(RELEASE_KEY), "{sign}");
     assert!(sign.contains("sha256sum -c"), "{sign}");

@@ -188,9 +188,10 @@ fn the_release_plan_builds_the_server_image_after_the_digest() {
         &xtask::ReleaseContext {
             version: "1.2.3".into(),
             image: "ghcr.io/pagis-co/pagis-computer:0.3.0".into(),
-            host_macos: true,
+            computer_published: false,
             target_dir: std::path::PathBuf::from("/shared/pagis-target"),
         },
+        xtask::ReleaseStage::Images,
     );
     let names: Vec<&str> = steps.iter().map(|s| s.name).collect();
     let digest = names

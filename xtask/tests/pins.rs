@@ -122,6 +122,17 @@ fn a_reusable_workflow_is_held_to_the_same_rule() {
     assert_eq!(lines(&found), [3], "{}", listed(&found));
 }
 
+/// A workflow of this repository, named by its path, runs the code of the
+/// same commit, which cannot move. So it needs no pin.
+#[test]
+fn a_workflow_of_this_repository_needs_no_pin() {
+    let text = "jobs:\n  gate:\n    uses: ./.github/workflows/ci.yml\n";
+
+    let found = workflow_violations(".github/workflows/release.yml", text);
+
+    assert!(found.is_empty(), "{}", listed(&found));
+}
+
 #[test]
 fn a_checkout_step_that_keeps_the_credentials_fails() {
     for with in [

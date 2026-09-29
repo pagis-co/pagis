@@ -120,7 +120,10 @@ fn a_tag_with_every_credential_packs_the_app_signed() {
 
 #[test]
 fn a_tag_without_a_credential_packs_the_app_unsigned() {
-    let steps = desktop_plan(Path::new("/repo"), &context(Some("v1.2.3"), &["APPLE_ID"]));
+    let steps = desktop_plan(
+        Path::new("/repo"),
+        &context(Some("v1.2.3"), &["APPLE_API_KEY"]),
+    );
     assert_eq!(
         commands(step(&steps, "pack"))[0].env,
         [("CSC_IDENTITY_AUTO_DISCOVERY".to_string(), "false".into())]
@@ -196,7 +199,11 @@ fn a_tag_verifies_proof_and_the_existing_server_tuple_before_client_upload() {
     );
     assert!(tuple.contains("asset.sha256"), "command: {tuple}");
     assert!(tuple.contains("shasum -a 256"), "command: {tuple}");
-    assert!(tuple.contains("imagetools inspect"), "command: {tuple}");
+    assert!(
+        tuple.contains("anonymous_pull \"$image\""),
+        "command: {tuple}"
+    );
+    assert!(!tuple.contains("imagetools"), "command: {tuple}");
     let signed = joined(step(&steps, "signed-client"));
     assert!(signed.contains("hdiutil attach"), "command: {signed}");
     assert!(
@@ -323,11 +330,11 @@ fn without_a_tag_the_dmg_is_not_published() {
 fn a_missing_credential_refuses_the_tag_before_packaging() {
     let steps = desktop_plan(
         Path::new("/repo"),
-        &context(Some("v1.2.3"), &["CSC_LINK", "APPLE_TEAM_ID"]),
+        &context(Some("v1.2.3"), &["CSC_LINK", "APPLE_API_ISSUER"]),
     );
     let command = joined(step(&steps, "credentials"));
     assert!(command.contains("CSC_LINK"), "command: {command}");
-    assert!(command.contains("APPLE_TEAM_ID"), "command: {command}");
+    assert!(command.contains("APPLE_API_ISSUER"), "command: {command}");
     assert!(command.contains("exit 1"), "command: {command}");
 }
 
@@ -343,9 +350,9 @@ fn signing_accepts_local_keychain_credentials_without_exporting_a_key() {
             name,
             "CSC_LINK"
                 | "CSC_KEY_PASSWORD"
-                | "APPLE_ID"
-                | "APPLE_APP_SPECIFIC_PASSWORD"
-                | "APPLE_TEAM_ID"
+                | "APPLE_API_KEY"
+                | "APPLE_API_KEY_ID"
+                | "APPLE_API_ISSUER"
         )
     };
     assert!(missing_signing_inputs(&imported).is_empty());
@@ -361,7 +368,15 @@ fn missing_signing_inputs_names_the_unmet_alternatives() {
         missing[1].contains("APPLE_KEYCHAIN_PROFILE"),
         "missing: {missing:?}"
     );
-    assert!(missing[1].contains("APPLE_ID"), "missing: {missing:?}");
+    assert!(missing[1].contains("APPLE_API_KEY"), "missing: {missing:?}");
+    // An Apple ID and an app-specific password are not an alternative.
+    let account = |name: &str| {
+        matches!(
+            name,
+            "CSC_NAME" | "APPLE_ID" | "APPLE_APP_SPECIFIC_PASSWORD" | "APPLE_TEAM_ID"
+        )
+    };
+    assert_eq!(missing_signing_inputs(&account).len(), 1);
 }
 
 // --- versions ---

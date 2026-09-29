@@ -77,6 +77,14 @@ pub fn platform_dirs(export: &str) -> Vec<String> {
 ///
 /// The push needs a Docker login to GHCR with `write:packages`.
 pub fn image_plan(root: &Path, image: &str, target_dir: &Path) -> Vec<Step> {
+    let mut steps = vec![builder_step(root)];
+    steps.extend(computer_image_steps(root, image, target_dir));
+    steps
+}
+
+/// The steps of [`image_plan`] after the builder: the build, both scans
+/// and the push.
+pub fn computer_image_steps(root: &Path, image: &str, target_dir: &Path) -> Vec<Step> {
     let export = export_dir("computer");
     let buildx = |output: &[&str]| {
         let mut args = vec![
@@ -92,7 +100,6 @@ pub fn image_plan(root: &Path, image: &str, target_dir: &Path) -> Vec<Step> {
         Cmd::new("docker", &args).in_dir(root)
     };
     vec![
-        builder_step(root),
         Step {
             name: "image",
             action: Action::Run(vec![
@@ -112,36 +119,77 @@ pub fn image_plan(root: &Path, image: &str, target_dir: &Path) -> Vec<Step> {
     ]
 }
 
-/// Pull the manifest of each image the way a new person does: with an
-/// anonymous token from the registry and no stored login. A registry
-/// that refuses stops the step and names the image, because an
-/// installation that cannot pull the image of its release cannot start
-/// a Computer or a server.
+/// The shell function `anonymous_pull <image>`: pull the manifest of the
+/// image the way a new person does, with an anonymous token from the
+/// registry and no stored login. A registry that refuses stops the
+/// script and names the image, because an installation that cannot pull
+/// the image of its release cannot start a Computer or a server.
 ///
-/// Each image is `<registry>/<repository>:<tag>` on a registry that
-/// serves the token endpoint of GHCR at `https://<registry>/token`.
+/// The image is `<registry>/<repository>:<tag>` or
+/// `<registry>/<repository>@<digest>`, on a registry that serves the token
+/// endpoint of GHCR at `https://<registry>/token`.
+pub const ANONYMOUS_PULL_FN: &str = r#"anonymous_pull() {
+  ref=$1
+  case "$ref" in
+    *@*) name=${ref%@*}; reference=${ref#*@} ;;
+    *) name=${ref%:*}; reference=${ref##*:} ;;
+  esac
+  registry=${name%%/*}
+  repository=${name#*/}
+  token=$(curl -fsS "https://$registry/token?scope=repository:$repository:pull" \
+    | sed -n 's/.*"token":"\([^"]*\)".*/\1/p') || token=''
+  if [ -z "$token" ] || ! curl -fsS -o /dev/null \
+    -H "Authorization: Bearer $token" \
+    -H 'Accept: application/vnd.oci.image.index.v1+json' \
+    -H 'Accept: application/vnd.docker.distribution.manifest.list.v2+json' \
+    "https://$registry/v2/$repository/manifests/$reference"; then
+    echo "$ref does not pull with no credentials; make the package public on the registry" >&2
+    exit 1
+  fi
+}
+"#;
+
+/// Pull the manifest of each image with [`ANONYMOUS_PULL_FN`].
 pub fn anonymous_pull_step(root: &Path, images: &[&str]) -> Step {
-    let mut script = String::from("set -eu\n");
+    let mut script = format!("set -eu\n{ANONYMOUS_PULL_FN}");
     for image in images {
-        let (name, tag) = image.rsplit_once(':').unwrap_or((image, "latest"));
-        let (registry, repository) = name.split_once('/').unwrap_or(("ghcr.io", name));
-        script.push_str(&format!(
-            "token=$(curl -fsS 'https://{registry}/token?scope=repository:{repository}:pull' \
-             | sed -n 's/.*\"token\":\"\\([^\"]*\\)\".*/\\1/p') || token=''\n\
-             if [ -z \"$token\" ] || ! curl -fsS -o /dev/null \
-             -H \"Authorization: Bearer $token\" \
-             -H 'Accept: application/vnd.oci.image.index.v1+json' \
-             -H 'Accept: application/vnd.docker.distribution.manifest.list.v2+json' \
-             'https://{registry}/v2/{repository}/manifests/{tag}'; then\n\
-             echo '{image} does not pull with no credentials; make the package public on the registry' >&2\n\
-             exit 1\n\
-             fi\n"
-        ));
+        script.push_str(&format!("anonymous_pull '{image}'\n"));
     }
     Step {
         name: "anonymous-pull",
         action: Action::Run(vec![Cmd::new("sh", &["-c", &script]).in_dir(root)]),
     }
+}
+
+/// Whether the registry holds `image`, from `docker buildx imagetools
+/// inspect`. A registry that answers "not found" does not hold it. Any
+/// other failure, such as a network error or a refused login, is an
+/// error, because an answer of `false` would push the image again over a
+/// published version.
+pub fn image_published(image: &str) -> anyhow::Result<bool> {
+    let output = std::process::Command::new("docker")
+        .args(["buildx", "imagetools", "inspect", image])
+        .output()?;
+    inspect_answer(
+        image,
+        output.status.success(),
+        &String::from_utf8_lossy(&output.stderr),
+    )
+}
+
+/// The answer of [`image_published`] from the exit status and the error
+/// output of the inspect command.
+pub fn inspect_answer(image: &str, success: bool, stderr: &str) -> anyhow::Result<bool> {
+    if success {
+        return Ok(true);
+    }
+    if stderr.to_ascii_lowercase().contains("not found") {
+        return Ok(false);
+    }
+    anyhow::bail!(
+        "cannot tell whether the registry holds {image}: {}",
+        stderr.trim()
+    )
 }
 
 /// The version a Dockerfile labels its image with, under `label`.

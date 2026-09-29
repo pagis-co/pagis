@@ -314,9 +314,20 @@ is never part of that cleanup.
 
 Artifacts 1, 3 and 4 come from one commit with one number, and are never
 published apart. The Computer image changes on its own schedule, so a release
-pins one version resolved to an immutable digest. A release publishes these
-four, the three Runtime Locks and the signed Linux checksum list, and nothing
+pins one version resolved to an immutable digest, and a published version of
+it is never pushed again. A release publishes these four, the three Runtime
+Locks, the signed Linux checksum list and the distribution proofs, and nothing
 else. `docs/RELEASING-SERVER.md` states the matrix.
+
+A `v*` tag that names the workspace version builds all four in one workflow
+run, after the gate passes on the tagged commit. Each stage runs on the host
+it needs: the images and the Linux server packages on Linux, the signed
+macOS server package on macOS. The run holds the server packages and the
+locks in a draft GitHub Release, and builds the clients from those locks. The
+draft becomes public only when a maintainer approves the publication, after
+the clean-machine proof below. The run attests the provenance of each image
+digest and each package it builds, so each artifact carries a Sigstore
+signature of the commit and the workflow that built it.
 
 The Computer image is pushed and resolved to its digest first. The Headless
 Server image is built against that digest before anything is signed, so a
@@ -343,8 +354,12 @@ quarantine does not count. `docs/RELEASING-CLIENT.md` states the proof.
 - The server is the product, and the Client App is an installer and supervisor
   whose signed bytes are a trust root: a notarized app on macOS, packages under
   a signed checksum list on Linux.
-- A Linux release needs the release key and a clean machine of each
-  architecture.
+- A Linux release needs a clean machine of each architecture, and the release
+  key as a secret of the protected `release` environment. The key has no
+  passphrase, because the publication job signs with no person present.
+- A release needs a Developer ID Application certificate and an App Store
+  Connect API key as secrets of the repository. No person's Apple ID takes
+  part.
 - A restart exit code, a system-settings endpoint, a no-browser flag,
   `--local`, a release marker and the local credential trade are part of the
   server's contract.

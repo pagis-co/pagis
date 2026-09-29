@@ -1,8 +1,17 @@
-# The preparation of the Client App packages of a release. A `v*` tag
-# starts it. Each job builds the exact package of one platform from the
-# server tuple that the release holds, and stores it as a workflow
-# artifact. Publication waits for the distribution proof in
-# docs/RELEASING-CLIENT.md.
+# The release of a `v*` tag. The tag names the workspace version, and one
+# run builds, signs and pushes every artifact of the release
+# (docs/RELEASING-SERVER.md):
+#
+# 1. The gate: the CI workflow on the tagged commit.
+# 2. The images: the Computer image and the Headless Server image, each
+#    scanned before its push, with a provenance attestation.
+# 3. The server packages: the Linux archives and the signed, notarized
+#    macOS disk image, each with its Runtime Lock.
+# 4. The draft GitHub Release that holds the server packages and the locks.
+# 5. The Client App packages, built from those locks and signed.
+# 6. The publication. The `release` environment holds it until a
+#    maintainer approves it, after the clean-machine distribution proof of
+#    each client platform is on the draft (docs/RELEASING-CLIENT.md).
 name: Release
 
 on:
@@ -17,16 +26,87 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  CARGO_TERM_COLOR: always
+
 # The actions are pinned as in ci.yml.
 
 jobs:
-  release-dmg:
-    name: prepare signed DMG (macOS)
-    runs-on: macos-latest
-    timeout-minutes: 90
+  gate:
+    name: gate
+    uses: ./.github/workflows/ci.yml
+
+  images:
+    name: images
+    needs: gate
+    runs-on: ubuntu-latest
+    # The architecture that the runner does not run builds under
+    # emulation, and the Computer image compiles wlroots and labwc.
+    timeout-minutes: 360
     permissions:
-      # The DMG is attached to the release of the tag.
-      contents: write
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Each image is exported for both architectures before its scan.
+      - name: free disk space
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: false
+
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: cargo xtask release images
+        run: cargo xtask release images --tag "$GITHUB_REF_NAME"
+
+      - name: resolve the image digests
+        id: digests
+        run: |
+          computer=$(cat dist/computer-image.txt)
+          echo "computer=${computer#*@}" >> "$GITHUB_OUTPUT"
+          version=${GITHUB_REF_NAME#v}
+          server=$(docker buildx imagetools inspect "ghcr.io/pagis-co/pagis-server:$version" --format '{{.Manifest.Digest}}')
+          echo "server=$server" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/pagis-co/pagis-computer
+          subject-digest: ${{ steps.digests.outputs.computer }}
+          push-to-registry: true
+
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/pagis-co/pagis-server
+          subject-digest: ${{ steps.digests.outputs.server }}
+          push-to-registry: true
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: computer-image
+          path: dist/computer-image.txt
+
+  server-linux:
+    name: server packages (Linux)
+    needs: images
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -37,6 +117,154 @@ jobs:
           toolchain: stable
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2.87.22
+        with:
+          tool: cross@0.2.5
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: computer-image
+          path: dist
+
+      - name: cargo xtask release linux
+        run: cargo xtask release linux --tag "$GITHUB_REF_NAME"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: server-linux
+          path: |
+            dist/pagis-server-*-linux-gnu.tar.gz
+            dist/runtime-lock-linux-*.json
+
+  server-macos:
+    name: server package (macOS)
+    needs: images
+    # macos-latest is arm64, the one macOS architecture the app ships
+    # (ADR-0025).
+    runs-on: macos-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: computer-image
+          path: dist
+
+      # codesign finds the Developer ID Application identity in the
+      # keychain search list, so the job imports it into a keychain of its
+      # own for the length of the job.
+      - name: import the signing identity
+        run: .github/scripts/import-signing-identity.sh
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+
+      - name: write the notary key
+        run: .github/scripts/write-notary-key.sh
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+
+      - name: cargo xtask release macos
+        run: cargo xtask release macos --tag "$GITHUB_REF_NAME"
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: server-macos
+          path: |
+            dist/pagis-server-*-aarch64-apple-darwin.dmg
+            dist/runtime-lock-darwin-arm64.json
+
+  draft:
+    name: draft release
+    needs: [server-linux, server-macos]
+    # The validation mounts the disk image and checks its signatures.
+    runs-on: macos-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: false
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: server-*
+          path: dist
+          merge-multiple: true
+
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            dist/pagis-server-*
+            dist/runtime-lock-*.json
+
+      - name: cargo xtask release draft
+        run: cargo xtask release draft --tag "$GITHUB_REF_NAME"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  client-macos:
+    name: prepare signed DMG (macOS)
+    needs: draft
+    runs-on: macos-latest
+    timeout-minutes: 90
+    permissions:
+      # The draft release is visible to a token that can write to it.
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: false
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -44,10 +272,15 @@ jobs:
           cache: npm
           cache-dependency-path: desktop/package-lock.json
 
-      - name: download immutable server tuple
-        run: gh release download "$GITHUB_REF_NAME" --pattern runtime-lock-darwin-arm64.json --pattern 'pagis-server-*-aarch64-apple-darwin.dmg' --dir dist
+      - name: download the server tuple from the draft
+        run: gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --pattern runtime-lock-darwin-arm64.json --pattern 'pagis-server-*-aarch64-apple-darwin.dmg' --dir dist
         env:
           GH_TOKEN: ${{ github.token }}
+
+      - name: write the notary key
+        run: .github/scripts/write-notary-key.sh
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
 
       # This job prepares the exact signed package. Publication waits for the
       # clean-account distribution proof and uses --publish-existing so no
@@ -59,21 +292,28 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: desktop/release/Pagis-*-arm64.dmg
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: pagis-client-${{ github.ref_name }}
+          name: client-macos
           path: desktop/release/Pagis-*-arm64.dmg
 
-  release-linux:
+  client-linux:
     name: prepare Linux packages
+    needs: draft
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
-      contents: read
+      # The draft release is visible to a token that can write to it.
+      contents: write
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -84,6 +324,8 @@ jobs:
           toolchain: stable
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: false
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -97,8 +339,8 @@ jobs:
       - name: allow the Chromium sandbox of the unpacked client
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
-      - name: download the immutable Linux runtime locks
-        run: gh release download "$GITHUB_REF_NAME" --pattern 'runtime-lock-linux-*.json' --dir dist
+      - name: download the Linux runtime locks from the draft
+        run: gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --pattern 'runtime-lock-linux-*.json' --dir dist
         env:
           GH_TOKEN: ${{ github.token }}
 
@@ -110,10 +352,126 @@ jobs:
         env:
           PAGIS_HOME: ${{ runner.temp }}/pagis-home
 
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            desktop/release/Pagis-*.AppImage
+            desktop/release/Pagis-*.deb
+
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: pagis-client-linux-${{ github.ref_name }}
+          name: client-linux
           path: |
             desktop/release/Pagis-*.AppImage
             desktop/release/Pagis-*.deb
             desktop/release/Pagis-*-linux.SHA256SUMS
+
+  # The publication. Each job waits in the `release` environment until a
+  # maintainer approves it. Approve only after the distribution proofs are
+  # on the draft: `distribution-proof.json`,
+  # `distribution-proof-linux-x64.json` and
+  # `distribution-proof-linux-arm64.json`.
+  publish-macos:
+    name: publish the macOS client
+    needs: [client-macos, client-linux]
+    environment: release
+    runs-on: macos-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: client-macos
+          path: desktop/release
+
+      - name: download the server tuple and the proof from the draft
+        run: gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --pattern runtime-lock-darwin-arm64.json --pattern 'pagis-server-*-aarch64-apple-darwin.dmg' --pattern distribution-proof.json --dir dist
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: cargo xtask desktop --publish-existing
+        run: cargo xtask desktop --tag "$GITHUB_REF_NAME" --publish-existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  publish-linux:
+    name: publish the Linux clients
+    needs: [client-macos, client-linux]
+    environment: release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: client-linux
+          path: desktop/release
+
+      - name: download the locks and the proofs from the draft
+        run: gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --pattern 'runtime-lock-linux-*.json' --pattern 'distribution-proof-linux-*.json' --dir dist
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      # gpg reads the release key from a keyring of the job, and the
+      # publication verifies the signature with docs/release-key.asc.
+      - name: import the release key
+        id: key
+        run: |
+          printf '%s\n' "$PAGIS_RELEASE_GPG_PRIVATE_KEY" | gpg --batch --import
+          fingerprint=$(gpg --batch --with-colons --list-secret-keys | awk -F: '$1 == "fpr" { print $10; exit }')
+          echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
+        env:
+          PAGIS_RELEASE_GPG_PRIVATE_KEY: ${{ secrets.PAGIS_RELEASE_GPG_PRIVATE_KEY }}
+
+      - name: cargo xtask desktop --linux --publish-existing
+        run: cargo xtask desktop --linux --tag "$GITHUB_REF_NAME" --publish-existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PAGIS_RELEASE_GPG_KEY: ${{ steps.key.outputs.fingerprint }}
+
+  publish:
+    name: publish the release
+    needs: [publish-macos, publish-linux]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: publish the draft
+        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+        env:
+          GH_TOKEN: ${{ github.token }}

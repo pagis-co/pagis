@@ -180,8 +180,11 @@ finish() {
 }
 
 # ──────────────────────────────────────────────────────────────────────────
-# STAGES: the five macOS signing secrets of the signed DMG job.
-# Nothing here goes to .env: every value is a GitHub secret only.
+# STAGES: the signing secrets of the release workflow. The macOS jobs read
+# five repository secrets. The Linux publication reads the release key from
+# the `release` environment, which holds each publication until a
+# maintainer approves it. Nothing here goes to .env: every value is a
+# GitHub secret only.
 # ──────────────────────────────────────────────────────────────────────────
 
 TOTAL_STAGES=5
@@ -190,6 +193,7 @@ TOTAL_STAGES=5
 # runs the release, so stage 1 asks for it.
 TEAM_ID="${APPLE_TEAM_ID:-}"
 CERT_NAME="Developer ID Application"
+RELEASE_KEY_UID="Pagis release <release@example.invalid>"
 ENV_FILE="$(mktemp)"   # the library needs one; nothing is written to it
 trap 'rm -f "$ENV_FILE"' EXIT
 
@@ -197,7 +201,25 @@ has_identity() {
   security find-identity -v -p codesigning 2>/dev/null | grep -q "$CERT_NAME.*($TEAM_ID)"
 }
 
-banner "macOS signing secrets for the signed DMG"
+# gh_ready is true when gh can set secrets of this repository.
+gh_ready() {
+  command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1
+}
+
+# ask_file KEY "Prompt" reads the path of an existing file into $KEY.
+ask_file() {
+  local key="$1" prompt="$2" path
+  ask path "$prompt"
+  path="${path/#\~/$HOME}"
+  until [[ -f "$path" ]]; do
+    warn "No file at $path."
+    ask path "$prompt"
+    path="${path/#\~/$HOME}"
+  done
+  printf -v "$key" '%s' "$path"
+}
+
+banner "Signing secrets of the release workflow"
 
 # ── 1. The certificate ────────────────────────────────────────────────────
 stage "Developer ID Application certificate"
@@ -232,13 +254,7 @@ fi
 stage "Export the certificate as a .p12"
 step "Keychain Access → My Certificates → right-click the '$CERT_NAME' certificate of team $TEAM_ID → Export."
 step "Keep the format 'Personal Information Exchange (.p12)' and set a password for the file."
-ask P12_PATH "Path of the exported .p12 file:"
-P12_PATH="${P12_PATH/#\~/$HOME}"
-until [[ -f "$P12_PATH" ]]; do
-  warn "No file at $P12_PATH."
-  ask P12_PATH "Path of the exported .p12 file:"
-  P12_PATH="${P12_PATH/#\~/$HOME}"
-done
+ask_file P12_PATH "Path of the exported .p12 file:"
 ask_secret CSC_KEY_PASSWORD "The password of the .p12:"
 until openssl pkcs12 -in "$P12_PATH" -nokeys -passin "pass:$CSC_KEY_PASSWORD" -legacy >/dev/null 2>&1 \
    || openssl pkcs12 -in "$P12_PATH" -nokeys -passin "pass:$CSC_KEY_PASSWORD" >/dev/null 2>&1; do
@@ -250,29 +266,72 @@ set_secret CSC_LINK "$CSC_LINK"
 set_secret CSC_KEY_PASSWORD "$CSC_KEY_PASSWORD"
 if confirm "Delete $P12_PATH now that it is a secret?"; then rm -f "$P12_PATH"; say "Deleted."; fi
 
-# ── 3. The notarizing account ─────────────────────────────────────────────
-stage "The Apple ID that notarizes"
-say "Notarization signs in with an Apple ID of the team and an app-specific password."
-ask APPLE_ID "The Apple ID (email) that notarizes:"
-open_url "https://account.apple.com/account/manage"
-step "Sign-In and Security → App-Specific Passwords → Generate. Name it 'pagis notarization'."
-step "Copy the password Apple shows; it is shown once."
-ask_secret APPLE_APP_SPECIFIC_PASSWORD "The app-specific password:"
-set_secret APPLE_ID "$APPLE_ID"
-set_secret APPLE_APP_SPECIFIC_PASSWORD "$APPLE_APP_SPECIFIC_PASSWORD"
+# ── 3. The notary key ─────────────────────────────────────────────────────
+stage "The App Store Connect API key that notarizes"
+say "Notarization signs in with an API key of the team, not with a person's Apple ID."
+open_url "https://appstoreconnect.apple.com/access/integrations/api"
+step "Team Keys → Generate API Key. Name it 'pagis notarization' and give it the Developer role."
+step "Download the .p8 file. Apple lets you download it one time only."
+step "Copy the Key ID of the key and the Issuer ID above the list."
+ask_file P8_PATH "Path of the downloaded .p8 file:"
+ask APPLE_API_KEY_ID "The Key ID:"
+ask APPLE_API_ISSUER "The Issuer ID:"
+set_secret APPLE_API_KEY_P8 "$(cat "$P8_PATH")"
+set_secret APPLE_API_KEY_ID "$APPLE_API_KEY_ID"
+set_secret APPLE_API_ISSUER "$APPLE_API_ISSUER"
+if confirm "Delete $P8_PATH now that it is a secret?"; then rm -f "$P8_PATH"; say "Deleted."; fi
 
-# ── 4. The team ───────────────────────────────────────────────────────────
-stage "The team"
-say "The certificate belongs to team $TEAM_ID."
-set_secret APPLE_TEAM_ID "$TEAM_ID"
+# ── 4. The Linux release key ──────────────────────────────────────────────
+stage "The Linux release key"
+say "The release key signs the checksum list of the Linux packages."
+say "Its public half is docs/release-key.asc; its private half is a secret of the 'release' environment."
+fingerprint=$(gpg --batch --with-colons --list-secret-keys "$RELEASE_KEY_UID" 2>/dev/null \
+  | awk -F: '$1 == "fpr" { print $10; exit }') || fingerprint=""
+if [[ -z "$fingerprint" ]]; then
+  # The key has no passphrase, because the publication job signs with no
+  # person present. The environment secret and its approval protect it.
+  gpg --batch --pinentry-mode loopback --passphrase '' \
+    --quick-generate-key "$RELEASE_KEY_UID" ed25519 sign 2y
+  fingerprint=$(gpg --batch --with-colons --list-secret-keys "$RELEASE_KEY_UID" \
+    | awk -F: '$1 == "fpr" { print $10; exit }')
+  say "Made the release key $fingerprint."
+else
+  say "Found the release key $fingerprint."
+fi
+repo_root=$(git rev-parse --show-toplevel)
+gpg --armor --export "$fingerprint" > "$repo_root/docs/release-key.asc"
+say "Wrote docs/release-key.asc. Commit it: the tag must carry it."
+if gh_ready; then
+  # The environment holds each publication job until you approve it.
+  # Only a job of a `v*` tag enters it.
+  me=$(gh api user --jq .id)
+  printf '{"reviewers":[{"type":"User","id":%s}],"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true}}' "$me" \
+    | gh api -X PUT "repos/{owner}/{repo}/environments/release" --input - >/dev/null
+  if ! gh api "repos/{owner}/{repo}/environments/release/deployment-branch-policies" \
+      --jq '.branch_policies[] | select(.type == "tag") | .name' | grep -qx 'v\*'; then
+    gh api -X POST "repos/{owner}/{repo}/environments/release/deployment-branch-policies" \
+      -f name='v*' -f type=tag >/dev/null
+  fi
+  say "The 'release' environment admits the jobs of 'v*' tags and waits for your approval."
+  if gpg --batch --armor --export-secret-keys "$fingerprint" \
+      | gh secret set PAGIS_RELEASE_GPG_PRIVATE_KEY --env release >/dev/null 2>&1; then
+    WRITTEN_SECRET+=("PAGIS_RELEASE_GPG_PRIVATE_KEY (release environment)")
+    printf '  %s✓ set%s GitHub secret PAGIS_RELEASE_GPG_PRIVATE_KEY of the release environment\n' "$GREEN" "$RESET"
+  else
+    SKIPPED+=("the release environment secret PAGIS_RELEASE_GPG_PRIVATE_KEY")
+  fi
+else
+  SKIPPED+=("the 'release' environment with you as reviewer, and its secret PAGIS_RELEASE_GPG_PRIVATE_KEY")
+fi
 
 # ── 5. Check ──────────────────────────────────────────────────────────────
 stage "Check"
-say "The signed DMG job reads exactly these five secrets:"
-if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+say "The release workflow reads these secrets:"
+if gh_ready; then
   gh secret list 2>/dev/null | sed 's/^/    /'
+  gh secret list --env release 2>/dev/null | sed 's/^/    release: /'
 fi
-say "A 'v*' tag now signs, notarizes and publishes the DMG. Try it:"
+say "Commit docs/release-key.asc. A 'v*' tag then builds, signs and drafts the release:"
 note "    git tag v<version> && git push origin v<version>"
 pause
 

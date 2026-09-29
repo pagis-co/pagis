@@ -17,6 +17,7 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
 use crate::desktop::DesktopContext;
+use crate::image::ANONYMOUS_PULL_FN;
 use crate::release::{ClientPlatform, REPO};
 use crate::{Action, Cmd, Step};
 
@@ -283,7 +284,8 @@ fn released_tuple_action(root: &Path, cx: &DesktopContext) -> Action {
     if cx.prepare_only {
         return Action::Skip("prepared packages await external distribution proof".into());
     }
-    let mut script = "set -eu\ntmp=$(mktemp -d)\ntrap 'rm -rf \"$tmp\"' EXIT\n".to_string();
+    let mut script =
+        format!("set -eu\n{ANONYMOUS_PULL_FN}tmp=$(mktemp -d)\ntrap 'rm -rf \"$tmp\"' EXIT\n");
     for platform in ClientPlatform::LINUX {
         let lock = platform.lock_file();
         let archive = platform.server_package(&cx.version);
@@ -294,7 +296,7 @@ fn released_tuple_action(root: &Path, cx: &DesktopContext) -> Action {
              actual=$(shasum -a 256 \"$tmp/{archive}\" | awk '{{print $1}}')\n\
              [ \"$actual\" = \"$locked\" ] || {{ echo 'the published {archive} does not match its Runtime Lock' >&2; exit 1; }}\n\
              image=$(node -e \"process.stdout.write(require('./dist/{lock}').computer_image)\")\n\
-             docker buildx imagetools inspect \"$image\" >/dev/null\n",
+             anonymous_pull \"$image\"\n",
         ));
     }
     Action::Run(vec![Cmd::new("sh", &["-c", &script]).in_dir(root)])

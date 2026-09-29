@@ -16,7 +16,8 @@ use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
-use crate::release::REPO;
+use crate::image::ANONYMOUS_PULL_FN;
+use crate::release::{NOTARIZE_FN, REPO};
 use crate::{Action, Cmd, Step};
 
 /// The platform a Client App is packed for.
@@ -70,11 +71,11 @@ pub fn missing_signing_inputs(is_set: &dyn Fn(&str) -> bool) -> Vec<String> {
     }
 
     let keychain_notary = is_set("APPLE_KEYCHAIN_PROFILE");
-    let account_notary =
-        is_set("APPLE_ID") && is_set("APPLE_APP_SPECIFIC_PASSWORD") && is_set("APPLE_TEAM_ID");
-    if !keychain_notary && !account_notary {
+    let api_key_notary =
+        is_set("APPLE_API_KEY") && is_set("APPLE_API_KEY_ID") && is_set("APPLE_API_ISSUER");
+    if !keychain_notary && !api_key_notary {
         missing.push(
-            "APPLE_KEYCHAIN_PROFILE or APPLE_ID with APPLE_APP_SPECIFIC_PASSWORD and APPLE_TEAM_ID"
+            "APPLE_KEYCHAIN_PROFILE or APPLE_API_KEY with APPLE_API_KEY_ID and APPLE_API_ISSUER"
                 .into(),
         );
     }
@@ -437,7 +438,7 @@ fn finalize_dmg_action(root: &Path, cx: &DesktopContext) -> Action {
     }
     let dmg = format!("desktop/release/{}", dmg_name(&cx.version));
     let script = format!(
-        "set -eu\ndmg='{dmg}'\n/usr/bin/codesign --verify --strict --verbose=2 \"$dmg\"\nif [ -n \"${{APPLE_KEYCHAIN_PROFILE:-}}\" ]; then\n  set -- --keychain-profile \"$APPLE_KEYCHAIN_PROFILE\"\n  if [ -n \"${{APPLE_KEYCHAIN:-}}\" ]; then set -- \"$@\" --keychain \"$APPLE_KEYCHAIN\"; fi\nelse\n  set -- --apple-id \"$APPLE_ID\" --password \"$APPLE_APP_SPECIFIC_PASSWORD\" --team-id \"$APPLE_TEAM_ID\"\nfi\n/usr/bin/xcrun notarytool submit \"$dmg\" \"$@\" --wait\n/usr/bin/xcrun stapler staple \"$dmg\"\n/usr/bin/xcrun stapler validate \"$dmg\"\n"
+        "set -eu\n{NOTARIZE_FN}dmg='{dmg}'\n/usr/bin/codesign --verify --strict --verbose=2 \"$dmg\"\nnotarize \"$dmg\"\n/usr/bin/xcrun stapler staple \"$dmg\"\n/usr/bin/xcrun stapler validate \"$dmg\"\n"
     );
     Action::Run(vec![Cmd::new("sh", &["-c", &script]).in_dir(root)])
 }
@@ -462,7 +463,7 @@ fn released_tuple_action(root: &Path, cx: &DesktopContext) -> Action {
     }
     let server = crate::release::server_dmg_name(&cx.version);
     let script = format!(
-        "set -eu\ntmp=$(mktemp -d)\ntrap 'rm -rf \"$tmp\"' EXIT\ngh release download {tag} --repo {REPO} --dir \"$tmp\" --pattern runtime-lock-darwin-arm64.json --pattern {server}\ncmp dist/runtime-lock-darwin-arm64.json \"$tmp/runtime-lock-darwin-arm64.json\"\ncmp dist/{server} \"$tmp/{server}\"\nlocked_server=$(node -e \"process.stdout.write(require('./dist/runtime-lock-darwin-arm64.json').asset.sha256)\")\nactual_server=$(shasum -a 256 \"$tmp/{server}\" | awk '{{print $1}}')\n[ \"$actual_server\" = \"$locked_server\" ] || {{ echo 'the published server DMG does not match the Runtime Lock' >&2; exit 1; }}\nimage=$(node -e \"process.stdout.write(require('./dist/runtime-lock-darwin-arm64.json').computer_image)\")\ndocker buildx imagetools inspect \"$image\" >/dev/null\n"
+        "set -eu\ntmp=$(mktemp -d)\ntrap 'rm -rf \"$tmp\"' EXIT\ngh release download {tag} --repo {REPO} --dir \"$tmp\" --pattern runtime-lock-darwin-arm64.json --pattern {server}\ncmp dist/runtime-lock-darwin-arm64.json \"$tmp/runtime-lock-darwin-arm64.json\"\ncmp dist/{server} \"$tmp/{server}\"\nlocked_server=$(node -e \"process.stdout.write(require('./dist/runtime-lock-darwin-arm64.json').asset.sha256)\")\nactual_server=$(shasum -a 256 \"$tmp/{server}\" | awk '{{print $1}}')\n[ \"$actual_server\" = \"$locked_server\" ] || {{ echo 'the published server DMG does not match the Runtime Lock' >&2; exit 1; }}\nimage=$(node -e \"process.stdout.write(require('./dist/runtime-lock-darwin-arm64.json').computer_image)\")\n{ANONYMOUS_PULL_FN}anonymous_pull \"$image\"\n"
     );
     Action::Run(vec![Cmd::new("sh", &["-c", &script]).in_dir(root)])
 }
@@ -498,9 +499,9 @@ const SMOKE_SCRIPT: &str = concat!(
     "./Pagis.app/Contents/MacOS/Pagis --smoke\n",
 );
 
-/// Attach the DMG to the release of the tag, beside the CLI tarballs
-/// `cargo xtask release` published. An unsigned DMG is never
-/// published: macOS would refuse to open it.
+/// Attach the DMG to the draft release of the tag, beside the server
+/// packages it holds. An unsigned DMG is never published: macOS would
+/// refuse to open it.
 fn publish_action(root: &Path, cx: &DesktopContext) -> Action {
     let Some(tag) = &cx.tag else {
         return Action::Skip("no release tag: the app is packed and smoke tested only".into());
