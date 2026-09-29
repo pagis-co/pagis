@@ -1,6 +1,6 @@
 //! A Postgres for the tests that run against both backends.
 //!
-//! One `postgres:17-alpine` container for the machine, and one schema
+//! One `postgres:18-alpine` container for the machine, and one schema
 //! inside one database for each test, which is the isolation
 //! `#[sqlx::test]` gives the SQLite side. The container is started
 //! through the Docker daemon with `bollard`, which the workspace already
@@ -50,7 +50,7 @@ use tokio::sync::OnceCell;
 
 /// The image the tests run. It is pinned, so a test never depends on
 /// which Postgres the machine happens to hold.
-const IMAGE: &str = "postgres:17-alpine";
+const IMAGE: &str = "postgres:18-alpine";
 /// The name and the label of the one container. The name is what makes
 /// the container shared: a second process that asks for it finds it by
 /// name and uses it.
@@ -747,7 +747,7 @@ mod tests {
     #[test]
     fn a_container_of_another_image_does_not_fit() {
         assert!(!fits(
-            &inspected("postgres:16-alpine", 512 * MIB),
+            &inspected("postgres:17-alpine", 512 * MIB),
             &asking(512 * MIB)
         ));
     }

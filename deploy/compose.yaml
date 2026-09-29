@@ -44,8 +44,10 @@ services:
       POSTGRES_USER: pagis
       POSTGRES_DB: pagis
       POSTGRES_PASSWORD: ${PAGIS_DATABASE_PASSWORD:?set PAGIS_DATABASE_PASSWORD in .env}
+    # The image's own volume. Postgres keeps its data in a directory of
+    # its major version below it.
     volumes:
-      - pagis-database:/var/lib/postgresql/data
+      - pagis-database:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U pagis -d pagis"]
       interval: 5s

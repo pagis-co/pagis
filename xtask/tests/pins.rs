@@ -259,7 +259,7 @@ fn a_line_that_continues_an_instruction_is_not_a_from() {
 #[test]
 fn a_compose_image_pinned_by_tag_and_digest_passes() {
     let text = format!(
-        "services:\n  db:\n    image: postgres:17-alpine@{DIGEST}\n  proxy:\n    image: \"caddy:2-alpine@{DIGEST}\" # the proxy\n"
+        "services:\n  db:\n    image: postgres:18-alpine@{DIGEST}\n  proxy:\n    image: \"caddy:2-alpine@{DIGEST}\" # the proxy\n"
     );
 
     let found = compose_violations("deploy/compose.yaml", &text);
@@ -269,7 +269,7 @@ fn a_compose_image_pinned_by_tag_and_digest_passes() {
 
 #[test]
 fn a_compose_image_without_a_digest_fails() {
-    let text = "services:\n  db:\n    image: postgres:17-alpine\n  proxy:\n    image: caddy:2-alpine\n  cache:\n    image: redis@sha256:abc\n";
+    let text = "services:\n  db:\n    image: postgres:18-alpine\n  proxy:\n    image: caddy:2-alpine\n  cache:\n    image: redis@sha256:abc\n";
 
     let found = compose_violations("deploy/compose.yaml", text);
 
@@ -311,7 +311,7 @@ fn write_tree(dir: &Path) {
     write(
         dir,
         "deploy/compose.yaml",
-        "services:\n  db:\n    image: postgres:17-alpine\n",
+        "services:\n  db:\n    image: postgres:18-alpine\n",
     );
 }
 

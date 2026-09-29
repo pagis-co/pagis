@@ -252,7 +252,7 @@ VM, one daemon, one state directory.
 
 The store-trait tests live in `pagis-testkit` and run on both backends from
 one set of bodies, as does the two-Workspace harness. The Postgres suite shares
-one `postgres:17-alpine` container, one schema for each test, started through
+one `postgres:18-alpine` container, one schema for each test, started through
 Docker, and skips with a message when Docker is not reachable. Each backend
 holds one migration baseline, `0001_baseline.sql`, in the same order with the
 same comments. Full-text relevance is defined by properties on both
