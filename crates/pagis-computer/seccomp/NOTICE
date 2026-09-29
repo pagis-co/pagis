@@ -1,0 +1,16 @@
+chromium.json is Docker's default seccomp profile with one change.
+
+Source:  https://github.com/moby/moby/blob/docker-v29.2.1/vendor/github.com/moby/profiles/seccomp/default.json
+Licence: Apache License 2.0, Copyright the Moby Project authors.
+
+The change: the three rules that hold back user
+namespaces — `clone` with the namespace flags masked off, the s390
+variant of the same rule, and `clone3` answered with ENOSYS — are
+replaced by one rule that permits `clone`, `clone3`, `setns` and
+`unshare`. Chromium's renderer sandbox makes a user namespace, so the
+default profile leaves the browser with no way in but `--no-sandbox`.
+Playwright makes the same change in its own image; see
+https://github.com/microsoft/playwright/blob/main/utils/docker/seccomp_profile.json
+
+To refresh the profile, take the file above from the Docker version
+the daemon speaks to and apply the change again.

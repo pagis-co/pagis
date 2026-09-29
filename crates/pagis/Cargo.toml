@@ -1,0 +1,94 @@
+[package]
+name = "pagis"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+autotests = false
+
+[dependencies]
+anyhow.workspace = true
+async-trait.workspace = true
+axum.workspace = true
+bollard.workspace = true
+chacha20poly1305.workspace = true
+chrono.workspace = true
+clap.workspace = true
+iana-time-zone.workspace = true
+open.workspace = true
+pagis-agent.workspace = true
+pagis-audit.workspace = true
+pagis-broker.workspace = true
+pagis-computer.workspace = true
+pagis-connect.workspace = true
+pagis-core.workspace = true
+pagis-google.workspace = true
+pagis-knowledge.workspace = true
+futures.workspace = true
+pagis-memory.workspace = true
+pagis-server.workspace = true
+pagis-plugin.workspace = true
+pagis-plugins.workspace = true
+pagis-software.workspace = true
+pagis-storage-postgres.workspace = true
+pagis-storage-sqlite.workspace = true
+pagis-mail.workspace = true
+pagis-telephony.workspace = true
+pagis-trigger.workspace = true
+pagis-vault.workspace = true
+pagis-voice.workspace = true
+mime_guess.workspace = true
+object_store.workspace = true
+rand.workspace = true
+rust-embed.workspace = true
+rustix.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+semver.workspace = true
+sqlx.workspace = true
+tempfile.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+toml.workspace = true
+tracing.workspace = true
+tracing-appender.workspace = true
+tracing-subscriber.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", features = ["apple-native"] }
+# `keyring` reports a keychain OSStatus as a `security_framework` error.
+# The daemon reads the code to tell a keychain that cannot show its prompt
+# from a prompt that the person denied (ADR-0013). The major version is the
+# one that `keyring` uses, so the two are one type.
+security-framework = "3"
+
+# A local installation on Linux keeps its Installation Key in the desktop
+# keyring through the Secret Service (ADR-0013). `vendored` links libdbus
+# statically, so neither the build host nor the machine needs libdbus
+# installed; the machine still needs a session bus and a keyring daemon,
+# and the daemon generates a Key File where none answers.
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3", features = ["sync-secret-service", "crypto-rust", "vendored"] }
+
+[dev-dependencies]
+chrono-tz.workspace = true
+audio-codec-algorithms.workspace = true
+hex.workspace = true
+hmac.workspace = true
+sha2.workspace = true
+base64.workspace = true
+git2.workspace = true
+image.workspace = true
+llm-router.workspace = true
+pagis-evaluation.workspace = true
+pagis-mcp-fixture.workspace = true
+pagis-testkit.workspace = true
+reqwest.workspace = true
+# The browser and pipeline sides of the Media Relay session test.
+str0m = { workspace = true, features = ["openssl", "vendored", "sha1"] }
+tar.workspace = true
+tokio-tungstenite.workspace = true
+wiremock.workspace = true
+
+[[test]]
+name = "main"
+path = "tests/main.rs"

@@ -1,0 +1,31 @@
+<!doctype html>
+<!--
+  The sign-in page of the address-bar and developer-tools tests. It is
+  login.html, except that its form never navigates: a stray Return on
+  the form submits nothing, so a missed address-bar focus is harmless
+  and the password field stays for the next try. The page writes the
+  username and the SHA-256 of the password into the document title, so
+  the raw secret is on the screen only when an injected script reads the
+  field and puts it there.
+-->
+<meta charset="utf-8">
+<title>login</title>
+<form id="form">
+  <input id="user" name="user" autocomplete="username" autofocus>
+  <input id="pass" name="pass" type="password" autocomplete="current-password">
+  <button>Sign in</button>
+</form>
+<script>
+const digest = async (text) => {
+  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("");
+};
+const report = async () => {
+  document.title = "login|" + user.value + "|" + await digest(pass.value);
+};
+user.addEventListener("input", report);
+pass.addEventListener("input", report);
+form.addEventListener("submit", (event) => {
+  event.preventDefault();
+});
+</script>

@@ -1,0 +1,12 @@
+{
+  "PasswordManagerEnabled": false,
+  "AutofillAddressEnabled": false,
+  "AutofillCreditCardEnabled": false,
+  "PasswordLeakDetectionEnabled": false,
+  "URLBlocklist": [
+    "javascript:*",
+    "devtools://*",
+    "view-source:*",
+    "chrome://inspect/*"
+  ]
+}

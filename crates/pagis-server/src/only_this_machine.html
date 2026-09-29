@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pagis</title>
+<!-- The refusal that serves this page blocks the fonts and the
+     stylesheets of the UI too. So the page holds the few tokens of
+     ui/src/tokens.css that it uses, in both themes, and the card has the
+     shape of the sign-in card (ui/src/sign-in.css). -->
+<style>
+  :root {
+    color-scheme: light dark;
+    --warm-1: #fbfaf8;
+    --warm-2: #f7f6f2;
+    --warm-5: #dedbd5;
+    --warm-8: #625d55;
+    --warm-9: #272521;
+    --logo-top: #5b49c0;
+    --logo-bowl: #e0704a;
+    --logo-bottom: #c4841a;
+    --shadow-rest: 0 5px 20px rgba(43, 38, 32, 0.08);
+    --ground: var(--warm-2);
+    --panel: var(--warm-1);
+    --border: var(--warm-5);
+    --text: var(--warm-9);
+    --muted: var(--warm-8);
+    --text-md: 0.9375rem;
+    --text-lg: 1.125rem;
+    --weight-semibold: 600;
+    --leading-normal: 1.5;
+    --space-2: 8px;
+    --space-4: 16px;
+    --space-7: 28px;
+    --space-8: 32px;
+    --radius-lg: 12px;
+    --font-sans:
+      'Inter Variable', Inter, ui-sans-serif, system-ui, -apple-system,
+      'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --warm-1: #19191d;
+      --warm-2: #141417;
+      --warm-5: #35353d;
+      --warm-8: #aaa9b5;
+      --warm-9: #f1f0f5;
+      --logo-top: #b6a3ff;
+      --logo-bottom: #e9b949;
+      --shadow-rest: 0 5px 20px rgba(0, 0, 0, 0.45);
+    }
+  }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    padding: var(--space-8) var(--space-4);
+    background: var(--ground);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: var(--text-md);
+    line-height: var(--leading-normal);
+  }
+  main {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    box-sizing: border-box;
+    width: min(22rem, 100%);
+    padding: var(--space-7);
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-rest);
+  }
+  h1 {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin: 0;
+    font-size: var(--text-lg);
+    font-weight: var(--weight-semibold);
+  }
+  h1 svg { width: 1em; height: 1em; }
+  p { margin: 0; color: var(--muted); }
+  .top { fill: var(--logo-top); }
+  .bowl { fill: var(--logo-bowl); }
+  .bottom { fill: var(--logo-bottom); }
+</style>
+</head>
+<body>
+<main>
+<h1><svg viewBox="20 20 120 120" aria-hidden="true"><rect class="top" x="20" y="20" width="56" height="56" rx="10"/><path class="bowl" d="M94 20H112A28 28 0 0 1 112 76H94A10 10 0 0 1 84 66V30A10 10 0 0 1 94 20Z"/><rect class="bottom" x="20" y="84" width="56" height="56" rx="10"/></svg>Pagis</h1>
+<p>This installation serves only the people of its own computer; its owner turns on the multi-user mode to serve other machines.</p>
+</main>
+</body>
+</html>

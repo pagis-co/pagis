@@ -1,0 +1,40 @@
+/* The layout shells. Every value comes from `tokens.css`. */
+
+.ui-sidebar {
+  width: var(--sidebar-width);
+  flex: none;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-4) var(--space-3);
+  background: var(--sidebar);
+  border-right: 1px solid var(--border);
+}
+
+.ui-reading-column {
+  width: 100%;
+  max-width: var(--reading-width);
+  box-sizing: border-box;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.ui-settings-nav {
+  width: var(--settings-nav-width);
+  flex: none;
+  box-sizing: border-box;
+  padding: var(--space-6) var(--space-3);
+  border-right: 1px solid var(--border);
+}
+
+.ui-panel {
+  width: var(--panel-width);
+  flex: none;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  background: var(--ground);
+  border-left: 1px solid var(--border);
+}

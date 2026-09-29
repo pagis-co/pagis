@@ -1,0 +1,1045 @@
+//! Onboarding API tests: status, provider key storage, the key check
+//! that lists the provider's models, the one-model default route the
+//! person picks, env override,
+//! completion persistence across a restart, and the name the shell
+//! reads back.
+
+use std::sync::Arc;
+use std::time::Duration;
+
+use pagis_agent::RouterBrain;
+use pagis_computer::{DockerDiscovery, DockerSearch};
+use pagis_core::Provider;
+use pagis_testkit::{
+    ScriptedBrain, ScriptedDockerPing, TestDaemon, TestDaemonOptions, empty_docker_search,
+    test_provider_keys,
+};
+use reqwest::StatusCode;
+use wiremock::matchers::{header, method, path};
+use wiremock::{Mock, MockServer, ResponseTemplate};
+
+fn client() -> reqwest::Client {
+    reqwest::Client::new()
+}
+
+async fn status(daemon: &TestDaemon) -> serde_json::Value {
+    let response = client()
+        .get(format!("{}/api/v1/settings/onboarding", daemon.base_url))
+        .header("cookie", daemon.cookie())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    response.json().await.unwrap()
+}
+
+fn provider<'a>(status: &'a serde_json::Value, id: &str) -> &'a serde_json::Value {
+    status["providers"]
+        .as_array()
+        .expect("providers array")
+        .iter()
+        .find(|p| p["provider"] == id)
+        .expect("provider present")
+}
+
+#[tokio::test]
+async fn fresh_daemon_reports_onboarding_needed_and_docker_absent() {
+    let daemon = TestDaemon::start().await;
+
+    let status = status(&daemon).await;
+
+    assert_eq!(status["completed"], false);
+    assert_eq!(status["docker"]["endpoint"], serde_json::Value::Null);
+    assert_eq!(status["docker"]["candidates"], serde_json::json!([]));
+    assert_eq!(status["docker_endpoint"], serde_json::Value::Null);
+    for id in ["anthropic", "openai", "openrouter"] {
+        assert_eq!(provider(&status, id)["configured"], false);
+        assert_eq!(provider(&status, id)["source"], serde_json::Value::Null);
+    }
+}
+
+/// A home with one Colima socket, which a ping never opens.
+fn colima_home() -> (tempfile::TempDir, String) {
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join(".colima").join("default");
+    std::fs::create_dir_all(&socket).unwrap();
+    std::fs::write(socket.join("docker.sock"), "").unwrap();
+    let endpoint = format!("unix://{}", socket.join("docker.sock").display());
+    (dir, endpoint)
+}
+
+/// A daemon whose Docker discovery searches `home` and answers for the
+/// endpoints given.
+async fn daemon_searching(home: &tempfile::TempDir, answering: &[String]) -> TestDaemon {
+    TestDaemon::start_with(TestDaemonOptions {
+        docker_discovery: Arc::new(DockerDiscovery::new(
+            DockerSearch {
+                home: home.path().to_path_buf(),
+                ..empty_docker_search()
+            },
+            Arc::new(ScriptedDockerPing(answering.to_vec())),
+            None,
+        )),
+        ..TestDaemonOptions::default()
+    })
+    .await
+}
+
+#[tokio::test]
+async fn docker_discovery_shows_in_status() {
+    let (home, endpoint) = colima_home();
+    let daemon = daemon_searching(&home, std::slice::from_ref(&endpoint)).await;
+
+    let status = status(&daemon).await;
+
+    assert_eq!(status["docker"]["endpoint"], endpoint);
+    assert_eq!(status["docker"]["candidates"][0]["source"], "colima");
+    assert_eq!(status["docker"]["candidates"][0]["reachable"], true);
+}
+
+/// The computer step saves the Docker endpoint the person typed, after
+/// Docker answered at it, and keeps every other System Setting.
+#[tokio::test]
+async fn the_computer_step_saves_an_endpoint_that_answers() {
+    let (home, endpoint) = colima_home();
+    let daemon = daemon_searching(&home, std::slice::from_ref(&endpoint)).await;
+
+    let response = client()
+        .put(format!(
+            "{}/api/v1/settings/onboarding/docker-endpoint",
+            daemon.base_url
+        ))
+        .header("cookie", daemon.cookie())
+        .json(&serde_json::json!({ "docker_endpoint": endpoint }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    assert_eq!(status(&daemon).await["docker_endpoint"], endpoint);
+    let file = std::fs::read_to_string(daemon.booted.home.join("config.toml")).unwrap();
+    assert!(file.contains(&endpoint), "{file}");
+    assert!(file.contains("port = 4400"), "{file}");
+}
+
+#[tokio::test]
+async fn the_computer_step_refuses_an_endpoint_that_does_not_answer() {
+    let daemon = TestDaemon::start().await;
+
+    let response = client()
+        .put(format!(
+            "{}/api/v1/settings/onboarding/docker-endpoint",
+            daemon.base_url
+        ))
+        .header("cookie", daemon.cookie())
+        .json(&serde_json::json!({ "docker_endpoint": "tcp://127.0.0.1:1" }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        status(&daemon).await["docker_endpoint"],
+        serde_json::Value::Null
+    );
+}
+
+/// The first run is the one time the product port writes an
+/// installation setting. Once the Workspace finished onboarding, both
+/// writes answer `409` and the Administration Interface changes them.
+#[tokio::test]
+async fn the_first_run_writes_close_when_onboarding_completes() {
+    let provider = listing_provider().await;
+    let daemon = daemon_listing(&provider).await;
+    verify_model(&daemon, "anthropic").await;
+    complete(&daemon, serde_json::json!({})).await;
+
+    for (path, body) in [
+        (
+            "settings/onboarding/providers/anthropic/key",
+            serde_json::json!({ "key": "sk-later" }),
+        ),
+        (
+            "settings/onboarding/docker-endpoint",
+            serde_json::json!({ "docker_endpoint": null }),
+        ),
+        (
+            "settings/onboarding/default-model",
+            serde_json::json!({ "provider": "anthropic", "model": null }),
+        ),
+    ] {
+        let response = client()
+            .put(format!("{}/api/v1/{path}", daemon.base_url))
+            .header("cookie", daemon.cookie())
+            .json(&body)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::CONFLICT, "{path}");
+    }
+    let response = check_typed_key(&daemon, "anthropic", "sk-test").await;
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+}
+
+#[tokio::test]
+async fn storing_a_key_marks_the_provider_configured_from_the_secret_file() {
+    let daemon = TestDaemon::start().await;
+
+    let response = client()
+        .put(format!(
+            "{}/api/v1/settings/onboarding/providers/anthropic/key",
+            daemon.base_url
+        ))
+        .header("cookie", daemon.cookie())
+        .json(&serde_json::json!({ "key": "sk-wizard" }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(body["provider"], "anthropic");
+    assert_eq!(body["configured"], true);
+    assert_eq!(body["source"], "secret_file");
+
+    let status = status(&daemon).await;
+    assert_eq!(provider(&status, "anthropic")["source"], "secret_file");
+    assert_eq!(provider(&status, "openai")["configured"], false);
+}
+
+#[tokio::test]
+async fn the_env_key_wins_over_a_stored_key() {
+    let daemon = TestDaemon::start_with(TestDaemonOptions {
+        keys: test_provider_keys(vec![("ANTHROPIC_API_KEY", "sk-env")]),
+        ..TestDaemonOptions::default()
+    })
+    .await;
+
+    let response = client()
+        .put(format!(
+            "{}/api/v1/settings/onboarding/providers/anthropic/key",
+            daemon.base_url
+        ))
+        .header("cookie", daemon.cookie())
+        .json(&serde_json::json!({ "key": "sk-wizard" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let status = status(&daemon).await;
+    assert_eq!(provider(&status, "anthropic")["source"], "env");
+}
+
+#[tokio::test]
+async fn unknown_provider_and_empty_key_are_rejected() {
+    let daemon = TestDaemon::start().await;
+
+    let unknown = client()
+        .put(format!(
+            "{}/api/v1/settings/onboarding/providers/no-such/key",
+            daemon.base_url
+        ))
+        .header("cookie", daemon.cookie())
+        .json(&serde_json::json!({ "key": "sk" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unknown.status(), StatusCode::NOT_FOUND);
+
+    let empty = client()
+        .put(format!(
+            "{}/api/v1/settings/onboarding/providers/anthropic/key",
+            daemon.base_url
+        ))
+        .header("cookie", daemon.cookie())
+        .json(&serde_json::json!({ "key": "  " }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(empty.status(), StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[tokio::test]
+async fn completion_requires_a_stored_key() {
+    let daemon = TestDaemon::start().await;
+    assert_eq!(status(&daemon).await["completed"], false);
+
+    let response = client()
+        .post(format!(
+            "{}/api/v1/settings/onboarding/complete",
+            daemon.base_url
+        ))
+        .header("cookie", daemon.cookie())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(
+        body["error"]["message"],
+        "add a model key before you finish setup"
+    );
+    assert_eq!(status(&daemon).await["completed"], false);
+}
+
+#[tokio::test]
+async fn a_stored_key_completes_setup_without_a_check() {
+    let daemon = TestDaemon::start().await;
+    store_key(&daemon, "anthropic").await;
+
+    complete(&daemon, serde_json::json!({})).await;
+
+    let status = status(&daemon).await;
+    assert_eq!(status["completed"], true);
+    assert_eq!(status["model"], serde_json::Value::Null);
+}
+
+#[tokio::test]
+async fn settings_require_a_session() {
+    let daemon = TestDaemon::start().await;
+
+    for (method, path) in [
+        (reqwest::Method::GET, "settings/onboarding"),
+        (reqwest::Method::POST, "settings/onboarding/complete"),
+        (
+            reqwest::Method::PUT,
+            "settings/onboarding/providers/anthropic/key",
+        ),
+        (reqwest::Method::PUT, "settings/onboarding/docker-endpoint"),
+        (reqwest::Method::POST, "settings/providers/anthropic/check"),
+    ] {
+        let response = client()
+            .request(method.clone(), format!("{}/api/v1/{path}", daemon.base_url))
+            .json(&serde_json::json!({ "key": "sk" }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::UNAUTHORIZED,
+            "{method} {path}"
+        );
+    }
+}
+
+async fn user(daemon: &TestDaemon) -> serde_json::Value {
+    let response = client()
+        .get(format!("{}/api/v1/user", daemon.base_url))
+        .header("cookie", daemon.cookie())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    response.json().await.unwrap()
+}
+
+async fn complete(daemon: &TestDaemon, body: serde_json::Value) {
+    let response = client()
+        .post(format!(
+            "{}/api/v1/settings/onboarding/complete",
+            daemon.base_url
+        ))
+        .header("cookie", daemon.cookie())
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+}
+
+#[tokio::test]
+async fn the_name_the_wizard_records_is_the_name_the_shell_reads() {
+    let provider = listing_provider().await;
+    let daemon = daemon_listing(&provider).await;
+    assert_eq!(user(&daemon).await["name"], serde_json::Value::Null);
+    verify_model(&daemon, "anthropic").await;
+
+    complete(&daemon, serde_json::json!({ "user_name": "Ada" })).await;
+
+    assert_eq!(user(&daemon).await["name"], "Ada");
+    // The name outlives the process that took it.
+    let daemon = daemon.restart(TestDaemonOptions::default()).await;
+    assert_eq!(user(&daemon).await["name"], "Ada");
+}
+
+#[tokio::test]
+async fn a_wizard_the_user_finishes_without_a_name_leaves_none() {
+    let provider = listing_provider().await;
+    let daemon = daemon_listing(&provider).await;
+    verify_model(&daemon, "anthropic").await;
+
+    complete(&daemon, serde_json::json!({ "user_name": "  " })).await;
+
+    assert_eq!(user(&daemon).await["name"], serde_json::Value::Null);
+}
+
+// ---- The key check and the default model ----
+
+/// The models every fake provider lists, newest first. The first one is
+/// in no built-in table: it ships after the release.
+const LISTED: [&str; 2] = ["vendor-new-model", "vendor-older-model"];
+
+fn listed_models() -> serde_json::Value {
+    serde_json::json!({
+        "data": [
+            {"id": LISTED[0], "created": 2, "context_length": 400_000,
+             "pricing": {"prompt": "0.000002", "completion": "0.000008"}},
+            {"id": LISTED[1], "created": 1},
+        ],
+        "has_more": false,
+    })
+}
+
+/// A fake provider that serves the model list of every protocol:
+/// `/models` (Anthropic, OpenAI) and `/models/user` (OpenRouter), for
+/// the key `sk-test` alone.
+async fn listing_provider() -> MockServer {
+    let provider = MockServer::start().await;
+    for (list_path, auth, value) in [
+        ("/models", "x-api-key", "sk-test"),
+        ("/models", "authorization", "Bearer sk-test"),
+        ("/models/user", "authorization", "Bearer sk-test"),
+    ] {
+        Mock::given(method("GET"))
+            .and(path(list_path))
+            .and(header(auth, value))
+            .respond_with(ResponseTemplate::new(200).set_body_json(listed_models()))
+            .mount(&provider)
+            .await;
+    }
+    provider
+}
+
+async fn daemon_listing(provider: &MockServer) -> TestDaemon {
+    TestDaemon::start_with(TestDaemonOptions {
+        model_list_base_url: Some(provider.uri()),
+        ..TestDaemonOptions::default()
+    })
+    .await
+}
+
+async fn check_model(daemon: &TestDaemon, provider: &str) -> reqwest::Response {
+    client()
+        .post(format!(
+            "{}/api/v1/settings/providers/{provider}/check",
+            daemon.base_url
+        ))
+        .header("cookie", daemon.cookie())
+        .send()
+        .await
+        .unwrap()
+}
+
+async fn check_typed_key(daemon: &TestDaemon, provider: &str, key: &str) -> reqwest::Response {
+    client()
+        .post(format!(
+            "{}/api/v1/settings/onboarding/providers/{provider}/key/check",
+            daemon.base_url
+        ))
+        .header("cookie", daemon.cookie())
+        .json(&serde_json::json!({ "key": key }))
+        .send()
+        .await
+        .unwrap()
+}
+
+async fn verify_model(daemon: &TestDaemon, provider: &str) {
+    store_key(daemon, provider).await;
+    let response = check_model(daemon, provider).await;
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+async fn store_key(daemon: &TestDaemon, provider: &str) {
+    store_key_as(daemon, provider, "sk-test").await;
+}
+
+async fn store_key_as(daemon: &TestDaemon, provider: &str, key: &str) {
+    let response = client()
+        .put(format!(
+            "{}/api/v1/settings/onboarding/providers/{provider}/key",
+            daemon.base_url
+        ))
+        .header("cookie", daemon.cookie())
+        .json(&serde_json::json!({ "key": key }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+async fn pick_default_model(
+    daemon: &TestDaemon,
+    provider: &str,
+    model: Option<&str>,
+) -> reqwest::Response {
+    client()
+        .put(format!(
+            "{}/api/v1/settings/onboarding/default-model",
+            daemon.base_url
+        ))
+        .header("cookie", daemon.cookie())
+        .json(&serde_json::json!({ "provider": provider, "model": model }))
+        .send()
+        .await
+        .unwrap()
+}
+
+async fn default_route(daemon: &TestDaemon) -> serde_json::Value {
+    let aliases: serde_json::Value = client()
+        .get(format!("{}/api/v1/settings/model-aliases", daemon.base_url))
+        .header("cookie", daemon.cookie())
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    aliases["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|alias| alias["alias"] == "default")
+        .expect("the default alias")["candidates"]
+        .clone()
+}
+
+/// The key check is one list call: it counts the listed models, and it
+/// asks no model for anything, so it costs nothing.
+#[tokio::test]
+async fn the_key_check_lists_the_models_and_generates_nothing() {
+    let provider = listing_provider().await;
+    let brain = Arc::new(ScriptedBrain::default());
+    let daemon = TestDaemon::start_with(TestDaemonOptions {
+        brain: Arc::clone(&brain) as _,
+        model_list_base_url: Some(provider.uri()),
+        ..TestDaemonOptions::default()
+    })
+    .await;
+    store_key(&daemon, "anthropic").await;
+
+    let response = check_model(&daemon, "anthropic").await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(body["provider"], "anthropic");
+    assert_eq!(body["available"], 2);
+    assert!(brain.requests().is_empty(), "the check asked the brain");
+    let requests = provider.received_requests().await.unwrap();
+    assert!(!requests.is_empty());
+    for request in requests {
+        assert_eq!(request.method.as_str(), "GET", "{}", request.url);
+        assert_eq!(request.url.path(), "/models", "{}", request.url);
+    }
+    assert_eq!(status(&daemon).await["model"]["available"], 2);
+}
+
+/// The check does not compare the list with any model name: a list that
+/// names none of the seeded models still proves the key.
+#[tokio::test]
+async fn the_key_check_passes_on_any_list() {
+    let provider = listing_provider().await;
+    let daemon = daemon_listing(&provider).await;
+    store_key(&daemon, "openai").await;
+
+    let response = check_model(&daemon, "openai").await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(body["available"], 2);
+    assert!(body.get("missing").is_none(), "{body}");
+}
+
+#[tokio::test]
+async fn a_refused_key_fails_with_the_providers_words() {
+    let provider = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/models"))
+        .respond_with(ResponseTemplate::new(401).set_body_json(serde_json::json!({
+            "type": "error",
+            "error": {"type": "authentication_error", "message": "invalid x-api-key"}
+        })))
+        .mount(&provider)
+        .await;
+    let daemon = daemon_listing(&provider).await;
+    store_key(&daemon, "anthropic").await;
+
+    let response = check_model(&daemon, "anthropic").await;
+
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("invalid x-api-key"),
+        "{body}"
+    );
+    assert_eq!(status(&daemon).await["model"], serde_json::Value::Null);
+}
+
+#[tokio::test]
+async fn a_forbidden_key_fails_with_the_providers_words() {
+    let provider = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/models"))
+        .respond_with(ResponseTemplate::new(403).set_body_json(serde_json::json!({
+            "error": {"message": "this key has no access to the models", "code": "forbidden"}
+        })))
+        .mount(&provider)
+        .await;
+    let daemon = daemon_listing(&provider).await;
+    store_key(&daemon, "openai").await;
+
+    let response = check_model(&daemon, "openai").await;
+
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("this key has no access to the models"),
+        "{body}"
+    );
+}
+
+/// A typed key that the provider answers is stored, and the check that
+/// proved it holds.
+#[tokio::test]
+async fn a_typed_key_that_the_provider_answers_is_stored_and_checked() {
+    let fake = listing_provider().await;
+    let daemon = daemon_listing(&fake).await;
+
+    let response = check_typed_key(&daemon, "anthropic", "sk-test").await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(body["available"], 2);
+    let status = status(&daemon).await;
+    assert_eq!(provider(&status, "anthropic")["configured"], true);
+    assert_eq!(status["model"]["provider"], "anthropic");
+    assert_eq!(status["model"]["available"], 2);
+}
+
+/// A typed key that the provider refuses is not stored, so nothing says
+/// Pagis holds a key and setup cannot finish on it.
+#[tokio::test]
+async fn a_typed_key_that_the_provider_refuses_is_not_stored() {
+    let fake = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/models"))
+        .respond_with(ResponseTemplate::new(401).set_body_json(serde_json::json!({
+            "type": "error",
+            "error": {"type": "authentication_error", "message": "invalid x-api-key"}
+        })))
+        .mount(&fake)
+        .await;
+    let daemon = daemon_listing(&fake).await;
+
+    let response = check_typed_key(&daemon, "anthropic", "sk-wrong").await;
+
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("invalid x-api-key"),
+        "{body}"
+    );
+    let status = status(&daemon).await;
+    assert_eq!(provider(&status, "anthropic")["configured"], false);
+    assert_eq!(status["model"], serde_json::Value::Null);
+}
+
+/// A refused key does not replace the key that the installation holds.
+#[tokio::test]
+async fn a_refused_typed_key_keeps_the_stored_key() {
+    let fake = listing_provider().await;
+    let daemon = daemon_listing(&fake).await;
+    verify_model(&daemon, "anthropic").await;
+
+    let response = check_typed_key(&daemon, "anthropic", "sk-wrong").await;
+
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        check_model(&daemon, "anthropic").await.status(),
+        StatusCode::OK
+    );
+}
+
+#[tokio::test]
+async fn a_checked_key_allows_completion_and_survives_a_restart() {
+    let provider = listing_provider().await;
+    let keys = test_provider_keys(Vec::new());
+    let daemon = TestDaemon::start_with(TestDaemonOptions {
+        keys: Arc::clone(&keys),
+        model_list_base_url: Some(provider.uri()),
+        ..TestDaemonOptions::default()
+    })
+    .await;
+    verify_model(&daemon, "anthropic").await;
+    assert_eq!(status(&daemon).await["model"]["provider"], "anthropic");
+
+    complete(&daemon, serde_json::json!({})).await;
+
+    let daemon = daemon
+        .restart(TestDaemonOptions {
+            keys,
+            model_list_base_url: Some(provider.uri()),
+            ..TestDaemonOptions::default()
+        })
+        .await;
+    assert_eq!(status(&daemon).await["completed"], true);
+    assert_eq!(status(&daemon).await["model"]["provider"], "anthropic");
+}
+
+#[tokio::test]
+async fn a_new_key_clears_the_check() {
+    let provider = listing_provider().await;
+    let daemon = daemon_listing(&provider).await;
+    verify_model(&daemon, "anthropic").await;
+
+    store_key_as(&daemon, "anthropic", "sk-replaced").await;
+
+    assert_eq!(status(&daemon).await["model"], serde_json::Value::Null);
+}
+
+/// The check proves the key, not a route, so a new route keeps it.
+#[tokio::test]
+async fn changing_the_default_route_keeps_the_check() {
+    let provider = listing_provider().await;
+    let daemon = daemon_listing(&provider).await;
+    verify_model(&daemon, "anthropic").await;
+
+    let response = client()
+        .put(format!(
+            "{}/api/v1/settings/model-aliases/default",
+            daemon.base_url
+        ))
+        .header("cookie", daemon.cookie())
+        .json(&serde_json::json!({ "candidates": ["openai/gpt-5.6"] }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(status(&daemon).await["model"]["provider"], "anthropic");
+}
+
+#[tokio::test]
+async fn a_provider_without_a_key_cannot_be_checked() {
+    let daemon = TestDaemon::start().await;
+
+    let response = check_model(&daemon, "anthropic").await;
+
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("no key is configured"),
+        "{body}"
+    );
+}
+
+#[tokio::test]
+async fn an_unknown_provider_has_no_check() {
+    let daemon = TestDaemon::start().await;
+
+    assert_eq!(
+        check_model(&daemon, "no-such").await.status(),
+        StatusCode::NOT_FOUND
+    );
+}
+
+/// OpenRouter's public `/models` answers any key, so the check reads
+/// `/models/user`, which only the key's owner can read.
+#[tokio::test]
+async fn openrouter_is_checked_on_the_list_of_the_key() {
+    let provider = listing_provider().await;
+    let daemon = daemon_listing(&provider).await;
+    store_key(&daemon, "openrouter").await;
+
+    let response = check_model(&daemon, "openrouter").await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let requests = provider.received_requests().await.unwrap();
+    assert!(
+        requests
+            .iter()
+            .all(|request| request.url.path() == "/models/user")
+    );
+}
+
+/// The Models settings read every provider's list, newest first, with
+/// the layered metadata and an unknown price as `null`.
+#[tokio::test]
+async fn the_models_settings_read_the_provider_lists() {
+    let provider = listing_provider().await;
+    let daemon = daemon_listing(&provider).await;
+    store_key(&daemon, "openrouter").await;
+
+    let lists: serde_json::Value = client()
+        .get(format!("{}/api/v1/settings/models", daemon.base_url))
+        .header("cookie", daemon.cookie())
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    let providers = lists["providers"].as_array().unwrap();
+    assert_eq!(providers.len(), 1, "{lists}");
+    assert_eq!(providers[0]["provider"], "openrouter");
+    let models = providers[0]["models"].as_array().unwrap();
+    assert_eq!(models[0]["candidate"], "openrouter/vendor-new-model");
+    assert_eq!(models[0]["context_window"], 400_000);
+    assert_eq!(models[0]["input_cost"], 2.0);
+    assert_eq!(models[1]["candidate"], "openrouter/vendor-older-model");
+    assert_eq!(models[1]["input_cost"], serde_json::Value::Null);
+    assert_eq!(
+        models[1]["context_window"],
+        llm_router::DEFAULT_CONTEXT_WINDOW
+    );
+}
+
+#[tokio::test]
+async fn a_failed_list_names_the_providers_words() {
+    let provider = MockServer::start().await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(401).set_body_json(serde_json::json!({
+            "error": {"message": "invalid api key"}
+        })))
+        .mount(&provider)
+        .await;
+    let daemon = daemon_listing(&provider).await;
+    store_key(&daemon, "openai").await;
+
+    let lists: serde_json::Value = client()
+        .get(format!("{}/api/v1/settings/models", daemon.base_url))
+        .header("cookie", daemon.cookie())
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    assert_eq!(lists["providers"][0]["models"], serde_json::json!([]));
+    assert!(
+        lists["providers"][0]["error"]
+            .as_str()
+            .unwrap()
+            .contains("invalid api key")
+    );
+}
+
+/// Before anybody picks, the seed names one model and no fallback on
+/// another provider.
+#[tokio::test]
+async fn the_seeded_default_route_is_one_model() {
+    let daemon = TestDaemon::start().await;
+
+    assert_eq!(
+        default_route(&daemon).await,
+        serde_json::json!(["anthropic/claude-sonnet-4-6"])
+    );
+}
+
+/// The pick replaces the whole default route with the one model.
+#[tokio::test]
+async fn the_picked_model_is_the_whole_default_route() {
+    let provider = listing_provider().await;
+    let daemon = daemon_listing(&provider).await;
+    store_key(&daemon, "openai").await;
+
+    let response = pick_default_model(&daemon, "openai", Some("vendor-older-model")).await;
+
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    assert_eq!(
+        default_route(&daemon).await,
+        serde_json::json!(["openai/vendor-older-model"])
+    );
+}
+
+/// With no pick, the default route takes the preselection: the first
+/// model the provider lists, which is its newest.
+#[tokio::test]
+async fn no_pick_takes_the_newest_listed_model() {
+    let provider = listing_provider().await;
+    let daemon = daemon_listing(&provider).await;
+    store_key(&daemon, "anthropic").await;
+
+    let response = pick_default_model(&daemon, "anthropic", None).await;
+
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    assert_eq!(
+        default_route(&daemon).await,
+        serde_json::json!(["anthropic/vendor-new-model"])
+    );
+}
+
+/// A provider whose list is not available falls back to its fallback
+/// candidate, the one place a model name of Pagis decides.
+#[tokio::test]
+async fn no_list_takes_the_fallback_model() {
+    let daemon = TestDaemon::start().await;
+    store_key(&daemon, "openrouter").await;
+
+    let response = pick_default_model(&daemon, "openrouter", None).await;
+
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    assert_eq!(
+        default_route(&daemon).await,
+        serde_json::json!(["openrouter/anthropic/claude-sonnet-4.6"])
+    );
+}
+
+#[tokio::test]
+async fn a_provider_without_a_key_cannot_be_picked() {
+    let daemon = TestDaemon::start().await;
+
+    let response = pick_default_model(&daemon, "openai", Some("gpt-5.6")).await;
+
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+/// A person an Administrator creates answers no model question: their
+/// default route is the preselection of the first provider with a key.
+#[tokio::test]
+async fn a_created_person_starts_on_the_newest_listed_model() {
+    let provider = listing_provider().await;
+    let daemon = daemon_listing(&provider).await;
+    store_key(&daemon, "openai").await;
+
+    let created: serde_json::Value = client()
+        .post(format!(
+            "{}/api/v1/administration/people",
+            daemon.administration_base_url
+        ))
+        .header("cookie", daemon.cookie())
+        .json(&serde_json::json!({
+            "email": "grace@example.com",
+            "name": "Grace",
+            "password": "correct horse battery",
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let workspace_id = pagis_core::WorkspaceId::from(
+        created["workspace_id"]
+            .as_str()
+            .unwrap_or_else(|| panic!("the person has a Workspace: {created}"))
+            .to_string(),
+    );
+
+    let alias = daemon
+        .stores()
+        .model_aliases
+        .get_by_alias(&workspace_id, "default")
+        .await
+        .unwrap()
+        .expect("the default alias");
+    assert_eq!(alias.candidates, vec!["openai/vendor-new-model"]);
+}
+
+/// A model that the provider lists and no built-in table knows runs end
+/// to end: the check lists it, the pick names it, and the seeded sprite
+/// answers on it with the conservative default budget.
+#[tokio::test]
+async fn a_listed_model_no_table_knows_runs_end_to_end() {
+    let provider = listing_provider().await;
+    let sse = concat!(
+        "data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"delta\":\"ready\"}\n\n",
+        "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"usage\":{\"input_tokens\":4,\"output_tokens\":1}}}\n\n",
+    );
+    Mock::given(method("POST"))
+        .and(path("/responses"))
+        .and(header("authorization", "Bearer sk-test"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "text/event-stream")
+                .set_body_raw(sse, "text/event-stream"),
+        )
+        .mount(&provider)
+        .await;
+    let keys = test_provider_keys(Vec::new());
+    let models = Arc::new(
+        pagis_agent::ModelCatalog::new(Arc::clone(&keys))
+            .with_base_url(Provider::OpenRouter, provider.uri()),
+    );
+    let brain = Arc::new(
+        RouterBrain::new(Arc::clone(&keys), models)
+            .with_base_url(Provider::OpenRouter, provider.uri()),
+    );
+    let daemon = TestDaemon::start_with(TestDaemonOptions {
+        brain,
+        keys,
+        model_list_base_url: Some(provider.uri()),
+        ..TestDaemonOptions::default()
+    })
+    .await;
+    verify_model(&daemon, "openrouter").await;
+    let picked = pick_default_model(&daemon, "openrouter", None).await;
+    assert_eq!(picked.status(), StatusCode::NO_CONTENT);
+    complete(&daemon, serde_json::json!({})).await;
+    assert!(llm_router::model_info(LISTED[0]).is_none());
+
+    let response = client()
+        .post(format!(
+            "{}/api/v1/channels/{}/messages",
+            daemon.base_url, daemon.dm_channel_id
+        ))
+        .header("cookie", daemon.cookie())
+        .json(&serde_json::json!({ "pending_id": "listed-first", "text": "Hello Pixie" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        let timeline: serde_json::Value = client()
+            .get(format!(
+                "{}/api/v1/channels/{}/messages",
+                daemon.base_url, daemon.dm_channel_id
+            ))
+            .header("cookie", daemon.cookie())
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        if timeline["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|message| message["author_kind"] == "agent" && message["text_content"] == "ready")
+        {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "Pixie did not answer: {timeline}"
+        );
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    let generations: Vec<_> = provider
+        .received_requests()
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|request| request.method.as_str() == "POST")
+        .collect();
+    assert!(!generations.is_empty());
+    for request in &generations {
+        let body: serde_json::Value = request.body_json().unwrap();
+        assert_eq!(body["model"], LISTED[0]);
+    }
+}

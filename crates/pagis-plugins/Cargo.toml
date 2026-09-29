@@ -1,0 +1,39 @@
+[package]
+name = "pagis-plugins"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+autotests = false
+
+[dependencies]
+async-trait.workspace = true
+futures.workspace = true
+http.workspace = true
+pagis-broker.workspace = true
+pagis-core.workspace = true
+pagis-plugin.workspace = true
+rmcp = { workspace = true, features = [
+    "client",
+    "reqwest-tls-no-provider",
+    "transport-async-rw",
+    "transport-streamable-http-client",
+    "transport-streamable-http-client-reqwest",
+] }
+serde.workspace = true
+tokio-rustls.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["io-util"] }
+tokio-util = { workspace = true, features = ["codec"] }
+tracing.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+pagis-core.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[[test]]
+name = "main"
+path = "tests/main.rs"

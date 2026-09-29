@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+# The system package wrapper. The agent runs
+# `sudo pagis-apt install <pkg>...`; sudoers admits this file and
+# nothing else for the agent uid.
+#
+# The wrapper, not the caller, owns every option apt sees, because a
+# sudoers rule on `apt-get` lets the caller pass
+# `-o DPkg::Post-Invoke::=<cmd>`, `-c <file>`, `--reinstall` or a local
+# `.deb` path, and each of those runs an arbitrary command as root.
+# `--` stops option parsing but not a path argument. Only a package
+# name pattern that refuses a leading `-`, a `/` and a `.` closes them
+# all. `APT_CONFIG` is unset because it too carries a config file, and
+# sudo's `env_reset` is the second lock on the same door.
+#
+# The file must stay root-owned, mode 0755, and outside /data: the
+# agent's volume mounts there, and a writable wrapper is root.
+#
+# Tests: bash computer/tests/pagis-apt-validate.sh (no Docker needed).
+set -uo pipefail
+
+readonly APT_GET=/usr/bin/apt-get
+readonly LOG=/var/log/pagis-apt.log
+readonly LISTS=/var/lib/apt/lists
+# Refresh the lists when they are missing or older than one day. The
+# image deletes them at build, so the first install in a container
+# fetches once.
+readonly LISTS_MAX_AGE_MINUTES=1440
+
+# A Debian binary package name: lower case, and never a path or an
+# option. The first character excludes `-`, `.` and `/`, so no argument
+# that passes here can become an option or a local file for apt.
+valid_package_name() {
+  [[ "${1-}" =~ ^[a-z0-9][a-z0-9.+-]*$ ]]
+}
+
+# Read the one grammar this wrapper accepts: `install <pkg>...`.
+# It prints the validated package names, one per line, and returns
+# non-zero with a message on stderr for anything else.
+parse_command() {
+  local subcommand="${1-}"
+  shift || true
+  if [ "$subcommand" != install ]; then
+    echo "pagis-apt: usage: pagis-apt install <package>..." >&2
+    return 2
+  fi
+  if [ "$#" -eq 0 ]; then
+    echo "pagis-apt: name at least one package" >&2
+    return 2
+  fi
+  local package
+  for package in "$@"; do
+    if ! valid_package_name "$package"; then
+      echo "pagis-apt: refused package name: $package" >&2
+      return 2
+    fi
+  done
+  printf '%s\n' "$@"
+}
+
+# Fetch the package lists when they are absent or stale.
+refresh_lists() {
+  local fresh
+  fresh="$(find "$LISTS" -maxdepth 1 -type f -name '*Packages*' \
+    -mmin "-$LISTS_MAX_AGE_MINUTES" -print -quit 2>/dev/null)"
+  if [ -n "$fresh" ]; then
+    return 0
+  fi
+  "$APT_GET" update
+}
+
+main() {
+  local names
+  names="$(parse_command "$@")" || return 2
+  # Every validated name is one line and holds no whitespace.
+  local packages=()
+  local name
+  while IFS= read -r name; do
+    packages+=("$name")
+  done <<<"$names"
+
+  export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+  export DEBIAN_FRONTEND=noninteractive
+  unset APT_CONFIG
+
+  refresh_lists || return $?
+  "$APT_GET" install -y --no-install-recommends -- "${packages[@]}"
+  local status=$?
+  printf '%s %s install %s -> %d\n' \
+    "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "${SUDO_USER:-unknown}" \
+    "${packages[*]}" "$status" >>"$LOG"
+  return $status
+}
+
+# Sourced by the tests, which then use the functions above and run
+# nothing. sudo always executes the file, so this branch never runs
+# under sudo.
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  main "$@"
+  exit $?
+fi

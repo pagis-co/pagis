@@ -1,0 +1,45 @@
+[package]
+name = "pagis-computer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+autotests = false
+
+[dependencies]
+async-trait.workspace = true
+base64.workspace = true
+bollard.workspace = true
+bytes.workspace = true
+futures.workspace = true
+hex.workspace = true
+hmac.workspace = true
+image.workspace = true
+pagis-core.workspace = true
+pagis-versions.workspace = true
+rand.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha1.workspace = true
+sha2.workspace = true
+nix.workspace = true
+# The Media Relay verifies ICE checks with str0m's STUN code.
+str0m = { workspace = true, features = ["sha1"] }
+tempfile.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+axum.workspace = true
+pagis-audit.workspace = true
+# The docker-real tests make a browser's offer, which needs DTLS.
+str0m = { workspace = true, features = ["openssl", "vendored", "sha1"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "test-util"] }
+# The adapter tests read the warnings that the runtime logs.
+tracing-subscriber.workspace = true
+
+[[test]]
+name = "main"
+path = "tests/main.rs"

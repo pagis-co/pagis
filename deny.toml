@@ -1,0 +1,28 @@
+# The configuration of cargo-deny. `cargo xtask advisories`, the daily
+# advisory workflow and `cargo xtask release` check the advisories of the
+# lockfiles of the workspace and computer/screend with it
+# (xtask/src/advisories.rs).
+
+[graph]
+# The targets that a release ships: the Server Package for macOS arm64, and
+# the Server Package, the Headless Server image and the Computer Image for
+# Linux amd64 and arm64.
+targets = [
+    "aarch64-apple-darwin",
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+]
+
+[advisories]
+# The release ships each crate that a dependency pulls in, so an unsound
+# crate is reported also when no workspace crate uses it directly.
+unsound = "all"
+# Each ignored advisory holds its reason: how an installation can reach the
+# crate, and which update was checked. Record an advisory here only after
+# the update path is checked. An advisory that an update removes is not an
+# exception: update the dependency.
+ignore = [
+    { id = "RUSTSEC-2026-0258", reason = "h2 0.3.27 comes only through rustrtc, igd and hyper 0.14: igd is the UPnP client, rustrtc turns UPnP off by default and SipMedia::new does not turn it on. Each rustrtc release up to 0.3.140 requires igd 0.12, which uses hyper 0.14, and the fix is only in h2 0.4.16 and later." },
+    { id = "RUSTSEC-2025-0057", reason = "fxhash is unmaintained, and no vulnerability is known. It comes through str0m 0.9 and sctp-proto 0.3: a dev dependency of the workspace, and a dependency of pagis-screend in the Computer Image. str0m 0.11 and later drop it through sctp-proto 0.5, but that update changes the stream code of pagis-screend." },
+    { id = "RUSTSEC-2026-0253", reason = "lru 0.16.4 is unsound only when the destructor of a key panics. It comes only through tantivy in pagis-software, whose store cache uses usize keys. Each tantivy release up to 0.26.2 requires lru ^0.16.3, and the fix is in lru 0.18.2." },
+]

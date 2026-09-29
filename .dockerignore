@@ -1,0 +1,18 @@
+# What the server image build never needs. `target/` alone is tens of
+# gigabytes, and a build context that carries it takes longer to send
+# than the compile takes to run.
+target/
+.git/
+dist/
+ui/node_modules/
+ui/dist/
+desktop/node_modules/
+desktop/release/
+desktop/dist/
+computer/screend/target/
+**/*.log
+**/.DS_Store
+# A local `.env` holds the secrets of a deployment. The final stage
+# copies only named files, and the build context leaves `.env` out too.
+.env
+**/.env

@@ -1,0 +1,43 @@
+/* Badge. Every value comes from `tokens.css`. */
+
+.ui-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-snug);
+  padding: var(--space-0-5) var(--space-2);
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
+}
+
+.ui-badge-neutral {
+  background: var(--sunken);
+  color: var(--muted);
+}
+
+.ui-badge-accent {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+.ui-badge-working {
+  background: var(--working-soft);
+  color: var(--working-ink);
+}
+
+.ui-badge-waiting {
+  background: var(--waiting-soft);
+  color: var(--waiting-ink);
+}
+
+.ui-badge-on-call {
+  background: var(--on-call-soft);
+  color: var(--on-call-ink);
+}
+
+.ui-badge-failed {
+  background: var(--failed-soft);
+  color: var(--failed-ink);
+}

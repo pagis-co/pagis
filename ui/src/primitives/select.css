@@ -1,0 +1,69 @@
+/* Select. Every value comes from `tokens.css`. */
+
+.ui-select-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1-5);
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1-5) var(--space-2);
+  cursor: pointer;
+  min-width: 0;
+}
+
+.ui-select-trigger:hover:not(:disabled) {
+  border-color: var(--border-control-hover);
+}
+
+.ui-select-trigger[data-placeholder] {
+  color: var(--muted);
+}
+
+.ui-select-trigger:disabled {
+  opacity: var(--opacity-disabled);
+  cursor: not-allowed;
+}
+
+.ui-select-content {
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-raised);
+  padding: var(--space-1);
+  z-index: var(--z-overlay);
+  max-height: 18rem;
+  overflow: hidden auto;
+}
+
+.ui-select-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  padding: var(--space-1-5) var(--space-2);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  user-select: none;
+}
+
+.ui-select-item[data-highlighted] {
+  outline: none;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+.ui-select-item[data-disabled] {
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.ui-select-indicator {
+  display: inline-flex;
+  color: var(--accent);
+}

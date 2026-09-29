@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; font-src 'self'; img-src 'self'; script-src 'unsafe-inline'" />
+    <title>Pagis</title>
+    <link rel="stylesheet" href="../dist/design/tokens.css" />
+    <link rel="stylesheet" href="pages.css" />
+  </head>
+  <body>
+    <div class="titlebar" aria-hidden="true"></div>
+    <main class="page">
+      <div class="content">
+        <div class="column">
+          <p class="wordmark">
+            <picture>
+              <source srcset="../dist/design/pagis-mark-dark.svg" media="(prefers-color-scheme: dark)" />
+              <img src="../dist/design/pagis-mark.svg" alt="" />
+            </picture>
+            Pagis
+          </p>
+          <section id="state" class="state" aria-live="polite">
+            <h1 id="state-title" class="state-title">Pagis is starting…</h1>
+            <p id="state-message" hidden></p>
+            <pre id="log" class="log" hidden></pre>
+            <div id="actions" class="actions" hidden></div>
+          </section>
+        </div>
+      </div>
+      <div class="footer">
+        <div class="footer-group"><button id="quit" class="button button-ghost">Quit</button></div>
+      </div>
+    </main>
+    <script>
+      const element = (id) => document.getElementById(id)
+      const [state, title, message, log, actions] = ['state', 'state-title', 'state-message', 'log', 'actions'].map(element)
+
+      function button(label, variant, action) {
+        const node = document.createElement('button')
+        node.className = `button button-${variant}`
+        node.textContent = label
+        node.addEventListener('click', action)
+        return node
+      }
+
+      // The state of the server this client started, at the top, with
+      // its one next action first.
+      function render(next) {
+        const shown = next.kind === 'taken-port'
+          ? {
+              tone: 'waiting',
+              title: `Port ${next.port} is taken`,
+              message: `${next.holder} listens on port ${next.port}, so Pagis cannot start there. Pagis can move to port ${next.suggested}.`,
+              actions: [
+                button(`Use port ${next.suggested}`, 'primary', () => window.pagisStatus.usePort(next.suggested)),
+                button('Retry', 'outline', () => window.pagisStatus.retry()),
+              ],
+            }
+          : next.kind === 'failed'
+            ? {
+                tone: 'failed',
+                title: 'Pagis could not start',
+                message: next.reason,
+                log: next.log,
+                actions: [
+                  button('Retry', 'primary', () => window.pagisStatus.retry()),
+                  button('Show the log', 'outline', () => window.pagisStatus.revealLogs()),
+                ],
+              }
+            : { tone: 'working', title: 'Pagis is starting…', actions: [] }
+        state.dataset.tone = shown.tone
+        state.setAttribute('role', shown.tone === 'failed' ? 'alert' : 'status')
+        title.textContent = shown.title
+        message.textContent = shown.message ?? ''
+        message.hidden = !shown.message
+        log.textContent = shown.log ?? ''
+        log.hidden = !shown.log
+        actions.replaceChildren(...shown.actions)
+        actions.hidden = shown.actions.length === 0
+      }
+
+      element('quit').addEventListener('click', () => window.pagisStatus.quit())
+      window.pagisStatus.onState((next) => render(next ?? { kind: 'starting' }))
+    </script>
+  </body>
+</html>

@@ -1,0 +1,85 @@
+appId: com.pagis.desktop
+# The product name comes from `productName` in package.json, which Electron
+# also reads for `app.name`: the `userData` directory and the app menu.
+copyright: Pagis
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - dist/**/*
+  - static/**/*
+  - package.json
+
+# The generated Runtime Lock is the signed client's trust root. Each
+# platform embeds the lock of its own platform and architecture. The server
+# itself is a separate release asset and never travels inside this app.
+mac:
+  category: public.app-category.productivity
+  target:
+    - target: dmg
+      arch:
+        - arm64
+  extraResources:
+    - from: ../dist/runtime-lock-darwin-arm64.json
+      to: runtime-lock.json
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  # Dictation records from the microphone, and the daemon reaches the
+  # model providers over the network.
+  extendInfo:
+    NSMicrophoneUsageDescription: Pagis uses the microphone for dictation.
+  # @electron/notarize runs when the Apple credentials are in the
+  # environment; CI passes them on a tag.
+  notarize: true
+
+dmg:
+  title: Pagis
+  # Sign the outer disk image before the release command submits and staples
+  # those exact bytes.
+  sign: true
+  # CI attaches the DMG to the release by name, so the name
+  # is pinned here and not left to the default.
+  artifactName: ${productName}-${version}-${arch}.${ext}
+
+# Linux ships an AppImage and a deb for amd64 and arm64 (ADR-0025). The
+# release signs their checksum list; electron-builder signs nothing on Linux.
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+        - arm64
+    - target: deb
+      arch:
+        - x64
+        - arm64
+  extraResources:
+    - from: ../dist/runtime-lock-linux-${arch}.json
+      to: runtime-lock.json
+  # `pagis` is the server's own command, so the client has another name.
+  executableName: pagis-client
+  category: Office
+  synopsis: Pagis installs and runs a local Pagis server, or connects to one.
+  maintainer: Pagis <hello@pagis.co>
+  # The desktop entry, the window class and Electron's app id all take
+  # `desktopName` from package.json, so the desktop links the running
+  # windows to the launcher entry.
+  syncDesktopName: true
+  desktop:
+    entry:
+      Name: Pagis
+
+# CI attaches both packages to the release by name, so the names are
+# pinned. electron-builder names amd64 x86_64 for an AppImage and amd64
+# for a deb.
+appImage:
+  artifactName: ${productName}-${version}-${arch}.${ext}
+
+# The deb installs electron-builder's AppArmor profile, which lets the
+# Chromium sandbox start on Ubuntu 24.04 and later, and it falls back to the
+# setuid sandbox helper where the kernel has no user namespaces.
+deb:
+  artifactName: ${productName}-${version}-${arch}.${ext}

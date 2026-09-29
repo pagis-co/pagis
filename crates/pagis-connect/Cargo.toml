@@ -1,0 +1,22 @@
+[package]
+name = "pagis-connect"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+pagis-core.workspace = true
+pagis-google.workspace = true
+pagis-mail.workspace = true
+pagis-telephony.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+axum.workspace = true
+base64.workspace = true
+pagis-telephony.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

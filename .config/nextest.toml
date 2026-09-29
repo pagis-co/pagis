@@ -1,0 +1,49 @@
+# The test runner of the gate (`cargo xtask full` and CI). Nextest runs the
+# tests of every binary in one parallel pool, times each test, retries
+# a flaky test before it goes red, and fails a test that hangs.
+
+[profile.default]
+# The gate reports every red test, not only the first.
+fail-fast = false
+# A test that is red once and green on the retry is flaky, not broken.
+# The summary marks it FLAKY so the flakiness is still visible.
+retries = 1
+# A test past 60 s is reported as slow; past 5 minutes it is killed.
+slow-timeout = { period = "60s", terminate-after = 5 }
+
+[profile.default.junit]
+path = "junit.xml"
+
+# The Docker-real tests each start a container in the Colima VM (4
+# CPUs, 4 GB), so two run at a time while the rest of the pool keeps
+# its full width.
+[test-groups.docker]
+max-threads = 2
+
+[[profile.default.overrides]]
+filter = 'test(/docker_real::/) | test(/greenmail::/)'
+test-group = 'docker'
+
+# The egress tests install the egress rules of the Computers in the
+# firewall of the Docker host. Their chains are global to that host, so
+# one of these tests runs at a time. Each one scopes the rules to the
+# bridge of its own Tenant Network, so the Docker tests beside it keep
+# their reach.
+[test-groups.egress]
+max-threads = 1
+
+[[profile.default.overrides]]
+filter = 'test(/^egress::/)'
+test-group = 'egress'
+
+# The Postgres side of the store-trait suite. Every test makes a
+# database of its own in one shared container, and `CREATE DATABASE`
+# copies a template, so a full-width pool of them overwhelms the Colima
+# VM. Eight at a time keeps the suite fast and steady; the SQLite side
+# keeps the pool's full width.
+[test-groups.postgres]
+max-threads = 8
+
+[[profile.default.overrides]]
+filter = 'test(/on_postgres::/) | test(/_on_postgres$/)'
+test-group = 'postgres'

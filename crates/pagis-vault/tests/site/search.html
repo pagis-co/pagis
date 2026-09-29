@@ -1,0 +1,25 @@
+<!doctype html>
+<!--
+  A page that gives the focus to a search field outside its sign-in
+  form. The page writes what each field holds into the document title,
+  the password as its SHA-256.
+-->
+<meta charset="utf-8">
+<title>search</title>
+<input id="search" name="search" placeholder="Search" autofocus>
+<form>
+  <input id="user" name="user" autocomplete="username">
+  <input id="pass" name="pass" type="password" autocomplete="current-password">
+</form>
+<script>
+const digest = async (text) => {
+  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("");
+};
+const report = async () => {
+  document.title = "search|" + search.value + "|" + user.value + "|" + await digest(pass.value);
+};
+for (const field of [search, user, pass]) {
+  field.addEventListener("input", report);
+}
+</script>

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "fixture",
+  "version": "1.0.0",
+  "description": "The stdio plugin the MCP host's stored tests install.",
+  "extensions": {
+    "pagis": {
+      "config": {
+        "api_key": {
+          "type": "secret",
+          "title": "API key",
+          "description": "The secret the server reads out of its environment.",
+          "required": true
+        }
+      },
+      "tools": {
+        "echo": {
+          "effect": "free"
+        },
+        "sleep": {
+          "effect": "free",
+          "timeout_s": 1
+        }
+      }
+    }
+  }
+}

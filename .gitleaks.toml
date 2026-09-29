@@ -1,0 +1,58 @@
+# The configuration of the secret scan. The gate scans the tracked files
+# with it, and the release scans the filesystem of each image with it
+# before the push (`xtask/src/secrets.rs`). It adds to the default rules
+# of the pinned gitleaks.
+#
+# The scan fails on every finding. A finding that is not a secret gets an
+# entry below, and the `description` of each entry holds its reason. The
+# scan ignores `gitleaks:allow` comments and refuses a `.gitleaksignore`
+# file, so this file holds every exception.
+#
+# An entry for a file in an image names its path in the export that the
+# release scans, `dist/image-fs/<image>/linux_<arch>/`, and only the rules
+# that flag it. The other rules still scan that file.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = """\
+deploy/.env.example is the template of the .env file of a deployment. \
+Its values are examples: `change-me` is the database password that a \
+deployment replaces, and the provider key lines are empty. The entry \
+allows that example value in this file only, so a real value in the \
+file is a finding."""
+condition = "AND"
+paths = ['''(?:^|/)deploy/\.env\.example$''']
+regexes = ['''^change-me$''']
+
+[[allowlists]]
+description = """\
+The numbers +1 415 555 0100 to +1 415 555 0199 are reserved for \
+fictional use, and the tests and the examples use them. No person and no \
+carrier account has them, so they are not secrets."""
+regexes = ['''^\+?1?[ .-]?\(?415\)?[ .-]?555[ .-]?01[0-9]{2}$''']
+
+[[allowlists]]
+description = """\
+The chromium package of Debian ships Google API keys in \
+/etc/chromium.d/apikeys of the Computer Image. Debian publishes them in \
+its archive for each install of its chromium. They are not a Pagis \
+secret, and Pagis cannot revoke them."""
+targetRules = ["gcp-api-key", "generic-api-key"]
+paths = ['''^dist/image-fs/computer/linux_(?:amd64|arm64)/etc/chromium\.d/apikeys$''']
+
+[[allowlists]]
+description = """\
+/opt/pagis/ublock-origin-lite/rulesets/ in the Computer Image holds the \
+filter lists of the uBlock Origin Lite release. Their long strings are \
+filter patterns, not secrets."""
+targetRules = ["generic-api-key"]
+paths = ['''^dist/image-fs/computer/linux_(?:amd64|arm64)/opt/pagis/ublock-origin-lite/rulesets/''']
+
+[[allowlists]]
+description = """\
+/usr/local/include/node/ in the Computer Image holds the C++ headers of \
+the Node.js release. Their names and constants are code, not secrets."""
+targetRules = ["generic-api-key"]
+paths = ['''^dist/image-fs/computer/linux_(?:amd64|arm64)/usr/local/include/node/''']

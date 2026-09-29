@@ -1,0 +1,91 @@
+/* Avatar sizes and presence rings. */
+
+.ui-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  border-radius: var(--radius-pill);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-none);
+  user-select: none;
+}
+
+.ui-avatar-sm {
+  width: 1.25rem;
+  height: 1.25rem;
+  font-size: var(--text-xs);
+}
+
+.ui-avatar-md {
+  width: 1.75rem;
+  height: 1.75rem;
+  font-size: var(--text-sm);
+}
+
+.ui-avatar-lg {
+  width: 2.5rem;
+  height: 2.5rem;
+  font-size: var(--text-md);
+}
+
+/* The owner's face. It is not one of the six hues, so it never
+ * collides with the ground a group is drawn on. */
+.ui-avatar-owner {
+  background: var(--text);
+  color: var(--panel);
+}
+
+/* The presence ring sits outside the disc, so it never eats the
+ * initial. */
+.ui-avatar-presence-working {
+  box-shadow: var(--ring-working);
+}
+
+.ui-avatar-presence-waiting {
+  box-shadow: var(--ring-waiting);
+}
+
+.ui-avatar-presence-oncall {
+  box-shadow: var(--ring-on-call);
+}
+
+.ui-avatar-presence-idle {
+  box-shadow: var(--ring-idle);
+}
+
+/* The working ring breathes while the agent works. The far
+   point of the pulse is a token, because a ring is a shadow. */
+.ui-avatar-presence-working {
+  animation: presence-pulse var(--duration-ambient) ease-in-out infinite;
+}
+
+@keyframes presence-pulse {
+  50% {
+    box-shadow: var(--ring-working-wide);
+  }
+}
+
+/* A group shows two faces that overlap. The second face sits
+   over the first by 8 px and draws a 2 px gap in the ground color, so
+   the overlap still separates one face from the next. */
+.ui-avatar-group {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+}
+
+/* Every face in a group carries a hairline rim, so a face whose hue
+   matches the ground it sits on — an accent face on an accent chip —
+   still reads as a disc. */
+.ui-avatar-group > .ui-avatar {
+  outline: 1px solid var(--border);
+  outline-offset: -1px;
+}
+
+.ui-avatar-group > .ui-avatar + .ui-avatar {
+  margin-left: calc(-1 * var(--space-2));
+  box-shadow: var(--ring-overlap);
+}
+
+.ui-avatar-static { animation: none; }

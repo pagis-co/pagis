@@ -1,0 +1,34 @@
+[package]
+name = "pagis-mcp-fixture"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+autotests = false
+
+[dependencies]
+axum.workspace = true
+http.workspace = true
+rmcp = { workspace = true, features = [
+    "server",
+    "transport-io",
+    "transport-streamable-http-server",
+] }
+serde_json.workspace = true
+tokio = { workspace = true, features = ["io-std", "io-util", "macros", "rt-multi-thread"] }
+
+[dev-dependencies]
+async-trait.workspace = true
+pagis-broker.workspace = true
+pagis-core.workspace = true
+pagis-plugin.workspace = true
+pagis-plugins.workspace = true
+pagis-testkit.workspace = true
+serde_json.workspace = true
+tar.workspace = true
+tempfile.workspace = true
+futures.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[[test]]
+name = "main"
+path = "tests/main.rs"

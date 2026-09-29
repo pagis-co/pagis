@@ -1,0 +1,26 @@
+# The updates of the pinned third-party code. Each action is pinned to a
+# commit ID with its release tag in a comment, and each base image and
+# Compose image by tag and digest (`cargo xtask pins --check`). Dependabot
+# opens a pull request that moves a pin to the next release, and the pull
+# request merges when CI passes, as each change does.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+
+  # The Headless Server image and the Computer Image.
+  - package-ecosystem: docker
+    directories:
+      - /
+      - /computer
+    schedule:
+      interval: weekly
+
+  # `postgres`, `klipper-lb` and `caddy` of a Headless Server deployment.
+  # A server gets their updates with the next release of Pagis.
+  - package-ecosystem: docker-compose
+    directory: /deploy
+    schedule:
+      interval: weekly

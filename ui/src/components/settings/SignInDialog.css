@@ -1,0 +1,15 @@
+/* The sign-in form: one labelled field per line. */
+
+.sign-in-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.sign-in-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--muted);
+}

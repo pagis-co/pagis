@@ -1,0 +1,400 @@
+/* First run: one step at a time on the ground of the window. The window
+ * has its own frame, so the page draws no card inside it. One step fills
+ * the window as a column: the title bar strip, the stepper, the content
+ * of the step and a footer with its actions. The page never scrolls.
+ * When the window is too small for the content, only the middle scrolls,
+ * so the stepper and the actions stay in view. The page is the first
+ * child of #root, which has the height of the window. */
+
+.onboarding {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--ground);
+  overflow: hidden;
+}
+
+/* In the Client App on macOS the window buttons sit over the top of the
+ * page, and the window says where through the Window Controls Overlay.
+ * This strip covers that area and moves the window, as a title bar does.
+ * It holds no control. A browser defines no title bar area, so the strip
+ * has no height there. */
+.onboarding-titlebar {
+  flex: none;
+  height: env(titlebar-area-height, 0px);
+  -webkit-app-region: drag;
+}
+
+.onboarding-column {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+/* The stepper, the content and the actions share one centred column. It
+ * is wider than the reading column, because the three sprite
+ * capabilities read as a row of their own. The middle itself spans the
+ * window, so its scroll bar sits at the edge of the window. */
+.onboarding-stepper,
+.onboarding-content,
+.onboarding-actions {
+  width: min(44rem, 100% - 2 * var(--space-4));
+  margin-inline: auto;
+}
+
+.onboarding-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden auto;
+}
+
+.onboarding-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  padding-block: var(--space-6);
+}
+
+/* The signpost. */
+.onboarding-stepper {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  gap: var(--space-1-5) var(--space-5);
+  margin-block: 0;
+  padding: var(--space-8) 0 var(--space-5);
+  border-bottom: 1px solid var(--border);
+  list-style: none;
+}
+
+.onboarding-step {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.onboarding-step-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  border-radius: var(--radius-pill);
+  background: var(--sunken);
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+.onboarding-step-current {
+  color: var(--text);
+  font-weight: var(--weight-semibold);
+}
+
+.onboarding-step-current .onboarding-step-mark {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.onboarding-step-done .onboarding-step-mark {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+/* The head of a step. */
+.onboarding-head h1 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2-5);
+  margin: 0 0 var(--space-1-5);
+  font-size: var(--text-xl);
+}
+
+.onboarding-lead {
+  margin: 0;
+  max-width: var(--reading-width);
+  color: var(--muted);
+}
+
+.onboarding-hint,
+.onboarding-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.onboarding-error {
+  margin: 0;
+  color: var(--failed-ink);
+  font-size: var(--text-sm);
+}
+
+/* Step one: what a sprite does, and the sprite the workspace has. */
+.onboarding-capabilities {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.onboarding-capabilities li {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--accent-ink);
+}
+
+.onboarding-capability-name {
+  margin: 0;
+  color: var(--text);
+  font-weight: var(--weight-semibold);
+}
+
+.onboarding-capability-line {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.onboarding-sprite {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3-5) var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--sunken);
+}
+
+.onboarding-sprite-name {
+  margin: 0;
+  font-weight: var(--weight-semibold);
+}
+
+.onboarding-sprite-line {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+/* Step two: the provider, the key and the proof. */
+.onboarding-providers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2-5);
+}
+
+.onboarding-provider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1 1 10rem;
+  padding: var(--space-3) var(--space-3-5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.onboarding-provider-selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.onboarding-provider:focus-within {
+  box-shadow: var(--focus-ring);
+}
+
+.onboarding-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.onboarding-field-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.onboarding-field-row .ui-input {
+  flex: 1;
+}
+
+.onboarding-check {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.onboarding-result {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+}
+
+.onboarding-result-ok {
+  background: var(--working-soft);
+  color: var(--working-ink);
+}
+
+.onboarding-result-failed {
+  background: var(--failed-soft);
+  color: var(--failed-ink);
+}
+
+/* Step three: Docker and the image. */
+.onboarding-docker,
+.onboarding-image {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2-5);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.onboarding-docker-state,
+.onboarding-image-state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-weight: var(--weight-semibold);
+}
+
+.onboarding-icon-ok {
+  color: var(--working);
+}
+
+.onboarding-icon-failed {
+  color: var(--failed);
+}
+
+.onboarding-docker-endpoint {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-regular);
+}
+
+.onboarding-image-percent {
+  margin-left: auto;
+  color: var(--muted);
+  font-weight: var(--weight-regular);
+}
+
+.onboarding-progress {
+  width: 100%;
+  height: 0.5rem;
+  border-radius: var(--radius-pill);
+  background: var(--sunken);
+  overflow: hidden;
+}
+
+.onboarding-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  transition: width var(--duration-panel) ease;
+}
+
+/* No reliable percentage: the bar reads as busy instead of lying about
+ * how far the work has come. */
+.onboarding-progress-indeterminate {
+  width: 40%;
+  animation: onboarding-sweep var(--duration-ambient) linear infinite;
+}
+
+@keyframes onboarding-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+
+.onboarding-details {
+  width: 100%;
+}
+
+.onboarding-details-toggle {
+  gap: var(--space-1-5);
+  color: var(--muted);
+}
+
+.onboarding-details-toggle:hover {
+  color: var(--text);
+}
+
+.onboarding-details-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.onboarding-candidates {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-sm);
+}
+
+.onboarding-candidates li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.onboarding-candidate-endpoint {
+  font-family: var(--font-mono);
+}
+
+.onboarding-candidate-error {
+  color: var(--muted);
+}
+
+.onboarding-details-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* The actions of a step, at the foot of the window: Back on the left,
+ * the primary action on the right. The footer keeps its place when the
+ * content above it changes height. */
+.onboarding-actions {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2-5);
+  padding: var(--space-4) 0 var(--space-6);
+  border-top: 1px solid var(--border);
+}
+
+.onboarding-back {
+  margin-inline-end: auto;
+}

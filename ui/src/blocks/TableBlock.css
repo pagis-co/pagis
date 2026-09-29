@@ -1,0 +1,64 @@
+/* The table block: a declarative grid, sorted locally. The
+   Card draws the frame. The grid scrolls inside the message so one
+   timeline row stays measurable in the virtualized list. */
+.block-table {
+  max-height: 22rem;
+  overflow: auto;
+}
+
+.block-table table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: var(--text-sm);
+}
+
+.block-table th,
+.block-table td {
+  padding: var(--space-2) var(--space-3-5);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.block-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* The header reads in the ground color and the muted ink. */
+.block-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--ground);
+  color: var(--muted);
+  padding: 0;
+}
+
+/* The sort control fills the header cell it sits in. */
+.block-table thead th .ui-button {
+  width: 100%;
+  justify-content: inherit;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+}
+
+.block-table .align-left {
+  text-align: left;
+}
+
+.block-table .align-center {
+  text-align: center;
+}
+
+.block-table .align-right {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.block-table-sort {
+  color: var(--muted);
+  font-size: var(--text-xs);
+  margin-left: var(--space-1);
+}

@@ -1,0 +1,119 @@
+# The preparation of the Client App packages of a release. A `v*` tag
+# starts it. Each job builds the exact package of one platform from the
+# server tuple that the release holds, and stores it as a workflow
+# artifact. Publication waits for the distribution proof in
+# docs/RELEASING-CLIENT.md.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+# One run per release tag.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+# The actions are pinned as in ci.yml.
+
+jobs:
+  release-dmg:
+    name: prepare signed DMG (macOS)
+    runs-on: macos-latest
+    timeout-minutes: 90
+    permissions:
+      # The DMG is attached to the release of the tag.
+      contents: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: download immutable server tuple
+        run: gh release download "$GITHUB_REF_NAME" --pattern runtime-lock-darwin-arm64.json --pattern 'pagis-server-*-aarch64-apple-darwin.dmg' --dir dist
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      # This job prepares the exact signed package. Publication waits for the
+      # clean-account distribution proof and uses --publish-existing so no
+      # package bytes change between proof and upload.
+      - name: cargo xtask desktop --prepare
+        run: cargo xtask desktop --tag "$GITHUB_REF_NAME" --prepare
+        env:
+          PAGIS_HOME: ${{ runner.temp }}/pagis-home
+          GH_TOKEN: ${{ github.token }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: pagis-client-${{ github.ref_name }}
+          path: desktop/release/Pagis-*-arm64.dmg
+
+  release-linux:
+    name: prepare Linux packages
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: install a virtual display
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+
+      - name: allow the Chromium sandbox of the unpacked client
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: download the immutable Linux runtime locks
+        run: gh release download "$GITHUB_REF_NAME" --pattern 'runtime-lock-linux-*.json' --dir dist
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      # This job prepares the exact packages. Publication waits for the
+      # clean-machine distribution proof, then signs their checksum list
+      # with the release key and uploads the same bytes (--publish-existing).
+      - name: cargo xtask desktop --prepare
+        run: cargo xtask desktop --tag "$GITHUB_REF_NAME" --prepare
+        env:
+          PAGIS_HOME: ${{ runner.temp }}/pagis-home
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: pagis-client-linux-${{ github.ref_name }}
+          path: |
+            desktop/release/Pagis-*.AppImage
+            desktop/release/Pagis-*.deb
+            desktop/release/Pagis-*-linux.SHA256SUMS

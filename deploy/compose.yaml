@@ -1,0 +1,188 @@
+# One Pagis server on one Linux VM.
+#
+# The shape is stated in `docs/DEPLOYING-A-SERVER.md` and it is the
+# whole shape: one VM, one daemon, one state directory, Postgres for the
+# records, and no second daemon. Two daemons on one database is not a
+# supported deployment.
+#
+#   cp .env.example .env      # and fill it in
+#   docker compose up -d
+#
+# Every setting is stated once, in `.env`. Nothing here is edited for a
+# deployment.
+#
+# `postgres`, `klipper-lb` and `caddy` are pinned by tag and digest, so a
+# server runs the bytes that its release was tested with. Dependabot
+# moves the digests between releases, and an upgrade takes the
+# `compose.yaml`, the `egress.sh` and the `Caddyfile` of the new release
+# (`docs/DEPLOYING-A-SERVER.md`).
+#
+# **Every service shares the host's network namespace**, which is what
+# makes an Agent's Computer work. The daemon starts each Computer as a
+# container of its own and reaches it on the Docker host's loopback, so
+# a daemon with a network namespace of its own reaches none of them.
+# Host networking also gives the Media Relay its UDP range directly,
+# with no forwarder for each port, and it gives the `egress` service the
+# VM's firewall. It is a Linux facility; this image is for a Linux VM and
+# not for a desktop Docker.
+#
+# Privacy is then a bind address rather than a published port: Postgres,
+# the product port and the administration port each bind loopback, and
+# the proxy is the one service that binds a public interface.
+name: pagis
+
+services:
+  # The records. The files stay on the daemon's own disk, so this
+  # holds the database and nothing else. It listens on loopback, which
+  # on a host network is the whole of its reachability.
+  db:
+    image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+    restart: unless-stopped
+    network_mode: host
+    command: ["postgres", "-c", "listen_addresses=127.0.0.1"]
+    environment:
+      POSTGRES_USER: pagis
+      POSTGRES_DB: pagis
+      POSTGRES_PASSWORD: ${PAGIS_DATABASE_PASSWORD:?set PAGIS_DATABASE_PASSWORD in .env}
+    volumes:
+      - pagis-database:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U pagis -d pagis"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # The egress policy of the Computers (ADR-0014). `egress.sh` writes
+  # rules into the VM's DOCKER-USER and INPUT chains: a Computer reaches
+  # the public internet and the Media Relay's UDP range, and no other
+  # address of this VM, no link-local address and no private address
+  # outside PAGIS_COMPUTER_ALLOW. The rules are the VM's, so root inside
+  # a Computer cannot remove them, and this service writes them because
+  # the daemon does not own the VM's firewall.
+  #
+  # The daemon starts after the rules are in place. The service then
+  # stays up, so Docker starts it again when the VM boots, and each start
+  # writes the rules again. The image is Alpine with iptables and
+  # BusyBox; its own entrypoint is not used.
+  egress:
+    image: rancher/klipper-lb:v0.4.17@sha256:910944bb0bd94f060a82a56ca1ea1c577d3e49b3473a093a47a985f32e92d94a
+    restart: unless-stopped
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+    init: true
+    environment:
+      PAGIS_MEDIA_PORT_FIRST: ${PAGIS_MEDIA_PORT_FIRST}
+      PAGIS_MEDIA_PORT_LAST: ${PAGIS_MEDIA_PORT_LAST}
+      PAGIS_COMPUTER_ALLOW: ${PAGIS_COMPUTER_ALLOW:-}
+    volumes:
+      - ./egress.sh:/pagis/egress.sh:ro
+    # The mark of a start whose rules are in place. A tmpfs is empty at
+    # each start of the container.
+    tmpfs:
+      - /run/pagis
+    entrypoint:
+      - sh
+      - -c
+      - sh /pagis/egress.sh && touch /run/pagis/egress-ready && exec sleep infinity
+    healthcheck:
+      test: ["CMD", "test", "-e", "/run/pagis/egress-ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # The daemon. It is the only service that reaches the Docker socket,
+  # because it is the only one that starts Computers.
+  pagis:
+    image: ghcr.io/pagis-co/pagis-server:${PAGIS_VERSION:?set PAGIS_VERSION in .env}
+    restart: unless-stopped
+    # A stop sends SIGTERM, and the daemon then stops the Computers it
+    # holds awake. Docker gives each Computer ten seconds to stop, so
+    # the daemon gets more than that before Docker sends SIGKILL.
+    stop_grace_period: 30s
+    network_mode: host
+    depends_on:
+      db:
+        condition: service_healthy
+      # No Computer starts before the egress rules are in place.
+      egress:
+        condition: service_healthy
+    environment:
+      # The product port answers the proxy on loopback, never the
+      # internet. The proxy is on the same loopback, so it is also the
+      # one address whose forwarded headers the daemon believes.
+      PAGIS_BIND: 127.0.0.1
+      # The restart policy above starts the daemon again when it exits
+      # for a restart, so the Administration Interface says so.
+      PAGIS_SUPERVISED: "1"
+      PAGIS_PORT: 4400
+      # The origin a browser reaches this installation at. The image
+      # refuses to start without it. The image is a server, so it holds
+      # no Client Credential: it writes no credential file, refuses the
+      # credential trade and prints no sign-in link (ADR-0025).
+      PAGIS_PUBLIC_ORIGIN: https://${PAGIS_DOMAIN:?set PAGIS_DOMAIN in .env}
+      PAGIS_TRUSTED_PROXY: 127.0.0.1
+      # The administration port stays on loopback, so it is reachable
+      # over an SSH tunnel and from nowhere else.
+      PAGIS_ADMINISTRATION_BIND: 127.0.0.1
+      PAGIS_ADMINISTRATION_PORT: 4401
+      PAGIS_DATABASE_URL: postgres://pagis:${PAGIS_DATABASE_PASSWORD}@127.0.0.1:5432/pagis
+      # The Media Relay: the address a browser reaches it at and the UDP
+      # range it binds, stated once. Open exactly that range in
+      # the VM's firewall.
+      PAGIS_SCREEN_ADVERTISE_IP: ${PAGIS_PUBLIC_IP:?set PAGIS_PUBLIC_IP in .env}
+      PAGIS_SCREEN_MEDIA_PORT_FIRST: ${PAGIS_MEDIA_PORT_FIRST}
+      PAGIS_SCREEN_MEDIA_PORT_LAST: ${PAGIS_MEDIA_PORT_LAST}
+      # The first run, with no browser. They are read at
+      # the first start that finds nobody who can sign in, and ignored
+      # from then on. Leave them empty to finish setup on the
+      # administration port instead.
+      PAGIS_ADMIN_EMAIL: ${PAGIS_ADMIN_EMAIL:-}
+      PAGIS_ADMIN_PASSWORD: ${PAGIS_ADMIN_PASSWORD:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      DOCKER_HOST: unix:///var/run/docker.sock
+    secrets:
+      # The Installation Key that seals `secrets.enc` (ADR-0013), at
+      # `/run/secrets/pagis-secrets-key`. Compose outside Swarm mounts
+      # the file as it is on the host, with its owner and its mode. The
+      # daemon refuses a key file that a group or another user can
+      # read, so the file on the host has mode 600.
+      - pagis-secrets-key
+    volumes:
+      # The state directory: the sealed secrets, the memory
+      # repositories, the artifacts, the recordings, the Plugins and the
+      # Software. `deploy/backup.sh` captures it. It is a directory of
+      # the VM at the same path, not a named volume: the daemon gives
+      # each Computer the screend token and the Plugin checkouts as bind
+      # mounts of files in it, and Docker reads a bind source on the VM.
+      - /var/lib/pagis:/var/lib/pagis
+      # The Docker socket, for the Computers. Nothing else in this file
+      # receives it: reaching this socket is reaching the host.
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  # The reverse proxy. It holds the certificate and speaks TLS to the
+  # browser; the daemon terminates no TLS (ADR-0024). It is the
+  # one service that binds a public interface, on 80 and 443.
+  proxy:
+    image: caddy:2-alpine@sha256:6aeddd44c3078b0f9a35206472a11420648a79c184603ef95957d0a20044cb2b
+    restart: unless-stopped
+    network_mode: host
+    depends_on:
+      - pagis
+    environment:
+      PAGIS_DOMAIN: ${PAGIS_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+secrets:
+  pagis-secrets-key:
+    file: ./secrets/pagis-secrets-key
+
+volumes:
+  pagis-database:
+  caddy-data:
+  caddy-config:

@@ -1,0 +1,66 @@
+/* The thread pane, over the Desk panel. */
+
+.thread-pane {
+  width: min(var(--panel-width), 34vw);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--ground);
+  box-shadow: var(--shadow-rest);
+}
+
+.thread-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2-5);
+  padding: var(--space-3-5) var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.thread-title {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+
+.thread-count {
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.thread-desk.ui-button {
+  margin-left: auto;
+}
+
+.thread-body {
+  flex: 1;
+  overflow: hidden auto;
+}
+
+/* The root message as a short quote over the replies. */
+.thread-root {
+  padding: var(--space-3-5) var(--space-4);
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+
+.thread-root strong {
+  color: var(--text);
+}
+
+.thread-root-text {
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.thread-replies {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4);
+}

@@ -1,0 +1,30 @@
+/* Software (ADR-0022): the same master-detail shapes as
+ * Automations, with a wider row and the patch of one Contribution. */
+
+.software-row {
+  grid-template-columns: auto minmax(9rem, 1fr) 5rem 8rem 10rem 6rem 12rem;
+}
+
+.software-open-contributions {
+  color: var(--waiting);
+}
+
+.software-contribution {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  border-top: 1px solid var(--border);
+  padding: var(--space-2) 0;
+}
+
+.software-patch {
+  margin: 0;
+  overflow-x: auto;
+  font-size: var(--text-sm);
+}
+
+@media (max-width: 760px) {
+  .software-row {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,0 +1,70 @@
+/* What every Agent surface shares: the section head of the
+ * phone and mailbox cards, the agent form, and the access rows. */
+
+.agent-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.agent-section-header h2 {
+  margin: 0;
+  font-size: var(--text-lg);
+}
+
+.agent-name {
+  font-weight: var(--weight-semibold);
+}
+
+.agent-job {
+  color: var(--muted);
+  font-size: var(--text-sm);
+  flex: 1;
+}
+
+.agent-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+}
+
+.agent-access,
+.agent-access-connection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2-5);
+}
+
+.agent-access h3 {
+  margin: 0;
+}
+
+.agent-access-connection {
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-3);
+}
+
+.agent-form-actions {
+  display: flex;
+  gap: var(--space-1-5);
+}
+
+/* The Mailbox section of the Agent creation form. */
+.agent-form-mailbox {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-2);
+}
+
+.agent-form-mailbox h5 {
+  margin: 0;
+}
+
+.agent-form-mailbox label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  font-size: var(--text-md);
+}

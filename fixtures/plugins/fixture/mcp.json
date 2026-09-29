@@ -1,0 +1,13 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "fixture": {
+      "type": "stdio",
+      "command": "./server",
+      "env": {
+        "FIXTURE_API_KEY": "${config.api_key}",
+        "PAGIS_FIXTURE_DROP_FILE": "${PLUGIN_DATA}/drop"
+      }
+    }
+  }
+}

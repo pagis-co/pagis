@@ -1,0 +1,38 @@
+/* The Sound section. Every value comes from `tokens.css`. */
+
+.sound-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.sound-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+
+.sound-title h1 {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+
+.sound-title span,
+.sound-note,
+.sound-cue-meaning {
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.sound-note,
+.sound-hear {
+  margin-left: auto;
+}
+
+.sound-cue-name {
+  width: 180px;
+  flex-shrink: 0;
+  font-weight: var(--weight-medium);
+}

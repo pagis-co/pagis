@@ -1,0 +1,45 @@
+/* Tabs. Every value comes from `tokens.css`. */
+
+.ui-tabs {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.ui-tabs-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-0-5);
+  border-bottom: 1px solid var(--border);
+}
+
+.ui-tab {
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: var(--space-1-5) var(--space-2-5);
+  cursor: pointer;
+  transition: color var(--duration-fast) ease;
+}
+
+.ui-tab:hover {
+  color: var(--text);
+}
+
+.ui-tab[data-state='active'] {
+  color: var(--accent-ink);
+  border-bottom-color: var(--accent);
+  font-weight: var(--weight-semibold);
+}
+
+.ui-tabs-content {
+  min-height: 0;
+  flex: 1;
+}
+
+.ui-tabs-content:focus {
+  outline: none;
+}

@@ -1,0 +1,84 @@
+<!doctype html>
+<!--
+  The fingerprint page. It reads the five values a site weighs
+  when it decides whether the agent gets a normal page — the timezone,
+  the language, the number of fonts, the WebGL renderer and
+  navigator.webdriver — and writes them into the document title as
+  JSON. The gate test reads that title from screend's window list,
+  because screend serves pixels and a local page can write nothing else
+  the test can read.
+
+  The page also prints the report, so a person who opens the computer
+  sees the same values on the screen.
+-->
+<meta charset="utf-8">
+<title>pagis fingerprint</title>
+<style>
+  body { background: #101014; color: #e8e8ea; font: 16px monospace; padding: 24px; }
+  pre { white-space: pre-wrap; }
+</style>
+<pre id="out">reading…</pre>
+<script>
+// The families the test counts. The list mixes the faces the image
+// installs with families it does not carry, so the count reports what
+// the browser found and not the length of this list.
+const FAMILIES = [
+  "DejaVu Sans", "DejaVu Serif", "DejaVu Sans Mono",
+  "Liberation Sans", "Liberation Serif", "Liberation Mono",
+  "Noto Sans", "Noto Serif", "Noto Color Emoji",
+  "Arimo", "Tinos", "Cousine", "Carlito", "Caladea",
+  "Arial", "Times New Roman", "Courier New", "Calibri", "Cambria",
+  "Georgia", "Verdana", "Tahoma", "Trebuchet MS", "Impact",
+  "Comic Sans MS", "Helvetica", "Segoe UI", "Menlo",
+];
+// Each family is measured against the three generic families. A family
+// the browser does not have falls back to its generic and measures the
+// same; a family it has changes the width of the sample.
+const GENERICS = ["monospace", "serif", "sans-serif"];
+const SAMPLE = "mmmmmmmmmmlli-WWWQQQ";
+
+function widthOf(font) {
+  const ctx = document.createElement("canvas").getContext("2d");
+  ctx.font = '72px ' + font;
+  return ctx.measureText(SAMPLE).width;
+}
+
+function fontCount() {
+  const base = GENERICS.map(widthOf);
+  return FAMILIES.filter((family) =>
+    GENERICS.some((generic, index) =>
+      widthOf('"' + family + '", ' + generic) !== base[index])).length;
+}
+
+function webglRenderer() {
+  const gl = document.createElement("canvas").getContext("webgl");
+  if (!gl) {
+    return "";
+  }
+  // WEBGL_debug_renderer_info carries the unmasked string. Where the
+  // browser withholds the extension, RENDERER is the same answer with
+  // less detail.
+  const info = gl.getExtension("WEBGL_debug_renderer_info");
+  const name = info
+    ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL)
+    : gl.getParameter(gl.RENDERER);
+  return typeof name === "string" ? name : "";
+}
+
+async function report() {
+  await document.fonts.ready;
+  const found = {
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    language: navigator.language,
+    fonts: fontCount(),
+    webgl: webglRenderer(),
+    webdriver: navigator.webdriver === true,
+  };
+  document.getElementById("out").textContent = JSON.stringify(found, null, 2);
+  // The title is the read path: the compositor holds it, and screend
+  // reports it on GET /windows.
+  document.title = "pagis-fingerprint " + JSON.stringify(found);
+}
+
+report();
+</script>

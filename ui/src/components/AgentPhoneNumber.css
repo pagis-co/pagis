@@ -1,0 +1,132 @@
+/* The Agent Phone Number card and the three-step buy. */
+
+.agent-phone {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.agent-phone h4 {
+  margin: 0;
+}
+
+.phone-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3) var(--space-3);
+}
+
+.phone-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2-5);
+}
+
+.phone-chips {
+  display: flex;
+  gap: var(--space-2-5);
+}
+
+.phone-chip {
+  color: var(--muted);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+/* The registration state of a line that is not registered. */
+.phone-chip-warning {
+  color: var(--waiting-ink);
+}
+
+.phone-adopt {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+  max-width: 26rem;
+}
+
+.phone-buy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3) var(--space-3);
+}
+
+.phone-buy section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  align-items: flex-start;
+}
+
+.phone-buy .ui-input {
+  width: 100%;
+  max-width: 20rem;
+}
+
+.phone-steps {
+  display: flex;
+  gap: var(--space-3);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.phone-steps li[aria-current='step'] {
+  color: var(--text);
+  font-weight: var(--weight-semibold);
+}
+
+.phone-offer {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-0-5);
+  width: 100%;
+  text-align: left;
+}
+
+.phone-release {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2-5) var(--space-3);
+}
+
+.phone-release p {
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+/* The Standing Brief of a desk line (ADR-0020): what a call the Agent
+ * answers is for. It reads as one block on the card, under the line
+ * itself, because it belongs to the line and not to the profile. */
+.phone-brief {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-2-5);
+}
+
+.phone-brief > .settings-label {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+
+.phone-brief > .settings-hint {
+  margin: 0;
+}

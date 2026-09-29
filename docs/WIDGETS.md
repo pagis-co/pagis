@@ -1,0 +1,235 @@
+# Write a widget for Pagis
+
+A widget is an HTML page a Software Package ships. A tool of that
+package renders it, and the reader sees the page in the conversation
+beside the text the tool wrote. Pagis is an MCP Apps host, so a package
+written for Pagis also runs in another host of that extension.
+
+This guide is the author's side: what the package holds, what the
+publish accepts, and how the page reaches the daemon. The same text
+reaches an Agent as the first-party Skill `pagis:widgets`, in
+`computer/skills/widgets/SKILL.md`.
+
+Read `docs/adr/0016-a-software-package-is-a-tag-addressed-version.md` for
+the decision and the Version model the page is addressed by, and
+`docs/adr/0004-a-block-that-asks-is-a-request.md` for the block and the
+Request.
+
+## When a widget earns its place
+
+A widget is for a shape the reader must see: a chart, a table, a board,
+a small form. A sentence is not a shape. The page, its schema and its
+review are the cost, and the reader pays it on every message that
+carries the block.
+
+## The scaffold
+
+`computer/skills/widgets/scaffold/` is a whole package with one widget.
+It ships in the Computer image at
+`/opt/pagis/skills/widgets/scaffold/`, so an Agent forks it with one
+`cp -r` into `~/software/<name>`.
+
+```
+pagis-software.toml     the manifest, with one [[widget]]
+widgets/chart.html      the page: style, script and protocol in one file
+schemas/chart.json      the schema of the data the page receives
+schemas/*.json          the argument schema of each tool
+bin/show.py             the tool the model calls, which renders the widget
+bin/series.py           the tool the widget alone calls, to redraw itself
+bin/ask.py              the tool that renders the widget and waits
+bin/readings.py         the code the three tools share
+data/readings.json      the data the three tools read
+```
+
+## The manifest
+
+```toml
+[[tool]]
+name = "show"
+description = "Draw the last days of readings as a bar chart."
+entry = "bin/show.py"
+schema = "schemas/show.json"
+widget = "chart"               # renders into the widget of that name
+visibility = ["model", "app"]  # the default; ["app"] hides it from the model
+awaits_input = false           # true parks the Run on a `widget` Request
+
+[[widget]]
+name = "chart"
+html = "widgets/chart.html"       # an HTML5 document in the version tree
+schema = "schemas/chart.json"     # the JSON Schema of `structuredContent`
+csp = { connect = [], resource = [] }   # https origins, empty by default
+```
+
+The URI of a widget is derived from the package and the name:
+`ui://<package>/<widget>`. No manifest writes it.
+
+The publish refuses:
+
+- a `html` or a `schema` file that is not inside the package root;
+- a page over 1 MB;
+- a `csp` entry that is not an `https` origin;
+- a tool whose `widget` names no declared widget;
+- `awaits_input` on a tool that renders no widget;
+- an empty `visibility`.
+
+## The result split
+
+A tool that renders a widget prints one JSON object with two keys:
+
+```json
+{
+  "content": "A chart of 7 readings. The highest is Day 13 at 38.",
+  "structuredContent": { "title": "The last 7 readings", "bars": [] }
+}
+```
+
+`structuredContent` reaches the page alone, and the daemon checks it
+against the widget schema first: data that fails the schema draws
+nothing and returns the schema error to the model. `content` reaches
+the model alone, inside the untrusted envelope, and it is the author's
+projection of the page. Write it as the whole answer, because a reader
+on a surface that draws no widget reads that line and nothing else.
+
+An app-only tool renders no widget, so it prints one plain JSON value.
+The page reads that value back from the text of the tool result.
+
+## The block
+
+The daemon mints the block; `add_block` cannot render a widget.
+
+```json
+{
+  "type": "widget",
+  "package": "chart",
+  "version": "v1",
+  "widget": "chart",
+  "tool_call_id": "call_1",
+  "text": "A chart of 7 readings.",
+  "request_id": "req_9"
+}
+```
+
+It carries no HTML and no data. The page comes from the page route by
+package, Version and name, so an old message draws the Version it
+names after an update; the data comes from the live view and is gone
+when the Run ends. `request_id` is present only when the tool declared
+`awaits_input`.
+
+## The page
+
+The Product App never frames the page. It frames the daemon's sandbox proxy on
+a second origin, and the proxy loads the page through `srcdoc` into an
+inner frame with `sandbox="allow-scripts"` and without
+`allow-same-origin`. Each page therefore runs at an opaque origin of its
+own. It cannot reach the Product App, the proxy or another widget, and it has
+no persistent browser storage: `localStorage`, IndexedDB and cookies are
+not available. A page gets its data from tool results. The proxy sets
+the sandbox of the inner frame itself and ignores a value that a message
+sends.
+
+The page speaks JSON-RPC with its parent over `postMessage`:
+
+| direction | method | what it does |
+| --- | --- | --- |
+| out | `ui/initialize` | asks for the theme and the container width |
+| out | `ui/notifications/initialized` | nothing reaches the page before it |
+| in | `ui/notifications/tool-input` | the arguments of the tool call |
+| in | `ui/notifications/tool-result` | the `structuredContent` |
+| out | `ui/notifications/size-changed` | the height, up to 640 px |
+| out | `tools/call` | one app-visible tool of the same package |
+| out | `resources/read` | one `ui://` page of the same package |
+| out | `ui/message` | the one answer, when the tool awaits input |
+| in | `ui/resource-teardown` | the Run ended |
+
+Every other method answers `-32601`. `ui/open-link`,
+`ui/update-model-context`, picture-in-picture, fullscreen, device
+permissions and nested frames are not built.
+
+`tools/call` names the tool without the package prefix, and the daemon
+qualifies it with the view's own package. The broker then refuses a
+tool of another package, a tool that is not app-visible, and a tool
+whose effect needs an approval: a page must never park the Run that
+draws it.
+
+## The answer
+
+A widget that does not await input has no path to the model. With
+`awaits_input = true` the Run parks on a `widget` Request beside the
+block, and the page answers it once:
+
+```js
+request('ui/message', {
+  role: 'user',
+  content: { type: 'text', text: 'Look into Day 13.' },
+  value: { day: 'Day 13' },
+})
+```
+
+The text is required and is at most 4096 characters; `value` is any
+JSON and is at most 64 KB. The values are checked against the Request
+row, never against anything the page sent. The answer reaches the Run
+inside the untrusted envelope, wrapped as `widget:<package>/<widget>`,
+because a reader wrote it. The store's own pending check makes the
+answer one-shot.
+
+## The wall
+
+The daemon serves the proxy under the policy that the `csp` lists of the
+widget build, and the `srcdoc` page inherits it:
+
+```
+default-src 'none'; script-src 'self' 'unsafe-inline'<resource>;
+style-src 'self' 'unsafe-inline'<resource>; img-src 'self' data:<resource>;
+font-src 'self' data:<resource>; media-src 'self' data:<resource>;
+connect-src 'none'|<connect>; frame-src 'none'; base-uri 'none';
+form-action 'none'
+```
+
+`'unsafe-inline'` stays, as the MCP Apps extension has it, so the style
+and the script live inside the page. `connect-src` is the wall: a page
+that declares no origin reaches no network, and it reads its data
+through a tool instead. `connect` opens requests; `resource` opens
+scripts, styles, images, fonts and media. Every declared origin is an
+origin the page's data can leave through, so declare none you do not
+need.
+
+## The routes
+
+```
+GET  /api/v1/widgets/{package}/{version}/{widget}                          (Session cookie)
+GET  /api/v1/widgets/{workspace_id}/{package}/{version}/{widget}/sandbox   (no Session)
+GET  /api/v1/widgets/{tool_call_id}/view                                   (Session cookie)
+POST /api/v1/widgets/{tool_call_id}/rpc                                    (Session cookie)
+```
+
+The page route serves the file as inert data: `application/octet-stream`,
+an attachment, `nosniff`, the policy `sandbox; default-src 'none'` and
+the immutable cache header a Version earns. A browser that opens the
+route saves the file and runs nothing at the Product App origin. The
+Product App reads the file as text and sends it to the sandbox proxy,
+which is the only place that runs a page. The sandbox route serves the
+proxy under the built policy and needs no Session. The frame loads from
+the other loopback name, and the Session cookie is `SameSite=Strict`,
+so the frame sends no cookie. The route therefore takes the Workspace
+from its path, and a Widget of one person gets the policy that person's
+Version declares. An unknown widget answers as well, under the closed
+default policy, so the one open route says nothing about what is
+installed.
+
+The two origins the proxy needs are the daemon's own loopback names,
+`localhost` and `127.0.0.1`. A Product App that is not on the loopback has no
+second origin and draws the projection instead: a widget that cannot be
+isolated is not drawn at all.
+
+## The caps
+
+| cap | value |
+| --- | --- |
+| the page | 1 MB |
+| `structuredContent` | 256 KB |
+| widgets per tool result | 1 |
+| live widgets in one conversation | 20 |
+
+The newest widgets keep the live frames. An older block on the same
+screen shows its projection until the reader scrolls back to it, which
+claims a frame again.

@@ -1,0 +1,515 @@
+/* The Memory place: the left column, the page and its rail, and the
+ * Changes view. Every value comes from `tokens.css`. */
+
+.memory {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  background: var(--panel);
+}
+
+.memory-nav {
+  width: 300px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  padding: var(--space-6) var(--space-3);
+  border-right: 1px solid var(--sunken);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  overflow: hidden auto;
+}
+
+.memory-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-2-5) var(--space-1);
+}
+
+.memory-title h2 {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semibold);
+}
+
+.memory-scopes {
+  display: flex;
+  gap: var(--space-1);
+  padding: var(--space-0-5);
+  margin: 0 var(--space-1);
+  border-radius: var(--radius-md);
+  background: var(--sunken);
+}
+
+.memory-scope.ui-button {
+  flex: 1;
+  gap: var(--space-1-5);
+  font-weight: var(--weight-regular);
+  color: var(--muted);
+}
+
+.memory-scope-current.ui-button {
+  background: var(--panel);
+  color: var(--accent-ink);
+  font-weight: var(--weight-semibold);
+}
+
+/* The views read as pills, not as an underlined strip. */
+.memory-views {
+  display: flex;
+  gap: var(--space-1-5);
+  margin: 0 var(--space-1);
+}
+
+.memory-view.ui-button {
+  font-weight: var(--weight-regular);
+  color: var(--muted);
+}
+
+.memory-view.ui-button[aria-pressed='true'] {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-weight: var(--weight-semibold);
+}
+
+.memory-search {
+  margin: var(--space-1) var(--space-1) 0;
+}
+
+.memory-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.memory-group-label {
+  margin: var(--space-2-5) var(--space-3) var(--space-0-5);
+}
+
+.memory-row.ui-button {
+  width: 100%;
+  justify-content: flex-start;
+  gap: var(--space-2-5);
+  height: auto;
+  text-align: left;
+  font-weight: var(--weight-regular);
+}
+
+.memory-row-current.ui-button {
+  background: var(--accent-soft);
+}
+
+.memory-row-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.memory-row-title {
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.memory-row-current .memory-row-title {
+  font-weight: var(--weight-semibold);
+}
+
+.memory-row-meta,
+.memory-rail-meta,
+.memory-timeline-meta {
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+
+.memory-source-mark {
+  margin-left: auto;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-sm);
+  background: var(--sunken);
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+}
+
+.memory-more.ui-button {
+  align-self: flex-start;
+  margin: var(--space-1) var(--space-2-5);
+  color: var(--muted);
+}
+
+.memory-nav-note {
+  margin: auto 0 0;
+  padding: 0 var(--space-2-5);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--muted);
+}
+
+.memory-empty,
+.memory-note {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--muted);
+}
+
+.memory-empty {
+  padding: var(--space-2) var(--space-3);
+}
+
+.memory-page {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+.memory-page-empty {
+  align-items: center;
+  justify-content: center;
+}
+
+.memory-article {
+  flex: 1;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: var(--space-7) var(--space-10);
+  overflow: hidden auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3-5);
+}
+
+.memory-article-header {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.memory-article-header h1 {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semibold);
+}
+
+.memory-article-kind {
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.memory-article-actions {
+  margin-left: auto;
+  display: flex;
+  gap: var(--space-2);
+}
+
+.memory-article-path {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+
+.memory-truth,
+.memory-prose {
+  margin: 0;
+  font-size: var(--text-md);
+  line-height: var(--leading-relaxed);
+  white-space: pre-line;
+}
+
+.memory-prose {
+  white-space: normal;
+}
+
+.memory-facts {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.memory-facts td {
+  padding: var(--space-1-5) var(--space-2-5);
+  border-bottom: 1px solid var(--sunken);
+  vertical-align: top;
+}
+
+.memory-facts .memory-facts-kind {
+  width: 160px;
+  color: var(--muted);
+}
+
+.memory-facts-note {
+  color: var(--muted);
+}
+
+.memory-schedule {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2-5);
+  padding: var(--space-2-5) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--waiting-soft);
+  font-size: var(--text-sm);
+}
+
+.memory-schedule-due {
+  margin-left: auto;
+  color: var(--waiting-ink);
+}
+
+.memory-rule {
+  margin: var(--space-1) 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+.memory-timeline {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2-5);
+}
+
+.memory-timeline-entry {
+  display: flex;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+
+.memory-timeline-time {
+  width: 96px;
+  flex-shrink: 0;
+  color: var(--muted);
+}
+
+.memory-timeline-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.memory-timeline-words {
+  white-space: pre-line;
+}
+
+.memory-rail {
+  width: 340px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  padding: var(--space-7) var(--space-5);
+  border-left: 1px solid var(--sunken);
+  background: var(--ground);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  overflow: hidden auto;
+}
+
+.memory-rail .ui-section-label {
+  margin-top: var(--space-1-5);
+}
+
+.memory-rail-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.memory-rail-message {
+  font-size: var(--text-sm);
+}
+
+.memory-rail-action {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.memory-source-tile {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: var(--radius-md);
+  background: var(--sidebar);
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+}
+
+/* The Changes view. */
+.memory-changes {
+  flex: 1;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: var(--space-7) var(--space-10);
+  overflow: hidden auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3-5);
+}
+
+.memory-changes-header {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.memory-changes-header h1 {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+
+.memory-changes-filters {
+  margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1-5);
+}
+
+.memory-changes-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-1-5);
+}
+
+.memory-change.ui-row {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.memory-change-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.memory-change-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.memory-change-sentence.ui-button {
+  font-size: var(--text-md);
+  font-weight: var(--weight-regular);
+  text-align: left;
+  white-space: normal;
+}
+
+.memory-change-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1-5);
+  margin-top: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+
+.memory-change-chip.ui-button {
+  background: var(--sidebar);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-regular);
+  color: var(--text);
+}
+
+.memory-change-actions {
+  margin-left: auto;
+  flex-shrink: 0;
+  display: flex;
+  gap: var(--space-1-5);
+}
+
+.memory-diff {
+  margin: var(--space-2-5) 0 0 var(--space-8);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.memory-diff-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.memory-diff-side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  padding: var(--space-2-5) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--ground);
+  min-width: 0;
+}
+
+.memory-diff-label {
+  margin-bottom: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+
+.memory-diff-line {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+del.memory-diff-line {
+  background: var(--failed-soft);
+}
+
+ins.memory-diff-line {
+  background: var(--working-soft);
+  text-decoration: none;
+}
+
+/* A phone stacks the list, the page and the rail. */
+@media (max-width: 760px) {
+  .memory,
+  .memory-page {
+    flex-direction: column;
+    overflow: hidden auto;
+  }
+
+  .memory-nav,
+  .memory-rail {
+    width: 100%;
+    border: none;
+  }
+
+  .memory-article,
+  .memory-changes {
+    padding: var(--space-5) var(--space-4);
+    overflow: visible;
+  }
+
+  .memory-diff {
+    margin-left: 0;
+  }
+
+  .memory-diff-pair {
+    grid-template-columns: 1fr;
+  }
+}

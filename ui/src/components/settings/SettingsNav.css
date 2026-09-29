@@ -1,0 +1,32 @@
+/* The settings nav. The shell comes from `ui-settings-nav`;
+ * this sheet draws the title, the group labels and the items. */
+
+.settings-nav-title {
+  margin: 0 var(--space-2-5) var(--space-1-5);
+  font-family: var(--font-serif);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semibold);
+}
+
+.settings-nav-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-nav-group > .ui-section-label {
+  margin: var(--space-3-5) var(--space-2-5) var(--space-1);
+}
+
+.settings-nav-item.ui-button {
+  width: 100%;
+  min-height: 2.125rem;
+  justify-content: flex-start;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-regular);
+}
+
+.settings-nav-item-active.ui-button {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-weight: var(--weight-semibold);
+}

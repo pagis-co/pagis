@@ -1,0 +1,160 @@
+/* Button and IconButton. Every value comes from `tokens.css`.
+ *
+ * There are two sizes: the 32 px `md` button of a
+ * row and a page head, and the 26 px `sm` button that sits inline in a
+ * line of text. A screen that uses a ghost button as a row raises the
+ * min-height itself. */
+
+.ui-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1-5);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  font: inherit;
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-tight);
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background var(--duration-fast) ease,
+    border-color var(--duration-fast) ease,
+    color var(--duration-fast) ease;
+}
+
+.ui-button-sm {
+  min-height: 1.625rem;
+  font-size: var(--text-xs);
+  padding: var(--space-1) var(--space-2);
+}
+
+.ui-button-md {
+  min-height: 2rem;
+  font-size: var(--text-sm);
+  padding: var(--space-1-5) var(--space-3);
+}
+
+.ui-button-lg {
+  font-size: var(--text-md);
+  padding: var(--space-2) var(--space-4);
+}
+
+.ui-button-xl {
+  font-size: var(--text-md);
+  padding: var(--space-5);
+  border-radius: var(--radius-lg);
+}
+
+.ui-button-primary {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.ui-button-primary:hover:not(:disabled) {
+  background: var(--accent-ink);
+}
+
+.ui-button-outline {
+  background: var(--panel);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+.ui-button-outline:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.ui-button-ghost {
+  background: transparent;
+  color: var(--muted);
+}
+
+.ui-button-ghost:hover:not(:disabled) {
+  background: var(--wash);
+  color: var(--text);
+}
+
+.ui-button-danger {
+  background: var(--failed-soft);
+  color: var(--failed-ink);
+  border-color: var(--failed);
+}
+
+.ui-button-danger:hover:not(:disabled) {
+  background: var(--failed);
+  color: var(--on-failed);
+}
+
+/* The way in to a destructive act, sitting among the other acts of a
+   row: quiet until it is reached for. The act that destroys is loud;
+   the door to it is not, or every row shouts. */
+.ui-button-danger-quiet {
+  background: transparent;
+  color: var(--muted);
+  border-color: transparent;
+}
+
+.ui-button-danger-quiet:hover:not(:disabled) {
+  background: var(--failed-soft);
+  color: var(--failed-ink);
+}
+
+.ui-button:disabled {
+  opacity: var(--opacity-disabled);
+  cursor: not-allowed;
+}
+
+.ui-icon-button {
+  padding: var(--space-1-5);
+  color: var(--muted);
+}
+
+.ui-icon-button.ui-button-sm {
+  padding: var(--space-1);
+}
+
+.ui-icon-button.ui-button-lg {
+  padding: var(--space-2);
+}
+
+/* A chip and a filter: the same button with the ends rounded. */
+.ui-button-pill {
+  border-radius: var(--radius-pill);
+}
+
+/* One row of a Frame that is also a control: the mail strip and the
+ * call head. The button owns the row box, so the screen names
+ * no padding and no border of its own. The frame draws the last edge,
+ * so the last row draws none. */
+.ui-button-row {
+  width: 100%;
+  justify-content: flex-start;
+  padding: var(--space-3) var(--space-4);
+  border: none;
+  border-radius: 0;
+  text-align: left;
+}
+
+.ui-button-row:not(:last-child) {
+  border-bottom: 1px solid var(--border);
+}
+
+/* Words that act as a link. The control keeps no box, so it sits in
+ * the line of text it belongs to; the screen names the color. */
+.ui-button.ui-button-link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+}
+
+.ui-tooltip {
+  background: var(--warm-9);
+  color: var(--warm-1);
+  font-size: var(--text-xs);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-rest);
+  z-index: var(--z-overlay-controls);
+}

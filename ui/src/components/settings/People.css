@@ -1,0 +1,77 @@
+/* The People section: a title line, the new-account form, and
+ * one block per person with their spend, their cap and the two writes.
+ * Every value comes from `tokens.css`. */
+
+.people {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.people-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+
+.people-title h1 {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+
+.people-title span {
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.people-new {
+  flex-wrap: wrap;
+  gap: var(--space-2-5);
+}
+
+.people-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+  padding: var(--space-2-5) 0;
+}
+
+.people-row + .people-row {
+  border-top: 1px solid var(--border);
+}
+
+.people-name {
+  font-weight: var(--weight-medium);
+}
+
+.people-email,
+.people-unit,
+.people-spend,
+.people-total {
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+/* The spend sits at the end of the name line, before the switch. */
+.people-spend {
+  margin-left: auto;
+}
+
+.people-trailing {
+  margin-left: var(--space-2-5);
+}
+
+.people-controls {
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.people-cap {
+  width: 7.5rem;
+}
+
+.people-email-field,
+.people-password {
+  width: 12rem;
+}

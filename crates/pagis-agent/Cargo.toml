@@ -1,0 +1,37 @@
+[package]
+name = "pagis-agent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+base64.workspace = true
+futures.workspace = true
+image.workspace = true
+llm-router.workspace = true
+object_store.workspace = true
+pagis-broker.workspace = true
+pagis-computer.workspace = true
+pagis-core.workspace = true
+serde.workspace = true
+sha2.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+utoipa.workspace = true
+
+[dev-dependencies]
+pagis-knowledge.workspace = true
+git2.workspace = true
+pagis-audit.workspace = true
+pagis-memory.workspace = true
+pagis-storage-sqlite.workspace = true
+pagis-testkit.workspace = true
+sqlx.workspace = true
+tempfile.workspace = true
+wiremock.workspace = true
+# `start_paused` lets deadline tests advance without a wall-clock wait.
+tokio = { workspace = true, features = ["test-util"] }

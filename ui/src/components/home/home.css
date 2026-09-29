@@ -1,0 +1,214 @@
+/* Home, the Report of the Chief of Staff (ADR-0022): the date,
+ * the brief line, the Needs-You Queue, the Report prose, the work
+ * record and the composer, one column top to bottom. The Desks sit in
+ * the panel beside it. Every color comes from `tokens.css`. */
+
+.home {
+  padding: var(--page-padding);
+  overflow: hidden auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+  width: 100%;
+  max-width: var(--page-width);
+  margin-inline: auto;
+}
+
+.home-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2-5);
+}
+
+.home-header-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.home-header h2 {
+  margin: 0;
+}
+
+.home-header .page-intro {
+  margin: var(--space-0-5) 0 0;
+}
+
+.home-write-report {
+  flex: none;
+  gap: var(--space-1-5);
+}
+
+
+.home-section {
+  min-width: 0;
+  padding: var(--space-5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--raised);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2-5);
+}
+
+.home-section h3 {
+  margin: 0;
+  font-size: var(--text-md);
+}
+
+.home-empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.home-queue,
+.home-recent {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2-5);
+}
+
+/* The queue row: one card frame, the same as a timeline block.
+   The dot carries the state hue; amber waits for you, red failed. */
+.home-queue-item {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-1-5);
+}
+
+.home-queue-card {
+  margin: 0;
+}
+
+.home-queue-head,
+.home-queue-asks {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.home-queue-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--waiting);
+}
+
+.home-queue-item[data-kind='failed'] .home-queue-dot,
+.home-queue-item[data-kind='call'] .home-queue-dot,
+.home-queue-item[data-kind='keypad'] .home-queue-dot {
+  background: var(--failed);
+}
+
+.home-queue-line {
+  font-weight: var(--weight-semibold);
+}
+
+.home-queue-clock {
+  margin-left: auto;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.home-queue-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.home-queue-detail {
+  margin: 0;
+  padding-left: var(--space-4);
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.home-recent-row {
+  display: grid;
+  grid-template-columns: auto minmax(8rem, 1fr) 5rem 4rem;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  text-align: left;
+}
+
+.home-recent-what {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  min-width: 0;
+}
+
+.home-recent-trigger {
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.home-recent-duration,
+.home-recent-stamp {
+  color: var(--muted);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.home-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+.home-section-note {
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+/* The Report reads as prose, not as a card: the Chief of Staff speaks
+   here, beside its own face. */
+.home-report-prose {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.home-report-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.home-composer {
+  margin-top: auto;
+}
+.home-header h2 {
+  font-size: var(--text-xl);
+  letter-spacing: var(--tracking-tight);
+}
+.home-recent-row.ui-button {
+  background: var(--raised);
+  white-space: normal;
+}
+.home-recent-row.ui-button:hover {
+  background: var(--hover);
+}
+@media (max-width: 460px) {
+  .home-section {
+    padding: var(--space-4);
+  }
+
+  .home-recent-row {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .home-recent-duration {
+    display: none;
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "days": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 14,
+      "description": "The window the reader chose in the chart. The default is 7."
+    }
+  }
+}

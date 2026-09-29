@@ -1,0 +1,35 @@
+/* Frame and Row. Every value comes from `tokens.css`. */
+
+.ui-frame {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--raised);
+  overflow: hidden;
+}
+
+.ui-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-md);
+  border-bottom: 1px solid var(--border);
+}
+
+/* The frame draws the last edge, so the last row draws none. */
+.ui-row:last-child {
+  border-bottom: none;
+}
+
+.ui-frame-with-hint {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.ui-frame-hint {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--muted);
+}

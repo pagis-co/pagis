@@ -1,0 +1,58 @@
+/* The grant rules of an agent. */
+
+.grant-rules-empty {
+  color: var(--muted);
+  font-size: var(--text-md);
+  margin: 0;
+}
+
+.grant-row {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2-5) var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.grant-row-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.grant-agent {
+  font-weight: var(--weight-semibold);
+}
+
+.grant-resource {
+  color: var(--muted);
+  font-size: var(--text-sm);
+  flex: 1;
+}
+
+.grant-rules {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1-5);
+}
+
+.grant-rule {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  padding: var(--space-0-5) var(--space-2-5);
+  font-size: var(--text-sm);
+}
+
+.grant-rule-add {
+  display: flex;
+  gap: var(--space-2);
+}
+
+/* The new-rule field takes the rest of the row. */
+.grant-rule-add .ui-input {
+  flex: 1;
+}

@@ -1,0 +1,35 @@
+/* The settings grammar. Every value comes from
+ * `tokens.css`. A section on the grammar spaces its parts at 1 rem. */
+
+.settings-section:has(> .settings-section-head) {
+  gap: var(--space-4);
+}
+
+.settings-section-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+
+.settings-section-head h3 {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+
+.settings-section-lead {
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+/* The one primary action sits at the right of the title line. */
+.settings-section-head > .ui-button {
+  margin-left: auto;
+}
+
+.settings-section-hint {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--muted);
+}

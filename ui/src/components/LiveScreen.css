@@ -1,0 +1,22 @@
+/* The live screen view. */
+
+/* The live screen view: compact in the tile, expandable to a
+   full-page overlay. The video stays mounted across the toggle so the
+   WebRTC session survives. */
+.computer-live {
+  width: 100%;
+  background: var(--stage);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.computer-live-driving {
+  cursor: crosshair;
+  outline: none;
+}
+
+.computer-live-unavailable {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-2);
+}

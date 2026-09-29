@@ -1,0 +1,8 @@
+# The reviewed exceptions of the Trivy scans of the Computer Image, the
+# Headless Server image and each Server Package (xtask/src/advisories.rs).
+#
+# Put each exception on a line of its own: the advisory ID alone. Put its
+# reason in a comment on the line above it: how an installation can reach
+# the finding, and which update was checked. Record a finding here only
+# after the update path is checked. A finding that an update removes is not
+# an exception: update the component.

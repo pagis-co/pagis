@@ -1,0 +1,47 @@
+[package]
+name = "pagis-testkit"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+axum.workspace = true
+base64.workspace = true
+chrono.workspace = true
+chrono-tz.workspace = true
+chromiumoxide.workspace = true
+futures.workspace = true
+pagis.workspace = true
+pagis-agent.workspace = true
+pagis-audit.workspace = true
+pagis-broker.workspace = true
+pagis-computer.workspace = true
+pagis-connect.workspace = true
+pagis-google.workspace = true
+pagis-core.workspace = true
+pagis-evaluation.workspace = true
+pagis-plugins.workspace = true
+pagis-vault.workspace = true
+pagis-server.workspace = true
+pagis-storage-sqlite.workspace = true
+pagis-mail.workspace = true
+pagis-memory.workspace = true
+pagis-telephony.workspace = true
+pagis-voice.workspace = true
+reqwest.workspace = true
+regex.workspace = true
+rustix.workspace = true
+serde.workspace = true
+sqlx.workspace = true
+serde_json.workspace = true
+bollard.workspace = true
+pagis-storage-postgres.workspace = true
+tar.workspace = true
+tempfile.workspace = true
+tokio.workspace = true
+tokio-tungstenite.workspace = true
+tokio-util.workspace = true
+
+[dev-dependencies]
+llm-router.workspace = true

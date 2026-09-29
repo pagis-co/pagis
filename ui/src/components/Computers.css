@@ -1,0 +1,117 @@
+/* Computers: the tiles, the expanded screen and takeover. */
+
+/* No Docker, no computer: say so and link the two ways to get it. */
+.computers-no-docker {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-md);
+  padding: var(--space-3) var(--space-3);
+}
+
+.computers-no-docker p {
+  margin: 0 0 var(--space-1-5);
+}
+
+.computers-no-docker p:last-child {
+  margin-bottom: 0;
+}
+
+.computer-tile {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2-5) var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.computer-tile-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.computer-agent {
+  font-weight: var(--weight-semibold);
+}
+
+.computer-state {
+  color: var(--muted);
+  font-size: var(--text-sm);
+  flex: 1;
+}
+
+.computer-preview {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.computer-preview-empty {
+  color: var(--muted);
+  font-size: var(--text-md);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-8);
+  text-align: center;
+}
+
+.computer-error {
+  color: var(--failed);
+  font-size: var(--text-md);
+  margin: 0;
+}
+
+.screen-expanded {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-overlay);
+  background: var(--stage-veil);
+  display: flex;
+  flex-direction: column;
+}
+
+.screen-expanded .screen-frame {
+  flex: 1;
+  min-height: 0;
+  border: none;
+  border-radius: 0;
+}
+
+.screen-expanded .computer-live {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  object-fit: contain;
+  border: none;
+  border-radius: 0;
+}
+
+.handback-countdown {
+  background: var(--stage-veil-soft);
+  color: var(--on-solid);
+  border: 1px solid var(--on-solid);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1-5) var(--space-3-5);
+}
+
+/* The screenshot crossfade: the new shot fades in over the one
+   it replaces, which sits under it at full opacity. */
+.computer-preview-stack {
+  position: relative;
+  display: grid;
+}
+
+.computer-preview-stack .computer-preview {
+  grid-area: 1 / 1;
+}
+
+.computer-preview-new {
+  animation: preview-crossfade var(--duration-panel) ease-out;
+}
+
+@keyframes preview-crossfade {
+  from {
+    opacity: 0;
+  }
+}

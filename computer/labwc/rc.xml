@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+<!-- The agent desktop: labwc defaults — stacking windows,
+     cascade placement, server-side decorations — match the pixel
+     computer-use training distribution. -->
+<labwc_config>
+  <theme>
+    <font place="ActiveWindow"><name>DejaVu Sans</name><size>11</size></font>
+  </theme>
+</labwc_config>

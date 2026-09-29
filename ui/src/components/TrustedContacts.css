@@ -1,0 +1,68 @@
+/* Trusted contacts. Every value comes from `tokens.css`. */
+
+.trusted-contacts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.trusted-contacts-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+
+.trusted-contacts-title h3 {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+
+.trusted-contacts-title span {
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.trusted-contacts-table {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.trust-row-label {
+  width: 7.5rem;
+  flex-shrink: 0;
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.trust-row-value {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.trust-row-note {
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.trust-row-spacer {
+  margin-left: auto;
+}
+
+.trust-add-row input {
+  width: 10rem;
+}
+
+.trust-add-row .trust-row-value {
+  width: 13rem;
+}
+
+.trust-keypad-input {
+  width: 8.75rem;
+  font-family: var(--font-mono);
+  letter-spacing: var(--tracking-widest);
+}

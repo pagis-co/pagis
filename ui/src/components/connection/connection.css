@@ -1,0 +1,216 @@
+/* The connection page. Every value comes from `tokens.css`. */
+
+.connection-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.connection-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.connection-head-back {
+  color: var(--muted);
+}
+
+.connection-head-monogram {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-md);
+  background: var(--sidebar);
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  flex-shrink: 0;
+}
+
+.connection-head-identity {
+  display: flex;
+  flex-direction: column;
+}
+
+.connection-head-identity h1 {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+
+.connection-head-actions {
+  margin-left: auto;
+  display: flex;
+  gap: var(--space-2);
+}
+
+.connection-section-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2-5);
+}
+
+.connection-hint {
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.connection-error {
+  margin: 0;
+  color: var(--failed-ink);
+  font-size: var(--text-sm);
+}
+
+.connection-row-spacer {
+  margin-left: auto;
+}
+
+.connection-access-agent {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* Sync: the status strip and the two rows under it. */
+
+.connection-sync-strip {
+  gap: var(--space-7);
+}
+
+.connection-stat {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+}
+
+.connection-stat-label {
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+
+.connection-stat-value {
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+}
+
+.connection-row-label {
+  width: 160px;
+  color: var(--muted);
+}
+
+/* What reflects: one rule per row, read as a sentence. */
+
+.connection-rule-handle {
+  color: var(--muted);
+  cursor: grab;
+}
+
+/* The otherwise line holds no handle, so its words line up with the rules. */
+.connection-rule-gap {
+  width: 28px;
+}
+
+.connection-rule-position {
+  width: 20px;
+  color: var(--muted);
+}
+
+.connection-rule-actions {
+  margin-left: auto;
+  display: flex;
+  gap: var(--space-1);
+}
+
+/* One rule open in place: the verdict line, one condition per
+ * line under it, and the actions. The lines under the verdict line up
+ * with the verdict select. */
+
+.connection-rule-editor {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-2-5);
+  background: var(--panel);
+}
+
+.connection-rule-editor-line,
+.connection-condition {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.connection-rule-editor-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-left: calc(var(--space-7) + var(--space-5) + var(--space-4));
+}
+
+.connection-rule-editor-actions {
+  flex-direction: row;
+}
+
+.connection-condition-word {
+  width: 36px;
+  text-align: right;
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.connection-number {
+  width: 80px;
+}
+
+.connection-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 32px;
+  padding: var(--space-0-5) var(--space-1-5);
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-md);
+  background: var(--raised);
+}
+
+.connection-chip {
+  font-family: var(--font-mono);
+  font-weight: var(--weight-regular);
+  color: var(--text);
+}
+
+.connection-check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+}
+
+.connection-counts {
+  margin-left: auto;
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+/* Forget: the one row that ends the page, in the danger words. */
+
+.connection-forget-copy {
+  display: flex;
+  flex-direction: column;
+}
+
+/* The sync line one Connections card carries. */
+
+.connection-sync-line {
+  display: flex;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  font-size: var(--text-sm);
+  color: var(--muted);
+}

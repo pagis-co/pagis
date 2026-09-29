@@ -1,0 +1,45 @@
+/* Input and Textarea. Every value comes from `tokens.css`. */
+
+.ui-input {
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1-5) var(--space-2);
+  min-width: 0;
+  transition: border-color var(--duration-fast) ease;
+}
+
+.ui-input::placeholder {
+  color: var(--muted);
+}
+
+.ui-input:hover:not(:disabled) {
+  border-color: var(--border-control-hover);
+}
+
+.ui-input:disabled {
+  opacity: var(--opacity-disabled);
+  cursor: not-allowed;
+}
+
+/* A bare field. The card around it draws the frame, so a frame
+ * on the field puts a frame in a frame. The card also shows the focus:
+ * a ring around a field that fills the card is a second frame. */
+.ui-input-bare {
+  background: none;
+  border: none;
+  border-radius: 0;
+}
+
+.ui-input-bare:focus-visible {
+  outline: none;
+}
+
+.ui-textarea {
+  resize: vertical;
+  min-height: 4rem;
+  line-height: var(--leading-normal);
+}

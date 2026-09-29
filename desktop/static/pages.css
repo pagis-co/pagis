@@ -1,0 +1,349 @@
+/* The Client App's own pages: setup and status (docs/UI-DESIGN.md).
+ *
+ * The build copies tokens.css of the Product App, the Inter font and the
+ * Pagis mark into dist/design. Every value here reads a token, so the
+ * pages follow the light and the dark theme as the product does. The
+ * rules take the look of the Product App primitives: Button and Input. */
+
+@font-face {
+  font-family: 'Inter Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url('../dist/design/inter.woff2') format('woff2-variations');
+}
+
+:root {
+  font-family: var(--font-sans);
+  color: var(--text);
+  background: var(--ground);
+  accent-color: var(--accent);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+/* The page fills the window: the title bar strip, the content and the
+ * footer, one under the other. */
+body {
+  display: flex;
+  flex-direction: column;
+  font-size: var(--text-md);
+  line-height: var(--leading-normal);
+  -webkit-font-smoothing: antialiased;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+/* The window has its own frame, so the page draws no second one. The
+ * content sits on the ground of the window, and the footer stays at the
+ * bottom edge. The setup window is as high as its tallest regular
+ * screen, so only a longer state, such as a long failure, scrolls, and
+ * it scrolls in the content area alone. */
+.page {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* The area between the title bar strip and the footer. */
+.content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* The one column of the page, in the middle of the content area, as in
+ * the first-run windows of 1Password, Raycast and Linear. The auto
+ * margins split the spare height above and below it. A column higher
+ * than the area gets no spare height, so it starts at the top and the
+ * area scrolls. */
+.column {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: var(--space-4);
+  width: min(34rem, 100%);
+  margin-block: auto;
+  margin-inline: auto;
+  padding: var(--space-6) var(--space-4);
+}
+
+/* In the Client App on macOS the window buttons sit over the top of the
+ * page, and the window says where through the Window Controls Overlay.
+ * This strip covers that area and moves the window, as a title bar does.
+ * It holds no control. A browser defines no title bar area, so the strip
+ * has no height there. */
+.titlebar {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-nav);
+  flex: none;
+  height: env(titlebar-area-height, 0px);
+  background: var(--ground);
+  -webkit-app-region: drag;
+}
+
+/* The mark at one em beside the name "Pagis". */
+.wordmark {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+
+.wordmark img {
+  width: 1em;
+  height: 1em;
+}
+
+.title {
+  margin: 0;
+  font-size: var(--text-xl);
+  font-weight: var(--weight-bold);
+  line-height: var(--leading-tight);
+  letter-spacing: var(--tracking-tight);
+}
+
+/* The state of the page, at the top, with its one next action. */
+.state {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+.state[data-tone='failed'] {
+  background: var(--failed-soft);
+  color: var(--failed-ink);
+}
+
+.state[data-tone='waiting'] {
+  background: var(--waiting-soft);
+  color: var(--waiting-ink);
+}
+
+.state-title {
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+}
+
+.state p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.log {
+  max-height: 12rem;
+  margin: 0;
+  overflow: auto;
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--sunken);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  white-space: pre-wrap;
+}
+
+/* One screen of the setup: its question or its state, under the name
+ * of the product. */
+.screen {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.choices {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* A setup choice: a frame of its own, as a tile of the product, with its
+ * radio button. The selected choice has the accent border. */
+.choice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--raised);
+  cursor: pointer;
+  transition: border-color var(--duration-fast) ease;
+}
+
+.choice:hover {
+  border-color: var(--border-strong);
+}
+
+.choice:has(input:checked) {
+  border-color: var(--accent);
+}
+
+.choice input {
+  flex: none;
+  margin: var(--space-1) 0 0;
+}
+
+.choice-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+}
+
+.choice-title {
+  font-weight: var(--weight-semibold);
+}
+
+.choice-detail {
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.input {
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1-5) var(--space-2);
+  transition: border-color var(--duration-fast) ease;
+}
+
+.input::placeholder {
+  color: var(--muted);
+}
+
+.input:hover:not(:disabled) {
+  border-color: var(--border-control-hover);
+}
+
+/* A field with a problem: a failed border, also on hover, and the
+ * message under it. */
+.input[aria-invalid='true'],
+.input[aria-invalid='true']:hover:not(:disabled) {
+  border-color: var(--failed);
+}
+
+/* The hint, the problem and the progress of a field, under it. The hint
+ * keeps the muted text of the field. */
+.field-hint,
+.field-error,
+.field-progress {
+  margin: 0;
+}
+
+.field-error {
+  color: var(--failed-ink);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* The footer at the bottom edge: Quit at the left, the next step at the
+ * right. It draws no line, so it reads as a part of the page. */
+.footer {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-6);
+}
+
+.footer-group {
+  display: flex;
+  gap: var(--space-2);
+}
+
+/* Button: the 32 px `md` size of the product, in three variants. */
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2rem;
+  padding: var(--space-1-5) var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-tight);
+  cursor: pointer;
+  transition:
+    background var(--duration-fast) ease,
+    border-color var(--duration-fast) ease,
+    color var(--duration-fast) ease;
+}
+
+.button-primary {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.button-primary:hover:not(:disabled) {
+  background: var(--accent-ink);
+}
+
+.button-outline {
+  background: var(--panel);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+.button-outline:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.button-ghost {
+  background: transparent;
+  color: var(--muted);
+}
+
+.button-ghost:hover:not(:disabled) {
+  background: var(--wash);
+  color: var(--text);
+}
+
+.button:disabled {
+  opacity: var(--opacity-disabled);
+  cursor: not-allowed;
+}

@@ -1,0 +1,116 @@
+/* Application styles: the layer that belongs to no one screen.
+ * Every component keeps its own stylesheet beside it, and every
+ * color, type size, radius, shadow, duration and stacking level comes
+ * from `tokens.css`. */
+
+:root {
+  font-family: var(--font-sans);
+  color: var(--text);
+  background: var(--ground);
+  /* A checkbox and a radio stay native, and their checked fill takes
+   * the accent, the one selection color. The browser picks the check
+   * mark that reads on it. */
+  accent-color: var(--accent);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Scrollbars. The product is a set of columns that scroll, and the
+ * platform's own bar is a wide slab that reads as chrome: three of
+ * them around one panel make the panel look broken. The bar is a
+ * hairline over the ground it sits on instead, so a column that
+ * scrolls says so quietly. `scrollbar-width` is not inherited, so
+ * every element carries it, not the document alone. */
+html {
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+* {
+  scrollbar-width: thin;
+}
+
+/* One focus ring for the whole product. It answers the keyboard only,
+ * so a pointer press never draws it. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+/* Body text is 15 px. The root keeps the browser default so the rem
+ * type tokens stay at their intended pixel sizes. */
+body {
+  font-size: var(--text-md);
+  line-height: var(--leading-normal);
+  -webkit-font-smoothing: antialiased;
+}
+
+.page-intro {
+  margin: var(--space-1-5) 0 0;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-regular);
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--panel);
+}
+
+.connection-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  background: var(--waiting-soft);
+  color: var(--waiting-ink);
+  border-bottom: 1px solid var(--border);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-sm);
+  text-align: center;
+}
+
+.app-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+/* The navigation trigger is a wide-screen absence and a narrow-screen
+   presence. `inline-flex` is the primitive's own display. */
+.mobile-navigation-trigger {
+  display: none;
+}
+
+.navigation-backdrop {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  /* Between the drawer and the sheets: the scrim dims a sheet that is
+     open behind the drawer, and never the drawer itself. */
+  .navigation-backdrop {
+    display: block;
+    position: fixed;
+    z-index: var(--z-overlay);
+    inset: 0;
+    background: var(--scrim);
+    backdrop-filter: blur(2px);
+  }
+
+  .mobile-navigation-trigger {
+    display: inline-flex;
+  }
+}

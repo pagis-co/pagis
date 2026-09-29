@@ -1,0 +1,47 @@
+/* The command palette. Every value comes from `tokens.css`. */
+
+.command-palette {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.command-palette-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 20rem;
+  overflow: hidden auto;
+}
+
+.command-palette-item {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  width: 100%;
+  color: var(--text);
+  font-size: var(--text-md);
+  text-align: left;
+}
+
+.command-palette-item-active {
+  background: var(--hover);
+}
+
+.command-palette-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-palette-hint {
+  flex: none;
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+.command-palette-empty {
+  padding: var(--space-2);
+  color: var(--muted);
+  font-size: var(--text-sm);
+}

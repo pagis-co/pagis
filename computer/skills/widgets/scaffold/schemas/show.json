@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "days": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 14,
+      "description": "How many of the last readings to draw. The default is 7."
+    }
+  }
+}

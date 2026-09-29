@@ -1,0 +1,32 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "fixturehttp",
+  "version": "1.0.0",
+  "description": "The streamable HTTP plugin the MCP host's stored tests install.",
+  "extensions": {
+    "pagis": {
+      "config": {
+        "endpoint": {
+          "type": "string",
+          "title": "Endpoint",
+          "description": "The loopback address the fixture server listens on.",
+          "required": true
+        },
+        "token": {
+          "type": "secret",
+          "title": "Token",
+          "description": "The bearer token every request carries.",
+          "required": true
+        }
+      },
+      "tools": {
+        "echo": {
+          "effect": "free"
+        },
+        "headers": {
+          "effect": "free"
+        }
+      }
+    }
+  }
+}

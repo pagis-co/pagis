@@ -1,0 +1,79 @@
+/* The System section. The frames and rows come from the
+ * primitives; this sheet lays out the form grid and the title line. */
+
+.system-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.system-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+
+.system-title h3 {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+
+.system-title span,
+.system-row-note {
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+/* Two columns of labelled fields inside the first frame. */
+.system-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3) var(--space-5);
+  padding: var(--space-4);
+}
+
+.system-form label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+
+.system-mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  word-break: break-all;
+}
+
+.system-docker-endpoint {
+  min-width: 0;
+  word-break: break-all;
+}
+
+.system-row-trailing {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.system-error {
+  color: var(--failed);
+}
+
+.system-about-key {
+  width: 8.75rem;
+  flex-shrink: 0;
+  color: var(--muted);
+}
+
+/* A section label sits a little apart from the frame above it. */
+.system-section > .ui-section-label {
+  margin-top: var(--space-1-5);
+}
+
+@media (max-width: 760px) {
+  .system-form {
+    grid-template-columns: 1fr;
+  }
+}

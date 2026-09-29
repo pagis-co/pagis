@@ -1,0 +1,346 @@
+<!doctype html>
+<!--
+  The chart widget of the scaffold package (ADR-0016).
+
+  The page is one HTML5 document. It carries its own style and its own
+  script, because the daemon serves it under `default-src 'none'` with
+  `connect-src 'none'`: it reaches no network of its own, and every
+  file it needs must be inside it.
+
+  It speaks the MCP Apps protocol over `postMessage` with its parent:
+
+    out  ui/initialize                  the theme and the container
+    out  ui/notifications/initialized   the host sends nothing before it
+    in   ui/notifications/tool-input    the arguments of the call
+    in   ui/notifications/tool-result   the `structuredContent`
+    out  ui/notifications/size-changed  the height the host gives it
+    out  tools/call                     `series`, the app-only tool
+    out  ui/message                     the one answer, when it asks
+    in   ui/resource-teardown           the Run ended
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Readings</title>
+    <style>
+      :root {
+        --ink: #1b1d21;
+        --soft: #6b7280;
+        --bar: #3b6ea5;
+        --line: #d8dce3;
+        --field: #ffffff;
+        color-scheme: light;
+      }
+      /* The host names the theme after `ui/initialize`. Until then, and
+         in any host that names none, the frame's own scheme decides. */
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-theme='light']) {
+          --ink: #e8eaee;
+          --soft: #9aa3af;
+          --bar: #6ea3dd;
+          --line: #343841;
+          --field: #1b1d21;
+          color-scheme: dark;
+        }
+      }
+      :root[data-theme='dark'] {
+        --ink: #e8eaee;
+        --soft: #9aa3af;
+        --bar: #6ea3dd;
+        --line: #343841;
+        --field: #1b1d21;
+        color-scheme: dark;
+      }
+      body {
+        margin: 0;
+        padding: 12px 14px 14px;
+        font: 13px/1.45 system-ui, sans-serif;
+        color: var(--ink);
+        background: transparent;
+      }
+      h1 {
+        margin: 0 0 10px;
+        font-size: 13px;
+        font-weight: 600;
+      }
+      .bars {
+        display: grid;
+        gap: 6px;
+      }
+      .bar {
+        display: grid;
+        grid-template-columns: 64px 1fr 40px;
+        align-items: center;
+        gap: 8px;
+      }
+      .bar span:first-child {
+        color: var(--soft);
+      }
+      .bar span:last-child {
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+      }
+      .track {
+        height: 10px;
+        border-radius: 5px;
+        background: var(--bar);
+      }
+      .controls {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 12px;
+        padding-top: 10px;
+        border-top: 1px solid var(--line);
+      }
+      button,
+      select {
+        font: inherit;
+        color: var(--ink);
+        background: var(--field);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 4px 10px;
+      }
+      button:disabled {
+        opacity: 0.5;
+      }
+      .note {
+        color: var(--soft);
+      }
+      [hidden] {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <h1 id="title">Readings</h1>
+    <div class="bars" id="bars"></div>
+
+    <div class="controls" id="window-controls" hidden>
+      <label for="days" class="note">Days</label>
+      <select id="days">
+        <option value="3">3</option>
+        <option value="7" selected>7</option>
+        <option value="14">14</option>
+      </select>
+      <button id="refresh" type="button">Redraw</button>
+    </div>
+
+    <form class="controls" id="ask" hidden>
+      <label for="day" id="question" class="note"></label>
+      <select id="day"></select>
+      <button type="submit">Answer</button>
+    </form>
+
+    <p class="note" id="status">Waiting for the readings.</p>
+
+    <script>
+      ;(function () {
+        'use strict'
+
+        var pending = {}
+        var nextId = 1
+        var answered = false
+        var bars = []
+        // The question rides on the tool result. A redraw reads the
+        // bars again and never the question, so the page keeps it: the
+        // Request stays open until the reader answers it.
+        var question = null
+
+        function send(message) {
+          window.parent.postMessage(message, '*')
+        }
+
+        /** One request to the host, as a promise of its result. */
+        function request(method, params) {
+          var id = nextId++
+          return new Promise(function (resolve, reject) {
+            pending[id] = { resolve: resolve, reject: reject }
+            send({ jsonrpc: '2.0', id: id, method: method, params: params })
+          })
+        }
+
+        function notify(method, params) {
+          send({ jsonrpc: '2.0', method: method, params: params })
+        }
+
+        function element(id) {
+          return document.getElementById(id)
+        }
+
+        function status(text) {
+          element('status').textContent = text
+          element('status').hidden = text === ''
+        }
+
+        /** The host gives the frame its height, so the page must say
+         *  how tall it is after every redraw. */
+        function reportSize() {
+          notify('ui/notifications/size-changed', {
+            width: document.documentElement.scrollWidth,
+            height: document.documentElement.scrollHeight,
+          })
+        }
+
+        function draw(data) {
+          bars = Array.isArray(data.bars) ? data.bars : []
+          element('title').textContent = data.title || 'Readings'
+          var highest = bars.reduce(function (top, bar) {
+            return Math.max(top, bar.value)
+          }, 0)
+          var list = element('bars')
+          list.textContent = ''
+          bars.forEach(function (bar) {
+            var row = document.createElement('div')
+            row.className = 'bar'
+            var label = document.createElement('span')
+            label.textContent = bar.label
+            var track = document.createElement('div')
+            track.className = 'track'
+            track.style.width =
+              (highest > 0 ? Math.max(2, (bar.value / highest) * 100) : 2) + '%'
+            var value = document.createElement('span')
+            value.textContent = bar.value
+            row.appendChild(label)
+            row.appendChild(track)
+            row.appendChild(value)
+            list.appendChild(row)
+          })
+          element('window-controls').hidden = false
+          if (data.question) question = data.question
+          showQuestion()
+          status('')
+          reportSize()
+        }
+
+        function showQuestion() {
+          var form = element('ask')
+          if (!question || answered) {
+            form.hidden = true
+            return
+          }
+          element('question').textContent = question
+          var choices = element('day')
+          choices.textContent = ''
+          bars.forEach(function (bar) {
+            var option = document.createElement('option')
+            option.value = bar.label
+            option.textContent = bar.label
+            choices.appendChild(option)
+          })
+          form.hidden = false
+        }
+
+        /** The app-only tool. The model never hears of this call. */
+        function redraw() {
+          var days = Number(element('days').value)
+          element('refresh').disabled = true
+          status('Reading again.')
+          request('tools/call', { name: 'series', arguments: { days: days } })
+            .then(function (result) {
+              if (result.isError) throw new Error(text(result))
+              draw(JSON.parse(text(result)))
+            })
+            .catch(function (error) {
+              status('The redraw failed: ' + error.message)
+            })
+            .then(function () {
+              element('refresh').disabled = false
+            })
+        }
+
+        function text(result) {
+          var first = (result.content || [])[0] || {}
+          return first.text || ''
+        }
+
+        /** The one answer this view may give. It carries the reader's
+         *  words for the model and the structured half beside them. */
+        function answer(event) {
+          event.preventDefault()
+          if (answered) return
+          answered = true
+          var day = element('day').value
+          element('ask').hidden = true
+          status('Sending the answer.')
+          request('ui/message', {
+            role: 'user',
+            content: { type: 'text', text: 'Look into ' + day + '.' },
+            value: { day: day },
+          })
+            .then(function () {
+              status('The answer is with the agent.')
+            })
+            .catch(function (error) {
+              answered = false
+              status('The answer failed: ' + error.message)
+              showQuestion()
+            })
+        }
+
+        function receive(event) {
+          if (event.source !== window.parent) return
+          var message = event.data
+          if (!message || message.jsonrpc !== '2.0') return
+
+          if (message.method === undefined && message.id !== undefined) {
+            var waiting = pending[message.id]
+            if (!waiting) return
+            delete pending[message.id]
+            if (message.error) waiting.reject(new Error(message.error.message))
+            else waiting.resolve(message.result || {})
+            return
+          }
+
+          var params = message.params || {}
+          if (message.method === 'ui/notifications/tool-result') {
+            if (params.structuredContent) draw(params.structuredContent)
+            return
+          }
+          if (message.method === 'ui/notifications/tool-input') {
+            var days = (params.arguments || {}).days
+            if (days) element('days').value = String(days)
+            return
+          }
+          if (message.method === 'ui/resource-teardown') {
+            element('window-controls').hidden = true
+            element('ask').hidden = true
+            status('The run ended. The chart is a record now.')
+            if (message.id !== undefined) {
+              send({ jsonrpc: '2.0', id: message.id, result: {} })
+            }
+            reportSize()
+            return
+          }
+          if (message.method === 'ping' && message.id !== undefined) {
+            send({ jsonrpc: '2.0', id: message.id, result: {} })
+          }
+        }
+
+        window.addEventListener('message', receive)
+        element('refresh').addEventListener('click', redraw)
+        element('ask').addEventListener('submit', answer)
+
+        request('ui/initialize', {
+          protocolVersion: '2026-01-26',
+          clientInfo: { name: 'chart', version: '1.0.0' },
+        })
+          .then(function (result) {
+            var context = result.hostContext || {}
+            document.documentElement.dataset.theme =
+              context.theme === 'dark' ? 'dark' : 'light'
+          })
+          .catch(function () {
+            // A host that answers nothing still gets the chart.
+          })
+          .then(function () {
+            // Nothing reaches the page before this notification.
+            notify('ui/notifications/initialized', {})
+            reportSize()
+          })
+      })()
+    </script>
+  </body>
+</html>

@@ -1,0 +1,195 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { createMemoryHistory } from '@tanstack/react-router'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+import type { ApiClient } from './api/client'
+import type { SocketHandlers, SocketOptions } from './ws/socket'
+import { App } from './App'
+import { useCallInspector } from './state/stores'
+import { shellResponse } from './test/appStub'
+
+const { api, socket } = vi.hoisted(() => ({
+  socket: { handlers: null as SocketHandlers | null },
+  api: {
+    GET: vi.fn(),
+    POST: vi.fn(),
+    PUT: vi.fn(),
+    DELETE: vi.fn(),
+  },
+}))
+
+vi.mock('./api/client', async () => {
+  const actual = await vi.importActual<typeof import('./api/client')>('./api/client')
+  return { ...actual, createApiClient: () => api as unknown as ApiClient }
+})
+
+vi.mock('./ws/socket', () => ({
+  PagisSocket: class {
+    constructor(options: SocketOptions) {
+      socket.handlers = options.handlers
+    }
+    start() {}
+    stop() {}
+    subscribeChannel() {}
+  },
+}))
+
+function mount(path = '/c/channel-1') {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  render(
+    <QueryClientProvider client={queryClient}>
+      <App history={createMemoryHistory({ initialEntries: [path] })} />
+    </QueryClientProvider>,
+  )
+}
+
+beforeEach(() => {
+  useCallInspector.setState({ callId: null })
+  api.GET.mockReset()
+  api.GET.mockImplementation(async (path: string) => shellResponse(path))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => new Response('missing', { status: 404 })),
+  )
+})
+
+describe('conversation desk', () => {
+  // The Chief of Staff's channel owns its Desk Panel by the route
+  // (ADR-0022): it is already open, and no toggle offers to
+  // close it.
+  it('opens the Desk Panel by itself in the Chief of Staff\u2019s channel', async () => {
+    mount()
+
+    expect(await screen.findByText('Say hello to Sage')).toBeTruthy()
+    expect(await screen.findByTestId('desk-panel')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Desk panel' })).toBeNull()
+  })
+
+  it('opens the Desk Panel from the toggle of another conversation', async () => {
+    mount('/c/channel-2')
+
+    expect(
+      await screen.findByRole('heading', { name: 'Launch planning' }),
+    ).toBeTruthy()
+    expect(screen.queryByTestId('desk-panel')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Desk panel' }))
+
+    expect(await screen.findByTestId('desk-panel')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Launch planning' })).toBeTruthy()
+  })
+
+  it('opens the conversation drawer and closes it after channel selection', async () => {
+    mount()
+
+    await screen.findByText('Say hello to Sage')
+    fireEvent.click(screen.getByRole('button', { name: 'Open conversations' }))
+    expect(screen.getByRole('button', { name: 'Close conversations' })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: /Launch planning/ }))
+
+    expect(
+      await screen.findByRole('heading', { name: 'Launch planning' }),
+    ).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Close conversations' })).toBeNull()
+  })
+
+  it('closes the conversation drawer after opening a workspace view', async () => {
+    mount()
+
+    await screen.findByText('Say hello to Sage')
+    fireEvent.click(screen.getByRole('button', { name: 'Open conversations' }))
+    const navigation = screen.getByRole('navigation', { name: 'Places' })
+    fireEvent.click(within(navigation).getByRole('button', { name: 'Automations' }))
+
+    expect(screen.queryByRole('button', { name: 'Close conversations' })).toBeNull()
+    expect(await screen.findByRole('heading', { name: 'Automations' })).toBeTruthy()
+  })
+
+  // ADR-0022: listening is the reason the call inspector exists, so
+  // navigation must not stop it. Call is a transient tenant of the
+  // slot: it is absent until a Call opens it.
+  it('keeps the call inspector open across navigation', async () => {
+    mount()
+
+    await screen.findByText('Say hello to Sage')
+    expect(screen.queryByTestId('call-inspector')).toBeNull()
+
+    useCallInspector.getState().open('call_1')
+    expect(await screen.findByTestId('call-inspector')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: /Launch planning/ }))
+    expect(screen.getByTestId('call-inspector')).toBeTruthy()
+
+    const navigation = screen.getByRole('navigation', { name: 'Places' })
+    fireEvent.click(within(navigation).getByRole('button', { name: 'Settings' }))
+    expect(await screen.findByRole('heading', { name: 'Settings' })).toBeTruthy()
+    expect(screen.getByTestId('call-inspector')).toBeTruthy()
+  })
+
+  // One slot, one tenant: opening the Desk panel gives the slot back, and
+  // the strip in the Thread is the way back to the Call.
+  it('gives the slot back when the user opens the Desk panel', async () => {
+    mount('/c/channel-2')
+
+    await screen.findByRole('heading', { name: 'Launch planning' })
+    useCallInspector.getState().open('call_1')
+    await screen.findByTestId('call-inspector')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Desk panel' }))
+    expect(await screen.findByTestId('desk-panel')).toBeTruthy()
+    expect(screen.queryByTestId('call-inspector')).toBeNull()
+  })
+
+  // The Desk Panel is the slot's default tenant, so a Call takes the
+  // slot from it and gives it back when it closes (ADR-0022).
+  it('takes the slot from the Desk Panel for a Call and gives it back', async () => {
+    mount()
+
+    await screen.findByTestId('desk-panel')
+    useCallInspector.getState().open('call_1')
+
+    expect(await screen.findByTestId('call-inspector')).toBeTruthy()
+    expect(screen.queryByTestId('desk-panel')).toBeNull()
+
+    fireEvent.click(screen.getByLabelText('Close the call'))
+
+    expect(await screen.findByTestId('desk-panel')).toBeTruthy()
+  })
+})
+
+describe('missed calls', () => {
+  it('shows a newly ended inbound call without a reload', async () => {
+    let items: unknown[] = []
+    api.GET.mockImplementation(async (path: string) =>
+      path === '/api/v1/calls' ? { data: { items } } : shellResponse(path),
+    )
+    mount('/')
+    await screen.findByText('Nothing needs you.')
+    items = [{
+      id: 'missed-1',
+      agent_id: 'agent-1',
+      direction: 'inbound',
+      state: 'ended',
+      outcome: 'no_answer',
+      remote_e164: '+14155550199',
+      created_at: Date.now(),
+      ended_at: Date.now(),
+    }]
+    act(() => socket.handlers!.onEvent({
+      type: 'call.ended',
+      payload: {
+        id: 'event-1',
+        event_type: 'call.ended',
+        created_at: Date.now(),
+        agent_id: 'agent-1',
+        payload: { call_id: 'missed-1' },
+      },
+    }))
+    expect(await screen.findByText(/missed a call from \+14155550199/)).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Call back' })).toBeTruthy()
+  })
+})

@@ -1,0 +1,13 @@
+<!doctype html>
+<!--
+  The frame of another site that steal.html embeds. It puts the focus
+  in its own field and sends each value of the field to the page that
+  embeds it.
+-->
+<meta charset="utf-8">
+<input id="field">
+<script>
+const field = document.getElementById("field");
+addEventListener("focus", () => field.focus());
+field.addEventListener("input", () => parent.postMessage(field.value, "*"));
+</script>

@@ -1,0 +1,31 @@
+<!doctype html>
+<!--
+  A sign-in page that gives the focus to no field. A hidden field that
+  no person sees sits between the username and the password. The page
+  writes the username and the SHA-256 of the password into the document
+  title, as login.html does, and its form goes on to a code step that
+  gives the focus to no field either.
+-->
+<meta charset="utf-8">
+<title>nofocus</title>
+<form id="form">
+  <input id="user" name="user" autocomplete="username">
+  <input id="trap" name="trap" style="display:none">
+  <input id="pass" name="pass" type="password" autocomplete="current-password">
+  <button>Sign in</button>
+</form>
+<script>
+const digest = async (text) => {
+  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("");
+};
+const report = async () => {
+  document.title = "login|" + user.value + "|" + await digest(pass.value) + "|" + trap.value;
+};
+user.addEventListener("input", report);
+pass.addEventListener("input", report);
+form.addEventListener("submit", (event) => {
+  event.preventDefault();
+  location.href = "/otp-nofocus.html";
+});
+</script>

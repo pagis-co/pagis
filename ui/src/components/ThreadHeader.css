@@ -1,0 +1,83 @@
+/* The Thread header. */
+
+.thread-top {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: var(--space-3);
+  padding: var(--space-3-5) var(--space-6);
+  border-bottom: 1px solid var(--sunken);
+  background: var(--panel);
+}
+
+/* The face and the name open the Agent. The link holds the
+   place of the title, so the header keeps its one row. */
+.thread-top-identity {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  flex: 1;
+  padding: var(--space-0-5) var(--space-1-5);
+  margin-left: calc(-1 * var(--space-1-5));
+  border-radius: var(--radius-md);
+  color: inherit;
+  text-decoration: none;
+}
+
+.thread-top-identity:hover {
+  background: var(--sunken);
+}
+
+.thread-top-title {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.thread-top-title h1 {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.thread-top-status {
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+
+.thread-top-status-working {
+  color: var(--working-ink);
+}
+
+.thread-top-search {
+  max-width: 16rem;
+}
+
+.thread-top-actions {
+  display: flex;
+  flex: none;
+  gap: var(--space-0-5);
+}
+
+/* The toggle whose panel is open. */
+.thread-top-actions .ui-button[aria-pressed='true'] {
+  background: var(--sunken);
+  color: var(--text);
+}
+
+@media (max-width: 760px) {
+  .thread-top {
+    padding: var(--space-2-5) var(--space-3);
+  }
+
+  .thread-top-search {
+    max-width: 8rem;
+  }
+}

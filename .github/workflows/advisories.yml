@@ -1,0 +1,89 @@
+# The daily advisory check. It runs `cargo xtask advisories`: cargo-deny
+# over the Cargo lockfiles and npm audit over the npm lockfiles of main,
+# and Trivy over the Computer Image and the Headless Server image of the
+# latest release. When a check fails, it opens an issue that names each
+# advisory in the output of the failed checks. When an open issue of this
+# workflow exists, it adds a comment to that issue instead.
+name: Advisories
+
+on:
+  schedule:
+    - cron: "23 5 * * *"
+  workflow_dispatch:
+
+# One run at a time, so two runs do not open two issues.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+# The actions are pinned as in ci.yml.
+
+jobs:
+  advisories:
+    name: advisories
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      # The report opens an issue or adds a comment.
+      issues: write
+      # Trivy pulls the images of the release from GHCR.
+      packages: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version-file: .nvmrc
+
+      # xtask downloads the pinned cargo-deny and Trivy and checks their
+      # hashes. The log is the input of the report below.
+      - name: cargo xtask advisories
+        id: check
+        shell: bash
+        run: cargo xtask advisories 2>&1 | tee advisories.log
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ github.token }}
+
+      - name: open or update the advisory issue
+        if: failure() && steps.check.outcome == 'failure'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title='Dependency advisories need a review'
+          ids=$(grep -oE 'RUSTSEC-[0-9]{4}-[0-9]{4}|GHSA(-[0-9a-z]{4}){3}|CVE-[0-9]{4}-[0-9]{4,}' advisories.log | sort -u || true)
+          {
+            echo "The daily advisory check failed: $RUN_URL"
+            echo
+            if [ -n "$ids" ]; then
+              echo 'The advisories in the output of the failed checks:'
+              echo
+              printf -- '- %s\n' $ids
+            else
+              echo 'The output names no advisory. Read the log of the run.'
+            fi
+            echo
+            echo 'Update each dependency, or record a reviewed exception with its reason in deny.toml or .trivyignore.'
+          } > body.md
+          number=$(gh issue list --repo "$GITHUB_REPOSITORY" --app github-actions --state open \
+            --json number,title --jq ".[] | select(.title == \"$title\") | .number" | head -n 1)
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --repo "$GITHUB_REPOSITORY" --body-file body.md
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body-file body.md
+          fi

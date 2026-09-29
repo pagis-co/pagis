@@ -1,0 +1,44 @@
+/* The settings panel: the 220 px nav at the left and the open
+ * section beside it. The nav is `settings/SettingsNav.css`. */
+
+.settings-panel {
+  display: flex;
+  align-items: stretch;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.settings-content {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: var(--space-7) var(--space-10);
+  overflow: hidden auto;
+}
+
+/* The nav stacks above the section on a narrow screen. */
+@media (max-width: 760px) {
+  .settings-panel {
+    flex-direction: column;
+    overflow: hidden auto;
+  }
+
+  .settings-panel > .ui-settings-nav {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .settings-content {
+    padding: var(--space-4);
+    overflow: visible;
+  }
+}
+
+/* Roster settings and group-channel creation. */
+
+.settings-pane {
+  overflow: hidden auto;
+  display: flex;
+  flex-direction: column;
+}

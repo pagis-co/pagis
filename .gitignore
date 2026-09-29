@@ -1,0 +1,9 @@
+target/
+.env
+/ui/node_modules
+/computer/screend/target
+/dist
+*.log
+__pycache__/
+/crates/pagis-evaluation/suites/continuous-learning/runs/
+node_modules

@@ -1,0 +1,47 @@
+[package]
+name = "pagis-mail"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+autotests = false
+
+[dependencies]
+async-imap.workspace = true
+chrono.workspace = true
+async-trait.workspace = true
+futures.workspace = true
+lettre.workspace = true
+mail-builder.workspace = true
+mail-parser.workspace = true
+deunicode.workspace = true
+pagis-broker.workspace = true
+pagis-core.workspace = true
+psl.workspace = true
+rand.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-rustls.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+ulid.workspace = true
+webpki-roots.workspace = true
+
+[dev-dependencies]
+# The tests assert the HTTP Basic header the host client sends.
+base64.workspace = true
+# The desk tests audit each act, as the number desk tests do.
+pagis-audit.workspace = true
+# The desk runs against the real records, not a stand-in store.
+pagis-storage-sqlite.workspace = true
+sqlx.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "test-util"] }
+# The Migadu client is tested against a local HTTP server, as the other
+# provider clients in the workspace are.
+wiremock.workspace = true
+
+[[test]]
+name = "main"
+path = "tests/main.rs"

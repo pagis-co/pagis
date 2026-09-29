@@ -1,0 +1,38 @@
+[package]
+name = "pagis-software"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+autotests = false
+
+[dependencies]
+async-trait.workspace = true
+chrono.workspace = true
+git2.workspace = true
+ignore.workspace = true
+jsonschema.workspace = true
+pagis-broker.workspace = true
+pagis-computer.workspace = true
+pagis-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tantivy.workspace = true
+tar.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+toml.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+bytes.workspace = true
+futures.workspace = true
+pagis-broker.workspace = true
+pagis-testkit.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "test-util"] }
+tokio-util.workspace = true
+
+[[test]]
+name = "main"
+path = "tests/main.rs"

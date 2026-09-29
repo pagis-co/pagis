@@ -1,0 +1,115 @@
+/* Connections (ADR-0022): one card per account, and the connect
+ * flow that adds one. */
+
+.connections {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  align-items: flex-start;
+}
+
+.connections > .ui-frame-with-hint,
+.connections > .ui-frame {
+  align-self: stretch;
+}
+
+.connections > .ui-button {
+  align-self: flex-start;
+}
+
+.connections > .page-state {
+  align-self: stretch;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-lg);
+  margin-block: var(--space-3);
+}
+
+.connections > .settings-hint {
+  margin: var(--space-2) 0;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.connection-reauthorize,
+.connect-flow section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+  max-width: 26rem;
+}
+
+.connect-flow {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  width: 100%;
+}
+
+.connect-flow h4 {
+  margin: 0;
+  font-size: var(--text-md);
+}
+
+.connection-provider-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.connect-flow .ui-button {
+  align-self: flex-start;
+}
+
+.connect-flow .settings-row-actions .ui-button {
+  align-self: auto;
+}
+
+/* The carrier's SIP credential on its card. */
+.connection-sip {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+  align-items: flex-start;
+}
+
+/* The mailboxes a Mailbox Provider carries, on its Connections row. */
+.connection-mailboxes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.connection-mailbox {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* One Connection is a row in the list's Frame: its own
+ * line, then whatever its provider adds under it. The Row primitive
+ * draws the divider, so the screen draws none. The Grants are not
+ * here: the connection's own page holds them. */
+.connection-row {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-2);
+}
+
+.connection-row-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.connection-row-detail {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding-left: var(--space-11);
+}
+
+.connection-row-detail:empty {
+  display: none;
+}

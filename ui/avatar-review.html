@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sprite review · Pagis</title>
+    <style>
+      body {
+        margin: 0;
+        background: #fff8eb;
+        color: #4b321b;
+        font: 16px system-ui;
+      }
+      main {
+        max-width: 1050px;
+        margin: 35px auto;
+        padding: 20px;
+      }
+      h1 {
+        font: 42px Georgia;
+      }
+      section {
+        display: flex;
+        gap: 30px;
+        justify-content: center;
+        flex-wrap: wrap;
+      }
+      article {
+        text-align: center;
+        flex: 1;
+        min-width: 320px;
+      }
+      .reference {
+        width: 300px;
+        height: 340px;
+        margin: auto;
+        background-repeat: no-repeat;
+        background-size: 1536px 1024px;
+        background-color: #fff8eb;
+      }
+      .reference.brownie {
+        background-position: -520px -175px;
+      }
+      .reference.pebble {
+        background-position: -1010px -190px;
+      }
+      canvas {
+        max-width: 100%;
+        height: auto !important;
+      }
+      nav {
+        display: flex;
+        gap: 12px;
+        justify-content: center;
+        margin: 20px;
+        flex-wrap: wrap;
+        position: sticky;
+        top: 0;
+        background: #fff8eb;
+        z-index: 1;
+        padding: 12px;
+      }
+      button,
+      select {
+        font: inherit;
+        padding: 8px 15px;
+        border: 1px solid #d1bfa7;
+        background: #fffdf6;
+        border-radius: 8px;
+      }
+      p {
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Brownie and Pebble</h1>
+      <p>
+        Models rendered with the Pagis camera, lighting, and animation
+        controller.
+      </p>
+      <!-- The script fills each list from the clip and expression types. -->
+      <nav>
+        <select id="clip" aria-label="Animation"></select>
+        <select id="expression" aria-label="Expression"></select>
+        <button id="pause">Pause</button>
+      </nav>
+      <section id="characters"></section>
+      <p id="status">Loading models…</p>
+    </main>
+    <script type="module" src="/src/avatar-review.ts"></script>
+  </body>
+</html>

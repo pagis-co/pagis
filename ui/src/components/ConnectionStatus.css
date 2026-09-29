@@ -1,0 +1,26 @@
+.connection-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  width: fit-content;
+}
+
+.connection-status-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  flex: 0 0 auto;
+  border-radius: var(--radius-pill);
+  background: currentcolor;
+}
+
+.connection-card .connection-status-connected {
+  color: var(--working-ink);
+}
+
+.connection-card .connection-status-warning {
+  color: var(--waiting-ink);
+}
+
+.connection-card .connection-status-error {
+  color: var(--failed-ink);
+}

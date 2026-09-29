@@ -1,0 +1,58 @@
+[package]
+name = "pagis-telephony"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+autotests = false
+
+[dependencies]
+async-trait.workspace = true
+base64.workspace = true
+audio-codec-algorithms.workspace = true
+bytes.workspace = true
+# An inbound text carries an RFC 3339 arrival time (ADR-0020), and
+# Twilio writes RFC 2822 in an answer and reads ISO-8601 in a filter.
+chrono.workspace = true
+hound.workspace = true
+# The call tool's transcript is an ordinary Artifact (ADR-0020).
+object_store.workspace = true
+llm-router.workspace = true
+pagis-broker.workspace = true
+pagis-core.workspace = true
+# The one length rule of the Keypad Code (ADR-0021).
+pagis-vault.workspace = true
+rand.workspace = true
+regex.workspace = true
+sha2.workspace = true
+reqwest.workspace = true
+rsipstack.workspace = true
+rustrtc.workspace = true
+# The root store the SIP TLS leg trusts: the same one reqwest trusts.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+webpki-roots = "1"
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+futures.workspace = true
+# The carrier contract tests answer as the carrier's REST API.
+wiremock.workspace = true
+pagis-audit.workspace = true
+# The SDP tests read the descriptions the media session writes.
+rustrtc.workspace = true
+pagis-storage-sqlite.workspace = true
+sqlx.workspace = true
+# The raw legs of a recorded call go to a directory the test owns.
+tempfile.workspace = true
+# `test-util` pauses the clock, so the endpoint tests drive a refresh
+# and a backoff without waiting for one.
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "test-util"] }
+tokio-tungstenite.workspace = true
+
+[[test]]
+name = "main"
+path = "tests/main.rs"

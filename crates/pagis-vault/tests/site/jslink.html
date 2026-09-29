@@ -1,0 +1,13 @@
+<!doctype html>
+<!--
+  A page that signs in through its own javascript: link, as some login
+  pages do. The script gives the link the focus and then names the page,
+  so the title says the link is ready for Return. The link writes into
+  the document title when it runs.
+-->
+<meta charset="utf-8">
+<a id="go" href="javascript:void(document.title='link ran')">Sign in</a>
+<script>
+go.focus();
+document.title = "jslink";
+</script>

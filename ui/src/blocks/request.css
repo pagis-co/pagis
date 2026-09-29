@@ -1,0 +1,75 @@
+/* The Request surfaces: the form and the choice card. The
+ * Card draws the frame; this sheet draws the fields and the options. */
+
+/* Labels above fields, two columns when they fit. */
+.request-form-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2-5);
+}
+
+@container block-card (max-width: 28rem) {
+  .request-form-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.request-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  font-size: var(--text-xs);
+}
+
+.request-form-field label {
+  color: var(--muted);
+}
+
+.request-form-required {
+  color: var(--waiting);
+}
+
+.request-form-field input[type='checkbox'] {
+  align-self: flex-start;
+}
+
+.request-form-error {
+  color: var(--failed);
+  font-size: var(--text-sm);
+}
+
+.request-state {
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+/* The options are a column of buttons; the chosen one takes the accent. */
+.choice-card-options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+}
+
+.choice-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-0-5);
+  height: auto;
+  text-align: left;
+  color: var(--text);
+}
+
+.choice-option-label {
+  font-weight: var(--weight-semibold);
+}
+
+.choice-option-description {
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+
+.choice-settled-chosen {
+  color: var(--muted);
+}

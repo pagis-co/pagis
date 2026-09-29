@@ -1,0 +1,289 @@
+/* The one frame of every timeline block. The Frame primitive
+ * draws the border, the radius and the fill; this sheet draws the
+ * lines inside it. Every value comes from `tokens.css`. */
+
+.block-card {
+  margin: var(--space-1-5) 0;
+  max-width: 100%;
+  container: block-card / inline-size;
+}
+
+/* The header line: the icon, the act in bold, the place in the muted
+   ink, and whatever trails at the right. */
+.block-card-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2-5);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
+  font-size: var(--text-sm);
+}
+
+.block-card-header > svg {
+  flex: none;
+  color: var(--muted);
+}
+
+.block-card-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1-5);
+  min-width: 0;
+}
+
+.block-card-place {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.block-card-place code {
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.block-card-trailing {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  flex: none;
+  margin-left: auto;
+}
+
+.block-card-body {
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+
+.block-card-body p {
+  margin: 0;
+}
+
+/* The footer: one primary action first, the quiet one at the right. */
+.block-card-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2-5) var(--space-4);
+  border-top: 1px solid var(--border);
+  font-size: var(--text-sm);
+}
+
+.block-card-footer .ui-button-ghost:last-child {
+  margin-left: auto;
+}
+
+/* The settled line: the dot, the act, the decision and its clock. */
+.block-settled {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2-5);
+  padding: var(--space-2-5) var(--space-4);
+  font-size: var(--text-sm);
+  animation: block-settle var(--duration-panel) ease-out;
+}
+
+.block-settled-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--border-strong);
+}
+
+.block-settled-working .block-settled-dot {
+  background: var(--working);
+}
+
+.block-settled-failed .block-settled-dot {
+  background: var(--failed);
+}
+
+.block-settled-waiting .block-settled-dot {
+  background: var(--waiting);
+}
+
+.block-settled-neutral {
+  color: var(--muted);
+}
+
+.block-settled-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.block-settled-aside {
+  margin-left: auto;
+  white-space: nowrap;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The settle: the open card leaves and this line takes its
+   place, so the line fades in where the card stood. */
+@keyframes block-settle {
+  from {
+    opacity: 0;
+    transform: translateY(-0.25rem);
+  }
+}
+
+/* Prose and the run line draw no frame. */
+.block-markdown p {
+  margin: var(--space-1) 0;
+}
+
+.block-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-1) 0;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.block-progress > svg {
+  flex: none;
+}
+
+.block-progress p {
+  margin: 0;
+}
+
+.block-progress code {
+  font-size: var(--text-sm);
+}
+
+.block-unknown-type {
+  color: var(--muted);
+}
+
+/* The image fills the frame; the caption row reads under it. */
+.block-image img {
+  display: block;
+  width: 100%;
+  max-height: 20rem;
+  object-fit: contain;
+  background: var(--sunken);
+}
+
+.block-image-caption {
+  color: var(--muted);
+}
+
+.block-image-caption .ui-button-link,
+.block-image-caption a {
+  color: var(--accent-ink);
+  text-decoration: none;
+  font-size: var(--text-sm);
+}
+
+/* The file card: a kind tile, the name over its kind and size, one Save. */
+.block-file-tile {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: var(--radius-md);
+  background: var(--sidebar);
+  color: var(--muted);
+}
+
+.block-file-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.block-file-name {
+  font-weight: var(--weight-semibold);
+  overflow-wrap: anywhere;
+}
+
+.block-file-meta {
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+
+/* A strip is a card of one clickable row: the mail strip and the call
+   head. The `row` shape of the button draws the box. */
+.block-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2-5);
+  width: 100%;
+  height: auto;
+  color: var(--text);
+}
+
+.block-strip-open {
+  margin-left: auto;
+  flex: none;
+  font-size: var(--text-sm);
+  color: var(--accent-ink);
+  white-space: nowrap;
+}
+
+.mail-strip-direction {
+  color: var(--muted);
+}
+
+.mail-strip-subject {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+/* The widget frame sits inside the card; the projection is its text. */
+.widget-frame {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: transparent;
+}
+
+.widget-note {
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+/* "Always allow" widens the Approve beside it, so it is a checkbox and
+   never a second button. */
+.approval-always {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  font-size: var(--text-xs);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.approval-always code {
+  overflow-wrap: anywhere;
+}
+
+/* What a command rule covers. It follows the checkbox in the reading
+   order, and it takes its own line under the actions. */
+.approval-always-scope {
+  order: 1;
+  flex-basis: 100%;
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+
+.approval-card-where {
+  color: var(--muted);
+}
+
+.approval-card-where code {
+  overflow-wrap: anywhere;
+}

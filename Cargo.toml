@@ -1,0 +1,203 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/llm-router",
+    "crates/pagis",
+    "crates/pagis-agent",
+    "crates/pagis-broker",
+    "crates/pagis-computer",
+    "crates/pagis-connect",
+    "crates/pagis-evaluation",
+    "crates/pagis-core",
+    "crates/pagis-google",
+    "crates/pagis-mail",
+    "crates/pagis-memory",
+    "crates/pagis-knowledge",
+    "crates/pagis-plugin",
+    "crates/pagis-plugins",
+    "crates/pagis-mcp-fixture",
+    "crates/pagis-storage-postgres",
+    "crates/pagis-storage-sqlite",
+    "crates/pagis-telephony",
+    "crates/pagis-audit",
+    "crates/pagis-server",
+    "crates/pagis-software",
+    "crates/pagis-testkit",
+    "crates/pagis-trigger",
+    "crates/pagis-vault",
+    "crates/pagis-versions",
+    "crates/pagis-voice",
+    "xtask",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[workspace.dependencies]
+pagis = { path = "crates/pagis" }
+pagis-agent = { path = "crates/pagis-agent" }
+pagis-broker = { path = "crates/pagis-broker" }
+pagis-computer = { path = "crates/pagis-computer" }
+pagis-connect = { path = "crates/pagis-connect" }
+pagis-core = { path = "crates/pagis-core" }
+pagis-evaluation = { path = "crates/pagis-evaluation" }
+pagis-google = { path = "crates/pagis-google" }
+pagis-mail = { path = "crates/pagis-mail" }
+pagis-memory = { path = "crates/pagis-memory" }
+pagis-knowledge = { path = "crates/pagis-knowledge" }
+pagis-plugin = { path = "crates/pagis-plugin" }
+pagis-plugins = { path = "crates/pagis-plugins" }
+pagis-mcp-fixture = { path = "crates/pagis-mcp-fixture" }
+pagis-storage-postgres = { path = "crates/pagis-storage-postgres" }
+pagis-storage-sqlite = { path = "crates/pagis-storage-sqlite" }
+pagis-telephony = { path = "crates/pagis-telephony" }
+pagis-audit = { path = "crates/pagis-audit" }
+pagis-server = { path = "crates/pagis-server" }
+pagis-software = { path = "crates/pagis-software" }
+pagis-testkit = { path = "crates/pagis-testkit" }
+pagis-trigger = { path = "crates/pagis-trigger" }
+pagis-vault = { path = "crates/pagis-vault" }
+pagis-versions = { path = "crates/pagis-versions" }
+pagis-voice = { path = "crates/pagis-voice" }
+llm-router = { path = "crates/llm-router" }
+
+anyhow = "1"
+async-trait = "0.1"
+clap = { version = "4.6", features = ["derive"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+chrono-tz = "0.10"
+# The browser tests drive headless Chrome over the Chrome DevTools
+# Protocol. The test kit alone uses it.
+chromiumoxide = { version = "0.9", default-features = false }
+croner = "3.0.1"
+# The Agent Mailbox local part is ASCII, so an Agent name that is not
+# ASCII is transliterated rather than dropped (ADR-0019).
+deunicode = "1"
+axum = { version = "0.8", features = ["ws", "multipart"] }
+base64 = "0.22"
+bollard = "0.19"
+bytes = "1"
+wiremock = "0.6"
+chacha20poly1305 = "0.10"
+# The Keypad Code is stored as a hash and never as a secret to read
+# back (ADR-0021).
+argon2 = "0.5"
+open = "5"
+futures = "0.3"
+git2 = { version = "0.21", default-features = false }
+image = { version = "0.25", default-features = false, features = ["png"] }
+jsonschema = { version = "0.52", default-features = false }
+mime_guess = "2"
+object_store = "0.14"
+sha2 = "0.10"
+hex = "0.4"
+hmac = "0.12"
+# The Forget suppression key derives from the Tenant Data Key (ADR-0008).
+hkdf = "0.12"
+# The TURN REST API credential is an HMAC-SHA1 of the username;
+# coturn recomputes it with the shared secret.
+sha1 = "0.10"
+iana-time-zone = "0.1"
+# The STUN code of the Media Relay, and the browser and pipeline sides
+# of the relay tests; the same version the in-container pipeline uses.
+# The daemon verifies ICE checks with the `sha1` feature alone, so it
+# links no OpenSSL; a test that runs a whole WebRTC session turns on
+# `openssl` for DTLS.
+str0m = { version = "0.9", default-features = false }
+# The sockets of the Media Relay: the destination address of each
+# datagram it reads and the source address of each one it sends
+# (IP_PKTINFO, on Linux and macOS).
+nix = { version = "0.31", default-features = false, features = ["net", "uio"] }
+rand = "0.9"
+# The umask of the daemon process: the standard library has no call
+# for it.
+rustix = { version = "1", features = ["fs", "process"] }
+# The emergency number predicate compiles libphonenumber patterns.
+regex = "1"
+# The emergency table generator reads libphonenumber metadata.
+roxmltree = "0.21"
+# The SIP stack behind the Agent Phone Number (ADR-0020). It appears in
+# `crates/pagis-telephony` and nowhere else. Its default features stay
+# on: the crate does not build without its WebSocket transport.
+rsipstack = "0.6"
+# The RTP and SRTP leg beside it (ADR-0020), and G.711 conversion.
+rustrtc = "0.3"
+audio-codec-algorithms = "0.8"
+# The recording muxes to one stereo WAV.
+hound = "3"
+# The daemon's MCP client, and the server side of the test fixture
+# (ADR-0017). It is the first MCP implementation in the tree:
+# every other provider is a native client.
+rmcp = { version = "3.2", default-features = false }
+# The header types the streamable HTTP transport takes its custom
+# headers as.
+http = "1"
+rust-embed = "8"
+reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+semver = "1"
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls-ring", "sqlite", "postgres", "migrate", "macros", "json"] }
+tempfile = "3"
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "fs", "signal"] }
+tokio-util = { version = "0.7", features = ["io"] }
+# The CORS answer of the one Public Origin. Nothing else in the
+# tree needs a tower layer.
+tower-http = { version = "0.6", features = ["cors", "set-header"] }
+toml = "0.9"
+# A Software Package travels as one uncompressed tar.
+tar = "0.4"
+# The in-memory BM25 index behind the Software List search.
+# Its tokenizer splits `get_weather` into two words, which a
+# search over `snake_case` tool names needs.
+tantivy = "0.26"
+# The same `.gitignore` rules git applies, for the files a publish
+# leaves out.
+ignore = "0.4"
+utoipa = { version = "5", features = ["axum_extras"] }
+tokio-tungstenite = "0.28"
+tracing = "0.1"
+tracing-appender = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+ulid = "1"
+url = "2"
+# The mail transport (ADR-0019). `async-imap` defaults
+# to async-std, so the Tokio runtime feature is selected by hand and
+# the daemon owns the TLS handshake.
+async-imap = { version = "0.11.3", default-features = false, features = ["runtime-tokio"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12", "logging"] }
+webpki-roots = "1"
+lettre = { version = "0.11.23", default-features = false, features = [
+    "smtp-transport", "pool", "builder", "hostname",
+    "tokio1", "tokio1-rustls", "ring", "webpki-roots" ] }
+mail-parser = "0.11.8"
+mail-builder = "0.5.0"
+# The public suffix list, compiled in: an offline daemon cannot fetch
+# one, and a fill must resolve the registrable domain the same way
+# every time.
+psl = "2"
+totp-rs = { version = "6", default-features = false, features = ["std", "alloc"] }
+# The parser behind a Host Allow Rule (ADR-0015). A rule approves only a
+# command that the grammar fully parses. Codex CLI uses the same parser
+# for the same check.
+tree-sitter = "0.27"
+tree-sitter-bash = "0.25"
+
+# Debug info is the bulk of every artifact and of every link. The
+# workspace crates keep line tables, enough for a backtrace with file
+# and line; third-party crates get none.
+[profile.dev]
+debug = "line-tables-only"
+
+# Third-party crates keep no debug information, but they stay
+# unoptimized. Optimizing every dependency made a small edit rebuild a
+# large second graph and cost more time than the tests saved.
+[profile.dev.package."*"]
+debug = false
+
+# Password hashing is intentionally expensive without optimization.
+[profile.dev.package.argon2]
+opt-level = 2

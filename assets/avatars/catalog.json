@@ -1,0 +1,318 @@
+{
+  "pixie": {
+    "family": "pixie",
+    "model": "pixie/exports/pixie.glb",
+    "source": "pixie.blend",
+    "units": "meters",
+    "up": "+Y",
+    "front": "+Z",
+    "clips": {
+      "Idle": {
+        "seconds": 4,
+        "loop": true
+      },
+      "Working": {
+        "seconds": 3,
+        "loop": true
+      },
+      "Waiting": {
+        "seconds": 5,
+        "loop": true
+      },
+      "NeedsInput": {
+        "seconds": 3.2,
+        "loop": true
+      },
+      "Celebrate": {
+        "seconds": 2.4,
+        "loop": false
+      },
+      "Error": {
+        "seconds": 3,
+        "loop": false
+      }
+    },
+    "expressions": [
+      "Blink",
+      "Smile",
+      "Surprise",
+      "Concern"
+    ],
+    "attachments": [
+      "Socket_Head",
+      "Socket_Face",
+      "Socket_Back"
+    ],
+    "accessories": {
+      "glasses": false,
+      "scarf": false,
+      "satchel": true
+    },
+    "presets": {
+      "mint": {
+        "label": "Mint",
+        "materials": {
+          "Body": "#ADCA64",
+          "Leaves": "#789D36",
+          "LeafLight": "#93B844",
+          "LeafDark": "#627F2B",
+          "LeafVeins": "#799443",
+          "Scarf": "#CD715C"
+        },
+        "accessories": {
+          "glasses": false,
+          "scarf": false,
+          "satchel": true
+        },
+        "portrait": "pixie/portraits/mint.png"
+      },
+      "lavender": {
+        "label": "Lavender",
+        "materials": {
+          "Body": "#B9A5CE",
+          "Leaves": "#9A80BA",
+          "LeafLight": "#B49BCF",
+          "LeafDark": "#7C6995",
+          "LeafVeins": "#77618F",
+          "Scarf": "#9380AD"
+        },
+        "accessories": {
+          "glasses": true,
+          "scarf": false,
+          "satchel": true
+        },
+        "portrait": "pixie/portraits/lavender.png"
+      },
+      "peach": {
+        "label": "Peach",
+        "materials": {
+          "Body": "#F0C597",
+          "Leaves": "#EBA076",
+          "LeafLight": "#F6B58A",
+          "LeafDark": "#C17E5D",
+          "LeafVeins": "#B77751",
+          "Scarf": "#CD715C"
+        },
+        "accessories": {
+          "glasses": false,
+          "scarf": true,
+          "satchel": true
+        },
+        "portrait": "pixie/portraits/peach.png"
+      }
+    },
+    "label": "Pixie",
+    "defaultPreset": "mint",
+    "colors": {
+      "body": {
+        "label": "Body",
+        "materials": [
+          "Body"
+        ]
+      },
+      "leaves": {
+        "label": "Leaves",
+        "materials": [
+          "Leaves",
+          "LeafLight",
+          "LeafDark",
+          "LeafVeins"
+        ]
+      },
+      "scarf": {
+        "label": "Scarf",
+        "materials": [
+          "Scarf"
+        ]
+      }
+    },
+    "accessoryLabels": {
+      "glasses": "Glasses",
+      "scarf": "Scarf",
+      "satchel": "Satchel"
+    },
+    "camera": {
+      "position": [
+        3,
+        2.85,
+        10
+      ],
+      "target": [
+        -0.06,
+        1.34,
+        0
+      ],
+      "fov": 21
+    }
+  },
+  "brownie": {
+    "family": "brownie",
+    "label": "Brownie",
+    "model": "brownie/exports/brownie.glb",
+    "source": "brownie.blend",
+    "units": "meters",
+    "up": "+Y",
+    "front": "+Z",
+    "clips": {
+      "Idle": {
+        "seconds": 4,
+        "loop": true
+      },
+      "Working": {
+        "seconds": 3,
+        "loop": true
+      },
+      "Waiting": {
+        "seconds": 5,
+        "loop": true
+      },
+      "NeedsInput": {
+        "seconds": 3.2,
+        "loop": true
+      },
+      "Celebrate": {
+        "seconds": 2.4,
+        "loop": false
+      },
+      "Error": {
+        "seconds": 3,
+        "loop": false
+      }
+    },
+    "expressions": [
+      "Blink",
+      "Smile",
+      "Surprise",
+      "Concern"
+    ],
+    "defaultPreset": "classic",
+    "colors": {
+      "hat": {
+        "label": "Hat",
+        "materials": [
+          "Hat",
+          "HatEdge"
+        ]
+      },
+      "tunic": {
+        "label": "Tunic",
+        "materials": [
+          "Tunic"
+        ]
+      }
+    },
+    "accessoryLabels": {
+      "satchel": "Satchel"
+    },
+    "presets": {
+      "classic": {
+        "label": "Classic",
+        "materials": {
+          "Hat": "#9F422E",
+          "HatEdge": "#BD6746",
+          "Tunic": "#A97A3F"
+        },
+        "accessories": {
+          "satchel": true
+        },
+        "portrait": "brownie/portraits/classic.png"
+      }
+    },
+    "camera": {
+      "position": [
+        0.15,
+        2.6,
+        10
+      ],
+      "target": [
+        0,
+        1.25,
+        0
+      ],
+      "fov": 17.0
+    }
+  },
+  "pebble": {
+    "family": "pebble",
+    "label": "Pebble",
+    "model": "pebble/exports/pebble.glb",
+    "source": "pebble.blend",
+    "units": "meters",
+    "up": "+Y",
+    "front": "+Z",
+    "clips": {
+      "Idle": {
+        "seconds": 4,
+        "loop": true
+      },
+      "Working": {
+        "seconds": 3,
+        "loop": true
+      },
+      "Waiting": {
+        "seconds": 5,
+        "loop": true
+      },
+      "NeedsInput": {
+        "seconds": 3.2,
+        "loop": true
+      },
+      "Celebrate": {
+        "seconds": 2.4,
+        "loop": false
+      },
+      "Error": {
+        "seconds": 3,
+        "loop": false
+      }
+    },
+    "expressions": [
+      "Blink",
+      "Smile",
+      "Surprise",
+      "Concern"
+    ],
+    "defaultPreset": "classic",
+    "colors": {
+      "stone": {
+        "label": "Stone",
+        "materials": [
+          "Stone"
+        ]
+      },
+      "leaves": {
+        "label": "Leaves",
+        "materials": [
+          "Leaves",
+          "Vein"
+        ]
+      }
+    },
+    "accessoryLabels": {},
+    "presets": {
+      "classic": {
+        "label": "Classic",
+        "materials": {
+          "Stone": "#998FA4",
+          "Leaves": "#596D2F",
+          "Vein": "#43551F"
+        },
+        "accessories": {},
+        "portrait": "pebble/portraits/classic.png"
+      }
+    },
+    "camera": {
+      "position": [
+        0.15,
+        2.6,
+        10
+      ],
+      "target": [
+        0,
+        1.21,
+        0
+      ],
+      "fov": 15.9
+    }
+  }
+}

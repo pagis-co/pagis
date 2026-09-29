@@ -1,0 +1,69 @@
+/* Markdown output. Prose is the one place a message carries
+ * content that cannot wrap: a fenced code block keeps its own line
+ * breaks. It scrolls inside its own box, so the column that holds the
+ * message never scrolls sideways under the reader's hands. A long
+ * word, such as a link or an address, breaks instead. A table is a
+ * block of its own (ADR-0004), and an agent writes one in Markdown
+ * anyway, so prose draws that one too. */
+
+.prose {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.prose pre {
+  margin: var(--space-2) 0;
+  padding: var(--space-2-5) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--sunken);
+  overflow-x: auto;
+}
+
+.prose pre code {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  white-space: pre;
+}
+
+.prose img {
+  max-width: 100%;
+}
+
+/* A table an agent wrote in its prose. `add_block` offers the table
+ * block, and an agent writes a pipe table anyway, so prose draws one
+ * too: it reads like the table block and scrolls in its own box, the
+ * way a fenced code block does. */
+.prose-table {
+  margin: var(--space-2) 0;
+  overflow-x: auto;
+}
+
+.prose-table table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: var(--text-sm);
+}
+
+.prose-table th,
+.prose-table td {
+  padding: var(--space-2) var(--space-3-5);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.prose-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.prose-table thead th {
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  text-align: left;
+}
+
+/* A task list an agent wrote carries its own marks. */
+.prose .contains-task-list {
+  list-style: none;
+  padding-left: 0;
+}

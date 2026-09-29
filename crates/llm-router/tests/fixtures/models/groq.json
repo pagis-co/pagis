@@ -1,0 +1,6 @@
+{
+  "object": "list",
+  "data": [
+    {"id": "llama-3.3-70b-versatile", "object": "model", "created": 1733447754, "owned_by": "Meta", "active": true, "context_window": 131072, "max_completion_tokens": 32768}
+  ]
+}

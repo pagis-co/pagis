@@ -1,0 +1,8 @@
+/* The Vault rows. The row shape itself is `settings.css`; what
+ * stays here is the Vault's own empty line. */
+
+.vault-empty {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--muted);
+}

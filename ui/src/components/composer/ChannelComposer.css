@@ -1,0 +1,16 @@
+/* The line that stands in for the composer of an Agent-to-Agent
+   Channel (ADR-0003). It takes the composer's own width, so the column
+   keeps its shape. */
+
+.composer-read-only {
+  flex: 0 0 auto;
+  width: calc(100% - 2 * var(--conversation-gutter));
+  max-width: var(--reading-width);
+  margin: var(--space-3) auto var(--space-5);
+  padding: var(--space-3);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-lg);
+  color: var(--muted);
+  font-size: var(--text-sm);
+  text-align: center;
+}

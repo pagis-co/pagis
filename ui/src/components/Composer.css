@@ -1,0 +1,153 @@
+/* The composer, its attachments and push-to-talk. */
+
+.composer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  flex: 0 0 auto;
+  width: calc(100% - 2 * var(--conversation-gutter));
+  max-width: var(--reading-width);
+  margin: var(--space-3) auto var(--space-5);
+  padding: var(--space-3);
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-lg);
+  background: var(--raised);
+  box-shadow: var(--shadow-rest);
+}
+
+.composer-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.composer-row > .ui-button {
+  grid-row: 2;
+}
+.composer-mic {
+  grid-column: 3;
+}
+.composer-row > [type='submit'] {
+  grid-column: 4;
+}
+
+.composer-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1-5);
+  font-size: var(--text-sm);
+}
+
+.composer-attachment {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  padding: var(--space-0-5) var(--space-2-5);
+}
+
+.composer-attachment-remove {
+  color: var(--muted);
+}
+
+.composer-uploading,
+.composer-upload-error {
+  color: var(--muted);
+  align-self: center;
+}
+
+.composer-upload-error {
+  color: var(--failed);
+}
+
+/* The field is the bare Textarea primitive: the composer card draws the
+ * frame, and the field grows with the message. The resting height holds
+ * the field at 64 px, the height it has on one line. */
+.composer-input {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  flex: 1;
+  resize: none;
+  min-height: 4rem;
+}
+
+/* The card shows the focus, because the bare field draws no ring. */
+.composer:focus-within {
+  border-color: var(--accent);
+}
+
+/* Push-to-talk. */
+.composer-mic {
+  user-select: none;
+  touch-action: none;
+}
+
+.composer-mic-held {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.composer-input-dictating {
+  color: var(--muted);
+}
+
+@media (max-width: 760px) {
+  .composer {
+    width: calc(100% - 1.5rem);
+    margin: var(--space-2) auto var(--space-3);
+  }
+}
+
+/* Drag-and-drop and the `/` command menu. */
+.composer {
+  position: relative;
+}
+
+.composer-dragging {
+  border-color: var(--accent);
+}
+
+.composer-dropzone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-size: var(--text-sm);
+  padding: var(--space-3);
+}
+
+.composer-commands {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--raised);
+  box-shadow: var(--shadow-raised);
+  padding: var(--space-1);
+}
+
+.composer-command {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  text-align: left;
+  color: var(--text);
+  font-size: var(--text-sm);
+}
+
+.composer-command[data-active='true'],
+.composer-command:hover {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+.composer-command-description {
+  color: var(--muted);
+  font-size: var(--text-xs);
+}

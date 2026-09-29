@@ -1,0 +1,82 @@
+/* The app shell: the panes the screens sit in. */
+
+.channel-pane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--panel);
+}
+
+.workspace-inspector {
+  width: min(var(--panel-width), 34vw);
+  min-width: 0;
+  overflow: hidden auto;
+  border-left: 1px solid var(--border);
+  background: var(--sidebar);
+  box-shadow: var(--shadow-rest);
+}
+
+.workspace-inspector .computers {
+  max-width: none;
+  min-height: 100%;
+}
+
+/* The sheet: a full-screen layer on a phone, and nothing at
+   all on a wide screen, where the tenant is a column of the shell. */
+.workspace-sheet {
+  position: fixed;
+  z-index: var(--z-inspector);
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+}
+
+.workspace-sheet-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  padding: var(--space-1-5) var(--space-2);
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-translucent);
+}
+
+/* Inside a sheet the tenant is the body: it drops the fixed placement
+   its own stylesheet asks for and fills what the bar leaves. */
+.workspace-sheet > .workspace-inspector,
+.workspace-sheet > .thread-pane {
+  position: static;
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  height: auto;
+  border-left: none;
+  box-shadow: none;
+}
+
+/* Motion. The inspector and the sheet arrive with a spring, so
+   a panel reads as a thing that moved rather than a thing that
+   appeared. Under reduced motion the duration token is zero and both
+   land at once. */
+.workspace-inspector {
+  animation: inspector-in var(--duration-panel) var(--ease-spring);
+}
+
+@keyframes inspector-in {
+  from {
+    transform: translateX(2rem);
+    opacity: 0;
+  }
+}
+
+.workspace-sheet {
+  animation: sheet-in var(--duration-panel) var(--ease-spring);
+}
+
+@keyframes sheet-in {
+  from {
+    transform: translateY(1.5rem);
+    opacity: 0;
+  }
+}

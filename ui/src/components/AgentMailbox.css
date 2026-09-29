@@ -1,0 +1,96 @@
+/* The Agent Mailbox card and the mailbox fields of the two forms
+ * (ADR-0019). They follow the phone number shapes. */
+
+.agent-mailbox {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.agent-mailbox h4 {
+  margin: 0;
+}
+
+.mailbox-card,
+.mailbox-provision,
+.mailbox-delete,
+.mailbox-reset {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3) var(--space-3);
+}
+
+.mailbox-rule,
+.mailbox-rule-edit {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+}
+
+.mailbox-rule {
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-2);
+}
+
+.mailbox-rule p {
+  margin: 0;
+}
+
+.mailbox-rule-edit .ui-textarea {
+  width: 100%;
+}
+
+.mailbox-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2-5);
+}
+
+.mailbox-chip {
+  color: var(--muted);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.mailbox-chip-warning {
+  color: var(--waiting-ink);
+}
+
+.mailbox-delete p,
+.mailbox-reset p {
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.mailbox-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+  align-items: flex-start;
+}
+
+.mailbox-fields .ui-input,
+.mailbox-fields .ui-select-trigger {
+  width: 100%;
+  max-width: 20rem;
+}
+
+.mailbox-address-field {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  width: 100%;
+}
+
+.mailbox-domain {
+  color: var(--muted);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}

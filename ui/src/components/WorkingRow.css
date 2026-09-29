@@ -1,0 +1,62 @@
+/* The live row at the end of the column. */
+
+.working {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2-5) var(--space-3);
+  border: 1px solid var(--working-soft);
+  border-radius: var(--radius-lg);
+  background: var(--panel);
+}
+
+.working-reflecting {
+  border-color: var(--border);
+  background: transparent;
+  color: var(--muted);
+}
+
+.working-lines {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.working-line {
+  font-size: var(--text-md);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.working-step {
+  color: var(--muted);
+}
+
+.working-time {
+  font-size: var(--text-xs);
+  color: var(--working-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.working-desk {
+  margin-left: auto;
+  flex: none;
+}
+
+.working-desk-screen {
+  display: block;
+  width: 64px;
+  height: 40px;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--stage);
+}
+
+.working-desk-screen img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}

@@ -1,0 +1,49 @@
+/* The Retention section: a title line, a framed list of one row
+ * per artifact class, and a closing hint. Every value comes from `tokens.css`. */
+
+.settings-retention {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.settings-retention-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+
+.settings-retention-title h1 {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+
+.settings-retention-title span {
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.settings-retention-name {
+  width: 11.25rem;
+  font-weight: var(--weight-medium);
+}
+
+.settings-retention-days {
+  width: 8.75rem;
+}
+
+.settings-retention-unit {
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.settings-retention-error {
+  font-size: var(--text-sm);
+  color: var(--failed);
+}
+
+/* Save sits at the end of the row. */
+.settings-retention-save {
+  margin-left: auto;
+}

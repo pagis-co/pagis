@@ -1,0 +1,19 @@
+/* LogoMark. Every value comes from `tokens.css`. */
+
+.ui-logo-mark {
+  flex-shrink: 0;
+  width: 1em;
+  height: 1em;
+}
+
+.ui-logo-mark-top {
+  fill: var(--logo-top);
+}
+
+.ui-logo-mark-bowl {
+  fill: var(--logo-bowl);
+}
+
+.ui-logo-mark-bottom {
+  fill: var(--logo-bottom);
+}

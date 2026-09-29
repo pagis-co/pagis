@@ -1,0 +1,75 @@
+/* The Thread: the conversation in the reading column. */
+
+.timeline-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.timeline {
+  flex: 1;
+  background: var(--panel);
+  /* The virtualizer writes `overflow-y` on this element itself, and a
+     browser then lets the column scroll sideways as well. Only the
+     stylesheet can close that axis, so a wide code block or table
+     scrolls inside its own box and never drags the conversation. */
+  overflow-x: hidden;
+}
+
+/* Each item sits in the 680 px column, 22 px from the next. */
+.timeline-item {
+  padding: var(--space-3) var(--conversation-gutter);
+}
+
+.timeline-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+}
+
+/* A divider: a hairline with a word on it. Today is gray. */
+.timeline-divider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+
+.timeline-divider::before,
+.timeline-divider::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid var(--sunken);
+}
+
+/* New is the accent. */
+.timeline-divider-new {
+  color: var(--accent);
+}
+
+.timeline-divider-new::before,
+.timeline-divider-new::after {
+  border-top-color: var(--accent);
+}
+
+/* The pill that returns to the end of the conversation. */
+.timeline-jump {
+  position: absolute;
+  left: 50%;
+  bottom: 1rem;
+  transform: translateX(-50%);
+  gap: var(--space-1-5);
+  background: var(--raised);
+  box-shadow: var(--shadow-rest);
+  color: var(--text);
+  font-size: var(--text-sm);
+}
+
+.timeline-jump:hover {
+  background: var(--hover);
+}

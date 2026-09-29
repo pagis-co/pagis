@@ -1,0 +1,9 @@
+# The agent desktop session: the screen daemon, a
+# terminal, and Chromium maximized, all under the `screen` uid. The
+# terminal drops to the `agent` uid for the shell it hosts, so the
+# agent's commands run under a user that cannot reach the Wayland
+# socket (ADR-0013). labwc exports WAYLAND_DISPLAY before running this.
+# screend starts the browser through `pagis-browser`, holds its DevTools
+# pipe, and starts it again when it exits.
+pagis-screend &
+foot sudo -u agent -H /bin/bash -l &

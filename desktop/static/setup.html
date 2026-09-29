@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; font-src 'self'; img-src 'self'; script-src 'unsafe-inline'" />
+    <title>Set up Pagis</title>
+    <link rel="stylesheet" href="../dist/design/tokens.css" />
+    <link rel="stylesheet" href="pages.css" />
+  </head>
+  <body>
+    <div class="titlebar" aria-hidden="true"></div>
+    <main class="page">
+      <div class="content">
+        <div class="column">
+          <p class="wordmark">
+            <picture>
+              <source srcset="../dist/design/pagis-mark-dark.svg" media="(prefers-color-scheme: dark)" />
+              <img src="../dist/design/pagis-mark.svg" alt="" />
+            </picture>
+            Pagis
+          </p>
+          <section id="use" class="screen" aria-labelledby="use-title">
+            <h1 id="use-title" class="title">How do you want to use Pagis?</h1>
+            <div class="choices" role="radiogroup" aria-labelledby="use-title">
+              <label class="choice">
+                <input type="radio" name="use" value="install" checked />
+                <span class="choice-text">
+                  <span class="choice-title">Install on this computer</span>
+                  <span class="choice-detail">Your Workspace stays on this computer. Pagis connects directly to the model providers that you choose. You need no Pagis account.</span>
+                </span>
+              </label>
+              <label class="choice">
+                <input type="radio" name="use" value="connect" />
+                <span class="choice-text">
+                  <span class="choice-title">Connect to a Pagis server</span>
+                  <span class="choice-detail">Your Workspace, your Agents and their computers are on a Pagis server that another person runs. You sign in on the page of that server.</span>
+                </span>
+              </label>
+            </div>
+            <div id="server" hidden>
+              <!-- A problem with the address shows under the field. -->
+              <div class="field">
+                <label for="server-url">Server address</label>
+                <input id="server-url" class="input" type="url" inputmode="url" autocomplete="off" placeholder="pagis.example.com" aria-describedby="connect-trust" required />
+                <!-- The client runs each command that the server sends, with no check of its own (ADR-0015). README.md and desktop/README.md state this in full. -->
+                <p id="connect-trust" class="field-hint">Connect only to a server you trust.</p>
+                <p id="server-url-error" class="field-error" hidden></p>
+                <p id="server-progress" class="field-progress" role="status" hidden></p>
+              </div>
+            </div>
+          </section>
+          <section id="who" class="screen" aria-labelledby="who-title" hidden>
+            <h1 id="who-title" class="title">Who uses Pagis on this computer?</h1>
+            <div class="choices" role="radiogroup" aria-labelledby="who-title">
+              <label class="choice">
+                <input type="radio" name="people" value="one" checked />
+                <span class="choice-text">
+                  <span class="choice-title">Just me</span>
+                  <span class="choice-detail">Only you use Pagis, on this computer.</span>
+                </span>
+              </label>
+              <label class="choice">
+                <input type="radio" name="people" value="several" />
+                <span class="choice-text">
+                  <span class="choice-title">Several people</span>
+                  <span class="choice-detail">Other people use Pagis from their machines, through your proxy or tunnel. After the installation, Pagis opens the Administration Interface. There, you turn on multi-user mode.</span>
+                </span>
+              </label>
+            </div>
+          </section>
+          <section id="status" class="screen" aria-labelledby="state-title" aria-live="polite" hidden>
+            <h1 id="state-title" class="title"></h1>
+            <div id="state" class="state">
+              <p id="state-message"></p>
+            </div>
+          </section>
+        </div>
+      </div>
+      <div class="footer">
+        <div class="footer-group">
+          <button id="quit" class="button button-ghost">Quit</button>
+        </div>
+        <div class="footer-group">
+          <button id="back" class="button button-outline" hidden>Back</button>
+          <button id="choose" class="button button-outline" hidden>Choose another setup</button>
+          <button id="cancel" class="button button-outline" hidden>Cancel</button>
+          <button id="continue" class="button button-primary" hidden>Continue</button>
+          <button id="install" class="button button-primary" hidden>Install</button>
+          <button id="repair" class="button button-primary" hidden>Repair</button>
+          <button id="retry-server" class="button button-primary" hidden>Try again</button>
+          <button id="use-port" class="button button-primary" hidden></button>
+        </div>
+      </div>
+    </main>
+    <script>
+      const element = (id) => document.getElementById(id)
+      const screens = { use: element('use'), who: element('who'), status: element('status') }
+      const [stateTitle, stateBox, stateMessage] = ['state-title', 'state', 'state-message'].map(element)
+      const [server, address, addressError, progress] =
+        ['server', 'server-url', 'server-url-error', 'server-progress'].map(element)
+      const buttons = Object.fromEntries(
+        ['back', 'choose', 'cancel', 'continue', 'install', 'repair', 'retry-server', 'use-port']
+          .map((id) => [id, element(id)]),
+      )
+      // The state of the setup comes from the main process.
+      let current = { kind: 'ready' }
+      // The setup question on the window: how to use Pagis (`use`), or who
+      // uses it on this computer (`who`). The answer to "who uses Pagis"
+      // only chooses where setup goes next. The page sends it with the
+      // request and keeps it nowhere.
+      let question = 'use'
+      // A failure and a connected server that did not open show their
+      // state until the person asks for another setup.
+      let choosing = false
+      // The page sent a server address, and the main process checks it.
+      let connecting = false
+
+      const selected = (name) => document.querySelector(`input[name="${name}"]:checked`).value
+
+      /** The title, the message and the tone of a state that the window
+       *  shows in place of a setup question, or null. */
+      function describe(state) {
+        switch (state.kind) {
+          case 'installing':
+            return { title: 'Setting up Pagis', message: state.detail, tone: 'working' }
+          case 'taken-port':
+            return {
+              title: `Port ${state.port} is taken`,
+              message: `${state.holder} uses port ${state.port}. Pagis can use port ${state.suggested}.`,
+              tone: 'waiting',
+            }
+          case 'failed':
+            return {
+              title: state.repair ? 'Pagis could not start' : 'Setup did not complete',
+              message: state.reason,
+              tone: 'failed',
+            }
+          case 'connection-failed':
+            return { title: `Pagis cannot open ${state.origin}`, message: state.reason, tone: 'failed' }
+          default:
+            return null
+        }
+      }
+
+      /**
+       * Show one screen and the footer of that screen. A check of a server
+       * address stays on the first screen: its progress and its problem
+       * show under the field.
+       */
+      function render() {
+        const checking = connecting && current.kind === 'installing'
+        const shown = checking || choosing ? null : describe(current)
+        const view = shown === null ? question : 'status'
+        for (const [name, screen] of Object.entries(screens)) screen.hidden = name !== view
+        if (shown) {
+          stateBox.dataset.tone = shown.tone
+          stateBox.setAttribute('role', shown.tone === 'failed' ? 'alert' : 'status')
+          stateTitle.textContent = shown.title
+          stateMessage.textContent = shown.message
+        }
+        server.hidden = selected('use') !== 'connect'
+        progress.hidden = !checking
+        progress.textContent = checking ? current.detail : ''
+        const visible = new Set()
+        if (view === 'use') visible.add('continue')
+        if (view === 'who') { visible.add('back'); visible.add('install') }
+        if (view === 'status') {
+          if (current.kind === 'installing') visible.add('cancel')
+          if (current.kind === 'taken-port') visible.add('use-port')
+          if (current.kind === 'failed' || current.kind === 'connection-failed') visible.add('choose')
+          if (current.kind === 'failed' && current.repair) visible.add('repair')
+          if (current.kind === 'connection-failed') visible.add('retry-server')
+        }
+        for (const [id, button] of Object.entries(buttons)) button.hidden = !visible.has(id)
+        buttons.continue.disabled = checking
+        if (current.kind === 'taken-port') buttons['use-port'].textContent = `Use port ${current.suggested}`
+      }
+
+      /** Show a problem with the server address under its field, or clear
+       *  it. The field keeps the trust line as its description. */
+      function showAddressProblem(problem) {
+        addressError.textContent = problem ?? ''
+        addressError.hidden = problem === null
+        if (problem === null) {
+          address.removeAttribute('aria-invalid')
+          address.setAttribute('aria-describedby', 'connect-trust')
+        } else {
+          address.setAttribute('aria-invalid', 'true')
+          address.setAttribute('aria-describedby', 'server-url-error connect-trust')
+          address.focus()
+        }
+      }
+
+      /**
+       * The problem with the server address, or null. These are the rules
+       * and the words of serverOrigin (src/origin.ts), which the main
+       * process applies again. The page cannot load that module, because
+       * its policy allows its inline script and no other script.
+       */
+      function serverAddressProblem(typed) {
+        const raw = typed.trim()
+        if (raw.length === 0) return 'Enter the address of your Pagis server.'
+        const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`
+        let url
+        try {
+          url = new URL(withScheme)
+        } catch {
+          return `${raw} is not a server address.`
+        }
+        if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+          return 'A Pagis server address starts with https:// or http://.'
+        }
+        if (url.hostname.length === 0) return `${raw} names no server.`
+        if (url.username.length > 0 || url.password.length > 0) {
+          return 'Leave the user name and the password out of the address. You sign in on the page of the server.'
+        }
+        if (url.protocol === 'http:' && !['127.0.0.1', '[::1]', 'localhost'].includes(url.hostname)) {
+          return 'Pagis connects to a server on another computer only over https://. ' +
+            'Put TLS in front of the server with Caddy, Tailscale Serve or Cloudflare Tunnel, ' +
+            'as docs/DEPLOYING-A-SERVER.md shows, then type its https:// address.'
+        }
+        return null
+      }
+
+      /** Continue on the first screen: the second screen, or a check of
+       *  the server address. The main process then closes this window and
+       *  opens the sign-in page of the server. */
+      function next() {
+        if (selected('use') === 'install') {
+          question = 'who'
+          render()
+          return
+        }
+        const problem = serverAddressProblem(address.value)
+        showAddressProblem(problem)
+        if (problem !== null) return
+        connecting = true
+        window.pagisSetup.connectToServer(address.value).catch(() => {})
+      }
+
+      for (const input of document.querySelectorAll('input[type="radio"]')) {
+        input.addEventListener('change', render)
+      }
+      address.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' && !buttons.continue.disabled) next()
+      })
+      buttons.continue.addEventListener('click', next)
+      buttons.back.addEventListener('click', () => { question = 'use'; render() })
+      buttons.install.addEventListener('click', () => window.pagisSetup.installHere(selected('people')))
+      // A repair checks and starts the installation that this computer
+      // holds. Its answer to "who uses Pagis" is already given.
+      buttons.repair.addEventListener('click', () => window.pagisSetup.installHere('one'))
+      buttons['retry-server'].addEventListener('click', () => window.pagisSetup.retryServer())
+      buttons.choose.addEventListener('click', () => { choosing = true; question = 'use'; render() })
+      buttons['use-port'].addEventListener('click', () => window.pagisSetup.usePort(current.suggested))
+      buttons.cancel.addEventListener('click', () => window.pagisSetup.cancel())
+      element('quit').addEventListener('click', () => window.pagisSetup.quit())
+      window.pagisSetup.onState((state) => {
+        current = state
+        choosing = false
+        if (state.kind !== 'installing') connecting = false
+        if (state.kind === 'server-check-failed') {
+          question = 'use'
+          document.querySelector('input[name="use"][value="connect"]').checked = true
+        }
+        render()
+        if (state.kind === 'server-check-failed') showAddressProblem(state.reason)
+      })
+      render()
+    </script>
+  </body>
+</html>

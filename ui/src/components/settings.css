@@ -1,0 +1,122 @@
+/* The shapes every settings screen uses. The screen that
+ * writes a `settings-` class imports this sheet. */
+
+.settings-section h3 {
+  margin: 0;
+}
+
+.settings-error {
+  color: var(--failed);
+  font-size: var(--text-sm);
+}
+
+.settings-row-actions {
+  display: flex;
+  gap: var(--space-2-5);
+}
+
+/* A consent the owner turns on, with its sentence beside the box. */
+.settings-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.settings-resource-row {
+  display: grid;
+  grid-template-columns: minmax(10rem, 1fr) 10rem 7rem;
+  align-items: center;
+  gap: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: inherit;
+  padding: var(--space-3) var(--space-3);
+  text-align: left;
+}
+
+.settings-resource-row {
+  grid-template-columns: 1fr auto;
+}
+
+.settings-resource-row div {
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-resource-row span,
+.settings-section > p {
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+/* The vault: the user's own logins, typed in once. */
+
+.settings-hint {
+  max-width: 34rem;
+}
+
+.settings-warning {
+  color: var(--waiting-ink);
+  font-size: var(--text-sm);
+  margin: 0;
+}
+
+/* A long note or a legend the user opens when they want it, so
+ * the control that adds a row stays at the top of the section. */
+.settings-disclosure {
+  margin: var(--space-1-5) 0 var(--space-2-5);
+}
+
+.settings-disclosure > summary {
+  cursor: pointer;
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+/* The shape of one row inside a settings Frame: a square tile
+ * for the thing's initial, its name over one line of detail, then the
+ * state and the acts. Vault, Connections and every list that follows
+ * them share it, so a settings row reads the same everywhere. */
+.settings-tile {
+  flex: none;
+  width: 2rem;
+  height: 2rem;
+  border-radius: var(--radius-md);
+  background: var(--sidebar);
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+}
+
+.settings-row-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.settings-row-detail {
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+/* What the row leaves to the right of the name: the state, and who
+ * holds the thing. It takes the free space so the acts stay at the end. */
+.settings-row-aside {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  font-size: var(--text-sm);
+  color: var(--muted);
+  white-space: nowrap;
+}

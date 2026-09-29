@@ -1,0 +1,29 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["title", "bars"],
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "The heading above the bars."
+    },
+    "bars": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 14,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["label", "value"],
+        "properties": {
+          "label": { "type": "string" },
+          "value": { "type": "number" }
+        }
+      }
+    },
+    "question": {
+      "type": "string",
+      "description": "Present when the tool awaits an answer. The page then shows the form."
+    }
+  }
+}

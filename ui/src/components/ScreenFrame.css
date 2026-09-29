@@ -1,0 +1,83 @@
+/* The live screen frame: window chrome over the video, and the
+ * takeover state written on the chrome. */
+
+.screen-frame {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--stage);
+}
+
+.screen-frame-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1-5) var(--space-2);
+  background: var(--sidebar);
+  border-bottom: 1px solid var(--border);
+  font-size: var(--text-sm);
+}
+
+.screen-frame-title {
+  font-weight: var(--weight-semibold);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.screen-frame-holder {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* The user holds the switch: the chrome says so in the hue of a live
+   call, and the border keeps saying it around the whole screen. */
+.screen-frame-user {
+  border-color: var(--on-call);
+}
+
+.screen-frame-user .screen-frame-bar {
+  background: var(--on-call-soft);
+}
+
+.screen-frame-user .screen-frame-holder {
+  color: var(--on-call-ink);
+  font-weight: var(--weight-semibold);
+}
+
+/* The vault fill: neither side may type, so the chrome warns. */
+.screen-frame-daemon .screen-frame-bar {
+  background: var(--waiting-soft);
+}
+
+.screen-frame-daemon .screen-frame-holder {
+  color: var(--waiting-ink);
+}
+
+.screen-frame-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  margin-left: auto;
+}
+
+.screen-frame-body {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+/* The countdown belongs to the screen it hands back: it sits
+   inside the frame, over the top of the video. */
+.screen-frame-body .handback-countdown {
+  position: absolute;
+  top: 0.6rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: var(--z-overlay-controls);
+}

@@ -1,0 +1,168 @@
+/* Automations (ADR-0022): the workspace view of durable rules,
+ * with the needs-you queue above the two lists. Software and Plugins
+ * reuse the master-detail shapes. */
+
+.automations-panel {
+  padding: var(--space-4) var(--space-5);
+  overflow: hidden auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  width: 100%;
+  max-width: 56rem;
+}
+
+.automations-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2-5);
+}
+
+.automations-header h2 {
+  margin: 0;
+  flex: 1;
+}
+
+.automations-queue,
+.automations-section,
+.automations-detail,
+.automations-history {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.automations-queue h3,
+.automations-section h3,
+.automations-detail h3,
+.automations-history h4 {
+  margin: 0;
+}
+
+.automations-queue > p,
+.automations-section > p,
+.automations-history > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.automations-queue-item {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-1-5);
+  text-align: left;
+}
+
+.automations-queue-kind {
+  color: var(--waiting);
+  font-size: var(--text-sm);
+}
+
+.automations-row {
+  display: grid;
+  grid-template-columns: auto minmax(9rem, 1fr) 7rem 12rem 8rem;
+  align-items: center;
+  gap: var(--space-3);
+  text-align: left;
+}
+
+.automations-row-state {
+  color: var(--muted);
+}
+
+.automations-fields {
+  display: grid;
+  grid-template-columns: 10rem 1fr;
+  gap: var(--space-1-5) var(--space-3);
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+}
+
+.automations-fields dt {
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.automations-fields dd {
+  margin: 0;
+}
+
+.automations-controls,
+.automations-edit-actions {
+  display: flex;
+  gap: var(--space-2-5);
+}
+
+.automations-controls {
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.automations-error {
+  margin: 0;
+  color: var(--failed);
+  font-size: var(--text-sm);
+  flex-basis: 100%;
+}
+
+.automations-edit {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+}
+
+.automations-edit label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.automations-edit-open,
+.automations-back {
+  align-self: flex-start;
+}
+
+.automations-history {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3) var(--space-3);
+}
+
+@media (max-width: 760px) {
+  .automations-row {
+    grid-template-columns: 1fr;
+    gap: var(--space-1);
+  }
+
+  .automations-fields {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* The one-line explanation each section carries, and the way
+ * out of an empty section: a menu of agents that opens a DM with a
+ * drafted first message. */
+.automations-explanation {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.automations-ask {
+  align-self: flex-start;
+}
+
+.automations-ask-empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}

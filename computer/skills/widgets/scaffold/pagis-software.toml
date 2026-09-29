@@ -1,0 +1,40 @@
+# The chart scaffold (ADR-0016). Fork this package, rename it, and put
+# your own data behind the three tools.
+#
+# It holds the three shapes a widget package has:
+#   `show`   a tool the model calls, which renders the widget;
+#   `series` a tool the widget alone calls, to redraw itself;
+#   `ask`    a tool that renders the widget and waits for one answer.
+
+[package]
+name = "chart"
+description = "A bar chart of the last days of readings, as a widget."
+keywords = ["chart", "widget", "scaffold"]
+
+[[tool]]
+name = "show"
+description = "Draw the last days of readings as a bar chart."
+entry = "bin/show.py"
+schema = "schemas/show.json"
+widget = "chart"
+
+[[tool]]
+name = "series"
+description = "The readings of one window. The chart calls it to redraw itself."
+entry = "bin/series.py"
+schema = "schemas/series.json"
+visibility = ["app"]
+
+[[tool]]
+name = "ask"
+description = "Draw the chart and ask the reader which day to look into."
+entry = "bin/ask.py"
+schema = "schemas/ask.json"
+widget = "chart"
+awaits_input = true
+
+[[widget]]
+name = "chart"
+html = "widgets/chart.html"
+schema = "schemas/chart.json"
+csp = { connect = [], resource = [] }

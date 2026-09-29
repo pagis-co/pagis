@@ -1,0 +1,28 @@
+<!doctype html>
+<!--
+  A sign-in page. The page writes the username and the SHA-256 of the
+  password into the document title, and the test reads the title from
+  screend's window list. The password itself never shows on the screen.
+-->
+<meta charset="utf-8">
+<title>login</title>
+<form id="form">
+  <input id="user" name="user" autocomplete="username" autofocus>
+  <input id="pass" name="pass" type="password" autocomplete="current-password">
+  <button>Sign in</button>
+</form>
+<script>
+const digest = async (text) => {
+  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("");
+};
+const report = async () => {
+  document.title = "login|" + user.value + "|" + await digest(pass.value);
+};
+user.addEventListener("input", report);
+pass.addEventListener("input", report);
+form.addEventListener("submit", (event) => {
+  event.preventDefault();
+  location.href = "/otp.html";
+});
+</script>

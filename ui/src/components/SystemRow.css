@@ -1,0 +1,38 @@
+/* A system event: a hairline strip, quieter than a message. */
+
+.system-row {
+  width: min(100%, var(--conversation-width));
+  margin: var(--space-1-5) auto;
+  padding: var(--space-1) var(--conversation-gutter);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--muted);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.system-row-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.system-row-time {
+  font-variant-numeric: tabular-nums;
+}
+
+.system-record {
+  width: min(100%, var(--conversation-width));
+  margin: var(--space-3) auto;
+  padding-inline: var(--conversation-gutter);
+}
+
+@media (max-width: 760px) {
+  .system-row {
+    padding-inline: var(--space-4);
+  }
+}

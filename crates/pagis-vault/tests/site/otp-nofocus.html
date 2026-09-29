@@ -1,0 +1,15 @@
+<!doctype html>
+<!--
+  The code step of a sign-in that gives the focus to no field. The page
+  writes the value of its code field into the document title.
+-->
+<meta charset="utf-8">
+<title>otp</title>
+<form>
+  <input id="code" name="code" autocomplete="one-time-code" inputmode="numeric">
+</form>
+<script>
+code.addEventListener("input", () => {
+  document.title = "otp|" + code.value;
+});
+</script>

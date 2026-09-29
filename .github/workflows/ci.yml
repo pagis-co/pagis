@@ -1,0 +1,273 @@
+# The checks of each pull request, of the merge queue and of main. The
+# jobs run at the same time, and each one runs a group of the gate steps
+# with `cargo xtask step`, the code that `cargo xtask full` runs, so the
+# local gate and CI run the same commands. The `ci-success` job is the one
+# check that branch protection and the merge queue require. The advisory
+# checks run in advisories.yml, so a newly published advisory does not
+# block an unrelated pull request.
+name: CI
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# A new push to a pull request cancels the run of its earlier push. Runs
+# on main and in the merge queue always finish.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+# Each action is pinned to a full commit ID, with its release tag in a
+# comment, because a tag or a branch can move to other code. Each
+# checkout sets `persist-credentials: false`: no step pushes with git, so
+# the job token stays out of the git configuration of the later steps.
+# `cargo xtask pins --check` holds these rules, and Dependabot opens the
+# pull requests that move the pins.
+
+jobs:
+  lint:
+    name: fmt and clippy
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - run: cargo xtask step fmt clippy
+
+  test:
+    name: tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2.87.21
+        with:
+          tool: nextest
+
+      # The Docker-real tests run in the Computer Image of this tree, so
+      # the job builds the image first. The runner has no layer cache, so
+      # the build starts from scratch.
+      - run: cargo xtask step computer-image test
+
+  contract:
+    name: contract drift
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2.87.21
+        with:
+          tool: nextest
+
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      # The generated API types need the npm packages of the UI.
+      - run: cargo xtask step ui-deps contract-drift gog-contract
+
+  ui:
+    name: UI
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: stable
+
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - run: cargo xtask step ui-deps ui-typecheck ui-test
+
+  desktop:
+    name: desktop
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: stable
+
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - run: cargo xtask step desktop-deps desktop-typecheck desktop-test
+
+  checks:
+    name: pins, secrets and generated tables
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - run: cargo xtask step pins emergency-drift secret-scan pagis-apt
+
+  packaging-macos:
+    name: packaging smoke (macOS)
+    # macos-latest is arm64, the one macOS architecture the app ships
+    # (ADR-0025).
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      # The fixture has the production lock schema but no release bytes. The
+      # unsigned smoke opens only the local setup page. It also tests the
+      # compiled installer modules with a deterministic local release fixture.
+      - name: write deterministic runtime lock
+        run: |
+          version=$(node -p "require('./desktop/package.json').version")
+          cargo xtask runtime-lock write-fixture "$version" darwin-arm64 dist/runtime-lock-darwin-arm64.json
+
+      - name: cargo xtask desktop
+        run: cargo xtask desktop
+        env:
+          PAGIS_HOME: ${{ runner.temp }}/pagis-home
+
+  packaging-linux:
+    name: packaging smoke (Linux)
+    # One amd64 runner packs both architectures: the client holds no
+    # native module, so an arm64 package is the arm64 Electron build with
+    # the same app archive. The smoke runs the amd64 client (ADR-0025).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      # The smoke opens a window, so it needs a display.
+      - name: install a virtual display
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+
+      # Ubuntu 24.04 refuses unprivileged user namespaces to programs with
+      # no AppArmor profile. The unpacked client has none, and its Chromium
+      # sandbox needs them. The deb installs a profile on a person's machine.
+      - name: allow the Chromium sandbox of the unpacked client
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      # The fixtures have the production lock schema but no release bytes.
+      # The smoke opens only the local setup page.
+      - name: write deterministic runtime locks
+        run: |
+          version=$(node -p "require('./desktop/package.json').version")
+          for platform in linux-x64 linux-arm64; do
+            cargo xtask runtime-lock write-fixture "$version" "$platform" "dist/runtime-lock-$platform.json"
+          done
+
+      - name: cargo xtask desktop
+        run: cargo xtask desktop
+        env:
+          PAGIS_HOME: ${{ runner.temp }}/pagis-home
+
+  # The one required check. A skipped job counts as passed for a required
+  # check, so this job runs also when a job that it needs fails, and it
+  # fails unless each of them passed.
+  ci-success:
+    name: CI success
+    if: always()
+    needs:
+      - lint
+      - test
+      - contract
+      - ui
+      - desktop
+      - checks
+      - packaging-macos
+      - packaging-linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: each job passed
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          jq --color-output . <<< "$NEEDS"
+          jq --exit-status 'all(.[]; .result == "success")' <<< "$NEEDS"

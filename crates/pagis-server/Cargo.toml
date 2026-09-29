@@ -1,0 +1,47 @@
+[package]
+name = "pagis-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+# The password hash of a person, as the Keypad Code already does.
+argon2.workspace = true
+async-trait.workspace = true
+axum.workspace = true
+chrono-tz.workspace = true
+futures.workspace = true
+object_store.workspace = true
+sha2.workspace = true
+hmac.workspace = true
+hex.workspace = true
+pagis-agent.workspace = true
+llm-router.workspace = true
+pagis-broker.workspace = true
+pagis-computer.workspace = true
+pagis-connect.workspace = true
+pagis-google.workspace = true
+pagis-core.workspace = true
+pagis-plugin.workspace = true
+pagis-plugins.workspace = true
+pagis-software.workspace = true
+pagis-mail.workspace = true
+pagis-telephony.workspace = true
+pagis-trigger.workspace = true
+pagis-vault.workspace = true
+pagis-voice.workspace = true
+# The session and sign-in-link secrets.
+rand.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+# The signal that ends the live connections of one Session.
+tokio-util.workspace = true
+# The CORS answer of the one Public Origin.
+tower-http.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+# The Public Origin an Administrator types.
+url.workspace = true
+utoipa.workspace = true

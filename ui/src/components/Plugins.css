@@ -1,0 +1,138 @@
+/* Plugins: the title line, the installed rows and the Install
+ * card. Every value comes from `tokens.css`. */
+
+.plugins {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.plugin-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+
+.plugin-title h3 {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+
+.plugin-lead,
+.plugin-hint,
+.plugin-empty {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--muted);
+  line-height: var(--leading-normal);
+}
+
+.plugin-title-action {
+  margin-left: auto;
+}
+
+.plugin-tile {
+  width: 2rem;
+  height: 2rem;
+  border-radius: var(--radius-md);
+  background: var(--sidebar);
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.plugin-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.plugin-counts {
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.plugin-binding {
+  margin-left: auto;
+  font-size: var(--text-sm);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.plugin-row-error {
+  flex-basis: 100%;
+}
+
+.plugin-install {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2-5);
+  padding: var(--space-4);
+}
+
+.plugin-fetch {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.plugin-fetch-field {
+  flex-grow: 1;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.plugin-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2-5);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--ground);
+  font-size: var(--text-md);
+}
+
+.plugin-summary-counts {
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.plugin-summary .plugin-account,
+.plugin-summary .ui-input {
+  margin-left: auto;
+  max-width: 16rem;
+}
+
+.plugin-accept {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.plugin-accept input {
+  margin: 0;
+}
+
+.plugin-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+@media (max-width: 760px) {
+  .plugin-title,
+  .plugin-row,
+  .plugin-summary {
+    flex-wrap: wrap;
+  }
+
+  .plugin-binding {
+    margin-left: 0;
+    white-space: normal;
+  }
+}

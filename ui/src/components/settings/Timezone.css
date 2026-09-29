@@ -1,0 +1,36 @@
+/* The Timezone section: a title line and one framed row with the
+ * timezone, the device's timezone and Save. Every value comes from
+ * `tokens.css`. */
+
+.settings-timezone {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.settings-timezone-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+
+.settings-timezone-title h1 {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+
+.settings-timezone-title span,
+.settings-timezone-note {
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.settings-timezone-save {
+  margin-left: auto;
+}
+
+.settings-timezone-error {
+  font-size: var(--text-sm);
+  color: var(--failed);
+}

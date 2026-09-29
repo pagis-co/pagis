@@ -1,0 +1,20 @@
+/* The replies chip: a soft accent chip under the message. */
+
+.replies-chip.ui-button {
+  align-self: flex-start;
+  gap: var(--space-2);
+  min-height: 1.75rem;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-weight: var(--weight-regular);
+}
+
+.replies-chip.ui-button:hover:not(:disabled) {
+  background: var(--accent-tint);
+  color: var(--accent-ink);
+}
+
+/* Under your message the chip sits at the right, with the bubble. */
+.message-mine > .replies-chip.ui-button {
+  align-self: flex-end;
+}

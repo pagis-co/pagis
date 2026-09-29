@@ -1,0 +1,23 @@
+# The test site of the Docker-real fill tests. It runs in a container
+# on the Tenant Network of the test's Computer under two network
+# aliases: login.example.com, the site of the test Credential, and
+# sso.example.org, a site of another registrable domain. Caddy signs
+# both names with its own local certificate authority, and only the
+# test's Computer trusts that authority.
+{
+	admin off
+	skip_install_trust
+}
+
+login.example.com {
+	tls internal
+	root * /srv/site
+	redir /moved https://sso.example.org/login.html
+	file_server
+}
+
+sso.example.org {
+	tls internal
+	root * /srv/site
+	file_server
+}

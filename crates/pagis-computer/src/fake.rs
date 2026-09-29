@@ -1,0 +1,1126 @@
+//! A scripted computer runtime for tests: the daemon and manager
+//! tests run Docker-free; the real bollard runtime is covered by
+//! `#[ignore]`-tagged tests.
+
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::Mutex;
+use std::time::Duration;
+
+use async_trait::async_trait;
+use pagis_core::{
+    AgentId, ScheduleId, StoreError, UnixMillis, Workspace, WorkspaceId, WorkspaceStore, now_ms,
+};
+
+use crate::{
+    ComputerRuntime, ExecOutcome, ExecRequest, IMAGE_VERSION, InputHolder, RunningComputer,
+    StartedComputer,
+};
+
+/// A Media Relay for tests: the daemon relay on loopback, with
+/// the operating system picking each session's port, so parallel test
+/// binaries never meet on one.
+pub fn loopback_relay() -> std::sync::Arc<dyn crate::MediaRelay> {
+    std::sync::Arc::new(crate::DaemonRelay::new(crate::MediaForwarder::new(
+        "127.0.0.1".to_string(),
+        0..=0,
+    )))
+}
+
+/// The SDP answer of the fake pipeline. It carries ICE credentials as
+/// a real answer does, so a test that plays the browser signs its checks
+/// with them ([`ice_check`]).
+pub const ANSWER: &str = "v=0\r\na=ice-ufrag:fakeufrag\r\na=ice-pwd:fakepasswordfakepassword\r\n";
+
+/// An ICE connectivity check as a browser sends it (RFC 8445 section
+/// 7.2.2): a STUN Binding request whose USERNAME starts with the
+/// pipeline's ufrag and whose MESSAGE-INTEGRITY is keyed with the
+/// pipeline's password. `nominates` adds USE-CANDIDATE. The transaction
+/// id is random, and it is bytes 8 to 20 of the check.
+pub fn ice_check(credentials: &crate::IceCredentials, nominates: bool) -> Vec<u8> {
+    use str0m::ice::{StunMessageBuilder, TransId};
+
+    let username = format!("{}:browser", credentials.ufrag);
+    let mut check = StunMessageBuilder::new()
+        .binding()
+        .request()
+        .username(&username)
+        .prio(0x6e00_1eff)
+        .ice_controlling(1);
+    if nominates {
+        check = check.use_candidate();
+    }
+    let mut buffer = [0u8; 256];
+    let length = check
+        .build(TransId::new())
+        .to_bytes(Some(credentials.pwd.as_bytes()), &mut buffer)
+        .expect("a check fits in 256 bytes");
+    buffer[..length].to_vec()
+}
+
+/// The fake's world: which image is present, and what a live frame
+/// returns. Containers "run" in memory; volumes are a name set that
+/// survives stop, mirroring Docker's named-volume behavior.
+pub struct FakeComputerRuntime {
+    state: Mutex<FakeState>,
+}
+
+/// What one running container booted with: the image version and the
+/// fingerprint of its mount set.
+#[derive(Clone)]
+struct Booted {
+    version: Option<String>,
+    mounts: Option<String>,
+    ready: bool,
+    image_matches: bool,
+}
+
+struct FakeState {
+    image_version: Option<String>,
+    /// Running containers and what each one booted with.
+    running: HashMap<AgentId, Booted>,
+    /// The mount set of every start, in order.
+    mounts: Vec<Vec<crate::BindMount>>,
+    /// The environment of every start, in order.
+    start_envs: Vec<Vec<String>>,
+    volumes: HashSet<String>,
+    /// The owner of every start, in order.
+    owners: Vec<crate::ComputerOwner>,
+    /// Every streaming exec the daemon asked for, in order.
+    exec_streams: Vec<ExecRequest>,
+    /// The server side of each streaming exec, for a test to drive.
+    server_ends: Vec<tokio::io::DuplexStream>,
+    /// The stderr sender of each streaming exec.
+    stderr_senders: Vec<tokio::sync::mpsc::Sender<Vec<u8>>>,
+    /// Scripted bytes per volume, for the disk figure.
+    volume_bytes: u64,
+    /// Scripted answer of the container quota.
+    container_quota: crate::Quota,
+    frame: Vec<u8>,
+    /// Frames the next fetches return in order, before `frame`.
+    queued_frames: std::collections::VecDeque<Vec<u8>>,
+    starts: u32,
+    pulls: u32,
+    pull_error: Option<String>,
+    pull_delay: Duration,
+    inputs: Vec<(InputHolder, crate::exec::InputOp)>,
+    fail_input: Option<String>,
+    /// The error every live frame fetch answers with, when set.
+    fail_frame: Option<String>,
+    frames_served: u32,
+    /// Relayed offers: the offer sdp and the Media Relay path it came
+    /// with.
+    offers: Vec<(String, crate::MediaPath)>,
+    /// What every offer answers: an SDP answer, or the reason the
+    /// pipeline refuses it.
+    answer: Result<String, String>,
+    /// The pipeline input switch per agent; absent means agent.
+    holders: HashMap<AgentId, InputHolder>,
+    /// Scripted milliseconds since the last user input.
+    user_idle_ms: u64,
+    /// Scripted exec answers, returned in order.
+    exec_outcomes: VecDeque<ExecOutcome>,
+    /// Every exec request the manager sent, in order.
+    execs: Vec<ExecRequest>,
+    /// How long each exec takes, so a test can race the idle-stop.
+    exec_delay: Duration,
+    /// Every archive the daemon uploaded: (path, tar bytes).
+    uploads: Vec<(String, Vec<u8>)>,
+    /// Makes the next upload fail with this message.
+    fail_upload: Option<String>,
+    /// What the container answers a download with, by path: a new
+    /// stream for each download.
+    downloads: HashMap<String, DownloadSource>,
+    /// Every path the daemon downloaded, in order.
+    downloaded: Vec<String>,
+    /// The daemon's browser tab.
+    browser: FakeBrowser,
+}
+
+/// Makes the stream of one download.
+type DownloadSource = std::sync::Arc<dyn Fn() -> crate::ArchiveStream + Send + Sync>;
+
+/// The daemon's own tab of the browser, as the fake plays it.
+#[derive(Default)]
+struct FakeBrowser {
+    /// Where an open of one address lands after its redirects. An
+    /// address with no entry lands on itself.
+    redirects: HashMap<String, String>,
+    /// The top-level address the tab shows; `None` while the daemon
+    /// has no tab.
+    page: Option<String>,
+    /// The error every open answers with, when set.
+    fail_open: Option<String>,
+    /// The error every fill answers with, when set: the reason a page
+    /// check gives.
+    fail_fill: Option<String>,
+    /// Every address the daemon opened, in order.
+    opens: Vec<String>,
+    /// Every fill the browser took: the origin and the fields.
+    fills: Vec<(String, Vec<crate::FillField>)>,
+}
+
+impl Default for FakeComputerRuntime {
+    fn default() -> Self {
+        Self {
+            state: Mutex::new(FakeState {
+                image_version: None,
+                running: HashMap::new(),
+                mounts: Vec::new(),
+                start_envs: Vec::new(),
+                volumes: HashSet::new(),
+                owners: Vec::new(),
+                exec_streams: Vec::new(),
+                server_ends: Vec::new(),
+                stderr_senders: Vec::new(),
+                volume_bytes: 0,
+                container_quota: crate::Quota::Unknown,
+                frame: b"png-frame".to_vec(),
+                queued_frames: std::collections::VecDeque::new(),
+                starts: 0,
+                pulls: 0,
+                pull_error: None,
+                pull_delay: Duration::ZERO,
+                inputs: Vec::new(),
+                fail_input: None,
+                fail_frame: None,
+                frames_served: 0,
+                offers: Vec::new(),
+                answer: Ok(ANSWER.to_string()),
+                holders: HashMap::new(),
+                user_idle_ms: 0,
+                exec_outcomes: VecDeque::new(),
+                execs: Vec::new(),
+                exec_delay: Duration::ZERO,
+                uploads: Vec::new(),
+                fail_upload: None,
+                downloads: HashMap::new(),
+                downloaded: Vec::new(),
+                browser: FakeBrowser::default(),
+            }),
+        }
+    }
+}
+
+impl FakeComputerRuntime {
+    /// A fake whose image is already present at the pinned version.
+    pub fn with_image() -> Self {
+        let fake = Self::default();
+        fake.set_image_version(Some(IMAGE_VERSION));
+        fake
+    }
+
+    pub fn set_image_version(&self, version: Option<&str>) {
+        self.state.lock().expect("fake state").image_version = version.map(str::to_string);
+    }
+
+    /// How many bytes each Agent volume holds.
+    pub fn set_volume_bytes(&self, bytes: u64) {
+        self.state.lock().expect("fake state").volume_bytes = bytes;
+    }
+
+    /// What the container quota answers from now on. It is
+    /// [`crate::Quota::Unknown`] until a test sets it, as it is for a
+    /// real runtime before the first wake.
+    pub fn set_container_quota(&self, answer: crate::Quota) {
+        self.state.lock().expect("fake state").container_quota = answer;
+    }
+
+    pub fn set_frame(&self, frame: &[u8]) {
+        self.state.lock().expect("fake state").frame = frame.to_vec();
+    }
+
+    /// A screen that changes: each next fetch returns the next of
+    /// `frames`, and the last one stays as the current frame.
+    pub fn play_frames(&self, frames: &[&[u8]]) {
+        let mut state = self.state.lock().expect("fake state");
+        state.queued_frames = frames.iter().map(|frame| frame.to_vec()).collect();
+        if let Some(last) = state.queued_frames.pop_back() {
+            state.frame = last;
+        }
+    }
+
+    pub fn pulls(&self) -> u32 {
+        self.state.lock().expect("fake state").pulls
+    }
+
+    pub fn fail_pull(&self, message: impl Into<String>) {
+        self.state.lock().expect("fake state").pull_error = Some(message.into());
+    }
+
+    pub fn set_pull_delay(&self, delay: Duration) {
+        self.state.lock().expect("fake state").pull_delay = delay;
+    }
+
+    pub fn starts(&self) -> u32 {
+        self.state.lock().expect("fake state").starts
+    }
+
+    pub fn is_running(&self, agent_id: &AgentId) -> bool {
+        self.state
+            .lock()
+            .expect("fake state")
+            .running
+            .contains_key(agent_id)
+    }
+
+    /// The image version the agent's running container booted from.
+    pub fn version(&self, agent_id: &AgentId) -> Option<String> {
+        self.state
+            .lock()
+            .expect("fake state")
+            .running
+            .get(agent_id)
+            .and_then(|booted| booted.version.clone())
+    }
+
+    /// The agent's volume survived every stop so far.
+    pub fn has_volume(&self, agent_id: &AgentId) -> bool {
+        self.state
+            .lock()
+            .expect("fake state")
+            .volumes
+            .iter()
+            .any(|name| name.ends_with(agent_id.as_str()))
+    }
+
+    /// How many live frames were fetched.
+    pub fn frames_served(&self) -> u32 {
+        self.state.lock().expect("fake state").frames_served
+    }
+
+    /// Every input op sent so far, in order.
+    pub fn inputs(&self) -> Vec<crate::exec::InputOp> {
+        self.state
+            .lock()
+            .expect("fake state")
+            .inputs
+            .iter()
+            .map(|(_, op)| op.clone())
+            .collect()
+    }
+
+    /// Every input op sent so far with the holder each batch declared.
+    pub fn inputs_with_holder(&self) -> Vec<(InputHolder, crate::exec::InputOp)> {
+        self.state.lock().expect("fake state").inputs.clone()
+    }
+
+    /// Make the next input batches fail with this message.
+    pub fn fail_input(&self, message: &str) {
+        self.state.lock().expect("fake state").fail_input = Some(message.to_string());
+    }
+
+    /// Make every live frame fetch fail with this message.
+    pub fn fail_frame(&self, message: &str) {
+        self.state.lock().expect("fake state").fail_frame = Some(message.to_string());
+    }
+
+    /// Script what every next offer answers: an SDP answer, or the
+    /// reason the pipeline refuses the offer. The pipeline records a
+    /// refused offer too.
+    pub fn answer_offers_with(&self, answer: Result<&str, &str>) {
+        self.state.lock().expect("fake state").answer =
+            answer.map(str::to_string).map_err(str::to_string);
+    }
+
+    /// Every relayed offer so far: the offer sdp and the Media Relay
+    /// path the pipeline registers with. A test that plays the pipeline
+    /// registers with the path's token.
+    pub fn offers(&self) -> Vec<(String, crate::MediaPath)> {
+        self.state.lock().expect("fake state").offers.clone()
+    }
+
+    /// The pipeline's input switch for one agent.
+    pub fn holder(&self, agent_id: &AgentId) -> InputHolder {
+        self.state
+            .lock()
+            .expect("fake state")
+            .holders
+            .get(agent_id)
+            .copied()
+            .unwrap_or(InputHolder::Agent)
+    }
+
+    /// Script how long ago the pipeline last applied user input.
+    pub fn set_user_idle_ms(&self, idle_ms: u64) {
+        self.state.lock().expect("fake state").user_idle_ms = idle_ms;
+    }
+
+    /// Script the answer to the next exec. Answers come back in
+    /// the order they were pushed; an unscripted exec answers with
+    /// exit 0 and no output.
+    pub fn push_exec_outcome(&self, outcome: ExecOutcome) {
+        self.state
+            .lock()
+            .expect("fake state")
+            .exec_outcomes
+            .push_back(outcome);
+    }
+
+    /// Make every exec take this long, so a test can run the idle-stop
+    /// sweep while a command is in flight.
+    pub fn set_exec_delay(&self, delay: Duration) {
+        self.state.lock().expect("fake state").exec_delay = delay;
+    }
+
+    /// Every exec request so far, in order.
+    pub fn execs(&self) -> Vec<ExecRequest> {
+        self.state.lock().expect("fake state").execs.clone()
+    }
+
+    /// Every uploaded archive so far: (path, tar bytes).
+    pub fn uploads(&self) -> Vec<(String, Vec<u8>)> {
+        self.state.lock().expect("fake state").uploads.clone()
+    }
+
+    /// Make every upload fail with this message.
+    pub fn fail_upload(&self, message: impl Into<String>) {
+        self.state.lock().expect("fake state").fail_upload = Some(message.into());
+    }
+
+    /// What a download of `path` answers with: the whole tar in one
+    /// chunk.
+    pub fn set_download(&self, path: impl Into<String>, tar: Vec<u8>) {
+        let tar = bytes::Bytes::from(tar);
+        self.set_download_stream(path, move || {
+            Box::pin(futures::stream::iter([Ok(tar.clone())]))
+        });
+    }
+
+    /// What a download of `path` answers with: the stream that `make`
+    /// returns, a new one for each download. A test sends a tar it never
+    /// holds whole this way, or holds a download open.
+    pub fn set_download_stream(
+        &self,
+        path: impl Into<String>,
+        make: impl Fn() -> crate::ArchiveStream + Send + Sync + 'static,
+    ) {
+        self.state
+            .lock()
+            .expect("fake state")
+            .downloads
+            .insert(path.into(), std::sync::Arc::new(make));
+    }
+
+    /// Every path the daemon downloaded so far, in order.
+    pub fn downloaded(&self) -> Vec<String> {
+        self.state.lock().expect("fake state").downloaded.clone()
+    }
+
+    /// An open of `from` lands on `to`, as a redirect does.
+    pub fn redirect(&self, from: &str, to: &str) {
+        self.state
+            .lock()
+            .expect("fake state")
+            .browser
+            .redirects
+            .insert(from.to_string(), to.to_string());
+    }
+
+    /// The daemon's tab shows `url`, as after the Agent went on from a
+    /// fill.
+    pub fn set_browser_page(&self, url: &str) {
+        self.state.lock().expect("fake state").browser.page = Some(url.to_string());
+    }
+
+    /// Make every open fail with this reason, as a page that does not
+    /// load does.
+    pub fn fail_browser_open(&self, reason: &str) {
+        self.state.lock().expect("fake state").browser.fail_open = Some(reason.to_string());
+    }
+
+    /// Make every fill fail with this reason, as a page check does.
+    pub fn fail_browser_fill(&self, reason: &str) {
+        self.state.lock().expect("fake state").browser.fail_fill = Some(reason.to_string());
+    }
+
+    /// Every address the daemon opened in its tab, in order.
+    pub fn browser_opens(&self) -> Vec<String> {
+        self.state.lock().expect("fake state").browser.opens.clone()
+    }
+
+    /// Every fill the browser took, in order: the origin and the
+    /// fields.
+    pub fn browser_fills(&self) -> Vec<(String, Vec<crate::FillField>)> {
+        self.state.lock().expect("fake state").browser.fills.clone()
+    }
+
+    /// Kill every running container, as an idle-stop or a Docker
+    /// restart would.
+    pub fn stop_all(&self) {
+        self.state.lock().expect("fake state").running.clear();
+    }
+
+    /// Simulate a container started outside this daemon process, on
+    /// the pinned image.
+    pub fn boot_externally(&self, agent_id: &AgentId) {
+        self.boot_externally_with_version(agent_id, IMAGE_VERSION);
+    }
+
+    pub fn boot_externally_not_ready(&self, agent_id: &AgentId) {
+        let mut state = self.state.lock().expect("fake state");
+        state.running.insert(
+            agent_id.clone(),
+            Booted {
+                version: Some(IMAGE_VERSION.to_string()),
+                mounts: Some(crate::mounts_fingerprint(&[])),
+                ready: false,
+                image_matches: true,
+            },
+        );
+    }
+
+    /// The same, on a scripted image version.
+    pub fn boot_externally_with_version(&self, agent_id: &AgentId, version: &str) {
+        self.boot_externally_with(agent_id, version, &[]);
+    }
+
+    /// The same, on a scripted image version and mount set.
+    pub fn boot_externally_with(
+        &self,
+        agent_id: &AgentId,
+        version: &str,
+        mounts: &[crate::BindMount],
+    ) {
+        let mut state = self.state.lock().expect("fake state");
+        state.running.insert(
+            agent_id.clone(),
+            Booted {
+                version: Some(version.to_string()),
+                mounts: Some(crate::mounts_fingerprint(mounts)),
+                ready: true,
+                image_matches: true,
+            },
+        );
+        state.volumes.insert(format!("fake-volume-{agent_id}"));
+    }
+
+    /// Simulate the same version label on bytes outside the release's
+    /// immutable image reference.
+    pub fn set_running_image_matches(&self, agent_id: &AgentId, matches: bool) {
+        if let Some(booted) = self
+            .state
+            .lock()
+            .expect("fake state")
+            .running
+            .get_mut(agent_id)
+        {
+            booted.image_matches = matches;
+        }
+    }
+
+    /// The mount set of every start, in order.
+    pub fn mounts(&self) -> Vec<Vec<crate::BindMount>> {
+        self.state.lock().expect("fake state").mounts.clone()
+    }
+
+    /// The environment of every start, in order.
+    pub fn start_envs(&self) -> Vec<Vec<String>> {
+        self.state.lock().expect("fake state").start_envs.clone()
+    }
+
+    /// The owner of every start, in order: which tenant and
+    /// which Agent each container belongs to.
+    pub fn started_owners(&self) -> Vec<crate::ComputerOwner> {
+        self.state.lock().expect("fake state").owners.clone()
+    }
+
+    /// Every streaming exec the daemon asked for, in order: the
+    /// argv, the uid, the working directory and the environment one
+    /// plugin server started with.
+    pub fn exec_streams(&self) -> Vec<ExecRequest> {
+        self.state.lock().expect("fake state").exec_streams.clone()
+    }
+
+    /// The server side of the streaming exec started last, so a test
+    /// answers the daemon the way a real MCP server does.
+    pub fn take_server_end(&self) -> Option<tokio::io::DuplexStream> {
+        self.state.lock().expect("fake state").server_ends.pop()
+    }
+}
+
+/// The agent a fake computer belongs to: its control address is
+/// `fake:<agent>`.
+fn fake_agent(computer: &StartedComputer) -> AgentId {
+    AgentId::from(
+        computer
+            .control_addr
+            .strip_prefix("fake:")
+            .unwrap_or_default()
+            .to_string(),
+    )
+}
+
+/// screend answers the browser channel only while the daemon holds the
+/// switch; the fake enforces the same rule.
+fn daemon_holds(state: &FakeState, computer: &StartedComputer) -> Result<(), String> {
+    let current = state
+        .holders
+        .get(&fake_agent(computer))
+        .copied()
+        .unwrap_or(InputHolder::Agent);
+    if current != InputHolder::Daemon {
+        return Err(format!(
+            "the browser channel refused: {} holds the switch",
+            current.as_str()
+        ));
+    }
+    Ok(())
+}
+
+#[async_trait]
+impl ComputerRuntime for FakeComputerRuntime {
+    async fn image_version(&self) -> Result<Option<String>, String> {
+        Ok(self.state.lock().expect("fake state").image_version.clone())
+    }
+
+    async fn pull_image(
+        &self,
+        progress: tokio::sync::mpsc::UnboundedSender<u8>,
+    ) -> Result<(), String> {
+        let (delay, error) = {
+            let mut state = self.state.lock().expect("fake state");
+            state.pulls += 1;
+            (state.pull_delay, state.pull_error.take())
+        };
+        tokio::time::sleep(delay).await;
+        for percent in [10u8, 50, 100] {
+            let _ = progress.send(percent);
+        }
+        if let Some(error) = error {
+            return Err(error);
+        }
+        let mut state = self.state.lock().expect("fake state");
+        // A pull installs the pinned image unless the test scripted a
+        // poisoned registry by presetting a different version.
+        if state.image_version.is_none() {
+            state.image_version = Some(IMAGE_VERSION.to_string());
+        }
+        Ok(())
+    }
+
+    async fn running(
+        &self,
+        owner: &crate::ComputerOwner,
+    ) -> Result<Option<RunningComputer>, String> {
+        let agent_id = &owner.agent_id;
+        let state = self.state.lock().expect("fake state");
+        Ok(state
+            .running
+            .get(agent_id)
+            .filter(|booted| booted.ready)
+            .map(|booted| RunningComputer {
+                computer: StartedComputer {
+                    container: owner.container_name(),
+                    control_addr: format!("fake:{agent_id}"),
+                    token: format!("fake-token-{agent_id}"),
+                },
+                version: booted.version.clone(),
+                mounts: booted.mounts.clone(),
+                image_matches: booted.image_matches,
+            }))
+    }
+
+    /// The fake keeps one entry per Agent, and the owner of each start
+    /// says which tenant the Agent belongs to, so a container booted
+    /// outside the daemon belongs to no tenant here.
+    async fn running_agents(
+        &self,
+        workspace_id: &pagis_core::WorkspaceId,
+    ) -> Result<Vec<AgentId>, String> {
+        let state = self.state.lock().expect("fake state");
+        Ok(state
+            .owners
+            .iter()
+            .filter(|owner| &owner.workspace_id == workspace_id)
+            .map(|owner| owner.agent_id.clone())
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .filter(|agent_id| state.running.contains_key(agent_id))
+            .collect())
+    }
+
+    async fn start(
+        &self,
+        owner: &crate::ComputerOwner,
+        mounts: &[crate::BindMount],
+        env: &[String],
+    ) -> Result<StartedComputer, String> {
+        let agent_id = &owner.agent_id;
+        let mut state = self.state.lock().expect("fake state");
+        state.starts += 1;
+        let version = state.image_version.clone();
+        state.running.insert(
+            agent_id.clone(),
+            Booted {
+                version,
+                mounts: Some(crate::mounts_fingerprint(mounts)),
+                ready: true,
+                image_matches: true,
+            },
+        );
+        state.mounts.push(mounts.to_vec());
+        state.start_envs.push(env.to_vec());
+        state.volumes.insert(owner.volume_name());
+        state.owners.push(owner.clone());
+        Ok(StartedComputer {
+            container: owner.container_name(),
+            control_addr: format!("fake:{agent_id}"),
+            token: format!("fake-token-{agent_id}"),
+        })
+    }
+
+    /// One scripted server process. The fake answers with the
+    /// two halves of a duplex pipe, so a test drives the server side by
+    /// hand and nothing starts on the host.
+    async fn exec_stream(
+        &self,
+        _computer: &StartedComputer,
+        request: ExecRequest,
+    ) -> Result<crate::ExecStream, String> {
+        let (daemon, server) = tokio::io::duplex(64 * 1024);
+        let (stderr_tx, stderr_rx) = tokio::sync::mpsc::channel(crate::EXEC_STREAM_CAPACITY);
+        let (read, write) = tokio::io::split(daemon);
+        let mut state = self.state.lock().expect("fake state");
+        state.exec_streams.push(request);
+        state.server_ends.push(server);
+        state.stderr_senders.push(stderr_tx);
+        Ok(crate::ExecStream {
+            stdin: Box::pin(write),
+            stdout: Box::pin(read),
+            stderr: stderr_rx,
+        })
+    }
+
+    async fn stop(&self, owner: &crate::ComputerOwner) -> Result<(), String> {
+        let mut state = self.state.lock().expect("fake state");
+        state.running.remove(&owner.agent_id);
+        Ok(())
+    }
+
+    async fn volume_quota(&self) -> crate::Quota {
+        // The fake makes no Docker volume, so it holds none to a size.
+        crate::Quota::Supported
+    }
+
+    async fn container_quota(&self) -> crate::Quota {
+        self.state.lock().expect("fake state").container_quota
+    }
+
+    /// The bytes of the volumes of one tenant: the fake names
+    /// every volume after its owner, so the filter is the same one the
+    /// real runtime applies to the owner label.
+    async fn resources(
+        &self,
+        workspace_id: &pagis_core::WorkspaceId,
+    ) -> Result<crate::TenantResources, String> {
+        let state = self.state.lock().expect("fake state");
+        let prefix = crate::volume_prefix(workspace_id);
+        let volumes = state
+            .volumes
+            .iter()
+            .filter(|name| name.starts_with(&prefix))
+            .count() as u32;
+        // A container of this tenant that still runs. The fake keeps one
+        // entry per Agent, and the owners of every start say which
+        // tenant each Agent belongs to.
+        let containers = state
+            .owners
+            .iter()
+            .filter(|owner| &owner.workspace_id == workspace_id)
+            .map(|owner| owner.agent_id.clone())
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .filter(|agent_id| state.running.contains_key(agent_id))
+            .count() as u32;
+        Ok(crate::TenantResources {
+            containers,
+            volumes,
+            volume_bytes: u64::from(volumes) * state.volume_bytes,
+        })
+    }
+
+    async fn send_input(
+        &self,
+        computer: &StartedComputer,
+        holder: InputHolder,
+        ops: &[crate::exec::InputOp],
+    ) -> Result<(), String> {
+        let agent = fake_agent(computer);
+        let mut state = self.state.lock().expect("fake state");
+        if let Some(message) = &state.fail_input {
+            return Err(message.clone());
+        }
+        // screend refuses every batch of the daemon, which writes
+        // through the browser channel, and a batch whose declared holder
+        // is not the one that holds the switch; the fake enforces the
+        // same rules.
+        if holder == InputHolder::Daemon {
+            return Err("input refused: the daemon writes through the browser channel".to_string());
+        }
+        let current = state
+            .holders
+            .get(&agent)
+            .copied()
+            .unwrap_or(InputHolder::Agent);
+        if current != holder {
+            return Err(format!(
+                "input refused: {} holds the switch",
+                current.as_str()
+            ));
+        }
+        state
+            .inputs
+            .extend(ops.iter().cloned().map(|op| (holder, op)));
+        Ok(())
+    }
+
+    async fn browser_open(&self, computer: &StartedComputer, url: &str) -> Result<String, String> {
+        let mut state = self.state.lock().expect("fake state");
+        daemon_holds(&state, computer)?;
+        state.browser.opens.push(url.to_string());
+        if let Some(reason) = &state.browser.fail_open {
+            return Err(reason.clone());
+        }
+        let landed = state
+            .browser
+            .redirects
+            .get(url)
+            .cloned()
+            .unwrap_or_else(|| url.to_string());
+        state.browser.page = Some(landed.clone());
+        Ok(landed)
+    }
+
+    async fn browser_page(&self, computer: &StartedComputer) -> Result<String, String> {
+        let state = self.state.lock().expect("fake state");
+        daemon_holds(&state, computer)?;
+        state
+            .browser
+            .page
+            .clone()
+            .ok_or_else(|| "the daemon has no tab open".to_string())
+    }
+
+    async fn browser_fill(
+        &self,
+        computer: &StartedComputer,
+        origin: &str,
+        fields: &[crate::FillField],
+    ) -> Result<(), String> {
+        let mut state = self.state.lock().expect("fake state");
+        daemon_holds(&state, computer)?;
+        if let Some(reason) = &state.browser.fail_fill {
+            return Err(reason.clone());
+        }
+        state
+            .browser
+            .fills
+            .push((origin.to_string(), fields.to_vec()));
+        Ok(())
+    }
+
+    async fn relay_offer(
+        &self,
+        _computer: &StartedComputer,
+        offer: &str,
+        path: &crate::MediaPath,
+    ) -> Result<String, String> {
+        let mut state = self.state.lock().expect("fake state");
+        state.offers.push((offer.to_string(), path.clone()));
+        state.answer.clone()
+    }
+
+    async fn set_holder(
+        &self,
+        computer: &StartedComputer,
+        holder: InputHolder,
+    ) -> Result<(), String> {
+        self.state
+            .lock()
+            .expect("fake state")
+            .holders
+            .insert(fake_agent(computer), holder);
+        Ok(())
+    }
+
+    async fn user_input_idle_ms(&self, _computer: &StartedComputer) -> Result<u64, String> {
+        Ok(self.state.lock().expect("fake state").user_idle_ms)
+    }
+
+    async fn exec(
+        &self,
+        computer: &StartedComputer,
+        request: ExecRequest,
+    ) -> Result<ExecOutcome, String> {
+        let agent = AgentId::from(
+            computer
+                .control_addr
+                .strip_prefix("fake:")
+                .unwrap_or_default()
+                .to_string(),
+        );
+        let (delay, outcome) = {
+            let mut state = self.state.lock().expect("fake state");
+            state.execs.push(request);
+            (state.exec_delay, state.exec_outcomes.pop_front())
+        };
+        if !delay.is_zero() {
+            tokio::time::sleep(delay).await;
+        }
+        // A stopped container kills every exec on it, with code 137.
+        if !self
+            .state
+            .lock()
+            .expect("fake state")
+            .running
+            .contains_key(&agent)
+        {
+            return Ok(ExecOutcome {
+                exit_code: 137,
+                ..ExecOutcome::default()
+            });
+        }
+        Ok(outcome.unwrap_or_default())
+    }
+
+    async fn upload_archive(
+        &self,
+        _computer: &StartedComputer,
+        path: &str,
+        tar: Vec<u8>,
+    ) -> Result<(), String> {
+        let mut state = self.state.lock().expect("fake state");
+        if let Some(message) = state.fail_upload.clone() {
+            return Err(message);
+        }
+        state.uploads.push((path.to_string(), tar));
+        Ok(())
+    }
+
+    async fn download_archive(
+        &self,
+        _computer: &StartedComputer,
+        path: &str,
+    ) -> Result<crate::ArchiveStream, String> {
+        let mut state = self.state.lock().expect("fake state");
+        state.downloaded.push(path.to_string());
+        state
+            .downloads
+            .get(path)
+            .map(|make| make())
+            .ok_or_else(|| format!("no such file or directory: {path}"))
+    }
+
+    async fn fetch_frame(&self, computer: &StartedComputer) -> Result<Vec<u8>, String> {
+        let mut state = self.state.lock().expect("fake state");
+        state.frames_served += 1;
+        let queued = state.queued_frames.pop_front();
+        let state = &*state;
+        if let Some(message) = &state.fail_frame {
+            return Err(message.clone());
+        }
+        let agent = computer
+            .control_addr
+            .strip_prefix("fake:")
+            .unwrap_or_default();
+        if state
+            .running
+            .contains_key(&AgentId::from(agent.to_string()))
+        {
+            Ok(queued.unwrap_or_else(|| state.frame.clone()))
+        } else {
+            Err("container is not running".to_string())
+        }
+    }
+}
+
+/// Which Agent belongs to which Workspace, in memory. A manager
+/// reads it to refuse an Agent that is not its tenant's.
+pub struct FakeAgents {
+    /// True when every Agent id belongs to every Workspace. A test that
+    /// measures something other than the tenant boundary wants this: it
+    /// wakes Agents it never wrote a row for.
+    open: bool,
+    rows: Mutex<Vec<(WorkspaceId, pagis_core::AgentId)>>,
+}
+
+impl FakeAgents {
+    /// Every Agent belongs to every Workspace.
+    pub fn open() -> Self {
+        Self {
+            open: true,
+            rows: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// Only the Agents this fake was told about exist, each in its own
+    /// Workspace.
+    pub fn strict() -> Self {
+        Self {
+            open: false,
+            rows: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// Record one Agent of one Workspace.
+    pub fn add(&self, workspace_id: &WorkspaceId, agent_id: &pagis_core::AgentId) {
+        self.rows
+            .lock()
+            .expect("fake agents")
+            .push((workspace_id.clone(), agent_id.clone()));
+    }
+}
+
+#[async_trait]
+impl pagis_core::AgentStore for FakeAgents {
+    async fn create(&self, agent: &pagis_core::Agent) -> Result<(), StoreError> {
+        self.add(&agent.workspace_id, &agent.id);
+        Ok(())
+    }
+
+    async fn get(
+        &self,
+        workspace_id: &WorkspaceId,
+        id: &pagis_core::AgentId,
+    ) -> Result<Option<pagis_core::Agent>, StoreError> {
+        let held = self.open
+            || self
+                .rows
+                .lock()
+                .expect("fake agents")
+                .iter()
+                .any(|(workspace, agent)| workspace == workspace_id && agent == id);
+        Ok(held.then(|| agent_row(workspace_id, id)))
+    }
+
+    async fn list_by_workspace(
+        &self,
+        workspace_id: &WorkspaceId,
+    ) -> Result<Vec<pagis_core::Agent>, StoreError> {
+        Ok(self
+            .rows
+            .lock()
+            .expect("fake agents")
+            .iter()
+            .filter(|(workspace, _)| workspace == workspace_id)
+            .map(|(workspace, agent)| agent_row(workspace, agent))
+            .collect())
+    }
+
+    async fn update(&self, _agent: &pagis_core::Agent) -> Result<(), StoreError> {
+        Ok(())
+    }
+
+    async fn update_avatar(
+        &self,
+        _workspace_id: &WorkspaceId,
+        _id: &pagis_core::AgentId,
+        _avatar: &pagis_core::AvatarAppearance,
+        _updated_at: i64,
+    ) -> Result<bool, StoreError> {
+        Ok(true)
+    }
+}
+
+/// The Agent row the fake answers with. Only the two ids matter to the
+/// manager, so the rest is filler.
+fn agent_row(workspace_id: &WorkspaceId, id: &pagis_core::AgentId) -> pagis_core::Agent {
+    pagis_core::Agent {
+        id: id.clone(),
+        workspace_id: workspace_id.clone(),
+        name: "test".to_string(),
+        job: String::new(),
+        description: String::new(),
+        personality: String::new(),
+        model_alias: "default".to_string(),
+        avatar: Default::default(),
+        voice: None,
+        standing_brief: None,
+        status: pagis_core::AgentStatus::Active,
+        created_at: now_ms(),
+        updated_at: now_ms(),
+    }
+}
+
+/// One Workspace in memory, so a test can say which timezone the
+/// container boots with.
+pub struct FakeWorkspaces {
+    workspace: Mutex<Workspace>,
+}
+
+impl FakeWorkspaces {
+    pub fn with_timezone(id: &WorkspaceId, timezone: &str) -> Self {
+        Self {
+            workspace: Mutex::new(Workspace {
+                id: id.clone(),
+                user_id: pagis_core::UserId::generate(),
+                name: "test".to_string(),
+                timezone: timezone.to_string(),
+                created_at: now_ms(),
+                onboarded_at: None,
+                chief_of_staff_agent_id: None,
+                report_schedule_id: None,
+            }),
+        }
+    }
+}
+
+#[async_trait]
+impl WorkspaceStore for FakeWorkspaces {
+    async fn create(&self, workspace: &Workspace) -> Result<(), StoreError> {
+        *self.workspace.lock().expect("fake workspace") = workspace.clone();
+        Ok(())
+    }
+
+    async fn get(&self, id: &WorkspaceId) -> Result<Option<Workspace>, StoreError> {
+        let workspace = self.workspace.lock().expect("fake workspace").clone();
+        Ok((&workspace.id == id).then_some(workspace))
+    }
+
+    async fn for_user(
+        &self,
+        user_id: &pagis_core::UserId,
+    ) -> Result<Option<Workspace>, StoreError> {
+        let workspace = self.workspace.lock().expect("fake workspace").clone();
+        Ok((&workspace.user_id == user_id).then_some(workspace))
+    }
+
+    async fn list(&self) -> Result<Vec<Workspace>, StoreError> {
+        Ok(vec![self.workspace.lock().expect("fake workspace").clone()])
+    }
+
+    async fn set_onboarded(&self, _id: &WorkspaceId, at: UnixMillis) -> Result<(), StoreError> {
+        let mut workspace = self.workspace.lock().expect("fake workspace");
+        workspace.onboarded_at.get_or_insert(at);
+        Ok(())
+    }
+
+    async fn set_timezone(&self, _id: &WorkspaceId, timezone: &str) -> Result<(), StoreError> {
+        self.workspace.lock().expect("fake workspace").timezone = timezone.to_string();
+        Ok(())
+    }
+
+    async fn set_chief_of_staff(
+        &self,
+        _id: &WorkspaceId,
+        agent_id: Option<&AgentId>,
+    ) -> Result<(), StoreError> {
+        self.workspace
+            .lock()
+            .expect("fake workspace")
+            .chief_of_staff_agent_id = agent_id.cloned();
+        Ok(())
+    }
+
+    async fn set_report_schedule(
+        &self,
+        _id: &WorkspaceId,
+        schedule_id: Option<&ScheduleId>,
+    ) -> Result<(), StoreError> {
+        self.workspace
+            .lock()
+            .expect("fake workspace")
+            .report_schedule_id = schedule_id.cloned();
+        Ok(())
+    }
+}

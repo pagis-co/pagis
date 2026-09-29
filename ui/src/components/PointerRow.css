@@ -1,0 +1,22 @@
+/* A derived DM pointer row. */
+
+/* A derived DM pointer row: a quiet link line to the channel
+   the agent posted in. */
+.message-pointer {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.pointer-link {
+  text-decoration: underline;
+  font-size: var(--text-sm);
+}
+
+.pointer-preview {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

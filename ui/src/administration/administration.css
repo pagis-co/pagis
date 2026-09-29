@@ -1,0 +1,176 @@
+/* The Administration Interface: a header with the views, and one
+ * view at a time under it. Every value comes from `tokens.css`, so the
+ * page reads as the product does. */
+
+.administration {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  max-width: 64rem;
+  margin: 0 auto;
+  padding: var(--space-8) var(--space-6) var(--space-16);
+}
+
+.administration-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.administration-header-top {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+
+.administration-header h1 {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+
+.administration-header nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.administration-nav-item-active {
+  background: var(--hover);
+  font-weight: var(--weight-semibold);
+}
+
+.administration-content,
+.administration-section,
+.administration-settings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.administration-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+
+.administration-title h2 {
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+}
+
+.administration-title span,
+.administration-note {
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.administration-key {
+  min-width: 8rem;
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.administration-mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.administration-row-trailing {
+  margin-left: auto;
+}
+
+.administration-refused {
+  max-width: 32rem;
+  margin: var(--space-24) auto;
+  padding: 0 var(--space-6);
+}
+
+.administration-refused p {
+  color: var(--muted);
+}
+
+.spend-person,
+.sessions-person,
+.resources-person {
+  min-width: 10rem;
+  font-weight: var(--weight-medium);
+}
+
+.spend-total {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+
+.spend-cost {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.spend-tokens,
+.spend-total-note,
+.sessions-since,
+.sessions-used,
+.resources-count,
+.resources-disk {
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.resources-disk {
+  font-variant-numeric: tabular-nums;
+}
+
+/* The Providers view: one group per kind of provider, one frame per
+ * provider, one row per part the installation sets up. */
+.administration-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.administration-group h3 {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+
+.administration-part {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.administration-part-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+
+.administration-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.administration-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+}
+
+.administration-form label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+}
+
+.administration-error {
+  margin: 0;
+  color: var(--failed);
+  font-size: var(--text-sm);
+}

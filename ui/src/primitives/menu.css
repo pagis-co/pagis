@@ -1,0 +1,43 @@
+/* Menu. Every value comes from `tokens.css`. */
+
+.ui-menu {
+  min-width: 10rem;
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-raised);
+  padding: var(--space-1);
+  z-index: var(--z-overlay);
+}
+
+.ui-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text);
+  padding: var(--space-1-5) var(--space-2);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  user-select: none;
+}
+
+.ui-menu-item[data-highlighted] {
+  outline: none;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+.ui-menu-item[data-disabled] {
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.ui-menu-item-danger {
+  color: var(--failed-ink);
+}
+
+.ui-menu-item-danger[data-highlighted] {
+  background: var(--failed-soft);
+  color: var(--failed-ink);
+}

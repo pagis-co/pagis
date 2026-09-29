@@ -1,0 +1,349 @@
+/* The call surfaces (ADR-0022): the strip is the block while a
+ * Call runs, and the only way back to a live Call. The inspector is
+ * a tenant of the inspector slot. */
+
+.call-block {
+  width: 100%;
+}
+
+.call-inbound-note {
+  margin: 0 0 var(--space-1-5);
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+
+.call-strip-waiting {
+  color: var(--muted);
+}
+
+.call-strip-text {
+  min-width: 0;
+  flex: 1;
+}
+
+.call-strip-text strong {
+  display: block;
+  font-size: var(--text-sm);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.call-strip-status {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+@container block-card (max-width: 36rem) {
+  .call-strip {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .call-strip-status {
+    grid-column: 2 / -1;
+    grid-row: 2;
+  }
+
+  .block-strip-open {
+    grid-column: 3;
+    grid-row: 1;
+  }
+}
+
+.call-strip-said {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+
+.call-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-pill);
+  background: var(--failed);
+  display: inline-block;
+  flex: none;
+  animation: call-pulse var(--duration-ambient) ease-in-out infinite;
+}
+
+@keyframes call-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: var(--opacity-faint);
+  }
+}
+
+/* One card: the head, the outcome, the recording and the transcript
+   all inside one frame. The head is the header line: the
+   `row` shape of the button draws it and its divider. */
+.call-outcome {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  color: var(--muted);
+}
+
+.call-outcome strong {
+  color: var(--text);
+}
+
+.call-outcome-failed {
+  color: var(--failed-ink);
+}
+
+/* Why a call never went through, in the user's words. */
+.call-failure {
+  color: var(--failed-ink);
+  font-size: var(--text-sm);
+}
+
+/* The card draws its own player: a play control, a waveform that is
+   also the slider, and the elapsed and total time. */
+.call-scrubber {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.call-scrubber-track {
+  position: relative;
+  flex: 1;
+  height: 2rem;
+  min-width: 0;
+  border-radius: var(--radius-sm);
+  background: var(--sunken);
+  cursor: pointer;
+}
+
+.call-scrubber-track:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.call-scrubber-bars {
+  display: flex;
+  align-items: center;
+  gap: var(--space-px);
+  width: 100%;
+  height: 100%;
+  padding: 0 var(--space-1);
+}
+
+.call-scrubber-bar {
+  flex: 1;
+  min-width: 1px;
+  border-radius: var(--radius-pill);
+  background: var(--border-control);
+}
+
+.call-scrubber-bar-played {
+  background: var(--on-call);
+}
+
+/* No decoded audio: a flat bar, so the slider still reads as one. */
+.call-scrubber-flat {
+  position: absolute;
+  top: 50%;
+  left: 0.2rem;
+  right: 0.2rem;
+  height: 3px;
+  transform: translateY(-50%);
+  border-radius: var(--radius-pill);
+  background: var(--border-control);
+}
+
+.call-scrubber-head {
+  position: absolute;
+  top: 0.25rem;
+  bottom: 0.25rem;
+  width: 2px;
+  border-radius: var(--radius-pill);
+  background: var(--on-call);
+}
+
+.call-scrubber-clock {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.call-recording-missing {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+/* The transcript opens under the same card, so the toggle is a quiet
+   control inside it and never a button of its own. */
+.call-transcript-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+}
+
+.call-transcript-toggle {
+  gap: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+
+.call-transcript {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.call-transcript-empty {
+  margin: var(--space-1-5) 0;
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.call-line {
+  display: grid;
+  grid-template-columns: 3.4rem 4rem 1fr;
+  gap: var(--space-2);
+  padding: var(--space-0-5) 0;
+  font-size: var(--text-sm);
+}
+
+.call-line-at,
+.call-line-who {
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  padding-top: var(--space-0-5);
+}
+
+.call-line-daemon .call-line-text {
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-style: italic;
+}
+
+.call-inspector {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.call-inspector-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.call-inspector-header h2 {
+  margin: 0;
+  font-size: var(--text-md);
+}
+
+.call-inspector-body {
+  flex: 1;
+  overflow: hidden auto;
+  padding: var(--space-3) var(--space-4) var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2-5);
+}
+
+.call-inspector-waiting {
+  padding: var(--space-4);
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.call-headline {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+}
+
+.call-headline-agent {
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+
+.call-headline-state {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  margin-top: var(--space-0-5);
+}
+
+.call-clock {
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.call-tier-meaning {
+  margin: 0;
+  font-size: var(--text-sm);
+  background: var(--failed-soft);
+  color: var(--failed-ink);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1-5) var(--space-2);
+}
+
+.call-purpose {
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.call-tools {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+
+.call-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1-5);
+}
+
+
+.call-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1-5);
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+
+.call-error {
+  margin: 0;
+  width: 100%;
+  font-size: var(--text-xs);
+  color: var(--failed-ink);
+}
+
+@media (max-width: 460px) {
+  /* At 390 px the inspector is the whole screen, which is the trade
+     the Computer inspector already makes (ADR-0022). A user who
+     listens cannot read the Thread at the same time. */
+  .call-line {
+    grid-template-columns: 3rem 1fr;
+  }
+
+  .call-line-who {
+    display: none;
+  }
+}

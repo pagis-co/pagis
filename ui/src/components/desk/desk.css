@@ -1,0 +1,125 @@
+/* The Desk Panel (ADR-0022). The Chief of Staff's Desk takes
+ * the whole width and keeps the other Desks to one row
+ * each, so the office reads top to bottom in one glance. Every color
+ * comes from `tokens.css`. */
+
+.desk-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  overflow: hidden auto;
+  height: 100%;
+}
+
+.desk-panel-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.desk-panel-header h2 {
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+}
+
+.desk-panel-open-thread {
+  margin-left: auto;
+}
+
+.desk-panel-empty,
+.desk-steps-none {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.desk-section-heading {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+.desk-steps,
+.desk-others {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.desk-steps-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.desk-step {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2-5);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--text-sm);
+}
+
+.desk-step:last-child {
+  border-bottom: 0;
+}
+
+.desk-step-index,
+.desk-step-duration {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.desk-step-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.desk-step-duration {
+  margin-left: auto;
+}
+
+.desk-compact {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.desk-compact-who {
+  flex: 1;
+  justify-content: flex-start;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.desk-compact-name {
+  font-weight: var(--weight-medium);
+}
+
+.desk-compact-caption {
+  color: var(--muted);
+  font-size: var(--text-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desk-hire {
+  justify-content: flex-start;
+  gap: var(--space-2);
+  color: var(--muted);
+}
+
+.desk-panel-footer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-xs);
+}

@@ -1,0 +1,310 @@
+/* Design tokens (docs/UI-DESIGN.md).
+ *
+ * Every color, type size, weight, line height, tracking, spacing,
+ * opacity, radius, shadow, duration and stacking level in the UI comes
+ * from this file. `src/tokens.test.ts` fails the build
+ * when another stylesheet names one of those values directly.
+ *
+ * The light palette is complete on `:root`. The dark theme redefines
+ * only the primitive tokens: the warm ramp, the accent, the four
+ * semantic hues and the logo desks. Everything else is an alias built
+ * from them, so it follows without a second declaration. */
+
+:root {
+  color-scheme: light;
+
+  /* Warm neutral ramp, lightest surface to strongest ink. */
+  --warm-1: #fbfaf8;
+  --warm-2: #f7f6f2;
+  --warm-3: #f0eee9;
+  --warm-4: #e8e4de;
+  --warm-5: #dedbd5;
+  --warm-6: #cfcbc3;
+  --warm-7: #8a857c;
+  --warm-8: #625d55;
+  --warm-9: #272521;
+
+  /* Accent: selection, focus and primary actions. */
+  --accent: #5b49c0;
+  --accent-soft: #eeeafc;
+  --accent-tint: #dcd6f3;
+  --accent-ink: #3e327c;
+
+  /* The logo mark: three desks that make a P (assets/brand). The gold
+   * desk is dark enough to hold 3:1 on the panel. */
+  --logo-top: #5b49c0;
+  --logo-bowl: #e0704a;
+  --logo-bottom: #c4841a;
+
+  /* Semantic hues. `-soft` is a fill, `-ink` is text on that fill. */
+  --working: #116b32;
+  --working-soft: #dcf0e2;
+  --working-ink: #1f6b3b;
+  --waiting: #94430a;
+  --waiting-soft: #f6e7d3;
+  --waiting-ink: #7d5400;
+  --on-call: #1d4ed8;
+  --on-call-soft: #e2e9fb;
+  --on-call-ink: #1e40af;
+  --failed: #b3261e;
+  --failed-soft: #f8d9d5;
+  --failed-ink: #8f2f22;
+
+  /* A card or menu that must read as paper on top of paper. */
+  --raised: #ffffff;
+  /* Text on a solid fill. The stage chrome is white in both themes;
+   * the accent, the waiting hue and the failed hue name their own, so
+   * the dark theme can flip them. */
+  --on-solid: #ffffff;
+  --on-accent: #ffffff;
+  --on-waiting: #ffffff;
+  --on-failed: #ffffff;
+  /* The video stage and its controls are dark in both themes. */
+  --stage: #000000;
+  --stage-veil: rgba(0, 0, 0, 0.92);
+  --stage-veil-soft: rgba(0, 0, 0, 0.85);
+  /* A hover wash that works over any ground. */
+  --wash: rgba(127, 127, 127, 0.12);
+  --scrim: rgba(39, 35, 30, 0.24);
+
+  --shadow-rest: 0 5px 20px rgba(43, 38, 32, 0.08);
+  --shadow-raised: 0 14px 42px rgba(43, 38, 32, 0.13);
+
+  /* The focus ring, and the presence rings of an avatar. Each one is a
+   * gap in the ground color and then the hue, so the ring reads on a
+   * fill of its own hue. */
+  --focus-ring: 0 0 0 2px var(--panel), 0 0 0 4px var(--accent);
+  --ring-working: 0 0 0 2px var(--panel), 0 0 0 4px var(--working);
+  --ring-waiting: 0 0 0 2px var(--panel), 0 0 0 4px var(--waiting);
+  --ring-on-call: 0 0 0 2px var(--panel), 0 0 0 4px var(--on-call);
+  --ring-idle: 0 0 0 1px var(--border-strong);
+  /* The gap between two overlapping faces of a group. */
+  --ring-overlap: 0 0 0 2px var(--panel);
+  /* The far point of the working pulse: the same ring, one step
+   * wider, so the pulse only breathes and never moves the face. */
+  --ring-working-wide: 0 0 0 2px var(--panel), 0 0 0 7px var(--working);
+
+  /* Surfaces and text, from the ramp. */
+  --ground: var(--warm-2);
+  --panel: var(--warm-1);
+  --panel-translucent: rgba(251, 250, 248, 0.94);
+  --sidebar: var(--warm-3);
+  --sunken: var(--warm-4);
+  --hover: var(--warm-4);
+  --active: var(--warm-5);
+  --border: var(--warm-5);
+  --border-strong: var(--warm-6);
+  /* The boundary of a control: a field, a select trigger, an off
+   * switch. It holds 3:1 on every ground a control sits on (WCAG
+   * 1.4.11). A divider or a frame edge is decoration and keeps
+   * `--border`. */
+  --border-control: var(--warm-7);
+  --border-control-hover: var(--warm-8);
+  --text: var(--warm-9);
+  --muted: var(--warm-8);
+
+  /* Five type sizes. Body is --text-md. */
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-md: 0.9375rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.5rem;
+
+  /* Four weights: copy, controls, titles, and the page heading. */
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  /* Five line heights. Body is --leading-normal. */
+  --leading-none: 1;
+  --leading-tight: 1.2;
+  --leading-snug: 1.4;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.6;
+
+  /* Tracking: the page heading, the section label, keypad digits. */
+  --tracking-tight: -0.025em;
+  --tracking-wide: 0.06em;
+  --tracking-widest: 0.2em;
+
+  --font-sans:
+    'Inter Variable', Inter, ui-sans-serif, system-ui, -apple-system,
+    'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-serif: ui-serif, Georgia, 'Times New Roman', serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas,
+    'Liberation Mono', monospace;
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-pill: 999px;
+  /* Your message in the Thread: round, with the corner by the edge
+   * cut short. */
+  --radius-bubble: 16px 16px 4px 16px;
+
+  /* Spacing: a 4px scale with half steps under 16px. The name is
+   * the count of 4px units, and -5 is a half, so --space-1-5 is 6px.
+   * Padding, margin and gap read this scale only. --space-px is the
+   * hairline gap between the bars of a waveform. */
+  --space-px: 1px;
+  --space-0-5: 0.125rem;
+  --space-1: 0.25rem;
+  --space-1-5: 0.375rem;
+  --space-2: 0.5rem;
+  --space-2-5: 0.625rem;
+  --space-3: 0.75rem;
+  --space-3-5: 0.875rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-7: 1.75rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-11: 2.75rem;
+  --space-16: 4rem;
+  --space-24: 6rem;
+
+  /* Opacity: a disabled control, a message not yet sent, and the far
+   * point of the call pulse. */
+  --opacity-disabled: 0.55;
+  --opacity-pending: 0.6;
+  --opacity-faint: 0.25;
+
+  /* The four layout shells. */
+  --sidebar-width: 280px;
+  --reading-width: 680px;
+  --settings-nav-width: 220px;
+  --panel-width: 390px;
+
+  --conversation-width: 52rem;
+  --conversation-gutter: clamp(1rem, 3vw, 2rem);
+  --page-width: 72rem;
+  --page-padding: clamp(1.25rem, 3vw, 2.5rem);
+
+  /* State, then panels, then the slowest ambient loop. */
+  --duration-fast: 150ms;
+  --duration-panel: 250ms;
+  --duration-slow: 400ms;
+  /* One period of an ambient loop: a pulse, a blink, a beacon. */
+  --duration-ambient: 1200ms;
+
+  /* The panel easing. The overshoot reads as a spring, so an
+   * inspector arrives with weight instead of sliding flat. */
+  --ease-spring: cubic-bezier(0.22, 1.4, 0.36, 1);
+
+  --z-base: 0;
+  --z-scrim: 10;
+  --z-nav: 20;
+  --z-inspector: 30;
+  --z-overlay: 40;
+  --z-overlay-controls: 50;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+
+    --warm-1: #19191d;
+    --warm-2: #141417;
+    --warm-3: #202024;
+    --warm-4: #2a2a30;
+    --warm-5: #35353d;
+    --warm-6: #45454f;
+    --warm-7: #70707d;
+    --warm-8: #aaa9b5;
+    --warm-9: #f1f0f5;
+
+    --accent: #b6a3ff;
+    --on-accent: #19191d;
+    --accent-soft: #241f3d;
+    --accent-tint: #322a5c;
+    --accent-ink: #cfc6fb;
+
+    --logo-top: #b6a3ff;
+    --logo-bowl: #e0704a;
+    --logo-bottom: #e9b949;
+
+    --working: #4ade80;
+    --working-soft: #17301f;
+    --working-ink: #86efac;
+    --waiting: #f0a04b;
+    --on-waiting: #221a0c;
+    --waiting-soft: #33240f;
+    --waiting-ink: #fbd38d;
+    --on-call: #7aa2f7;
+    --on-call-soft: #16223f;
+    --on-call-ink: #bcd0fb;
+    --failed: #f97b7b;
+    --on-failed: #2b0f0c;
+    --failed-soft: #3a1a17;
+    --failed-ink: #fca5a5;
+
+    --raised: #232328;
+    --panel-translucent: rgba(25, 25, 29, 0.94);
+    --wash: rgba(255, 255, 255, 0.08);
+    --scrim: rgba(0, 0, 0, 0.55);
+
+    --shadow-rest: 0 5px 20px rgba(0, 0, 0, 0.45);
+    --shadow-raised: 0 14px 42px rgba(0, 0, 0, 0.6);
+  }
+}
+
+/* Reduced motion: the durations go to zero, so every transition and
+ * animation that reads a duration token stops moving. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+    --duration-panel: 0ms;
+    --duration-slow: 0ms;
+    --duration-ambient: 0ms;
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --warm-1: #19191d;
+  --warm-2: #141417;
+  --warm-3: #202024;
+  --warm-4: #2a2a30;
+  --warm-5: #35353d;
+  --warm-6: #45454f;
+  --warm-7: #70707d;
+  --warm-8: #aaa9b5;
+  --warm-9: #f1f0f5;
+
+  --accent: #b6a3ff;
+  --on-accent: #19191d;
+  --accent-soft: #241f3d;
+  --accent-tint: #322a5c;
+  --accent-ink: #cfc6fb;
+
+  --logo-top: #b6a3ff;
+  --logo-bowl: #e0704a;
+  --logo-bottom: #e9b949;
+
+  --working: #4ade80;
+  --working-soft: #17301f;
+  --working-ink: #86efac;
+  --waiting: #f0a04b;
+  --on-waiting: #221a0c;
+  --waiting-soft: #33240f;
+  --waiting-ink: #fbd38d;
+  --on-call: #7aa2f7;
+  --on-call-soft: #16223f;
+  --on-call-ink: #bcd0fb;
+  --failed: #f97b7b;
+  --on-failed: #2b0f0c;
+  --failed-soft: #3a1a17;
+  --failed-ink: #fca5a5;
+
+  --raised: #232328;
+  --panel-translucent: rgba(25, 25, 29, 0.94);
+  --wash: rgba(255, 255, 255, 0.08);
+  --scrim: rgba(0, 0, 0, 0.55);
+
+  --shadow-rest: 0 5px 20px rgba(0, 0, 0, 0.45);
+  --shadow-raised: 0 14px 42px rgba(0, 0, 0, 0.6);
+}

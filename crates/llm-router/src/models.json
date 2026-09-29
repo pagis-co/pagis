@@ -1,0 +1,37 @@
+{
+  "gpt-6-astra": {"context_window": 1050000, "max_output_tokens": 128000, "input_cost": 10.0, "output_cost": 50.0, "cache_read_cost": 1.0, "cache_write_cost": 12.5},
+  "gpt-6-sol": {"context_window": 1050000, "max_output_tokens": 128000, "input_cost": 2.0, "output_cost": 10.0, "cache_read_cost": 0.2, "cache_write_cost": 2.5},
+  "gpt-6-luna": {"context_window": 1050000, "max_output_tokens": 128000, "input_cost": 0.1, "output_cost": 0.5, "cache_read_cost": 0.01, "cache_write_cost": 0.125},
+  "gpt-5.6": {"context_window": 1050000, "max_output_tokens": 128000, "input_cost": 4.0, "output_cost": 20.0, "cache_read_cost": 0.4},
+  "gpt-5.6-sol": {"context_window": 1050000, "max_output_tokens": 128000, "input_cost": 4.0, "output_cost": 20.0, "cache_read_cost": 0.4},
+  "gpt-5.6-terra": {"context_window": 1050000, "max_output_tokens": 128000, "input_cost": 2.0, "output_cost": 12.0, "cache_read_cost": 0.2},
+  "gpt-5.6-luna": {"context_window": 1050000, "max_output_tokens": 128000, "input_cost": 0.2, "output_cost": 1.2, "cache_read_cost": 0.02},
+  "gpt-5": {"context_window": 400000, "max_output_tokens": 128000, "input_cost": 1.25, "output_cost": 10.0, "cache_read_cost": 0.125},
+  "gpt-5-mini": {"context_window": 400000, "max_output_tokens": 128000, "input_cost": 0.25, "output_cost": 2.0, "cache_read_cost": 0.025},
+  "gpt-5-nano": {"context_window": 400000, "max_output_tokens": 128000, "input_cost": 0.05, "output_cost": 0.4, "cache_read_cost": 0.005},
+  "gpt-4.1": {"context_window": 1047576, "max_output_tokens": 32768, "input_cost": 2.0, "output_cost": 8.0, "cache_read_cost": 0.5},
+  "gpt-4.1-mini": {"context_window": 1047576, "max_output_tokens": 32768, "input_cost": 0.4, "output_cost": 1.6, "cache_read_cost": 0.1},
+  "gpt-4.1-nano": {"context_window": 1047576, "max_output_tokens": 32768, "input_cost": 0.1, "output_cost": 0.4, "cache_read_cost": 0.025},
+  "gpt-4o": {"context_window": 128000, "max_output_tokens": 16384, "input_cost": 2.5, "output_cost": 10.0, "cache_read_cost": 1.25},
+  "gpt-4o-mini": {"context_window": 128000, "max_output_tokens": 16384, "input_cost": 0.15, "output_cost": 0.6, "cache_read_cost": 0.075},
+  "o3": {"context_window": 200000, "max_output_tokens": 100000, "input_cost": 2.0, "output_cost": 8.0, "cache_read_cost": 0.5},
+  "o4-mini": {"context_window": 200000, "max_output_tokens": 100000, "input_cost": 1.1, "output_cost": 4.4, "cache_read_cost": 0.275},
+  "text-embedding-3-small": {"context_window": 8191, "max_output_tokens": 0, "input_cost": 0.02, "output_cost": 0.0},
+  "text-embedding-3-large": {"context_window": 8191, "max_output_tokens": 0, "input_cost": 0.13, "output_cost": 0.0},
+
+  "claude-fable-5": {"context_window": 1000000, "max_output_tokens": 128000, "input_cost": 10.0, "output_cost": 50.0, "cache_read_cost": 1.0, "cache_write_cost": 12.5},
+  "claude-opus-5": {"context_window": 1000000, "max_output_tokens": 128000, "input_cost": 5.0, "output_cost": 25.0, "cache_read_cost": 0.5, "cache_write_cost": 6.25},
+  "claude-opus-4-8": {"context_window": 1000000, "max_output_tokens": 128000, "input_cost": 5.0, "output_cost": 25.0, "cache_read_cost": 0.5, "cache_write_cost": 6.25},
+  "claude-opus-4-5": {"context_window": 200000, "max_output_tokens": 64000, "input_cost": 5.0, "output_cost": 25.0, "cache_read_cost": 0.5, "cache_write_cost": 6.25},
+  "claude-sonnet-5": {"context_window": 1000000, "max_output_tokens": 128000, "input_cost": 2.0, "output_cost": 10.0, "cache_read_cost": 0.2, "cache_write_cost": 2.5},
+  "claude-sonnet-4-6": {"context_window": 1000000, "max_output_tokens": 128000, "input_cost": 3.0, "output_cost": 15.0, "cache_read_cost": 0.3, "cache_write_cost": 3.75},
+  "claude-sonnet-4.6": {"context_window": 1000000, "max_output_tokens": 128000, "input_cost": 3.0, "output_cost": 15.0, "cache_read_cost": 0.3, "cache_write_cost": 3.75},
+  "claude-sonnet-4-5": {"context_window": 200000, "max_output_tokens": 64000, "input_cost": 3.0, "output_cost": 15.0, "cache_read_cost": 0.3, "cache_write_cost": 3.75},
+  "claude-haiku-4-5": {"context_window": 200000, "max_output_tokens": 64000, "input_cost": 1.0, "output_cost": 5.0, "cache_read_cost": 0.1, "cache_write_cost": 1.25},
+
+  "gemini-2.5-pro": {"context_window": 1048576, "max_output_tokens": 65536, "input_cost": 1.25, "output_cost": 10.0, "cache_read_cost": 0.125},
+  "gemini-2.5-flash": {"context_window": 1048576, "max_output_tokens": 65536, "input_cost": 0.3, "output_cost": 2.5, "cache_read_cost": 0.03},
+
+  "deepseek-v4-flash": {"context_window": 1000000, "max_output_tokens": 384000, "input_cost": 0.44, "output_cost": 1.32, "cache_read_cost": 0.014},
+  "deepseek-v4-pro": {"context_window": 1000000, "max_output_tokens": 384000, "input_cost": 1.32, "output_cost": 3.96, "cache_read_cost": 0.044}
+}

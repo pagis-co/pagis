@@ -1,0 +1,52 @@
+/* The sign-in page: one card on the ground. */
+
+.sign-in {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100%;
+  padding: var(--space-8) var(--space-4);
+  background: var(--ground);
+  overflow: hidden auto;
+}
+
+.sign-in-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  width: min(22rem, 100%);
+  padding: var(--space-7);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-rest);
+}
+
+.sign-in-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: var(--text-lg);
+}
+
+.sign-in-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.sign-in-error {
+  margin: 0;
+  color: var(--failed-ink);
+  font-size: var(--text-sm);
+}
+
+.sign-in-setup {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}

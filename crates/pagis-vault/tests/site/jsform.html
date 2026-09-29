@@ -1,0 +1,12 @@
+<!doctype html>
+<!--
+  A page whose form action is a javascript: URL, as some login pages
+  have. The text field has the focus at load, so Return submits the form,
+  and the action writes into the document title when it runs.
+-->
+<meta charset="utf-8">
+<title>jsform</title>
+<form action="javascript:void(document.title='form ran')">
+  <input id="user" name="user" autofocus>
+  <button>Sign in</button>
+</form>

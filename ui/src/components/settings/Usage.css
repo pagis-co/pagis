@@ -1,0 +1,54 @@
+/* The Usage section: the month's total with the cap beside it,
+ * and one row per run. Every value comes from `tokens.css`. */
+
+.usage {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.usage-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+
+.usage-title h1 {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+
+.usage-title span {
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.usage-total {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+
+.usage-cap,
+.usage-tokens,
+.usage-empty,
+.usage-run-when,
+.usage-run-tokens,
+.usage-run-calls {
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.usage-run {
+  gap: var(--space-3);
+}
+
+.usage-run-when {
+  width: 13rem;
+}
+
+/* The money sits at the end of the row. */
+.usage-run-cost {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}

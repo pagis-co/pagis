@@ -1,0 +1,49 @@
+/* The switch: a track and a knob that slides to the right when on. */
+.ui-switch {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+
+.ui-switch:focus-visible {
+  outline: none;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--focus-ring);
+}
+
+.ui-switch-track {
+  position: relative;
+  width: 40px;
+  height: 24px;
+  border-radius: var(--radius-pill);
+  background: var(--border-control);
+  transition: background var(--duration-fast) ease;
+}
+
+.ui-switch-track::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-pill);
+  background: var(--raised);
+  transition: left var(--duration-fast) ease;
+}
+
+.ui-switch[aria-checked='true'] .ui-switch-track {
+  background: var(--accent);
+}
+
+.ui-switch[aria-checked='true'] .ui-switch-track::after {
+  left: 18px;
+}
