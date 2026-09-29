@@ -47,3 +47,13 @@ max-threads = 8
 [[profile.default.overrides]]
 filter = 'test(/on_postgres::/) | test(/_on_postgres$/)'
 test-group = 'postgres'
+
+# The profile of GitHub Actions (`NEXTEST_PROFILE=ci` in ci.yml). The
+# egress tests that model the network of a Headless Server need a Docker
+# host that routes between two of its bridges in the `nat-unprotected`
+# gateway mode, and whose 169.254.169.254 is the test's listener. A
+# GitHub runner drops the traffic between bridges, and its
+# 169.254.169.254 is the metadata service of Azure, so these tests run in
+# the local gate only. The egress tests of the script itself run here.
+[profile.ci]
+default-filter = 'not test(/^egress::(a_computer_reaches_the_internet_and_the_media_relay_and_nothing_private|the_plugin_computer_has_the_same_policy|an_allowed_private_block_is_reachable_and_root_in_the_computer_cannot_change_the_rules)$/)'

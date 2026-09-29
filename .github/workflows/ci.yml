@@ -25,6 +25,9 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  # The nextest profile of a GitHub runner: .config/nextest.toml names the
+  # tests that need a Docker host the runner is not.
+  NEXTEST_PROFILE: ci
 
 # Each action is pinned to a full commit ID, with its release tag in a
 # comment, because a tag or a branch can move to other code. Each
