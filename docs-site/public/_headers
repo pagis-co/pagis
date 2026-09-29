@@ -1,0 +1,4 @@
+# Cloudflare reads this file from the export. The search index has no file
+# extension, so its type is stated here.
+/api/search
+  Content-Type: application/json; charset=utf-8

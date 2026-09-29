@@ -548,9 +548,10 @@ pub fn dev_lanes(
     Ok(lanes)
 }
 
-/// The checks of the documentation site: its types, its tests, and the
-/// build, which compiles each page.
-fn docs_site_steps(root: &Path) -> [Step; 4] {
+/// The checks of the documentation site: its types, its tests, the build,
+/// which compiles and exports each page, and the test of the export as
+/// Cloudflare serves it.
+fn docs_site_steps(root: &Path) -> [Step; 5] {
     [
         Step {
             name: "docs-site-deps",
@@ -567,6 +568,10 @@ fn docs_site_steps(root: &Path) -> [Step; 4] {
         Step {
             name: "docs-site-build",
             action: npm_script_action(root, "docs-site", "build"),
+        },
+        Step {
+            name: "docs-site-export",
+            action: npm_script_action(root, "docs-site", "test:export"),
         },
     ]
 }

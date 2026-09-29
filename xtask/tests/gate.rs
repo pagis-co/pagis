@@ -129,7 +129,11 @@ fn dev_plan_runs_the_ui_checks_and_the_secret_scan_for_a_ui_change() {
 #[test]
 fn dev_plan_runs_the_docs_site_checks_and_the_secret_scan_for_a_docs_site_change() {
     let tmp = tempfile::tempdir().unwrap();
-    write_package_json(tmp.path(), "docs-site", &["typecheck", "test", "build"]);
+    write_package_json(
+        tmp.path(),
+        "docs-site",
+        &["typecheck", "test", "build", "test:export"],
+    );
     let lanes = dev_lanes(tmp.path(), &["docs-site/content/index.mdx".into()], false).unwrap();
     assert_eq!(
         step_names(&lanes),
@@ -138,6 +142,7 @@ fn dev_plan_runs_the_docs_site_checks_and_the_secret_scan_for_a_docs_site_change
             "docs-site-typecheck",
             "docs-site-test",
             "docs-site-build",
+            "docs-site-export",
             "secret-scan"
         ]
     );
@@ -358,6 +363,7 @@ fn plan_lists_every_gate_step_in_order() {
             "docs-site-typecheck",
             "docs-site-test",
             "docs-site-build",
+            "docs-site-export",
             "secret-scan",
         ]
     );
@@ -578,6 +584,7 @@ fn plan_skips_docs_site_steps_when_docs_site_is_absent() {
         "docs-site-typecheck",
         "docs-site-test",
         "docs-site-build",
+        "docs-site-export",
     ] {
         let step = steps.iter().find(|s| s.name == name).unwrap();
         assert!(
@@ -590,12 +597,17 @@ fn plan_skips_docs_site_steps_when_docs_site_is_absent() {
 #[test]
 fn plan_runs_the_docs_site_steps_whose_scripts_are_declared() {
     let tmp = tempfile::tempdir().unwrap();
-    write_package_json(tmp.path(), "docs-site", &["typecheck", "test", "build"]);
+    write_package_json(
+        tmp.path(),
+        "docs-site",
+        &["typecheck", "test", "build", "test:export"],
+    );
     let steps = plan(tmp.path(), true);
     for (name, script) in [
         ("docs-site-typecheck", "typecheck"),
         ("docs-site-test", "test"),
         ("docs-site-build", "build"),
+        ("docs-site-export", "test:export"),
     ] {
         let step = steps.iter().find(|s| s.name == name).unwrap();
         let Action::Run(cmds) = &step.action else {
@@ -891,6 +903,7 @@ fn full_lanes_keep_every_cargo_consumer_in_one_lane() {
                     "docs-site-typecheck",
                     "docs-site-test",
                     "docs-site-build",
+                    "docs-site-export",
                 ]
             ),
             ("secrets", vec!["secret-scan"]),

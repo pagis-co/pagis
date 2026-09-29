@@ -56,8 +56,9 @@ cargo nextest run -p pagis-computer --run-ignored only
 ```
 
 In `ui/`, `desktop/` and `docs-site/`, `npm run typecheck` and `npm test`
-check the TypeScript code. In `docs-site/`, `npm run build` compiles each
-page. [docs-site/README.md](docs-site/README.md) tells how to write a page. After a change to the HTTP API of `pagis-server`, run
+check the TypeScript code. In `docs-site/`, `npm run build` compiles and
+exports each page, and `npm run test:export` serves the export as Cloudflare
+does. [docs-site/README.md](docs-site/README.md) tells how to write a page. After a change to the HTTP API of `pagis-server`, run
 `npm run api:generate` in `ui/` to write `openapi.json` and the API types
 again.
 
@@ -119,7 +120,7 @@ unknown name prints the list. The gate steps are:
 | `pagis-apt` | The shell tests of `computer/pagis-apt` |
 | `ui-deps`, `ui-typecheck`, `ui-test` | The UI |
 | `desktop-deps`, `desktop-typecheck`, `desktop-test` | The Client App |
-| `docs-site-deps`, `docs-site-typecheck`, `docs-site-test`, `docs-site-build` | The documentation site |
+| `docs-site-deps`, `docs-site-typecheck`, `docs-site-test`, `docs-site-build`, `docs-site-export` | The documentation site, and its export as Cloudflare serves it |
 | `secret-scan` | gitleaks over the tracked files |
 
 The checks download the pinned gitleaks, `gog`, cargo-deny and Trivy
@@ -150,7 +151,7 @@ gate steps with `cargo xtask step`:
 | contract drift | `ui-deps contract-drift gog-contract` |
 | UI | `ui-deps ui-typecheck ui-test` |
 | desktop | `desktop-deps desktop-typecheck desktop-test` |
-| docs site | `docs-site-deps docs-site-typecheck docs-site-test docs-site-build` |
+| docs site | `docs-site-deps docs-site-typecheck docs-site-test docs-site-build docs-site-export` |
 | pins, secrets and generated tables | `pins emergency-drift secret-scan pagis-apt` |
 | packaging smoke (macOS), packaging smoke (Linux) | `cargo xtask desktop` with a fixture Runtime Lock |
 
@@ -158,7 +159,8 @@ The **CI success** job passes only when each other job passes. It is the
 one check that a pull request needs. `.github/workflows/advisories.yml`
 runs `cargo xtask advisories` each day. For a `v*` tag,
 `.github/workflows/release.yml` prepares the Client App packages and
-`.github/workflows/docs.yml` deploys the documentation site.
+`.github/workflows/docs.yml` deploys the documentation site. That workflow
+also uploads a preview of the site for a pull request that changes it.
 
 ## Pull requests
 

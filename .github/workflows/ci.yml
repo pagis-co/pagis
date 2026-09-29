@@ -166,8 +166,9 @@ jobs:
           cache-dependency-path: docs-site/package-lock.json
 
       # The build compiles each page, so a page that does not compile fails
-      # the job.
-      - run: cargo xtask step docs-site-deps docs-site-typecheck docs-site-test docs-site-build
+      # the job. The export step then serves the export in the local runtime
+      # of Cloudflare and reads each address.
+      - run: cargo xtask step docs-site-deps docs-site-typecheck docs-site-test docs-site-build docs-site-export
 
   checks:
     name: pins, secrets and generated tables
