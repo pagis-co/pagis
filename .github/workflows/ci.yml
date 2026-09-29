@@ -28,6 +28,9 @@ env:
   # The nextest profile of a GitHub runner: .config/nextest.toml names the
   # tests that need a Docker host the runner is not.
   NEXTEST_PROFILE: ci
+  # CI builds keep no debug info: the target directory, the cache and the
+  # link times shrink to a fraction, and a panic still names its line.
+  CARGO_PROFILE_DEV_DEBUG: 0
 
 # Every job reads the caches of main, and only a run on main writes
 # them, so a pull request neither evicts nor duplicates them. A job that
@@ -67,6 +70,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
+      # A runner starts with about 14 GB free. This job holds the build of
+      # the workspace tests, the Computer Image twice (in the buildx builder
+      # and in Docker) and the service images of the Docker tests, so it
+      # removes the toolchains the runner ships and the job never uses.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
+
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
