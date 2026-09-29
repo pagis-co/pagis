@@ -74,12 +74,9 @@ On Linux the smoke runs the client of the host's architecture, under
 architectures, and reads the deb's exact bytes with `dpkg-deb`.
 
 On macOS, `--prepare` signs, notarizes, staples and checks the client. It stops before
-publication so the exact DMG can pass the clean-account launch, quarantine,
-keychain, offline, Docker, installation reuse, downgrade and forward-update
-checks. Record those results in `dist/distribution-proof.json`.
-`--publish-existing` does not rebuild. It validates the proof against the
-exact client and Runtime Lock hashes, downloads and compares the server
-tuple, pulls the Computer image digest with no credentials, and uploads
+publication, which waits for a maintainer's approval.
+`--publish-existing` does not rebuild. It checks the exact DMG again,
+downloads and compares the server tuple, pulls the Computer image digest with no credentials, and uploads
 without overwrite. See
 [`docs/RELEASING-CLIENT.md`](../docs/RELEASING-CLIENT.md), which also
 holds the Linux release.

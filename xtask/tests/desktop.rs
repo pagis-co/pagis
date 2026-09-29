@@ -1,13 +1,12 @@
 //! Tests for the desktop packaging (`cargo xtask desktop`), the piece
 //! the GitHub Actions workflow calls on macOS.
 
-use sha2::{Digest, Sha256};
 use std::path::Path;
 use std::process::Command;
 
 use xtask::desktop::{
     DesktopContext, DesktopPlatform, check_tag, check_version, desktop_plan, dmg_name,
-    missing_signing_inputs, validate_distribution_proof,
+    missing_signing_inputs,
 };
 use xtask::{Action, Cmd, Step};
 
@@ -69,7 +68,6 @@ fn plan_lists_every_desktop_step_in_order() {
             "packaged-runtime",
             "smoke",
             "signed-client",
-            "distribution-proof",
             "released-tuple",
             "publish"
         ]
@@ -162,7 +160,7 @@ fn routine_packaging_checks_the_client_inventory_and_compiled_runtime_boundary()
 }
 
 #[test]
-fn a_tag_verifies_proof_and_the_existing_server_tuple_before_client_upload() {
+fn a_tag_verifies_the_existing_server_tuple_before_client_upload() {
     let steps = desktop_plan(Path::new("/repo"), &context(Some("v1.2.3"), &[]));
     let finalize = joined(step(&steps, "finalize-dmg"));
     assert!(
@@ -178,12 +176,6 @@ fn a_tag_verifies_proof_and_the_existing_server_tuple_before_client_upload() {
         finalize.contains("Pagis-1.2.3-arm64.dmg"),
         "command: {finalize}"
     );
-    let proof = joined(step(&steps, "distribution-proof"));
-    assert!(
-        proof.contains("distribution-proof validate"),
-        "command: {proof}"
-    );
-    assert!(proof.contains("Pagis-1.2.3-arm64.dmg"), "command: {proof}");
     let tuple = joined(step(&steps, "released-tuple"));
     assert!(
         tuple.contains("gh release download v1.2.3"),
@@ -231,7 +223,7 @@ fn a_tag_verifies_proof_and_the_existing_server_tuple_before_client_upload() {
 }
 
 #[test]
-fn a_prepared_package_stops_before_external_proof_and_publish_reuses_its_bytes() {
+fn a_prepared_package_stops_before_publication_and_publish_reuses_its_bytes() {
     let mut prepare = context(Some("v1.2.3"), &[]);
     prepare.prepare_only = true;
     let steps = desktop_plan(Path::new("/repo"), &prepare);
@@ -244,7 +236,6 @@ fn a_prepared_package_stops_before_external_proof_and_publish_reuses_its_bytes()
         step(&steps, "signed-client").action,
         Action::Run(_)
     ));
-    assert!(skip_reason(step(&steps, "distribution-proof")).contains("awaits"));
     assert!(skip_reason(step(&steps, "publish")).contains("awaits"));
 
     let mut publish = context(Some("v1.2.3"), &[]);
@@ -252,13 +243,9 @@ fn a_prepared_package_stops_before_external_proof_and_publish_reuses_its_bytes()
     let steps = desktop_plan(Path::new("/repo"), &publish);
     assert!(skip_reason(step(&steps, "deps")).contains("exact package"));
     assert!(skip_reason(step(&steps, "pack")).contains("exact package"));
-    assert!(skip_reason(step(&steps, "finalize-dmg")).contains("already finalized"));
+    assert!(skip_reason(step(&steps, "finalize-dmg")).contains("finalized when it was prepared"));
     assert!(matches!(
         step(&steps, "signed-client").action,
-        Action::Run(_)
-    ));
-    assert!(matches!(
-        step(&steps, "distribution-proof").action,
         Action::Run(_)
     ));
     assert!(matches!(step(&steps, "publish").action, Action::Run(_)));
@@ -406,142 +393,4 @@ fn the_tag_must_name_the_version_that_is_packed() {
     assert!(check_tag("v1.2.3", "1.2.3").is_ok());
     let error = check_tag("v1.3.0", "1.2.3").unwrap_err().to_string();
     assert!(error.contains("v1.2.3"), "error: {error}");
-}
-
-#[test]
-fn distribution_proof_is_bound_to_the_exact_lock_server_and_client() {
-    let tmp = tempfile::tempdir().unwrap();
-    let lock = tmp.path().join("runtime-lock.json");
-    let client = tmp.path().join("Pagis-1.2.3-arm64.dmg");
-    std::fs::write(&client, b"signed client bytes").unwrap();
-    std::fs::write(
-        &lock,
-        concat!(
-            r#"{"schema":1,"release":"1.2.3","asset":{"sha256":""#,
-            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            r#"","team_id":"ABCDE12345"},"computer_image":"ghcr.io/pagis-co/pagis-computer@sha256:"#,
-            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-            r#""}"#
-        ),
-    )
-    .unwrap();
-    let lock_hash = hex::encode(Sha256::digest(std::fs::read(&lock).unwrap()));
-    let client_hash = hex::encode(Sha256::digest(std::fs::read(&client).unwrap()));
-    let proof = tmp.path().join("distribution-proof.json");
-    let checks = [
-        "server_gatekeeper",
-        "server_stapled",
-        "server_designated_requirements",
-        "client_gatekeeper",
-        "client_stapled",
-        "client_quarantined",
-        "installed_runtime_quarantined",
-        "initial_client_owned_launch",
-        "authenticated_health",
-        "product_app_opened",
-        "keychain_created_and_read",
-        "offline_client_owned_launch",
-        "forward_update_read_same_keychain_item",
-        "no_docker_setup",
-        "computer_screen_ready",
-        "computer_shell_ready",
-        "workspace_reused_after_update",
-        "unsafe_downgrade_refused",
-    ];
-    let checks = checks
-        .into_iter()
-        .map(|name| (name.to_string(), serde_json::Value::Bool(true)))
-        .collect::<serde_json::Map<_, _>>();
-    std::fs::write(
-        &proof,
-        serde_json::to_vec(&serde_json::json!({
-            "schema": 1,
-            "release": "1.2.3",
-            "runtime_lock_sha256": lock_hash,
-            "server_dmg_sha256": "a".repeat(64),
-            "client_dmg_sha256": client_hash,
-            "previous_client_dmg_sha256": "c".repeat(64),
-            "team_id": "ABCDE12345",
-            "notarization_submission_id": "submission-1",
-            "macos_version": "15.6",
-            "test_account": "clean-local-account",
-            "checks": checks,
-        }))
-        .unwrap(),
-    )
-    .unwrap();
-
-    validate_distribution_proof(&proof, &lock, &client, "1.2.3").unwrap();
-
-    let stale_client = tmp.path().join("changed.dmg");
-    std::fs::write(&stale_client, b"other bytes").unwrap();
-    let error = validate_distribution_proof(&proof, &lock, &stale_client, "1.2.3")
-        .unwrap_err()
-        .to_string();
-    assert!(error.contains("client DMG"), "error: {error}");
-}
-
-#[test]
-fn distribution_proof_refuses_an_unpassed_required_check() {
-    let tmp = tempfile::tempdir().unwrap();
-    let lock = tmp.path().join("runtime-lock.json");
-    let client = tmp.path().join("client.dmg");
-    std::fs::write(&client, b"client").unwrap();
-    std::fs::write(
-        &lock,
-        format!(
-            r#"{{"schema":1,"release":"1.2.3","asset":{{"sha256":"{}","team_id":"ABCDE12345"}},"computer_image":"ghcr.io/pagis-co/pagis-computer@sha256:{}"}}"#,
-            "a".repeat(64), "b".repeat(64)
-        ),
-    ).unwrap();
-    let proof = tmp.path().join("proof.json");
-    let lock_hash = hex::encode(Sha256::digest(std::fs::read(&lock).unwrap()));
-    let client_hash = hex::encode(Sha256::digest(std::fs::read(&client).unwrap()));
-    let names = [
-        "server_gatekeeper",
-        "server_stapled",
-        "server_designated_requirements",
-        "client_gatekeeper",
-        "client_stapled",
-        "client_quarantined",
-        "installed_runtime_quarantined",
-        "initial_client_owned_launch",
-        "authenticated_health",
-        "product_app_opened",
-        "keychain_created_and_read",
-        "offline_client_owned_launch",
-        "forward_update_read_same_keychain_item",
-        "no_docker_setup",
-        "computer_screen_ready",
-        "computer_shell_ready",
-        "workspace_reused_after_update",
-        "unsafe_downgrade_refused",
-    ];
-    let mut checks = names
-        .into_iter()
-        .map(|name| (name.to_string(), serde_json::Value::Bool(true)))
-        .collect::<serde_json::Map<_, _>>();
-    checks.insert("server_gatekeeper".into(), false.into());
-    std::fs::write(
-        &proof,
-        serde_json::to_vec(&serde_json::json!({
-            "schema": 1,
-            "release": "1.2.3",
-            "runtime_lock_sha256": lock_hash,
-            "server_dmg_sha256": "a".repeat(64),
-            "client_dmg_sha256": client_hash,
-            "previous_client_dmg_sha256": "c".repeat(64),
-            "team_id": "ABCDE12345",
-            "notarization_submission_id": "submission-1",
-            "macos_version": "15.6",
-            "test_account": "clean-local-account",
-            "checks": checks,
-        }))
-        .unwrap(),
-    )
-    .unwrap();
-    let error = validate_distribution_proof(&proof, &lock, &client, "1.2.3")
-        .unwrap_err()
-        .to_string();
-    assert!(error.contains("server_gatekeeper"), "error: {error}");
 }

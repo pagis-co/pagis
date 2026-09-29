@@ -49,7 +49,6 @@ fn main() -> Result<()> {
         ),
         Some("desktop") => run_desktop(&args),
         Some("runtime-lock") => run_runtime_lock(&args),
-        Some("distribution-proof") => run_distribution_proof(&args),
         Some("emergency-numbers") => {
             xtask::emergency::run(&workspace_root(), args.iter().any(|a| a == "--check"))
         }
@@ -59,8 +58,6 @@ fn main() -> Result<()> {
         _ => bail!(
             "usage: cargo xtask <dev | full | step <name>... | advisories | image [--dry-run] | \
              server-image [--dry-run] | release <images | linux | macos | draft> [--tag <tag>] [--dry-run] | desktop [--linux] [--tag <tag>] [--prepare | --publish-existing] [--dry-run] | \
-             distribution-proof validate <proof> <lock> <client-dmg> <release> | \
-             distribution-proof validate-linux <proof> <lock> <appimage> <deb> <release> | \
              emergency-numbers [--check] | pins --check>"
         ),
     }
@@ -72,31 +69,6 @@ fn exit_on_red(green: bool) -> Result<()> {
         std::process::exit(1);
     }
     Ok(())
-}
-
-fn run_distribution_proof(args: &[String]) -> Result<()> {
-    match args.get(1).map(String::as_str) {
-        Some("validate-linux") if args.len() == 7 => {
-            xtask::desktop_linux::validate_linux_distribution_proof(
-                Path::new(&args[2]),
-                Path::new(&args[3]),
-                Path::new(&args[4]),
-                Path::new(&args[5]),
-                &args[6],
-            )
-        }
-        Some("validate") if args.len() == 6 => desktop::validate_distribution_proof(
-            Path::new(&args[2]),
-            Path::new(&args[3]),
-            Path::new(&args[4]),
-            &args[5],
-        ),
-        _ => bail!(
-            "usage: cargo xtask distribution-proof validate \
-             <proof> <runtime-lock> <client-dmg> <release> | distribution-proof validate-linux \
-             <proof> <runtime-lock> <appimage> <deb> <release>"
-        ),
-    }
 }
 
 fn run_runtime_lock(args: &[String]) -> Result<()> {
@@ -279,8 +251,8 @@ fn run_release(stage: xtask::ReleaseStage, tag: Option<String>, dry_run: bool) -
 /// A macOS host packs the macOS client and a Linux host the Linux one;
 /// `--linux` names the Linux plan on any host, which is how a macOS host
 /// publishes Linux packages that CI prepared. A tagged prepare run makes
-/// exact bytes. A publish-existing run reuses those bytes after the
-/// external distribution proof.
+/// exact bytes. A publish-existing run publishes those bytes after a
+/// maintainer approves the release.
 fn run_desktop(args: &[String]) -> Result<()> {
     let root = workspace_root();
     let dry_run = args.iter().any(|arg| arg == "--dry-run");
@@ -310,7 +282,7 @@ fn run_desktop(args: &[String]) -> Result<()> {
     let is_set = |name: &str| std::env::var(name).is_ok_and(|value| !value.trim().is_empty());
     let missing = match platform {
         // The publication of the Mac client uploads the bytes that were
-        // signed and notarized before the proof, and signs nothing.
+        // signed and notarized when they were prepared, and signs nothing.
         xtask::DesktopPlatform::Mac if publish_existing => Vec::new(),
         xtask::DesktopPlatform::Mac => desktop::missing_signing_inputs(&is_set),
         // Linux signs only at publication, with the release key.

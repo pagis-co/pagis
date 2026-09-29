@@ -346,8 +346,8 @@ pub fn validate_runtime_lock_metadata(
 }
 
 /// Write a deterministic, non-distribution lock for the unsigned package
-/// smoke. Publication requires the final lock, matching server bytes and a
-/// hash-bound distribution proof, so this fixture cannot pass a tag build.
+/// smoke. Publication requires the final lock and the server bytes it
+/// names on the release, so this fixture cannot pass a tag build.
 pub fn write_fixture_runtime_lock(
     release: &str,
     platform: ClientPlatform,
@@ -1196,9 +1196,9 @@ fn server_validation_cmd(root: &Path, cx: &ReleaseContext) -> Cmd {
 
 /// Validate every server package and Runtime Lock, then create the draft
 /// GitHub Release of the tag with them, and nothing else. The tag must
-/// exist: the release workflow runs on its push. The Client App jobs attach
-/// their packages to the draft, and the release is published only after
-/// the distribution proof (`docs/RELEASING-CLIENT.md`).
+/// exist: the release workflow runs on its push. After a maintainer
+/// approves the release, the publication jobs attach the Client App
+/// packages to the draft and publish it (`docs/RELEASING-CLIENT.md`).
 fn draft_action(root: &Path, cx: &ReleaseContext) -> Action {
     let tag = format!("v{}", cx.version);
     let title = format!("pagis {}", cx.version);

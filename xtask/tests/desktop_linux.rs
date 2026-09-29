@@ -1,16 +1,14 @@
 //! Tests for the Linux Client App packaging (`cargo xtask desktop` on a
 //! Linux host).
 
-use sha2::{Digest, Sha256};
 use std::path::Path;
 use std::process::Command;
 
 use xtask::desktop::{DesktopContext, DesktopPlatform, desktop_plan};
 use xtask::desktop_linux::{
     RELEASE_KEY, appimage_name, checksums_name, deb_name, missing_signing_inputs,
-    validate_linux_distribution_proof,
 };
-use xtask::release::{ClientPlatform, write_fixture_runtime_lock};
+use xtask::release::ClientPlatform;
 use xtask::{Action, Cmd, Step};
 
 fn context(tag: Option<&str>) -> DesktopContext {
@@ -68,7 +66,6 @@ fn the_linux_plan_lists_every_step_in_order() {
             "packaged-runtime",
             "smoke",
             "checksums",
-            "distribution-proof",
             "released-tuple",
             "sign-checksums",
             "publish",
@@ -164,13 +161,7 @@ fn the_smoke_runs_the_client_of_the_host_architecture_on_a_display() {
 #[test]
 fn a_routine_build_publishes_and_signs_nothing() {
     let steps = desktop_plan(Path::new("/repo"), &context(None));
-    for name in [
-        "credentials",
-        "distribution-proof",
-        "released-tuple",
-        "sign-checksums",
-        "publish",
-    ] {
+    for name in ["credentials", "released-tuple", "sign-checksums", "publish"] {
         skip_reason(step(&steps, name));
     }
     let sums = joined(step(&steps, "checksums"));
@@ -179,7 +170,7 @@ fn a_routine_build_publishes_and_signs_nothing() {
 }
 
 #[test]
-fn a_prepared_tag_builds_the_packages_and_stops_before_proof() {
+fn a_prepared_tag_builds_the_packages_and_stops_before_publication() {
     let mut prepare = context(Some("v1.2.3"));
     prepare.prepare_only = true;
     let steps = desktop_plan(Path::new("/repo"), &prepare);
@@ -189,18 +180,13 @@ fn a_prepared_tag_builds_the_packages_and_stops_before_proof() {
             "{name}"
         );
     }
-    for name in [
-        "distribution-proof",
-        "released-tuple",
-        "sign-checksums",
-        "publish",
-    ] {
+    for name in ["released-tuple", "sign-checksums", "publish"] {
         assert!(skip_reason(step(&steps, name)).contains("await"), "{name}");
     }
 }
 
 #[test]
-fn publication_reuses_the_proved_bytes_and_signs_their_checksums() {
+fn publication_reuses_the_prepared_bytes_and_signs_their_checksums() {
     let mut publish = context(Some("v1.2.3"));
     publish.publish_existing = true;
     let steps = desktop_plan(Path::new("/repo"), &publish);
@@ -208,13 +194,6 @@ fn publication_reuses_the_proved_bytes_and_signs_their_checksums() {
         assert!(
             skip_reason(step(&steps, name)).contains("exact packages"),
             "{name}"
-        );
-    }
-    let proof = joined(step(&steps, "distribution-proof"));
-    for platform in ["linux-x64", "linux-arm64"] {
-        assert!(
-            proof.contains(&format!("dist/distribution-proof-{platform}.json")),
-            "{proof}"
         );
     }
     let tuple = joined(step(&steps, "released-tuple"));
@@ -329,93 +308,4 @@ fn electron_builder_packs_linux_with_the_lock_of_each_architecture() {
             "{section}: {body}"
         );
     }
-}
-
-fn hash(bytes: &[u8]) -> String {
-    hex::encode(Sha256::digest(bytes))
-}
-
-fn proof(lock: &Path, appimage: &[u8], deb: &[u8]) -> serde_json::Value {
-    let lock_bytes = std::fs::read(lock).unwrap();
-    let locked: serde_json::Value = serde_json::from_slice(&lock_bytes).unwrap();
-    serde_json::json!({
-        "schema": 1,
-        "release": "1.2.3",
-        "platform": "linux-x64",
-        "runtime_lock_sha256": hash(&lock_bytes),
-        "server_archive_sha256": locked["asset"]["sha256"],
-        "appimage_sha256": hash(appimage),
-        "deb_sha256": hash(deb),
-        "previous_client_sha256": "c".repeat(64),
-        "distribution": "Ubuntu 24.04 amd64",
-        "test_account": "fresh-user",
-        "checks": {
-            "deb_installed": true,
-            "appimage_launched": true,
-            "initial_client_owned_launch": true,
-            "authenticated_health": true,
-            "product_app_opened": true,
-            "secret_service_key_created_and_read": true,
-            "key_file_without_secret_service": true,
-            "offline_client_owned_launch": true,
-            "forward_update_read_same_key": true,
-            "no_docker_setup": true,
-            "computer_screen_ready": true,
-            "computer_shell_ready": true,
-            "workspace_reused_after_update": true,
-            "unsafe_downgrade_refused": true
-        }
-    })
-}
-
-#[test]
-fn the_linux_proof_is_bound_to_the_exact_lock_and_packages() {
-    let tmp = tempfile::tempdir().unwrap();
-    let lock = tmp.path().join("runtime-lock-linux-x64.json");
-    write_fixture_runtime_lock("1.2.3", ClientPlatform::LinuxX64, &lock).unwrap();
-    let appimage = tmp.path().join("Pagis-1.2.3-x86_64.AppImage");
-    let deb = tmp.path().join("Pagis-1.2.3-amd64.deb");
-    std::fs::write(&appimage, b"appimage bytes").unwrap();
-    std::fs::write(&deb, b"deb bytes").unwrap();
-    let path = tmp.path().join("proof.json");
-    std::fs::write(
-        &path,
-        proof(&lock, b"appimage bytes", b"deb bytes").to_string(),
-    )
-    .unwrap();
-
-    validate_linux_distribution_proof(&path, &lock, &appimage, &deb, "1.2.3").unwrap();
-
-    std::fs::write(&deb, b"changed deb").unwrap();
-    let error = validate_linux_distribution_proof(&path, &lock, &appimage, &deb, "1.2.3")
-        .unwrap_err()
-        .to_string();
-    assert!(error.contains("deb hash"), "{error}");
-}
-
-#[test]
-fn the_linux_proof_refuses_another_architecture_or_a_failed_check() {
-    let tmp = tempfile::tempdir().unwrap();
-    let lock = tmp.path().join("runtime-lock-linux-arm64.json");
-    write_fixture_runtime_lock("1.2.3", ClientPlatform::LinuxArm64, &lock).unwrap();
-    let appimage = tmp.path().join("a");
-    let deb = tmp.path().join("d");
-    std::fs::write(&appimage, b"a").unwrap();
-    std::fs::write(&deb, b"d").unwrap();
-    let path = tmp.path().join("proof.json");
-    std::fs::write(&path, proof(&lock, b"a", b"d").to_string()).unwrap();
-
-    let error = validate_linux_distribution_proof(&path, &lock, &appimage, &deb, "1.2.3")
-        .unwrap_err()
-        .to_string();
-    assert!(error.contains("linux-arm64"), "{error}");
-
-    let mut value = proof(&lock, b"a", b"d");
-    value["platform"] = "linux-arm64".into();
-    value["checks"]["key_file_without_secret_service"] = false.into();
-    std::fs::write(&path, value.to_string()).unwrap();
-    let error = validate_linux_distribution_proof(&path, &lock, &appimage, &deb, "1.2.3")
-        .unwrap_err()
-        .to_string();
-    assert!(error.contains("key_file_without_secret_service"), "{error}");
 }

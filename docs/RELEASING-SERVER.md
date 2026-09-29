@@ -347,9 +347,8 @@ The workflow runs these jobs in this order, and ADR-0025 holds why:
    from the locks of the draft, sign the macOS one, and attest each package
    (`docs/RELEASING-CLIENT.md`).
 6. **The publication.** The publication jobs wait in the `release`
-   environment. Approve them after the distribution proof of each client
-   platform is on the draft. They upload the proved client packages to the
-   draft, and the last job publishes it.
+   environment until a maintainer approves them. They upload the prepared
+   client packages to the draft, and the last job publishes it.
 
 A finding of the secret scan stops the release before the release
 pushes anything that holds it. When the finding is a secret, revoke it

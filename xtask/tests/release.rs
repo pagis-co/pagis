@@ -806,7 +806,7 @@ fn the_image_push_pushes_both_architectures_under_the_pinned_tag() {
 
 /// The draft release of the tag holds the server package of each Client
 /// App platform and the Runtime Lock that names it, and nothing else. It
-/// stays a draft until the distribution proof, and it needs the tag the
+/// stays a draft until a maintainer approves it, and it needs the tag the
 /// release workflow runs on.
 #[test]
 fn the_draft_holds_the_server_packages_and_their_locks_only() {

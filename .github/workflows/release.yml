@@ -10,8 +10,7 @@
 # 4. The draft GitHub Release that holds the server packages and the locks.
 # 5. The Client App packages, built from those locks and signed.
 # 6. The publication. The `release` environment holds it until a
-#    maintainer approves it, after the clean-machine distribution proof of
-#    each client platform is on the draft (docs/RELEASING-CLIENT.md).
+#    maintainer approves it (docs/RELEASING-CLIENT.md).
 name: Release
 
 on:
@@ -294,9 +293,9 @@ jobs:
         env:
           APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
 
-      # This job prepares the exact signed package. Publication waits for the
-      # clean-account distribution proof and uses --publish-existing so no
-      # package bytes change between proof and upload.
+      # This job prepares the exact signed package. Publication waits for
+      # the approval and uses --publish-existing, so the bytes it uploads
+      # are the bytes this job built.
       - name: cargo xtask desktop --prepare
         run: cargo xtask desktop --tag "$GITHUB_REF_NAME" --prepare
         env:
@@ -357,8 +356,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
 
       # This job prepares the exact packages. Publication waits for the
-      # clean-machine distribution proof, then signs their checksum list
-      # with the release key and uploads the same bytes (--publish-existing).
+      # approval, then signs their checksum list with the release key and
+      # uploads the same bytes (--publish-existing).
       - name: cargo xtask desktop --prepare
         run: cargo xtask desktop --tag "$GITHUB_REF_NAME" --prepare
         env:
@@ -379,10 +378,7 @@ jobs:
             desktop/release/Pagis-*-linux.SHA256SUMS
 
   # The publication. Each job waits in the `release` environment until a
-  # maintainer approves it. Approve only after the distribution proofs are
-  # on the draft: `distribution-proof.json`,
-  # `distribution-proof-linux-x64.json` and
-  # `distribution-proof-linux-arm64.json`.
+  # maintainer approves it.
   publish-macos:
     name: publish the macOS client
     needs: [client-macos, client-linux]
@@ -413,8 +409,8 @@ jobs:
           name: client-macos
           path: desktop/release
 
-      - name: download the server tuple and the proof from the draft
-        run: gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --pattern runtime-lock-darwin-arm64.json --pattern 'pagis-server-*-aarch64-apple-darwin.dmg' --pattern distribution-proof.json --dir dist
+      - name: download the server tuple from the draft
+        run: gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --pattern runtime-lock-darwin-arm64.json --pattern 'pagis-server-*-aarch64-apple-darwin.dmg' --dir dist
         env:
           GH_TOKEN: ${{ github.token }}
 
@@ -453,8 +449,8 @@ jobs:
           name: client-linux
           path: desktop/release
 
-      - name: download the locks and the proofs from the draft
-        run: gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --pattern 'runtime-lock-linux-*.json' --pattern 'distribution-proof-linux-*.json' --dir dist
+      - name: download the locks from the draft
+        run: gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --pattern 'runtime-lock-linux-*.json' --dir dist
         env:
           GH_TOKEN: ${{ github.token }}
 

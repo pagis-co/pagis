@@ -17,22 +17,19 @@ A finding stops the release. When a finding is a secret, revoke it at its
 provider and make a new one. Removal from the tree is not enough, because
 the secret stays valid.
 
-Each client is released in two phases. The split keeps the package bytes
-stable while a clean machine tests them:
+Each client is released in two phases, so the published bytes are the
+bytes that were signed and checked:
 
 1. **Prepare.** The client jobs build and sign the exact packages, attest
    their provenance, and store them as artifacts of the run.
-2. **Publish.** A maintainer tests the prepared packages on clean machines
-   and uploads the proofs to the draft. Then the maintainer approves the
-   publication jobs, which wait in the `release` environment. They validate
-   each proof against the exact bytes, upload the packages to the draft
-   without overwrite, and publish the release.
+2. **Publish.** The publication jobs wait in the `release` environment until
+   a maintainer approves them. They upload the prepared packages to the draft
+   without overwrite, and the last job publishes the release.
 
-Download the prepared packages from the run page (the `client-macos` and
-`client-linux` artifacts), or with
-`gh run download <run> --name client-macos --name client-linux`. Upload the
-proofs with `gh release upload v0.1.0 dist/distribution-proof*.json`. The
-proofs stay on the release as its evidence.
+The prepared packages are on the run page (the `client-macos` and
+`client-linux` artifacts), and
+`gh run download <run> --name client-macos --name client-linux` downloads
+them.
 
 ## How the server artifacts relate to this release
 
@@ -53,7 +50,7 @@ and the version rule. What the client release depends on:
   and a Headless Server of the same release always work together, and a client
   keeps working against a server the Administrator upgraded.
 - Publishing a client whose release has no matching server package is refused
-  by the validation below. The Headless Server image is published by the
+  by the publication checks below. The Headless Server image is published by the
   server release, so it is there before the client is.
 
 ## macOS
@@ -88,86 +85,16 @@ the same lock as `dist/runtime-lock-darwin-arm64.json`, and it must pass the cli
 team, Gatekeeper, package inventory, compiled installer, and isolated setup
 smoke checks. It does not publish.
 
-### Record distribution proof
-
-Move the prepared DMG to a clean local macOS account or test machine through a
-download that sets ordinary quarantine. Keep Gatekeeper enabled. Do not remove
-quarantine. Use no checkout and no developer `PATH`.
-
-Record these values in `dist/distribution-proof.json`:
-
-| Field | Required value |
-| --- | --- |
-| `schema` | `1` |
-| `release` | The release without the `v` prefix |
-| `runtime_lock_sha256` | SHA-256 of the exact Runtime Lock |
-| `server_dmg_sha256` | SHA-256 named by that lock |
-| `client_dmg_sha256` | SHA-256 of the prepared client DMG |
-| `previous_client_dmg_sha256` | SHA-256 of the signed client used for the forward update |
-| `team_id` | The Developer ID team in the lock and both apps |
-| `notarization_submission_id` | The accepted client notarization submission |
-| `macos_version` | The tested macOS version |
-| `test_account` | A short name for the clean local account or machine |
-
-The `checks` object must contain every key below. Set a key to `true` only when
-the exact prepared bytes passed that check:
-
-- `server_gatekeeper`
-- `server_stapled`
-- `server_designated_requirements`
-- `client_gatekeeper`
-- `client_stapled`
-- `client_quarantined`
-- `installed_runtime_quarantined`
-- `initial_client_owned_launch`
-- `authenticated_health`
-- `product_app_opened`
-- `keychain_created_and_read`
-- `offline_client_owned_launch`
-- `forward_update_read_same_keychain_item`
-- `no_docker_setup`
-- `computer_screen_ready`
-- `computer_shell_ready`
-- `workspace_reused_after_update`
-- `unsafe_downgrade_refused`
-
-Use `spctl --assess --type open --context context:primary-signature` and
-`xcrun stapler validate` on both DMGs. Use `codesign --verify --strict` and
-`codesign -dr -` on the installed `pagis` and `gog`. Confirm their quarantine
-attributes after the client copies them. Start the server through the client,
-check authenticated health and the Product App, then repeat the launch while
-offline.
-
-Create and read the keychain item that holds the Installation Key (service
-`pagis`, account `safe-storage`) through the app on the clean account. Install the prepared forward update and confirm that
-it reads the same item. Record the normal macOS access prompt if one appears.
-A temporary `PAGIS_HOME` on a development account cannot prove this check.
-
-Complete the local onboarding once without Docker. Test Computer screen and shell
-readiness separately with Docker and the exact image digest in the Runtime
-Lock. Reuse the existing Workspace through the forward update. Confirm that an
-older signed server refuses the Workspace before it opens data.
-
-### Publish the proven bytes
+### Publish the prepared bytes
 
 The server release that the lock names passed the secret scan of the
 tree and of each image, because the release workflow publishes nothing
 after a finding. Do not publish a client until each found secret is revoked
 and replaced.
 
-Upload `dist/distribution-proof.json` to the draft, then approve the
-**publish the macOS client** job. To check the proof before the upload:
-
-```bash
-cargo xtask distribution-proof validate \
-  dist/distribution-proof.json \
-  dist/runtime-lock-darwin-arm64.json \
-  desktop/release/Pagis-0.1.0-arm64.dmg \
-  0.1.0
-```
-
-The job puts the prepared DMG in `desktop/release/`, the lock, the server
-package and the proof from the draft in `dist/`, and runs:
+Approve the **publish the macOS client** job. The job puts the prepared DMG
+in `desktop/release/`, the lock and the server package from the draft in
+`dist/`, and runs:
 
 ```bash
 cargo xtask desktop --tag v0.1.0 --publish-existing
@@ -179,7 +106,7 @@ again and repeats the local package checks against its app. It also compares
 the local server package and Runtime Lock with the draft, pulls the
 immutable Computer image with no credentials, and uploads the client without
 `--clobber`.
-Missing, changed, unsigned, or unproven artifacts stop publication.
+Missing, changed or unsigned artifacts stop publication.
 
 ## Linux
 
@@ -224,68 +151,23 @@ archive, smoke tests the amd64 client under a virtual display, and writes
 the `client-linux` artifact, and attests the provenance of each package. It
 publishes nothing, and it does not sign the checksum list.
 
-### Record distribution proof
-
-Test each architecture on a clean Linux machine with a desktop session: an
-Ubuntu 24.04 amd64 machine and an arm64 one. Download the packages as a person
-would. Record one proof for each architecture in
-`dist/distribution-proof-linux-x64.json` and
-`dist/distribution-proof-linux-arm64.json`:
-
-| Field | Required value |
-| --- | --- |
-| `schema` | `1` |
-| `release` | The release without the `v` prefix |
-| `platform` | `linux-x64` or `linux-arm64` |
-| `runtime_lock_sha256` | SHA-256 of the exact Runtime Lock of that architecture |
-| `server_archive_sha256` | SHA-256 of the server archive named by that lock |
-| `appimage_sha256` | SHA-256 of the prepared AppImage |
-| `deb_sha256` | SHA-256 of the prepared deb |
-| `previous_client_sha256` | SHA-256 of the client package used for the forward update |
-| `distribution` | The tested distribution and version |
-| `test_account` | A short name for the clean account or machine |
-
-The `checks` object must contain every key below, each `true` only when the
-exact prepared bytes passed that check:
-
-- `deb_installed`: `sudo apt install ./Pagis-<release>-<arch>.deb` installs,
-  and the AppArmor profile loads.
-- `appimage_launched`: the AppImage starts on a distribution that needs no
-  AppArmor profile for it.
-- `initial_client_owned_launch`, `authenticated_health`, `product_app_opened`:
-  "Install on this computer" downloads the archive, starts the server, and
-  opens the Product App signed in.
-- `secret_service_key_created_and_read`: in a desktop session with GNOME
-  Keyring or KWallet, the server log says the Installation Key is in the
-  Secret Service, and the item (service `pagis`, account `safe-storage`)
-  exists after a restart.
-- `key_file_without_secret_service`: on a machine or session with no keyring
-  daemon, the same run succeeds, the log names the Key File, and
-  `~/.pagis/installation-key` has mode 600.
-- `offline_client_owned_launch`: the launch repeats with the network off.
-- `forward_update_read_same_key`: the forward update opens the same secrets.
-- `no_docker_setup`, `computer_screen_ready`, `computer_shell_ready`,
-  `workspace_reused_after_update`, `unsafe_downgrade_refused`: as on macOS.
-
-### Publish the proven bytes
+### Publish the prepared bytes
 
 As on macOS, the server release that the locks name passed the secret
 scan of the tree and of each image. Do not publish a client until each found
 secret is revoked and replaced.
 
-Upload both proofs to the draft, then approve the **publish the Linux
-clients** job. The job puts the four packages and the checksum list in
-`desktop/release/`, the proofs and both locks from the draft in `dist/`,
-imports the release key, sets `PAGIS_RELEASE_GPG_KEY` to its fingerprint,
-and runs:
+Approve the **publish the Linux clients** job. The job puts the four packages
+and the checksum list in `desktop/release/` and both locks from the draft in
+`dist/`, imports the release key, sets `PAGIS_RELEASE_GPG_KEY` to its
+fingerprint, and runs:
 
 ```bash
 cargo xtask desktop --linux --tag v0.1.0 --publish-existing
 ```
 
-It does not rebuild. It validates both proofs against the exact packages and
-locks, compares the locks and archives with the draft, pulls the Computer
-image with no credentials, checks every hash in the list, signs the list with the release
-key into `Pagis-0.1.0-linux.SHA256SUMS.asc`, verifies that signature with
-`docs/release-key.asc`, and uploads the four packages, the list and the
-signature without `--clobber`.
+It does not rebuild. It compares the locks and archives with the draft, pulls
+the Computer image with no credentials, checks every hash in the list, signs
+the list with the release key into `Pagis-0.1.0-linux.SHA256SUMS.asc`,
+verifies that signature with `docs/release-key.asc`, and uploads the four
+packages, the list and the signature without `--clobber`.
