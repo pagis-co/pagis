@@ -121,7 +121,7 @@ else:
 | --- | --- | --- |
 | `gog` | Google Connections | The `gog` stage, pinned and hash-checked |
 | `git` | Best-effort memory repacks and git Plugin installs | `git` from Debian |
-| `pg_dump`, `pg_restore` | `pagis backup` and `pagis restore` | `postgresql-client` from Debian |
+| `pg_dump`, `pg_restore` | `pagis backup` and `pagis restore` | `postgresql-client-18` from the PostgreSQL apt repository |
 | `curl` | The container health check, and nothing the daemon starts | `curl` from Debian |
 
 The daemon starts nothing else. It reaches Docker over the socket with a

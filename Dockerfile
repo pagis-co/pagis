@@ -80,12 +80,17 @@ RUN set -eux; \
 FROM debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a
 # ca-certificates: the model providers and every other HTTPS call.
 # git: best-effort memory repacks and git Plugin installs.
-# postgresql-client: pg_dump and pg_restore, which `pagis backup` and
+# postgresql-client-18: pg_dump and pg_restore, which `pagis backup` and
 #   `pagis restore` run. Its major version matches the Postgres the
-#   deployment runs.
+#   deployment runs, because pg_dump refuses a newer server. Debian
+#   carries an older major, so it comes from the PostgreSQL apt
+#   repository, which `postgresql-common` adds with the signing key it
+#   ships.
 # curl: the container health check, and nothing the daemon starts.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates git postgresql-client curl \
+    ca-certificates git curl postgresql-common \
+    && /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y \
+    && apt-get install -y --no-install-recommends postgresql-client-18 \
     && rm -rf /var/lib/apt/lists/*
 
 # The daemon starts `gog` from its own directory, so the two live

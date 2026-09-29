@@ -174,7 +174,7 @@ stored secret.**
 
 The four services:
 
-- **`db`**, `postgres:17-alpine`, pinned by digest, on the `pagis-database`
+- **`db`**, `postgres:18-alpine`, pinned by digest, on the `pagis-database`
   volume. It listens on loopback, so nothing off the VM reaches it.
 - **`egress`**, `rancher/klipper-lb`, pinned by digest, which is Alpine with
   `iptables`. It runs `egress.sh`, which writes the egress rules of the
@@ -190,7 +190,7 @@ The four services:
   interface.
 
 `compose.yaml` names `postgres`, `klipper-lb` and `caddy` by tag and digest
-(`postgres:17-alpine@sha256:...`), so a server runs the bytes that its
+(`postgres:18-alpine@sha256:...`), so a server runs the bytes that its
 release was tested with, and a moved tag does not reach it. The `pagis`
 image takes the release in `PAGIS_VERSION`.
 
