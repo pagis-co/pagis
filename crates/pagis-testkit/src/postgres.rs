@@ -265,9 +265,29 @@ async fn make_database(address: &str) -> Result<TestDatabase, String> {
 
 /// Find the one container, or make it, and wait until it serves.
 async fn start(docker: &Docker) -> Result<(), String> {
+    pull(docker).await?;
     ensure(docker, NAME, &container_config()).await?;
     let address = wait_ready(docker, NAME).await?;
     *ADDRESS.write().await = Some(address);
+    Ok(())
+}
+
+/// Pull the image when the Docker host does not hold it. A fresh host,
+/// such as a CI runner, holds no image, and Docker makes no container
+/// from an image it has not pulled.
+async fn pull(docker: &Docker) -> Result<(), String> {
+    use futures::StreamExt as _;
+
+    if docker.inspect_image(IMAGE).await.is_ok() {
+        return Ok(());
+    }
+    let options = bollard::query_parameters::CreateImageOptionsBuilder::default()
+        .from_image(IMAGE)
+        .build();
+    let mut progress = docker.create_image(Some(options), None, None);
+    while let Some(step) = progress.next().await {
+        step.map_err(|error| format!("cannot pull {IMAGE}: {error}"))?;
+    }
     Ok(())
 }
 

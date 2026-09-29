@@ -46,11 +46,17 @@ COPY --from=ui /src/ui/dist ui/dist
 # passes the immutable digest it resolved; a plain build keeps the
 # pinned tag of `pagis-versions`.
 ARG PAGIS_COMPUTER_IMAGE=""
+# The PostHog project a release build sends anonymous analytics to
+# (ADR-0026). A plain build has none, and its daemon sends nothing.
+ARG PAGIS_POSTHOG_PROJECT_ID=""
+ARG PAGIS_POSTHOG_TOKEN=""
 ENV CARGO_INCREMENTAL=0
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/src/target,sharing=locked \
     set -eux; \
     if [ -z "$PAGIS_COMPUTER_IMAGE" ]; then unset PAGIS_COMPUTER_IMAGE; fi; \
+    if [ -z "$PAGIS_POSTHOG_PROJECT_ID" ]; then unset PAGIS_POSTHOG_PROJECT_ID; fi; \
+    if [ -z "$PAGIS_POSTHOG_TOKEN" ]; then unset PAGIS_POSTHOG_TOKEN; fi; \
     cargo auditable build --release -p pagis; \
     cp target/release/pagis /usr/local/bin/pagis
 

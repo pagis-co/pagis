@@ -33,6 +33,7 @@ impl SystemConfigFile for FileSystemConfig {
             port: config.port,
             docker_endpoint: config.docker_endpoint(),
             log_level: config.log_level,
+            analytics: config.analytics,
         })
     }
 
@@ -44,6 +45,7 @@ impl SystemConfigFile for FileSystemConfig {
         config.port = settings.port;
         config.docker_endpoint = settings.docker_endpoint.clone().unwrap_or_default();
         config.log_level = settings.log_level.clone();
+        config.analytics = settings.analytics;
         config.save(&path).map_err(|error| error.to_string())
     }
 
@@ -143,6 +145,7 @@ mod tests {
             port: 4500,
             docker_endpoint: Some("unix:///tmp/docker.sock".to_string()),
             log_level: "debug".to_string(),
+            analytics: false,
         })
         .unwrap();
 
@@ -152,6 +155,7 @@ mod tests {
                 port: 4500,
                 docker_endpoint: Some("unix:///tmp/docker.sock".to_string()),
                 log_level: "debug".to_string(),
+                analytics: false,
             }
         );
     }
@@ -221,6 +225,7 @@ mod tests {
             port: 4500,
             docker_endpoint: Some("unix:///tmp/docker.sock".to_string()),
             log_level: "debug".to_string(),
+            analytics: false,
         })
         .unwrap();
 
@@ -236,6 +241,7 @@ mod tests {
                 port: 4500,
                 docker_endpoint: Some("unix:///tmp/docker.sock".to_string()),
                 log_level: "debug".to_string(),
+                analytics: false,
             }
         );
     }
@@ -251,6 +257,7 @@ mod tests {
             port: 4500,
             docker_endpoint: None,
             log_level: "warn".to_string(),
+            analytics: true,
         })
         .unwrap();
 

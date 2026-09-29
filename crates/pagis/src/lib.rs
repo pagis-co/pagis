@@ -1,5 +1,6 @@
 //! Daemon wiring: configuration, first-boot bootstrap, startup.
 
+mod analytics;
 mod app;
 mod arrival_commit;
 pub mod backup;
@@ -24,6 +25,7 @@ pub mod subscription_tools;
 pub mod system;
 mod tools;
 
+pub use analytics::AnalyticsOptions;
 pub use app::{AppOptions, Interfaces, app};
 pub use boot::{
     Booted, CLIENT_CREDENTIAL_FILE, Installation, boot, create_state_directory,

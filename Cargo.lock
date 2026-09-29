@@ -3889,6 +3889,7 @@ dependencies = [
  "object_store",
  "open",
  "pagis-agent",
+ "pagis-analytics",
  "pagis-audit",
  "pagis-broker",
  "pagis-computer",
@@ -3963,6 +3964,23 @@ dependencies = [
  "tokio-util",
  "tracing",
  "utoipa",
+ "wiremock",
+]
+
+[[package]]
+name = "pagis-analytics"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "rand 0.9.5",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "tracing",
  "wiremock",
 ]
 
@@ -4255,6 +4273,7 @@ dependencies = [
  "llm-router",
  "object_store",
  "pagis-agent",
+ "pagis-analytics",
  "pagis-broker",
  "pagis-computer",
  "pagis-connect",

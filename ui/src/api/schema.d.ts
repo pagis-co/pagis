@@ -2298,6 +2298,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/settings/system/analytics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Turn the anonymous analytics of the installation on or off
+         *     (ADR-0026). The analytics task reads the setting at each check, so
+         *     the change needs no restart.
+         */
+        put: operations["set_analytics"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/settings/system/docker/probe": {
         parameters: {
             query?: never;
@@ -2748,6 +2769,20 @@ export interface components {
         };
         AgentSyncConnectionList: {
             items: components["schemas"]["AgentSyncConnection"][];
+        };
+        /**
+         * @description Why a daemon sends no analytics whatever the setting says.
+         * @enum {string}
+         */
+        AnalyticsBlockedDto: "build" | "do_not_track";
+        /** @description The anonymous analytics of the installation (ADR-0026). */
+        AnalyticsDto: {
+            blocked?: null | components["schemas"]["AnalyticsBlockedDto"];
+            /**
+             * @description The System Setting: whether the Administrator lets the daemon
+             *     send. On by default.
+             */
+            enabled: boolean;
         };
         ArtifactDto: {
             /** Format: int64 */
@@ -5192,6 +5227,10 @@ export interface components {
         SessionsDto: {
             items: components["schemas"]["SessionDto"][];
         };
+        /** @description Turn the anonymous analytics on or off. */
+        SetAnalyticsRequest: {
+            enabled: boolean;
+        };
         SetChiefOfStaffRequest: {
             agent_id: string;
         };
@@ -5502,6 +5541,7 @@ export interface components {
         };
         /** @description Every System Setting in one read. */
         SystemSettingsDto: {
+            analytics: components["schemas"]["AnalyticsDto"];
             /** @description Read-only: where the daemon keeps its data. */
             data_directory: string;
             docker: components["schemas"]["DockerReportDto"];
@@ -11972,6 +12012,45 @@ export interface operations {
                 };
             };
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    set_analytics: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetAnalyticsRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedSystemSettingsDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

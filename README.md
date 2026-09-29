@@ -59,6 +59,18 @@ cargo run -p pagis -- --local
 one-time sign-in link and opens the browser on it. `pagis --help` lists
 every flag and command.
 
+## Analytics
+
+A release build sends anonymous analytics to PostHog once a day: the
+release, the operating system, the kind of installation, the number of
+People and Agents as ranges, and which features are in use. The events
+carry a random installation ID. They hold no content, no names, no
+addresses and no IP address. An Administrator turns them off in System
+Settings in the Administration Interface, and `DO_NOT_TRACK=1` in the
+environment of the daemon stops them too. A build from source sends
+nothing. [ADR-0026](docs/adr/0026-the-daemon-sends-anonymous-analytics-from-a-release-build.md)
+holds the details.
+
 ## Documentation
 
 The user documentation is at [docs.pagis.co](https://docs.pagis.co), and

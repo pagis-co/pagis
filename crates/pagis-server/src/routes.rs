@@ -304,6 +304,11 @@ pub const ADMINISTRATION_ROUTES: &[Route] = &[
         authenticated: true,
     },
     Route {
+        path: "/api/v1/settings/system/analytics",
+        methods: &["put"],
+        authenticated: true,
+    },
+    Route {
         path: "/api/v1/settings/system/docker/probe",
         methods: &["post"],
         authenticated: true,
