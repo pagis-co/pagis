@@ -1,5 +1,8 @@
 // The tab strip is one stop on Tab, and the arrows move the selection.
 
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { useState } from 'react'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -46,5 +49,14 @@ describe('Tabs', () => {
     render(<Harness />)
     expect(screen.getAllByRole('tabpanel')).toHaveLength(1)
     expect(screen.getByText('panel agents')).toBeTruthy()
+  })
+
+  it('sets the panel apart from the tab strip', () => {
+    // Every screen with tabs gets the same space under the strip, so no
+    // panel adds its own.
+    const here = dirname(fileURLToPath(import.meta.url))
+    const css = readFileSync(join(here, 'tabs.css'), 'utf8')
+    const content = /\.ui-tabs-content\s*\{([^}]*)\}/.exec(css)?.[1] ?? ''
+    expect(content).toContain('padding-top: var(--space-4)')
   })
 })

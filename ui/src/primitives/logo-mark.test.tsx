@@ -56,6 +56,13 @@ describe('LogoMark', () => {
     }
   })
 
+  it('gives the favicon the margin of the full drawing square', () => {
+    // The mark files crop to the desks. A browser tab draws its icon
+    // edge to edge, so the favicon keeps the 20 unit margin of the
+    // 160 unit square to sit at the size of other tab icons.
+    expect(brandFile('pagis-favicon.svg').getAttribute('viewBox')).toBe('0 0 160 160')
+  })
+
   it('paints the three desks from the logo tokens', () => {
     const { container } = render(<LogoMark />)
     const classes = [...container.querySelectorAll('rect, path')].map((shape) =>

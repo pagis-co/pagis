@@ -21,8 +21,11 @@ template images in black, so the menu bar can tint them. The Linux one,
 
 ## Construction
 
-The drawing sits on a 160 unit square, and the files crop it to the
-120 unit box of the desks (`viewBox="20 20 120 120"`).
+The drawing sits on a 160 unit square. The mark files crop it to the
+120 unit box of the desks (`viewBox="20 20 120 120"`), so the mark takes
+the size of the name beside it. The favicon keeps the full square
+(`viewBox="0 0 160 160"`): a browser draws a tab icon edge to edge, and
+the 20 unit margin gives the mark the size of other tab icons.
 
 - Each desk is 56 units square, with an 8 unit gap between desks.
 - A square desk has a 10 unit corner radius.
