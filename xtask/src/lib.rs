@@ -273,16 +273,15 @@ pub fn named_steps(root: &Path, names: &[String], docker_available: bool) -> Res
 ///
 /// The local layer cache makes an unchanged `computer/` build in seconds.
 /// `--cache-from` is left out on purpose: it bypasses the local cache of
-/// the intermediate stages, which hold the compiles.
+/// the intermediate stages, which hold the compiles. A CI runner has no
+/// local cache, so there the build reads and writes the layer cache that
+/// [`ImageCache`] names.
 fn computer_image_step(root: &Path, docker_available: bool) -> Step {
     let action = if docker_available {
-        Action::Run(vec![
-            Cmd::new(
-                "docker",
-                &["build", "-t", pagis_versions::COMPUTER_IMAGE, "computer"],
-            )
-            .in_dir(root),
-        ])
+        Action::Run(vec![computer_image_build(
+            root,
+            ImageCache::from_env().as_ref(),
+        )])
     } else {
         Action::Skip("Docker unavailable".into())
     };
@@ -290,6 +289,54 @@ fn computer_image_step(root: &Path, docker_available: bool) -> Step {
         name: "computer-image",
         action,
     }
+}
+
+/// The remote layer cache of the Computer Image build, from
+/// `PAGIS_IMAGE_CACHE_FROM` and `PAGIS_IMAGE_CACHE_TO`: buildx cache
+/// specifications such as `type=gha,scope=computer-image`. An empty
+/// value is no value. CI reads the cache on every run and writes it on
+/// main only.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImageCache {
+    pub from: String,
+    pub to: Option<String>,
+}
+
+impl ImageCache {
+    pub fn from_env() -> Option<Self> {
+        let read = |name: &str| std::env::var(name).ok().filter(|value| !value.is_empty());
+        Some(Self {
+            from: read("PAGIS_IMAGE_CACHE_FROM")?,
+            to: read("PAGIS_IMAGE_CACHE_TO"),
+        })
+    }
+}
+
+/// The build of the Computer Image: `docker build` on the local layer
+/// cache, or `docker buildx build` that loads the image into Docker and
+/// reads and writes `cache`.
+pub fn computer_image_build(root: &Path, cache: Option<&ImageCache>) -> Cmd {
+    let Some(cache) = cache else {
+        return Cmd::new(
+            "docker",
+            &["build", "-t", pagis_versions::COMPUTER_IMAGE, "computer"],
+        )
+        .in_dir(root);
+    };
+    let mut args = vec![
+        "buildx",
+        "build",
+        "--load",
+        "-t",
+        pagis_versions::COMPUTER_IMAGE,
+        "--cache-from",
+        cache.from.as_str(),
+    ];
+    if let Some(to) = &cache.to {
+        args.extend(["--cache-to", to.as_str()]);
+    }
+    args.push("computer");
+    Cmd::new("docker", &args).in_dir(root)
 }
 
 /// The check of the pin rules of the third-party code that the release

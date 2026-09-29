@@ -65,7 +65,7 @@ impl Browser {
     /// Launch headless Chrome with a fake microphone and camera, for
     /// [`Browser::grant_microphone`].
     pub async fn launch_with_fake_media() -> Self {
-        Self::launch_with(&["--use-fake-device-for-media-stream"]).await
+        Self::launch_with(&["use-fake-device-for-media-stream"]).await
     }
 
     /// Grant the pages of `origin` the microphone, as a person does in
@@ -83,6 +83,8 @@ impl Browser {
             .expect("Chrome grants the microphone");
     }
 
+    /// Launch headless Chrome with extra switches. A switch is named
+    /// without its leading dashes: chromiumoxide adds them.
     async fn launch_with(args: &[&str]) -> Self {
         let profile = tempfile::tempdir().expect("a folder for the browser profile");
         let config = BrowserConfig::builder()
