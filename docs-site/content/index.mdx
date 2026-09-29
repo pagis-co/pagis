@@ -4,7 +4,7 @@ description: A staff of AI Agents that work for you, each with a job, a memory a
 icon: House
 ---
 
-import { Rocket, Server } from 'lucide-react';
+import { AppWindow, Lock, Puzzle, Rocket, Server } from 'lucide-react';
 
 Pagis gives you a staff of Agents: AI helpers that work as your virtual
 assistants. Each Agent has a job, a personality, its own memory and its own
@@ -19,8 +19,17 @@ OpenRouter), and it runs no model itself.
   <Card icon={<Rocket />} title="Quickstart" href="/quickstart">
     Install the Client App and start your first Agent.
   </Card>
-  <Card icon={<Server />} title="Run a server" href="/headless-server">
-    Run the Headless Server for a team on a Linux VM.
+  <Card icon={<AppWindow />} title="Client App" href="/client-app">
+    Run Pagis on your own computer, or connect to a server.
+  </Card>
+  <Card icon={<Server />} title="Headless Server" href="/server">
+    Run Pagis for a team on a Linux VM.
+  </Card>
+  <Card icon={<Puzzle />} title="Write a Plugin" href="/plugins">
+    Give the Agents new Skills and MCP servers.
+  </Card>
+  <Card icon={<Lock />} title="Data and privacy" href="/data-and-privacy">
+    What Pagis keeps, encrypts and sends to a model provider.
   </Card>
 </Cards>
 
@@ -50,6 +59,6 @@ Administrator manages the People, the spend and the providers.
 
 | You want to                                | Install                                        |
 | ------------------------------------------ | ---------------------------------------------- |
-| Use Pagis on your own computer             | The [Client App](/quickstart), on this computer |
-| Connect to the server of your team         | The [Client App](/quickstart), as a client     |
-| Run Pagis for a team                       | The [Headless Server](/headless-server)        |
+| Use Pagis on your own computer             | The [Client App](/client-app/install-on-this-computer) |
+| Connect to the server of your team         | The [Client App](/client-app/connect-to-a-server) |
+| Run Pagis for a team                       | The [Headless Server](/server)                 |

@@ -1,0 +1,38 @@
+---
+title: Windows and tray
+description: "What the Client App does in both setups: the tray, quit, the windows and the web permissions."
+icon: PanelTop
+---
+
+- **Stays in the tray** when the window closes (the menu bar on macOS),
+  because Schedules and mail Wake-ups need the server. The tray item opens
+  the window, opens the Administration Interface, holds "Open at login",
+  carries the new-version line, and quits.
+- **Quits at once.** Quit on the setup page, in the app menu and in the tray
+  asks "Quit Pagis?" only while an installation or a start-up is in
+  progress, as a sheet on the window that shows it. Else it quits with no
+  question. SIGTERM, SIGINT and a logout quit with no question. Each quit
+  ends the process and its helper processes.
+- **The Product App** comes from the server: the Server Runtime this client
+  started, or the server the Person signed in to. The product window has no
+  node integration, no installer preload and no native bridge.
+- **Keeps each window where it loaded.** The product window stays on the
+  origin of the Product App, the administration window on the
+  Administration Port, and the setup and status windows on their own page.
+  The client refuses a navigation or a server redirect to another place,
+  because a window has no address bar that shows the change. The product
+  and administration windows send a refused `https:` or `mailto:` address
+  to the system browser, as they do with a new window that a page asks
+  for.
+- **Grants two web permissions and denies all others.** Electron grants each
+  web permission that no handler decides, and it shows no prompt. So the
+  client decides each request and each check. The main frame of the product
+  window at that one origin gets the microphone for dictation and clipboard
+  write. The client denies the camera, notifications, devices and each other
+  permission. It also denies each request from a sub-frame, from another
+  origin, and from the administration, setup and status windows. The Person
+  sees no prompt.
+- **Gives no Bluetooth device to a page.** The Product App uses no
+  Bluetooth. Each window cancels each Web Bluetooth device request, so a
+  page gets no device and the Person sees no chooser. On Linux, the client
+  also refuses each Bluetooth pairing.

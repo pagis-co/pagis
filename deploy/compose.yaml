@@ -1,6 +1,6 @@
 # One Pagis server on one Linux VM.
 #
-# The shape is stated in `docs/DEPLOYING-A-SERVER.md` and it is the
+# The shape is stated in https://docs.pagis.co/server#the-shape and it is the
 # whole shape: one VM, one daemon, one state directory, Postgres for the
 # records, and no second daemon. Two daemons on one database is not a
 # supported deployment.
@@ -15,7 +15,7 @@
 # server runs the bytes that its release was tested with. Dependabot
 # moves the digests between releases, and an upgrade takes the
 # `compose.yaml`, the `egress.sh` and the `Caddyfile` of the new release
-# (`docs/DEPLOYING-A-SERVER.md`).
+# (https://docs.pagis.co/server/upgrade).
 #
 # **Every service shares the host's network namespace**, which is what
 # makes an Agent's Computer work. The daemon starts each Computer as a

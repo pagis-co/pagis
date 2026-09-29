@@ -12,7 +12,7 @@
 //! A proxy appends the peer it saw to `X-Forwarded-For`, so the entry
 //! the daemon may believe is the **last** one: everything before it
 //! reached the proxy inside the request and may be invented.
-//! `docs/DEPLOYING-A-SERVER.md` holds the proxy configuration that
+//! https://docs.pagis.co/server/proxy holds the proxy configuration that
 //! matches.
 
 use std::net::{IpAddr, SocketAddr};

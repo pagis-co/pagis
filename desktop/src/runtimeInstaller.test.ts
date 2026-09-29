@@ -627,12 +627,12 @@ describe('the Linux server package', () => {
 })
 
 /** A person with the Client App finds the `pagis` command for a backup
- *  from desktop/README.md alone, so the document names the file where
- *  the installer puts it, under the `userData` directory of each
- *  platform. */
+ *  from the Back up and restore page of the documentation site alone, so
+ *  the page names the file where the installer puts it, under the
+ *  `userData` directory of each platform. */
 describe('the documented pagis command', () => {
   it('is where the installer puts it', async () => {
-    const readme = fs.readFileSync(path.join(__dirname, '..', 'README.md'), 'utf8')
+    const readme = fs.readFileSync(path.join(__dirname, '..', '..', 'docs-site', 'content', 'client-app', 'backup.mdx'), 'utf8')
     const darwin = fixture()
     const linux = linuxFixture()
     const installed = [

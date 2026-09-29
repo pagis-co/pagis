@@ -1,0 +1,72 @@
+---
+title: Restart and upgrade
+description: What a restart does to the Runs, and how to upgrade a server to a new release.
+icon: RefreshCw
+---
+
+## A restart is the whole server's
+
+Boot recovery fails every unfinished Run of the installation. One daemon
+owns every Run and holds each one's mid-turn state in its own memory, so a
+process that ends takes every Run with it. Recovery for one Person alone
+would leave another Person's Run marked `running` with no process behind
+it.
+
+- Restart at a quiet hour, or tell the team first. The restart in the
+  Administration Interface is everybody's restart.
+- Each failed Run gives its reason: the daemon restarted, which ends every
+  Run on the server. A Run that waits on a Request also gets a note in its
+  conversation, and its Request expires.
+- A Person asks again. Nothing is lost but the turn that was in progress.
+
+A server that must not interrupt one Person for another needs a second
+daemon and a second installation, which this design does not offer.
+
+## Upgrade
+
+An upgrade is the `compose.yaml` of the new release, a new image tag, and a
+restart of every service:
+
+```bash
+cd deploy
+# Replace compose.yaml, egress.sh and Caddyfile with the files in deploy/ at
+# the tag of the new release.
+sed -i 's/^PAGIS_VERSION=.*/PAGIS_VERSION=<the new release>/' .env
+docker compose pull
+docker compose up -d
+docker compose restart egress proxy
+```
+
+`docker compose up -d` starts a service again only when its settings in
+`compose.yaml` and `.env` or its image change. The `egress` service runs
+`egress.sh` and Caddy reads the `Caddyfile` only when they start, so
+`docker compose restart egress proxy` applies a new `egress.sh` and a new
+`Caddyfile`. `egress.sh` replaces its rules in one step, so the Computers
+keep the policy while the service starts again.
+
+Take a backup first, and restart at a quiet hour.
+
+**`postgres`, `klipper-lb` and `caddy` get upstream patches only with a
+release of Pagis.** The `compose.yaml` of each release pins their digests,
+and Dependabot moves the digests between releases. So take the
+`compose.yaml`, the `egress.sh` and the `Caddyfile` of the new release, and
+pull and restart every service, not only `pagis`. Keep your settings in
+`.env`, because `compose.yaml` holds none of them.
+
+**The release marker is one-way.** The state directory holds a
+`runtime-release` file with the newest release that opened it. A server
+reads it before it opens or migrates the database, and **refuses to run
+when its own release is older**:
+
+```text
+Pagis 0.1.0 cannot open data already opened by newer Pagis 0.2.0
+```
+
+The newer server may have changed the data, and Pagis supplies no database
+rollback. To go back to an older server, restore a backup taken before the
+upgrade into a new state directory and a new database. Pin
+`PAGIS_VERSION` in `.env` rather than a moving tag, so a restart never
+becomes an upgrade.
+
+The Computer image is upgraded with the daemon: the release pins it, and a
+daemon whose pin and image disagree boots no container.

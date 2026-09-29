@@ -123,7 +123,8 @@ no confirmation on the client: it would ask a question the person cannot answer
 better than the server's card, and it would not change the trust. The Client
 App's setup states the trust in one line under the Server address field of
 "Connect to a Pagis server": "Connect only to a server you trust."
-`README.md` and `desktop/README.md` state it in full. On a local installation
+The Connect to a server page of the documentation site
+(https://docs.pagis.co/client-app/connect-to-a-server) states it in full. On a local installation
 the server is the person's own machine.
 
 ### A Host is not a Computer

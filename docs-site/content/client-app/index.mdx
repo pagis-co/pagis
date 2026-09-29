@@ -1,0 +1,23 @@
+---
+title: Overview
+description: The signed application that runs Pagis on your own computer or connects to a Pagis server.
+icon: AppWindow
+---
+
+The Pagis Client App, for macOS arm64 and for Linux amd64 and arm64. On Linux
+it is an AppImage and a deb package.
+
+At setup the Client App asks whether to install Pagis on this computer or to
+connect to a server. On this computer it installs the exact Server
+Runtime in its signed Runtime Lock, owns the process it starts, and loads
+that server's Product App. Connected to a server, it loads the Product App
+of that server ([ADR-0025](https://github.com/pagis-co/pagis/blob/main/docs/adr/0025-the-client-app-installs-one-exact-server-or-connects-to-one.md)).
+
+The setup is a short flow of screens in a window of fixed size that you
+cannot resize. The window is as high as its tallest regular screen, so no
+regular screen scrolls, and the content sits in the middle between the
+title bar and the footer. A longer state, such as a long failure, starts at
+the top and scrolls in the middle area only. The first screen asks "How do you want to use
+Pagis?": "Install on this computer" or "Connect to a Pagis server". The
+footer at the bottom edge holds Quit at the left and the next step at the
+right, and Quit ends the Client App from each screen.

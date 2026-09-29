@@ -1,0 +1,69 @@
+---
+title: Back up and restore
+description: Back up the installation on your computer with the pagis command, and restore it.
+icon: DatabaseBackup
+---
+
+`pagis backup <directory>` copies the whole installation on this computer,
+and `pagis restore <directory>` puts it back ([ADR-0024](https://github.com/pagis-co/pagis/blob/main/docs/adr/0024-a-server-serves-a-network.md)). The client puts no
+`pagis` command on the `PATH`. The command is the `pagis` file of the
+Server Runtime that the client installed:
+
+| Platform | The `pagis` command |
+| --- | --- |
+| macOS | `~/Library/Application Support/Pagis/runtime/releases/<release>/darwin-arm64/pagis` |
+| Linux amd64 | `~/.config/Pagis/runtime/releases/<release>/linux-x64/pagis` |
+| Linux arm64 | `~/.config/Pagis/runtime/releases/<release>/linux-arm64/pagis` |
+
+`<release>` is a release number, such as `0.1.0`. The `releases` directory
+holds one directory for each release that the client installed, and the
+client starts the highest one. Use that one.
+
+A backup needs a stopped server, and `pagis backup` refuses to run beside
+a running one. Select "Quit Pagis" in the tray menu first: quit stops the
+server that the client started. Then, on macOS:
+
+```bash
+releases="$HOME/Library/Application Support/Pagis/runtime/releases"
+ls "$releases"
+pagis="$releases/0.1.0/darwin-arm64/pagis"   # the highest release that ls shows
+"$pagis" backup ~/pagis-backup
+```
+
+On Linux, set `releases="$HOME/.config/Pagis/runtime/releases"` and
+`pagis="$releases/0.1.0/linux-x64/pagis"` (or `linux-arm64`). The command
+reads the state directory `~/.pagis`, or the directory that `PAGIS_HOME`
+names. Open Pagis again when the backup is complete.
+
+The backup does not hold the Installation Key, the Client Credential or the
+access tokens of the Computers (`computer-tokens/`). The key stays in the
+keychain of this account on macOS or in the Secret Service on Linux, or in
+the Key File `~/.pagis/installation-key`. Copy a Key File to a safe place
+yourself: the restored installation cannot open its provider keys without
+it. The backup does not hold the Computer volumes
+either; Docker keeps them.
+
+The backup has no encryption. It holds the State Directory with `pagis.db`:
+the records, the memory repositories with their full history, the
+Artifacts, the recordings, the screenshots, the Plugins and the Software of
+every Person on this installation. Pagis seals only the secrets in it, for
+example `secrets.enc`. [What Pagis encrypts](/data-and-privacy#what-pagis-encrypts)
+names each store. Only your OS user can read the backup, but these
+permissions do not protect a copy on another disk or in a cloud store. Keep
+the backup on a disk with FileVault on macOS or LUKS on Linux, or encrypt it
+with your backup tool, for example restic or age. Keep a Key File apart from
+the backup.
+
+`pagis restore` writes only into an empty state directory. To restore,
+quit Pagis, move the current state directory away, and restore into
+`~/.pagis`:
+
+```bash
+mv ~/.pagis ~/.pagis-before-restore
+"$pagis" restore ~/pagis-backup
+```
+
+With a Key File, copy it back to `~/.pagis/installation-key`, mode 600.
+Then open Pagis. The client starts the restored installation and opens it
+signed in. The release of the client must be the release of the backup or a
+newer one.

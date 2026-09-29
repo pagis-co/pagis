@@ -53,8 +53,11 @@ The documentation of established developer products takes one of four forms:
 - docs.pagis.co shows one release. A change to a page shows there with the
   next release, or when the workflow deploys a tag again. The site does not
   serve the pages of an older release.
-- The documents in `docs/` stay the documentation for the people who build
-  Pagis. The user guides in `docs/` that the site does not hold yet, such as
-  the full deployment procedure, stay there, and the site links to them.
+- The site holds every guide for the people who use Pagis: the Client App,
+  the Headless Server, the Plugins and Widgets, and data and privacy. The
+  documents in `docs/` are for the people who build Pagis, and no guide is in
+  both places. The product and the code comments link to pages of the site,
+  and a test of the site fails on such a link to a page or a heading that does
+  not exist.
 - The Vercel project and the secrets of the `docs` environment are
   configuration outside the repository. `docs-site/README.md` names them.
