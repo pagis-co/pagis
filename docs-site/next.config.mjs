@@ -4,7 +4,7 @@ const withMDX = createMDX();
 
 /**
  * The site is a static export: `next build` writes each page, image and
- * Markdown copy to `out/`, and Cloudflare serves the files (ADR-0026).
+ * Markdown copy to `out/`, and Cloudflare serves the files.
  *
  * @type {import('next').NextConfig}
  */

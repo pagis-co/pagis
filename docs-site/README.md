@@ -3,8 +3,7 @@
 `docs-site/` is the source of the user documentation at
 [docs.pagis.co](https://docs.pagis.co). It is a [Fumadocs](https://fumadocs.dev)
 site on Next.js, and each page is an MDX file in `content/`. The build is a
-static export to `out/`, and Cloudflare serves the files. ADR-0026 holds
-why.
+static export to `out/`, and Cloudflare serves the files.
 
 The documents in `docs/` are for the people who build Pagis: the
 architecture, the decisions and the release procedures. The pages in
@@ -167,23 +166,90 @@ page shows there with the next release. To deploy a tag again, run the
 **Docs** workflow and choose the tag in "Use workflow from". A pull request
 from a fork gets no preview, because it cannot read the secrets.
 
-### Set up the Cloudflare account
+### Set up Cloudflare and GitHub
 
-An administrator of the Cloudflare account and of the repository does this
-once:
+Do these steps once. You need an administrator of the Cloudflare account,
+access to the DNS of `pagis.co`, and an administrator of the GitHub
+repository. The names in **bold** are the names on the screen.
 
-1. Add the zone `pagis.co` to the Cloudflare account, if it is not there.
-   `wrangler.jsonc` names `docs.pagis.co` as the custom domain of the
-   Worker, and Cloudflare makes its DNS record and certificate at the
-   first deployment.
-2. Turn on the `workers.dev` subdomain of the account, for the preview
-   URLs.
-3. Make an API token from the **Edit Cloudflare Workers** template. Limit
-   it to this account and to the zone `pagis.co`.
-4. In the repository **Settings**, under **Secrets and variables** →
-   **Actions**, add the secrets `CLOUDFLARE_API_TOKEN` (the token) and
-   `CLOUDFLARE_ACCOUNT_ID` (the account ID, on the overview of the
-   account).
-5. Run the **Docs** workflow on the latest tag. The first deployment makes
-   the Worker `pagis-docs`, and the previews of the pull requests work
-   after it.
+#### 1. Put `pagis.co` on Cloudflare
+
+A custom domain of a Worker must be in a zone of the same Cloudflare
+account. If `pagis.co` is already a zone of the account, go to step 2.
+
+1. In the [Cloudflare dashboard](https://dash.cloudflare.com), select
+   **Add a domain**, type `pagis.co`, and select the **Free** plan.
+2. Cloudflare copies the DNS records that it finds. Compare the list with
+   the records at your current DNS provider, and add each record that is
+   missing, especially the `MX` and `TXT` records of your mail.
+3. At the registrar of `pagis.co`, replace the nameservers with the two
+   nameservers that Cloudflare shows.
+4. Wait until the zone shows **Active**. This can take up to 24 hours.
+5. Make sure that no DNS record for `docs.pagis.co` exists. The first
+   deployment makes that record, and it fails when a record is there.
+
+#### 2. Turn on the workers.dev subdomain
+
+The previews of the pull requests use a URL on `workers.dev`.
+
+1. In the dashboard, open **Workers & Pages**.
+2. If Cloudflare asks for a `workers.dev` subdomain, type one, for example
+   `pagis`. Otherwise, the subdomain shows at the right of the page.
+
+#### 3. Copy the account ID
+
+Open **Workers & Pages**. The **Account ID** shows at the right of the
+page. Copy it. `npx wrangler whoami` also prints it.
+
+#### 4. Make an API token
+
+1. Select the profile icon at the top right, then **My Profile** →
+   **API Tokens** → **Create Token**.
+2. Next to **Edit Cloudflare Workers**, select **Use template**.
+3. Under **Account Resources**, select **Include** and your account.
+4. Under **Zone Resources**, select **Include** → **Specific zone** →
+   `pagis.co`.
+5. Select **Continue to summary**, then **Create Token**.
+6. Copy the token. Cloudflare shows it one time only.
+
+If the first deployment fails with an authentication error for
+`docs.pagis.co`, edit the token and add the permission **Zone** → **DNS** →
+**Edit** for `pagis.co`.
+
+#### 5. Add the secrets to GitHub
+
+1. In the repository, open **Settings** → **Secrets and variables** →
+   **Actions** → **New repository secret**.
+2. Add `CLOUDFLARE_API_TOKEN` with the token of step 4.
+3. Add `CLOUDFLARE_ACCOUNT_ID` with the account ID of step 3.
+
+#### 6. Deploy the first time
+
+The first deployment makes the Worker `pagis-docs` and the domain
+`docs.pagis.co`. The previews of the pull requests work only after it.
+
+- **With a release tag:** open **Actions** → **Docs** → **Run workflow**.
+  In **Use workflow from**, select **Tags** and the latest `v*` tag, then
+  **Run workflow**.
+- **Without a tag:** deploy the current tree from your computer. Wrangler
+  opens the browser to sign you in to Cloudflare. docs.pagis.co then shows
+  this tree until the first tag deploys.
+
+  ```bash
+  cd docs-site
+  npm ci
+  npm run build
+  npx wrangler login
+  npx wrangler deploy
+  ```
+
+#### 7. Check the result
+
+1. Open [docs.pagis.co](https://docs.pagis.co). The certificate can take a
+   few minutes after the first deployment.
+2. In the dashboard, open **Workers & Pages** → **pagis-docs** →
+   **Settings** → **Domains & Routes**. It shows `docs.pagis.co` as a
+   custom domain.
+3. Open a pull request that changes a file in `docs-site/`. When the
+   **preview** job of the **Docs** workflow completes, its summary shows
+   the preview URL.
