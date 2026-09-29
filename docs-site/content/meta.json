@@ -1,0 +1,4 @@
+{
+  "title": "Pagis",
+  "pages": ["---Get started---", "index", "quickstart", "---Run a server---", "headless-server"]
+}

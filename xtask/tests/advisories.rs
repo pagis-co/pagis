@@ -88,6 +88,7 @@ fn the_advisory_lane_checks_the_lockfiles_and_scans_the_computer_image() {
             "cargo-deny",
             "ui-npm-audit",
             "desktop-npm-audit",
+            "docs-site-npm-audit",
             "image-scan"
         ]
     );
@@ -106,6 +107,7 @@ fn the_published_advisory_lane_scans_the_images_of_the_latest_release() {
             "cargo-deny",
             "ui-npm-audit",
             "desktop-npm-audit",
+            "docs-site-npm-audit",
             "release-image-scan"
         ]
     );
@@ -177,13 +179,17 @@ fn cargo_deny_checks_the_two_lockfiles_with_the_pinned_binary() {
 #[test]
 fn npm_audit_reads_each_lockfile_at_the_high_level() {
     let tmp = tempfile::tempdir().unwrap();
-    for package in ["ui", "desktop"] {
+    for package in ["ui", "desktop", "docs-site"] {
         write(tmp.path(), &format!("{package}/package.json"), "{}");
         write(tmp.path(), &format!("{package}/package-lock.json"), "{}");
     }
     let lane = advisory_lane(tmp.path(), target(), false);
 
-    for (name, package) in [("ui-npm-audit", "ui"), ("desktop-npm-audit", "desktop")] {
+    for (name, package) in [
+        ("ui-npm-audit", "ui"),
+        ("desktop-npm-audit", "desktop"),
+        ("docs-site-npm-audit", "docs-site"),
+    ] {
         let Action::Run(cmds) = &step(&lane, name).action else {
             panic!("{name} must run");
         };
@@ -206,7 +212,7 @@ fn npm_audit_reads_each_lockfile_at_the_high_level() {
 fn npm_audit_skips_a_package_without_a_lockfile() {
     let tmp = tempfile::tempdir().unwrap();
     let lane = advisory_lane(tmp.path(), target(), false);
-    for name in ["ui-npm-audit", "desktop-npm-audit"] {
+    for name in ["ui-npm-audit", "desktop-npm-audit", "docs-site-npm-audit"] {
         assert!(
             matches!(step(&lane, name).action, Action::Skip(_)),
             "{name} must skip without a lockfile"

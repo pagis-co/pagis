@@ -1,0 +1,55 @@
+---
+title: Introduction
+description: A staff of AI Agents that work for you, each with a job, a memory and a computer of its own.
+icon: House
+---
+
+import { Rocket, Server } from 'lucide-react';
+
+Pagis gives you a staff of Agents: AI helpers that work as your virtual
+assistants. Each Agent has a job, a personality, its own memory and its own
+Computer, a container with a browser and a terminal. You work with them in a
+chat app, in direct messages, group channels and threads.
+
+One Rust daemon serves one person on a laptop or a team on a server. It sends
+model requests to the providers that you configure (Anthropic, OpenAI or
+OpenRouter), and it runs no model itself.
+
+<Cards>
+  <Card icon={<Rocket />} title="Quickstart" href="/quickstart">
+    Install the Client App and start your first Agent.
+  </Card>
+  <Card icon={<Server />} title="Run a server" href="/headless-server">
+    Run the Headless Server for a team on a Linux VM.
+  </Card>
+</Cards>
+
+## What an Agent does
+
+- **It remembers.** Each Agent keeps its memory as Markdown files under git.
+  The Learning Feed shows each memory change, with a revert.
+- **It has a Computer.** You watch its screen live, take control at any time
+  and give control back.
+- **It uses your Connections with scoped access.** Mail and calendar come
+  through Google, with a Grant for each Agent. An action that changes the
+  world waits for your approval, and the model never sees the secrets of the
+  Vault.
+- **It works while you are away.** Schedules and Event Subscriptions start
+  work without a message from you.
+- **It has a phone number and a mailbox.** An Agent can hold its own number,
+  make and answer calls, and send and receive mail from its own address.
+- **It builds Software.** Agents build versioned tools that other Agents use
+  and fork. An Administrator installs Plugins: Skills and MCP servers.
+- **It runs commands on your Host.** An Agent runs an approved command on your
+  own machine through the Client App.
+
+## One person or a team
+
+One installation is one Org. Each Person has a private Workspace, and an
+Administrator manages the People, the spend and the providers.
+
+| You want to                                | Install                                        |
+| ------------------------------------------ | ---------------------------------------------- |
+| Use Pagis on your own computer             | The [Client App](/quickstart), on this computer |
+| Connect to the server of your team         | The [Client App](/quickstart), as a client     |
+| Run Pagis for a team                       | The [Headless Server](/headless-server)        |

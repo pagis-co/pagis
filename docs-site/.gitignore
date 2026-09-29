@@ -1,0 +1,7 @@
+# The packages, and what the build and the Vercel CLI write.
+/node_modules
+/.next/
+/.source/
+/.vercel/
+*.tsbuildinfo
+next-env.d.ts

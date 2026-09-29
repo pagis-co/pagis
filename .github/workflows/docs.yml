@@ -1,0 +1,62 @@
+# The deployment of the documentation site to docs.pagis.co. A `v*` tag
+# builds the site from the tree of that tag and deploys it to production,
+# so the pages describe the release that people install. A pull request
+# gets a preview from the Git integration of Vercel, and a push to main
+# deploys nothing (docs-site/vercel.json). docs-site/README.md tells how
+# to set up the Vercel project and the secrets that this workflow reads.
+name: Docs
+
+on:
+  push:
+    tags: ["v*"]
+  # Deploy a tag again, for example after a change to the Vercel project.
+  # Choose the tag in "Use workflow from".
+  workflow_dispatch:
+
+# One production deployment at a time, in the order of the tags.
+concurrency:
+  group: ${{ github.workflow }}-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+# The actions are pinned as in ci.yml.
+
+jobs:
+  deploy:
+    name: deploy docs.pagis.co
+    # Production shows a release, never a branch.
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: docs
+      url: https://docs.pagis.co
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_TELEMETRY_DISABLED: "1"
+      # The Vercel CLI at an exact version.
+      VERCEL: npx --yes vercel@61.0.0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: docs-site/package-lock.json
+
+      # The project settings name docs-site/ as the root directory, so the
+      # commands run from the root of the repository.
+      - name: build
+        run: |
+          $VERCEL pull --yes --environment=production --token="$VERCEL_TOKEN"
+          $VERCEL build --prod --token="$VERCEL_TOKEN"
+
+      - name: deploy
+        run: $VERCEL deploy --prebuilt --prod --token="$VERCEL_TOKEN"

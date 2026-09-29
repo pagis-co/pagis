@@ -42,3 +42,7 @@ records that touch an area before you change it.
 - [0023](0023-one-org-holds-the-people-of-an-installation.md): One Org holds the People of an installation
 - [0024](0024-a-server-serves-a-network.md): A server serves a network behind a proxy, with a separate Administration Port
 - [0025](0025-the-client-app-installs-one-exact-server-or-connects-to-one.md): The Client App installs one exact server or connects to one
+
+## The documentation
+
+- [0026](0026-the-documentation-site-builds-from-the-tree-of-a-release.md): The documentation site builds from the tree of a release

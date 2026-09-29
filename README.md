@@ -97,6 +97,10 @@ every flag and command.
 
 ## Documentation
 
+[docs-site/](docs-site) holds the user documentation, which each release
+deploys to [docs.pagis.co](https://docs.pagis.co). The documents below are
+for the people who build Pagis.
+
 | Topic | Document |
 | --- | --- |
 | The glossary of domain terms | [CONTEXT.md](CONTEXT.md) |
@@ -112,6 +116,7 @@ every flag and command.
 | The interface design system | [docs/UI-DESIGN.md](docs/UI-DESIGN.md) |
 | The LLM router: usage, design, modalities | [docs/USAGE.md](docs/USAGE.md), [docs/DESIGN.md](docs/DESIGN.md), [docs/MODALITIES.md](docs/MODALITIES.md) |
 | Release the server and the Client App | [docs/RELEASING-SERVER.md](docs/RELEASING-SERVER.md), [docs/RELEASING-CLIENT.md](docs/RELEASING-CLIENT.md) |
+| Write and deploy the documentation site | [docs-site/README.md](docs-site/README.md) |
 
 ## Contributing
 

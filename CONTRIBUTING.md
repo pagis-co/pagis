@@ -1,7 +1,8 @@
 # Contributing to Pagis
 
 Pagis is a Rust workspace (`crates/`), a React interface (`ui/`), an
-Electron Client App (`desktop/`) and a Computer Image (`computer/`).
+Electron Client App (`desktop/`), a Computer Image (`computer/`) and a
+documentation site (`docs-site/`).
 `xtask/` holds the checks and the release commands, which you run as
 `cargo xtask <command>`.
 
@@ -13,7 +14,8 @@ glossary, and [docs/adr/](docs/adr) holds the architecture decisions.
 
 - Rust stable, with `rustfmt` and `clippy`.
 - [cargo-nextest](https://nexte.st), which runs the tests.
-- Node.js at the version in [`.nvmrc`](.nvmrc), for `ui/` and `desktop/`.
+- Node.js at the version in [`.nvmrc`](.nvmrc), for `ui/`, `desktop/` and
+  `docs-site/`.
 - Docker, for the Computer Image and the tests that start containers.
   Without Docker, the checks skip these tests.
 
@@ -53,8 +55,9 @@ cargo xtask step computer-image
 cargo nextest run -p pagis-computer --run-ignored only
 ```
 
-In `ui/` and `desktop/`, `npm run typecheck` and `npm test` check the
-TypeScript code. After a change to the HTTP API of `pagis-server`, run
+In `ui/`, `desktop/` and `docs-site/`, `npm run typecheck` and `npm test`
+check the TypeScript code. In `docs-site/`, `npm run build` compiles each
+page. [docs-site/README.md](docs-site/README.md) tells how to write a page. After a change to the HTTP API of `pagis-server`, run
 `npm run api:generate` in `ui/` to write `openapi.json` and the API types
 again.
 
@@ -95,7 +98,8 @@ cargo xtask advisories         # the dependency advisories
 
 `dev` compares the branch with `origin/main`. It runs fmt, clippy and the
 tests for each changed Rust package and each package that depends on it,
-and the UI, desktop and Computer checks for a change in those parts. A
+and the UI, desktop, Computer and documentation site checks for a change
+in those parts. A
 change to shared build configuration, such as `Cargo.toml` or a workflow,
 or to an unknown path, selects every gate step. A change to documents
 only runs `git diff --check`. Each change also runs the secret scan.
@@ -115,6 +119,7 @@ unknown name prints the list. The gate steps are:
 | `pagis-apt` | The shell tests of `computer/pagis-apt` |
 | `ui-deps`, `ui-typecheck`, `ui-test` | The UI |
 | `desktop-deps`, `desktop-typecheck`, `desktop-test` | The Client App |
+| `docs-site-deps`, `docs-site-typecheck`, `docs-site-test`, `docs-site-build` | The documentation site |
 | `secret-scan` | gitleaks over the tracked files |
 
 The checks download the pinned gitleaks, `gog`, cargo-deny and Trivy
@@ -145,13 +150,15 @@ gate steps with `cargo xtask step`:
 | contract drift | `ui-deps contract-drift gog-contract` |
 | UI | `ui-deps ui-typecheck ui-test` |
 | desktop | `desktop-deps desktop-typecheck desktop-test` |
+| docs site | `docs-site-deps docs-site-typecheck docs-site-test docs-site-build` |
 | pins, secrets and generated tables | `pins emergency-drift secret-scan pagis-apt` |
 | packaging smoke (macOS), packaging smoke (Linux) | `cargo xtask desktop` with a fixture Runtime Lock |
 
 The **CI success** job passes only when each other job passes. It is the
 one check that a pull request needs. `.github/workflows/advisories.yml`
-runs `cargo xtask advisories` each day, and `.github/workflows/release.yml`
-prepares the Client App packages for a `v*` tag.
+runs `cargo xtask advisories` each day. For a `v*` tag,
+`.github/workflows/release.yml` prepares the Client App packages and
+`.github/workflows/docs.yml` deploys the documentation site.
 
 ## Pull requests
 
