@@ -1,8 +1,7 @@
 // The documentation site on Cloudflare: a Worker of static assets alone.
 // It runs no code of its own, and Cloudflare serves each file of the
 // static export in `out/`. `public/_redirects` maps the `.md` address of
-// each page to its Markdown copy. docs-site/README.md tells how to set up
-// the account, and .github/workflows/docs.yml deploys it.
+// each page to its Markdown copy. .github/workflows/docs.yml deploys it.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "pagis-docs",

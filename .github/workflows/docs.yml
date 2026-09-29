@@ -11,8 +11,8 @@
 #   preview, because it cannot read the secrets.
 # - A push to main deploys nothing.
 #
-# docs-site/README.md tells how to set up the Cloudflare account and the
-# two secrets that this workflow reads.
+# The Wrangler steps read the repository secrets `CLOUDFLARE_API_TOKEN` and
+# `CLOUDFLARE_ACCOUNT_ID`.
 name: Docs
 
 on:
