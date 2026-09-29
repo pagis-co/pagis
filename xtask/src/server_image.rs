@@ -31,6 +31,13 @@ pub const VERSION_LABEL: &str = "org.pagis.server.version";
 /// same number, and `docs/RELEASING-SERVER.md` states that rule.
 pub const SERVER_IMAGE_REPOSITORY: &str = "ghcr.io/pagis-co/pagis-server";
 
+/// The PostHog project of a release build (ADR-0026). A build argument
+/// with no value takes the variable of the same name from the
+/// environment, and one that the environment does not set stays empty,
+/// so the daemon in the image sends no analytics.
+const ANALYTICS_BUILD_ARGS: &str =
+    "--build-arg PAGIS_POSTHOG_PROJECT_ID --build-arg PAGIS_POSTHOG_TOKEN";
+
 /// The published name of one release's server image.
 pub fn server_image(version: &str) -> String {
     format!("{SERVER_IMAGE_REPOSITORY}:{version}")
@@ -59,11 +66,11 @@ pub fn server_image_steps(
             Some(file) => format!(
                 "set -eu\ncomputer=$(cat {file})\ndocker buildx build --builder {BUILDER} \
                  --platform {PLATFORMS} --build-arg PAGIS_COMPUTER_IMAGE=\"$computer\" \
-                 {output} .\n"
+                 {ANALYTICS_BUILD_ARGS} {output} .\n"
             ),
             None => format!(
                 "set -eu\ndocker buildx build --builder {BUILDER} --platform {PLATFORMS} \
-                 {output} .\n"
+                 {ANALYTICS_BUILD_ARGS} {output} .\n"
             ),
         };
         Cmd::new("sh", &["-c", &script]).in_dir(root)

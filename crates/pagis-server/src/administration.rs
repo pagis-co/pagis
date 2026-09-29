@@ -1070,6 +1070,10 @@ pub fn router(state: Arc<AppState>) -> Router {
             put(crate::system::enable_multi_user).delete(crate::system::disable_multi_user),
         )
         .route(
+            "/api/v1/settings/system/analytics",
+            put(crate::system::set_analytics),
+        )
+        .route(
             "/api/v1/settings/system/docker/probe",
             post(crate::system::probe_docker),
         )

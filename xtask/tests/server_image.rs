@@ -102,6 +102,32 @@ fn a_plain_build_keeps_the_pinned_computer_image() {
     assert!(!plan.contains("PAGIS_COMPUTER_IMAGE"), "{plan}");
 }
 
+/// The PostHog project reaches the build from the environment of the
+/// release and never from the repository (ADR-0026), in a release and
+/// in a plain publish alike.
+#[test]
+fn the_build_takes_the_posthog_project_from_the_environment() {
+    for steps in [
+        server_image_plan(Path::new("/repo"), &server_image("1.2.3"), target()),
+        server_image_steps(
+            Path::new("/repo"),
+            &server_image("1.2.3"),
+            Some("dist/computer-image.txt"),
+            target(),
+        ),
+    ] {
+        let plan = joined(&steps);
+        assert!(
+            plan.contains("--build-arg PAGIS_POSTHOG_PROJECT_ID --build-arg PAGIS_POSTHOG_TOKEN"),
+            "{plan}"
+        );
+        assert!(!plan.contains("PAGIS_POSTHOG_TOKEN="), "{plan}");
+    }
+    let dockerfile = dockerfile();
+    assert!(dockerfile.contains("ARG PAGIS_POSTHOG_PROJECT_ID=\"\""));
+    assert!(dockerfile.contains("ARG PAGIS_POSTHOG_TOKEN=\"\""));
+}
+
 /// A local `.env` holds the secrets of a deployment, so the build context
 /// of the image leaves it out at every depth.
 #[test]

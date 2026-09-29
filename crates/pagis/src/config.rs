@@ -80,6 +80,9 @@ pub struct Config {
     /// The tracing filter (ADR-0024): `trace`, `debug`, `info`, `warn`
     /// or `error`.
     pub log_level: String,
+    /// Whether a release build sends anonymous analytics (ADR-0026). On
+    /// by default; an Administrator turns it off in System Settings.
+    pub analytics: bool,
     pub screen: Screen,
     pub providers: Providers,
     pub database: Database,
@@ -460,6 +463,7 @@ impl Default for Config {
             computer: Computer::default(),
             docker_endpoint: String::new(),
             log_level: DEFAULT_LOG_LEVEL.to_string(),
+            analytics: true,
             screen: Screen::default(),
             providers: Providers::default(),
             database: Database::default(),
@@ -699,6 +703,27 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Analytics are on until an Administrator turns them off, in a new
+    /// file and in a file that does not name the setting.
+    #[test]
+    fn analytics_are_on_by_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+
+        assert!(Config::load_or_init(&path).unwrap().analytics);
+        assert!(
+            std::fs::read_to_string(&path)
+                .unwrap()
+                .contains("analytics = true")
+        );
+
+        std::fs::write(&path, "port = 4400\n").unwrap();
+        assert!(Config::read_file(&path).unwrap().analytics);
+
+        std::fs::write(&path, "analytics = false\n").unwrap();
+        assert!(!Config::read_file(&path).unwrap().analytics);
+    }
 
     #[test]
     fn init_writes_the_defaults_and_names_the_key_file() {

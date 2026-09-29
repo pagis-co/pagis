@@ -6,6 +6,7 @@ mod administration_port;
 mod agent;
 mod agent_mailboxes;
 mod agent_sync_connections;
+mod analytics;
 mod api;
 mod arrival_commit;
 mod arrival_reflection;

@@ -241,6 +241,9 @@ pub struct AppState {
     /// restart changes it, so a page that asked for one knows when the
     /// new process answers.
     pub started_at: i64,
+    /// Why this daemon sends no analytics whatever the System Setting
+    /// says (ADR-0026), or `None` for a release build that can send.
+    pub analytics_blocked: Option<pagis_analytics::Blocked>,
     /// The origin a browser reaches this installation at: the
     /// reverse proxy's on a server, loopback on a local installation. The
     /// CORS answer names it and no other, and the product port refuses a
