@@ -21,7 +21,7 @@
 #      deployment keeps its other secrets. Without it a restored server
 #      opens no stored secret.
 #
-# `docs/DEPLOYING-A-SERVER.md` holds the procedure and the restore.
+# https://docs.pagis.co/server/backup holds the procedure and the restore.
 set -eu
 
 if [ $# -ne 1 ]; then

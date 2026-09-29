@@ -1005,6 +1005,15 @@ fn the_tag_workflow_runs_every_stage_after_the_gate() {
         assert!(job(name).contains("secrets.APPLE_API_KEY_P8"), "{name}");
     }
     assert!(job("server-macos").contains("import-signing-identity.sh"));
+    // Each job that builds the daemon writes the analytics project into it.
+    for name in ["images", "server-linux", "server-macos"] {
+        for variable in ["PAGIS_POSTHOG_PROJECT_ID", "PAGIS_POSTHOG_TOKEN"] {
+            assert!(
+                job(name).contains(&format!("{variable}: ${{{{ secrets.{variable} }}}}")),
+                "{name}: {variable}"
+            );
+        }
+    }
     for name in ["images", "draft", "client-macos", "client-linux"] {
         assert!(job(name).contains("attest-build-provenance"), "{name}");
     }

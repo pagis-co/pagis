@@ -1,4 +1,8 @@
-# The screen Media Relay
+---
+title: Live screen
+description: How a browser watches the screen of a Computer through the Media Relay, and the TURN variant.
+icon: ScreenShare
+---
 
 A browser watches an Agent's Computer through the Media Relay. A Computer
 publishes no media port at all, so a browser never sends media to a container.
@@ -7,15 +11,14 @@ and back. The Computer registers outbound with the relay for each viewer
 session, from inside its Tenant Network, so the relay learns the Computer's
 address from the Computer itself.
 
-The `[screen]` section of `config.toml` names the relay. ADR-0014 holds the
+The `[screen]` section of `config.toml` names the relay. [ADR-0014](https://github.com/pagis-co/pagis/blob/main/docs/adr/0014-the-computer-is-pixels-and-pagis-owns-the-stream.md) holds the
 decision behind it.
 
 ## A local installation
 
 Set nothing. The relay advertises `127.0.0.1` and the browser is on the same
 machine. A local installation in the multi-user mode names the address that
-the other People reach it at; "The live screen for other people" in
-`docs/DEPLOYING-A-SERVER.md` gives it for each proxy and tunnel.
+the other People reach it at; [The live screen for other people](/client-app/several-people#the-live-screen-for-other-people) gives it for each proxy and tunnel.
 
 ## A server with a public address
 
@@ -42,8 +45,7 @@ filters traffic from the bridges must accept that range from them too.
 
 `PAGIS_SCREEN_ADVERTISE_IP`, `PAGIS_SCREEN_MEDIA_PORT_FIRST` and
 `PAGIS_SCREEN_MEDIA_PORT_LAST` set the same three for one run. A container
-deployment states them there once and publishes exactly that range; see
-`docs/DEPLOYING-A-SERVER.md`.
+deployment states them there once and publishes exactly that range; see [Deploy with Compose](/server/compose).
 
 ## A server behind an external TURN server
 

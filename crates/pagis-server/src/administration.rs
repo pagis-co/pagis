@@ -741,14 +741,14 @@ pub struct InstallationHealthDto {
     /// `supported`, `unsupported`, or `unknown` while Docker does not
     /// answer or the limits name no volume size. `unsupported` means
     /// that nothing bounds what `/data` holds, which
-    /// `docs/DEPLOYING-A-SERVER.md` says how to fix.
+    /// https://docs.pagis.co/server/computers#bound-a-computers-disk says how to fix.
     pub volume_quota: String,
     /// Whether this machine holds the writable container layer of a
     /// Computer to its size: `supported`, `unsupported`, or `unknown`
     /// until a Computer wakes after the daemon starts or when the limits
     /// name no layer size. `unsupported` means that nothing bounds what
     /// an Agent writes outside `/data` while its Computer is awake, which
-    /// `docs/DEPLOYING-A-SERVER.md` says how to fix.
+    /// https://docs.pagis.co/server/computers#bound-a-computers-disk says how to fix.
     pub container_quota: String,
 }
 
@@ -1068,6 +1068,10 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route(
             "/api/v1/settings/system/multi-user",
             put(crate::system::enable_multi_user).delete(crate::system::disable_multi_user),
+        )
+        .route(
+            "/api/v1/settings/system/analytics",
+            put(crate::system::set_analytics),
         )
         .route(
             "/api/v1/settings/system/docker/probe",

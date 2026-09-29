@@ -8294,6 +8294,57 @@
         }
       }
     },
+    "/api/v1/settings/system/analytics": {
+      "put": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Turn the anonymous analytics of the installation on or off\n(ADR-0026). The analytics task reads the setting at each check, so\nthe change needs no restart.",
+        "operationId": "set_analytics",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetAnalyticsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedSystemSettingsDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/settings/system/docker/probe": {
       "post": {
         "tags": [
@@ -9632,6 +9683,38 @@
             "items": {
               "$ref": "#/components/schemas/AgentSyncConnection"
             }
+          }
+        }
+      },
+      "AnalyticsBlockedDto": {
+        "type": "string",
+        "description": "Why a daemon sends no analytics whatever the setting says.",
+        "enum": [
+          "build",
+          "do_not_track"
+        ]
+      },
+      "AnalyticsDto": {
+        "type": "object",
+        "description": "The anonymous analytics of the installation (ADR-0026).",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "blocked": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AnalyticsBlockedDto",
+                "description": "Why the daemon sends nothing whatever `enabled` says, or null\nwhen it sends while `enabled` is true."
+              }
+            ]
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "The System Setting: whether the Administrator lets the daemon\nsend. On by default."
           }
         }
       },
@@ -12154,7 +12237,7 @@
         "properties": {
           "container_quota": {
             "type": "string",
-            "description": "Whether this machine holds the writable container layer of a\nComputer to its size: `supported`, `unsupported`, or `unknown`\nuntil a Computer wakes after the daemon starts or when the limits\nname no layer size. `unsupported` means that nothing bounds what\nan Agent writes outside `/data` while its Computer is awake, which\n`docs/DEPLOYING-A-SERVER.md` says how to fix."
+            "description": "Whether this machine holds the writable container layer of a\nComputer to its size: `supported`, `unsupported`, or `unknown`\nuntil a Computer wakes after the daemon starts or when the limits\nname no layer size. `unsupported` means that nothing bounds what\nan Agent writes outside `/data` while its Computer is awake, which\nhttps://docs.pagis.co/server/computers#bound-a-computers-disk says how to fix."
           },
           "database": {
             "type": "string",
@@ -12190,7 +12273,7 @@
           },
           "volume_quota": {
             "type": "string",
-            "description": "Whether this machine holds a Computer volume to its size:\n`supported`, `unsupported`, or `unknown` while Docker does not\nanswer or the limits name no volume size. `unsupported` means\nthat nothing bounds what `/data` holds, which\n`docs/DEPLOYING-A-SERVER.md` says how to fix."
+            "description": "Whether this machine holds a Computer volume to its size:\n`supported`, `unsupported`, or `unknown` while Docker does not\nanswer or the limits name no volume size. `unsupported` means\nthat nothing bounds what `/data` holds, which\nhttps://docs.pagis.co/server/computers#bound-a-computers-disk says how to fix."
           }
         }
       },
@@ -16197,6 +16280,18 @@
           }
         }
       },
+      "SetAnalyticsRequest": {
+        "type": "object",
+        "description": "Turn the anonymous analytics on or off.",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        }
+      },
       "SetChiefOfStaffRequest": {
         "type": "object",
         "required": [
@@ -17089,9 +17184,13 @@
           "version",
           "docker",
           "multi_user",
-          "screen"
+          "screen",
+          "analytics"
         ],
         "properties": {
+          "analytics": {
+            "$ref": "#/components/schemas/AnalyticsDto"
+          },
           "data_directory": {
             "type": "string",
             "description": "Read-only: where the daemon keeps its data."

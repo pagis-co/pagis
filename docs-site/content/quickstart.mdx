@@ -1,0 +1,68 @@
+---
+title: Quickstart
+description: Install the Client App on macOS or Linux and start your first Agent.
+icon: Rocket
+---
+
+The Client App runs Pagis on your own computer or connects to a Pagis server.
+It runs on macOS arm64, and on Linux amd64 and arm64.
+
+## Install the Client App
+
+<Steps>
+<Step>
+
+### Download the Client App
+
+Download the package for your computer from
+[GitHub Releases](https://github.com/pagis-co/pagis/releases).
+
+<Tabs items={['macOS', 'Linux']}>
+  <Tab value="macOS">
+    Download `Pagis-<release>-arm64.dmg`, for macOS on Apple silicon.
+  </Tab>
+  <Tab value="Linux">
+    Download the AppImage or the deb for your architecture. On Ubuntu 24.04
+    and later, use the deb.
+  </Tab>
+</Tabs>
+
+</Step>
+<Step>
+
+### Choose how to install
+
+Open the Client App and choose one of the two setups:
+
+- **Install on this computer** installs a Server Runtime on this computer.
+  Choose **Just me** for one person or **Several people** for more than one.
+- **Connect to a Pagis server** connects to a server that somebody else runs,
+  and opens the sign-in page of that server.
+
+</Step>
+<Step>
+
+### Complete the onboarding
+
+On this computer, the onboarding asks for one model provider key and,
+optionally, a Docker endpoint for the Computers of the Agents.
+
+<Callout>
+  Without Docker, the Agents chat and use your Connections, but they cannot
+  browse or run commands.
+</Callout>
+
+</Step>
+</Steps>
+
+## Connect to a server
+
+<Callout type="warn" title="Connect only to a server you trust">
+  When you connect to a server, this computer becomes a Host of that server.
+  The server and its Administrator can then run commands on this computer,
+  with the same access as you.
+</Callout>
+
+[Connect to a server](/client-app/connect-to-a-server) tells what the Client App does
+when it connects. To run your own server for a team, see
+[Headless Server](/server).

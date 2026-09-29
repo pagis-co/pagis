@@ -9,7 +9,7 @@
 //! are not there, or the files belong to people who are not there.
 //!
 //! Four things are deliberately outside a backup, and
-//! `docs/DEPLOYING-A-SERVER.md` says so where an administrator reads
+//! https://docs.pagis.co/server/backup says so where an administrator reads
 //! it:
 //!
 //! - **The Installation Key.** It seals `secrets.enc` and never sits

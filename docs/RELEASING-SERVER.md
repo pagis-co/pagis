@@ -265,8 +265,9 @@ that the Chromium of the Computer Image loads.
 ## What the workflow needs
 
 The repository administrator sets these once. `scripts/signing-secrets.sh`
-walks the Apple Developer Account Holder through each of them and sets them
-with `gh`:
+walks the Apple Developer Account Holder through the signing secrets and sets
+them with `gh`. The two PostHog secrets are set with `gh secret set`; a
+release without them sends no analytics.
 
 | Name | Where | What it holds |
 | --- | --- | --- |
@@ -275,6 +276,8 @@ with `gh`:
 | `APPLE_API_KEY_P8` | Repository secret | The text of the `.p8` file of an App Store Connect API key with the Developer role |
 | `APPLE_API_KEY_ID` | Repository secret | The Key ID of that key |
 | `APPLE_API_ISSUER` | Repository secret | The Issuer ID of the team |
+| `PAGIS_POSTHOG_PROJECT_ID` | Repository secret | The PostHog project that a release build writes into the daemon (ADR-0026) |
+| `PAGIS_POSTHOG_TOKEN` | Repository secret | The project token of that PostHog project |
 | `PAGIS_RELEASE_GPG_PRIVATE_KEY` | Secret of the `release` environment | The private half of the Linux release key, with no passphrase |
 
 - **The `release` environment.** Each publication job waits in it until a

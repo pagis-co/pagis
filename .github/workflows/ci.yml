@@ -187,6 +187,30 @@ jobs:
 
       - run: cargo xtask step desktop-deps desktop-typecheck desktop-test
 
+  docs-site:
+    name: docs site
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: stable
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: docs-site/package-lock.json
+
+      # The build compiles each page, so a page that does not compile fails
+      # the job. The export step then serves the export in the local runtime
+      # of Cloudflare and reads each address.
+      - run: cargo xtask step docs-site-deps docs-site-typecheck docs-site-test docs-site-build docs-site-export
+
   checks:
     name: pins, secrets and generated tables
     runs-on: ubuntu-latest
@@ -309,6 +333,7 @@ jobs:
       - contract
       - ui
       - desktop
+      - docs-site
       - checks
       - packaging-macos
       - packaging-linux

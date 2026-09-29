@@ -15,4 +15,3 @@ mod security_policy;
 mod server_image;
 mod server_package;
 mod support;
-mod what_pagis_encrypts;

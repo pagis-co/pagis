@@ -1,0 +1,77 @@
+---
+title: Settings
+description: The settings of a server, and the Key File that seals its secrets.
+icon: SlidersHorizontal
+---
+
+A server names its settings in `config.toml` in the state directory, or in
+`PAGIS_*` variables for a deployment that mounts no file. A variable wins
+for the run and is never written back into the file.
+
+| `config.toml` | Variable | Default | What it is |
+| --- | --- | --- | --- |
+| `port` | `PAGIS_PORT` | `4400` | The product port. |
+| `bind` | `PAGIS_BIND` | `127.0.0.1` | The **Bind Address** of the product port. Name the private interface the proxy is on, or `0.0.0.0` for every interface. |
+| `public_origin` | `PAGIS_PUBLIC_ORIGIN` | Derived from `bind` and `port` | The **Public Origin**: the scheme, host and port a browser reaches the installation at. The CORS answer names it. |
+| `trusted_proxy` | `PAGIS_TRUSTED_PROXY` | None | The **Trusted Proxy**: the one address whose `X-Forwarded-For` and `X-Forwarded-Proto` the daemon believes. |
+| `[administration] port` | `PAGIS_ADMINISTRATION_PORT` | `4401` | The Administration Port. |
+| `[administration] bind` | `PAGIS_ADMINISTRATION_BIND` | `127.0.0.1` | Its Bind Address, loopback whatever the product port binds. |
+| `[database] url` | `PAGIS_DATABASE_URL` | None | The `postgres://` URL of the database that holds the records. A server does not start without it. |
+| `[secrets] key_file` | None | `/run/secrets/pagis-secrets-key` | The **Key File** (Linux). |
+| `[screen] advertise_ip` | `PAGIS_SCREEN_ADVERTISE_IP` | `127.0.0.1` | The address browsers reach the Media Relay at. |
+| `[screen] media_port_first`, `media_port_last` | `PAGIS_SCREEN_MEDIA_PORT_FIRST`, `PAGIS_SCREEN_MEDIA_PORT_LAST` | `50000`, `50099` | The Media Relay's UDP range. |
+
+```toml
+bind = "10.0.1.7"
+public_origin = "https://pagis.example.net"
+trusted_proxy = "10.0.1.6"
+
+[administration]
+port = 4401
+bind = "127.0.0.1"
+
+[database]
+url = "postgres://pagis:<password>@127.0.0.1:5432/pagis"
+```
+
+Bind the private interface the proxy is on, not `0.0.0.0`, where the
+network allows it. The daemon then answers the proxy alone, and a firewall
+rule is a second line of defence rather than the only one.
+
+An Administrator changes the port, the Docker endpoint and the log level in
+the Settings view of the Administration Interface, and the daemon writes
+`config.toml` itself. The timezone is each Person's own: their browser or
+Client App reports it at their first sign-in, and they change it in
+**Settings → Timezone** of the Product App. The clock of the server is
+never a Person's timezone.
+
+A change to the port, the log level or the multi-user mode takes effect on
+a restart. The daemon then exits with code 75, and a supervisor starts it
+again: the Client App, or the `restart` policy of the compose deployment.
+Each of them sets `PAGIS_SUPERVISED=1`, and the Settings view then waits for
+the new process. A daemon that a person started by hand has no supervisor, so
+the Settings view says to run `pagis` again. A supervisor of your own, such as
+a systemd unit with `Restart=on-failure`, sets `PAGIS_SUPERVISED=1` too.
+`--port` and `PAGIS_PORT` override the port of `config.toml` for one run, and
+the Settings view shows both ports while they differ.
+
+The log level applies to the daemon's own lines. The libraries it uses log
+warnings and errors alone. `PAGIS_LOG` replaces the whole filter with a
+`tracing` directive such as `debug` or `info,tantivy=debug`.
+
+## The Key File
+
+On Linux the daemon reads the **Installation Key**, which seals
+`secrets.enc`, from the Key File. The file holds 64 hexadecimal characters
+and nothing else. The daemon refuses a file that a group or another user
+can read, and it does not start without the file.
+
+```bash
+head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > pagis-secrets-key
+chmod 600 pagis-secrets-key
+```
+
+The key never sits in `config.toml` and never goes into a backup: an
+archive that holds both is a lock beside its key. Keep it where the
+deployment keeps its other secrets. **A restored server without it opens no
+stored secret.**

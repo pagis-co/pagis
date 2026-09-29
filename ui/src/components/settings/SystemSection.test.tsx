@@ -1,5 +1,5 @@
 // The System section: the two-column daemon form, Save and
-// restart, the Docker probe row and About.
+// restart, the Docker probe row, the analytics switch and About.
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
@@ -22,6 +22,7 @@ const settings = {
     media_port_first: 50000,
     media_port_last: 50099,
   },
+  analytics: { enabled: true, blocked: null },
   port: 4400,
   listening_port: 4400,
   port_override: null,
@@ -92,6 +93,67 @@ describe('SystemSection', () => {
     expect(
       screen.getByRole('switch', { name: /Multi-user mode/ }).getAttribute('aria-checked'),
     ).toBe('false')
+  })
+
+  it('shows the analytics switch on, with what Pagis sends', async () => {
+    mount(stubApi())
+
+    expect(
+      (await screen.findByRole('switch', { name: /Send anonymous analytics/ })).getAttribute(
+        'aria-checked',
+      ),
+    ).toBe('true')
+    expect(screen.getByText(/It sends no content, no names and no addresses/)).toBeTruthy()
+  })
+
+  it('turns the analytics off with no restart', async () => {
+    const api = stubApi({
+      PUT: vi.fn(async () => ({
+        data: {
+          settings: { ...settings, analytics: { enabled: false, blocked: null } },
+          restart_required: false,
+        },
+      })),
+    })
+    mount(api)
+
+    fireEvent.click(await screen.findByRole('switch', { name: /Send anonymous analytics/ }))
+
+    await waitFor(() =>
+      expect(api.PUT).toHaveBeenCalledWith('/api/v1/settings/system/analytics', {
+        body: { enabled: false },
+      }),
+    )
+    expect(await screen.findByText('Pagis sends no analytics.')).toBeTruthy()
+    expect(api.POST).not.toHaveBeenCalled()
+  })
+
+  it('says why a build from source or DO_NOT_TRACK sends nothing', async () => {
+    mount(
+      stubApi({
+        GET: vi.fn(async () => ({
+          data: { ...settings, analytics: { enabled: true, blocked: 'build' } },
+        })),
+      }),
+    )
+    expect(
+      await screen.findByText(
+        'This build of Pagis sends no analytics. Only a release build sends them.',
+      ),
+    ).toBeTruthy()
+  })
+
+  it('says when DO_NOT_TRACK stops the analytics', async () => {
+    mount(
+      stubApi({
+        GET: vi.fn(async () => ({
+          data: { ...settings, analytics: { enabled: true, blocked: 'do_not_track' } },
+        })),
+      }),
+    )
+    expect(
+      await screen.findByText('DO_NOT_TRACK is set, so Pagis sends no analytics.'),
+    ).toBeTruthy()
   })
 
   it('names the Docker endpoint in use', async () => {

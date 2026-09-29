@@ -1,0 +1,108 @@
+---
+title: Backup and restore
+description: Back up the state directory, the database and the Computer volumes, and restore them on a new host.
+icon: DatabaseBackup
+---
+
+An installation is the state directory, the database and the Computer
+volumes, and a copy of one of them restores nothing. `pagis backup` takes
+the first two together on both Storage Backends, and `deploy/backup.sh`
+adds the third. It takes the volumes of the Workspaces in this
+installation's database, by the `org.pagis.workspace` label each volume
+carries, so a Docker host that also holds another installation keeps that
+installation's volumes out of the archive.
+
+**The daemon must be stopped.** A file copied while the daemon writes it is
+not a backup, so `pagis backup` takes the daemon's own instance lock and
+refuses to run beside a live daemon. The script stops the daemon first and
+starts it again whatever happens.
+
+```bash
+deploy/backup.sh /var/backups/pagis/nightly
+```
+
+That leaves:
+
+```text
+nightly/
+  installation/
+    manifest.json        the layout, the release, the backend, the time
+    state/               the state directory, without the logs, the
+                         Client Credential and computer-tokens/
+    database.dump        the records, from pg_dump --format=custom
+  volumes/
+    pagis-volume-<workspace_id>-<agent_id>.tar.gz
+```
+
+Only the owner can read a Backup. The script sets the destination to mode
+700 before a container writes into it. `pagis backup` gives each directory
+of `installation/` mode 700, and each file no permission for a group or for
+other users. The volume tarballs get the modes that the container gives
+them, but no other user can go through the destination to them.
+
+**The archive has no encryption.** It holds the private content of every
+Person:
+
+- `state/`: the memory repositories with their full history, the Artifacts,
+  the recordings, the screenshots, the Plugins and the Software. Pagis seals
+  only the secrets in it, for example `secrets.enc`.
+- `database.dump`: the records of every Person. Only the Credential secrets,
+  the one-time code seeds and the `brokered` refresh tokens in it are sealed.
+  Sessions and passwords are hashes.
+- The volume tarballs: the home of each Agent's Computer, with its files and
+  the browser profile of the Agent.
+
+[What Pagis encrypts](/data-and-privacy#what-pagis-encrypts) names each store.
+Encrypt the archive before it leaves the VM, and keep it apart from the Key
+File. For example, with age, where `<recipient>` is your age public key and
+`<identity>` is the age identity file that decrypts it:
+
+```bash
+# Encrypt the archive, and keep nightly.tar.age.
+sudo tar -C /var/backups/pagis -cf - nightly | age -r <recipient> > nightly.tar.age
+# Decrypt it again before a restore.
+age -d -i <identity> nightly.tar.age | sudo tar -C /var/backups/pagis -xf -
+```
+
+restic encrypts each repository, so a restic backup of the directory is also
+an encrypted copy. The clear archive stays on the disk of the VM until you
+remove it, so keep `/var/backups/pagis` on an encrypted disk too.
+
+Without containers, run
+`pagis backup <directory>` with the daemon stopped, and copy the Computer
+volumes yourself. On a Local Installation of the Client App,
+[Back up and restore](/client-app/backup) of the Client App names the
+`pagis` command and the steps.
+
+Three things are never in the archive:
+
+- **The Installation Key**, which seals `secrets.enc`. Keep the key where
+  you keep your other secrets. The Key File that a local installation
+  generates, `installation-key`, stays out of the archive too.
+- **The Client Credential.** On a local installation that file trades for
+  a Session of the Administrator, and an archive is copied and kept. It
+  stays with the machine that made it, and a restored state directory
+  writes a new one at its next boot. A server holds none.
+- **The Computer tokens**, `computer-tokens/`. The token of a Computer
+  opens its control port while that Computer runs, and the Computers run
+  on while the daemon is stopped. The daemon writes a new token at each
+  start of a Computer. After a restore, it does not adopt a running
+  Computer that has no token on the disk, and it starts that Computer
+  again at its next wake.
+
+To restore onto a new host, put `compose.yaml`, `egress.sh`, `Caddyfile`
+and `.env` in `deploy/` and the Key File in `deploy/secrets/`, on a machine
+that has no Pagis volumes, then run:
+
+```bash
+deploy/restore.sh /var/backups/pagis/nightly
+```
+
+The script restores the volumes in the archive and no others, and it
+refuses to start when a volume of that name already exists on the host.
+
+`pagis restore` refuses a state directory that holds an installation and a
+database that holds records, because two installations in one place are
+neither. It also refuses an archive of the other backend, so the archive
+of a server restores onto a Postgres database. The server that opens the
+restored data must be the release that the manifest names, or a newer one.

@@ -43,6 +43,10 @@ jobs:
     # The architecture that the runner does not run builds under
     # emulation, and the Computer image compiles wlroots and labwc.
     timeout-minutes: 360
+    # A release build writes the PostHog project into the daemon (ADR-0026).
+    env:
+      PAGIS_POSTHOG_PROJECT_ID: ${{ secrets.PAGIS_POSTHOG_PROJECT_ID }}
+      PAGIS_POSTHOG_TOKEN: ${{ secrets.PAGIS_POSTHOG_TOKEN }}
     permissions:
       contents: read
       packages: write
@@ -107,6 +111,10 @@ jobs:
     needs: images
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    # A release build writes the PostHog project into the daemon (ADR-0026).
+    env:
+      PAGIS_POSTHOG_PROJECT_ID: ${{ secrets.PAGIS_POSTHOG_PROJECT_ID }}
+      PAGIS_POSTHOG_TOKEN: ${{ secrets.PAGIS_POSTHOG_TOKEN }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -152,6 +160,10 @@ jobs:
     # (ADR-0025).
     runs-on: macos-latest
     timeout-minutes: 120
+    # A release build writes the PostHog project into the daemon (ADR-0026).
+    env:
+      PAGIS_POSTHOG_PROJECT_ID: ${{ secrets.PAGIS_POSTHOG_PROJECT_ID }}
+      PAGIS_POSTHOG_TOKEN: ${{ secrets.PAGIS_POSTHOG_TOKEN }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

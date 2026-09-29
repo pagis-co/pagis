@@ -1,0 +1,5 @@
+# Cloudflare reads this file from the export. Each page has a Markdown copy
+# for agents at its address with `.md` added. A status of 200 serves the
+# copy at that address, with no redirect.
+/index.md /llms.mdx/content.md 200
+/*.md /llms.mdx/:splat/content.md 200

@@ -4,7 +4,7 @@
 # This is the same daemon for a team's own VM, where nobody sits at the
 # machine: one image, one process, Postgres beside it, and a reverse
 # proxy in front. `docs/RELEASING-SERVER.md` holds the release matrix and
-# `docs/DEPLOYING-A-SERVER.md` holds the deployment.
+# https://docs.pagis.co/server holds the deployment.
 #
 #   docker buildx build -t ghcr.io/pagis-co/pagis-server:<version> .
 #   cargo xtask server-image
@@ -12,7 +12,6 @@
 # The image carries every program the daemon starts: `git` for memory
 # repacks and git Plugin installs, `gog` for Google Connections, and
 # `pg_dump` and `pg_restore` for `pagis backup` and `pagis restore`.
-# `docs/DEPLOYING-A-SERVER.md` lists them with what each one is for.
 #
 # A tag can move to other code, so each base image is pinned by tag and
 # digest (`cargo xtask pins --check`). Dependabot opens the pull requests
@@ -47,11 +46,17 @@ COPY --from=ui /src/ui/dist ui/dist
 # passes the immutable digest it resolved; a plain build keeps the
 # pinned tag of `pagis-versions`.
 ARG PAGIS_COMPUTER_IMAGE=""
+# The PostHog project a release build sends anonymous analytics to
+# (ADR-0026). A plain build has none, and its daemon sends nothing.
+ARG PAGIS_POSTHOG_PROJECT_ID=""
+ARG PAGIS_POSTHOG_TOKEN=""
 ENV CARGO_INCREMENTAL=0
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/src/target,sharing=locked \
     set -eux; \
     if [ -z "$PAGIS_COMPUTER_IMAGE" ]; then unset PAGIS_COMPUTER_IMAGE; fi; \
+    if [ -z "$PAGIS_POSTHOG_PROJECT_ID" ]; then unset PAGIS_POSTHOG_PROJECT_ID; fi; \
+    if [ -z "$PAGIS_POSTHOG_TOKEN" ]; then unset PAGIS_POSTHOG_TOKEN; fi; \
     cargo auditable build --release -p pagis; \
     cp target/release/pagis /usr/local/bin/pagis
 

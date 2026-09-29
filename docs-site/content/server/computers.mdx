@@ -1,0 +1,178 @@
+---
+title: Computers
+description: How the Computers of the Agents run on the VM, what they reach, and how to bound their disk.
+icon: Monitor
+---
+
+An Agent's Computer is a container the daemon starts on this machine's
+Docker host, from the Computer image of the release. The daemon pulls the
+image the first time an Agent wakes, so the VM needs a route to the
+registry. It compares the image's version label with its own pin and boots
+nothing on a mismatch.
+
+Each Computer gets a container, a volume and the Tenant Network of its
+Workspace, and the daemon reaches it on the VM's loopback. A Computer that
+stays in `starting` until it fails is the first thing to check against [Every service shares the VM's network namespace](/server/compose#every-service-shares-the-vms-network-namespace).
+
+## What a Computer reaches
+
+An Agent reads web pages, mail and documents that other people write, and
+text in them can steer it. So a Computer reaches the public internet and
+nothing private. The `egress` service writes these rules into the VM's
+firewall before the daemon starts:
+
+- **The public internet**: yes. An Agent browses and downloads.
+- **The Media Relay**: yes, its UDP range on the VM, which the pipeline
+  of each screen registers with.
+- **Name resolution**: yes, UDP and TCP port 53 to the resolvers that Docker
+  gives to containers, also when a resolver has a private or link-local
+  address.
+- **Its own Workspace's containers**: yes. The containers of another
+  Workspace: no, because Docker keeps two Tenant Networks apart.
+- **Any other address of the VM**: no. This includes SSH and every port
+  that a service of the VM binds on a network interface. When the public
+  address of the VM is on one of its own interfaces, it also includes the
+  proxy, so a Computer does not open this installation's public name.
+- **Link-local addresses** (`169.254.0.0/16`), which include the metadata
+  service of the cloud and with it the VM's cloud credentials: no.
+- **Private addresses** (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`,
+  `100.64.0.0/10`), which are the LAN or the VPC: no, except the blocks in
+  `PAGIS_COMPUTER_ALLOW`.
+
+`PAGIS_COMPUTER_ALLOW` in `.env` names the private destinations that a
+Computer reaches, as IPv4 addresses and CIDR blocks separated by commas:
+
+```bash
+PAGIS_COMPUTER_ALLOW=10.0.5.0/24,192.168.1.40
+```
+
+The list opens a destination on the LAN or in the VPC, on every port. It
+opens no address of the VM itself. After a change, run
+`docker compose up -d`, which starts the `egress` service again with the
+new list.
+
+The rules are in the VM's `DOCKER-USER` chain, which holds the traffic that
+the VM forwards, and in its `INPUT` chain, which holds the traffic to the
+VM itself. They match the traffic that comes from a user-defined Docker
+bridge. On this VM each such container is a Computer or the Plugin
+Computer, because every service of `compose.yaml` has host networking. The
+rules therefore hold the stdio servers of a Plugin, which run in the Plugin
+Computer. They do not hold an HTTP or SSE Plugin server: the daemon sends
+its requests from the VM's network ([The shape](/server#the-shape)). Root
+inside a Computer cannot remove them: they are rules of the VM, not of the
+container. They take reach away and give none: the traffic that they let
+through goes on to Docker's rules and to the rest of the VM's firewall. A
+Tenant Network has IPv6 off, so the IPv4 rules hold every address of a
+Computer.
+
+`egress.sh` writes its rules with the backend of `iptables` that holds
+Docker's `DOCKER-USER` chain, `nf_tables` or legacy. It stops with an error
+when the VM has no such chain, and the daemon does not start. Each run
+replaces the Pagis chains, `PAGIS-FORWARD` and `PAGIS-INPUT`, and their
+jumps, so a second run leaves one copy of each rule. To read what is in
+place:
+
+```bash
+docker compose logs egress
+sudo iptables -S PAGIS-FORWARD
+sudo iptables -S PAGIS-INPUT
+```
+
+A stop of the `egress` service leaves the rules in place. A boot of the VM
+clears them, and Docker then starts the service, which writes them again.
+
+## Give Docker a subnet for each Workspace
+
+The Tenant Network of a Workspace stays after its last Computer stops
+([ADR-0014](https://github.com/pagis-co/pagis/blob/main/docs/adr/0014-the-computer-is-pixels-and-pagis-owns-the-stream.md)), and each network takes one subnet from the address pools of the
+Docker daemon. The default pools hold about thirty bridge networks. When they
+are full, Docker refuses a new network with `all predefined address pools
+have been fully subnetted`, and the next Workspace that wakes a Computer
+stays in `starting` until it fails. A server with more Workspaces sets larger
+pools in `/etc/docker/daemon.json` and restarts Docker:
+
+```json
+{
+  "default-address-pools": [{ "base": "10.200.0.0/16", "size": 24 }]
+}
+```
+
+This pool holds 256 networks. Select a base that no network of the VM uses.
+
+## Bound a Computer's disk
+
+A Computer writes to two places on the VM's disk, and the daemon asks
+Docker to hold each one to a size. Each size is a setting of `config.toml`
+in gibibytes, and zero asks for no size:
+
+| Part | What it holds | Setting | Default |
+| --- | --- | --- | --- |
+| The volume at `/data` | The Agent's home and the browser profile. It stays when the Computer stops. | `[computer] volume_gb` | `10` |
+| The writable container layer | Every write outside `/data`, such as `/tmp` and the packages that `pagis-apt` installs. A stop removes it with the container. | `[computer] layer_gb` | `10` |
+
+Docker holds each part to its size only on this storage:
+
+- **The volume**: Docker's `local` volume driver holds a volume to a size
+  only where `/var/lib/docker` is on XFS mounted with `pquota`.
+- **The writable layer**: the `overlay2` storage driver holds the layer to a
+  size only where `/var/lib/docker` is on XFS mounted with `pquota`. Docker
+  documents the same option for the `btrfs` and `zfs` storage drivers. The
+  containerd image store holds the layer to no size. Docker Engine 29 and
+  later uses that store on a new installation.
+
+So one setup gives both bounds: `/var/lib/docker` on its own XFS filesystem
+with `pquota`, and the `overlay2` storage driver.
+
+```
+# /etc/fstab: the Docker data directory on its own XFS filesystem
+/dev/disk/by-label/docker  /var/lib/docker  xfs  defaults,pquota  0 2
+```
+
+When `docker info` shows `driver-type: io.containerd.snapshotter.v1` under
+`Storage Driver`, the containerd image store is on. Turn it off in
+`/etc/docker/daemon.json`, beside the other keys of that file, and restart
+Docker:
+
+```json
+{
+  "features": { "containerd-snapshotter": false }
+}
+```
+
+`docker info` then shows `Storage Driver: overlay2` and
+`Backing Filesystem: xfs`. Docker does not show the images of the other
+store, so the daemon pulls the Computer image again at the next wake.
+
+On every other host, the daemon makes the volume or the container without
+the size, logs one warning, and the Computer wakes. **Nothing then bounds
+that part of the disk, and one Person's Computer can fill the VM's disk for
+everybody.** Nothing bounds the volume on ext4, or on XFS without `pquota`.
+Nothing bounds the writable layer on ext4, on XFS without `pquota`, or under
+the containerd image store on any filesystem. The writable layer grows only
+while its Computer is awake: a stop removes the container, for example when
+the Computer sits idle, and the space comes back. The disk figure of the
+Desk and of the Administration Interface reports what the volumes hold. It
+bounds nothing.
+
+The Health view of the Administration Interface reports each answer:
+
+- `volume_quota`: `supported`, `unsupported`, or `unknown` while Docker does
+  not answer or `volume_gb` is zero. The daemon asks Docker with a probe
+  volume when it has no answer yet.
+- `container_quota`: `supported`, `unsupported`, or `unknown` until a
+  Computer wakes after the daemon starts, or when `layer_gb` is zero. The
+  daemon learns the answer from the container create of a wake and from the
+  image store that `docker info` names, and it makes no probe container.
+  Read it after the first Computer wakes.
+
+These statements come from the documentation and the source of Docker
+Engine 29, and from Docker Engine 29 under Colima with the containerd image
+store on ext4. There, Docker refuses a volume with a size (`quota size
+requested but no quota support`), and it creates a container with
+`--storage-opt size=100M` with no error but does not hold the layer to that
+size. `overlay2` on another filesystem refuses the layer size with
+`--storage-opt is supported only for overlay over xfs with 'pquota' mount option`.
+XFS with `pquota` is not tested on a VM.
+
+Any other failure of the volume create or the container create is a failure
+of the wake, and the Agent's Computer says so.

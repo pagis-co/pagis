@@ -1,0 +1,17 @@
+{
+  "title": "Pagis",
+  "pages": [
+    "---Get started---",
+    "index",
+    "quickstart",
+    "---Client App---",
+    "...client-app",
+    "---Headless Server---",
+    "...server",
+    "---Extend Pagis---",
+    "plugins",
+    "widgets",
+    "---Security---",
+    "data-and-privacy"
+  ]
+}

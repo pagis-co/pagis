@@ -1,0 +1,138 @@
+---
+title: Deploy with Compose
+description: The four services of the Compose deployment, their network, their volumes and the first start.
+icon: Container
+---
+
+## Start the server
+
+You need a Linux VM with Docker and Docker Compose, and a domain name that
+points to the VM. Replace `<release>` with the release that you install, for
+example `0.1.0`.
+
+```bash title="Terminal"
+git clone --depth 1 --branch v<release> https://github.com/pagis-co/pagis
+cd pagis/deploy
+mkdir -p secrets
+head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > secrets/pagis-secrets-key
+chmod 600 secrets/pagis-secrets-key
+cp .env.example .env         # fill in the domain, the address and the passwords
+docker compose up -d
+docker compose logs -f pagis
+```
+
+The compose file mounts the key at `/run/secrets/pagis-secrets-key`.
+Compose outside Swarm mounts the file as it is on the host, so the daemon
+sees the owner and the mode of `secrets/pagis-secrets-key`. The daemon
+refuses a key that a group or another user can read: keep the file at
+mode `600`.
+
+Then make the first Administrator ([The first Administrator](/server/administration#the-first-administrator)).
+
+## The files
+
+`deploy/` holds six files, and only `.env` is edited:
+
+| File | What it is |
+| --- | --- |
+| `compose.yaml` | The four services. Nothing in it is edited for a deployment. |
+| `.env.example` | Every setting, stated one time. Copy it to `.env` and fill it in. |
+| `Caddyfile` | The proxy, which holds the certificate. |
+| `egress.sh` | The egress rules of the Computers, which the `egress` service installs. |
+| `backup.sh` | The backup ([Backup and restore](/server/backup)). |
+| `restore.sh` | The restore ([Backup and restore](/server/backup)). |
+
+The four services:
+
+- **`db`**, `postgres:18-alpine`, pinned by digest, on the `pagis-database`
+  volume. It listens on loopback, so nothing off the VM reaches it.
+- **`egress`**, `rancher/klipper-lb`, pinned by digest, which is Alpine with
+  `iptables`. It runs `egress.sh`, which writes the egress rules of the
+  Computers into the VM's firewall ([What a Computer reaches](/server/computers#what-a-computer-reaches)). The
+  `pagis` service starts only after the rules are in place. The service then
+  stays up: Docker starts it again when the VM boots, and each start writes
+  the rules again. It has `NET_ADMIN` and no Docker socket.
+- **`pagis`**, the release's Headless Server image, on the VM's
+  `/var/lib/pagis`. It is the one service that receives the Docker socket,
+  because it is the one that starts Computers.
+- **`proxy`**, `caddy:2-alpine`, pinned by digest, which holds the
+  certificate and speaks TLS. It is the one service that binds a public
+  interface.
+
+`compose.yaml` names `postgres`, `klipper-lb` and `caddy` by tag and digest
+(`postgres:18-alpine@sha256:...`), so a server runs the bytes that its
+release was tested with, and a moved tag does not reach it. The `pagis`
+image takes the release in `PAGIS_VERSION`.
+
+## The `.env` names
+
+`compose.yaml` maps the `.env` names to the daemon's variables and to the
+`egress` service:
+
+| `.env` | Where it goes |
+| --- | --- |
+| `PAGIS_DOMAIN` | `PAGIS_PUBLIC_ORIGIN`, as `https://<PAGIS_DOMAIN>` |
+| `PAGIS_PUBLIC_IP` | `PAGIS_SCREEN_ADVERTISE_IP` |
+| `PAGIS_MEDIA_PORT_FIRST` | `PAGIS_SCREEN_MEDIA_PORT_FIRST`, and the range that the egress rules keep open |
+| `PAGIS_MEDIA_PORT_LAST` | `PAGIS_SCREEN_MEDIA_PORT_LAST`, and the range that the egress rules keep open |
+| `PAGIS_COMPUTER_ALLOW` | The `egress` service: the private destinations that a Computer reaches. Empty by default. |
+| `PAGIS_DATABASE_PASSWORD` | `PAGIS_DATABASE_URL`, and the `db` service's password |
+| `PAGIS_VERSION` | The image tag |
+
+`compose.yaml` sets the rest: `PAGIS_BIND=127.0.0.1`, `PAGIS_PORT=4400`,
+`PAGIS_TRUSTED_PROXY=127.0.0.1`, and the Administration Port on
+`127.0.0.1:4401`.
+
+## Every service shares the VM's network namespace
+
+Each service has `network_mode: host`, for one reason: **the daemon starts
+each Agent's Computer as a container of its own and reaches it on the
+Docker host's loopback.** A daemon with a network namespace of its own
+reaches none of them, and every Computer stops at "did not become healthy
+in time". Host networking also gives the Media Relay its UDP range
+directly, with no forwarder for each port. It is a Linux facility, so this
+image is for a Linux VM and not for Docker on a desktop. The `egress`
+service has host networking for a second reason: it writes the firewall of
+the VM, and the firewall is part of the VM's network namespace.
+
+Privacy is then a Bind Address rather than a published port:
+
+| Port | Binds | Who reaches it |
+| --- | --- | --- |
+| 443, 80 | Every interface | The team's browsers and Client Apps. The certificate lives here. |
+| 4400, the product port | `127.0.0.1` | The proxy, on the same loopback, and nobody else. |
+| 5432, Postgres | `127.0.0.1` | The daemon, and nobody else. |
+| 4401, the Administration Port | `127.0.0.1` | The Administrator, over an SSH tunnel. |
+| The Media Relay's UDP range | Every interface | The team's browsers, because media does not go through the proxy, and the Computers. Open exactly that range in the VM's firewall, and nothing else. |
+| None, the `egress` service | Nothing | Nobody. The service writes the egress rules, which close every port of the VM to the Computers except the Media Relay's range. |
+
+## The state directory has one path
+
+The state directory is the VM's `/var/lib/pagis`, mounted at
+`/var/lib/pagis` in the daemon's container, and not a named volume. **The
+daemon gives each Computer files from its state directory as bind mounts**:
+the screend token, and the checkout of each Plugin. Docker reads the source
+of a bind mount on the Docker host, not in the container that asks for it.
+The path is therefore the same in both places, or every Computer gets an
+empty directory in place of its token and stops at "did not get its access
+token".
+
+Only the owner of the state directory can read it. The daemon sets the
+directory to mode 700 at start, and the files that it writes give no
+permission to a group or to other users. The Plugin checkouts are the one
+exception, because a Computer reads them as a different user.
+
+## The volumes
+
+| Volume | What is in it | In a backup |
+| --- | --- | --- |
+| `/var/lib/pagis`, a directory on the VM | The state directory: `config.toml`, `secrets.enc`, `runtime-release`, `memory/<workspace_id>/`, `artifacts/`, `recordings/`, `screens/`, `gog/`, `plugins/`, `software/`, `computer-tokens/`, `logs/` | Yes, without the logs and `computer-tokens/` |
+| `pagis-database` | The Postgres cluster | As a dump, not as files |
+| `pagis-volume-<workspace_id>-<agent_id>` | One Agent's Computer home, made by the daemon | Yes, one tarball each |
+| `caddy-data`, `caddy-config` | The certificate and Caddy's state | No. Caddy gets a certificate again on a new host. |
+
+Pagis encrypts only the secrets in these volumes, for example `secrets.enc`.
+The rest of their content has no encryption. Put `/var/lib/pagis` and
+`/var/lib/docker`, which holds the Postgres cluster and the Computer
+volumes, on an encrypted disk
+([What Pagis encrypts](/data-and-privacy#what-pagis-encrypts)).

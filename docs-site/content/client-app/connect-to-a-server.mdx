@@ -1,0 +1,71 @@
+---
+title: Connect to a server
+description: How the Client App connects to a Pagis server, and the trust that a connection gives the server.
+icon: Globe
+---
+
+<Callout type="warn" title="Connect only to a server you trust">
+When you connect to a server, this computer becomes a Host of that server.
+The server and its Administrator can then run commands on this computer, with
+the same access as you. Connect only to a server whose Administrator you
+trust.
+</Callout>
+
+## Set up the connection
+
+"Connect to a Pagis server" shows the Server address field, and the setup
+page takes that address and nothing else: no email address and no password.
+It checks the address before it sends it: an empty or malformed address gets
+a message under the field, and the field takes the focus. The main process
+checks the request again and refuses a request with no address in words for
+a person. The client installs nothing, supervises nothing and keeps no key.
+It checks that a Pagis server answers at the address and that its release is
+inside the client's Compatibility Range: the client's own version and every
+later version that promises the same API. When the server has no
+Administrator yet, the client says so and names the Administration Interface
+that finishes setup. Each of these problems shows under the field, and the
+setup window stays. When the checks pass, the client keeps the origin in
+`userData/server.json`, closes the setup window and opens the product window
+at the server's origin. There the Product App shows its own sign-in page, and
+the Person signs in on it, as in the Slack and Mattermost clients. When the
+cookie jar of the product window holds a Session of the server, the client
+registers this machine as a Host of the server.
+
+## Start the Client App again
+
+The client checks the range again on every start and refuses a server outside
+it, with a message that says which end to update. The next start opens the
+same server, signed in while the Session of the last sign-in lasts. When that
+server does not answer, or its release is outside the range, the setup page
+says so and offers "Try again" and "Choose another setup". It offers no
+repair, because the client installed nothing. Quit stops no process, because
+the client started none.
+
+## Only over https
+
+**The client connects to a server only over `https://`.** It refuses an
+`http://` address before it sends a request, unless the host is loopback
+(`127.0.0.1`, `[::1]` or `localhost`), such as an SSH tunnel. The refusal
+names the https setups of [Serve several People](/client-app/several-people): Caddy,
+Tailscale Serve and Cloudflare Tunnel. A `server.json` that holds an
+`http://` origin of another computer fails at the start, and the setup page
+shows the refusal. The client follows no redirect before the product window
+opens, and uses the TLS certificate check of the platform. On an `https://`
+origin, its cookie jar holds the Session cookie as `Secure`, also where the
+server set it without `Secure` ([ADR-0024](https://github.com/pagis-co/pagis/blob/main/docs/adr/0024-a-server-serves-a-network.md)).
+
+## The trust of a connection
+
+When you connect to a server, this computer becomes a Host of that server.
+The server and its Administrator can then run commands on this computer, with
+the same access as you. Under "Connect to a Pagis server", the setup page states this in
+one line under the Server address field: "Connect only to a server you
+trust." The client registers as a Host of the
+signed-in Person and runs every `dispatch` frame the server sends, as the OS
+user who started it. The approval, the effect class, the allow rules for each
+machine and the audit row all live on the server, and the client applies no
+check of its own, on purpose: a second confirmation here would ask a question
+the server's approval card already asked, and it would not change the trust.
+So a person who takes control of the server can also run commands on this
+computer ([ADR-0015](https://github.com/pagis-co/pagis/blob/main/docs/adr/0015-a-host-action-runs-on-a-present-client.md)). The client trusts the server that TLS authenticates, and
+it registers as a Host on no clear-text connection to another machine.

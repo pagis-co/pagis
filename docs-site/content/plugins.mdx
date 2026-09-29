@@ -1,4 +1,8 @@
-# Write a Plugin for Pagis
+---
+title: Write a Plugin
+description: Package Skills and MCP servers as a Plugin that an Administrator installs for the Org.
+icon: Puzzle
+---
 
 A Plugin is a package of Skills and MCP servers in the agent-plugins.org
 1.0.0 format. An Administrator installs it for the Org from a git
@@ -6,11 +10,11 @@ repository or an upload, in the Administration Interface on the
 Administration Port. Each person then grants it to the Agents of their
 own Workspace that may use it. Each Workspace runs the stdio servers of
 the Plugin in its own Plugin Computer, and the daemon sends the requests
-to its HTTP and SSE servers. This guide is the author's side: what the
+to its HTTP and SSE servers. This page is the author's side: what the
 package holds, what Pagis accepts, what a server reaches, and how a Skill
 reaches an Agent.
 
-Read `docs/adr/0017-a-plugin-consumes-connections.md` for the decisions
+Read [ADR-0017](https://github.com/pagis-co/pagis/blob/main/docs/adr/0017-a-plugin-consumes-connections.md) for the decisions
 behind the rules below.
 
 ## The package
@@ -77,7 +81,7 @@ binding leaves the Plugin disabled until the Administrator binds it.
 A `connection` field binds an Installation Connection of the Org. The
 Grant that lets an Agent use an Installation Connection through a
 Plugin is not built, so a Plugin with a bound `connection` field does
-not pass dispatch (ADR-0017).
+not pass dispatch ([ADR-0017](https://github.com/pagis-co/pagis/blob/main/docs/adr/0017-a-plugin-consumes-connections.md)).
 
 ### tool effects
 
@@ -113,7 +117,7 @@ kind of field:
   `command`, in `args`, in `cwd` or in a URL, because those are visible
   where an environment variable and a header are not. An `env` value is
   not private to its server: every other stdio server in the same Plugin
-  Computer can read it ("Reach");
+  Computer can read it ([Reach](#reach));
 - a `string`, `number` or `boolean` field may appear in any of them.
 
 `${PLUGIN_ROOT}` and `${PLUGIN_DATA}` are the specification's own
@@ -146,8 +150,7 @@ of that container, and nothing of the daemon. On the Headless Server,
 the egress policy of the Computers applies to it: it reaches the public
 internet and the containers of its own Workspace, and no other address
 of the VM, no link-local address and no private address outside
-`PAGIS_COMPUTER_ALLOW` (`docs/DEPLOYING-A-SERVER.md`, "What a Computer
-reaches"). A Local Installation has no egress policy.
+`PAGIS_COMPUTER_ALLOW` ([What a Computer reaches](/server/computers#what-a-computer-reaches)). A Local Installation has no egress policy.
 
 Every stdio server of a Workspace runs as that same uid, whatever Plugin
 it belongs to. The Plugin Computer has no uid for each Plugin, and all
@@ -237,7 +240,7 @@ a different plugin is refused.
 
 The installed Plugins are not isolated from each other. The stdio
 servers of a Workspace share one uid, so each one can read the secrets
-and the data of the others ("Reach"). An Administrator therefore
+and the data of the others ([Reach](#reach)). An Administrator therefore
 installs together only Plugins that they trust together. The install of
 an HTTP or SSE Plugin trusts its author and the operator of its remote
 server with the reach of the daemon's network.

@@ -81,7 +81,7 @@ export function serverOrigin(typed: string): string {
     throw new Error(
       'Pagis connects to a server on another computer only over https://. ' +
       'Put TLS in front of the server with Caddy, Tailscale Serve or Cloudflare Tunnel, ' +
-      'as docs/DEPLOYING-A-SERVER.md shows, then type its https:// address.',
+      'as docs.pagis.co/client-app/several-people shows, then type its https:// address.',
     )
   }
   return `${url.protocol}//${url.host}/`

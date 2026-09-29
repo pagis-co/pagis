@@ -4,7 +4,7 @@
 //! terminates TLS. These tests bind one of this machine's own non-
 //! loopback addresses and drive sign-in through a small forwarding proxy
 //! that sets `X-Forwarded-For` and `X-Forwarded-Proto`, the way Caddy and
-//! nginx do (`docs/DEPLOYING-A-SERVER.md`).
+//! nginx do (https://docs.pagis.co/server/proxy).
 //!
 //! The machine needs a non-loopback address for that. A machine with no
 //! default route has none, and each test says why it did not run instead

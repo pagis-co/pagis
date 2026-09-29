@@ -15,15 +15,14 @@ import { Badge, Button, Frame, Input, Row, Switch } from '../../primitives'
 import { errorMessage, useDisableMultiUser, useEnableMultiUser } from '../../queries'
 import { type RunningDaemon, restartMessage, useDaemonRestart } from './restart'
 
-/** The deployment document's section with the Caddy, Tailscale Serve and
- *  Cloudflare Tunnel setup for a local installation. */
-export const SETUP_GUIDE =
-  'https://github.com/pagis-co/pagis/blob/main/docs/DEPLOYING-A-SERVER.md#a-local-installation-that-serves-several-people'
+/** The documentation page with the Caddy, Tailscale Serve and Cloudflare
+ *  Tunnel setup for a local installation. */
+export const SETUP_GUIDE = 'https://docs.pagis.co/client-app/several-people'
 
 /** The section that names the Media Relay setting of each proxy and
  *  tunnel, and the TURN variant for a tunnel that carries no UDP. */
 export const SCREEN_GUIDE =
-  'https://github.com/pagis-co/pagis/blob/main/docs/DEPLOYING-A-SERVER.md#the-live-screen-for-other-people'
+  'https://docs.pagis.co/client-app/several-people#the-live-screen-for-other-people'
 
 /** The live screen goes to a browser over UDP at the Media Relay's
  *  address, not through the proxy or tunnel, so the mode alone does not

@@ -25,11 +25,11 @@ its Public Origin derives from the Bind Address and the port.
 The daemon terminates no TLS. A team on a VM already runs a reverse proxy, and
 a certificate lifecycle is a product of its own. The proxy holds the
 certificate, forwards WebSocket upgrades, and reports the browser's address in
-`X-Forwarded-For` and scheme in `X-Forwarded-Proto`.
-`docs/DEPLOYING-A-SERVER.md` holds matching Caddy and nginx configuration. The
-daemon believes both headers only from the Trusted Proxy's address and reads
-the last `X-Forwarded-For` entry, the one the request could not write. Without
-a Trusted Proxy it reads neither.
+`X-Forwarded-For` and scheme in `X-Forwarded-Proto`. The Proxy page of the
+documentation site (https://docs.pagis.co/server/proxy) holds matching Caddy
+and nginx configuration. The daemon believes both headers only from the
+Trusted Proxy's address and reads the last `X-Forwarded-For` entry, the one the
+request could not write. Without a Trusted Proxy it reads neither.
 
 The Session cookie carries `Secure` where the browser spoke TLS and not where
 it did not, because a browser refuses a `Secure` cookie from a plain-HTTP
@@ -55,8 +55,8 @@ other serves People on other machines. The Bind Address does not decide this,
 because the compose deployment binds loopback with a proxy on the same host.
 
 A local installation that serves several People runs on SQLite, and they reach
-it through the owner's proxy or tunnel. `docs/DEPLOYING-A-SERVER.md` holds the
-Caddy, Tailscale Serve and Cloudflare Tunnel setups.
+it through the owner's proxy or tunnel. https://docs.pagis.co/client-app/several-people holds
+the Caddy, Tailscale Serve and Cloudflare Tunnel setups.
 
 The Product App works at an `http://` Public Origin, and `https://` is the
 recommended one. The Product App needs no secure-context API: it makes ids
@@ -217,7 +217,7 @@ The Headless Server is the same daemon and Product App as the Client App's
 Server Runtime, as a Linux container image. It is not notarized; its trust
 root is the registry, the digest the deployment pins, and the provenance
 attestation of that digest.
-`docs/DEPLOYING-A-SERVER.md` states the deployment.
+https://docs.pagis.co/server states the deployment.
 
 The image starts the daemon without `--local`, so it is a server and holds no
 Client Credential, and it sets `PAGIS_REQUIRE_PUBLIC_ORIGIN`: the daemon then

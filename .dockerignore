@@ -9,6 +9,7 @@ ui/dist/
 desktop/node_modules/
 desktop/release/
 desktop/dist/
+docs-site/
 computer/screend/target/
 **/*.log
 **/.DS_Store

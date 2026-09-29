@@ -1,0 +1,37 @@
+---
+title: Linux
+description: The packages, the Installation Key, the tray and the download check of the Client App on Linux.
+icon: Terminal
+---
+
+- **Two packages.** The deb installs to `/opt/Pagis` with the command
+  `pagis-client`, because `pagis` is the server's own command. It also
+  installs an AppArmor profile, which the Chromium sandbox needs on Ubuntu
+  24.04 and later. The AppImage runs from where it is saved, and on Ubuntu
+  24.04 and later it needs an AppArmor profile that it does not bring, so
+  use the deb there.
+- **The Installation Key.** The server this client starts keeps its key in
+  the desktop keyring through the Secret Service (GNOME Keyring, KWallet,
+  KeePassXC). Where no Secret Service answers, the server generates the Key
+  File `~/.pagis/installation-key`, mode 600, and its log says which one it
+  uses ([ADR-0013](https://github.com/pagis-co/pagis/blob/main/docs/adr/0013-the-daemon-types-secrets-the-model-never-sees.md)).
+- **The tray.** The tray item shows in a status area that speaks
+  StatusNotifierItem: KDE Plasma, and GNOME with the AppIndicator extension,
+  which Ubuntu turns on. A click there opens the menu. On a desktop with no
+  status area there is no item: open Pagis from the application launcher,
+  and the running client shows its window.
+- **Open at login** writes `~/.config/autostart/pagis-client.desktop`. From
+  an AppImage, the entry starts the AppImage file.
+- **One client.** A second start shows the window of the running client and
+  quits, as on macOS.
+- **Verify a download.** The release lists the SHA-256 of the four Linux
+  packages in `Pagis-<release>-linux.SHA256SUMS`, signed by the Pagis release
+  key in `Pagis-<release>-linux.SHA256SUMS.asc`. The public key is
+  [`release-key.asc`](https://github.com/pagis-co/pagis/blob/main/docs/release-key.asc):
+
+  ```bash
+  curl -fsSLO https://raw.githubusercontent.com/pagis-co/pagis/main/docs/release-key.asc
+  gpg --import release-key.asc
+  gpg --verify Pagis-0.1.0-linux.SHA256SUMS.asc Pagis-0.1.0-linux.SHA256SUMS
+  sha256sum --ignore-missing -c Pagis-0.1.0-linux.SHA256SUMS
+  ```

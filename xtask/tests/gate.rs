@@ -15,10 +15,11 @@ use xtask::{
 use crate::support::workspace_root;
 
 /// The steps of the advisory checks.
-const ADVISORY_STEPS: [&str; 4] = [
+const ADVISORY_STEPS: [&str; 5] = [
     "cargo-deny",
     "ui-npm-audit",
     "desktop-npm-audit",
+    "docs-site-npm-audit",
     "image-scan",
 ];
 
@@ -121,6 +122,30 @@ fn dev_plan_runs_the_ui_checks_and_the_secret_scan_for_a_ui_change() {
         .flat_map(|lane| lane.steps.iter().map(|step| step.name))
         .collect();
     assert_eq!(names, ["ui-deps", "ui-typecheck", "ui-test", "secret-scan"]);
+}
+
+/// A page of the documentation site is MDX that the build compiles, so a
+/// change to the content runs the checks and the build of the site.
+#[test]
+fn dev_plan_runs_the_docs_site_checks_and_the_secret_scan_for_a_docs_site_change() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_package_json(
+        tmp.path(),
+        "docs-site",
+        &["typecheck", "test", "build", "test:export"],
+    );
+    let lanes = dev_lanes(tmp.path(), &["docs-site/content/index.mdx".into()], false).unwrap();
+    assert_eq!(
+        step_names(&lanes),
+        [
+            "docs-site-deps",
+            "docs-site-typecheck",
+            "docs-site-test",
+            "docs-site-build",
+            "docs-site-export",
+            "secret-scan"
+        ]
+    );
 }
 
 #[test]
@@ -334,6 +359,11 @@ fn plan_lists_every_gate_step_in_order() {
             "desktop-deps",
             "desktop-typecheck",
             "desktop-test",
+            "docs-site-deps",
+            "docs-site-typecheck",
+            "docs-site-test",
+            "docs-site-build",
+            "docs-site-export",
             "secret-scan",
         ]
     );
@@ -585,6 +615,52 @@ fn plan_skips_desktop_steps_when_desktop_is_absent() {
         assert!(
             matches!(step.action, Action::Skip(_)),
             "step {name} must skip without desktop/"
+        );
+    }
+}
+
+#[test]
+fn plan_skips_docs_site_steps_when_docs_site_is_absent() {
+    let tmp = tempfile::tempdir().unwrap();
+    let steps = plan(tmp.path(), true);
+    for name in [
+        "docs-site-deps",
+        "docs-site-typecheck",
+        "docs-site-test",
+        "docs-site-build",
+        "docs-site-export",
+    ] {
+        let step = steps.iter().find(|s| s.name == name).unwrap();
+        assert!(
+            matches!(step.action, Action::Skip(_)),
+            "step {name} must skip without docs-site/"
+        );
+    }
+}
+
+#[test]
+fn plan_runs_the_docs_site_steps_whose_scripts_are_declared() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_package_json(
+        tmp.path(),
+        "docs-site",
+        &["typecheck", "test", "build", "test:export"],
+    );
+    let steps = plan(tmp.path(), true);
+    for (name, script) in [
+        ("docs-site-typecheck", "typecheck"),
+        ("docs-site-test", "test"),
+        ("docs-site-build", "build"),
+        ("docs-site-export", "test:export"),
+    ] {
+        let step = steps.iter().find(|s| s.name == name).unwrap();
+        let Action::Run(cmds) = &step.action else {
+            panic!("{name} must run");
+        };
+        assert_eq!(cmds[0].args, ["run", script]);
+        assert_eq!(
+            cmds[0].cwd.as_deref(),
+            Some(tmp.path().join("docs-site").as_path())
         );
     }
 }
@@ -867,6 +943,11 @@ fn full_lanes_keep_every_cargo_consumer_in_one_lane() {
                     "desktop-deps",
                     "desktop-typecheck",
                     "desktop-test",
+                    "docs-site-deps",
+                    "docs-site-typecheck",
+                    "docs-site-test",
+                    "docs-site-build",
+                    "docs-site-export",
                 ]
             ),
             ("secrets", vec!["secret-scan"]),

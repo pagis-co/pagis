@@ -14,7 +14,7 @@
 #
 # The server that opens restored data must be the release the archive
 # names or newer: the release marker is one-way (ADR-0025).
-# `docs/DEPLOYING-A-SERVER.md` holds the procedure.
+# https://docs.pagis.co/server/backup holds the procedure.
 set -eu
 
 if [ $# -ne 1 ]; then

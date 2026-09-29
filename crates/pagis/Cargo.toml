@@ -16,6 +16,7 @@ clap.workspace = true
 iana-time-zone.workspace = true
 open.workspace = true
 pagis-agent.workspace = true
+pagis-analytics.workspace = true
 pagis-audit.workspace = true
 pagis-broker.workspace = true
 pagis-computer.workspace = true
