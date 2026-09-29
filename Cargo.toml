@@ -4,6 +4,7 @@ members = [
     "crates/llm-router",
     "crates/pagis",
     "crates/pagis-agent",
+    "crates/pagis-analytics",
     "crates/pagis-broker",
     "crates/pagis-computer",
     "crates/pagis-connect",
@@ -38,6 +39,7 @@ license = "MIT"
 [workspace.dependencies]
 pagis = { path = "crates/pagis" }
 pagis-agent = { path = "crates/pagis-agent" }
+pagis-analytics = { path = "crates/pagis-analytics" }
 pagis-broker = { path = "crates/pagis-broker" }
 pagis-computer = { path = "crates/pagis-computer" }
 pagis-connect = { path = "crates/pagis-connect" }

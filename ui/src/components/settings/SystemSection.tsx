@@ -1,6 +1,6 @@
 // The installation settings (ADR-0024): the daemon's three settings in a
 // two-column form, "Save and restart", the multi-user mode, the Docker
-// probe row, and About.
+// probe row, the anonymous analytics (ADR-0026), and About.
 // The installation's setup of each provider is the Providers view.
 //
 // They answer on the administration port alone, so the Administration
@@ -16,6 +16,7 @@ import {
   useSystemSettings,
   useSaveSystemSettings,
 } from '../../queries'
+import { Analytics } from './Analytics'
 import { MultiUser } from './MultiUser'
 import { restartMessage, useDaemonRestart } from './restart'
 
@@ -168,6 +169,9 @@ function SystemForm({ api, settings }: { api: ApiClient; settings: SystemSetting
       <Frame>
         <DockerRow docker={settings.docker} api={api} />
       </Frame>
+
+      <SectionLabel>Analytics</SectionLabel>
+      <Analytics api={api} analytics={settings.analytics} />
 
       <SectionLabel>About</SectionLabel>
       <Frame>

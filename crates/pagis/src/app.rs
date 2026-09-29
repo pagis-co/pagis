@@ -151,6 +151,10 @@ pub struct AppOptions {
     /// `main` cancels it when the daemon stops; a test daemon cancels it
     /// when it restarts and when it drops.
     pub cancel: CancellationToken,
+    /// Where the daemon sends anonymous analytics, or why it sends
+    /// none (ADR-0026). Production reads the project this build holds;
+    /// a test daemon sends nothing unless a test points it at a fake.
+    pub analytics: crate::analytics::AnalyticsOptions,
 }
 
 /// The variable a supervisor sets on the daemon it starts again after a
@@ -218,6 +222,7 @@ impl AppOptions {
             password_verifier: Arc::new(pagis_server::PasswordVerifier::argon2()),
             clock: Arc::new(pagis_core::SystemClock),
             cancel: CancellationToken::new(),
+            analytics: crate::analytics::AnalyticsOptions::production(),
         })
     }
 }
@@ -266,14 +271,14 @@ pub async fn app(booted: &Booted, options: AppOptions) -> anyhow::Result<Interfa
     // The Org's Workspace, which no person owns. It holds the installed
     // Plugins (ADR-0017) and the Installation Connections, and every
     // person reads them from here.
-    let org_workspace_id = stores
+    let org = stores
         .orgs
         .list()
         .await?
         .into_iter()
         .next()
-        .ok_or_else(|| anyhow::anyhow!("no org; boot seeding failed"))?
-        .workspace_id;
+        .ok_or_else(|| anyhow::anyhow!("no org; boot seeding failed"))?;
+    let org_workspace_id = org.workspace_id.clone();
 
     // One ring-wrapped bus for the server and the agent loop, so every
     // published event is resumable over `last_seq`.
@@ -1119,6 +1124,27 @@ pub async fn app(booted: &Booted, options: AppOptions) -> anyhow::Result<Interfa
         options.cancel.clone(),
     );
 
+    let analytics_blocked = spawn_analytics(
+        booted,
+        options.analytics,
+        crate::analytics::InstallationSource {
+            system: Arc::clone(&options.system),
+            stores: stores.clone(),
+            org_id: org.id.clone(),
+            installation: match booted.installation() {
+                crate::Installation::Local => pagis_analytics::InstallationKind::Local,
+                crate::Installation::Server => pagis_analytics::InstallationKind::Server,
+            },
+            storage: match booted.config.database.url() {
+                Some(_) => pagis_analytics::StorageBackend::Postgres,
+                None => pagis_analytics::StorageBackend::Sqlite,
+            },
+            multi_user: !pagis_server::origin_host_is_loopback(&options.public_origin),
+            docker_discovery: Arc::clone(&options.docker_discovery),
+        },
+        options.cancel.clone(),
+    );
+
     let state = AppState {
         bus,
         channels,
@@ -1184,6 +1210,7 @@ pub async fn app(booted: &Booted, options: AppOptions) -> anyhow::Result<Interfa
         port_override: options.port_override,
         supervised: options.supervised,
         started_at: pagis_core::now_ms(),
+        analytics_blocked,
         public_origin: options.public_origin,
         // The owner's Client App and the Sign-In Link open a local
         // installation at this origin, whatever the Public Origin names
@@ -1233,6 +1260,46 @@ pub async fn app(booted: &Booted, options: AppOptions) -> anyhow::Result<Interfa
         interfaces.administration = interfaces.administration.layer(guard());
     }
     Ok(interfaces)
+}
+
+/// Start the analytics task of a daemon that may send (ADR-0026), and
+/// answer why the daemon sends nothing otherwise. The task runs apart
+/// from everything else, and nothing waits on it.
+fn spawn_analytics(
+    booted: &Booted,
+    analytics: crate::analytics::AnalyticsOptions,
+    source: crate::analytics::InstallationSource,
+    cancel: CancellationToken,
+) -> Option<pagis_analytics::Blocked> {
+    let project = match analytics.destination {
+        Ok(project) => project,
+        Err(blocked) => {
+            tracing::debug!(?blocked, "this daemon sends no analytics");
+            return Some(blocked);
+        }
+    };
+    match pagis_analytics::Analytics::new(
+        project,
+        Arc::new(source),
+        booted.home.clone(),
+        pagis_server::VERSION,
+    ) {
+        Ok(task) => {
+            tracing::info!(
+                "this release build sends anonymous analytics once a day while the Analytics \
+                 System Setting is on; DO_NOT_TRACK=1 stops them"
+            );
+            task.with_timing(analytics.first_after, analytics.check_every)
+                .spawn(cancel);
+        }
+        Err(error) => {
+            tracing::warn!(
+                error = format!("{error:#}"),
+                "the analytics task did not start"
+            );
+        }
+    }
+    None
 }
 
 /// Settle the purchase intents that outlived the last run. It happens

@@ -199,6 +199,10 @@ pub struct TestDaemonOptions {
     /// The default is the machine's wall clock; the evaluation
     /// driver injects the fixture clock of the chronology it replays.
     pub clock: Arc<dyn pagis_core::Clock>,
+    /// Where the daemon sends analytics. The default sends nothing, as a
+    /// build from source does; the analytics test points it at a fake
+    /// PostHog.
+    pub analytics: pagis::AnalyticsOptions,
 }
 
 impl Default for TestDaemonOptions {
@@ -258,6 +262,7 @@ impl Default for TestDaemonOptions {
             ))),
             password_verifier: Arc::new(pagis_server::PasswordVerifier::argon2()),
             clock: Arc::new(pagis_core::SystemClock),
+            analytics: pagis::AnalyticsOptions::off(),
         }
     }
 }
@@ -516,6 +521,7 @@ impl TestDaemon {
                 password_verifier: options.password_verifier,
                 clock: options.clock,
                 cancel: cancel.clone(),
+                analytics: options.analytics,
             },
         )
         .await

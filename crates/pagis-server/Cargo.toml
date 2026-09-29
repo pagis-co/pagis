@@ -17,6 +17,7 @@ sha2.workspace = true
 hmac.workspace = true
 hex.workspace = true
 pagis-agent.workspace = true
+pagis-analytics.workspace = true
 llm-router.workspace = true
 pagis-broker.workspace = true
 pagis-computer.workspace = true

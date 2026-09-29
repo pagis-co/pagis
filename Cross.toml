@@ -1,2 +1,7 @@
 [build.env]
-passthrough = ["PAGIS_COMPUTER_IMAGE"]
+passthrough = [
+    "PAGIS_COMPUTER_IMAGE",
+    # The PostHog project of a release build (ADR-0026).
+    "PAGIS_POSTHOG_PROJECT_ID",
+    "PAGIS_POSTHOG_TOKEN",
+]

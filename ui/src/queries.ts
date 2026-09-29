@@ -2649,6 +2649,19 @@ export function useDisableMultiUser(api: ApiClient) {
   });
 }
 
+/** Turn the anonymous analytics on or off (ADR-0026). The daemon reads
+ *  the setting at each check, so no restart is needed. */
+export function useSetAnalytics(api: ApiClient) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (enabled: boolean) =>
+      unwrap(api.PUT("/api/v1/settings/system/analytics", { body: { enabled } })),
+    onSuccess: (saved) => {
+      queryClient.setQueryData(systemSettingsKey, saved.settings);
+    },
+  });
+}
+
 /** "Probe again": the daemon pings every candidate now. */
 export function useProbeDocker(api: ApiClient) {
   const queryClient = useQueryClient();

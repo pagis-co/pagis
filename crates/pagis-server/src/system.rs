@@ -8,6 +8,10 @@
 //! machines reach it through the owner's proxy or tunnel. The mode is
 //! derived from the Public Origin, so no flag of its own is stored.
 //!
+//! The same view switches the anonymous analytics of the installation
+//! (ADR-0026) on and off. The change takes effect at the next check of
+//! the analytics task, with no restart.
+//!
 //! Every route here answers on the Administration Port alone and takes
 //! the [`Administrator`] extractor: a Member reads nothing of the
 //! installation and changes nothing of it.
@@ -47,6 +51,8 @@ pub struct SystemConfig {
     /// The Docker endpoint the user typed, which wins over discovery.
     pub docker_endpoint: Option<String>,
     pub log_level: String,
+    /// Whether a release build sends anonymous analytics (ADR-0026).
+    pub analytics: bool,
 }
 
 /// The network settings of an installation in the multi-user mode
@@ -233,6 +239,37 @@ impl From<&ScreenRelay> for ScreenDto {
     }
 }
 
+/// Why a daemon sends no analytics whatever the setting says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AnalyticsBlockedDto {
+    /// The build holds no PostHog project: a build from source or a
+    /// development build.
+    Build,
+    /// The environment of the daemon sets `DO_NOT_TRACK`.
+    DoNotTrack,
+}
+
+impl From<pagis_analytics::Blocked> for AnalyticsBlockedDto {
+    fn from(blocked: pagis_analytics::Blocked) -> Self {
+        match blocked {
+            pagis_analytics::Blocked::Build => Self::Build,
+            pagis_analytics::Blocked::DoNotTrack => Self::DoNotTrack,
+        }
+    }
+}
+
+/// The anonymous analytics of the installation (ADR-0026).
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AnalyticsDto {
+    /// The System Setting: whether the Administrator lets the daemon
+    /// send. On by default.
+    pub enabled: bool,
+    /// Why the daemon sends nothing whatever `enabled` says, or null
+    /// when it sends while `enabled` is true.
+    pub blocked: Option<AnalyticsBlockedDto>,
+}
+
 /// Every System Setting in one read.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct SystemSettingsDto {
@@ -264,6 +301,7 @@ pub struct SystemSettingsDto {
     /// The Media Relay the running daemon serves the live screen
     /// through. A change to `[screen]` takes effect at the next start.
     pub screen: ScreenDto,
+    pub analytics: AnalyticsDto,
 }
 
 /// The saved settings, and whether they take effect only after a
@@ -283,6 +321,12 @@ pub struct UpdateSystemSettingsRequest {
     /// the endpoint before it saves.
     pub docker_endpoint: Option<String>,
     pub log_level: String,
+}
+
+/// Turn the anonymous analytics on or off.
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct SetAnalyticsRequest {
+    pub enabled: bool,
 }
 
 /// Turn the multi-user mode on.
@@ -367,6 +411,10 @@ async fn settings_dto(
         docker: report.into(),
         multi_user: multi_user_dto(state)?,
         screen: (&state.screen).into(),
+        analytics: AnalyticsDto {
+            enabled: config.analytics,
+            blocked: state.analytics_blocked.map(Into::into),
+        },
     })
 }
 
@@ -430,6 +478,7 @@ pub async fn set_system_settings(
         port: request.port,
         docker_endpoint,
         log_level,
+        analytics: current.analytics,
     };
     state.system.write(&config).map_err(|error| {
         tracing::error!(%error, "cannot write the config file");
@@ -659,6 +708,44 @@ pub async fn disable_multi_user(
 ) -> Result<Json<SavedSystemSettingsDto>, ApiError> {
     require_local(&state)?;
     Ok(Json(switch_multi_user(&state, None).await?))
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/v1/settings/system/analytics",
+    request_body = SetAnalyticsRequest,
+    responses(
+        (status = 200, body = SavedSystemSettingsDto),
+        (status = 401, body = crate::error::ErrorBody),
+        (status = 403, body = crate::error::ErrorBody),
+    )
+)]
+/// Turn the anonymous analytics of the installation on or off
+/// (ADR-0026). The analytics task reads the setting at each check, so
+/// the change needs no restart.
+pub async fn set_analytics(
+    State(state): State<Arc<AppState>>,
+    _administrator: Administrator,
+    Json(request): Json<SetAnalyticsRequest>,
+) -> Result<Json<SavedSystemSettingsDto>, ApiError> {
+    let mut config = state.system.read().map_err(|error| {
+        tracing::error!(%error, "cannot read the config file");
+        ApiError::internal()
+    })?;
+    config.analytics = request.enabled;
+    state.system.write(&config).map_err(|error| {
+        tracing::error!(%error, "cannot write the config file");
+        ApiError::internal()
+    })?;
+    tracing::info!(
+        enabled = request.enabled,
+        "the administrator switched the analytics"
+    );
+    let report = state.docker_discovery.probe().await;
+    Ok(Json(SavedSystemSettingsDto {
+        settings: settings_dto(&state, config, report).await?,
+        restart_required: false,
+    }))
 }
 
 #[utoipa::path(

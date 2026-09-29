@@ -22,6 +22,14 @@ Every route on it needs a signed-in Administrator, except the Server Setup
 route and the password sign-in (ADR-0024).
 _Avoid_: admin port, management port
 
+### Analytics
+The anonymous usage data that a release build of the daemon sends to
+PostHog: the first start, an upgrade, and one Installation Report each
+day, keyed by the Installation ID. Every property is an enum, a number or
+a flag. A build from source sends none. The Analytics System Setting and
+`DO_NOT_TRACK` stop it (ADR-0026).
+_Avoid_: telemetry, tracking, diagnostics
+
 ### Backup
 A consistent copy of one installation, taken while the daemon is stopped:
 the State Directory and the records, and on a Headless Server one tarball
@@ -76,6 +84,18 @@ Origin whose host is not loopback or without a Postgres database URL, and
 it holds no Client Credential. Its trust root is the registry and the
 digest that the deployment pins (ADR-0024).
 _Avoid_: server container, docker server, self-hosted build
+
+### Installation ID
+The random value that names one installation in its Analytics. The
+daemon makes it at the first send and keeps it in `analytics.json` in the
+State Directory. It comes from no hardware, host name or Public Origin
+(ADR-0026).
+
+### Installation Report
+The daily Analytics event of one installation: the kind of installation,
+the Storage Backend, the Multi-User Mode, whether Docker answers, the
+number of People and of Agents as ranges, and one flag for each feature in
+use (ADR-0026).
 
 ### Local Installation
 An installation on the Person's own computer: the Server Runtime that a
@@ -172,8 +192,8 @@ _Avoid_: bootstrap, first boot
 ### State Directory
 The directory that holds the files of one installation: the
 configuration, the SQLite records, the memory repositories, the sealed
-secrets, the Client Credential, the Release Marker, the Artifacts, the
-Plugins, the Software and the logs. `PAGIS_HOME` names it, and the default
+secrets, the Client Credential, the Release Marker, the Installation ID,
+the Artifacts, the Plugins, the Software and the logs. `PAGIS_HOME` names it, and the default
 is `~/.pagis`. One daemon owns one State Directory (ADR-0024).
 _Avoid_: workspace home, workspace directory
 
@@ -185,9 +205,10 @@ start without one. The files stay on the disk either way (ADR-0024).
 
 ### System Setting
 A setting of the installation rather than of a Workspace: the port, the
-Docker endpoint, the log level, the data directory, and the Multi-User
-Mode of a Local Installation. An Administrator changes it in the
-Administration Interface, and the daemon writes `config.toml` (ADR-0024).
+Docker endpoint, the log level, the data directory, the Multi-User Mode of
+a Local Installation, and the Analytics. An Administrator changes it in the
+Administration Interface, and the daemon writes `config.toml` (ADR-0024,
+ADR-0026).
 The timezone is not one: it belongs to each Person (ADR-0006).
 
 ### Trusted Proxy
