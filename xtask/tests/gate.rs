@@ -476,13 +476,24 @@ fn plan_builds_the_computer_image_once_before_the_combined_tests() {
     let Action::Run(cmds) = &step.action else {
         panic!("expected a run, got {:?}", step.action);
     };
-    assert_eq!(cmds[0].program, "docker");
+    // CI sets the layer cache of the build, so the plan reads it from
+    // the environment the test runs in.
     assert_eq!(
-        cmds[0].args,
+        cmds[..],
+        [xtask::computer_image_build(
+            tmp.path(),
+            xtask::ImageCache::from_env().as_ref()
+        )]
+    );
+
+    let local = xtask::computer_image_build(tmp.path(), None);
+    assert_eq!(local.program, "docker");
+    assert_eq!(
+        local.args,
         ["build", "-t", COMPUTER_IMAGE, "computer"],
         "the tag is the one the daemon pins"
     );
-    assert_eq!(cmds[0].cwd.as_deref(), Some(tmp.path()));
+    assert_eq!(local.cwd.as_deref(), Some(tmp.path()));
 }
 
 #[test]
