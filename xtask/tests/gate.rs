@@ -486,6 +486,39 @@ fn plan_builds_the_computer_image_once_before_the_combined_tests() {
 }
 
 #[test]
+fn a_ci_build_of_the_computer_image_reads_and_writes_its_layer_cache() {
+    let tmp = tempfile::tempdir().unwrap();
+    let on_main = xtask::ImageCache {
+        from: "type=gha,scope=computer-image".into(),
+        to: Some("type=gha,scope=computer-image,mode=max".into()),
+    };
+    let build = xtask::computer_image_build(tmp.path(), Some(&on_main));
+    assert_eq!(build.program, "docker");
+    assert_eq!(
+        build.args,
+        [
+            "buildx",
+            "build",
+            "--load",
+            "-t",
+            COMPUTER_IMAGE,
+            "--cache-from",
+            "type=gha,scope=computer-image",
+            "--cache-to",
+            "type=gha,scope=computer-image,mode=max",
+            "computer",
+        ]
+    );
+
+    let on_a_pull_request = xtask::ImageCache {
+        to: None,
+        ..on_main
+    };
+    let build = xtask::computer_image_build(tmp.path(), Some(&on_a_pull_request));
+    assert!(!build.args.iter().any(|arg| arg == "--cache-to"));
+}
+
+#[test]
 fn plan_skips_the_image_build_without_docker() {
     let tmp = tempfile::tempdir().unwrap();
     let steps = plan(tmp.path(), false);
