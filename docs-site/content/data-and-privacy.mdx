@@ -1,14 +1,18 @@
-# Data, encryption and privacy
+---
+title: Data and privacy
+description: Where an installation keeps its data, what Pagis encrypts, what a Computer reaches and what a model provider receives.
+icon: Lock
+---
 
-This document states where an installation keeps its data, what Pagis
+This page states where an installation keeps its data, what Pagis
 encrypts, what a Computer reaches, and what a model provider receives.
-`CONTEXT.md` defines the terms. ADR-0013 and ADR-0024 hold the decisions.
+[`CONTEXT.md`](https://github.com/pagis-co/pagis/blob/main/CONTEXT.md) defines the terms. [ADR-0013](https://github.com/pagis-co/pagis/blob/main/docs/adr/0013-the-daemon-types-secrets-the-model-never-sees.md) and [ADR-0024](https://github.com/pagis-co/pagis/blob/main/docs/adr/0024-a-server-serves-a-network.md) hold the decisions.
 
 ## Data and configuration
 
 A local installation keeps everything under `~/.pagis`. `PAGIS_HOME` moves
 the directory. A Headless Server keeps it at `/var/lib/pagis`
-(`docs/DEPLOYING-A-SERVER.md`).
+([Deploy with Compose](/server/compose#the-state-directory-has-one-path)).
 
 | Path | What it is |
 | --- | --- |
@@ -88,7 +92,7 @@ page, a mail or a document can steer an Agent, so keep the services on your
 LAN and on this computer behind their own sign-in.
 
 A Headless Server installs rules that keep each Computer to the public
-internet ("What a Computer reaches" in `docs/DEPLOYING-A-SERVER.md`).
+internet ([What a Computer reaches](/server/computers#what-a-computer-reaches)).
 
 ## Several People on a local installation
 
@@ -97,11 +101,10 @@ Administrator. To let other People reach a local installation, put TLS in
 front of it with your own proxy or tunnel (Caddy, Tailscale Serve,
 Cloudflare Tunnel), then turn on **Multi-user mode** in the Settings view
 of the Administration Interface and type the name that the proxy answers on
-as the Public Origin. "A local installation that serves several People" in
-`docs/DEPLOYING-A-SERVER.md` holds each setup.
+as the Public Origin. [Serve several People](/client-app/several-people) holds each setup.
 
 The Computers of the Agents of the other People also run on this computer,
-and they reach what "What a Computer reaches" states. The providers of the
+and they reach what [What a Computer reaches](#what-a-computer-reaches) states. The providers of the
 keys that you store get the model requests of every Person
 ([What the model provider receives](#what-the-model-provider-receives)).
 
@@ -143,9 +146,7 @@ the memory and the Artifacts of every Person. A Backup never holds the
 Installation Key, the Client Credential or `computer-tokens/`, and Sessions
 are hashes. So that person gets no secret that Pagis seals, no Session and
 no access token of a Computer. The Backup of a local installation does not
-hold the Computer volumes. "Backup and restore" in
-`docs/DEPLOYING-A-SERVER.md` and "Back up and restore" in
-`desktop/README.md` give the procedure for each installation method.
+hold the Computer volumes. [Backup and restore](/server/backup) of the Headless Server and [Back up and restore](/client-app/backup) of the Client App give the procedure for each installation method.
 
 ### What the model provider receives
 
@@ -167,8 +168,8 @@ the content of each request:
 - **A Call** sends the audio of the Call to the voice models of the Call.
 
 No tool returns a Credential secret, and the model gets no screenshot while
-the daemon fills a Credential (ADR-0013). The Keypad Code does not go to the
-model (ADR-0021). The provider decides what it keeps from a request, and
+the daemon fills a Credential ([ADR-0013](https://github.com/pagis-co/pagis/blob/main/docs/adr/0013-the-daemon-types-secrets-the-model-never-sees.md)). The Keypad Code does not go to the
+model ([ADR-0021](https://github.com/pagis-co/pagis/blob/main/docs/adr/0021-caller-id-proposes-a-tier-and-a-keypad-code-confirms-it.md)). The provider decides what it keeps from a request, and
 for how long.
 
 On a server, and on a local installation in Multi-User Mode, the
@@ -182,9 +183,9 @@ server. The server and its Administrator can then run commands on that
 machine as the OS user who started the client. The approval for a command
 lives on the server, and the client runs what the server sends. So a person
 who takes control of the server can also run commands on each connected
-machine (ADR-0015).
+machine ([ADR-0015](https://github.com/pagis-co/pagis/blob/main/docs/adr/0015-a-host-action-runs-on-a-present-client.md)).
 
 The client connects only to an `https://` address, or to an `http://`
 address on loopback, such as an SSH tunnel. It refuses any other `http://`
 address before it sends a request, so the password, the Session and the
-commands for the machine never cross the network as clear text (ADR-0024).
+commands for the machine never cross the network as clear text ([ADR-0024](https://github.com/pagis-co/pagis/blob/main/docs/adr/0024-a-server-serves-a-network.md)).

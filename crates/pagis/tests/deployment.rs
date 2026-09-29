@@ -82,8 +82,8 @@ fn the_state_directory_has_one_path_on_the_docker_host_and_in_the_daemon() {
 /// Caddy serves its admin API on the loopback of the VM unless the
 /// Caddyfile turns it off, and a request there can stop the proxy. The
 /// daemon has the VM's network, so every HTTP or SSE Plugin server can
-/// make the daemon send requests to that loopback (`docs/PLUGINS.md`,
-/// "Reach"). Nothing in the deployment uses the admin API.
+/// make the daemon send requests to that loopback
+/// (https://docs.pagis.co/plugins#reach). Nothing in the deployment uses the admin API.
 #[test]
 fn the_proxy_serves_no_admin_api() {
     let options = caddy_global_options();

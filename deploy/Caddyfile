@@ -3,7 +3,7 @@
 # Caddy obtains and renews the certificate, forwards the WebSocket
 # upgrades, and writes the two headers the daemon reads from it: the
 # browser's scheme in `X-Forwarded-Proto` and the browser's address in
-# `X-Forwarded-For`. `docs/DEPLOYING-A-SERVER.md` holds an nginx
+# `X-Forwarded-For`. https://docs.pagis.co/server/proxy holds an nginx
 # configuration beside it.
 #
 # The admin API of Caddy is off. Nothing in the deployment uses it, and

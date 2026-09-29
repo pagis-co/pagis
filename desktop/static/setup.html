@@ -42,7 +42,7 @@
               <div class="field">
                 <label for="server-url">Server address</label>
                 <input id="server-url" class="input" type="url" inputmode="url" autocomplete="off" placeholder="pagis.example.com" aria-describedby="connect-trust" required />
-                <!-- The client runs each command that the server sends, with no check of its own (ADR-0015). README.md and desktop/README.md state this in full. -->
+                <!-- The client runs each command that the server sends, with no check of its own (ADR-0015). The Connect to a server page of the documentation site states this in full. -->
                 <p id="connect-trust" class="field-hint">Connect only to a server you trust.</p>
                 <p id="server-url-error" class="field-error" hidden></p>
                 <p id="server-progress" class="field-progress" role="status" hidden></p>
@@ -217,7 +217,7 @@
         if (url.protocol === 'http:' && !['127.0.0.1', '[::1]', 'localhost'].includes(url.hostname)) {
           return 'Pagis connects to a server on another computer only over https://. ' +
             'Put TLS in front of the server with Caddy, Tailscale Serve or Cloudflare Tunnel, ' +
-            'as docs/DEPLOYING-A-SERVER.md shows, then type its https:// address.'
+            'as docs.pagis.co/client-app/several-people shows, then type its https:// address.'
         }
         return null
       }

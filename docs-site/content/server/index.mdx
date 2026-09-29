@@ -1,0 +1,103 @@
+---
+title: Overview
+description: Run Pagis for a team on one Linux VM with Docker.
+icon: Server
+---
+
+One team, one server. The Headless Server is the Pagis server as a Linux
+container image, and a team runs it on its own VM with the Compose files in
+[`deploy/`](https://github.com/pagis-co/pagis/tree/main/deploy).
+[ADR-0024](https://github.com/pagis-co/pagis/blob/main/docs/adr/0024-a-server-serves-a-network.md) holds the decisions.
+
+<Cards>
+  <Card title="Start the server" href="/server/compose">
+    Deploy with Docker Compose.
+  </Card>
+  <Card title="Set the first Administrator" href="/server/administration#the-first-administrator">
+    Sign in the first time.
+  </Card>
+  <Card title="Put a proxy in front" href="/server/proxy">
+    Hold the TLS certificate with Caddy or nginx.
+  </Card>
+  <Card title="Back up and restore" href="/server/backup">
+    Keep a copy of the whole installation.
+  </Card>
+</Cards>
+
+## The shape
+
+**One VM. One daemon. One state directory. Postgres for the records. No
+second daemon.**
+
+- **One VM.** The memory repositories, the Artifacts, the recordings, the
+  Plugins, the Software, the sealed secrets and the Computer volumes are
+  files on this machine's disk. A server does not scale horizontally, and a
+  second machine is a second installation.
+- **One daemon.** One process owns every Run of every Person and holds each
+  Run's mid-turn state in its own memory. A restart therefore ends every Run
+  on the server ([A restart is the whole server's](/server/upgrade#a-restart-is-the-whole-servers)). Two daemons against
+  one database is not a supported shape.
+- **One state directory**: `/var/lib/pagis`, at the same path on the VM and
+  in the daemon's container.
+- **Postgres for the records**, so the People of the team do not queue
+  behind one writer. Postgres holds the records and nothing else: every file
+  above stays on the disk.
+- **The People on it trust each other.** A Computer is a container on a
+  shared kernel. That is a reasonable boundary between colleagues, and it is
+  weaker than it looks between strangers.
+- **The Plugins of a Workspace are not isolated from each other.** Every
+  stdio server of a Workspace runs as one uid in its Plugin Computer, so each
+  one can read the secrets and the data of the others. The Administrator
+  installs together only Plugins that they trust together
+  ([Reach](/plugins#reach)).
+- **An HTTP Plugin sends requests from the daemon's network.** The daemon
+  has the VM's network, so its loopback is the VM's loopback. An HTTP or SSE
+  Plugin server can make the daemon send requests to the services that listen
+  there, for example Postgres, the product port, the Administration Port and
+  the control port of each Computer. It can also make the daemon send requests
+  to every HTTPS host that the VM reaches. The egress policy of the Computers
+  does not apply to these requests ([What a Computer reaches](/server/computers#what-a-computer-reaches)).
+  `deploy/Caddyfile` turns off the admin API of Caddy, so the proxy listens on
+  no port of that loopback.
+
+## What makes an installation a server
+
+**The process that starts the daemon decides it.** The Client App starts a
+local installation with `--local`. The Headless Server image starts `pagis`
+without it, and that daemon is a server. The
+configuration cannot decide it: a local installation that other People reach
+through the owner's proxy has the same Bind Address, Public Origin and
+Trusted Proxy as the compose deployment.
+
+A server holds no Client Credential. The daemon writes no credential file
+and removes one that a local run left, refuses the trade at
+`/api/v1/sessions/client`, answers nothing at `/api/v1/runtime/identity` and
+mints no one-time sign-in link. The start banner in the logs therefore
+carries no way in, and everybody signs in with an address and a password.
+
+A local installation holds one, whatever its Public Origin. The daemon
+accepts the trade, the sign-in link and the runtime identity handshake only
+from a program on the same machine: the socket peer is loopback, the request
+carries no header that a proxy writes (`Forwarded`, `Via`,
+`X-Forwarded-For`, `X-Forwarded-Host`, `X-Forwarded-Proto`, `X-Real-IP`),
+and the `Host` header names a loopback host. Anything else gets `403`. A
+request through the Trusted Proxy is refused even when the proxy runs on the
+same machine, because that proxy writes `X-Forwarded-For` or passes on the
+public name ([ADR-0025](https://github.com/pagis-co/pagis/blob/main/docs/adr/0025-the-client-app-installs-one-exact-server-or-connects-to-one.md)).
+
+**The same flag decides the Storage Backend.** A server keeps its records in
+Postgres, and it stops at boot when no database URL is set; the error names
+`PAGIS_DATABASE_URL` and `[database] url`. A local installation keeps its
+records in SQLite at `pagis.db` in the state directory, whether one person
+uses it or several, and it stops at boot when a database URL is set. The
+rule is the same for the Headless Server image and for a server without
+containers ([ADR-0024](https://github.com/pagis-co/pagis/blob/main/docs/adr/0024-a-server-serves-a-network.md)).
+
+The Public Origin decides who can reach the installation, not the Bind
+Address: its host is loopback for the People at the machine, and anything
+else for People on other machines ([ADR-0024](https://github.com/pagis-co/pagis/blob/main/docs/adr/0024-a-server-serves-a-network.md)).
+
+The Headless Server image sets `PAGIS_REQUIRE_PUBLIC_ORIGIN`. The daemon
+then refuses to start with `--local`, and while the Public Origin is empty
+or has a loopback host, and the error names what to change. A bare
+`docker run` of the image stops at once.

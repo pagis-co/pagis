@@ -4,7 +4,7 @@
 # This is the same daemon for a team's own VM, where nobody sits at the
 # machine: one image, one process, Postgres beside it, and a reverse
 # proxy in front. `docs/RELEASING-SERVER.md` holds the release matrix and
-# `docs/DEPLOYING-A-SERVER.md` holds the deployment.
+# https://docs.pagis.co/server holds the deployment.
 #
 #   docker buildx build -t ghcr.io/pagis-co/pagis-server:<version> .
 #   cargo xtask server-image
@@ -12,7 +12,6 @@
 # The image carries every program the daemon starts: `git` for memory
 # repacks and git Plugin installs, `gog` for Google Connections, and
 # `pg_dump` and `pg_restore` for `pagis backup` and `pagis restore`.
-# `docs/DEPLOYING-A-SERVER.md` lists them with what each one is for.
 #
 # A tag can move to other code, so each base image is pinned by tag and
 # digest (`cargo xtask pins --check`). Dependabot opens the pull requests

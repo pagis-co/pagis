@@ -1,0 +1,14 @@
+{
+  "pages": [
+    "index",
+    "compose",
+    "settings",
+    "proxy",
+    "administration",
+    "sign-in",
+    "computers",
+    "live-screen",
+    "backup",
+    "upgrade"
+  ]
+}

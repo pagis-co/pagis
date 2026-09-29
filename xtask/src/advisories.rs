@@ -64,13 +64,14 @@ pub fn published_advisory_lane(root: &Path, target_dir: &Path) -> Lane {
     }
 }
 
-/// cargo-deny over the two Cargo lockfiles, and npm audit over the two
+/// cargo-deny over the two Cargo lockfiles, and npm audit over the three
 /// npm lockfiles.
 fn dependency_steps(root: &Path, target_dir: &Path) -> Vec<Step> {
     vec![
         cargo_deny_step(root, target_dir),
         npm_audit_step(root, "ui", "ui-npm-audit"),
         npm_audit_step(root, "desktop", "desktop-npm-audit"),
+        npm_audit_step(root, "docs-site", "docs-site-npm-audit"),
     ]
 }
 

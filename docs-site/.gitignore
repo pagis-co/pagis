@@ -1,0 +1,8 @@
+# The packages, and what the build, the tests and Wrangler write.
+/node_modules
+/.next/
+/.source/
+/out/
+/.wrangler/
+*.tsbuildinfo
+next-env.d.ts

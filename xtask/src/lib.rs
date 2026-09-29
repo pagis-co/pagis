@@ -130,7 +130,7 @@ pub struct Lane {
 ///
 /// - `cargo`: every command that can invoke Cargo, in sequence. This
 ///   avoids competing Cargo build graphs in one target directory.
-/// - `node`: shell, UI, and desktop checks.
+/// - `node`: shell, UI, desktop and documentation site checks.
 /// - `secrets`: the gitleaks scan of the tracked files.
 ///
 /// Where Docker is reachable the gate builds the Computer image from
@@ -199,7 +199,7 @@ pub fn full_lanes(root: &Path, docker_available: bool) -> Vec<Lane> {
             action: npm_script_action(root, "ui", "api:check"),
         },
     ];
-    let node = vec![
+    let mut node = vec![
         Step {
             name: "pagis-apt",
             action: pagis_apt_action(root),
@@ -229,6 +229,7 @@ pub fn full_lanes(root: &Path, docker_available: bool) -> Vec<Lane> {
             action: npm_script_action(root, "desktop", "test"),
         },
     ];
+    node.extend(docs_site_steps(root));
     vec![
         Lane {
             name: "cargo",
@@ -389,6 +390,7 @@ pub fn dev_lanes(
                 && !path.starts_with("ui/")
                 && !path.starts_with("desktop/")
                 && !path.starts_with("computer/")
+                && !path.starts_with("docs-site/")
                 && !path.starts_with("docs/")
                 && !path.ends_with(".md"))
     });
@@ -407,6 +409,9 @@ pub fn dev_lanes(
     let computer_changed = changed_paths
         .iter()
         .any(|path| path.starts_with("computer/"));
+    let docs_site_changed = changed_paths
+        .iter()
+        .any(|path| path.starts_with("docs-site/"));
 
     let mut cargo_steps = Vec::new();
     if !rust_paths.is_empty() || computer_changed {
@@ -558,6 +563,9 @@ pub fn dev_lanes(
             },
         ]);
     }
+    if docs_site_changed {
+        node_steps.extend(docs_site_steps(root));
+    }
 
     let mut lanes = Vec::new();
     if !cargo_steps.is_empty() {
@@ -585,6 +593,34 @@ pub fn dev_lanes(
         lanes.push(secrets_lane(root));
     }
     Ok(lanes)
+}
+
+/// The checks of the documentation site: its types, its tests, the build,
+/// which compiles and exports each page, and the test of the export as
+/// Cloudflare serves it.
+fn docs_site_steps(root: &Path) -> [Step; 5] {
+    [
+        Step {
+            name: "docs-site-deps",
+            action: npm_deps_action(root, "docs-site"),
+        },
+        Step {
+            name: "docs-site-typecheck",
+            action: npm_script_action(root, "docs-site", "typecheck"),
+        },
+        Step {
+            name: "docs-site-test",
+            action: npm_script_action(root, "docs-site", "test"),
+        },
+        Step {
+            name: "docs-site-build",
+            action: npm_script_action(root, "docs-site", "build"),
+        },
+        Step {
+            name: "docs-site-export",
+            action: npm_script_action(root, "docs-site", "test:export"),
+        },
+    ]
 }
 
 fn workspace_packages(root: &Path) -> Result<Vec<WorkspacePackage>> {

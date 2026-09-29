@@ -6,7 +6,7 @@
 //! and the Administration Interface it serves, the `gog` runner beside
 //! it, and the programs the daemon starts, so a VM needs Docker and
 //! nothing else. `docs/RELEASING-SERVER.md` holds the release matrix
-//! and `docs/DEPLOYING-A-SERVER.md` holds the deployment.
+//! and https://docs.pagis.co/server holds the deployment.
 //!
 //! The image is built from the `Dockerfile` at the repository root,
 //! with the whole repository as its context: the bundle it embeds is

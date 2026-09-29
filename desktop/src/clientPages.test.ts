@@ -156,16 +156,17 @@ describe('the first screen of the setup page', () => {
     expect(page.visibleText()).not.toMatch(/Server address|trust/)
   })
 
-  /** The setup page states the trust in one line. README.md and
-   *  desktop/README.md state it in full and quote the line of the page. */
-  it('keeps the full trust statement in README.md and desktop/README.md, which quote the line of the page', () => {
+  /** The setup page states the trust in one line. The Connect to a
+   *  server page of the documentation site states it in full and quotes
+   *  the line of the page. */
+  it('keeps the full trust statement in the documentation, which quotes the line of the page', () => {
     const page = openSetup()
     page.show({ kind: 'ready' })
     choose(page, 'Connect to a Pagis server')
 
     const line = page.document.getElementById('connect-trust')?.textContent?.trim() ?? ''
 
-    for (const readme of ['README.md', 'desktop/README.md']) {
+    for (const readme of ['docs-site/content/client-app/connect-to-a-server.mdx']) {
       const text = prose(readme)
       expect(text, readme).toContain('The server and its Administrator can then run commands on this computer, with the same access as you.')
       expect(text.includes(`"${line}"`), `${readme} does not quote the line of the page: ${line}`).toBe(true)

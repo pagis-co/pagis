@@ -1,0 +1,92 @@
+---
+title: Administration
+description: The Administration Port, and how to make the first Administrator.
+icon: UserCog
+---
+
+The daemon serves the Administration Interface on a second listener of the
+same process: the spend of each Person, the People, who is signed in, the
+Hosts, the containers and disk of each Person, the provider setup, the
+System Settings, the Plugins, the restart and the health of the daemon.
+These answer on the Administration Port alone. The product port serves each
+Person's own settings, and an Administrator reads one link to the
+Administration Interface in the Product App's Settings.
+
+Every route on the port needs a signed-in Administrator, and a Member gets
+nothing. Two routes answer without one: the first-run setup and the password
+sign-in.
+
+**Keep it private.** The port binds loopback by default, so nothing off the
+machine reaches it. Reach it over an SSH tunnel:
+
+```bash
+ssh -L 4401:127.0.0.1:4401 pagis.example.net
+```
+
+Then open `http://127.0.0.1:4401/` and sign in with an address and a
+password.
+
+To reach it from an Administrator's own network, name that interface in
+`[administration] bind` and firewall the port to that network. Do not put
+the Administration Port behind the public name of the product port: the
+reason for the second listener is that the internet does not reach it. The
+daemon terminates no TLS on this port either, so a deployment that exposes
+it puts a proxy in front of it.
+
+A daemon whose Administration Port is taken names the port and the setting
+that moves it. `pagis --port` moves the product port alone.
+
+## The first Administrator
+
+A server boots with an Org and a seeded Workspace and nobody who can sign
+in. Until the first Administrator exists, the start banner and the sign-in
+page of the product port say so and name the Administration Port. Two paths
+close that gap, and both write the same rows:
+
+- **From the environment.** Set `PAGIS_ADMIN_EMAIL`, `PAGIS_ADMIN_PASSWORD`
+  (at least 12 characters) and the provider key variables
+  (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`) before the
+  first start. The daemon reads them at the first start that finds nobody
+  who can sign in, and keeps the keys in its sealed secret file. The
+  variables can stay in the configuration: a later start never overwrites a
+  password that somebody changed.
+- **From a browser.** Leave them empty, open the tunnel to 4401 and finish
+  setup there. Server Setup makes the first Administrator on the
+  Administration Port only: `POST /api/v1/setup` takes the address, the
+  password and the keys and signs the new Administrator in, and it answers
+  on no other port. A person who reaches the public name cannot make the
+  first Administrator. `GET /api/v1/setup` names the model providers the
+  installation takes a key for. The product port answers it too, because its
+  sign-in page names the Administration Port from it. The routes answer only
+  while the installation holds no Client Credential and no Administrator
+  holds a password. They answer `410 Gone` from the first password onwards.
+  The first password is one claim: of two requests at once, one makes the
+  Administrator, and the other answers `410 Gone` and keeps no provider key.
+
+Either way no Person and no client takes a model key: the Administrator
+configures the installation one time, for everybody. The providers of these
+keys therefore get the model requests of every Person: the messages, the
+memory and the tool results, with the screenshots of the Computers
+([What the model provider receives](/data-and-privacy#what-the-model-provider-receives)).
+There is no sign-up.
+The Administrator creates each Person in the Administration Interface, and
+each new Person gets a seeded Workspace: one Agent, its direct Channel, the
+Model Aliases and the Report Schedule. The new Workspace takes the timezone
+of the Administrator's own Workspace until the Person's first sign-in, which
+takes the timezone of their browser or Client App.
+
+A Schedule that comes due while no provider holds a key starts no Run. It
+waits, and it runs when an Administrator stores a key.
+
+Nobody on a server answers a model question. The `default` Model Alias of a
+new Person names the models of the Administrator's own route whose provider
+holds a key. A key that the Administrator stores or removes in **Providers**
+gives every `default` alias that names no provider with a key the newest
+listed model of the first provider that holds one, in the order Anthropic,
+OpenAI, OpenRouter. A route that still reaches a provider stays as it is.
+
+The Administrator also sets up the providers in the Administration
+Interface: the Google OAuth client, the carrier account and its SIP
+sign-in, and the mail domain. A Person then connects their own Google
+account, buys an Agent Phone Number or makes an Agent Mailbox in the
+Product App.

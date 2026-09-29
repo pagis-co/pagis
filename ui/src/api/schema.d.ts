@@ -3687,7 +3687,7 @@ export interface components {
              *     until a Computer wakes after the daemon starts or when the limits
              *     name no layer size. `unsupported` means that nothing bounds what
              *     an Agent writes outside `/data` while its Computer is awake, which
-             *     `docs/DEPLOYING-A-SERVER.md` says how to fix.
+             *     https://docs.pagis.co/server/computers#bound-a-computers-disk says how to fix.
              */
             container_quota: string;
             /** @description `sqlite` or `postgres`. */
@@ -3719,7 +3719,7 @@ export interface components {
              *     `supported`, `unsupported`, or `unknown` while Docker does not
              *     answer or the limits name no volume size. `unsupported` means
              *     that nothing bounds what `/data` holds, which
-             *     `docs/DEPLOYING-A-SERVER.md` says how to fix.
+             *     https://docs.pagis.co/server/computers#bound-a-computers-disk says how to fix.
              */
             volume_quota: string;
         };

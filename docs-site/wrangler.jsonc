@@ -1,0 +1,18 @@
+// The documentation site on Cloudflare: a Worker of static assets alone.
+// It runs no code of its own, and Cloudflare serves each file of the
+// static export in `out/`. `public/_redirects` maps the `.md` address of
+// each page to its Markdown copy. .github/workflows/docs.yml deploys it.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "pagis-docs",
+  "compatibility_date": "2026-09-29",
+  "assets": {
+    "directory": "./out",
+    "html_handling": "drop-trailing-slash",
+    "not_found_handling": "404-page"
+  },
+  "routes": [{ "pattern": "docs.pagis.co", "custom_domain": true }],
+  // Each pull request gets a preview URL on workers.dev.
+  "workers_dev": true,
+  "preview_urls": true
+}

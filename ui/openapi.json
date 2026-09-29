@@ -12237,7 +12237,7 @@
         "properties": {
           "container_quota": {
             "type": "string",
-            "description": "Whether this machine holds the writable container layer of a\nComputer to its size: `supported`, `unsupported`, or `unknown`\nuntil a Computer wakes after the daemon starts or when the limits\nname no layer size. `unsupported` means that nothing bounds what\nan Agent writes outside `/data` while its Computer is awake, which\n`docs/DEPLOYING-A-SERVER.md` says how to fix."
+            "description": "Whether this machine holds the writable container layer of a\nComputer to its size: `supported`, `unsupported`, or `unknown`\nuntil a Computer wakes after the daemon starts or when the limits\nname no layer size. `unsupported` means that nothing bounds what\nan Agent writes outside `/data` while its Computer is awake, which\nhttps://docs.pagis.co/server/computers#bound-a-computers-disk says how to fix."
           },
           "database": {
             "type": "string",
@@ -12273,7 +12273,7 @@
           },
           "volume_quota": {
             "type": "string",
-            "description": "Whether this machine holds a Computer volume to its size:\n`supported`, `unsupported`, or `unknown` while Docker does not\nanswer or the limits name no volume size. `unsupported` means\nthat nothing bounds what `/data` holds, which\n`docs/DEPLOYING-A-SERVER.md` says how to fix."
+            "description": "Whether this machine holds a Computer volume to its size:\n`supported`, `unsupported`, or `unknown` while Docker does not\nanswer or the limits name no volume size. `unsupported` means\nthat nothing bounds what `/data` holds, which\nhttps://docs.pagis.co/server/computers#bound-a-computers-disk says how to fix."
           }
         }
       },

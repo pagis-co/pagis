@@ -1,0 +1,40 @@
+---
+title: Sign in
+description: How People sign in to a server from a browser or a Client App, and what a server does not do.
+icon: LogIn
+---
+
+A Person signs in at `https://<the domain>/` with an address and a password.
+The answer is an HTTP-only, host-only, `SameSite=Strict` Session cookie, and
+it carries `Secure` where the proxy reported TLS. No token appears in a URL.
+The CORS answer names the Public Origin and no other origin, so a page
+elsewhere cannot read the API with a Person's cookie. Each port also refuses a
+socket upgrade or a write from a browser page at another origin, so the Public
+Origin must be the exact address that people open.
+
+## A Client App connected to this server
+
+A Person can use the Client App instead of a browser. At setup they
+choose to connect to a Pagis server and enter `https://<the domain>`. The
+client then opens the server's own sign-in page, where they sign in with
+their address and password. The client installs nothing and keeps no key.
+It refuses a server whose release is outside its Compatibility Range (its
+own version and every later version that promises the same API) and says
+which end to update. When the server has no Administrator yet, the client
+says so and names the Administration Interface.
+
+**Connecting gives this server's Administrator a shell on the Person's
+machine.** The client registers as a Host, and it runs every command the
+server dispatches, as the OS user that started the client. The approval
+lives on the server ([ADR-0015](https://github.com/pagis-co/pagis/blob/main/docs/adr/0015-a-host-action-runs-on-a-present-client.md)). Tell each Person this before they connect.
+
+## What does not work on a server
+
+- **Widgets.** A Widget needs two loopback origins, `localhost` and
+  `127.0.0.1`, to isolate its frame from the Product App. A Product App on
+  a public name has no second origin, so it shows the projection of a
+  Widget and never the Widget ([Write a Widget](/widgets)).
+- **A `byo` Google Connection.** The loopback flow of bring your own needs a
+  Person at the daemon's machine. The daemon refuses it for a request that
+  comes through the proxy or from another machine, and the refusal says that
+  an Administrator sets up the Google OAuth client.

@@ -33,7 +33,7 @@ export CARGO_TARGET_DIR="$(git worktree list | head -1 | awk '{print $1}')/targe
 
 The shared directory reuses the main checkout's compiled third-party crates, so a worktree build finishes in minutes. Cargo holds a lock on the directory, so parallel worktree builds queue and never corrupt it. A worktree without this variable compiles the whole workspace from scratch into its own `target/` (about 40 GB and over ten minutes for clippy alone), and parallel worktrees then compete for the CPU.
 
-Use `cargo xtask dev` for the edit loop. It checks changed Rust packages and their reverse dependants, and it selects the changed UI, desktop, or Computer checks. Shared build configuration and unknown paths select the full gate.
+Use `cargo xtask dev` for the edit loop. It checks changed Rust packages and their reverse dependants, and it selects the changed UI, desktop, Computer, or documentation site checks. Shared build configuration and unknown paths select the full gate.
 
 Use `cargo xtask full` for every gate step, and `cargo xtask step <name>...` for the named ones. A pull request merges when the CI workflow passes; its jobs run the same steps.
 

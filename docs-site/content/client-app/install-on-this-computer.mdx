@@ -1,0 +1,82 @@
+---
+title: Install on this computer
+description: How the Client App installs, starts and repairs one Server Runtime on your computer.
+icon: HardDrive
+---
+
+- **Installs one server.** The setup page asks who uses Pagis on this
+  computer: "Just me" or "Several people". For either answer it downloads the
+  locked server package, checks every byte, installs it under the client's
+  own application data, and opens the Product App. On macOS the package is a
+  signed, notarized disk image, and the client also checks each code
+  identity. On Linux the package is the gzip tar archive of the client's
+  architecture, and the lock's sizes, hashes and modes are the whole check,
+  because Linux has no code signature to check.
+- **Opens the multi-user switch for several people.** After the Product App,
+  "Several people" opens the Administration Interface, signed in with the
+  Client Credential, on the Multi-User Mode switch in its Settings view. The
+  owner turns the mode on there, with the Public Origin of their proxy or
+  tunnel. The client stores the answer nowhere.
+- **Keeps packages apart from data.** The client keeps its own files in
+  its Electron `userData` directory, `~/Library/Application Support/Pagis`
+  on macOS and `~/.config/Pagis` on Linux (`$XDG_CONFIG_HOME/Pagis` when
+  that is set). It stores downloaded and installed Server Packages in
+  `userData/runtime`. The installation's data stays under its state
+  directory, `PAGIS_HOME`, which defaults to `~/.pagis`.
+- **Owns the server process.** It reads the port from
+  `~/.pagis/config.toml`, and proves the server's Client Credential,
+  installation, release, Computer image and listening port without sending
+  the credential. Then:
+  - it attaches to a healthy local server only where that proof names the
+    same installation and the exact release;
+  - it leaves alone a proven server that it did not start, and starts the
+    installed release with `--no-open --local` only when the port is free.
+    `--local` makes the server a local installation, which holds a Client
+    Credential;
+  - it reports a taken port with the process that holds it and the next
+    free port: on the setup page at the first start, and on the status page
+    after that. The client finds the process itself: `lsof`
+    on macOS, and `ss` on Linux, which names the processes of this account
+    only. Where neither answers, the page names the port alone. The next
+    free port is never the Administration Port of the installation. On
+    accept, the client writes the port into the config file, which is the
+    one key it writes, and starts again;
+  - it reports a taken Administration Port with the process that holds it.
+    It proposes no port there, because `[administration] port` of the
+    config file moves that port.
+- **Opens the window signed in.** The daemon writes the Client Credential of
+  the installation into `~/.pagis/client-credential` on its first run. The
+  client trades that credential at `POST /api/v1/sessions/client`, puts the
+  Session cookie into the cookie jar of the window, and only then loads
+  `http://127.0.0.1:<port>/`. The credential stays in the main process and
+  never goes into a URL. This holds whatever the Public Origin names: when
+  other People reach the installation through your proxy or tunnel, the
+  client on this machine still opens signed in. The daemon accepts the trade
+  only from this machine and never through a proxy, even a proxy on this
+  machine ([ADR-0025](https://github.com/pagis-co/pagis/blob/main/docs/adr/0025-the-client-app-installs-one-exact-server-or-connects-to-one.md)).
+- **Recovers safely.** Install phases survive a crash. Retry, cancel and
+  repair change only files the client owns. A repair waits until no other
+  process uses the installed runtime. The setup page offers Repair only
+  where this computer holds an installation, and a repair asks no setup
+  question. An error that no code of the client
+  catches goes to the setup page, and never to a raw error dialog.
+- **Keeps the server it started alive.** A crash gives three restarts with a
+  one-second pause, then the failure page with the log. Exit code 75 means
+  "start me again" and does not count as a crash.
+- **Stops the server it started on quit.** It sends SIGINT to the exact child
+  it started, then kills that child after five seconds. A server it only
+  attached to continues to run.
+- **Is the Host of this machine.** The client registers as a Host, so an
+  Agent can run a command here after the Person approves it ([ADR-0015](https://github.com/pagis-co/pagis/blob/main/docs/adr/0015-a-host-action-runs-on-a-present-client.md)).
+
+Docker is optional. Local setup, chat, memory and connected tools work
+without it. An Agent needs Docker for its Computer: the browser, the screen,
+the terminal and the shell. Setup can continue while a requested Computer
+starts.
+
+Repair checks and replaces only the locked Server Package. It moves the
+damaged release aside, and removes it when the replacement is active, or at
+the next start when the client stopped before that. It does not
+remove the installation's data, the provider keys, the Installation Key (the
+macOS keychain item, the Linux Secret Service item or the Key File), the
+Computer volumes or the logs.

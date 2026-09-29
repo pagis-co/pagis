@@ -1,0 +1,113 @@
+# The deployment of the documentation site to Cloudflare. The site is a
+# static export, and `docs-site/wrangler.jsonc` makes it a Worker of static
+# assets alone.
+#
+# - A `v*` tag builds the site from the tree of that tag and deploys it to
+#   production at docs.pagis.co, so the pages describe the release that
+#   people install.
+# - A pull request that changes the site uploads a preview version with the
+#   alias `pr-<number>`. The upload changes nothing in production, and the
+#   job summary shows the preview URL. A pull request from a fork gets no
+#   preview, because it cannot read the secrets.
+# - A push to main deploys nothing.
+#
+# The Wrangler steps read the repository secrets `CLOUDFLARE_API_TOKEN` and
+# `CLOUDFLARE_ACCOUNT_ID`.
+name: Docs
+
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - "docs-site/**"
+      - "Cargo.toml"
+      - ".github/workflows/docs.yml"
+  # Deploy a tag again, for example after a change to the Cloudflare
+  # account. Choose the tag in "Use workflow from".
+  workflow_dispatch:
+
+# One production deployment at a time, in the order of the tags. A new push
+# to a pull request cancels the upload of its earlier push.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || 'production' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  WRANGLER_SEND_METRICS: "false"
+
+# The actions are pinned as in ci.yml. Wrangler is the version in
+# docs-site/package-lock.json. Only the Wrangler steps get the secrets, so
+# the install scripts of the npm packages cannot read the token.
+
+jobs:
+  deploy:
+    name: deploy docs.pagis.co
+    # Production shows a release, never a branch.
+    if: github.event_name != 'pull_request' && github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: docs
+      url: https://docs.pagis.co
+    defaults:
+      run:
+        # An explicit bash runs each step with pipefail.
+        shell: bash
+        working-directory: docs-site
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: docs-site/package-lock.json
+
+      - run: npm ci
+      - run: npm run build
+      - name: deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler deploy --message "$GITHUB_REF_NAME"
+
+  preview:
+    name: preview
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        # An explicit bash runs each step with pipefail.
+        shell: bash
+        working-directory: docs-site
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: docs-site/package-lock.json
+
+      - run: npm ci
+      - run: npm run build
+
+      - name: upload the preview version
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ALIAS: pr-${{ github.event.pull_request.number }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          npx wrangler versions upload --preview-alias "$ALIAS" --message "$HEAD" | tee upload.log
+          url=$(grep -o "https://$ALIAS-[^ ]*workers\.dev" upload.log | head -n 1)
+          echo "Preview of the documentation site: $url" >> "$GITHUB_STEP_SUMMARY"

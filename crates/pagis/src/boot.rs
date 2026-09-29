@@ -362,7 +362,8 @@ fn remove_client_credential(path: &Path) -> anyhow::Result<()> {
 /// `running` with no process behind it, which is worse than a failure
 /// that says what happened. Every failed run carries its own reason, so
 /// each person reads why their run ended;
-/// `docs/DEPLOYING-A-SERVER.md` says who a restart reaches.
+/// https://docs.pagis.co/server/upgrade#a-restart-is-the-whole-servers
+/// says who a restart reaches.
 async fn recover(stores: &pagis_core::Stores) -> anyhow::Result<()> {
     let failed = pagis_agent::fail_unfinished_runs(
         stores.runs.as_ref(),

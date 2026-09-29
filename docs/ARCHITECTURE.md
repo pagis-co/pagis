@@ -55,7 +55,7 @@ A release installs in two ways (ADR-0025):
   installs and supervises the one Server Runtime that its Runtime Lock
   names, or connects to a server that somebody else runs.
 - **The Headless Server**, a Linux container image for a team on a VM
-  (`docs/DEPLOYING-A-SERVER.md`).
+  (https://docs.pagis.co/server).
 
 Whether an installation serves the People at its own machine or People on
 other machines follows from its Public Origin, not from its Bind Address.
@@ -182,7 +182,7 @@ damage-aware encoding, and WebRTC to the UI, with an input channel back.
 Media crosses the Media Relay: a Computer publishes no media port, registers
 outbound with the relay for each viewer session, and one advertised address
 and one UDP port range serve every screen of the installation
-(`docs/SCREEN-RELAY.md`). The Person can take control at any moment, and the
+(https://docs.pagis.co/server/live-screen). The Person can take control at any moment, and the
 Agent can hand control to the Person to finish a step. Computer control is
 model-native pixel computer use through the router. Software List tools
 execute inside the calling Agent's Computer; the container is the sandbox.

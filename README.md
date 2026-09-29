@@ -37,49 +37,13 @@ configure (Anthropic, OpenAI or OpenRouter), and it runs no model itself.
 
 ## Quick start
 
-A release installs in two ways. The Client App runs Pagis on your own
-computer or connects to a server. The Headless Server runs Pagis for a team
-on a Linux VM.
+A release installs in two ways:
 
-### Client App (macOS and Linux)
-
-1. Download the Client App from
-   [GitHub Releases](https://github.com/pagis-co/pagis/releases):
-   `Pagis-<release>-arm64.dmg` for macOS arm64, or the AppImage or the deb
-   for Linux amd64 and arm64. On Ubuntu 24.04 and later, use the deb.
-2. Open it and choose **Install on this computer** or **Connect to a Pagis
-   server**.
-3. On this computer, the onboarding asks for one model provider key and,
-   optionally, a Docker endpoint for the Agents' computers. Without Docker,
-   the Agents chat and use your Connections, but they cannot browse or run
-   commands.
-
-**When you connect to a server, this computer becomes a Host of that
-server. The server and its Administrator can then run commands on this
-computer, with the same access as you. Connect only to a server whose
-Administrator you trust.** The setup page states this in one line under the
-Server address field: "Connect only to a server you trust."
-
-[desktop/README.md](desktop/README.md) describes both setups, the data
-directory and backup.
-
-### Headless Server (Linux VM with Docker)
-
-```bash
-git clone --depth 1 --branch v<release> https://github.com/pagis-co/pagis
-cd pagis/deploy
-mkdir -p secrets
-head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > secrets/pagis-secrets-key
-chmod 600 secrets/pagis-secrets-key
-cp .env.example .env    # set the domain, the public address and the passwords
-docker compose up -d
-```
-
-The compose deployment runs the server image, Postgres, a Caddy proxy that
-holds the TLS certificate, and the egress rules of the Computers. Set the
-first Administrator in `.env`, or on the Administration Port over an SSH
-tunnel. [docs/DEPLOYING-A-SERVER.md](docs/DEPLOYING-A-SERVER.md) is the
-full procedure.
+- **The Client App** (macOS and Linux) runs Pagis on your own computer or
+  connects to a server. The [Quickstart](https://docs.pagis.co/quickstart)
+  installs it.
+- **The Headless Server** (Linux VM with Docker) runs Pagis for a team.
+  [Deploy with Compose](https://docs.pagis.co/server/compose) starts it.
 
 ### From source
 
@@ -109,21 +73,21 @@ holds the details.
 
 ## Documentation
 
+The user documentation is at [docs.pagis.co](https://docs.pagis.co), and
+[docs-site/](docs-site) holds its source. Each release deploys the pages of
+its own tree. The documents below are for the people who build Pagis.
+
 | Topic | Document |
 | --- | --- |
 | The glossary of domain terms | [CONTEXT.md](CONTEXT.md) |
 | Product direction and the parts that are not built | [docs/VISION.md](docs/VISION.md) |
 | Architecture and decisions | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/adr/](docs/adr) |
-| Data, encryption and what a model provider receives | [docs/DATA-AND-PRIVACY.md](docs/DATA-AND-PRIVACY.md) |
-| The Client App | [desktop/README.md](desktop/README.md) |
-| Run a server for a team | [docs/DEPLOYING-A-SERVER.md](docs/DEPLOYING-A-SERVER.md) |
-| The live screen and the TURN variant | [docs/SCREEN-RELAY.md](docs/SCREEN-RELAY.md) |
-| Write a Plugin | [docs/PLUGINS.md](docs/PLUGINS.md) |
-| Write a Widget | [docs/WIDGETS.md](docs/WIDGETS.md) |
+| Build and package the Client App | [desktop/README.md](desktop/README.md) |
 | What belongs on a memory page | [docs/MEMORY-PAGES.md](docs/MEMORY-PAGES.md) |
 | The interface design system | [docs/UI-DESIGN.md](docs/UI-DESIGN.md) |
 | The LLM router: usage, design, modalities | [docs/USAGE.md](docs/USAGE.md), [docs/DESIGN.md](docs/DESIGN.md), [docs/MODALITIES.md](docs/MODALITIES.md) |
 | Release the server and the Client App | [docs/RELEASING-SERVER.md](docs/RELEASING-SERVER.md), [docs/RELEASING-CLIENT.md](docs/RELEASING-CLIENT.md) |
+| Write and deploy the documentation site | [docs-site/README.md](docs-site/README.md) |
 
 ## Contributing
 
