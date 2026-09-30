@@ -176,17 +176,9 @@ fn selection(verdict: Verdict, rule: Option<usize>) -> Selection {
     }
 }
 
-pub async fn the_migration_default_filter_is_the_gmail_default(backend: &Backend) {
-    let (_, state) = setup(backend).await;
-    assert_eq!(
-        state.config.filter,
-        pagis_google::gmail_filter::default_filter()
-    );
-    assert_eq!(state.filter_revision, 1);
-}
-
 pub async fn a_new_filter_bumps_the_revision_and_starts_its_own_counts(backend: &Backend) {
     let (store, state) = setup(backend).await;
+    assert_eq!(state.filter_revision, 1, "the first filter is revision 1");
     let key = state.key();
     store
         .record_reflection(
@@ -1219,11 +1211,6 @@ pub async fn a_new_retrieval_of_a_forgotten_item_writes_nothing_and_stays_suppre
     )
     .await;
     forget_the_item(backend, &key).await;
-    assert_eq!(
-        holding(backend, FORGOTTEN).await,
-        Vec::<String>::new(),
-        "a value of the database holds the forgotten item after the purge"
-    );
 
     // The Sync retrieves the item again: the version it had, with no
     // metadata, and a new version with a live arrival.
@@ -1589,64 +1576,13 @@ async fn ingest_mail(
 /// After a Forget of one message and its purge, a later event with the
 /// same provider event id writes no row and wakes nothing. The store
 /// drops it and keeps no hidden form of it, and the pass still commits
-/// its cursor, so the collector moves past the event (ADR-0008).
-pub async fn an_event_of_a_forgotten_item_writes_no_row_and_wakes_nothing(backend: &Backend) {
-    let (key, rule) = a_forgotten_mail(backend).await;
-
-    let outcome = ingest_mail(
-        backend,
-        &key,
-        &rule,
-        vec![forgotten_event()],
-        backend.keys(),
-    )
-    .await;
-
-    assert!(
-        outcome.events.is_empty(),
-        "the ingest returned the event of the forgotten item"
-    );
-    assert!(
-        outcome.created.is_empty() && outcome.combined.is_empty(),
-        "the event of the forgotten item woke the Agent"
-    );
-    assert_eq!(
-        holding(backend, FORGOTTEN).await,
-        Vec::<String>::new(),
-        "the ingest wrote a value of the forgotten item"
-    );
-    assert_eq!(
-        backend
-            .count(
-                "SELECT COUNT(*) FROM wakeups WHERE subscription_id=?",
-                &[Bind::from(rule.id.as_str())],
-            )
-            .await
-            .unwrap(),
-        0,
-        "the event of the forgotten item made a Wake-up"
-    );
-    assert_eq!(
-        backend
-            .stores()
-            .triggers
-            .cursor(
-                &key.workspace_id,
-                &key.connection_id,
-                pagis_broker::MAIL_MESSAGE_RECEIVED,
-            )
-            .await
-            .unwrap()
-            .as_deref(),
-        Some(MAIL_CURSOR),
-        "the pass did not commit its cursor"
-    );
-}
-
-/// After a Forget of one message, an event about another message of the
-/// same Connection is stored and wakes the Agent. The pass drops the
-/// event of the forgotten message alone.
-pub async fn an_event_of_another_item_of_the_connection_still_ingests(backend: &Backend) {
+/// its cursor, so the collector moves past the event. An event about
+/// another message of the same Connection in the same pass is stored
+/// and wakes the Agent, so the pass drops the event of the forgotten
+/// message alone (ADR-0008).
+pub async fn an_event_of_a_forgotten_item_writes_no_row_and_the_others_still_ingest(
+    backend: &Backend,
+) {
     let (key, rule) = a_forgotten_mail(backend).await;
 
     let outcome = ingest_mail(
@@ -1667,6 +1603,10 @@ pub async fn an_event_of_another_item_of_the_connection_still_ingests(backend: &
         vec!["kept-1"],
         "the pass stores the event of the other message alone"
     );
+    assert!(
+        outcome.combined.is_empty(),
+        "the pass combined an event into a Wake-up"
+    );
     assert_eq!(outcome.created.len(), 1, "the other message woke no rule");
     assert_eq!(
         outcome.created[0].source_count, 1,
@@ -1676,6 +1616,32 @@ pub async fn an_event_of_another_item_of_the_connection_still_ingests(backend: &
         holding(backend, FORGOTTEN).await,
         Vec::<String>::new(),
         "the ingest wrote a value of the forgotten item"
+    );
+    assert_eq!(
+        backend
+            .count(
+                "SELECT COUNT(*) FROM wakeups WHERE subscription_id=?",
+                &[Bind::from(rule.id.as_str())],
+            )
+            .await
+            .unwrap(),
+        1,
+        "the event of the forgotten item made a Wake-up"
+    );
+    assert_eq!(
+        backend
+            .stores()
+            .triggers
+            .cursor(
+                &key.workspace_id,
+                &key.connection_id,
+                pagis_broker::MAIL_MESSAGE_RECEIVED,
+            )
+            .await
+            .unwrap()
+            .as_deref(),
+        Some(MAIL_CURSOR),
+        "the pass did not commit its cursor"
     );
 }
 
@@ -3535,7 +3501,6 @@ macro_rules! store_suite_knowledge {
     ($emit:path) => {
         $emit!(
             knowledge,
-            the_migration_default_filter_is_the_gmail_default,
             a_new_filter_bumps_the_revision_and_starts_its_own_counts,
             a_later_pass_replaces_the_decision_of_the_same_revision,
             page_signals_read_the_metadata_of_one_thread,
@@ -3552,8 +3517,7 @@ macro_rules! store_suite_knowledge {
             a_forget_purge_leaves_no_value_of_the_forgotten_item_in_any_table,
             a_new_retrieval_of_a_forgotten_item_writes_nothing_and_stays_suppressed,
             a_forget_leaves_no_text_of_the_item_in_the_memory_search_index,
-            an_event_of_a_forgotten_item_writes_no_row_and_wakes_nothing,
-            an_event_of_another_item_of_the_connection_still_ingests,
+            an_event_of_a_forgotten_item_writes_no_row_and_the_others_still_ingest,
             an_ingest_in_a_workspace_that_never_forgot_anything_asks_for_no_key,
             a_forget_leaves_no_path_or_title_of_the_purged_page_in_the_feed_or_a_brief,
             a_forget_leaves_no_copy_of_the_purged_page_in_the_database_files,

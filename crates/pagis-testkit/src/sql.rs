@@ -188,9 +188,7 @@ impl Rows {
                         } else {
                             format!("convert_to(\"{column}\"::text, 'UTF8')")
                         };
-                        format!(
-                            "SELECT {value} FROM \"{table}\" WHERE \"{column}\" IS NOT NULL"
-                        )
+                        format!("SELECT {value} FROM \"{table}\" WHERE \"{column}\" IS NOT NULL")
                     })
                     .collect();
                 if !selects.is_empty() {

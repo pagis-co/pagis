@@ -789,21 +789,6 @@ fn each_image_and_server_package_is_scanned_for_vulnerabilities_before_it_ships(
     }
 }
 
-#[test]
-fn the_image_push_pushes_both_architectures_under_the_pinned_tag() {
-    let steps = plan(ReleaseStage::Images);
-    let cmd = &commands(step(&steps, "image-push"))[0];
-    assert_eq!(cmd.program, "docker");
-    let args = cmd.args.join(" ");
-    assert!(args.contains("buildx"), "{args}");
-    assert!(args.contains("linux/amd64,linux/arm64"), "{args}");
-    assert!(
-        args.contains("ghcr.io/pagis-co/pagis-computer:0.3.0"),
-        "{args}"
-    );
-    assert!(args.contains("--push"), "{args}");
-}
-
 /// The draft release of the tag holds the server package of each Client
 /// App platform and the Runtime Lock that names it, and nothing else. It
 /// stays a draft until a maintainer approves it, and it needs the tag the

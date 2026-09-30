@@ -160,23 +160,15 @@ pub async fn one_shot_schedule_history_roundtrips_through_the_store(backend: &Ba
     );
 }
 
-pub async fn agent_roundtrips_through_store(backend: &Backend) {
-    let ws = backend.seeded_workspace().await;
-
-    let store = &backend.stores().agents;
-    let a = agent(&ws.id);
-
-    store.create(&a).await.unwrap();
-
-    assert_eq!(store.get(&ws.id, &a.id).await.unwrap(), Some(a.clone()));
-    assert_eq!(store.list_by_workspace(&ws.id).await.unwrap(), vec![a]);
-}
-
 pub async fn agent_update_writes_the_mutable_fields(backend: &Backend) {
     let ws = backend.seeded_workspace().await;
     let store = &backend.stores().agents;
     let mut a = agent(&ws.id);
     store.create(&a).await.unwrap();
+    assert_eq!(
+        store.list_by_workspace(&ws.id).await.unwrap(),
+        vec![a.clone()]
+    );
 
     a.name = "Rex".to_string();
     a.job = "researcher".to_string();
@@ -193,16 +185,6 @@ pub async fn agent_update_writes_the_mutable_fields(backend: &Backend) {
     a.voice = None;
     store.update(&a).await.unwrap();
     assert_eq!(store.get(&ws.id, &a.id).await.unwrap(), Some(a));
-}
-
-pub async fn group_channel_kind_roundtrips_through_store(backend: &Backend) {
-    let ws = backend.seeded_workspace().await;
-    let store = &backend.stores().channels;
-    let group = crate::fixture::group_channel(&ws.id, "ops");
-
-    store.create(&group).await.unwrap();
-
-    assert_eq!(store.get(&ws.id, &group.id).await.unwrap(), Some(group));
 }
 
 pub async fn event_append_assigns_increasing_seq_and_lists_after(backend: &Backend) {
@@ -300,10 +282,13 @@ pub async fn channel_roundtrips_through_store(backend: &Backend) {
 
     let store = &backend.stores().channels;
     let ch = channel(&ws.id);
+    let group = crate::fixture::group_channel(&ws.id, "ops");
 
     store.create(&ch).await.unwrap();
+    store.create(&group).await.unwrap();
 
     assert_eq!(store.get(&ws.id, &ch.id).await.unwrap(), Some(ch));
+    assert_eq!(store.get(&ws.id, &group.id).await.unwrap(), Some(group));
     assert_eq!(
         store.get(&ws.id, &ChannelId::generate()).await.unwrap(),
         None
@@ -2045,6 +2030,11 @@ pub async fn software_package_and_versions_roundtrip(backend: &Backend) {
     let (workspace_id, author_id, run_id) = seed_software(backend).await;
     let store = &backend.stores().software;
     let package = software_package(&workspace_id, &author_id, "weather");
+    assert_eq!(
+        store.get_by_name(&workspace_id, "weather").await.unwrap(),
+        None,
+        "an unknown package name is none"
+    );
 
     store.create_package(&package).await.unwrap();
     let first = software_version(&package.id, "v1", &run_id);
@@ -2100,16 +2090,6 @@ pub async fn a_second_package_of_the_same_name_conflicts(backend: &Backend) {
     ));
 }
 
-pub async fn an_unknown_package_name_is_none(backend: &Backend) {
-    let (workspace_id, _, _) = seed_software(backend).await;
-    let store = &backend.stores().software;
-
-    assert_eq!(
-        store.get_by_name(&workspace_id, "weather").await.unwrap(),
-        None
-    );
-}
-
 /// One Workspace with one Agent, ready to hold a Plugin.
 async fn seed_plugins(backend: &Backend) -> (WorkspaceId, AgentId) {
     let workspace = backend.seeded_workspace().await;
@@ -2156,12 +2136,25 @@ pub async fn plugin_and_bindings_roundtrip(backend: &Backend) {
             },
         },
     ];
+    assert_eq!(
+        store.get_by_name(&workspace_id, "weather").await.unwrap(),
+        None,
+        "an unknown plugin name is none"
+    );
 
     store.create(&plugin, &bindings).await.unwrap();
 
     assert_eq!(
         store.get(&workspace_id, &plugin.id).await.unwrap(),
         Some(plugin.clone())
+    );
+    assert_eq!(
+        store
+            .get(&workspace_id, &PluginId::generate())
+            .await
+            .unwrap(),
+        None,
+        "an unknown plugin id is none"
     );
     assert_eq!(
         store.get_by_name(&workspace_id, "weather").await.unwrap(),
@@ -2352,23 +2345,6 @@ pub async fn an_uninstall_revokes_the_grants_and_keeps_nothing_else(backend: &Ba
     );
 }
 
-pub async fn an_unknown_plugin_is_none(backend: &Backend) {
-    let (workspace_id, _agent_id) = seed_plugins(backend).await;
-    let store = &backend.stores().plugins;
-
-    assert_eq!(
-        store
-            .get(&workspace_id, &PluginId::generate())
-            .await
-            .unwrap(),
-        None
-    );
-    assert_eq!(
-        store.get_by_name(&workspace_id, "weather").await.unwrap(),
-        None
-    );
-}
-
 pub async fn the_frozen_tool_catalog_belongs_to_one_manifest_version(backend: &Backend) {
     let (workspace_id, _agent_id) = seed_plugins(backend).await;
     let plugin = plugin_record(&workspace_id, "weather");
@@ -2537,9 +2513,7 @@ macro_rules! store_suite_stores {
             the_org_holds_the_google_web_client_id,
             set_chief_of_staff_names_an_agent_and_clears_it,
             one_shot_schedule_history_roundtrips_through_the_store,
-            agent_roundtrips_through_store,
             agent_update_writes_the_mutable_fields,
-            group_channel_kind_roundtrips_through_store,
             event_append_assigns_increasing_seq_and_lists_after,
             events_of_one_workspace_list_without_the_others,
             channel_roundtrips_through_store,
@@ -2596,13 +2570,11 @@ macro_rules! store_suite_stores {
             one_number_and_one_address_of_the_same_text_are_two_rows,
             software_package_and_versions_roundtrip,
             a_second_package_of_the_same_name_conflicts,
-            an_unknown_package_name_is_none,
             plugin_and_bindings_roundtrip,
             a_second_plugin_of_the_same_name_conflicts,
             an_update_writes_the_commit_and_the_manifest_version,
             one_field_holds_one_binding,
             an_uninstall_revokes_the_grants_and_keeps_nothing_else,
-            an_unknown_plugin_is_none,
             the_frozen_tool_catalog_belongs_to_one_manifest_version,
         );
     };
