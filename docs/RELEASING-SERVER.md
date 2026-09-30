@@ -266,7 +266,10 @@ that the Chromium of the Computer Image loads.
 
 The repository administrator sets these once. `scripts/signing-secrets.sh`
 walks the Apple Developer Account Holder through the signing secrets and sets
-them with `gh`. The two PostHog secrets are set with `gh secret set`; a
+them with `gh`. It needs `gh`, `gpg` and `openssl`, and stops before it
+changes anything when one is missing. Each stage sets its own secrets, so
+`scripts/signing-secrets.sh --from <stage>` starts again at a stage that did
+not finish. The two PostHog secrets are set with `gh secret set`; a
 release without them sends no analytics.
 
 | Name | Where | What it holds |

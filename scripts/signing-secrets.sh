@@ -195,7 +195,16 @@ TEAM_ID="${APPLE_TEAM_ID:-}"
 CERT_NAME="Developer ID Application"
 RELEASE_KEY_UID="Pagis release <release@example.invalid>"
 ENV_FILE="$(mktemp)"   # the library needs one; nothing is written to it
-trap 'rm -f "$ENV_FILE"' EXIT
+# A run that fails in a stage says how to resume at that stage.
+on_exit() {
+  local status=$?
+  rm -f "$ENV_FILE"
+  if (( status != 0 && _STAGE_INDEX > 0 )); then
+    printf '\nStage %s did not finish. Resume with: %s --from %s\n' \
+      "$_STAGE_INDEX" "$0" "$_STAGE_INDEX" >&2
+  fi
+}
+trap on_exit EXIT
 
 has_identity() {
   security find-identity -v -p codesigning 2>/dev/null | grep -q "$CERT_NAME.*($TEAM_ID)"
@@ -219,120 +228,156 @@ ask_file() {
   printf -v "$key" '%s' "$path"
 }
 
-banner "Signing secrets of the release workflow"
-
 # ── 1. The certificate ────────────────────────────────────────────────────
-stage "Developer ID Application certificate"
-if [[ -z "$TEAM_ID" ]]; then
-  say "The Team ID is the ten characters Apple shows under Membership details."
-  ask TEAM_ID "Your Apple Developer Team ID:"
-  until [[ "$TEAM_ID" =~ ^[A-Z0-9]{10}$ ]]; do
-    warn "A Team ID is ten upper-case letters and digits."
+stage_certificate() {
+  stage "Developer ID Application certificate"
+  if [[ -z "$TEAM_ID" ]]; then
+    say "The Team ID is the ten characters Apple shows under Membership details."
     ask TEAM_ID "Your Apple Developer Team ID:"
-  done
-fi
-if has_identity; then
-  say "The login keychain already holds a $CERT_NAME certificate of team $TEAM_ID."
-  pause
-else
-  say "The keychain has no $CERT_NAME certificate of team $TEAM_ID (the Apple Distribution one signs App Store builds only)."
-  say "Only the Account Holder of the team can make this certificate."
-  step "Keychain Access → Certificate Assistant → Request a Certificate From a Certificate Authority."
-  step "Fill your email and name, choose 'Saved to disk', and save the CertificateSigningRequest file."
-  open_url "https://developer.apple.com/account/resources/certificates/add"
-  step "Choose '$CERT_NAME', upload the request file, and download the .cer file."
-  step "Double-click the .cer file: it lands in the login keychain beside its private key."
-  pause "Done? Press Enter to check the keychain."
-  until has_identity; do
-    warn "No '$CERT_NAME' identity of team $TEAM_ID is in the keychain yet."
-    pause "Install it, then press Enter to check again."
-  done
-  say "Found it."
-fi
+    until [[ "$TEAM_ID" =~ ^[A-Z0-9]{10}$ ]]; do
+      warn "A Team ID is ten upper-case letters and digits."
+      ask TEAM_ID "Your Apple Developer Team ID:"
+    done
+  fi
+  if has_identity; then
+    say "The login keychain already holds a $CERT_NAME certificate of team $TEAM_ID."
+    pause
+  else
+    say "The keychain has no $CERT_NAME certificate of team $TEAM_ID (the Apple Distribution one signs App Store builds only)."
+    say "Only the Account Holder of the team can make this certificate."
+    step "Keychain Access → Certificate Assistant → Request a Certificate From a Certificate Authority."
+    step "Fill your email and name, choose 'Saved to disk', and save the CertificateSigningRequest file."
+    open_url "https://developer.apple.com/account/resources/certificates/add"
+    step "Choose '$CERT_NAME', upload the request file, and download the .cer file."
+    step "Double-click the .cer file: it lands in the login keychain beside its private key."
+    pause "Done? Press Enter to check the keychain."
+    until has_identity; do
+      warn "No '$CERT_NAME' identity of team $TEAM_ID is in the keychain yet."
+      pause "Install it, then press Enter to check again."
+    done
+    say "Found it."
+  fi
+}
 
 # ── 2. The .p12 ───────────────────────────────────────────────────────────
-stage "Export the certificate as a .p12"
-step "Keychain Access → My Certificates → right-click the '$CERT_NAME' certificate of team $TEAM_ID → Export."
-step "Keep the format 'Personal Information Exchange (.p12)' and set a password for the file."
-ask_file P12_PATH "Path of the exported .p12 file:"
-ask_secret CSC_KEY_PASSWORD "The password of the .p12:"
-until openssl pkcs12 -in "$P12_PATH" -nokeys -passin "pass:$CSC_KEY_PASSWORD" -legacy >/dev/null 2>&1 \
-   || openssl pkcs12 -in "$P12_PATH" -nokeys -passin "pass:$CSC_KEY_PASSWORD" >/dev/null 2>&1; do
-  warn "That password does not open the .p12."
+stage_p12() {
+  stage "Export the certificate as a .p12"
+  step "Keychain Access → My Certificates → right-click the '$CERT_NAME' certificate of team $TEAM_ID → Export."
+  step "Keep the format 'Personal Information Exchange (.p12)' and set a password for the file."
+  ask_file P12_PATH "Path of the exported .p12 file:"
   ask_secret CSC_KEY_PASSWORD "The password of the .p12:"
-done
-CSC_LINK="$(base64 -i "$P12_PATH" | tr -d '\n')"
-set_secret CSC_LINK "$CSC_LINK"
-set_secret CSC_KEY_PASSWORD "$CSC_KEY_PASSWORD"
-if confirm "Delete $P12_PATH now that it is a secret?"; then rm -f "$P12_PATH"; say "Deleted."; fi
+  until openssl pkcs12 -in "$P12_PATH" -nokeys -passin "pass:$CSC_KEY_PASSWORD" -legacy >/dev/null 2>&1 \
+     || openssl pkcs12 -in "$P12_PATH" -nokeys -passin "pass:$CSC_KEY_PASSWORD" >/dev/null 2>&1; do
+    warn "That password does not open the .p12."
+    ask_secret CSC_KEY_PASSWORD "The password of the .p12:"
+  done
+  CSC_LINK="$(base64 -i "$P12_PATH" | tr -d '\n')"
+  set_secret CSC_LINK "$CSC_LINK"
+  set_secret CSC_KEY_PASSWORD "$CSC_KEY_PASSWORD"
+  if confirm "Delete $P12_PATH now that it is a secret?"; then rm -f "$P12_PATH"; say "Deleted."; fi
+}
 
 # ── 3. The notary key ─────────────────────────────────────────────────────
-stage "The App Store Connect API key that notarizes"
-say "Notarization signs in with an API key of the team, not with a person's Apple ID."
-open_url "https://appstoreconnect.apple.com/access/integrations/api"
-step "Team Keys → Generate API Key. Name it 'pagis notarization' and give it the Developer role."
-step "Download the .p8 file. Apple lets you download it one time only."
-step "Copy the Key ID of the key and the Issuer ID above the list."
-ask_file P8_PATH "Path of the downloaded .p8 file:"
-ask APPLE_API_KEY_ID "The Key ID:"
-ask APPLE_API_ISSUER "The Issuer ID:"
-set_secret APPLE_API_KEY_P8 "$(cat "$P8_PATH")"
-set_secret APPLE_API_KEY_ID "$APPLE_API_KEY_ID"
-set_secret APPLE_API_ISSUER "$APPLE_API_ISSUER"
-if confirm "Delete $P8_PATH now that it is a secret?"; then rm -f "$P8_PATH"; say "Deleted."; fi
+stage_notary_key() {
+  stage "The App Store Connect API key that notarizes"
+  say "Notarization signs in with an API key of the team, not with a person's Apple ID."
+  open_url "https://appstoreconnect.apple.com/access/integrations/api"
+  step "Team Keys → Generate API Key. Name it 'pagis notarization' and give it the Developer role."
+  step "Download the .p8 file. Apple lets you download it one time only."
+  step "Copy the Key ID of the key and the Issuer ID above the list."
+  ask_file P8_PATH "Path of the downloaded .p8 file:"
+  ask APPLE_API_KEY_ID "The Key ID:"
+  ask APPLE_API_ISSUER "The Issuer ID:"
+  set_secret APPLE_API_KEY_P8 "$(cat "$P8_PATH")"
+  set_secret APPLE_API_KEY_ID "$APPLE_API_KEY_ID"
+  set_secret APPLE_API_ISSUER "$APPLE_API_ISSUER"
+  if confirm "Delete $P8_PATH now that it is a secret?"; then rm -f "$P8_PATH"; say "Deleted."; fi
+}
 
 # ── 4. The Linux release key ──────────────────────────────────────────────
-stage "The Linux release key"
-say "The release key signs the checksum list of the Linux packages."
-say "Its public half is docs/release-key.asc; its private half is a secret of the 'release' environment."
-fingerprint=$(gpg --batch --with-colons --list-secret-keys "$RELEASE_KEY_UID" 2>/dev/null \
-  | awk -F: '$1 == "fpr" { print $10; exit }') || fingerprint=""
-if [[ -z "$fingerprint" ]]; then
-  # The key has no passphrase, because the publication job signs with no
-  # person present. The environment secret and its approval protect it.
-  gpg --batch --pinentry-mode loopback --passphrase '' \
-    --quick-generate-key "$RELEASE_KEY_UID" ed25519 sign 2y
-  fingerprint=$(gpg --batch --with-colons --list-secret-keys "$RELEASE_KEY_UID" \
-    | awk -F: '$1 == "fpr" { print $10; exit }')
-  say "Made the release key $fingerprint."
-else
-  say "Found the release key $fingerprint."
-fi
-repo_root=$(git rev-parse --show-toplevel)
-gpg --armor --export "$fingerprint" > "$repo_root/docs/release-key.asc"
-say "Wrote docs/release-key.asc. Commit it: the tag must carry it."
-if gh_ready; then
-  # The environment holds each publication job until you approve it.
-  # Only a job of a `v*` tag enters it.
-  me=$(gh api user --jq .id)
-  printf '{"reviewers":[{"type":"User","id":%s}],"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true}}' "$me" \
-    | gh api -X PUT "repos/{owner}/{repo}/environments/release" --input - >/dev/null
-  if ! gh api "repos/{owner}/{repo}/environments/release/deployment-branch-policies" \
-      --jq '.branch_policies[] | select(.type == "tag") | .name' | grep -qx 'v\*'; then
-    gh api -X POST "repos/{owner}/{repo}/environments/release/deployment-branch-policies" \
-      -f name='v*' -f type=tag >/dev/null
-  fi
-  say "The 'release' environment admits the jobs of 'v*' tags and waits for your approval."
-  if gpg --batch --armor --export-secret-keys "$fingerprint" \
-      | gh secret set PAGIS_RELEASE_GPG_PRIVATE_KEY --env release >/dev/null 2>&1; then
-    WRITTEN_SECRET+=("PAGIS_RELEASE_GPG_PRIVATE_KEY (release environment)")
-    printf '  %s✓ set%s GitHub secret PAGIS_RELEASE_GPG_PRIVATE_KEY of the release environment\n' "$GREEN" "$RESET"
+stage_release_key() {
+  stage "The Linux release key"
+  say "The release key signs the checksum list of the Linux packages."
+  say "Its public half is docs/release-key.asc; its private half is a secret of the 'release' environment."
+  fingerprint=$(gpg --batch --with-colons --list-secret-keys "$RELEASE_KEY_UID" 2>/dev/null \
+    | awk -F: '$1 == "fpr" { print $10; exit }') || fingerprint=""
+  if [[ -z "$fingerprint" ]]; then
+    # The key has no passphrase, because the publication job signs with no
+    # person present. The environment secret and its approval protect it.
+    gpg --batch --pinentry-mode loopback --passphrase '' \
+      --quick-generate-key "$RELEASE_KEY_UID" ed25519 sign 2y
+    fingerprint=$(gpg --batch --with-colons --list-secret-keys "$RELEASE_KEY_UID" \
+      | awk -F: '$1 == "fpr" { print $10; exit }')
+    say "Made the release key $fingerprint."
   else
-    SKIPPED+=("the release environment secret PAGIS_RELEASE_GPG_PRIVATE_KEY")
+    say "Found the release key $fingerprint."
   fi
-else
-  SKIPPED+=("the 'release' environment with you as reviewer, and its secret PAGIS_RELEASE_GPG_PRIVATE_KEY")
-fi
+  repo_root=$(git rev-parse --show-toplevel)
+  gpg --armor --export "$fingerprint" > "$repo_root/docs/release-key.asc"
+  say "Wrote docs/release-key.asc. Commit it: the tag must carry it."
+  if gh_ready; then
+    # The environment holds each publication job until you approve it.
+    # Only a job of a `v*` tag enters it.
+    me=$(gh api user --jq .id)
+    printf '{"reviewers":[{"type":"User","id":%s}],"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true}}' "$me" \
+      | gh api -X PUT "repos/{owner}/{repo}/environments/release" --input - >/dev/null
+    if ! gh api "repos/{owner}/{repo}/environments/release/deployment-branch-policies" \
+        --jq '.branch_policies[] | select(.type == "tag") | .name' | grep -qx 'v\*'; then
+      gh api -X POST "repos/{owner}/{repo}/environments/release/deployment-branch-policies" \
+        -f name='v*' -f type=tag >/dev/null
+    fi
+    say "The 'release' environment admits the jobs of 'v*' tags and waits for your approval."
+    if gpg --batch --armor --export-secret-keys "$fingerprint" \
+        | gh secret set PAGIS_RELEASE_GPG_PRIVATE_KEY --env release >/dev/null 2>&1; then
+      WRITTEN_SECRET+=("PAGIS_RELEASE_GPG_PRIVATE_KEY (release environment)")
+      printf '  %s✓ set%s GitHub secret PAGIS_RELEASE_GPG_PRIVATE_KEY of the release environment\n' "$GREEN" "$RESET"
+    else
+      SKIPPED+=("the release environment secret PAGIS_RELEASE_GPG_PRIVATE_KEY")
+    fi
+  else
+    SKIPPED+=("the 'release' environment with you as reviewer, and its secret PAGIS_RELEASE_GPG_PRIVATE_KEY")
+  fi
+}
 
 # ── 5. Check ──────────────────────────────────────────────────────────────
-stage "Check"
-say "The release workflow reads these secrets:"
-if gh_ready; then
-  gh secret list 2>/dev/null | sed 's/^/    /'
-  gh secret list --env release 2>/dev/null | sed 's/^/    release: /'
+stage_check() {
+  stage "Check"
+  say "The release workflow reads these secrets:"
+  if gh_ready; then
+    gh secret list 2>/dev/null | sed 's/^/    /'
+    gh secret list --env release 2>/dev/null | sed 's/^/    release: /'
+  fi
+  say "Commit docs/release-key.asc. A 'v*' tag then builds, signs and drafts the release:"
+  note "    git tag v<version> && git push origin v<version>"
+  pause
+}
+
+STAGES=(stage_certificate stage_p12 stage_notary_key stage_release_key stage_check)
+
+# --from N starts at stage N. Each stage sets its own secrets, so a run that
+# stopped at a stage resumes there and does not ask for the files of the
+# stages before it.
+FROM=1
+if [[ "${1:-}" == "--from" ]]; then FROM="${2:-}"; fi
+if ! [[ "$FROM" =~ ^[1-5]$ ]]; then
+  printf 'usage: %s [--from 1-5]\n' "$0" >&2
+  exit 2
 fi
-say "Commit docs/release-key.asc. A 'v*' tag then builds, signs and drafts the release:"
-note "    git tag v<version> && git push origin v<version>"
-pause
+
+# Every stage that runs needs these tools, so a missing one stops the run
+# before it changes anything.
+missing=()
+for tool in git openssl security base64 gpg; do
+  command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
+done
+if (( ${#missing[@]} )); then
+  printf 'Install these first: %s (gpg: brew install gnupg).\n' "${missing[*]}" >&2
+  exit 1
+fi
+gh_ready || warn "gh is not signed in: run 'gh auth login' first, or set the secrets by hand after the run."
+
+banner "Signing secrets of the release workflow"
+_STAGE_INDEX=$((FROM - 1))
+for run in "${STAGES[@]:FROM-1}"; do "$run"; done
 
 finish
