@@ -105,13 +105,12 @@ in `desktop/release/`, the lock and the server package from the draft in
 cargo xtask desktop --tag v0.1.0 --publish-existing
 ```
 
-The publish command does not rebuild, re-sign or re-notarize, so it needs no
-signing input. It mounts the exact DMG
-again and repeats the local package checks against its app. It also compares
-the local server package and Runtime Lock with the draft, pulls the
-immutable Computer image with no credentials, and uploads the client without
-`--clobber`.
-Missing, changed or unsigned artifacts stop publication.
+The publish command does not rebuild, re-sign, re-notarize or check the DMG
+again, so it needs no signing input: the prepare job checked those exact
+bytes, and the workflow artifact carries them unchanged. It compares the
+local server package and Runtime Lock with the draft, pulls the immutable
+Computer image with no credentials, and uploads the client without
+`--clobber`. A changed server tuple stops publication.
 
 ## Linux
 

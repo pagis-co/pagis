@@ -228,6 +228,9 @@ fn signed_client_action(root: &Path, cx: &DesktopContext) -> Action {
     if cx.tag.is_none() {
         return Action::Skip("no release tag: the package is an unsigned smoke artifact".into());
     }
+    if cx.publish_existing {
+        return Action::Skip("the exact DMG was checked when it was prepared".into());
+    }
     let dmg = format!("desktop/release/{}", dmg_name(&cx.version));
     let script = format!(
         "set -eu\ndmg='{dmg}'\nmount=$(mktemp -d)\ncopy=$(mktemp -d)\nmounted=0\ncleanup() {{\n  if [ \"$mounted\" -eq 1 ]; then /usr/bin/hdiutil detach \"$mount\" >/dev/null || true; fi\n  rm -rf \"$mount\" \"$copy\"\n}}\ntrap cleanup EXIT HUP INT TERM\n/usr/bin/hdiutil attach -readonly -nobrowse -mountpoint \"$mount\" \"$dmg\" >/dev/null\nmounted=1\napp=\"$mount/Pagis.app\"\n[ -d \"$app\" ] || {{ echo 'the exact DMG has no Pagis.app' >&2; exit 1; }}\ncmp dist/runtime-lock-darwin-arm64.json \"$app/Contents/Resources/runtime-lock.json\"\nnode desktop/scripts/check-package.mjs \"$app\" \"$dmg\"\nnode desktop/scripts/check-packaged-runtime.mjs \"$app\"\n/usr/bin/codesign --verify --deep --strict --verbose=2 \"$app\"\n/usr/bin/codesign -dv --verbose=4 \"$app\" 2>&1 | grep '^Authority=Developer ID Application:' >/dev/null\nteam=$(/usr/bin/codesign -dv --verbose=4 \"$app\" 2>&1 | sed -n 's/^TeamIdentifier=//p')\nlocked_team=$(node -e \"process.stdout.write(require('./dist/runtime-lock-darwin-arm64.json').asset.team_id)\")\n[ \"$team\" = \"$locked_team\" ] || {{ echo 'the client and server signing teams differ' >&2; exit 1; }}\n/usr/bin/codesign --verify --strict --verbose=2 \"$dmg\"\n/usr/bin/xcrun stapler validate \"$dmg\"\n/usr/sbin/spctl --assess --type execute --verbose=2 \"$app\"\n/usr/sbin/spctl --assess --type open --context context:primary-signature --verbose=2 \"$dmg\"\n/usr/bin/ditto \"$app\" \"$copy/Pagis.app\"\n(cd \"$copy\" && ./Pagis.app/Contents/MacOS/Pagis --smoke)\n"
