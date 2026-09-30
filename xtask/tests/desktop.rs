@@ -244,10 +244,9 @@ fn a_prepared_package_stops_before_publication_and_publish_reuses_its_bytes() {
     assert!(skip_reason(step(&steps, "deps")).contains("exact package"));
     assert!(skip_reason(step(&steps, "pack")).contains("exact package"));
     assert!(skip_reason(step(&steps, "finalize-dmg")).contains("finalized when it was prepared"));
-    assert!(matches!(
-        step(&steps, "signed-client").action,
-        Action::Run(_)
-    ));
+    // The prepare job checked these exact bytes; publication uploads them
+    // and checks only the published server tuple.
+    assert!(skip_reason(step(&steps, "signed-client")).contains("checked when it was prepared"));
     assert!(matches!(step(&steps, "publish").action, Action::Run(_)));
 }
 
