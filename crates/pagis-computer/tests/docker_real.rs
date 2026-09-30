@@ -142,6 +142,19 @@ async fn wait_awake(manager: &Arc<ComputerManager>, agent_id: &AgentId) {
     }
 }
 
+/// The lifecycle of one Computer, and the parts of it that the first
+/// wake starts. It holds these contracts:
+///
+/// - a wake boots the pinned image, and the woken Computer already
+///   shows the browser: the Agent's first screenshot comes right after
+///   the Computer turns awake, and a screen with a terminal and no
+///   browser sends the Agent to start one itself;
+/// - screend serves a PNG preview and answers a live view offer;
+/// - the input switch flips, and screend refuses a batch of a holder
+///   that does not hold the switch, and every batch of the daemon;
+/// - the uid split (ADR-0013) keeps the agent's shell out of the
+///   Wayland socket and the browser profile;
+/// - a file in the agent's home survives idle-stop and re-wake.
 #[tokio::test]
 #[ignore = "needs Docker; run via cargo test -- --ignored"]
 async fn wake_preview_idle_stop_and_rewake_preserve_home() {
@@ -152,9 +165,25 @@ async fn wake_preview_idle_stop_and_rewake_preserve_home() {
     let agent_id = AgentId::generate();
     let owner = real.owner(&agent_id);
 
-    // Wake boots the pinned image and screend answers with a real PNG.
+    // Wake boots the pinned image and the browser window is open when
+    // the Computer turns awake.
     manager.wake(&agent_id).await.expect("wake");
     wait_awake(&manager, &agent_id).await;
+    let running = runtime
+        .running(&owner)
+        .await
+        .expect("running query")
+        .expect("computer is running");
+    let open = windows(&running.computer.control_addr, &running.computer.token).await;
+    assert!(
+        open.as_array()
+            .expect("the window list is an array")
+            .iter()
+            .any(|window| window["app_id"] == "chromium"),
+        "the awake computer shows no browser window: {open}"
+    );
+
+    // screend answers with a real PNG.
     let live = manager.preview(&agent_id).await.expect("live preview");
     assert!(live.live);
     assert_eq!(&live.png[..8], b"\x89PNG\r\n\x1a\n", "screend serves PNG");
@@ -182,11 +211,6 @@ async fn wake_preview_idle_stop_and_rewake_preserve_home() {
 
     // The input switch: screend's holder endpoint flips and
     // reports the user-input idle clock.
-    let running = runtime
-        .running(&owner)
-        .await
-        .expect("running query")
-        .expect("computer is running");
     assert_eq!(
         running.version.as_deref(),
         Some(pagis_computer::IMAGE_VERSION),
@@ -534,101 +558,19 @@ async fn a_restarted_manager_stops_a_computer_that_nobody_asked_for() {
     );
 }
 
-// The exec seam against a real daemon: the uid, the
-// environment, the directory, the in-container deadline, stdin with
-// its half-close, and the output cap.
-
+/// The exec seam against a real daemon, on one Computer. It holds
+/// these contracts:
+///
+/// - a shell command runs as the agent, with its home as `HOME` and as
+///   the directory it starts in;
+/// - stdin reaches the command and ends with a half-close, so `cat`
+///   ends;
+/// - long output keeps a head, a tail and a marker between them;
+/// - a command past its deadline ends with code 124, and the deadline
+///   takes the whole process group with it.
 #[tokio::test]
 #[ignore = "needs Docker; run via cargo test -- --ignored"]
-async fn a_shell_command_runs_as_the_agent_in_its_own_home() {
-    let real = Real::new();
-    let (manager, _screens) = real.manager(Duration::from_secs(600));
-    let agent_id = AgentId::generate();
-    manager.wake(&agent_id).await.expect("wake");
-    wait_awake(&manager, &agent_id).await;
-
-    let outcome = manager
-        .shell(
-            &agent_id,
-            ShellCommand {
-                command: "id -un; printf '%s %s\\n' \"$HOME\" \"$PWD\"".to_string(),
-                timeout: Duration::from_secs(30),
-                cwd: None,
-                stdin: None,
-                output_cap: None,
-            },
-        )
-        .await
-        .expect("shell");
-
-    assert_eq!(outcome.exit_code, 0);
-    assert_eq!(outcome.stdout, "agent\n/data/agent /data/agent\n");
-    assert!(!outcome.truncated);
-}
-
-#[tokio::test]
-#[ignore = "needs Docker; run via cargo test -- --ignored"]
-async fn a_command_past_its_deadline_ends_with_code_124() {
-    let real = Real::new();
-    let (manager, _screens) = real.manager(Duration::from_secs(600));
-    let agent_id = AgentId::generate();
-    let owner = real.owner(&agent_id);
-    manager.wake(&agent_id).await.expect("wake");
-    wait_awake(&manager, &agent_id).await;
-
-    let outcome = manager
-        .shell(
-            &agent_id,
-            ShellCommand {
-                command: "(sleep 30; touch /data/agent/leaked) & wait".to_string(),
-                timeout: Duration::from_secs(2),
-                cwd: None,
-                stdin: None,
-                output_cap: None,
-            },
-        )
-        .await
-        .expect("shell");
-
-    assert_eq!(outcome.exit_code, 124);
-    // The deadline takes the whole process group with it.
-    let listing = docker_exec(&owner, &["ls", "/data/agent"]);
-    assert!(!listing.contains("leaked"), "a child outlived the deadline");
-}
-
-#[tokio::test]
-#[ignore = "needs Docker; run via cargo test -- --ignored"]
-async fn long_output_keeps_a_head_a_tail_and_a_marker() {
-    let real = Real::new();
-    let (manager, _screens) = real.manager(Duration::from_secs(600));
-    let agent_id = AgentId::generate();
-    manager.wake(&agent_id).await.expect("wake");
-    wait_awake(&manager, &agent_id).await;
-
-    let outcome = manager
-        .shell(
-            &agent_id,
-            ShellCommand {
-                command: "seq 1 400000".to_string(),
-                timeout: Duration::from_secs(60),
-                cwd: None,
-                stdin: None,
-                output_cap: None,
-            },
-        )
-        .await
-        .expect("shell");
-
-    assert_eq!(outcome.exit_code, 0);
-    assert!(outcome.truncated);
-    assert!(outcome.stdout.starts_with("1\n2\n3\n"));
-    assert!(outcome.stdout.contains("bytes truncated"));
-    assert!(outcome.stdout.ends_with("400000\n"), "the tail survived");
-}
-
-#[tokio::test]
-#[ignore = "needs Docker; run via cargo test -- --ignored"]
-async fn stdin_reaches_the_command_and_ends_with_a_half_close() {
+async fn a_shell_command_runs_as_the_agent_within_its_deadline_and_output_cap() {
     let real = Real::new();
     let runtime = &real.runtime;
     let (manager, _screens) = real.manager(Duration::from_secs(600));
@@ -636,13 +578,37 @@ async fn stdin_reaches_the_command_and_ends_with_a_half_close() {
     let owner = real.owner(&agent_id);
     manager.wake(&agent_id).await.expect("wake");
     wait_awake(&manager, &agent_id).await;
+    let shell = |command: &str, timeout: Duration| {
+        manager.shell(
+            &agent_id,
+            ShellCommand {
+                command: command.to_string(),
+                timeout,
+                cwd: None,
+                stdin: None,
+                output_cap: None,
+            },
+        )
+    };
+
+    // The uid, the environment and the directory.
+    let outcome = shell(
+        "id -un; printf '%s %s\\n' \"$HOME\" \"$PWD\"",
+        Duration::from_secs(30),
+    )
+    .await
+    .expect("shell");
+    assert_eq!(outcome.exit_code, 0);
+    assert_eq!(outcome.stdout, "agent\n/data/agent /data/agent\n");
+    assert!(!outcome.truncated);
+
+    // Stdin with its half-close.
     let computer = runtime
         .running(&owner)
         .await
         .expect("running query")
         .expect("computer is running")
         .computer;
-
     let outcome = runtime
         .exec(
             &computer,
@@ -660,9 +626,30 @@ async fn stdin_reaches_the_command_and_ends_with_a_half_close() {
         )
         .await
         .expect("exec");
-
     assert_eq!(outcome.exit_code, 0);
     assert_eq!(outcome.stdout, "from stdin\n");
+
+    // The output cap.
+    let outcome = shell("seq 1 400000", Duration::from_secs(60))
+        .await
+        .expect("shell");
+    assert_eq!(outcome.exit_code, 0);
+    assert!(outcome.truncated);
+    assert!(outcome.stdout.starts_with("1\n2\n3\n"));
+    assert!(outcome.stdout.contains("bytes truncated"));
+    assert!(outcome.stdout.ends_with("400000\n"), "the tail survived");
+
+    // The in-container deadline.
+    let outcome = shell(
+        "(sleep 30; touch /data/agent/leaked) & wait",
+        Duration::from_secs(2),
+    )
+    .await
+    .expect("shell");
+    assert_eq!(outcome.exit_code, 124);
+    // The deadline takes the whole process group with it.
+    let listing = docker_exec(&owner, &["ls", "/data/agent"]);
+    assert!(!listing.contains("leaked"), "a child outlived the deadline");
 }
 
 /// A catalogue of exactly one mount.
@@ -745,9 +732,27 @@ async fn a_granted_plugin_mounts_its_skills_read_only() {
     assert!(listed.contains("system-packages"), "{listed}");
 }
 
-/// A browser that dies comes back on its own. Without the
-/// supervisor, one Chromium exit leaves a computer with no browser,
-/// and the only symptom is an agent that stares at a terminal.
+/// A browser that dies comes back on its own, and the restarted browser
+/// keeps each launch contract of the first one. It holds these
+/// contracts:
+///
+/// - the supervisor restarts a dead Chromium. Without it, one Chromium
+///   exit leaves a Computer with no browser, and the only symptom is an
+///   agent that stares at a terminal;
+/// - Chromium runs with its own sandbox on. The browser runs without
+///   `--no-sandbox`, so it depends on the seccomp profile the runtime
+///   gives the container: without the user-namespace calls the sandbox
+///   cannot start, Chromium exits at once, and the supervisor turns the
+///   failure into a restart loop that `wait_browser_settled` refuses.
+///   Without the flag, no page shows the "unsupported command-line
+///   flag" bar to the agent;
+/// - Chromium starts with the pinned uBlock Origin Lite, with no other
+///   extension beside it. Each ad frame, consent script and tracker on
+///   a page costs the agent a screenshot and the tokens to read it;
+/// - the agent cannot open the browser channel of the daemon. That
+///   channel is the DevTools pipe that screend and Chromium alone hold
+///   (ADR-0013). The browser opens no debugging port, and the Agent's
+///   uid can open no file descriptor of a process of the `screen` uid.
 #[tokio::test]
 #[ignore = "needs Docker; run via cargo test -- --ignored"]
 async fn the_supervisor_restarts_a_dead_chromium() {
@@ -769,84 +774,22 @@ async fn the_supervisor_restarts_a_dead_chromium() {
 
     docker_exec_raw(&owner, &[], &["pkill", "-KILL", "chromium"]);
 
-    let second = wait_browser_settled(&control_addr, &owner, &first).await;
-    assert_ne!(first, second, "the supervisor never restarted Chromium");
-}
+    let pid = wait_browser_settled(&control_addr, &owner, &first).await;
+    assert_ne!(first, pid, "the supervisor never restarted Chromium");
 
-/// The clock and the locale of a real container. The Workspace
-/// timezone reaches the container, and the image holds the data that
-/// makes the name a clock and the locale a locale.
-#[tokio::test]
-#[ignore = "needs Docker; run via cargo test -- --ignored"]
-async fn the_container_runs_on_the_workspace_clock_and_the_us_locale() {
-    let real = Real::new();
-    // Asia/Tokyo has one abbreviation the whole year, so `date +%Z`
-    // answers JST whenever this test runs.
-    let (manager, _screens) = real.manager_with(
-        Duration::from_secs(600),
-        Arc::new(pagis_core::NoSkills),
-        "Asia/Tokyo",
+    // `/proc/<pid>/cmdline` is NUL-separated: `tr` puts one argument
+    // on each line.
+    let cmdline = docker_exec(
+        &owner,
+        &["sh", "-c", &format!("tr '\\0' '\\n' < /proc/{pid}/cmdline")],
     );
-    let agent_id = AgentId::generate();
-    let owner = real.owner(&agent_id);
-    manager.wake(&agent_id).await.expect("wake");
-    wait_awake(&manager, &agent_id).await;
+    let args: Vec<&str> = cmdline.lines().collect();
 
-    let outcome = manager
-        .shell(
-            &agent_id,
-            ShellCommand {
-                command: "date +%Z; printf '%s\\n' \"$LANG\"; locale -a | grep -ix en_US.utf8"
-                    .to_string(),
-                timeout: Duration::from_secs(30),
-                cwd: None,
-                stdin: None,
-                output_cap: None,
-            },
-        )
-        .await
-        .expect("shell");
-
-    assert_eq!(outcome.exit_code, 0, "stderr: {}", outcome.stderr);
-    assert_eq!(outcome.stdout, "JST\nen_US.UTF-8\nen_US.utf8\n");
-    // The compositor and Chromium read the same values: they are the
-    // container's own environment, not the shell's.
-    let container_env = docker_exec(&owner, &["printenv", "TZ"]);
-    assert_eq!(container_env, "Asia/Tokyo\n");
-}
-
-/// Chromium runs with its own sandbox on. The browser runs without
-/// `--no-sandbox`, so it depends on the seccomp profile the runtime
-/// gives the container: without the user-namespace calls the sandbox
-/// cannot start, Chromium exits at once, and the supervisor turns the
-/// failure into a restart loop that `wait_browser_settled` refuses.
-/// Without the flag, no page shows the "unsupported command-line flag"
-/// bar to the agent.
-#[tokio::test]
-#[ignore = "needs Docker; run via cargo test -- --ignored"]
-async fn chromium_runs_with_its_sandbox_on() {
-    let real = Real::new();
-    let runtime = &real.runtime;
-    let (manager, _screens) = real.manager(Duration::from_secs(600));
-    let agent_id = AgentId::generate();
-    let owner = real.owner(&agent_id);
-
-    manager.wake(&agent_id).await.expect("wake");
-    wait_awake(&manager, &agent_id).await;
-    let running = runtime
-        .running(&owner)
-        .await
-        .expect("running query")
-        .expect("computer is running");
-    let pid = wait_browser_settled(&running.computer.control_addr, &owner, "").await;
-
-    let cmdline = docker_exec(&owner, &["cat", &format!("/proc/{pid}/cmdline")]);
+    // The sandbox.
     assert!(
-        !cmdline.split('\0').any(|arg| arg == "--no-sandbox"),
-        "the browser still runs unsandboxed: {}",
-        cmdline.replace('\0', " ")
+        !args.contains(&"--no-sandbox"),
+        "the browser still runs unsandboxed: {args:?}"
     );
-
     // A live browser alone does not prove the sandbox started, so read
     // the namespace itself: Chromium puts the sandboxed zygote in a
     // user namespace of its own, and that is the call Docker's default
@@ -863,35 +806,43 @@ async fn chromium_runs_with_its_sandbox_on() {
         "every Chromium zygote stayed in the browser's user namespace {browser_userns}: \
          the zygotes are {zygotes:?}"
     );
-}
 
-/// The daemon's channel to the browser is the DevTools pipe that
-/// screend and Chromium alone hold (ADR-0013). The browser opens no
-/// debugging port, and the Agent's uid can open no file descriptor of a
-/// process of the `screen` uid, so the Agent's shell cannot reach the
-/// pipe.
-#[tokio::test]
-#[ignore = "needs Docker; run via cargo test -- --ignored"]
-async fn the_agent_cannot_open_the_browser_channel_of_the_daemon() {
-    let real = Real::new();
-    let runtime = &real.runtime;
-    let (manager, _screens) = real.manager(Duration::from_secs(600));
-    let agent_id = AgentId::generate();
-    let owner = real.owner(&agent_id);
-    manager.wake(&agent_id).await.expect("wake");
-    wait_awake(&manager, &agent_id).await;
-    let running = runtime
-        .running(&owner)
-        .await
-        .expect("running query")
-        .expect("computer is running");
-    let pid = wait_browser_settled(&running.computer.control_addr, &owner, "").await;
-
-    let cmdline = docker_exec(
+    // The blocker. The unpacked release is in the image, at the path
+    // the flags name.
+    let manifest = docker_exec(
         &owner,
-        &["sh", "-c", &format!("tr '\\0' '\\n' < /proc/{pid}/cmdline")],
+        &["cat", "/opt/pagis/ublock-origin-lite/manifest.json"],
     );
-    let args: Vec<&str> = cmdline.lines().collect();
+    assert!(
+        manifest.contains("\"manifest_version\": 3"),
+        "the extension in the image is not the Manifest V3 build: {manifest}"
+    );
+    assert!(
+        args.contains(&"--load-extension=/opt/pagis/ublock-origin-lite"),
+        "Chromium started without the blocker: {args:?}"
+    );
+    assert!(
+        args.contains(&"--disable-extensions-except=/opt/pagis/ublock-origin-lite"),
+        "Chromium accepts an extension beside the blocker: {args:?}"
+    );
+    // The flag is a request, not a result: Chromium refuses an
+    // extension whose static filter rules it cannot index, and says so
+    // only in its own log. It writes each indexed ruleset into
+    // `_metadata/` in the extension directory, so that directory is
+    // the proof that the browser took the blocker.
+    let indexed = docker_exec(
+        &owner,
+        &[
+            "ls",
+            "/opt/pagis/ublock-origin-lite/_metadata/generated_indexed_rulesets",
+        ],
+    );
+    assert!(
+        indexed.contains("_ruleset"),
+        "Chromium did not index the blocker's filter rules: {indexed:?}"
+    );
+
+    // The browser channel of the daemon.
     assert!(
         args.contains(&"--remote-debugging-pipe"),
         "the browser has no DevTools pipe: {args:?}"
@@ -902,7 +853,6 @@ async fn the_agent_cannot_open_the_browser_channel_of_the_daemon() {
             .any(|arg| arg.starts_with("--remote-debugging-port")),
         "the browser opens a debugging port: {args:?}"
     );
-
     // The only TCP listener is screend's control port. Docker's own
     // resolver listens on 127.0.0.11 in every container on a user
     // network, and it is not the browser's.
@@ -917,7 +867,6 @@ async fn the_agent_cannot_open_the_browser_channel_of_the_daemon() {
         pagis_computer::CONTROL_PORT.to_string(),
         "a TCP port other than the control port listens"
     );
-
     let probes = docker_exec_raw(&owner, &["--user", "agent"], &["python3", "-c", OPEN_FDS]);
     let report = String::from_utf8_lossy(&probes.stdout).into_owned();
     assert!(
@@ -1014,79 +963,6 @@ async fn python_opens_an_https_connection() {
     );
 }
 
-/// The image carries the fonts a page expects. Twenty font
-/// files render every page in DejaVu, draw emoji as boxes, and leave
-/// a font list that bot scorers read as a signal.
-#[tokio::test]
-#[ignore = "needs Docker; run via cargo test -- --ignored"]
-async fn the_font_list_is_broad_and_carries_colour_emoji() {
-    let real = Real::new();
-    let (manager, _screens) = real.manager(Duration::from_secs(600));
-    let agent_id = AgentId::generate();
-    let owner = real.owner(&agent_id);
-    manager.wake(&agent_id).await.expect("wake");
-    wait_awake(&manager, &agent_id).await;
-
-    let listing = docker_exec(&owner, &["fc-list"]);
-    let faces = listing.lines().count();
-    assert!(faces > 100, "the image carries only {faces} font files");
-    assert!(
-        listing.contains("Noto Color Emoji"),
-        "no colour emoji face in the font list"
-    );
-}
-
-/// WebGL draws in the real browser. The compositor renders in
-/// software, so without the ANGLE flags no WebGL context opens: the
-/// page below stays black, maps and charts do not draw, and a scorer
-/// reads the missing renderer as a bot.
-///
-/// The proof is end to end. The page paints its whole viewport with
-/// one WebGL clear, the running browser opens it, and screend's frame
-/// carries the colour back — the same browser, the same flags and the
-/// same compositor the agent sees.
-#[tokio::test]
-#[ignore = "needs Docker; run via cargo test -- --ignored"]
-async fn a_webgl_page_paints_in_the_real_browser() {
-    let real = Real::new();
-    let runtime = &real.runtime;
-    let (manager, _screens) = real.manager(Duration::from_secs(600));
-    let agent_id = AgentId::generate();
-    let owner = real.owner(&agent_id);
-    manager.wake(&agent_id).await.expect("wake");
-    wait_awake(&manager, &agent_id).await;
-    let running = runtime
-        .running(&owner)
-        .await
-        .expect("running query")
-        .expect("computer is running");
-    wait_browser_settled(&running.computer.control_addr, &owner, "").await;
-
-    // The page turns magenta only if a WebGL context opened: the
-    // canvas sits on a black body, and the clear is the single draw.
-    docker_exec(&owner, &["sh", "-c", WRITE_WEBGL_PAGE]);
-    open_in_the_running_browser(&owner, "file:///tmp/webgl.html");
-
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
-    loop {
-        let frame = manager.preview(&agent_id).await.expect("preview");
-        let picture = image::load_from_memory(&frame.png)
-            .expect("the frame is a PNG")
-            .to_rgb8();
-        let centre = picture
-            .get_pixel(picture.width() / 2, picture.height() / 2)
-            .0;
-        if centre[0] > 200 && centre[1] < 60 && centre[2] > 200 {
-            break;
-        }
-        assert!(
-            tokio::time::Instant::now() < deadline,
-            "the WebGL page never painted: the centre pixel is {centre:?}"
-        );
-        tokio::time::sleep(Duration::from_secs(1)).await;
-    }
-}
-
 /// Open one URL in the browser the supervisor runs. A second Chromium
 /// hands the URL to the session that already holds the profile, and
 /// exits. The page therefore renders under the supervisor's flags, not
@@ -1123,73 +999,6 @@ if (gl) { gl.clearColor(1, 0, 1, 1); gl.clear(gl.COLOR_BUFFER_BIT); }
 </script>
 PAGE
 "#;
-
-/// The browser blocks ads and trackers. Each ad frame, consent
-/// script and tracker on a page costs the agent a screenshot and the
-/// tokens to read it, so the pinned uBlock Origin Lite ships in the
-/// image and Chromium loads it, with no other extension beside it.
-#[tokio::test]
-#[ignore = "needs Docker; run via cargo test -- --ignored"]
-async fn chromium_starts_with_the_pinned_ublock_origin_lite() {
-    let real = Real::new();
-    let runtime = &real.runtime;
-    let (manager, _screens) = real.manager(Duration::from_secs(600));
-    let agent_id = AgentId::generate();
-    let owner = real.owner(&agent_id);
-
-    manager.wake(&agent_id).await.expect("wake");
-    wait_awake(&manager, &agent_id).await;
-
-    // The unpacked release is in the image, at the path the flags name.
-    let manifest = docker_exec(
-        &owner,
-        &["cat", "/opt/pagis/ublock-origin-lite/manifest.json"],
-    );
-    assert!(
-        manifest.contains("\"manifest_version\": 3"),
-        "the extension in the image is not the Manifest V3 build: {manifest}"
-    );
-
-    let running = runtime
-        .running(&owner)
-        .await
-        .expect("running query")
-        .expect("computer is running");
-    let pid = wait_browser_settled(&running.computer.control_addr, &owner, "").await;
-
-    // `/proc/<pid>/cmdline` is NUL-separated: `tr` puts one argument
-    // on each line.
-    let cmdline = docker_exec(
-        &owner,
-        &["sh", "-c", &format!("tr '\\0' '\\n' < /proc/{pid}/cmdline")],
-    );
-    let args: Vec<&str> = cmdline.lines().collect();
-    assert!(
-        args.contains(&"--load-extension=/opt/pagis/ublock-origin-lite"),
-        "Chromium started without the blocker: {args:?}"
-    );
-    assert!(
-        args.contains(&"--disable-extensions-except=/opt/pagis/ublock-origin-lite"),
-        "Chromium accepts an extension beside the blocker: {args:?}"
-    );
-
-    // The flag is a request, not a result: Chromium refuses an
-    // extension whose static filter rules it cannot index, and says so
-    // only in its own log. It writes each indexed ruleset into
-    // `_metadata/` in the extension directory, so that directory is
-    // the proof that the browser took the blocker.
-    let indexed = docker_exec(
-        &owner,
-        &[
-            "ls",
-            "/opt/pagis/ublock-origin-lite/_metadata/generated_indexed_rulesets",
-        ],
-    );
-    assert!(
-        indexed.contains("_ruleset"),
-        "Chromium did not index the blocker's filter rules: {indexed:?}"
-    );
-}
 
 /// screend's window list: one entry per open toplevel, with the
 /// title the compositor holds. The read carries the container's token,
@@ -1240,26 +1049,48 @@ async fn fingerprint_report(control_addr: &str, token: &str) -> serde_json::Valu
     }
 }
 
-/// The browser fingerprint of a real computer. The timezone,
-/// the language, the font list, the WebGL renderer and
-/// `navigator.webdriver` together decide whether a site serves the
-/// agent a normal page. Each one is an image detail or a launch flag
-/// that a change to the image can undo with no symptom until searches
-/// fail.
+/// The browser fingerprint of a real Computer, and the image details
+/// and launch flags under it. The timezone, the language, the font
+/// list, the WebGL renderer and `navigator.webdriver` together decide
+/// whether a site serves the agent a normal page. Each one is an image
+/// detail or a launch flag that a change to the image can undo with no
+/// symptom until searches fail. It holds these contracts:
 ///
-/// The read path is the window title. The page in the image writes its
-/// findings into `document.title`, and screend reports the
-/// compositor's window list on `GET /windows`
+/// - the container runs on the Workspace clock and the US locale: the
+///   Workspace timezone reaches the container environment, and the
+///   image holds the data that makes the name a clock and the locale a
+///   locale;
+/// - the font list is broad and carries colour emoji. Twenty font
+///   files render every page in DejaVu, draw emoji as boxes, and leave
+///   a font list that bot scorers read as a signal;
+/// - the page in the browser reads the Workspace clock, the US
+///   language, a broad font list, a full WebGL renderer and no
+///   WebDriver;
+/// - a WebGL page paints in the real browser. The compositor renders in
+///   software, so without the ANGLE flags no WebGL context opens, maps
+///   and charts do not draw, and a scorer reads the missing renderer as
+///   a bot.
+///
+/// The fingerprint read path is the window title. The page in the
+/// image writes its findings into `document.title`, and screend reports
+/// the compositor's window list on `GET /windows`
 /// (ext-foreign-toplevel-list-v1). Nothing else in the container
 /// returns page state: screend serves pixels, a local page cannot
 /// write a file, and the browser runs with no debugging port.
+///
+/// The WebGL proof is end to end. The page paints its whole viewport
+/// with one WebGL clear, the running browser opens it, and screend's
+/// frame carries the colour back — the same browser, the same flags and
+/// the same compositor the agent sees.
 #[tokio::test]
 #[ignore = "needs Docker; run via cargo test -- --ignored"]
 async fn the_real_browser_reports_a_human_fingerprint() {
     let real = Real::new();
     let runtime = &real.runtime;
-    // A timezone that is not the host's: the assertion below shows that
-    // the browser reads the Workspace clock, not a default.
+    // A timezone that is not the host's: the assertions below show that
+    // the container and the browser read the Workspace clock, not a
+    // default. Asia/Tokyo has one abbreviation the whole year, so
+    // `date +%Z` answers JST whenever this test runs.
     let (manager, _screens) = real.manager_with(
         Duration::from_secs(600),
         Arc::new(pagis_core::NoSkills),
@@ -1269,6 +1100,39 @@ async fn the_real_browser_reports_a_human_fingerprint() {
     let owner = real.owner(&agent_id);
     manager.wake(&agent_id).await.expect("wake");
     wait_awake(&manager, &agent_id).await;
+
+    // The clock and the locale of the container.
+    let outcome = manager
+        .shell(
+            &agent_id,
+            ShellCommand {
+                command: "date +%Z; printf '%s\\n' \"$LANG\"; locale -a | grep -ix en_US.utf8"
+                    .to_string(),
+                timeout: Duration::from_secs(30),
+                cwd: None,
+                stdin: None,
+                output_cap: None,
+            },
+        )
+        .await
+        .expect("shell");
+    assert_eq!(outcome.exit_code, 0, "stderr: {}", outcome.stderr);
+    assert_eq!(outcome.stdout, "JST\nen_US.UTF-8\nen_US.utf8\n");
+    // The compositor and Chromium read the same values: they are the
+    // container's own environment, not the shell's.
+    let container_env = docker_exec(&owner, &["printenv", "TZ"]);
+    assert_eq!(container_env, "Asia/Tokyo\n");
+
+    // The font files of the image.
+    let listing = docker_exec(&owner, &["fc-list"]);
+    let faces = listing.lines().count();
+    assert!(faces > 100, "the image carries only {faces} font files");
+    assert!(
+        listing.contains("Noto Color Emoji"),
+        "no colour emoji face in the font list"
+    );
+
+    // The fingerprint the page reads.
     let running = runtime
         .running(&owner)
         .await
@@ -1309,55 +1173,45 @@ async fn the_real_browser_reports_a_human_fingerprint() {
         report["webdriver"], false,
         "the browser reports itself automated: {report}"
     );
-}
 
-/// A woken computer shows the browser. The Agent's first screenshot
-/// after a wake comes right after the computer turns awake, and a
-/// screen with a terminal and no browser sends the Agent to start one
-/// itself.
-#[tokio::test]
-#[ignore = "needs Docker; run via cargo test -- --ignored"]
-async fn a_woken_computer_already_shows_the_browser() {
-    let real = Real::new();
-    let (manager, _screens) = real.manager_with(
-        Duration::from_secs(600),
-        Arc::new(pagis_core::NoSkills),
-        "UTC",
-    );
-    let agent_id = AgentId::generate();
-    let owner = real.owner(&agent_id);
-    manager.wake(&agent_id).await.expect("wake");
-    wait_awake(&manager, &agent_id).await;
-    let running = real
-        .runtime
-        .running(&owner)
-        .await
-        .expect("running query")
-        .expect("computer is running");
-
-    let open = windows(&running.computer.control_addr, &running.computer.token).await;
-
-    assert!(
-        open.as_array()
-            .expect("the window list is an array")
-            .iter()
-            .any(|window| window["app_id"] == "chromium"),
-        "the awake computer shows no browser window: {open}"
-    );
+    // The WebGL paint. The page opens after the fingerprint page, in
+    // front of it, and turns magenta only if a WebGL context opened:
+    // the canvas sits on a black body, and the clear is the single
+    // draw.
+    docker_exec(&owner, &["sh", "-c", WRITE_WEBGL_PAGE]);
+    open_in_the_running_browser(&owner, "file:///tmp/webgl.html");
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+    loop {
+        let frame = manager.preview(&agent_id).await.expect("preview");
+        let picture = image::load_from_memory(&frame.png)
+            .expect("the frame is a PNG")
+            .to_rgb8();
+        let centre = picture
+            .get_pixel(picture.width() / 2, picture.height() / 2)
+            .0;
+        if centre[0] > 200 && centre[1] < 60 && centre[2] > 200 {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the WebGL page never painted: the centre pixel is {centre:?}"
+        );
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
 }
 
 /// A focused text field blinks its caret, and the screen still counts
-/// as settled: the screenshot after typing does not wait out the limit.
+/// as settled: each frame over one blink cycle matches the settled
+/// frame, so the caret does not hold the screenshot after typing until
+/// the limit. The comparison is the one `settled_frame` makes
+/// ([`pagis_computer::exec::frames_match`]), on the real caret of the
+/// real browser.
 #[tokio::test]
 #[ignore = "needs Docker; run via cargo test -- --ignored"]
-async fn a_blinking_caret_settles_before_the_limit() {
-    use pagis_computer::exec::InputOp;
+async fn a_blinking_caret_does_not_hold_a_settled_frame() {
+    use pagis_computer::exec::{InputOp, frames_match};
     let real = Real::new();
-    let (manager, _screens) = real.manager_with(
-        Duration::from_secs(600),
-        Arc::new(pagis_core::NoSkills),
-        "UTC",
-    );
+    let (manager, _screens) = real.manager(Duration::from_secs(600));
     let agent_id = AgentId::generate();
     manager.wake(&agent_id).await.expect("wake");
     wait_awake(&manager, &agent_id).await;
@@ -1378,18 +1232,21 @@ async fn a_blinking_caret_settles_before_the_limit() {
         .expect("typing in the address bar");
     // The address bar's suggestions open and settle first.
     manager.settled_frame(&agent_id).await.expect("first frame");
-    let started = tokio::time::Instant::now();
-
-    manager
+    let settled = manager
         .settled_frame(&agent_id)
         .await
         .expect("settled frame");
 
-    let waited = started.elapsed();
-    assert!(
-        waited < Duration::from_secs(2),
-        "the caret held the screenshot for {waited:?}"
-    );
+    // Chromium blinks the caret every 500 ms, so frames 250 ms apart
+    // over 1.5 s show the caret on and off.
+    for sample in 0..6 {
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        let frame = manager.live_frame(&agent_id).await.expect("live frame");
+        assert!(
+            frames_match(&settled, &frame),
+            "frame {sample} of the blinking caret does not match the settled frame"
+        );
+    }
 }
 
 /// The address of one container on its Tenant Network.
@@ -1437,11 +1294,14 @@ async fn a_container_reaches_its_own_tenant_and_not_another() {
     let second = real.owner(&AgentId::generate());
     let stranger = ComputerOwner::new(WorkspaceId::generate(), AgentId::generate());
 
-    for owner in [&first, &second, &stranger] {
-        runtime
-            .start(owner, &[], &pagis_computer::locale_env("UTC"))
-            .await
-            .expect("the container boots");
+    let locale = pagis_computer::locale_env("UTC");
+    let (first_boot, second_boot, stranger_boot) = tokio::join!(
+        runtime.start(&first, &[], &locale),
+        runtime.start(&second, &[], &locale),
+        runtime.start(&stranger, &[], &locale),
+    );
+    for boot in [first_boot, second_boot, stranger_boot] {
+        boot.expect("the container boots");
     }
 
     let second_ip = container_ip(&second);
@@ -1449,21 +1309,35 @@ async fn a_container_reaches_its_own_tenant_and_not_another() {
     assert_ne!(second_ip, "", "the container has no address");
     assert_ne!(stranger_ip, "", "the container has no address");
 
-    // The control endpoint answers inside one tenant.
-    assert!(
-        reaches(&first, &second_ip, pagis_computer::CONTROL_PORT),
-        "a container cannot reach its own tenant's container"
-    );
-    // And nothing of another tenant answers, on the control port, on the
-    // media port, or on a port nothing listens on.
-    for port in [
+    // Each probe that finds no answer waits out its own timeout, so the
+    // probes run side by side. The control endpoint answers inside one
+    // tenant, and nothing of another tenant answers, on the control
+    // port, on the media port, or on a port nothing listens on.
+    let stranger_ports = [
         pagis_computer::CONTROL_PORT,
         pagis_computer::MEDIA_PORT,
         22,
         80,
-    ] {
+    ];
+    let (own, strangers) = std::thread::scope(|scope| {
+        let own = scope.spawn(|| reaches(&first, &second_ip, pagis_computer::CONTROL_PORT));
+        let (first, stranger_ip) = (&first, stranger_ip.as_str());
+        let strangers: Vec<_> = stranger_ports
+            .into_iter()
+            .map(|port| scope.spawn(move || (port, reaches(first, stranger_ip, port))))
+            .collect();
+        (
+            own.join().expect("the probe runs"),
+            strangers
+                .into_iter()
+                .map(|probe| probe.join().expect("the probe runs"))
+                .collect::<Vec<_>>(),
+        )
+    });
+    assert!(own, "a container cannot reach its own tenant's container");
+    for (port, reached) in strangers {
         assert!(
-            !reaches(&first, &stranger_ip, port),
+            !reached,
             "a container reached another tenant's container on port {port}"
         );
     }
