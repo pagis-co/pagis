@@ -36,11 +36,11 @@ max-threads = 1
 filter = 'test(/^egress::/)'
 test-group = 'egress'
 
-# The Postgres side of the store-trait suite. Every test makes a
-# database of its own in one shared container, and `CREATE DATABASE`
-# copies a template, so a full-width pool of them overwhelms the Colima
-# VM. Eight at a time keeps the suite fast and steady; the SQLite side
-# keeps the pool's full width.
+# The Postgres side of the store-trait suite. Every test copies a
+# migrated template into a database of its own in one shared container,
+# so a full-width pool of them overwhelms the Colima VM. Eight at a time
+# keeps the suite fast and steady; the SQLite side keeps the pool's full
+# width.
 [test-groups.postgres]
 max-threads = 8
 
