@@ -129,8 +129,8 @@ RUN set -eux; \
 # pnpm goes into the Node tree, as npm does, so each uid runs the pinned
 # version. The agent uid cannot read the home of root, so a copy that
 # `corepack prepare` keeps there does not reach it.
-ARG PNPM_VERSION=11.25.0
-ARG PNPM_SHA512=5cde925b4f075f725eb71fbae18a42ffe784524789f19b61c731cb8721ec28aaee160e01a8d5af4fedb2a42cdbf300efe23db356b0d4a17b4d63e11f8ab7c956
+ARG PNPM_VERSION=11.28.2
+ARG PNPM_SHA512=755ce2fe3c05bfd7bb412b42aff3c5c55cd38c529c6eca810475497ae36746c571e4b6e1814e6e7e4b97d7ee864b8a0e44673c3b297a50e0ac28771c5ce15d27
 RUN set -eux; \
     curl -fsSLo /tmp/pnpm.tgz "https://registry.npmjs.org/pnpm/-/pnpm-${PNPM_VERSION}.tgz"; \
     echo "$PNPM_SHA512  /tmp/pnpm.tgz" | sha512sum -c -; \
@@ -163,7 +163,7 @@ RUN set -eux; \
     unzip -q /tmp/ubol.zip -d /opt/pagis/ublock-origin-lite
 
 FROM debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a
-LABEL org.pagis.computer.version="0.17.0"
+LABEL org.pagis.computer.version="0.17.1"
 # GHCR reads the OCI source label to link the package to the
 # repository, which is where a reader of the package page goes for the
 # source and the licenses.

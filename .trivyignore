@@ -6,3 +6,19 @@
 # the finding, and which update was checked. Record a finding here only
 # after the update path is checked. A finding that an update removes is not
 # an exception: update the component.
+
+# brace-expansion 5.0.9 in the npm of the Computer Image. It expands the
+# glob patterns of npm commands that the Agent runs on its own Computer,
+# so a crafted pattern stops only that npm command. npm 11.20.0, the
+# latest 11 release, and npm 12.1.0, the latest release, both bundle
+# brace-expansion 5.0.9. The maintainer accepted this exception.
+CVE-2026-102276
+# The second brace-expansion advisory, with the same reason and check.
+CVE-2026-102278
+
+# undici 6.28.0 in the npm of the Computer Image. npm uses it for its own
+# registry requests on the Agent's Computer, and a malicious WebSocket
+# server can stop only that npm process. npm 11.20.0 and npm 12.1.0 both
+# bundle undici 6.28.0. pnpm 11.28.2 bundles the fixed undici 6.28.1.
+# The maintainer accepted this exception.
+CVE-2026-19534
