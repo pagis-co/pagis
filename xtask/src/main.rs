@@ -44,6 +44,7 @@ fn main() -> Result<()> {
         }
         Some("release") if args.len() > 1 => run_release(
             xtask::ReleaseStage::parse(&args[1])?,
+            flag_value(&args, "--platform"),
             flag_value(&args, "--tag"),
             args.iter().any(|a| a == "--dry-run"),
         ),
@@ -57,7 +58,8 @@ fn main() -> Result<()> {
         }
         _ => bail!(
             "usage: cargo xtask <dev | full | step <name>... | advisories | image [--dry-run] | \
-             server-image [--dry-run] | release <images | linux | macos | draft> [--tag <tag>] [--dry-run] | desktop [--linux] [--tag <tag>] [--prepare | --publish-existing] [--dry-run] | \
+             server-image [--dry-run] | release <computer-image | computer-manifest | server-image | server-manifest | linux | macos | draft> \
+             [--platform <amd64 | arm64>] [--tag <tag>] [--dry-run] | desktop [--linux] [--tag <tag>] [--prepare | --publish-existing] [--dry-run] | \
              emergency-numbers [--check] | pins --check>"
         ),
     }
@@ -113,9 +115,10 @@ fn run_runtime_lock(args: &[String]) -> Result<()> {
     }
 }
 
-/// `cargo xtask image`: build the pinned computer image for both
-/// architectures, scan its filesystem for secrets and for known
-/// vulnerabilities, and push it to GHCR, which is where the daemon pulls
+/// `cargo xtask image`: build the pinned computer image for each
+/// architecture, scan its filesystem for secrets and for known
+/// vulnerabilities, push it by digest, and join both digests under the
+/// pinned tag on GHCR, which is where the daemon pulls
 /// it from the first time an agent wakes. The push needs a Docker login
 /// to GHCR with `write:packages`.
 fn run_image(root: &Path, dry_run: bool) -> Result<()> {
@@ -150,8 +153,9 @@ fn run_image(root: &Path, dry_run: bool) -> Result<()> {
 }
 
 /// `cargo xtask server-image`: build the headless Linux server image
-/// for both architectures, scan its filesystem for secrets and for known
-/// vulnerabilities, and push it to GHCR, which is where a team's VM pulls
+/// for each architecture, scan its filesystem for secrets and for known
+/// vulnerabilities, push it by digest, and join both digests under the
+/// release tag on GHCR, which is where a team's VM pulls
 /// it from. The push needs a Docker login to GHCR with `write:packages`.
 fn run_server_image(root: &Path, dry_run: bool) -> Result<()> {
     let version = workspace_version(root)?;
@@ -190,12 +194,21 @@ fn run_server_image(root: &Path, dry_run: bool) -> Result<()> {
 
 /// `cargo xtask release <stage>`: one stage of a release. The release
 /// workflow runs the gate first, then each stage in a job of its own
-/// (`docs/RELEASING-SERVER.md`). The images stage runs the advisory checks
-/// before it builds. Each stage stops at its first failed step, so nothing
-/// is pushed or published after a failed secret scan or vulnerability
-/// scan. `--tag` names the tag the workflow runs on, which must name the
-/// workspace version. `--dry-run` prints the plan and stops.
-fn run_release(stage: xtask::ReleaseStage, tag: Option<String>, dry_run: bool) -> Result<()> {
+/// (`docs/RELEASING-SERVER.md`). The computer-image stage runs the advisory
+/// checks before it builds. Each stage stops at its first failed step, so
+/// nothing is pushed or published after a failed secret scan or
+/// vulnerability scan. `--platform` names the one platform that the
+/// computer-image and server-image stages build; without it they build
+/// each platform in turn. `--tag` names the tag the workflow runs on,
+/// which must name the workspace version. `--dry-run` prints the plan and
+/// stops.
+fn run_release(
+    stage: xtask::ReleaseStage,
+    platform: Option<String>,
+    tag: Option<String>,
+    dry_run: bool,
+) -> Result<()> {
+    use xtask::ReleaseStage;
     let root = workspace_root();
     let version = workspace_version(&root)?;
     if let Some(tag) = &tag {
@@ -205,19 +218,34 @@ fn run_release(stage: xtask::ReleaseStage, tag: Option<String>, dry_run: bool) -
     if stage.needs_macos() && !cfg!(target_os = "macos") && !dry_run {
         bail!("the {} stage runs on a macOS host", stage.name());
     }
-    let needs_docker = matches!(
+    let builds_platforms = matches!(
         stage,
-        xtask::ReleaseStage::Images | xtask::ReleaseStage::Linux
+        ReleaseStage::ComputerImage | ReleaseStage::ServerImage
     );
+    let platforms = match platform {
+        Some(_) if !builds_platforms => {
+            bail!("--platform applies to the computer-image and server-image stages only")
+        }
+        Some(name) => vec![xtask::ImagePlatform::parse(&name)?],
+        None => xtask::ImagePlatform::ALL.to_vec(),
+    };
+    let needs_docker = builds_platforms
+        || matches!(
+            stage,
+            ReleaseStage::ComputerManifest | ReleaseStage::ServerManifest | ReleaseStage::Linux
+        );
     if needs_docker && !dry_run && !docker_available() {
         bail!("Docker is unreachable; the image builds and the cross builds need it");
     }
     let cx = xtask::ReleaseContext {
         version,
-        computer_published: stage == xtask::ReleaseStage::Images
-            && !dry_run
+        computer_published: matches!(
+            stage,
+            ReleaseStage::ComputerImage | ReleaseStage::ComputerManifest
+        ) && !dry_run
             && xtask::image_published(&image)?,
         image,
+        platforms,
         target_dir: std::env::var_os("CARGO_TARGET_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(|| root.join("target")),
@@ -230,7 +258,7 @@ fn run_release(stage: xtask::ReleaseStage, tag: Option<String>, dry_run: bool) -
         return Ok(());
     }
 
-    if stage == xtask::ReleaseStage::Images {
+    if stage == ReleaseStage::ComputerImage {
         println!("== release: advisories");
         let advisories = xtask::advisories::advisory_lane(&root, &cx.target_dir, true);
         if !run_lanes(vec![advisories]) {

@@ -7,11 +7,17 @@
 //! and the release build reuses the same plan.
 //!
 //! The package is public, and a pushed layer of it cannot be recalled.
-//! So the publish builds the image and exports its filesystem first,
-//! scans the export for secrets and for known vulnerabilities, and pushes
-//! only after both scans pass.
+//! So the publish builds each architecture and exports its filesystem
+//! first, scans the export for secrets and for known vulnerabilities,
+//! and pushes that architecture only after both scans pass. The push is
+//! by digest only, with no tag. Last, the manifest step joins the digest
+//! of each architecture into one index under the tag. The release runs
+//! each architecture on a runner of that architecture, so no build runs
+//! under emulation.
 
 use std::path::Path;
+
+use anyhow::{Context, Result};
 
 use crate::advisories::computer_vuln_scan_step;
 use crate::release::DIST_DIR;
@@ -23,17 +29,49 @@ use crate::{Action, Cmd, Step};
 pub const VERSION_LABEL: &str = "org.pagis.computer.version";
 
 /// The buildx builder the publish runs on. The default `docker` driver
-/// builds one architecture only; the container driver builds both.
+/// cannot export an image and push it by digest; the container driver
+/// can.
 pub const BUILDER: &str = "pagis";
 
-/// The architectures a release runs on: Linux amd64 and arm64. A macOS
-/// host runs the image under its own Linux virtual machine, so it
+/// An architecture that a release runs on: Linux amd64 and arm64. A
+/// macOS host runs the image under its own Linux virtual machine, so it
 /// needs the arm64 one.
-pub const PLATFORMS: &str = "linux/amd64,linux/arm64";
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ImagePlatform {
+    Amd64,
+    Arm64,
+}
 
-/// Make the multi-architecture builder, or find the one that is already
-/// there. Every image publish starts with it, so it is one step shared
-/// by the Computer image and the headless server image.
+impl ImagePlatform {
+    pub const ALL: [ImagePlatform; 2] = [ImagePlatform::Amd64, ImagePlatform::Arm64];
+
+    pub fn parse(name: &str) -> Result<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|platform| platform.arch() == name)
+            .with_context(|| format!("{name} is not an image platform; use amd64 or arm64"))
+    }
+
+    /// The architecture, as `amd64`.
+    pub fn arch(self) -> &'static str {
+        match self {
+            ImagePlatform::Amd64 => "amd64",
+            ImagePlatform::Arm64 => "arm64",
+        }
+    }
+
+    /// The platform as Docker names it, as `linux/amd64`.
+    pub fn docker(self) -> &'static str {
+        match self {
+            ImagePlatform::Amd64 => "linux/amd64",
+            ImagePlatform::Arm64 => "linux/arm64",
+        }
+    }
+}
+
+/// Make the builder, or find the one that is already there. Every image
+/// publish starts with it, so it is one step shared by the Computer
+/// image and the headless server image.
 pub fn builder_step(root: &Path) -> Step {
     Step {
         name: "builder",
@@ -52,71 +90,170 @@ pub(crate) fn builder_script() -> String {
 }
 
 /// The directory a publish exports the filesystem of the image `name`
-/// to, one subdirectory for each platform. The secret scan reads it.
-pub fn export_dir(name: &str) -> String {
-    format!("{DIST_DIR}/image-fs/{name}")
+/// for `platform` to, as `dist/image-fs/computer/linux_amd64`. The scans
+/// read it.
+pub fn export_dir(name: &str, platform: ImagePlatform) -> String {
+    format!(
+        "{DIST_DIR}/image-fs/{name}/{}",
+        platform.docker().replace('/', "_")
+    )
 }
 
-/// The filesystem of each platform in `export`. A build for more than one
-/// platform exports each one to a subdirectory named after it, as
-/// `linux_amd64`.
-pub fn platform_dirs(export: &str) -> Vec<String> {
-    PLATFORMS
-        .split(',')
-        .map(|platform| format!("{export}/{}", platform.replace('/', "_")))
-        .collect()
+/// The file that holds the digest of the image `name` that the push of
+/// `platform` wrote, as `dist/image-digests/computer-amd64.txt`.
+pub fn digest_file(name: &str, platform: ImagePlatform) -> String {
+    format!("{DIST_DIR}/image-digests/{name}-{}.txt", platform.arch())
 }
 
-/// Build the image under `computer/` for both architectures, export its
+/// The file that buildx writes the metadata of the push of `platform`
+/// to. The digest of the push is in it.
+fn metadata_file(name: &str, platform: ImagePlatform) -> String {
+    format!("{DIST_DIR}/image-digests/{name}-{}.json", platform.arch())
+}
+
+/// The repository of `image`, with no tag.
+fn repository(image: &str) -> &str {
+    match image.rsplit_once(':') {
+        Some((repository, tag)) if !tag.contains('/') => repository,
+        _ => image,
+    }
+}
+
+/// The buildx arguments that push the image `name` for `platform` to the
+/// repository of `image` by digest only, with no tag, and write the
+/// metadata of the push.
+pub(crate) fn push_by_digest_args(name: &str, image: &str, platform: ImagePlatform) -> String {
+    format!(
+        "--output type=image,name={},push-by-digest=true,name-canonical=true,push=true \
+         --metadata-file {}",
+        repository(image),
+        metadata_file(name, platform)
+    )
+}
+
+/// Read the digest of the push of `platform` from the metadata file of
+/// buildx and write it to [`digest_file`]. The manifest step reads it.
+pub(crate) fn record_digest_cmd(root: &Path, name: &str, platform: ImagePlatform) -> Cmd {
+    let script = format!(
+        "set -eu\n\
+         digest=$(sed -n 's/.*\"containerimage.digest\": *\"\\([^\"]*\\)\".*/\\1/p' {metadata})\n\
+         case \"$digest\" in sha256:[0-9a-f][0-9a-f]*) ;; *) echo '{metadata} holds no SHA-256 digest' >&2; exit 1 ;; esac\n\
+         printf '%s\\n' \"$digest\" > {digest}\n",
+        metadata = metadata_file(name, platform),
+        digest = digest_file(name, platform),
+    );
+    Cmd::new("sh", &["-c", &script]).in_dir(root)
+}
+
+/// Join the digest of each platform of the image `name` into one index
+/// under the tag `image`. A missing digest file stops the step and names
+/// the file.
+pub fn manifest_step(root: &Path, step: &'static str, name: &str, image: &str) -> Step {
+    let mut script = String::from("set -eu\n");
+    let mut sources = String::new();
+    for platform in ImagePlatform::ALL {
+        let file = digest_file(name, platform);
+        script.push_str(&format!(
+            "[ -s {file} ] || {{ echo '{file} is missing; push the {} image first' >&2; exit 1; }}\n",
+            platform.docker()
+        ));
+        sources.push_str(&format!(" \"{}@$(cat {file})\"", repository(image)));
+    }
+    script.push_str(&format!(
+        "docker buildx imagetools create -t {image}{sources}\n"
+    ));
+    Step {
+        name: step,
+        action: Action::Run(vec![Cmd::new("sh", &["-c", &script]).in_dir(root)]),
+    }
+}
+
+/// Build the image under `computer/` for each architecture, export its
 /// filesystem, scan the export for secrets and for known
-/// vulnerabilities, and push the image to the registry under `image`.
-/// The push builds again on the same builder with the same inputs, so it
-/// takes each layer from the build cache of the scanned build. The
-/// export holds gigabytes, so the push step removes it after the push.
-/// `target_dir` keeps the downloads of gitleaks and Trivy.
+/// vulnerabilities, and push that architecture by digest. Then join
+/// both digests under `image`. `target_dir` keeps the downloads of
+/// gitleaks and Trivy.
 ///
 /// The push needs a Docker login to GHCR with `write:packages`.
 pub fn image_plan(root: &Path, image: &str, target_dir: &Path) -> Vec<Step> {
     let mut steps = vec![builder_step(root)];
-    steps.extend(computer_image_steps(root, image, target_dir));
+    for platform in ImagePlatform::ALL {
+        steps.extend(computer_image_steps(root, image, platform, target_dir));
+    }
+    steps.push(computer_manifest_step(root, image));
     steps
 }
 
-/// The steps of [`image_plan`] after the builder: the build, both scans
-/// and the push.
-pub fn computer_image_steps(root: &Path, image: &str, target_dir: &Path) -> Vec<Step> {
-    let export = export_dir("computer");
-    let buildx = |output: &[&str]| {
+/// The names of the build, the secret scan, the vulnerability scan and
+/// the push of the Computer image for `platform`.
+fn computer_step_names(platform: ImagePlatform) -> [&'static str; 4] {
+    match platform {
+        ImagePlatform::Amd64 => [
+            "image-amd64",
+            "image-secret-scan-amd64",
+            "image-vuln-scan-amd64",
+            "image-push-amd64",
+        ],
+        ImagePlatform::Arm64 => [
+            "image-arm64",
+            "image-secret-scan-arm64",
+            "image-vuln-scan-arm64",
+            "image-push-arm64",
+        ],
+    }
+}
+
+/// The steps of [`image_plan`] for one platform: the build, both scans
+/// and the push by digest. The push builds again on the same builder
+/// with the same inputs, so it takes each layer from the build cache of
+/// the scanned build. The export holds gigabytes, so the push step
+/// removes it after the push.
+pub fn computer_image_steps(
+    root: &Path,
+    image: &str,
+    platform: ImagePlatform,
+    target_dir: &Path,
+) -> Vec<Step> {
+    let [build, secret_scan, vuln_scan, push] = computer_step_names(platform);
+    let export = export_dir("computer", platform);
+    let buildx = |output: &str| {
         let mut args = vec![
             "buildx",
             "build",
             "--builder",
             BUILDER,
             "--platform",
-            PLATFORMS,
+            platform.docker(),
         ];
-        args.extend(output);
+        args.extend(output.split(' '));
         args.push("computer");
         Cmd::new("docker", &args).in_dir(root)
     };
     vec![
         Step {
-            name: "image",
+            name: build,
             action: Action::Run(vec![
                 Cmd::new("rm", &["-rf", &export]).in_dir(root),
-                buildx(&["--output", &format!("type=local,dest={export}")]),
+                buildx(&format!("--output type=local,dest={export}")),
             ]),
         },
-        image_secret_scan_step(root, "image-secret-scan", &export, target_dir),
-        computer_vuln_scan_step(root, "image-vuln-scan", &platform_dirs(&export), target_dir),
+        image_secret_scan_step(root, secret_scan, &export, target_dir),
+        computer_vuln_scan_step(root, vuln_scan, std::slice::from_ref(&export), target_dir),
         Step {
-            name: "image-push",
+            name: push,
             action: Action::Run(vec![
-                buildx(&["-t", image, "--push"]),
+                Cmd::new("mkdir", &["-p", &format!("{DIST_DIR}/image-digests")]).in_dir(root),
+                buildx(&push_by_digest_args("computer", image, platform)),
+                record_digest_cmd(root, "computer", platform),
                 Cmd::new("rm", &["-rf", &export]).in_dir(root),
             ]),
         },
     ]
+}
+
+/// Join the digests of the Computer image under its tag `image`.
+pub fn computer_manifest_step(root: &Path, image: &str) -> Step {
+    manifest_step(root, "image-manifest", "computer", image)
 }
 
 /// The shell function `anonymous_pull <image>`: pull the manifest of the

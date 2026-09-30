@@ -59,15 +59,17 @@ about two daemons against one database, which is not a supported shape.
 ```bash
 docker login ghcr.io          # a token with write:packages
 cargo xtask image --dry-run   # print the plan
-cargo xtask image             # build both architectures, scan, and push
+cargo xtask image             # build each architecture, scan, push, and join
 ```
 
 The daemon pulls `ghcr.io/pagis-co/pagis-computer` the first time an Agent
 wakes, so an installation works only while the pinned tag is on GHCR. The
-command builds `computer/` for `linux/amd64` and `linux/arm64` on a buildx
-container builder that it makes one time, scans the filesystem of each for
-secrets and for known vulnerabilities, and pushes both under the pin in
-`crates/pagis-versions`. It refuses to start when the
+command builds `computer/` for `linux/amd64` and then for `linux/arm64` on
+a buildx container builder that it makes one time. It scans the filesystem
+of each architecture for secrets and for known vulnerabilities, and then
+pushes that architecture by its digest, with no tag. Last, it joins both
+digests into one multi-architecture index under the pin in
+`crates/pagis-versions` (`docker buildx imagetools create`). It refuses to start when the
 `org.pagis.computer.version` label in `computer/Dockerfile` and that pin
 disagree, because the daemon reads the label back and boots nothing on a
 mismatch.
@@ -79,8 +81,10 @@ this repository.
 
 The architecture that the host does not run builds under emulation and
 takes much longer than the native one, because the image compiles wlroots
-and labwc from source. The images stage of a release pushes the same image
-when the registry does not hold its version yet, so a release needs no
+and labwc from source. A release builds each architecture on a runner of
+that architecture, so no build of the release runs under emulation. The
+computer-image and computer-manifest stages of a release push the same
+image when the registry does not hold its version yet, so a release needs no
 separate publish. A published image version is never pushed again: every
 release that pins it pulls the same bytes. A change to the image takes a
 new version in `computer/Dockerfile` and in `crates/pagis-versions`.
@@ -88,13 +92,14 @@ new version in `computer/Dockerfile` and in `crates/pagis-versions`.
 ## Building the Headless Server image
 
 ```bash
-cargo xtask server-image            # build both architectures, scan, and push
+cargo xtask server-image            # build each architecture, scan, push, and join
 cargo xtask server-image --dry-run  # print the plan and stop
 ```
 
-The command builds the image and exports its filesystem, scans the
-export for secrets and for known vulnerabilities, and pushes only after
-both scans pass ("The secret scan" and "The advisory checks" below). The push needs a Docker login to GHCR with
+The command builds the image for each architecture and exports its
+filesystem, scans the export for secrets and for known vulnerabilities,
+and pushes that architecture by digest only after both scans pass. Then
+it joins both digests under the release tag ("The secret scan" and "The advisory checks" below). The push needs a Docker login to GHCR with
 `write:packages`. The command refuses to publish an image whose
 `org.pagis.server.version` label is not the workspace version, because
 the tag and the label are the same claim made twice.
@@ -195,8 +200,9 @@ advisories:
 The checks run apart from the gate, so a newly published advisory does
 not block an unrelated pull request. They run in these places:
 
-- The images stage of a release runs the advisory checks before it builds. Then
-  Trivy scans each image after its secret scan and before its push, and the
+- The computer-image stage of a release runs the advisory checks before it
+  builds. Then Trivy scans each image for each architecture after its
+  secret scan and before its push, and the
   package tree of each Server Package before it is signed, packed and
   published. `cargo xtask image` and `cargo xtask server-image` scan each
   image in the same way.
@@ -251,11 +257,13 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-The workflow runs `cargo xtask release <stage>` for the four stages of the
+The workflow runs `cargo xtask release <stage>` for the seven stages of the
 server half, each in a job on the host it needs (`release_plan` in
 `xtask/src/release.rs`). A stage stops at its first failed step, and the
 workflow runs no job after a failed one. `cargo xtask release <stage>
---dry-run` prints the plan of one stage on any host.
+--dry-run` prints the plan of one stage on any host. Without `--platform`,
+the computer-image and server-image stages build each architecture in
+turn on one host.
 
 Two third-party programs ship with a release, each pinned and each with its
 license under `third_party/`: `gog` (MIT), the Google provider in every
@@ -284,11 +292,13 @@ release without them sends no analytics.
   required reviewer approves it. Make the maintainers its reviewers.
 - **The release key.** Its public half is `docs/release-key.asc`, and the
   tag must contain it (`docs/RELEASING-CLIENT.md`).
-- **The packages.** The images job pushes with the job token, so the
+- **The packages.** The image jobs push with the job token, so the
   organization must let a workflow publish packages. The first push of each
   image makes a private GHCR package. The anonymous pull then stops the
-  images job: make `pagis-computer` and `pagis-server` public on their
-  package pages and run the failed job again.
+  server-manifest job: make `pagis-computer` and `pagis-server` public on
+  their package pages and run the failed job again.
+- **The runners.** Each image job of the arm64 architecture runs on
+  `ubuntu-24.04-arm`, the GitHub-hosted arm64 Linux runner.
 
 A local run of a stage reads the same inputs from the machine: a Docker
 login to GHCR with `write:packages` and `gh` signed in to the repository.
@@ -305,18 +315,33 @@ The workflow runs these jobs in this order, and ADR-0025 holds why:
 
 1. **The gate.** The CI workflow runs on the tagged commit, and a red
    result stops the release. The gate scans the tracked files for secrets.
-2. **The images** (`cargo xtask release images`, Linux). The advisory
-   checks run first. Then the stage builds the Computer Image for both
-   architectures and exports its filesystem, scans the export for
-   secrets, then for known vulnerabilities, and pushes the image only
-   after both scans pass, from the same build cache. When the registry
-   already holds the pinned version, the stage skips the build and the
-   push. It then resolves the immutable digest. It builds the Headless
-   Server image against that digest in the same way. Last, it pulls the
-   manifest of both images with an anonymous registry token, as a new
-   person does. The job attests the provenance of both digests.
+2. **The images.** Each image stage that builds runs as two jobs at the
+   same time, one for each architecture, and each job runs on a Linux
+   runner of that architecture (`--platform amd64` on `ubuntu-24.04`,
+   `--platform arm64` on `ubuntu-24.04-arm`). A job hands the digest that
+   it pushed to the manifest job as a workflow artifact.
+   - `cargo xtask release computer-image --platform <platform>`. The
+     advisory checks run first. Then the stage builds the Computer Image
+     for its architecture and exports its filesystem, scans the export
+     for secrets, then for known vulnerabilities, and pushes the image by
+     digest, with no tag, only after both scans pass, from the same build
+     cache. When the registry already holds the pinned version, the stage
+     skips the build and the push.
+   - `cargo xtask release computer-manifest`. The stage joins the two
+     digests into one index under the pinned tag, or skips when the
+     registry already holds that tag. It then resolves the immutable
+     digest of the tag to `dist/computer-image.txt`. The job attests the
+     provenance of that digest.
+   - `cargo xtask release server-image --platform <platform>`. The stage
+     builds the Headless Server image against that digest for its
+     architecture, and scans and pushes it by digest in the same way.
+   - `cargo xtask release server-manifest`. The stage joins the two
+     digests under the release tag. Last, it pulls the manifest of both
+     images with an anonymous registry token, as a new person does. The
+     job attests the provenance of the server image digest.
 3. **The server packages.** Two jobs build them at the same time with the
-   exact image reference. Each builds the Product App, then `pagis` with
+   exact image reference, after the computer-manifest job and beside the
+   server image jobs. Each builds the Product App, then `pagis` with
    the pinned, hash-checked cargo-auditable, assembles each target with its
    pinned, hash-checked `gog` and the notices, and scans each package tree
    for known vulnerabilities.
@@ -337,7 +362,8 @@ The workflow runs these jobs in this order, and ADR-0025 holds why:
      (`.github/scripts/import-signing-identity.sh`). The stage signs
      `pagis` and `gog`, builds the disk image, notarizes and staples it,
      and writes `dist/runtime-lock-darwin-arm64.json` from the final bytes.
-4. **The draft** (`cargo xtask release draft`, macOS). Check every server
+4. **The draft** (`cargo xtask release draft`, macOS), after the server
+   packages and the server-manifest job. Check every server
    package and every Runtime Lock. A missing target, a changed file, a
    wrong code signature or a mutable Computer image stops the release here.
    Then create the draft GitHub Release of the tag with the three server

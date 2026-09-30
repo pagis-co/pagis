@@ -3,8 +3,10 @@
 # (docs/RELEASING-SERVER.md):
 #
 # 1. The gate: the CI workflow on the tagged commit.
-# 2. The images: the Computer image and the Headless Server image, each
-#    scanned before its push, with a provenance attestation.
+# 2. The images: the Computer image and the Headless Server image. Each
+#    platform builds on a runner of its own architecture, is scanned, and
+#    is pushed by digest. A manifest job joins the digests under the tag
+#    and attests its provenance.
 # 3. The server packages: the Linux archives and the signed, notarized
 #    macOS disk image, each with its Runtime Lock.
 # 4. The draft GitHub Release that holds the server packages and the locks.
@@ -35,28 +37,28 @@ jobs:
     name: gate
     uses: ./.github/workflows/ci.yml
 
-  images:
-    name: images
+  computer-image:
+    name: Computer image (${{ matrix.platform }})
     needs: gate
-    runs-on: ubuntu-latest
-    # The architecture that the runner does not run builds under
-    # emulation, and the Computer image compiles wlroots and labwc.
-    timeout-minutes: 360
-    # A release build writes the PostHog project into the daemon (ADR-0026).
-    env:
-      PAGIS_POSTHOG_PROJECT_ID: ${{ secrets.PAGIS_POSTHOG_PROJECT_ID }}
-      PAGIS_POSTHOG_TOKEN: ${{ secrets.PAGIS_POSTHOG_TOKEN }}
+    # Each platform builds on a runner of its own architecture, so no
+    # build runs under emulation. Each job pushes its platform by digest.
+    strategy:
+      matrix:
+        include:
+          - { platform: amd64, runner: ubuntu-24.04 }
+          - { platform: arm64, runner: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.runner }}
+    # The Computer image compiles wlroots and labwc from source.
+    timeout-minutes: 180
     permissions:
       contents: read
       packages: write
-      id-token: write
-      attestations: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      # Each image is exported for both architectures before its scan.
+      # Each job exports the filesystem of its image before the scans.
       - name: free disk space
         run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
 
@@ -68,7 +70,52 @@ jobs:
         with:
           save-if: false
 
-      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: cargo xtask release computer-image
+        run: cargo xtask release computer-image --platform "$PLATFORM" --tag "$GITHUB_REF_NAME"
+        env:
+          PLATFORM: ${{ matrix.platform }}
+
+      # A published Computer image writes no digest.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: image-digest-computer-${{ matrix.platform }}
+          path: dist/image-digests/
+          if-no-files-found: ignore
+
+  computer-manifest:
+    name: Computer image manifest
+    needs: computer-image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: false
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: image-digest-computer-*
+          path: dist/image-digests
+          merge-multiple: true
 
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
@@ -76,28 +123,19 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
 
-      - name: cargo xtask release images
-        run: cargo xtask release images --tag "$GITHUB_REF_NAME"
+      - name: cargo xtask release computer-manifest
+        run: cargo xtask release computer-manifest --tag "$GITHUB_REF_NAME"
 
-      - name: resolve the image digests
-        id: digests
+      - name: resolve the image digest
+        id: digest
         run: |
           computer=$(cat dist/computer-image.txt)
           echo "computer=${computer#*@}" >> "$GITHUB_OUTPUT"
-          version=${GITHUB_REF_NAME#v}
-          server=$(docker buildx imagetools inspect "ghcr.io/pagis-co/pagis-server:$version" --format '{{.Manifest.Digest}}')
-          echo "server=$server" >> "$GITHUB_OUTPUT"
 
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ghcr.io/pagis-co/pagis-computer
-          subject-digest: ${{ steps.digests.outputs.computer }}
-          push-to-registry: true
-
-      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with:
-          subject-name: ghcr.io/pagis-co/pagis-server
-          subject-digest: ${{ steps.digests.outputs.server }}
+          subject-digest: ${{ steps.digest.outputs.computer }}
           push-to-registry: true
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -105,9 +143,117 @@ jobs:
           name: computer-image
           path: dist/computer-image.txt
 
+  server-image:
+    name: Headless Server image (${{ matrix.platform }})
+    needs: computer-manifest
+    # Each platform builds on a runner of its own architecture, so no
+    # build runs under emulation. Each job pushes its platform by digest.
+    strategy:
+      matrix:
+        include:
+          - { platform: amd64, runner: ubuntu-24.04 }
+          - { platform: arm64, runner: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    # A release build writes the PostHog project into the daemon (ADR-0026).
+    env:
+      PAGIS_POSTHOG_PROJECT_ID: ${{ secrets.PAGIS_POSTHOG_PROJECT_ID }}
+      PAGIS_POSTHOG_TOKEN: ${{ secrets.PAGIS_POSTHOG_TOKEN }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Each job exports the filesystem of its image before the scans.
+      - name: free disk space
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: false
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: computer-image
+          path: dist
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: cargo xtask release server-image
+        run: cargo xtask release server-image --platform "$PLATFORM" --tag "$GITHUB_REF_NAME"
+        env:
+          PLATFORM: ${{ matrix.platform }}
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: image-digest-server-${{ matrix.platform }}
+          path: dist/image-digests/
+
+  server-manifest:
+    name: Headless Server image manifest
+    needs: server-image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: false
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: image-digest-server-*
+          path: dist/image-digests
+          merge-multiple: true
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: cargo xtask release server-manifest
+        run: cargo xtask release server-manifest --tag "$GITHUB_REF_NAME"
+
+      - name: resolve the image digest
+        id: digest
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          server=$(docker buildx imagetools inspect "ghcr.io/pagis-co/pagis-server:$version" --format '{{.Manifest.Digest}}')
+          echo "server=$server" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/pagis-co/pagis-server
+          subject-digest: ${{ steps.digest.outputs.server }}
+          push-to-registry: true
+
   server-linux:
     name: server packages (Linux)
-    needs: images
+    needs: computer-manifest
     runs-on: ubuntu-latest
     timeout-minutes: 120
     # A release build writes the PostHog project into the daemon (ADR-0026).
@@ -154,7 +300,7 @@ jobs:
 
   server-macos:
     name: server package (macOS)
-    needs: images
+    needs: computer-manifest
     # macos-latest is arm64, the one macOS architecture the app ships
     # (ADR-0025).
     runs-on: macos-latest
@@ -216,7 +362,7 @@ jobs:
 
   draft:
     name: draft release
-    needs: [server-linux, server-macos]
+    needs: [server-linux, server-macos, server-manifest]
     # The validation mounts the disk image and checks its signatures.
     runs-on: macos-latest
     timeout-minutes: 30
