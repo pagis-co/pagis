@@ -30,8 +30,18 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  # As in ci.yml: the key of a Rust cache holds the CARGO_ variables, so
+  # the client jobs find the cache of the packaging smoke jobs only with
+  # the same value.
+  CARGO_PROFILE_DEV_DEBUG: 0
 
 # The actions are pinned as in ci.yml.
+#
+# Each job that compiles saves its Rust cache, also after a failure, so a
+# re-run of a job or a new run on the same tag compiles only what changed.
+# A cache of a tag run is visible only to runs on that tag. The client jobs
+# run the same build as the packaging smoke jobs of ci.yml, so they share
+# their cache (`shared-key`), which main keeps warm for every new tag.
 
 jobs:
   gate:
@@ -58,7 +68,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          save-if: false
+          cache-on-failure: true
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -98,7 +108,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          save-if: false
+          cache-on-failure: true
 
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
@@ -140,7 +150,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          save-if: false
+          cache-on-failure: true
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -208,7 +218,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          save-if: false
+          cache-on-failure: true
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -253,7 +263,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          save-if: false
+          cache-on-failure: true
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -284,9 +294,14 @@ jobs:
           push-to-registry: true
 
   server-linux:
-    name: server packages (Linux)
+    name: server package (Linux ${{ matrix.platform }})
     needs: computer-manifest
-    runs-on: ubuntu-latest
+    # Each architecture builds in a job of its own, at the same time. Both
+    # jobs run on amd64: the images of `cross` are linux/amd64 only.
+    strategy:
+      matrix:
+        platform: [amd64, arm64]
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     # A release build writes the PostHog project into the daemon (ADR-0026).
     env:
@@ -303,7 +318,8 @@ jobs:
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          save-if: false
+          key: ${{ matrix.platform }}
+          cache-on-failure: true
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -321,11 +337,13 @@ jobs:
           path: dist
 
       - name: cargo xtask release linux
-        run: cargo xtask release linux --tag "$GITHUB_REF_NAME"
+        run: cargo xtask release linux --platform "$PLATFORM" --tag "$GITHUB_REF_NAME"
+        env:
+          PLATFORM: ${{ matrix.platform }}
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: server-linux
+          name: server-linux-${{ matrix.platform }}
           path: |
             dist/pagis-server-*-linux-gnu.tar.gz
             dist/runtime-lock-linux-*.json
@@ -352,7 +370,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          save-if: false
+          cache-on-failure: true
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -414,7 +432,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          save-if: false
+          cache-on-failure: true
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -455,7 +473,8 @@ jobs:
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          save-if: false
+          shared-key: desktop
+          cache-on-failure: true
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -517,7 +536,8 @@ jobs:
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          save-if: false
+          shared-key: desktop
+          cache-on-failure: true
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -579,7 +599,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          save-if: false
+          cache-on-failure: true
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -619,7 +639,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          save-if: false
+          cache-on-failure: true
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:

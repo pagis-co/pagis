@@ -58,7 +58,7 @@ fn main() -> Result<()> {
         }
         _ => bail!(
             "usage: cargo xtask <dev | full | step <name>... | advisories | image [--dry-run] | \
-             server-image [--dry-run] | release <computer-image | computer-manifest | server-image | server-manifest | linux | macos | draft> \
+             server-image [--dry-run] | release <advisories | computer-image | computer-manifest | server-image | server-manifest | linux | macos | draft> \
              [--platform <amd64 | arm64>] [--tag <tag>] [--dry-run] | desktop [--linux] [--tag <tag>] [--prepare | --publish-existing] [--dry-run] | \
              emergency-numbers [--check] | pins --check>"
         ),
@@ -198,8 +198,8 @@ fn run_server_image(root: &Path, dry_run: bool) -> Result<()> {
 /// of what the release ships before any image build. Each stage stops at its first failed step, so
 /// nothing is pushed or published after a failed secret scan or
 /// vulnerability scan. `--platform` names the one platform that the
-/// computer-image and server-image stages build; without it they build
-/// each platform in turn. `--tag` names the tag the workflow runs on,
+/// computer-image, server-image and linux stages build; without it they
+/// build each platform in turn. `--tag` names the tag the workflow runs on,
 /// which must name the workspace version. `--dry-run` prints the plan and
 /// stops.
 fn run_release(
@@ -220,11 +220,11 @@ fn run_release(
     }
     let builds_platforms = matches!(
         stage,
-        ReleaseStage::ComputerImage | ReleaseStage::ServerImage
+        ReleaseStage::ComputerImage | ReleaseStage::ServerImage | ReleaseStage::Linux
     );
     let platforms = match platform {
         Some(_) if !builds_platforms => {
-            bail!("--platform applies to the computer-image and server-image stages only")
+            bail!("--platform applies to the computer-image, server-image and linux stages only")
         }
         Some(name) => vec![xtask::ImagePlatform::parse(&name)?],
         None => xtask::ImagePlatform::ALL.to_vec(),
@@ -232,7 +232,7 @@ fn run_release(
     let needs_docker = builds_platforms
         || matches!(
             stage,
-            ReleaseStage::ComputerManifest | ReleaseStage::ServerManifest | ReleaseStage::Linux
+            ReleaseStage::ComputerManifest | ReleaseStage::ServerManifest
         );
     if needs_docker && !dry_run && !docker_available() {
         bail!("Docker is unreachable; the image builds and the cross builds need it");

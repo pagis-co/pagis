@@ -156,6 +156,49 @@ fn each_stage_parses_from_its_name() {
     assert_eq!(on_macos, ["macos", "draft"]);
 }
 
+/// The release workflow builds the Linux server package of each
+/// architecture in a job of its own, at the same time. Each job builds,
+/// packs and locks only its own target.
+#[test]
+fn the_linux_stage_builds_only_the_platforms_of_its_context() {
+    let cx = ReleaseContext {
+        platforms: vec![ImagePlatform::Arm64],
+        ..context()
+    };
+    let steps = release_plan(Path::new("/repo"), &cx, ReleaseStage::Linux);
+    let names: Vec<&str> = steps.iter().map(|s| s.name).collect();
+    assert_eq!(
+        names,
+        [
+            "ui-build",
+            "build-aarch64-unknown-linux-gnu",
+            "assemble-server",
+            "server-package-vuln-scan",
+            "linux-server-archives",
+            "linux-runtime-locks",
+        ]
+    );
+    let [x64, arm64] = linux_archives();
+    for name in [
+        "assemble-server",
+        "server-package-vuln-scan",
+        "linux-server-archives",
+        "linux-runtime-locks",
+    ] {
+        let script = joined(step(&steps, name));
+        assert!(
+            !script.contains("x86_64-unknown-linux-gnu"),
+            "{name}: {script}"
+        );
+        assert!(!script.contains(&x64), "{name}: {script}");
+    }
+    let archives = joined(step(&steps, "linux-server-archives"));
+    assert!(archives.contains(&arm64), "{archives}");
+    let locks = joined(step(&steps, "linux-runtime-locks"));
+    assert!(locks.contains("runtime-lock-linux-arm64.json"), "{locks}");
+    assert!(!locks.contains("runtime-lock-linux-x64.json"), "{locks}");
+}
+
 /// A release job builds the image stages of one platform, on a runner of
 /// that architecture.
 #[test]
@@ -1069,7 +1112,7 @@ fn the_tag_workflow_runs_every_stage_after_the_gate() {
         (
             "server-linux",
             "needs: computer-manifest",
-            "cargo xtask release linux --tag \"$GITHUB_REF_NAME\"",
+            "cargo xtask release linux --platform \"$PLATFORM\" --tag \"$GITHUB_REF_NAME\"",
         ),
         (
             "server-macos",
@@ -1137,6 +1180,8 @@ fn the_tag_workflow_runs_every_stage_after_the_gate() {
         "client-linux",
     ] {
         assert!(job(name).contains("attest-build-provenance"), "{name}");
+        // The attestation also writes the storage record of its artifact.
+        assert!(job(name).contains("artifact-metadata: write"), "{name}");
     }
     // Each image job builds one platform on a runner of that
     // architecture, with no emulation, and hands its digest to the
@@ -1166,4 +1211,58 @@ fn the_tag_workflow_runs_every_stage_after_the_gate() {
         assert!(job(name).contains(digests), "{name}");
     }
     assert!(!workflow.contains("setup-qemu"), "{workflow}");
+    // The Linux server package of each architecture builds in a job of
+    // its own, at the same time, and hands it to the draft job.
+    let linux = job("server-linux");
+    assert!(linux.contains("platform: [amd64, arm64]"), "{linux}");
+    assert!(
+        linux.contains("PLATFORM: ${{ matrix.platform }}"),
+        "{linux}"
+    );
+    assert!(
+        linux.contains("name: server-linux-${{ matrix.platform }}"),
+        "{linux}"
+    );
+    assert!(job("draft").contains("pattern: server-*"));
+}
+
+/// Each release job that compiles saves its Rust cache, also after a
+/// failure, so a re-run compiles only what changed. The client jobs
+/// share the cache that main keeps for the packaging smoke jobs.
+#[test]
+fn each_release_job_keeps_its_rust_cache() {
+    let read =
+        |path: &str| std::fs::read_to_string(workspace_root().join(path)).expect("the workflow");
+    let release = read(".github/workflows/release.yml");
+    let ci = read(".github/workflows/ci.yml");
+    assert!(!release.contains("save-if: false"), "{release}");
+    let caches: Vec<&str> = release
+        .split("uses: Swatinem/rust-cache@")
+        .skip(1)
+        .map(|rest| rest.split("\n      - ").next().unwrap_or(rest))
+        .collect();
+    assert!(!caches.is_empty());
+    for cache in &caches {
+        assert!(cache.contains("cache-on-failure: true"), "{cache}");
+    }
+    // Both Linux package jobs run on the same runner, so the key names
+    // the platform.
+    assert!(
+        caches
+            .iter()
+            .any(|cache| cache.contains("key: ${{ matrix.platform }}")),
+        "{release}"
+    );
+    assert_eq!(
+        caches
+            .iter()
+            .filter(|cache| cache.contains("shared-key: desktop"))
+            .count(),
+        2
+    );
+    assert_eq!(ci.matches("shared-key: desktop").count(), 2, "{ci}");
+    // The key of a Rust cache holds the CARGO_ variables.
+    for workflow in [&release, &ci] {
+        assert!(workflow.contains("  CARGO_PROFILE_DEV_DEBUG: 0\n"));
+    }
 }
