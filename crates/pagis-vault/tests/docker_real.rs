@@ -44,7 +44,7 @@ const SITE_IMAGE: &str = "caddy:2-alpine";
 const DOMAIN: &str = "example.com";
 const LOGIN_URL: &str = "https://login.example.com/login.html";
 /// A login page whose form never navigates, so the developer-tools and
-/// address-bar tests keep their password field across retries.
+/// address-bar test keeps its password field across retries.
 const INJECT_URL: &str = "https://login.example.com/inject.html";
 const USERNAME: &str = "alice@example.com";
 /// The dummy secret. It is long and odd enough that no log line or
@@ -319,17 +319,18 @@ impl Desk {
         }
     }
 
-    /// Press Return until one window title starts with `wanted`. A new
-    /// tab takes the keyboard a moment after it opens, so a single Return
-    /// can arrive too early; a repeat is harmless on these pages.
-    async fn press_return_until_title(&self, wanted: &str) {
+    /// Send `op` until one window title starts with `wanted`, and give
+    /// that title. A new tab takes the keyboard a moment after it opens,
+    /// so a single key can arrive too early; a repeat is harmless on
+    /// these pages.
+    async fn repeat_until_title(&self, op: InputOp, wanted: &str) -> String {
         let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
         loop {
-            self.agent_types(vec![key(&["Return"])]).await;
+            self.agent_types(vec![op.clone()]).await;
             tokio::time::sleep(Duration::from_secs(1)).await;
             let titles = self.titles().await;
-            if titles.iter().any(|title| title.starts_with(wanted)) {
-                return;
+            if let Some(title) = titles.iter().find(|title| title.starts_with(wanted)) {
+                return title.clone();
             }
             assert!(
                 tokio::time::Instant::now() < deadline,
@@ -354,17 +355,39 @@ impl Desk {
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
 
-    /// Watch the window titles for `within`, and fail when one of them
-    /// shows `secret`.
-    async fn assert_no_title_shows(&self, secret: &str, within: Duration) {
-        let deadline = tokio::time::Instant::now() + within;
-        while tokio::time::Instant::now() < deadline {
+    /// Open an address of `INJECT_URL` with the fragment `mark` in the
+    /// address bar until the page adds the mark to its title, and give
+    /// the titles of that moment.
+    async fn mark_through_the_address_bar(&self, mark: &str) -> Vec<String> {
+        let marked = format!("|{mark} - ");
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+        loop {
+            self.open_in_address_bar(&format!("{INJECT_URL}#{mark}"))
+                .await;
             let titles = self.titles().await;
+            if titles.iter().any(|title| title.contains(&marked)) {
+                return titles;
+            }
             assert!(
-                !titles.iter().any(|title| title.contains(secret)),
-                "the screen shows the secret: {titles:?}"
+                tokio::time::Instant::now() < deadline,
+                "the address bar never took the address: {titles:?}"
             );
-            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+    }
+
+    /// Send `op` until the right side of the screen is `painted` or not.
+    async fn repeat_until_painted(&self, op: InputOp, painted: bool, what: &str) {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+        loop {
+            self.agent_types(vec![op.clone()]).await;
+            let pixels = self.devtools_pixels().await;
+            if (pixels > 0) == painted {
+                return;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "{what}: {pixels} painted pixels on the right of the screen"
+            );
         }
     }
 
@@ -403,25 +426,32 @@ impl Desk {
 
     /// Do what a steered Agent does: give the focus to the desktop
     /// terminal with the compositor's window switch, and start a program
-    /// there that records what the terminal receives.
+    /// there that records what the terminal receives. The switch or the
+    /// command can arrive before the window takes the keyboard, so the
+    /// Agent repeats both until the terminal ran the command.
     async fn focus_the_terminal_and_record_it(&self) {
-        self.agent_types(vec![key(&["alt", "Tab"])]).await;
-        tokio::time::sleep(Duration::from_secs(1)).await;
-        self.agent_types(vec![InputOp::Text {
-            text: format!("touch {TERMINAL_FOCUSED}; cat > {KEYLOG}\n"),
-        }])
-        .await;
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
-        while !self
-            .exec("root", &format!("test -f {TERMINAL_FOCUSED}"), None)
-            .status
-            .success()
-        {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+        loop {
+            self.agent_types(vec![key(&["alt", "Tab"])]).await;
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            self.agent_types(vec![text(&format!(
+                "touch {TERMINAL_FOCUSED}; cat > {KEYLOG}\n"
+            ))])
+            .await;
+            for _ in 0..6 {
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                if self
+                    .exec("root", &format!("test -f {TERMINAL_FOCUSED}"), None)
+                    .status
+                    .success()
+                {
+                    return;
+                }
+            }
             assert!(
                 tokio::time::Instant::now() < deadline,
                 "the terminal never took the focus"
             );
-            tokio::time::sleep(Duration::from_millis(500)).await;
         }
     }
 
@@ -471,10 +501,9 @@ struct Site {
 }
 
 impl Site {
-    /// Serve `site/` for `login.example.com` and `sso.example.org`. Port
-    /// 8443 of `login.example.com` takes a connection and never answers,
-    /// for a page that does not load. The container carries the test's
-    /// mark, so the test removes it with the Computer.
+    /// Serve `site/` for `login.example.com` and `sso.example.org`. The
+    /// container carries the test's mark, so the test removes it with the
+    /// Computer.
     fn start(desk: &Desk) -> Self {
         let container = format!("pagis-site-{}", desk.docker.mark());
         let network = pagis_computer::network_name(&desk.workspace_id);
@@ -494,10 +523,12 @@ impl Site {
                     "--network-alias",
                     "sso.example.org",
                     SITE_IMAGE,
-                    "sh",
-                    "-c",
-                    "nc -lk -p 8443 -e sleep 86400 & \
-                     exec caddy run --config /srv/site/Caddyfile --adapter caddyfile",
+                    "caddy",
+                    "run",
+                    "--config",
+                    "/srv/site/Caddyfile",
+                    "--adapter",
+                    "caddyfile",
                 ],
                 None,
             ),
@@ -611,22 +642,45 @@ fn holds_number(text: &str, code: &str) -> bool {
 /// username and the password into the page's fields. After the Agent
 /// submits the form, a code fill writes the current code into the code
 /// field of the next step.
+///
+/// A sign-in page that gives the focus to no field still gets the fill:
+/// the fill finds the login fields of the page itself, as a password
+/// manager does. It writes the username into the last visible text field
+/// before the password field, and not into a hidden field between them.
+/// The code step, which gives the focus to no field either, gets the
+/// code in its one-time-code field.
 #[tokio::test]
 #[ignore = "needs Docker; run via cargo nextest run -p pagis-vault --run-ignored only"]
 async fn a_fill_and_a_code_fill_write_into_the_fields_of_the_credentials_site() {
     let (desk, _site) = desk_with_site().await;
+    let digest = sha256_hex(SECRET);
 
     fill(&desk, LOGIN_URL, USERNAME, SECRET)
         .await
         .expect("the fill");
-    desk.wait_title(&format!("login|{USERNAME}|{}", sha256_hex(SECRET)))
-        .await;
-
+    desk.wait_title(&format!("login|{USERNAME}|{digest}")).await;
     // The Agent submits the form itself, and the site asks for the code.
-    desk.agent_types(vec![key(&["Return"])]).await;
-    desk.wait_title("otp").await;
+    desk.repeat_until_title(key(&["Return"]), "otp").await;
     let code = current_code();
     fill_code(&desk, &code).await.expect("the code fill");
+    desk.wait_title(&format!("otp|{code}")).await;
+
+    fill(
+        &desk,
+        "https://login.example.com/nofocus.html",
+        USERNAME,
+        SECRET,
+    )
+    .await
+    .expect("the fill with no focused field");
+    // The hidden field stays empty: the title ends with its empty value.
+    desk.wait_title(&format!("login|{USERNAME}|{digest}| - "))
+        .await;
+    desk.repeat_until_title(key(&["Return"]), "otp").await;
+    let code = current_code();
+    fill_code(&desk, &code)
+        .await
+        .expect("the code fill with no focused field");
     desk.wait_title(&format!("otp|{code}")).await;
 }
 
@@ -675,21 +729,79 @@ async fn a_fill_with_the_terminal_focused_puts_nothing_in_the_terminal() {
     );
 }
 
-/// A login address that redirects to another registrable domain gets
-/// nothing: the fill reports that it failed. A code fill on that page
-/// of another domain also writes nothing.
+/// A fill whose page fails a check gets nothing, and reports that it
+/// failed:
+///
+/// - A page that gives the focus to a field outside its sign-in form:
+///   the fill does not pick fields around a focus of the page.
+/// - A page that moves the focus to a frame of another site when the
+///   password field takes it: the frame receives nothing.
+/// - A login address that redirects to another registrable domain. A
+///   code fill on that page of another domain also writes nothing.
 #[tokio::test]
 #[ignore = "needs Docker; run via cargo nextest run -p pagis-vault --run-ignored only"]
-async fn a_fill_that_lands_on_another_domain_writes_nothing() {
+async fn a_fill_whose_page_fails_a_check_writes_nothing() {
     let (desk, _site) = desk_with_site().await;
+    let digest = sha256_hex(SECRET);
+
+    let outside = fill(
+        &desk,
+        "https://login.example.com/search.html",
+        USERNAME,
+        SECRET,
+    )
+    .await;
+    assert!(
+        outside.is_err(),
+        "the fill around a focused field outside the form reported success"
+    );
+    // A code goes into the focused search field, and the page then
+    // reports what each of its fields holds: the login fields are empty.
+    let code = current_code();
+    fill_code(&desk, &code)
+        .await
+        .expect("the code fill into the focused search field");
+    desk.wait_title(&format!("search|{code}|")).await;
+    let titles = desk.titles().await;
+    let empty = format!("search|{code}||{} - ", sha256_hex(""));
+    assert!(
+        titles.iter().any(|title| title.starts_with(&empty)),
+        "the page received the login: {titles:?}"
+    );
+
+    let moved = fill(
+        &desk,
+        "https://login.example.com/steal.html",
+        USERNAME,
+        SECRET,
+    )
+    .await;
+    assert!(
+        moved.is_err(),
+        "the fill whose focus moved reported success"
+    );
+    // The frame has the focus. What the Agent types there comes back in
+    // the title, and the frame holds that text alone.
+    let caught = desk.repeat_until_title(text("x"), "caught|").await;
+    assert!(
+        (1..=60)
+            .any(|count| caught
+                .starts_with(&format!("caught|{} - ", sha256_hex(&"x".repeat(count))))),
+        "the frame of another site received more than the typed text: {caught:?}"
+    );
 
     let redirected = fill(&desk, "https://login.example.com/moved", USERNAME, SECRET).await;
     let code = current_code();
     let coded = fill_code(&desk, &code).await;
-    tokio::time::sleep(Duration::from_secs(2)).await;
-
+    assert!(redirected.is_err(), "the redirected fill reported success");
+    assert!(
+        coded.is_err(),
+        "the code fill on another domain reported success"
+    );
+    // The page of another domain shows its title, and none of the
+    // values it would add to the title if it received them.
+    desk.wait_title("login").await;
     let titles = desk.titles().await;
-    let digest = sha256_hex(SECRET);
     assert!(
         !titles
             .iter()
@@ -700,143 +812,30 @@ async fn a_fill_that_lands_on_another_domain_writes_nothing() {
         !titles.iter().any(|title| holds_number(title, &code)),
         "the page of another domain received the code: {titles:?}"
     );
-    assert!(redirected.is_err(), "the redirected fill reported success");
-    assert!(
-        coded.is_err(),
-        "the code fill on another domain reported success"
-    );
 }
 
-/// A page that moves the focus to a frame of another site when the
-/// password field takes it does not move the secret: the frame receives
-/// nothing, and the fill reports that it failed.
+/// After a fill, a steered Agent tries two ways to read the password
+/// field.
+///
+/// It presses F12, the shortcut that opens the browser's developer
+/// tools. The developer tools dock to the right of the window, where the
+/// login page is blank. A managed policy turns the developer tools off,
+/// so F12 opens no panel there: it shows a small "not allowed" dialog
+/// that dims the screen. The Agent dismisses the dialog with Escape, and
+/// the right of the screen goes blank again, so the Agent has no console
+/// to read the password field from. A real panel stays open through
+/// Escape.
+///
+/// It then opens a `javascript:` address in the address bar that reads
+/// the password field into the tab title. The address bar shortcut
+/// misses now and then, so the Agent repeats, as a prompt-injected model
+/// does. A managed policy blocks `javascript:` addresses, so no attempt
+/// runs the script and the screen never shows the secret. An address of
+/// the page with a fragment, before and after the attempts, shows that
+/// the address bar takes what the Agent types.
 #[tokio::test]
 #[ignore = "needs Docker; run via cargo nextest run -p pagis-vault --run-ignored only"]
-async fn a_focus_change_during_the_fill_does_not_move_the_secret() {
-    let (desk, _site) = desk_with_site().await;
-
-    let result = fill(
-        &desk,
-        "https://login.example.com/steal.html",
-        USERNAME,
-        SECRET,
-    )
-    .await;
-    tokio::time::sleep(Duration::from_secs(2)).await;
-
-    let titles = desk.titles().await;
-    assert!(
-        !titles.iter().any(|title| title.starts_with("caught|")),
-        "the frame of another site received text: {titles:?}"
-    );
-    assert!(result.is_err(), "the fill reported success");
-}
-
-/// A fill whose page does not load writes nothing: not into the address
-/// bar, and not into the page the tab showed before.
-#[tokio::test]
-#[ignore = "needs Docker; run via cargo nextest run -p pagis-vault --run-ignored only"]
-async fn a_fill_whose_page_does_not_load_writes_nothing() {
-    let (desk, _site) = desk_with_site().await;
-    fill(&desk, LOGIN_URL, USERNAME, SECRET)
-        .await
-        .expect("the first fill");
-    let filled = format!("login|{USERNAME}|{}", sha256_hex(SECRET));
-    desk.wait_title(&filled).await;
-
-    // Port 8443 takes the connection and never answers the TLS
-    // handshake, so the page never loads.
-    let stalled = fill(
-        &desk,
-        "https://login.example.com:8443/",
-        "bob@example.com",
-        "Second-Secret-8Kd2vQ",
-    )
-    .await;
-    tokio::time::sleep(Duration::from_secs(2)).await;
-
-    let titles = desk.titles().await;
-    assert!(
-        titles.iter().any(|title| title.starts_with(&filled)),
-        "the page the tab showed before changed: {titles:?}"
-    );
-    assert!(
-        !titles.iter().any(|title| title.contains("bob@example.com")),
-        "the second login reached a page: {titles:?}"
-    );
-    assert!(
-        stalled.is_err(),
-        "a fill on a page that never loaded reported success"
-    );
-}
-
-/// A sign-in page that gives the focus to no field still gets the fill:
-/// the fill finds the login fields of the page itself, as a password
-/// manager does. It writes the username into the last visible text field
-/// before the password field, and not into a hidden field between them.
-/// The code step, which gives the focus to no field either, gets the
-/// code in its one-time-code field.
-#[tokio::test]
-#[ignore = "needs Docker; run via cargo nextest run -p pagis-vault --run-ignored only"]
-async fn a_fill_on_a_page_that_focuses_no_field_writes_into_its_login_fields() {
-    let (desk, _site) = desk_with_site().await;
-
-    fill(
-        &desk,
-        "https://login.example.com/nofocus.html",
-        USERNAME,
-        SECRET,
-    )
-    .await
-    .expect("the fill");
-    // The hidden field stays empty: the title ends with its empty value.
-    desk.wait_title(&format!("login|{USERNAME}|{}| - ", sha256_hex(SECRET)))
-        .await;
-
-    desk.agent_types(vec![key(&["Return"])]).await;
-    desk.wait_title("otp").await;
-    let code = current_code();
-    fill_code(&desk, &code).await.expect("the code fill");
-    desk.wait_title(&format!("otp|{code}")).await;
-}
-
-/// A page that gives the focus to a field outside its sign-in form gets
-/// nothing: the fill does not pick fields around a focus of the page.
-#[tokio::test]
-#[ignore = "needs Docker; run via cargo nextest run -p pagis-vault --run-ignored only"]
-async fn a_fill_on_a_page_that_focuses_a_field_outside_the_login_form_writes_nothing() {
-    let (desk, _site) = desk_with_site().await;
-
-    let result = fill(
-        &desk,
-        "https://login.example.com/search.html",
-        USERNAME,
-        SECRET,
-    )
-    .await;
-    tokio::time::sleep(Duration::from_secs(2)).await;
-
-    let titles = desk.titles().await;
-    let digest = sha256_hex(SECRET);
-    assert!(
-        !titles
-            .iter()
-            .any(|title| title.contains(USERNAME) || title.contains(&digest)),
-        "the page received the login: {titles:?}"
-    );
-    assert!(result.is_err(), "the fill reported success");
-}
-
-/// After a fill, a steered Agent presses F12, the shortcut that opens
-/// the browser's developer tools. The developer tools dock to the right
-/// of the window, where the login page is blank. A managed policy turns
-/// the developer tools off, so F12 opens no panel there: it shows a small
-/// "not allowed" dialog instead. The Agent dismisses the dialog with
-/// Escape, and the right of the screen stays blank, so the Agent has no
-/// console to read the password field from.
-#[tokio::test]
-#[ignore = "needs Docker; run via cargo nextest run -p pagis-vault --run-ignored only"]
-async fn f12_after_a_fill_does_not_open_the_developer_tools() {
+async fn a_steered_agent_cannot_read_the_secret_after_a_fill() {
     let (desk, _site) = desk_with_site().await;
     fill(&desk, INJECT_URL, USERNAME, SECRET)
         .await
@@ -844,49 +843,34 @@ async fn f12_after_a_fill_does_not_open_the_developer_tools() {
     desk.wait_title(&format!("login|{USERNAME}|{}", sha256_hex(SECRET)))
         .await;
 
-    desk.agent_types(vec![key(&["F12"])]).await;
-    tokio::time::sleep(Duration::from_secs(4)).await;
-    // A blocked F12 dims the screen behind a "not allowed" dialog. Escape
-    // closes the dialog and leaves the page as it was; a real panel stays
-    // open through the same Escape.
-    desk.agent_types(vec![key(&["Escape"])]).await;
-    tokio::time::sleep(Duration::from_secs(1)).await;
-
-    let pixels = desk.devtools_pixels().await;
-    assert_eq!(
-        pixels, 0,
-        "the developer tools opened: {pixels} painted pixels on the right of the screen"
-    );
-}
-
-/// After a fill, a steered Agent opens a `javascript:` address in the
-/// address bar that reads the password field into the tab title. The
-/// address bar shortcut misses now and then, so the Agent repeats, as a
-/// prompt-injected model does. A managed policy blocks `javascript:`
-/// addresses, so no attempt runs the script and the screen never shows
-/// the secret.
-#[tokio::test]
-#[ignore = "needs Docker; run via cargo nextest run -p pagis-vault --run-ignored only"]
-async fn a_javascript_address_after_a_fill_does_not_show_the_secret() {
-    let (desk, _site) = desk_with_site().await;
-    fill(&desk, INJECT_URL, USERNAME, SECRET)
-        .await
-        .expect("the fill");
-    desk.wait_title(&format!("login|{USERNAME}|{}", sha256_hex(SECRET)))
+    desk.repeat_until_painted(key(&["F12"]), true, "F12 showed no dialog")
+        .await;
+    desk.repeat_until_painted(key(&["Escape"]), false, "the developer tools opened")
         .await;
 
+    desk.mark_through_the_address_bar("ready").await;
     for _ in 0..8 {
         desk.open_in_address_bar(READ_THE_SECRET_URL).await;
+        let titles = desk.titles().await;
+        assert!(
+            !titles.iter().any(|title| title.contains(SECRET)),
+            "the screen shows the secret: {titles:?}"
+        );
     }
-
-    desk.assert_no_title_shows(SECRET, Duration::from_secs(5))
-        .await;
+    // A script that ran puts the secret before the mark.
+    let titles = desk.mark_through_the_address_bar("done").await;
+    assert!(
+        !titles.iter().any(|title| title.contains(SECRET)),
+        "the screen shows the secret: {titles:?}"
+    );
 }
 
 /// The managed policy blocks a `javascript:` address that the Agent types
 /// in the address bar, and a bookmarklet, and nothing else. A page's own
 /// `javascript:` link and `javascript:` form action still run, so a site
-/// that signs in through them keeps working.
+/// that signs in through them keeps working. The policy also blocks the
+/// `view-source:` scheme only: a page whose address holds the text
+/// "view-source", in its path and in its query, loads as any other page.
 #[tokio::test]
 #[ignore = "needs Docker; run via cargo nextest run -p pagis-vault --run-ignored only"]
 async fn a_pages_own_javascript_link_and_form_action_still_run() {
@@ -894,22 +878,12 @@ async fn a_pages_own_javascript_link_and_form_action_still_run() {
 
     desk.open_page("https://login.example.com/jslink.html");
     desk.wait_title("jslink").await;
-    desk.press_return_until_title("link ran").await;
+    desk.repeat_until_title(key(&["Return"]), "link ran").await;
 
     desk.open_page("https://login.example.com/jsform.html");
     desk.wait_title("jsform").await;
-    desk.press_return_until_title("form ran").await;
-}
-
-/// The managed policy blocks the `view-source:` scheme only. A page whose
-/// address holds the text "view-source", in its path and in its query,
-/// loads as any other page.
-#[tokio::test]
-#[ignore = "needs Docker; run via cargo nextest run -p pagis-vault --run-ignored only"]
-async fn a_page_whose_address_holds_view_source_still_loads() {
-    let (desk, _site) = desk_with_site().await;
+    desk.repeat_until_title(key(&["Return"]), "form ran").await;
 
     desk.open_page("https://login.example.com/view-source.html?next=view-source:x");
-
     desk.wait_title("view-source page loaded").await;
 }

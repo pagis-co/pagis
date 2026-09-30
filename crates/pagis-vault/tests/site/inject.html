@@ -6,7 +6,10 @@
   and the password field stays for the next try. The page writes the
   username and the SHA-256 of the password into the document title, so
   the raw secret is on the screen only when an injected script reads the
-  field and puts it there.
+  field and puts it there. An address of this page with a fragment
+  stays on the page, and the page adds the fragment to the end of the
+  title it shows at that moment, so the test sees that the address bar
+  took an address.
 -->
 <meta charset="utf-8">
 <title>login</title>
@@ -28,4 +31,11 @@ pass.addEventListener("input", report);
 form.addEventListener("submit", (event) => {
   event.preventDefault();
 });
+const mark = () => {
+  document.title += "|" + location.hash.slice(1);
+};
+addEventListener("hashchange", mark);
+if (location.hash) {
+  mark();
+}
 </script>
