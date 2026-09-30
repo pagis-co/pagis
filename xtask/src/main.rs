@@ -194,8 +194,8 @@ fn run_server_image(root: &Path, dry_run: bool) -> Result<()> {
 
 /// `cargo xtask release <stage>`: one stage of a release. The release
 /// workflow runs the gate first, then each stage in a job of its own
-/// (`docs/RELEASING-SERVER.md`). The computer-image stage runs the advisory
-/// checks before it builds. Each stage stops at its first failed step, so
+/// (`docs/RELEASING-SERVER.md`). The advisories stage checks the lockfiles
+/// of what the release ships before any image build. Each stage stops at its first failed step, so
 /// nothing is pushed or published after a failed secret scan or
 /// vulnerability scan. `--platform` names the one platform that the
 /// computer-image and server-image stages build; without it they build
@@ -258,12 +258,17 @@ fn run_release(
         return Ok(());
     }
 
-    if stage == ReleaseStage::ComputerImage {
-        println!("== release: advisories");
-        let advisories = xtask::advisories::advisory_lane(&root, &cx.target_dir);
-        if !run_lanes(vec![advisories]) {
+    // Each advisory check runs after a red one, so one run reports every
+    // advisory.
+    if stage == ReleaseStage::Advisories {
+        if !run_lanes(vec![xtask::advisories::advisory_lane(
+            &root,
+            &cx.target_dir,
+        )]) {
             bail!("release refused: an advisory check is red");
         }
+        println!("pagis {} advisories stage done", cx.version);
+        return Ok(());
     }
 
     let results = execute_until_failure(&steps);

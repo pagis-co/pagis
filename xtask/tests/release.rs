@@ -64,6 +64,10 @@ fn joined(step: &Step) -> String {
 fn each_stage_lists_its_steps_in_order() {
     let names = |stage| plan(stage).iter().map(|s| s.name).collect::<Vec<_>>();
     assert_eq!(
+        names(ReleaseStage::Advisories),
+        ["cargo-deny", "ui-npm-audit", "desktop-npm-audit"]
+    );
+    assert_eq!(
         names(ReleaseStage::ComputerImage),
         [
             "builder",
@@ -134,6 +138,7 @@ fn each_stage_parses_from_its_name() {
     assert_eq!(
         ReleaseStage::ALL.map(ReleaseStage::name),
         [
+            "advisories",
             "computer-image",
             "computer-manifest",
             "server-image",
@@ -1037,8 +1042,13 @@ fn the_tag_workflow_runs_every_stage_after_the_gate() {
     assert!(job("gate").contains("uses: ./.github/workflows/ci.yml"));
     for (name, needs, command) in [
         (
-            "computer-image",
+            "advisories",
             "needs: gate",
+            "cargo xtask release advisories --tag \"$GITHUB_REF_NAME\"",
+        ),
+        (
+            "computer-image",
+            "needs: advisories",
             "cargo xtask release computer-image --platform \"$PLATFORM\" --tag \"$GITHUB_REF_NAME\"",
         ),
         (
