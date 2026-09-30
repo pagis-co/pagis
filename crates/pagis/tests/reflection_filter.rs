@@ -255,16 +255,16 @@ async fn a_skipped_page_keeps_its_timeline_and_starts_no_run() {
                 .await
                 .unwrap()
                 .unwrap();
-            if status.skipped_pages == 1 {
+            // The skip and the arrival acknowledgement are two writes.
+            if status.skipped_pages == 1 && status.arrival_processed == 1 {
                 return status;
             }
             tokio::time::sleep(Duration::from_millis(25)).await;
         }
     })
     .await
-    .expect("the filter skips the promotions page");
+    .expect("the filter skips the promotions page, and the arrival still appends");
     assert_eq!(status.reflected_pages, 0);
-    assert_eq!(status.arrival_processed, 1, "the arrival still appended");
     assert_eq!(arrival_runs(&fixture.daemon).await, 0);
 
     // The page itself is complete: the filter gates reflection, never

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::{Duration as ChronoDuration, SecondsFormat, Utc};
+use chrono::SecondsFormat;
 use futures::{SinkExt, StreamExt};
 use pagis_core::{MemoryStore, WorkspaceStore};
 use pagis_testkit::evaluation::FixtureClock;
@@ -30,18 +30,17 @@ async fn get(daemon: &TestDaemon, path: &str) -> serde_json::Value {
         .expect("JSON")
 }
 
-/// A whole-second local time at least `seconds` away. The format holds whole
-/// seconds only, so the value is rounded up: truncation would ask for a lead
-/// of a few milliseconds, and the daemon refuses a Schedule whose instant
-/// passed while the request was served.
-fn local_time_after(seconds: i64) -> String {
-    (Utc::now() + ChronoDuration::seconds(seconds) + ChronoDuration::milliseconds(999))
+/// The whole-second UTC local time of the instant `at`.
+fn local_time_of(at: i64) -> String {
+    chrono::DateTime::from_timestamp_millis(at)
+        .unwrap()
         .to_rfc3339_opts(SecondsFormat::Secs, true)
         .trim_end_matches('Z')
         .to_string()
 }
 
-async fn create_one_shot(daemon: &TestDaemon, seconds: i64) -> String {
+/// A one-shot Schedule in the DM channel, due at the instant `at`.
+async fn create_one_shot(daemon: &TestDaemon, at: i64) -> String {
     let response = reqwest::Client::new()
         .post(format!("{}/api/v1/schedules", daemon.base_url))
         .header("cookie", daemon.cookie())
@@ -51,7 +50,7 @@ async fn create_one_shot(daemon: &TestDaemon, seconds: i64) -> String {
             "instruction": "Prepare today's plan",
             "channel_id": daemon.dm_channel_id,
             "root_message_id": null,
-            "local_time": local_time_after(seconds),
+            "local_time": local_time_of(at),
             "timezone": "UTC"
         }))
         .send()
@@ -69,33 +68,12 @@ async fn create_one_shot(daemon: &TestDaemon, seconds: i64) -> String {
         .to_string()
 }
 
-async fn create_one_shot_at(daemon: &TestDaemon, at: i64) -> String {
-    let local_time = chrono::DateTime::from_timestamp_millis(at)
-        .unwrap()
-        .to_rfc3339_opts(SecondsFormat::Secs, true)
-        .trim_end_matches('Z')
-        .to_string();
-    let response = reqwest::Client::new()
-        .post(format!("{}/api/v1/schedules", daemon.base_url))
-        .header("cookie", daemon.cookie())
-        .json(&serde_json::json!({
-            "agent_id": daemon.agent_id,
-            "name": "Fixture reminder",
-            "instruction": "Read the fixture clock",
-            "channel_id": daemon.dm_channel_id,
-            "root_message_id": null,
-            "local_time": local_time,
-            "timezone": "UTC"
-        }))
-        .send()
-        .await
-        .expect("create schedule")
-        .error_for_status()
-        .expect("schedule created");
-    response.json::<serde_json::Value>().await.unwrap()["id"]
-        .as_str()
-        .unwrap()
-        .to_string()
+/// A daemon on `clock` that answers with `brain`.
+fn on_clock(brain: &Arc<ScriptedBrain>, clock: &FixtureClock) -> TestDaemonOptions {
+    TestDaemonOptions {
+        clock: Arc::new(clock.clone()),
+        ..options(brain)
+    }
 }
 
 async fn seed_subject_page(daemon: &TestDaemon, path: &str, content: String) {
@@ -201,7 +179,7 @@ async fn a_fixture_time_schedule_fires_when_the_injected_clock_advances() {
         ..TestDaemonOptions::default()
     })
     .await;
-    create_one_shot_at(&daemon, now + 60_000).await;
+    create_one_shot(&daemon, now + 60_000).await;
 
     clock.advance_to(now + 60_000);
 
@@ -542,10 +520,12 @@ async fn a_refused_reschedule_does_not_silence_the_fired_run() {
 /// it writes into.
 #[tokio::test]
 async fn a_fired_schedule_reads_the_conversation_of_its_channel() {
+    let now = 1_789_041_600_000;
+    let clock = FixtureClock::at(now);
     let brain = Arc::new(ScriptedBrain::default());
     brain.push(Script::reply(&["Noted."]));
     brain.push(Script::reply(&["Nothing to record."]));
-    let daemon = TestDaemon::start_with(options(&brain)).await;
+    let daemon = TestDaemon::start_with(on_clock(&brain, &clock)).await;
 
     reqwest::Client::new()
         .post(format!(
@@ -566,7 +546,8 @@ async fn a_fired_schedule_reads_the_conversation_of_its_channel() {
 
     brain.push(Script::reply(&["Your plan is ready."]));
     brain.push(Script::reply(&["Nothing to record."]));
-    create_one_shot(&daemon, 2).await;
+    create_one_shot(&daemon, now + 60_000).await;
+    clock.advance_to(now + 60_000);
     wait_for_schedule_run(&daemon, "completed").await;
 
     let fired = brain
@@ -646,7 +627,9 @@ async fn a_rest_created_one_shot_fires_once_and_links_public_history() {
         serde_json::from_str::<serde_json::Value>(&ready).unwrap()["type"],
         "ready"
     );
-    let schedule_id = create_one_shot(&daemon, 2).await;
+    // The socket waits on the clock of the daemon for the end of its
+    // Session, so this Schedule comes due on the wall clock.
+    let schedule_id = create_one_shot(&daemon, pagis_core::now_ms() + 3_000).await;
     let run = wait_for_schedule_run(&daemon, "completed").await;
 
     let occurrences = get(
@@ -722,15 +705,18 @@ async fn a_rest_created_one_shot_fires_once_and_links_public_history() {
 
 #[tokio::test]
 async fn restart_before_due_still_fires_the_one_shot() {
+    let now = 1_789_041_600_000;
+    let clock = FixtureClock::at(now);
     let first_brain = Arc::new(ScriptedBrain::default());
-    let mut first_options = options(&first_brain);
+    let mut first_options = on_clock(&first_brain, &clock);
     first_options.agents.max_concurrent_runs = 0;
     let daemon = TestDaemon::start_with(first_options).await;
-    let schedule_id = create_one_shot(&daemon, 3).await;
+    let schedule_id = create_one_shot(&daemon, now + 60_000).await;
 
     let second_brain = Arc::new(ScriptedBrain::default());
     second_brain.push(Script::reply(&["After restart"]));
-    let daemon = daemon.restart(options(&second_brain)).await;
+    let daemon = daemon.restart(on_clock(&second_brain, &clock)).await;
+    clock.advance_to(now + 60_000);
     wait_for_schedule_run(&daemon, "completed").await;
 
     let occurrences = get(
@@ -743,11 +729,14 @@ async fn restart_before_due_still_fires_the_one_shot() {
 
 #[tokio::test]
 async fn a_pending_wakeup_survives_restart_and_then_runs() {
+    let now = 1_789_041_600_000;
+    let clock = FixtureClock::at(now);
     let first_brain = Arc::new(ScriptedBrain::default());
-    let mut first_options = options(&first_brain);
+    let mut first_options = on_clock(&first_brain, &clock);
     first_options.agents.max_concurrent_runs = 0;
     let daemon = TestDaemon::start_with(first_options).await;
-    let schedule_id = create_one_shot(&daemon, 2).await;
+    let schedule_id = create_one_shot(&daemon, now + 60_000).await;
+    clock.advance_to(now + 60_000);
     let deadline = tokio::time::Instant::now() + Duration::from_secs(6);
     loop {
         let wakeups = get(&daemon, &format!("/api/v1/schedules/{schedule_id}/wakeups")).await;
@@ -763,7 +752,7 @@ async fn a_pending_wakeup_survives_restart_and_then_runs() {
 
     let second_brain = Arc::new(ScriptedBrain::default());
     second_brain.push(Script::reply(&["Resumed"]));
-    let daemon = daemon.restart(options(&second_brain)).await;
+    let daemon = daemon.restart(on_clock(&second_brain, &clock)).await;
     let run = wait_for_schedule_run(&daemon, "completed").await;
     let wakeups = get(&daemon, &format!("/api/v1/schedules/{schedule_id}/wakeups")).await;
     assert_eq!(wakeups["items"].as_array().unwrap().len(), 1);
@@ -772,14 +761,17 @@ async fn a_pending_wakeup_survives_restart_and_then_runs() {
 
 #[tokio::test]
 async fn restart_after_run_start_fails_it_without_replay() {
+    let now = 1_789_041_600_000;
+    let clock = FixtureClock::at(now);
     let first_brain = Arc::new(ScriptedBrain::default());
     first_brain.push(Script::hang(&["Working"]));
-    let daemon = TestDaemon::start_with(options(&first_brain)).await;
-    let schedule_id = create_one_shot(&daemon, 2).await;
+    let daemon = TestDaemon::start_with(on_clock(&first_brain, &clock)).await;
+    let schedule_id = create_one_shot(&daemon, now + 60_000).await;
+    clock.advance_to(now + 60_000);
     let started = wait_for_schedule_run(&daemon, "running").await;
 
     let second_brain = Arc::new(ScriptedBrain::default());
-    let daemon = daemon.restart(options(&second_brain)).await;
+    let daemon = daemon.restart(on_clock(&second_brain, &clock)).await;
     let failed = wait_for_schedule_run(&daemon, "failed").await;
     assert_eq!(failed["id"], started["id"]);
     tokio::time::sleep(Duration::from_millis(300)).await;
@@ -800,10 +792,12 @@ async fn restart_after_run_start_fails_it_without_replay() {
 
 #[tokio::test]
 async fn a_one_shot_in_an_existing_thread_reads_its_current_context() {
+    let now = 1_789_041_600_000;
+    let clock = FixtureClock::at(now);
     let brain = Arc::new(ScriptedBrain::default());
     brain.push_for("Pixie", Script::reply(&["Acknowledged"]));
     brain.push_for("Pixie", Script::reply(&["Used the context"]));
-    let daemon = TestDaemon::start_with(options(&brain)).await;
+    let daemon = TestDaemon::start_with(on_clock(&brain, &clock)).await;
     let root = reqwest::Client::new()
         .post(format!(
             "{}/api/v1/channels/{}/messages",
@@ -833,13 +827,14 @@ async fn a_one_shot_in_an_existing_thread_reads_its_current_context() {
             "instruction": "Use the current Thread context",
             "channel_id": daemon.dm_channel_id,
             "root_message_id": root["id"],
-            "local_time": local_time_after(2),
+            "local_time": local_time_of(now + 60_000),
             "timezone": "UTC"
         }))
         .send()
         .await
         .unwrap();
     assert_eq!(response.status(), 201);
+    clock.advance_to(now + 60_000);
     wait_for_schedule_run(&daemon, "completed").await;
 
     let schedule_request = brain
@@ -982,7 +977,7 @@ async fn a_foreground_run_creates_a_wake_only_schedule_without_an_approval_card(
             "instruction": "Check whether the school date changed",
             "channel": "user",
             "kind": "one_shot",
-            "local_time": local_time_after(3_600),
+            "local_time": local_time_of(pagis_core::now_ms() + 3_600_000),
             "timezone": "UTC",
             "wake_only": true,
             "subject_page_path": "private/subjects/gmail/school.md"
@@ -1226,19 +1221,20 @@ async fn a_lost_skip_next_race_answers_conflict_in_words() {
 /// becomes due after the cancel does not fire.
 #[tokio::test]
 async fn the_scheduler_stops_after_the_daemon_is_cancelled() {
+    let now = 1_789_041_600_000;
+    let clock = FixtureClock::at(now);
     let brain = Arc::new(ScriptedBrain::default());
     brain.push(Script::reply(&["Your plan is ready."]));
-    let daemon = TestDaemon::start_with(options(&brain)).await;
+    let daemon = TestDaemon::start_with(on_clock(&brain, &clock)).await;
 
     daemon.cancel();
-    // Two seconds of lead leaves the create request room under load. A shorter
-    // lead can pass while the request is served, and the daemon then refuses a
-    // Schedule whose instant is gone.
-    create_one_shot(&daemon, 2).await;
+    create_one_shot(&daemon, now + 60_000).await;
+    clock.advance_to(now + 60_000);
 
-    // The Schedule is due two seconds from now. Five seconds is long
-    // enough for a live scheduler to run it.
-    tokio::time::sleep(Duration::from_secs(5)).await;
+    // A live scheduler wakes on the advance of its clock and starts the
+    // Run at once, as the fixture-time test shows. A stopped one starts
+    // nothing in the same time.
+    tokio::time::sleep(Duration::from_millis(500)).await;
     let runs = get(&daemon, "/api/v1/runs").await;
     let items = runs["items"].as_array().expect("runs page").clone();
     assert!(

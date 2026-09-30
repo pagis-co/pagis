@@ -221,14 +221,17 @@ async fn a_schedule_that_finds_no_model_key_waits_for_one() {
         pagis_agent::RouterBrain::new(Arc::clone(&keys), models)
             .with_base_url(pagis_core::Provider::OpenAi, provider.uri()),
     );
+    let now = 1_789_041_600_000;
+    let clock = pagis_testkit::evaluation::FixtureClock::at(now);
     let daemon = TestDaemon::start_with(TestDaemonOptions {
         brain,
         keys,
         model_list_base_url: Some(provider.uri()),
+        clock: Arc::new(clock.clone()),
         ..TestDaemonOptions::default()
     })
     .await;
-    let due = chrono::Utc::now() + chrono::Duration::seconds(2);
+    let due = chrono::DateTime::from_timestamp_millis(now + 60_000).unwrap();
     let created = client()
         .post(format!("{}/api/v1/schedules", daemon.base_url))
         .header("cookie", daemon.cookie())
@@ -245,8 +248,30 @@ async fn a_schedule_that_finds_no_model_key_waits_for_one() {
         .await
         .unwrap();
     assert_eq!(created.status(), StatusCode::CREATED);
+    let schedule_id = created.json::<serde_json::Value>().await.unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
-    tokio::time::sleep(Duration::from_secs(4)).await;
+    // The due Schedule becomes a Wake-up, and the Wake-up waits.
+    clock.advance_to(now + 60_000);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    loop {
+        let wakeups = get(
+            &daemon,
+            daemon.cookie(),
+            &format!("/api/v1/schedules/{schedule_id}/wakeups"),
+        )
+        .await;
+        if wakeups["items"][0]["state"] == "pending" {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the due Schedule made no Wake-up: {wakeups}"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
     let runs = get(&daemon, daemon.cookie(), "/api/v1/runs").await;
     assert!(
         !runs["items"]
