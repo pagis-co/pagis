@@ -20,9 +20,13 @@ path = "junit.xml"
 [test-groups.docker]
 max-threads = 2
 
+# The Docker-real tests take the longest, and two at a time is the
+# narrowest part of the run, so they start first. Started last, they are
+# the only tests left at the end of the run.
 [[profile.default.overrides]]
 filter = 'test(/docker_real::/) | test(/greenmail::/)'
 test-group = 'docker'
+priority = 100
 
 # The egress tests install the egress rules of the Computers in the
 # firewall of the Docker host. Their chains are global to that host, so
