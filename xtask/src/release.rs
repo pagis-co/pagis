@@ -1,13 +1,15 @@
-//! The release build (`cargo xtask release`): one command turns a
-//! green working tree into a published release — the pinned Computer
-//! image and the headless server image on GHCR, and a GitHub Release
-//! that holds the server package of each Client App platform and the
-//! Runtime Lock that names it.
+//! The release build (`cargo xtask release <stage>`): the server half of
+//! a release — the pinned Computer image and the headless server image on
+//! GHCR, and a draft GitHub Release that holds the server package of each
+//! Client App platform and the Runtime Lock that names it.
 //!
-//! Everything builds on this machine (no hosted runners). macOS
-//! arm64 builds natively; the Linux targets build through `cross`,
-//! which runs the toolchain in a Docker container. Each build of `pagis`
-//! is a `cargo auditable` build (see `build_action`).
+//! A release is four stages ([`ReleaseStage`]), and the release workflow
+//! runs each one in a job of its own on the host that it needs: the
+//! images and the Linux server packages on Linux, the macOS server
+//! package and the draft release on macOS. macOS arm64 builds natively;
+//! the Linux targets build through `cross`, which runs the toolchain in a
+//! Docker container. Each build of `pagis` is a `cargo auditable` build
+//! (see `build_action`).
 
 use std::fs;
 use std::io::{BufReader, Read};
@@ -344,8 +346,8 @@ pub fn validate_runtime_lock_metadata(
 }
 
 /// Write a deterministic, non-distribution lock for the unsigned package
-/// smoke. Publication requires the final lock, matching server bytes and a
-/// hash-bound distribution proof, so this fixture cannot pass a tag build.
+/// smoke. Publication requires the final lock and the server bytes it
+/// names on the release, so this fixture cannot pass a tag build.
 pub fn write_fixture_runtime_lock(
     release: &str,
     platform: ClientPlatform,
@@ -741,8 +743,8 @@ exit 127
 struct Target {
     triple: &'static str,
     builder: Builder,
-    /// True for the targets only a macOS host can produce.
-    needs_macos: bool,
+    /// True for the target of the macOS stage.
+    macos: bool,
     /// The platform of the bundled `gog` archive, and its pinned SHA-256.
     gog_platform: &'static str,
     gog_checksum: &'static str,
@@ -754,33 +756,85 @@ const TARGETS: [Target; 3] = [
     Target {
         triple: "aarch64-apple-darwin",
         builder: Builder::Cargo,
-        needs_macos: true,
+        macos: true,
         gog_platform: GOG_SHA256[0].0,
         gog_checksum: GOG_SHA256[0].1,
     },
     Target {
         triple: "x86_64-unknown-linux-gnu",
         builder: Builder::Cross,
-        needs_macos: false,
+        macos: false,
         gog_platform: GOG_SHA256[1].0,
         gog_checksum: GOG_SHA256[1].1,
     },
     Target {
         triple: "aarch64-unknown-linux-gnu",
         builder: Builder::Cross,
-        needs_macos: false,
+        macos: false,
         gog_platform: GOG_SHA256[2].0,
         gog_checksum: GOG_SHA256[2].1,
     },
 ];
 
+/// The stages of a release, in the order the release workflow runs them.
+/// Each stage runs on the host it needs, and the files it writes under
+/// [`DIST_DIR`] are the input of the next stages.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReleaseStage {
+    /// Scan and push the Computer image and the Headless Server image.
+    Images,
+    /// Build the Linux server packages and their Runtime Locks.
+    Linux,
+    /// Build, sign and notarize the macOS server package and its lock.
+    Macos,
+    /// Validate every server package and lock, and create the draft
+    /// GitHub Release that holds them.
+    Draft,
+}
+
+impl ReleaseStage {
+    pub const ALL: [ReleaseStage; 4] = [
+        ReleaseStage::Images,
+        ReleaseStage::Linux,
+        ReleaseStage::Macos,
+        ReleaseStage::Draft,
+    ];
+
+    pub fn parse(name: &str) -> Result<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|stage| stage.name() == name)
+            .with_context(|| {
+                format!("{name} is not a release stage; use images, linux, macos or draft")
+            })
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            ReleaseStage::Images => "images",
+            ReleaseStage::Linux => "linux",
+            ReleaseStage::Macos => "macos",
+            ReleaseStage::Draft => "draft",
+        }
+    }
+
+    /// True for the stages that only a macOS host runs: `codesign`,
+    /// `notarytool` and `hdiutil` exist only there.
+    pub fn needs_macos(self) -> bool {
+        matches!(self, ReleaseStage::Macos | ReleaseStage::Draft)
+    }
+}
+
 /// What the release is built from: the workspace version, the pinned
-/// computer image, and the host platform.
+/// computer image, and whether the registry already holds that image.
 #[derive(Debug, Clone)]
 pub struct ReleaseContext {
     pub version: String,
     pub image: String,
-    pub host_macos: bool,
+    /// True when the registry already holds the pinned Computer image. A
+    /// published image version is never pushed again, so every release
+    /// that pins it pulls the same bytes.
+    pub computer_published: bool,
     pub target_dir: std::path::PathBuf,
 }
 
@@ -794,13 +848,36 @@ pub fn gog_asset_name(target: &str) -> String {
     format!("gogcli_{}_{}.tar.gz", pagis_versions::GOG_VERSION, platform)
 }
 
-/// Plan the release steps for the workspace at `root`. A non-macOS host
-/// can show the plan, but validation refuses a partial release.
-pub fn release_plan(root: &Path, cx: &ReleaseContext) -> Vec<Step> {
+/// Plan the steps of one release `stage` for the workspace at `root`.
+pub fn release_plan(root: &Path, cx: &ReleaseContext, stage: ReleaseStage) -> Vec<Step> {
+    match stage {
+        ReleaseStage::Images => images_plan(root, cx),
+        ReleaseStage::Linux => server_package_plan(root, cx, false),
+        ReleaseStage::Macos => server_package_plan(root, cx, true),
+        ReleaseStage::Draft => vec![Step {
+            name: "draft",
+            action: draft_action(root, cx),
+        }],
+    }
+}
+
+fn images_plan(root: &Path, cx: &ReleaseContext) -> Vec<Step> {
     // Each image is built and exported, its filesystem is scanned for
     // secrets and for known vulnerabilities, and only then is it pushed:
     // a pushed layer of a public package cannot be recalled.
-    let mut steps = crate::image_plan(root, &cx.image, &cx.target_dir);
+    let mut steps = vec![crate::image::builder_step(root)];
+    let computer = crate::image::computer_image_steps(root, &cx.image, &cx.target_dir);
+    if cx.computer_published {
+        steps.extend(computer.into_iter().map(|step| Step {
+            name: step.name,
+            action: Action::Skip(format!(
+                "{} is on the registry; a published image version is never pushed again",
+                cx.image
+            )),
+        }));
+    } else {
+        steps.extend(computer);
+    }
     steps.push(Step {
         name: "image-digest",
         action: image_digest_action(root, cx),
@@ -808,7 +885,7 @@ pub fn release_plan(root: &Path, cx: &ReleaseContext) -> Vec<Step> {
     // The headless Linux server image, built against the
     // immutable Computer image the step above resolved. It is the
     // fourth artifact of the release and it carries the same release
-    // number as the server package below it.
+    // number as the server packages.
     let server_image = crate::server_image(&cx.version);
     steps.extend(crate::server_image_steps(
         root,
@@ -822,26 +899,32 @@ pub fn release_plan(root: &Path, cx: &ReleaseContext) -> Vec<Step> {
         root,
         &[&cx.image, &server_image],
     ));
-    steps.push(Step {
+    steps
+}
+
+/// Build, assemble and scan the server package of each target of the
+/// stage, then pack it: the disk image on macOS, the archives on Linux.
+/// Both read the immutable Computer image that the images stage wrote to
+/// `dist/computer-image.txt`.
+fn server_package_plan(root: &Path, cx: &ReleaseContext, macos: bool) -> Vec<Step> {
+    let targets: Vec<&Target> = TARGETS.iter().filter(|t| t.macos == macos).collect();
+    let mut steps = vec![Step {
         name: "ui-build",
         action: ui_build_action(root),
-    });
-
-    for target in &TARGETS {
+    }];
+    for target in &targets {
         steps.push(Step {
             name: build_step_name(target.triple),
             action: build_action(root, target, cx),
         });
     }
-
-    let built: Vec<&Target> = TARGETS.iter().filter(|t| buildable(t, cx)).collect();
     steps.push(Step {
         name: "assemble-server",
-        action: package_action(root, &built, cx),
+        action: package_action(root, &targets, cx),
     });
     // Trivy identifies `gog` and the crates of `pagis` in each package
     // tree before the release signs, packs and publishes it.
-    let package_dirs: Vec<String> = built
+    let package_dirs: Vec<String> = targets
         .iter()
         .map(|target| format!("{DIST_DIR}/package-{}", target.triple))
         .collect();
@@ -852,26 +935,21 @@ pub fn release_plan(root: &Path, cx: &ReleaseContext) -> Vec<Step> {
         &cx.target_dir,
         &[],
     ));
-    steps.push(Step {
-        name: "macos-server-dmg",
-        action: macos_server_dmg_action(root, cx),
-    });
-    steps.push(Step {
-        name: "linux-server-archives",
-        action: linux_archives_action(root, cx),
-    });
-    steps.push(Step {
-        name: "linux-runtime-locks",
-        action: linux_locks_action(root, cx),
-    });
-    steps.push(Step {
-        name: "validate-server-release",
-        action: server_validation_action(root, cx),
-    });
-    steps.push(Step {
-        name: "publish",
-        action: publish_action(root, cx),
-    });
+    if macos {
+        steps.push(Step {
+            name: "macos-server-dmg",
+            action: macos_server_dmg_action(root, cx),
+        });
+    } else {
+        steps.push(Step {
+            name: "linux-server-archives",
+            action: linux_archives_action(root, cx),
+        });
+        steps.push(Step {
+            name: "linux-runtime-locks",
+            action: linux_locks_action(root, cx),
+        });
+    }
     steps
 }
 
@@ -886,10 +964,6 @@ fn image_digest_action(root: &Path, cx: &ReleaseContext) -> Action {
             .in_dir(root)
             .env("CARGO_TARGET_DIR", &cx.target_dir.to_string_lossy()),
     ])
-}
-
-fn buildable(target: &Target, cx: &ReleaseContext) -> bool {
-    !target.needs_macos || cx.host_macos
 }
 
 /// Step names are `&'static str`, so the per-target names come from a
@@ -924,12 +998,6 @@ fn ui_build_action(root: &Path) -> Action {
 /// Linux build gives `cross` an image of its own (`CROSS_BUILD_DOCKERFILE`,
 /// see [`CROSS_DOCKERFILE`]), in which `cargo` is `cargo auditable`.
 fn build_action(root: &Path, target: &Target, cx: &ReleaseContext) -> Action {
-    if !buildable(target, cx) {
-        return Action::Skip(format!(
-            "{} needs a macOS host; this one is not",
-            target.triple
-        ));
-    }
     let build = format!("build --release -p pagis --target {}", target.triple);
     let build = match target.builder {
         Builder::Cargo => format!("PATH=\"$work:$PATH\" cargo auditable {build}\n"),
@@ -1017,15 +1085,33 @@ fn linux_locks_action(root: &Path, cx: &ReleaseContext) -> Action {
     Action::Run(vec![Cmd::new("sh", &["-c", &script]).in_dir(root)])
 }
 
+/// The shell function `notarize <file>`: submit the file to Apple's notary
+/// service and wait for the verdict. A local release names a notarytool
+/// keychain profile. CI names an App Store Connect API key: the path of
+/// its `.p8` file, its key ID and its issuer ID.
+pub(crate) const NOTARIZE_FN: &str = r#"notarize() {
+  file=$1
+  profile=${PAGIS_NOTARY_KEYCHAIN_PROFILE:-${APPLE_KEYCHAIN_PROFILE:-}}
+  if [ -n "$profile" ]; then
+    set -- --keychain-profile "$profile"
+    if [ -n "${APPLE_KEYCHAIN:-}" ]; then set -- "$@" --keychain "$APPLE_KEYCHAIN"; fi
+  else
+    : "${APPLE_API_KEY:?APPLE_API_KEY or APPLE_KEYCHAIN_PROFILE is required}"
+    : "${APPLE_API_KEY_ID:?APPLE_API_KEY_ID is required}"
+    : "${APPLE_API_ISSUER:?APPLE_API_ISSUER is required}"
+    set -- --key "$APPLE_API_KEY" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER"
+  fi
+  /usr/bin/xcrun notarytool submit "$file" "$@" --wait
+}
+"#;
+
 fn macos_server_dmg_action(root: &Path, cx: &ReleaseContext) -> Action {
-    if !cx.host_macos {
-        return Action::Skip("the signed server DMG needs a macOS host".into());
-    }
     let package_dir = format!("{DIST_DIR}/package-aarch64-apple-darwin");
     let dmg = format!("{DIST_DIR}/{}", server_dmg_name(&cx.version));
     let mac_lock = ClientPlatform::MacArm64.lock_file();
     let script = format!(
         "set -eu\n\
+         {NOTARIZE_FN}\
          identity=${{PAGIS_SERVER_SIGN_IDENTITY:-${{CSC_NAME:-}}}}\n\
          if [ -z \"$identity\" ]; then\n\
            identity=$(security find-identity -v -p codesigning | sed -n 's/.*) \\([0-9A-F][0-9A-F]*\\) \"Developer ID Application:.*/\\1/p' | head -1)\n\
@@ -1042,20 +1128,7 @@ fn macos_server_dmg_action(root: &Path, cx: &ReleaseContext) -> Action {
          hdiutil create -fs HFS+ -format UDZO -volname 'Pagis Server {}' -srcfolder {package_dir} {dmg}\n\
          codesign --force --timestamp --sign \"$identity\" {dmg}\n\
          codesign --verify --strict --verbose=2 {dmg}\n\
-         profile=${{PAGIS_NOTARY_KEYCHAIN_PROFILE:-${{APPLE_KEYCHAIN_PROFILE:-}}}}\n\
-         if [ -n \"$profile\" ]; then\n\
-           if [ -n \"${{APPLE_KEYCHAIN:-}}\" ]; then\n\
-             xcrun notarytool submit {dmg} --keychain-profile \"$profile\" --keychain \"$APPLE_KEYCHAIN\" --wait\n\
-           else\n\
-             xcrun notarytool submit {dmg} --keychain-profile \"$profile\" --wait\n\
-           fi\n\
-         else\n\
-           : \"${{APPLE_ID:?APPLE_ID or APPLE_KEYCHAIN_PROFILE is required}}\"\n\
-           : \"${{APPLE_APP_SPECIFIC_PASSWORD:?APPLE_APP_SPECIFIC_PASSWORD is required}}\"\n\
-           : \"${{APPLE_TEAM_ID:?APPLE_TEAM_ID is required}}\"\n\
-           [ \"$APPLE_TEAM_ID\" = \"$team\" ] || {{ echo 'APPLE_TEAM_ID does not match the signing identity' >&2; exit 1; }}\n\
-           xcrun notarytool submit {dmg} --apple-id \"$APPLE_ID\" --password \"$APPLE_APP_SPECIFIC_PASSWORD\" --team-id \"$APPLE_TEAM_ID\" --wait\n\
-         fi\n\
+         notarize {dmg}\n\
          xcrun stapler staple {dmg}\n\
          xcrun stapler validate {dmg}\n\
          mount={DIST_DIR}/mounted-server\n\
@@ -1121,21 +1194,12 @@ fn server_validation_cmd(root: &Path, cx: &ReleaseContext) -> Cmd {
     Cmd::new("sh", &["-c", &script]).in_dir(root)
 }
 
-fn server_validation_action(root: &Path, cx: &ReleaseContext) -> Action {
-    if !cx.host_macos {
-        return Action::Run(vec![Cmd::new(
-            "sh",
-            &[
-                "-c",
-                "echo 'a complete server release needs the macOS arm64 DMG and its runtime lock; run it on macOS' >&2; exit 1",
-            ],
-        )
-        .in_dir(root)]);
-    }
-    Action::Run(vec![server_validation_cmd(root, cx)])
-}
-
-fn publish_action(root: &Path, cx: &ReleaseContext) -> Action {
+/// Validate every server package and Runtime Lock, then create the draft
+/// GitHub Release of the tag with them, and nothing else. The tag must
+/// exist: the release workflow runs on its push. After a maintainer
+/// approves the release, the publication jobs attach the Client App
+/// packages to the draft and publish it (`docs/RELEASING-CLIENT.md`).
+fn draft_action(root: &Path, cx: &ReleaseContext) -> Action {
     let tag = format!("v{}", cx.version);
     let title = format!("pagis {}", cx.version);
     let mut args = vec![
@@ -1144,6 +1208,8 @@ fn publish_action(root: &Path, cx: &ReleaseContext) -> Action {
         tag,
         "--repo".to_string(),
         REPO.to_string(),
+        "--draft".to_string(),
+        "--verify-tag".to_string(),
         "--title".to_string(),
         title,
         "--generate-notes".to_string(),

@@ -7,7 +7,9 @@
 //!
 //! - a `uses:` in `.github/workflows/` that does not name a full commit ID
 //!   with its release tag in a trailing comment
-//!   (`uses: owner/repo@<40 hex digits> # v1.2.3`);
+//!   (`uses: owner/repo@<40 hex digits> # v1.2.3`). A path in this
+//!   repository (`uses: ./.github/workflows/ci.yml`) runs the code of the
+//!   same commit and needs no pin;
 //! - an `actions/checkout` step that does not set
 //!   `persist-credentials: false`. Without it, the job token stays in the
 //!   git configuration for each later step;
@@ -129,6 +131,11 @@ pub fn workflow_violations(file: &str, text: &str) -> Vec<Violation> {
         };
         let (reference, tag) = split_comment(value);
         let reference = unquote(reference);
+        // A workflow or an action of this repository runs from the same
+        // commit as the workflow that names it.
+        if reference.starts_with("./") {
+            continue;
+        }
         let (action, commit) = reference.rsplit_once('@').unwrap_or((reference, ""));
         if !is_lower_hex(commit, 40) {
             violation(format!(

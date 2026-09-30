@@ -3,20 +3,18 @@
 //! holds the macOS plan, and `desktop_linux` holds the Linux one. A
 //! routine run packs the app unsigned and smoke tests it. A tag prepares
 //! exact signed bytes. A separate command publishes those same bytes
-//! after external proof.
+//! after a maintainer approves the release.
 //!
 //! Signing credentials never enter the plan. Electron Builder and
 //! `@electron/notarize` read them from the environment or keychain.
 //! The plan only records whether the required inputs exist.
 
-use std::fs;
 use std::path::Path;
 
-use anyhow::{Context, Result, bail};
-use serde::Deserialize;
-use sha2::{Digest, Sha256};
+use anyhow::{Result, bail};
 
-use crate::release::REPO;
+use crate::image::ANONYMOUS_PULL_FN;
+use crate::release::{NOTARIZE_FN, REPO};
 use crate::{Action, Cmd, Step};
 
 /// The platform a Client App is packed for.
@@ -40,9 +38,9 @@ pub struct DesktopContext {
     pub tag: Option<String>,
     /// The signing variables the environment does not carry.
     pub missing_credentials: Vec<String>,
-    /// Build the signed client and stop before distribution proof.
+    /// Build the signed client and stop before publication.
     pub prepare_only: bool,
-    /// Reuse the exact prepared package after external proof.
+    /// Publish the exact prepared package.
     pub publish_existing: bool,
 }
 
@@ -70,11 +68,11 @@ pub fn missing_signing_inputs(is_set: &dyn Fn(&str) -> bool) -> Vec<String> {
     }
 
     let keychain_notary = is_set("APPLE_KEYCHAIN_PROFILE");
-    let account_notary =
-        is_set("APPLE_ID") && is_set("APPLE_APP_SPECIFIC_PASSWORD") && is_set("APPLE_TEAM_ID");
-    if !keychain_notary && !account_notary {
+    let api_key_notary =
+        is_set("APPLE_API_KEY") && is_set("APPLE_API_KEY_ID") && is_set("APPLE_API_ISSUER");
+    if !keychain_notary && !api_key_notary {
         missing.push(
-            "APPLE_KEYCHAIN_PROFILE or APPLE_ID with APPLE_APP_SPECIFIC_PASSWORD and APPLE_TEAM_ID"
+            "APPLE_KEYCHAIN_PROFILE or APPLE_API_KEY with APPLE_API_KEY_ID and APPLE_API_ISSUER"
                 .into(),
         );
     }
@@ -154,9 +152,7 @@ fn mac_plan(root: &Path, cx: &DesktopContext) -> Vec<Step> {
         Step {
             name: "deps",
             action: if cx.publish_existing {
-                Action::Skip(
-                    "publishing the exact package that already passed external proof".into(),
-                )
+                Action::Skip("publishing the exact package that was prepared".into())
             } else {
                 Action::Run(vec![Cmd::new("npm", &["ci"]).in_dir(desktop.clone())])
             },
@@ -164,9 +160,7 @@ fn mac_plan(root: &Path, cx: &DesktopContext) -> Vec<Step> {
         Step {
             name: "pack",
             action: if cx.publish_existing {
-                Action::Skip(
-                    "publishing the exact package that already passed external proof".into(),
-                )
+                Action::Skip("publishing the exact package that was prepared".into())
             } else {
                 Action::Run(vec![pack])
             },
@@ -198,10 +192,6 @@ fn mac_plan(root: &Path, cx: &DesktopContext) -> Vec<Step> {
             action: signed_client_action(root, cx),
         },
         Step {
-            name: "distribution-proof",
-            action: distribution_proof_action(root, cx),
-        },
-        Step {
             name: "released-tuple",
             action: released_tuple_action(root, cx),
         },
@@ -220,224 +210,16 @@ fn loose_app_action(cx: &DesktopContext, command: Cmd) -> Action {
     }
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct DistributionProof {
-    schema: u8,
-    release: String,
-    runtime_lock_sha256: String,
-    server_dmg_sha256: String,
-    client_dmg_sha256: String,
-    previous_client_dmg_sha256: String,
-    team_id: String,
-    notarization_submission_id: String,
-    macos_version: String,
-    test_account: String,
-    checks: DistributionChecks,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct DistributionChecks {
-    server_gatekeeper: bool,
-    server_stapled: bool,
-    server_designated_requirements: bool,
-    client_gatekeeper: bool,
-    client_stapled: bool,
-    client_quarantined: bool,
-    installed_runtime_quarantined: bool,
-    initial_client_owned_launch: bool,
-    authenticated_health: bool,
-    product_app_opened: bool,
-    keychain_created_and_read: bool,
-    offline_client_owned_launch: bool,
-    forward_update_read_same_keychain_item: bool,
-    no_docker_setup: bool,
-    computer_screen_ready: bool,
-    computer_shell_ready: bool,
-    workspace_reused_after_update: bool,
-    unsafe_downgrade_refused: bool,
-}
-
-#[derive(Deserialize)]
-struct ProofRuntimeLock {
-    release: String,
-    asset: ProofAsset,
-}
-
-#[derive(Deserialize)]
-struct ProofAsset {
-    sha256: String,
-    team_id: String,
-}
-
-/// Validate the evidence recorded on a clean macOS account. The proof names
-/// the exact lock, server DMG and client DMG bytes. A failed or omitted check
-/// blocks client publication.
-pub fn validate_distribution_proof(
-    proof_path: &Path,
-    lock_path: &Path,
-    client_dmg: &Path,
-    release: &str,
-) -> Result<()> {
-    let proof: DistributionProof = serde_json::from_slice(
-        &fs::read(proof_path).with_context(|| format!("read {}", proof_path.display()))?,
-    )
-    .context("parse distribution proof")?;
-    if proof.schema != 1 || proof.release != release {
-        bail!("distribution proof does not name release {release}");
-    }
-    let lock_bytes =
-        fs::read(lock_path).with_context(|| format!("read {}", lock_path.display()))?;
-    let lock: ProofRuntimeLock =
-        serde_json::from_slice(&lock_bytes).context("parse the runtime lock for proof")?;
-    if lock.release != release {
-        bail!("the runtime lock does not name release {release}");
-    }
-    require_hash(
-        "runtime lock",
-        &proof.runtime_lock_sha256,
-        &hash_bytes(&lock_bytes),
-    )?;
-    require_hash("server DMG", &proof.server_dmg_sha256, &lock.asset.sha256)?;
-    require_hash(
-        "client DMG",
-        &proof.client_dmg_sha256,
-        &hash_file(client_dmg)?,
-    )?;
-    valid_hash("previous client DMG", &proof.previous_client_dmg_sha256)?;
-    if proof.team_id != lock.asset.team_id {
-        bail!("distribution proof team does not match the runtime lock");
-    }
-    for (name, value) in [
-        (
-            "notarization_submission_id",
-            proof.notarization_submission_id.as_str(),
-        ),
-        ("macos_version", proof.macos_version.as_str()),
-        ("test_account", proof.test_account.as_str()),
-    ] {
-        if value.trim().is_empty() {
-            bail!("distribution proof has no {name}");
-        }
-    }
-    let checks = &proof.checks;
-    for (name, passed) in [
-        ("server_gatekeeper", checks.server_gatekeeper),
-        ("server_stapled", checks.server_stapled),
-        (
-            "server_designated_requirements",
-            checks.server_designated_requirements,
-        ),
-        ("client_gatekeeper", checks.client_gatekeeper),
-        ("client_stapled", checks.client_stapled),
-        ("client_quarantined", checks.client_quarantined),
-        (
-            "installed_runtime_quarantined",
-            checks.installed_runtime_quarantined,
-        ),
-        (
-            "initial_client_owned_launch",
-            checks.initial_client_owned_launch,
-        ),
-        ("authenticated_health", checks.authenticated_health),
-        ("product_app_opened", checks.product_app_opened),
-        (
-            "keychain_created_and_read",
-            checks.keychain_created_and_read,
-        ),
-        (
-            "offline_client_owned_launch",
-            checks.offline_client_owned_launch,
-        ),
-        (
-            "forward_update_read_same_keychain_item",
-            checks.forward_update_read_same_keychain_item,
-        ),
-        ("no_docker_setup", checks.no_docker_setup),
-        ("computer_screen_ready", checks.computer_screen_ready),
-        ("computer_shell_ready", checks.computer_shell_ready),
-        (
-            "workspace_reused_after_update",
-            checks.workspace_reused_after_update,
-        ),
-        ("unsafe_downgrade_refused", checks.unsafe_downgrade_refused),
-    ] {
-        if !passed {
-            bail!("distribution proof check {name} did not pass");
-        }
-    }
-    Ok(())
-}
-
-fn hash_file(path: &Path) -> Result<String> {
-    let bytes = fs::read(path).with_context(|| format!("read {}", path.display()))?;
-    Ok(hash_bytes(&bytes))
-}
-
-fn hash_bytes(bytes: &[u8]) -> String {
-    hex::encode(Sha256::digest(bytes))
-}
-
-fn valid_hash(name: &str, hash: &str) -> Result<()> {
-    if hash.len() != 64
-        || !hash
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-    {
-        bail!("distribution proof has an invalid {name} hash");
-    }
-    Ok(())
-}
-
-fn require_hash(name: &str, recorded: &str, actual: &str) -> Result<()> {
-    valid_hash(name, recorded)?;
-    if recorded != actual {
-        bail!("distribution proof {name} hash does not match the release artifact");
-    }
-    Ok(())
-}
-
-fn distribution_proof_action(root: &Path, cx: &DesktopContext) -> Action {
-    if cx.tag.is_none() {
-        return Action::Skip("no release tag: distribution proof is not required".into());
-    }
-    if cx.prepare_only {
-        return Action::Skip("prepared package awaits external distribution proof".into());
-    }
-    let dmg = format!("desktop/release/{}", dmg_name(&cx.version));
-    let version = cx.version.as_str();
-    Action::Run(vec![
-        Cmd::new(
-            "cargo",
-            &[
-                "run",
-                "--quiet",
-                "-p",
-                "xtask",
-                "--",
-                "distribution-proof",
-                "validate",
-                "dist/distribution-proof.json",
-                "dist/runtime-lock-darwin-arm64.json",
-                &dmg,
-                version,
-            ],
-        )
-        .in_dir(root),
-    ])
-}
-
 fn finalize_dmg_action(root: &Path, cx: &DesktopContext) -> Action {
     if cx.tag.is_none() {
         return Action::Skip("no release tag: the DMG is an unsigned smoke artifact".into());
     }
     if cx.publish_existing {
-        return Action::Skip("the exact DMG was already finalized before external proof".into());
+        return Action::Skip("the exact DMG was finalized when it was prepared".into());
     }
     let dmg = format!("desktop/release/{}", dmg_name(&cx.version));
     let script = format!(
-        "set -eu\ndmg='{dmg}'\n/usr/bin/codesign --verify --strict --verbose=2 \"$dmg\"\nif [ -n \"${{APPLE_KEYCHAIN_PROFILE:-}}\" ]; then\n  set -- --keychain-profile \"$APPLE_KEYCHAIN_PROFILE\"\n  if [ -n \"${{APPLE_KEYCHAIN:-}}\" ]; then set -- \"$@\" --keychain \"$APPLE_KEYCHAIN\"; fi\nelse\n  set -- --apple-id \"$APPLE_ID\" --password \"$APPLE_APP_SPECIFIC_PASSWORD\" --team-id \"$APPLE_TEAM_ID\"\nfi\n/usr/bin/xcrun notarytool submit \"$dmg\" \"$@\" --wait\n/usr/bin/xcrun stapler staple \"$dmg\"\n/usr/bin/xcrun stapler validate \"$dmg\"\n"
+        "set -eu\n{NOTARIZE_FN}dmg='{dmg}'\n/usr/bin/codesign --verify --strict --verbose=2 \"$dmg\"\nnotarize \"$dmg\"\n/usr/bin/xcrun stapler staple \"$dmg\"\n/usr/bin/xcrun stapler validate \"$dmg\"\n"
     );
     Action::Run(vec![Cmd::new("sh", &["-c", &script]).in_dir(root)])
 }
@@ -458,11 +240,11 @@ fn released_tuple_action(root: &Path, cx: &DesktopContext) -> Action {
         return Action::Skip("no release tag: no published server tuple is required".into());
     };
     if cx.prepare_only {
-        return Action::Skip("prepared package awaits external distribution proof".into());
+        return Action::Skip("the prepared package awaits publication".into());
     }
     let server = crate::release::server_dmg_name(&cx.version);
     let script = format!(
-        "set -eu\ntmp=$(mktemp -d)\ntrap 'rm -rf \"$tmp\"' EXIT\ngh release download {tag} --repo {REPO} --dir \"$tmp\" --pattern runtime-lock-darwin-arm64.json --pattern {server}\ncmp dist/runtime-lock-darwin-arm64.json \"$tmp/runtime-lock-darwin-arm64.json\"\ncmp dist/{server} \"$tmp/{server}\"\nlocked_server=$(node -e \"process.stdout.write(require('./dist/runtime-lock-darwin-arm64.json').asset.sha256)\")\nactual_server=$(shasum -a 256 \"$tmp/{server}\" | awk '{{print $1}}')\n[ \"$actual_server\" = \"$locked_server\" ] || {{ echo 'the published server DMG does not match the Runtime Lock' >&2; exit 1; }}\nimage=$(node -e \"process.stdout.write(require('./dist/runtime-lock-darwin-arm64.json').computer_image)\")\ndocker buildx imagetools inspect \"$image\" >/dev/null\n"
+        "set -eu\ntmp=$(mktemp -d)\ntrap 'rm -rf \"$tmp\"' EXIT\ngh release download {tag} --repo {REPO} --dir \"$tmp\" --pattern runtime-lock-darwin-arm64.json --pattern {server}\ncmp dist/runtime-lock-darwin-arm64.json \"$tmp/runtime-lock-darwin-arm64.json\"\ncmp dist/{server} \"$tmp/{server}\"\nlocked_server=$(node -e \"process.stdout.write(require('./dist/runtime-lock-darwin-arm64.json').asset.sha256)\")\nactual_server=$(shasum -a 256 \"$tmp/{server}\" | awk '{{print $1}}')\n[ \"$actual_server\" = \"$locked_server\" ] || {{ echo 'the published server DMG does not match the Runtime Lock' >&2; exit 1; }}\nimage=$(node -e \"process.stdout.write(require('./dist/runtime-lock-darwin-arm64.json').computer_image)\")\n{ANONYMOUS_PULL_FN}anonymous_pull \"$image\"\n"
     );
     Action::Run(vec![Cmd::new("sh", &["-c", &script]).in_dir(root)])
 }
@@ -498,15 +280,15 @@ const SMOKE_SCRIPT: &str = concat!(
     "./Pagis.app/Contents/MacOS/Pagis --smoke\n",
 );
 
-/// Attach the DMG to the release of the tag, beside the CLI tarballs
-/// `cargo xtask release` published. An unsigned DMG is never
-/// published: macOS would refuse to open it.
+/// Attach the DMG to the draft release of the tag, beside the server
+/// packages it holds. An unsigned DMG is never published: macOS would
+/// refuse to open it.
 fn publish_action(root: &Path, cx: &DesktopContext) -> Action {
     let Some(tag) = &cx.tag else {
         return Action::Skip("no release tag: the app is packed and smoke tested only".into());
     };
     if cx.prepare_only {
-        return Action::Skip("prepared package awaits external distribution proof".into());
+        return Action::Skip("the prepared package awaits publication".into());
     }
     if !cx.missing_credentials.is_empty() {
         return fail_action(

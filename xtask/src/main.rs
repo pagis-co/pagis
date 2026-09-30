@@ -42,10 +42,13 @@ fn main() -> Result<()> {
         Some("server-image") => {
             run_server_image(&workspace_root(), args.iter().any(|a| a == "--dry-run"))
         }
-        Some("release") => run_release(args.iter().any(|a| a == "--dry-run")),
+        Some("release") if args.len() > 1 => run_release(
+            xtask::ReleaseStage::parse(&args[1])?,
+            flag_value(&args, "--tag"),
+            args.iter().any(|a| a == "--dry-run"),
+        ),
         Some("desktop") => run_desktop(&args),
         Some("runtime-lock") => run_runtime_lock(&args),
-        Some("distribution-proof") => run_distribution_proof(&args),
         Some("emergency-numbers") => {
             xtask::emergency::run(&workspace_root(), args.iter().any(|a| a == "--check"))
         }
@@ -54,9 +57,7 @@ fn main() -> Result<()> {
         }
         _ => bail!(
             "usage: cargo xtask <dev | full | step <name>... | advisories | image [--dry-run] | \
-             server-image [--dry-run] | release [--dry-run] | desktop [--linux] [--tag <tag>] [--prepare | --publish-existing] [--dry-run] | \
-             distribution-proof validate <proof> <lock> <client-dmg> <release> | \
-             distribution-proof validate-linux <proof> <lock> <appimage> <deb> <release> | \
+             server-image [--dry-run] | release <images | linux | macos | draft> [--tag <tag>] [--dry-run] | desktop [--linux] [--tag <tag>] [--prepare | --publish-existing] [--dry-run] | \
              emergency-numbers [--check] | pins --check>"
         ),
     }
@@ -68,31 +69,6 @@ fn exit_on_red(green: bool) -> Result<()> {
         std::process::exit(1);
     }
     Ok(())
-}
-
-fn run_distribution_proof(args: &[String]) -> Result<()> {
-    match args.get(1).map(String::as_str) {
-        Some("validate-linux") if args.len() == 7 => {
-            xtask::desktop_linux::validate_linux_distribution_proof(
-                Path::new(&args[2]),
-                Path::new(&args[3]),
-                Path::new(&args[4]),
-                Path::new(&args[5]),
-                &args[6],
-            )
-        }
-        Some("validate") if args.len() == 6 => desktop::validate_distribution_proof(
-            Path::new(&args[2]),
-            Path::new(&args[3]),
-            Path::new(&args[4]),
-            &args[5],
-        ),
-        _ => bail!(
-            "usage: cargo xtask distribution-proof validate \
-             <proof> <runtime-lock> <client-dmg> <release> | distribution-proof validate-linux \
-             <proof> <runtime-lock> <appimage> <deb> <release>"
-        ),
-    }
 }
 
 fn run_runtime_lock(args: &[String]) -> Result<()> {
@@ -212,49 +188,62 @@ fn run_server_image(root: &Path, dry_run: bool) -> Result<()> {
     Ok(())
 }
 
-/// `cargo xtask release`: the gate and the advisory checks, then scan and
-/// push each image, build every platform binary, scan each Server
-/// Package, and publish the GitHub Release the installer downloads from.
-/// The release stops at the first failed step, so nothing is pushed or
-/// published after a failed secret scan or vulnerability scan.
-/// `--dry-run` prints the plan and stops.
-fn run_release(dry_run: bool) -> Result<()> {
+/// `cargo xtask release <stage>`: one stage of a release. The release
+/// workflow runs the gate first, then each stage in a job of its own
+/// (`docs/RELEASING-SERVER.md`). The images stage runs the advisory checks
+/// before it builds. Each stage stops at its first failed step, so nothing
+/// is pushed or published after a failed secret scan or vulnerability
+/// scan. `--tag` names the tag the workflow runs on, which must name the
+/// workspace version. `--dry-run` prints the plan and stops.
+fn run_release(stage: xtask::ReleaseStage, tag: Option<String>, dry_run: bool) -> Result<()> {
     let root = workspace_root();
+    let version = workspace_version(&root)?;
+    if let Some(tag) = &tag {
+        desktop::check_tag(tag, &version)?;
+    }
+    let image = pagis_versions::COMPUTER_IMAGE.to_string();
+    if stage.needs_macos() && !cfg!(target_os = "macos") && !dry_run {
+        bail!("the {} stage runs on a macOS host", stage.name());
+    }
+    let needs_docker = matches!(
+        stage,
+        xtask::ReleaseStage::Images | xtask::ReleaseStage::Linux
+    );
+    if needs_docker && !dry_run && !docker_available() {
+        bail!("Docker is unreachable; the image builds and the cross builds need it");
+    }
     let cx = xtask::ReleaseContext {
-        version: workspace_version(&root)?,
-        image: pagis_versions::COMPUTER_IMAGE.to_string(),
-        host_macos: cfg!(target_os = "macos"),
+        version,
+        computer_published: stage == xtask::ReleaseStage::Images
+            && !dry_run
+            && xtask::image_published(&image)?,
+        image,
         target_dir: std::env::var_os("CARGO_TARGET_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(|| root.join("target")),
     };
-    let steps = xtask::release_plan(&root, &cx);
+    let steps = xtask::release_plan(&root, &cx, stage);
 
     if dry_run {
-        println!("pagis {} → {}", cx.version, cx.image);
+        println!("pagis {} {} → {}", cx.version, stage.name(), cx.image);
         println!("{}", xtask::plan_summary(&steps));
         return Ok(());
     }
 
-    if !docker_available() {
-        bail!("Docker is unreachable; the cross builds and the image push need it");
-    }
-    println!("== release: gate");
-    if !run_full() {
-        bail!("release refused: the gate is red");
-    }
-    println!("== release: advisories");
-    let advisories = xtask::advisories::advisory_lane(&root, &cx.target_dir, true);
-    if !run_lanes(vec![advisories]) {
-        bail!("release refused: an advisory check is red");
+    if stage == xtask::ReleaseStage::Images {
+        println!("== release: advisories");
+        let advisories = xtask::advisories::advisory_lane(&root, &cx.target_dir, true);
+        if !run_lanes(vec![advisories]) {
+            bail!("release refused: an advisory check is red");
+        }
     }
 
     let results = execute_until_failure(&steps);
     println!("\n{}", summary(&results));
     if !all_green(&results) {
-        bail!("release failed");
+        bail!("the release {} stage failed", stage.name());
     }
-    println!("pagis {} released", cx.version);
+    println!("pagis {} {} stage done", cx.version, stage.name());
     Ok(())
 }
 
@@ -262,8 +251,8 @@ fn run_release(dry_run: bool) -> Result<()> {
 /// A macOS host packs the macOS client and a Linux host the Linux one;
 /// `--linux` names the Linux plan on any host, which is how a macOS host
 /// publishes Linux packages that CI prepared. A tagged prepare run makes
-/// exact bytes. A publish-existing run reuses those bytes after the
-/// external distribution proof.
+/// exact bytes. A publish-existing run publishes those bytes after a
+/// maintainer approves the release.
 fn run_desktop(args: &[String]) -> Result<()> {
     let root = workspace_root();
     let dry_run = args.iter().any(|arg| arg == "--dry-run");
@@ -292,6 +281,9 @@ fn run_desktop(args: &[String]) -> Result<()> {
     }
     let is_set = |name: &str| std::env::var(name).is_ok_and(|value| !value.trim().is_empty());
     let missing = match platform {
+        // The publication of the Mac client uploads the bytes that were
+        // signed and notarized when they were prepared, and signs nothing.
+        xtask::DesktopPlatform::Mac if publish_existing => Vec::new(),
         xtask::DesktopPlatform::Mac => desktop::missing_signing_inputs(&is_set),
         // Linux signs only at publication, with the release key.
         xtask::DesktopPlatform::Linux if publish_existing => {

@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use pagis_versions::{CARGO_AUDITABLE_SHA256, CARGO_AUDITABLE_VERSION};
 use xtask::release::ClientPlatform;
-use xtask::{Action, Cmd, ReleaseContext, Step, gog_asset_name, release_plan};
+use xtask::{Action, Cmd, ReleaseContext, ReleaseStage, Step, gog_asset_name, release_plan};
 
 use crate::support::workspace_root;
 
@@ -15,13 +15,22 @@ fn linux_archives() -> [String; 2] {
 
 const MAC_ARCHIVE: &str = "pagis-server-1.2.3-aarch64-apple-darwin.tar.gz";
 
-fn context(host_macos: bool) -> ReleaseContext {
+fn context() -> ReleaseContext {
     ReleaseContext {
         version: "1.2.3".into(),
         image: "ghcr.io/pagis-co/pagis-computer:0.3.0".into(),
-        host_macos,
+        computer_published: false,
         target_dir: PathBuf::from("/shared/pagis-target"),
     }
+}
+
+fn plan(stage: ReleaseStage) -> Vec<Step> {
+    release_plan(Path::new("/repo"), &context(), stage)
+}
+
+/// The plan of `stage` for this tree: its scans read the pins of the tree.
+fn tree_plan(stage: ReleaseStage) -> Vec<Step> {
+    release_plan(&workspace_root(), &context(), stage)
 }
 
 fn step<'a>(steps: &'a [Step], name: &str) -> &'a Step {
@@ -49,11 +58,10 @@ fn joined(step: &Step) -> String {
 // --- plan ---
 
 #[test]
-fn plan_lists_every_release_step_in_order() {
-    let steps = release_plan(Path::new("/repo"), &context(true));
-    let names: Vec<&str> = steps.iter().map(|s| s.name).collect();
+fn each_stage_lists_its_steps_in_order() {
+    let names = |stage| plan(stage).iter().map(|s| s.name).collect::<Vec<_>>();
     assert_eq!(
-        names,
+        names(ReleaseStage::Images),
         [
             "builder",
             "image",
@@ -66,66 +74,212 @@ fn plan_lists_every_release_step_in_order() {
             "server-image-vuln-scan",
             "server-image-push",
             "anonymous-pull",
+        ]
+    );
+    assert_eq!(
+        names(ReleaseStage::Linux),
+        [
             "ui-build",
-            "build-aarch64-apple-darwin",
             "build-x86_64-unknown-linux-gnu",
             "build-aarch64-unknown-linux-gnu",
             "assemble-server",
             "server-package-vuln-scan",
-            "macos-server-dmg",
             "linux-server-archives",
             "linux-runtime-locks",
-            "validate-server-release",
-            "publish",
         ]
     );
+    assert_eq!(
+        names(ReleaseStage::Macos),
+        [
+            "ui-build",
+            "build-aarch64-apple-darwin",
+            "assemble-server",
+            "server-package-vuln-scan",
+            "macos-server-dmg",
+        ]
+    );
+    assert_eq!(names(ReleaseStage::Draft), ["draft"]);
+}
+
+#[test]
+fn each_stage_parses_from_its_name() {
+    for stage in ReleaseStage::ALL {
+        assert_eq!(ReleaseStage::parse(stage.name()).unwrap(), stage);
+    }
+    assert!(ReleaseStage::parse("publish").is_err());
+    let on_macos: Vec<&str> = ReleaseStage::ALL
+        .into_iter()
+        .filter(|stage| stage.needs_macos())
+        .map(ReleaseStage::name)
+        .collect();
+    assert_eq!(on_macos, ["macos", "draft"]);
+}
+
+/// A published Computer image version is never pushed again: every
+/// release that pins it pulls the same bytes. The release still resolves
+/// its digest and builds the server image against it.
+#[test]
+fn a_published_computer_image_is_not_built_or_pushed_again() {
+    let cx = ReleaseContext {
+        computer_published: true,
+        ..context()
+    };
+    let steps = release_plan(Path::new("/repo"), &cx, ReleaseStage::Images);
+    for name in [
+        "image",
+        "image-secret-scan",
+        "image-vuln-scan",
+        "image-push",
+    ] {
+        assert!(
+            matches!(step(&steps, name).action, Action::Skip(_)),
+            "{name} must skip"
+        );
+    }
+    for name in [
+        "builder",
+        "image-digest",
+        "server-image",
+        "server-image-push",
+        "anonymous-pull",
+    ] {
+        commands(step(&steps, name));
+    }
+}
+
+/// The registry answer decides whether the image is published. Only "not
+/// found" means no; any other failure stops the release, because a wrong
+/// no would push over a published version.
+#[test]
+fn only_a_not_found_answer_means_the_image_is_not_published() {
+    let image = "ghcr.io/pagis-co/pagis-computer:0.3.0";
+    assert!(xtask::inspect_answer(image, true, "").unwrap());
+    assert!(
+        !xtask::inspect_answer(
+            image,
+            false,
+            "ERROR: ghcr.io/pagis-co/pagis-computer:0.3.0: not found"
+        )
+        .unwrap()
+    );
+    let error = xtask::inspect_answer(image, false, "ERROR: unexpected status: 401 Unauthorized")
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("401 Unauthorized"), "{error}");
 }
 
 #[test]
 fn the_immutable_image_digest_is_resolved_before_server_builds() {
-    let steps = release_plan(Path::new("/repo"), &context(true));
-    let digest = joined(step(&steps, "image-digest"));
+    let digest = joined(step(&plan(ReleaseStage::Images), "image-digest"));
     assert!(digest.contains("imagetools inspect"), "{digest}");
     assert!(digest.contains("computer-image.txt"), "{digest}");
-    let build = joined(step(&steps, "build-aarch64-apple-darwin"));
-    assert!(build.contains("PAGIS_COMPUTER_IMAGE"), "{build}");
-    assert!(build.contains("computer-image.txt"), "{build}");
+    for (stage, target) in [
+        (ReleaseStage::Macos, "aarch64-apple-darwin"),
+        (ReleaseStage::Linux, "x86_64-unknown-linux-gnu"),
+    ] {
+        let build = joined(step(&plan(stage), &format!("build-{target}")));
+        assert!(build.contains("PAGIS_COMPUTER_IMAGE"), "{build}");
+        assert!(build.contains("computer-image.txt"), "{build}");
+    }
 }
 
 /// A new person pulls both images with no registry login, so the
-/// release pulls them the same way before it builds anything that
-/// names them, and a refusal stops the release.
+/// release pulls them the same way, and a refusal stops the release.
 #[test]
-fn both_pinned_images_pull_with_no_credentials_before_the_builds() {
-    let steps = release_plan(Path::new("/repo"), &context(true));
-    let pull = joined(step(&steps, "anonymous-pull"));
-    for (repository, tag) in [
-        ("pagis-co/pagis-computer", "0.3.0"),
-        ("pagis-co/pagis-server", "1.2.3"),
+fn both_pinned_images_pull_with_no_credentials() {
+    let pull = joined(step(&plan(ReleaseStage::Images), "anonymous-pull"));
+    for image in [
+        "ghcr.io/pagis-co/pagis-computer:0.3.0",
+        "ghcr.io/pagis-co/pagis-server:1.2.3",
     ] {
         assert!(
-            pull.contains(&format!(
-                "https://ghcr.io/token?scope=repository:{repository}:pull"
-            )),
-            "{pull}"
-        );
-        assert!(
-            pull.contains(&format!("https://ghcr.io/v2/{repository}/manifests/{tag}")),
+            pull.contains(&format!("anonymous_pull '{image}'")),
             "{pull}"
         );
     }
     // No stored login takes part.
     assert!(!pull.contains("docker login"), "{pull}");
     assert!(!pull.contains("GITHUB_TOKEN"), "{pull}");
-    assert!(pull.contains("exit 1"), "{pull}");
+}
+
+/// The pull asks the registry for an anonymous token and then for the
+/// manifest, by tag or by digest, and stops on a refusal.
+#[cfg(unix)]
+#[test]
+fn the_anonymous_pull_asks_for_a_token_and_the_manifest() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let log = dir.path().join("curl.log");
+    let curl = dir.path().join("curl");
+    // The fake registry grants a token and refuses the manifest of the
+    // `missing` repository.
+    std::fs::write(
+        &curl,
+        format!(
+            "#!/bin/sh\nfor arg; do url=$arg; done\necho \"$url\" >> '{}'\n\
+             case \"$url\" in\n*/token*) echo '{{\"token\":\"t\"}}' ;;\n*/missing/*) exit 22 ;;\nesac\n",
+            log.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&curl, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let path = format!(
+        "{}:{}",
+        dir.path().display(),
+        std::env::var("PATH").unwrap()
+    );
+    let run = |image: &str| {
+        std::process::Command::new("sh")
+            .arg("-c")
+            .arg(format!(
+                "set -eu\n{}anonymous_pull '{image}'\n",
+                xtask::image::ANONYMOUS_PULL_FN
+            ))
+            .env("PATH", &path)
+            .output()
+            .unwrap()
+    };
+
+    let digest = format!("sha256:{}", "a".repeat(64));
+    assert!(
+        run("ghcr.io/pagis-co/pagis-computer:0.3.0")
+            .status
+            .success()
+    );
+    assert!(
+        run(&format!("ghcr.io/pagis-co/pagis-computer@{digest}"))
+            .status
+            .success()
+    );
+    let refused = run("ghcr.io/pagis-co/missing:1.0.0");
+    assert!(!refused.status.success());
+    assert!(
+        String::from_utf8_lossy(&refused.stderr).contains("make the package public"),
+        "{refused:?}"
+    );
+
+    let urls = std::fs::read_to_string(&log).unwrap();
+    assert_eq!(
+        urls.lines().collect::<Vec<_>>(),
+        [
+            "https://ghcr.io/token?scope=repository:pagis-co/pagis-computer:pull",
+            "https://ghcr.io/v2/pagis-co/pagis-computer/manifests/0.3.0",
+            "https://ghcr.io/token?scope=repository:pagis-co/pagis-computer:pull",
+            &format!("https://ghcr.io/v2/pagis-co/pagis-computer/manifests/{digest}"),
+            "https://ghcr.io/token?scope=repository:pagis-co/missing:pull",
+            "https://ghcr.io/v2/pagis-co/missing/manifests/1.0.0",
+        ]
+    );
 }
 
 #[test]
 fn macos_builds_natively_and_linux_builds_through_cross() {
-    let steps = release_plan(Path::new("/repo"), &context(true));
-    assert!(joined(step(&steps, "build-aarch64-apple-darwin")).contains("cargo auditable build"));
+    let mac = plan(ReleaseStage::Macos);
+    assert!(joined(step(&mac, "build-aarch64-apple-darwin")).contains("cargo auditable build"));
+    let linux = plan(ReleaseStage::Linux);
     for target in ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"] {
-        let s = step(&steps, &format!("build-{target}"));
+        let s = step(&linux, &format!("build-{target}"));
         let cmd = &commands(s)[0];
         assert_eq!(cmd.program, "sh");
         assert!(joined(s).contains("cross build"), "{:?}", cmd.args);
@@ -135,13 +289,12 @@ fn macos_builds_natively_and_linux_builds_through_cross() {
 
 #[test]
 fn every_build_is_a_release_build_of_the_pagis_binary() {
-    let steps = release_plan(Path::new("/repo"), &context(true));
-    for name in [
-        "build-aarch64-apple-darwin",
-        "build-x86_64-unknown-linux-gnu",
-        "build-aarch64-unknown-linux-gnu",
+    for (stage, name) in [
+        (ReleaseStage::Macos, "build-aarch64-apple-darwin"),
+        (ReleaseStage::Linux, "build-x86_64-unknown-linux-gnu"),
+        (ReleaseStage::Linux, "build-aarch64-unknown-linux-gnu"),
     ] {
-        let command = joined(step(&steps, name));
+        let command = joined(step(&plan(stage), name));
         assert!(
             command.contains("build --release -p pagis"),
             "{name}: {command}"
@@ -181,7 +334,7 @@ fn cargo_auditable_archive(platform: &str) -> (String, &'static str) {
 /// and keeps in the shared target directory.
 #[test]
 fn the_macos_build_runs_cargo_auditable_with_the_pinned_cargo_auditable() {
-    let steps = release_plan(Path::new("/repo"), &context(true));
+    let steps = plan(ReleaseStage::Macos);
     let script = joined(step(&steps, "build-aarch64-apple-darwin"));
     let (url, sha256) = cargo_auditable_archive("aarch64-apple-darwin");
     assert!(script.contains(&url), "{script}");
@@ -207,7 +360,7 @@ fn the_macos_build_runs_cargo_auditable_with_the_pinned_cargo_auditable() {
 /// image, and a `cargo` in front of the toolchain's own.
 #[test]
 fn each_linux_build_runs_cargo_auditable_in_the_image_of_cross() {
-    let steps = release_plan(Path::new("/repo"), &context(true));
+    let steps = plan(ReleaseStage::Linux);
     let (url, sha256) = cargo_auditable_archive("x86_64-unknown-linux-musl");
     for target in ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"] {
         let script = joined(step(&steps, &format!("build-{target}")));
@@ -244,7 +397,7 @@ fn each_linux_build_runs_cargo_auditable_in_the_image_of_cross() {
 /// `--platform` to the build.
 #[test]
 fn the_image_of_cross_is_linux_amd64_on_every_host() {
-    let steps = release_plan(Path::new("/repo"), &context(true));
+    let steps = plan(ReleaseStage::Linux);
     for target in ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"] {
         let script = joined(step(&steps, &format!("build-{target}")));
         let from: Vec<&str> = heredoc(&script, "$work/Dockerfile")
@@ -263,7 +416,7 @@ fn the_image_of_cross_is_linux_amd64_on_every_host() {
 /// in PATH it fails.
 #[test]
 fn the_cargo_of_the_cross_image_starts_the_toolchain_cargo_as_cargo_auditable() {
-    let steps = release_plan(Path::new("/repo"), &context(true));
+    let steps = plan(ReleaseStage::Linux);
     let script = joined(step(&steps, "build-x86_64-unknown-linux-gnu"));
     let front = tempfile::tempdir().unwrap();
     let toolchain = tempfile::tempdir().unwrap();
@@ -318,18 +471,19 @@ fn the_cargo_of_the_cross_image_starts_the_toolchain_cargo_as_cargo_auditable() 
     assert_eq!(alone.status.code(), Some(127), "{alone:?}");
 }
 
+/// Each stage runs on one host, so it builds the targets of that host
+/// and no other.
 #[test]
-fn the_macos_build_skips_on_a_linux_host() {
-    let steps = release_plan(Path::new("/repo"), &context(false));
-    assert!(matches!(
-        step(&steps, "build-aarch64-apple-darwin").action,
-        Action::Skip(_)
-    ));
+fn each_stage_builds_only_the_targets_of_its_host() {
+    let linux = plan(ReleaseStage::Linux);
+    assert!(linux.iter().all(|s| s.name != "build-aarch64-apple-darwin"));
+    let mac = plan(ReleaseStage::Macos);
+    assert!(mac.iter().all(|s| !s.name.contains("linux")));
 }
 
 #[test]
 fn the_ui_build_runs_before_the_binaries_so_the_spa_embeds() {
-    let steps = release_plan(Path::new("/repo"), &context(true));
+    let steps = plan(ReleaseStage::Macos);
     let ui = step(&steps, "ui-build");
     let cmds = commands(ui);
     assert_eq!(cmds.last().unwrap().args, ["run", "build"]);
@@ -340,7 +494,7 @@ fn the_ui_build_runs_before_the_binaries_so_the_spa_embeds() {
 
 #[test]
 fn packaging_refuses_a_missing_or_newer_product_app() {
-    let steps = release_plan(Path::new("/repo"), &context(true));
+    let steps = plan(ReleaseStage::Macos);
     let script = joined(step(&steps, "assemble-server"));
     assert!(script.contains("ui/dist/index.html"), "{script}");
     assert!(script.contains("-newer \"$CARGO_TARGET_DIR/"), "{script}");
@@ -363,7 +517,7 @@ fn packaging_refuses_a_missing_or_newer_product_app() {
 /// macOS Client App installs the disk image.
 #[test]
 fn packaging_archives_the_linux_server_packages_only() {
-    let steps = release_plan(Path::new("/repo"), &context(true));
+    let steps = plan(ReleaseStage::Linux);
     let assemble = joined(step(&steps, "assemble-server"));
     let script = joined(step(&steps, "linux-server-archives"));
     for archive in linux_archives() {
@@ -372,7 +526,6 @@ fn packaging_archives_the_linux_server_packages_only() {
     assert!(!script.contains("aarch64-apple-darwin"), "{script}");
     assert!(!script.contains("SHA256SUMS"), "{script}");
     for upstream in [
-        "gogcli_0.42.0_darwin_arm64.tar.gz",
         "gogcli_0.42.0_linux_amd64.tar.gz",
         "gogcli_0.42.0_linux_arm64.tar.gz",
     ] {
@@ -395,18 +548,17 @@ fn packaging_archives_the_linux_server_packages_only() {
 }
 
 #[test]
-fn packaging_leaves_out_the_target_whose_build_was_skipped() {
-    let steps = release_plan(Path::new("/repo"), &context(false));
-    let script = joined(step(&steps, "assemble-server"));
-    assert!(
-        !script.contains("aarch64-apple-darwin"),
-        "skipped target packaged: {script}"
-    );
+fn each_stage_assembles_only_the_packages_that_it_built() {
+    let linux = joined(step(&plan(ReleaseStage::Linux), "assemble-server"));
+    assert!(!linux.contains("aarch64-apple-darwin"), "{linux}");
+    let mac = joined(step(&plan(ReleaseStage::Macos), "assemble-server"));
+    assert!(mac.contains("gogcli_0.42.0_darwin_arm64.tar.gz"), "{mac}");
+    assert!(!mac.contains("linux"), "{mac}");
 }
 
 #[test]
 fn the_macos_server_is_signed_packaged_notarized_stapled_and_locked() {
-    let steps = release_plan(Path::new("/repo"), &context(true));
+    let steps = plan(ReleaseStage::Macos);
     let script = joined(step(&steps, "macos-server-dmg"));
     assert!(script.contains("Developer ID Application"), "{script}");
     assert!(script.contains("CSC_NAME"), "{script}");
@@ -417,6 +569,19 @@ fn the_macos_server_is_signed_packaged_notarized_stapled_and_locked() {
     assert!(script.contains("codesign --verify --strict"), "{script}");
     assert!(script.contains("hdiutil create"), "{script}");
     assert!(script.contains("notarytool submit"), "{script}");
+    assert!(
+        script.contains("notarize dist/pagis-server-1.2.3-aarch64-apple-darwin.dmg"),
+        "{script}"
+    );
+    // CI notarizes with an App Store Connect API key.
+    for part in [
+        "--key \"$APPLE_API_KEY\"",
+        "--key-id \"$APPLE_API_KEY_ID\"",
+        "--issuer \"$APPLE_API_ISSUER\"",
+    ] {
+        assert!(script.contains(part), "{part}: {script}");
+    }
+    assert!(!script.contains("APPLE_APP_SPECIFIC_PASSWORD"), "{script}");
     assert!(script.contains("stapler staple"), "{script}");
     assert!(script.contains("stapler validate"), "{script}");
     assert!(
@@ -434,7 +599,7 @@ fn the_macos_server_is_signed_packaged_notarized_stapled_and_locked() {
 /// architecture, from the finished bytes and the tree they extract to.
 #[test]
 fn each_linux_archive_gets_the_runtime_lock_of_its_architecture() {
-    let steps = release_plan(Path::new("/repo"), &context(true));
+    let steps = plan(ReleaseStage::Linux);
     let names: Vec<&str> = steps.iter().map(|s| s.name).collect();
     let locks = names
         .iter()
@@ -467,7 +632,7 @@ fn each_linux_archive_gets_the_runtime_lock_of_its_architecture() {
 
 #[test]
 fn the_archives_carry_no_macos_metadata_member() {
-    let steps = release_plan(Path::new("/repo"), &context(true));
+    let steps = plan(ReleaseStage::Linux);
     let script = joined(step(&steps, "linux-server-archives"));
     assert!(script.contains("COPYFILE_DISABLE=1"), "{script}");
 }
@@ -482,7 +647,7 @@ fn the_archives_carry_no_macos_metadata_member() {
 fn each_image_is_scanned_for_secrets_before_its_push() {
     // The release runs from its own tree, and its scans read the pins of
     // that tree.
-    let steps = release_plan(&workspace_root(), &context(true));
+    let steps = tree_plan(ReleaseStage::Images);
     let names: Vec<&str> = steps.iter().map(|s| s.name).collect();
     let at = |name: &str| {
         names
@@ -552,11 +717,10 @@ fn each_image_is_scanned_for_secrets_before_its_push() {
 /// published.
 #[test]
 fn each_image_and_server_package_is_scanned_for_vulnerabilities_before_it_ships() {
-    // The release runs from its own tree, and its scans read the pins of
-    // that tree.
-    let steps = release_plan(&workspace_root(), &context(true));
-    let names: Vec<&str> = steps.iter().map(|s| s.name).collect();
-    let at = |name: &str| {
+    let order = |steps: &[Step]| steps.iter().map(|s| s.name).collect::<Vec<_>>();
+    let steps = tree_plan(ReleaseStage::Images);
+    let names = order(&steps);
+    let at = |names: &[&str], name: &str| {
         names
             .iter()
             .position(|n| *n == name)
@@ -577,7 +741,7 @@ fn each_image_and_server_package_is_scanned_for_vulnerabilities_before_it_ships(
         ),
     ] {
         assert!(
-            at(secret_scan) < at(scan) && at(scan) < at(push),
+            at(&names, secret_scan) < at(&names, scan) && at(&names, scan) < at(&names, push),
             "{names:?}"
         );
         let scanned = joined(step(&steps, scan));
@@ -591,42 +755,43 @@ fn each_image_and_server_package_is_scanned_for_vulnerabilities_before_it_ships(
         }
     }
 
-    let packages = at("server-package-vuln-scan");
-    assert!(at("assemble-server") < packages, "{names:?}");
-    for later in ["macos-server-dmg", "linux-server-archives", "publish"] {
-        assert!(packages < at(later), "{names:?}");
-    }
-    let scanned = joined(step(&steps, "server-package-vuln-scan"));
-    assert!(scanned.contains("--scanners vuln"), "{scanned}");
-    for triple in [
-        "aarch64-apple-darwin",
-        "x86_64-unknown-linux-gnu",
-        "aarch64-unknown-linux-gnu",
+    for (stage, packed, triples) in [
+        (
+            ReleaseStage::Linux,
+            "linux-server-archives",
+            &["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"][..],
+        ),
+        (
+            ReleaseStage::Macos,
+            "macos-server-dmg",
+            &["aarch64-apple-darwin"][..],
+        ),
     ] {
-        assert!(
-            scanned.contains(&format!("dist/package-{triple}")),
-            "{scanned}"
-        );
+        let steps = tree_plan(stage);
+        let names = order(&steps);
+        let packages = at(&names, "server-package-vuln-scan");
+        assert!(at(&names, "assemble-server") < packages, "{names:?}");
+        assert!(packages < at(&names, packed), "{names:?}");
+        let scanned = joined(step(&steps, "server-package-vuln-scan"));
+        assert!(scanned.contains("--scanners vuln"), "{scanned}");
+        for triple in triples {
+            assert!(
+                scanned.contains(&format!("dist/package-{triple}")),
+                "{scanned}"
+            );
+        }
+        let other = if stage == ReleaseStage::Linux {
+            "apple-darwin"
+        } else {
+            "linux"
+        };
+        assert!(!scanned.contains(other), "{scanned}");
     }
-}
-
-/// A host that builds no macOS package scans the packages it built.
-#[test]
-fn the_server_package_scan_leaves_out_the_target_whose_build_was_skipped() {
-    // The release runs from its own tree, and its scans read the pins of
-    // that tree.
-    let steps = release_plan(&workspace_root(), &context(false));
-    let scanned = joined(step(&steps, "server-package-vuln-scan"));
-    assert!(!scanned.contains("aarch64-apple-darwin"), "{scanned}");
-    assert!(
-        scanned.contains("dist/package-x86_64-unknown-linux-gnu"),
-        "{scanned}"
-    );
 }
 
 #[test]
 fn the_image_push_pushes_both_architectures_under_the_pinned_tag() {
-    let steps = release_plan(Path::new("/repo"), &context(true));
+    let steps = plan(ReleaseStage::Images);
     let cmd = &commands(step(&steps, "image-push"))[0];
     assert_eq!(cmd.program, "docker");
     let args = cmd.args.join(" ");
@@ -639,19 +804,24 @@ fn the_image_push_pushes_both_architectures_under_the_pinned_tag() {
     assert!(args.contains("--push"), "{args}");
 }
 
-/// The server release publishes the server package of each Client App
-/// platform and the Runtime Lock that names it, and nothing else.
+/// The draft release of the tag holds the server package of each Client
+/// App platform and the Runtime Lock that names it, and nothing else. It
+/// stays a draft until a maintainer approves it, and it needs the tag the
+/// release workflow runs on.
 #[test]
-fn publishing_uploads_the_server_packages_and_their_locks_only() {
-    let steps = release_plan(Path::new("/repo"), &context(true));
-    let publish = commands(step(&steps, "publish"));
+fn the_draft_holds_the_server_packages_and_their_locks_only() {
+    let steps = plan(ReleaseStage::Draft);
+    let publish = commands(step(&steps, "draft"));
     assert_eq!(
         publish[0].program, "sh",
         "validation must run before upload"
     );
     let cmd = &publish[1];
     assert_eq!(cmd.program, "gh");
-    assert!(cmd.args.contains(&"v1.2.3".to_string()), "{:?}", cmd.args);
+    assert_eq!(cmd.args[..3], ["release", "create", "v1.2.3"]);
+    for flag in ["--draft", "--verify-tag"] {
+        assert!(cmd.args.contains(&flag.to_string()), "{:?}", cmd.args);
+    }
     let assets: Vec<&str> = cmd
         .args
         .iter()
@@ -674,8 +844,12 @@ fn publishing_uploads_the_server_packages_and_their_locks_only() {
 
 #[test]
 fn release_validation_fails_closed_over_every_server_artifact() {
-    let steps = release_plan(Path::new("/repo"), &context(true));
-    let validation = joined(step(&steps, "validate-server-release"));
+    let steps = plan(ReleaseStage::Draft);
+    let validation = format!(
+        "{} {}",
+        commands(step(&steps, "draft"))[0].program,
+        commands(step(&steps, "draft"))[0].args.join(" ")
+    );
     for archive in linux_archives() {
         assert!(validation.contains(&archive), "{validation}");
     }
@@ -711,8 +885,9 @@ fn release_validation_fails_closed_over_every_server_artifact() {
 /// SHA-256 that `pagis-versions` pins for its platform.
 #[test]
 fn the_release_checks_each_gog_archive_against_its_pin() {
-    let steps = release_plan(Path::new("/repo"), &context(true));
-    let assemble = joined(step(&steps, "assemble-server"));
+    let assemble = [ReleaseStage::Linux, ReleaseStage::Macos]
+        .map(|stage| joined(step(&plan(stage), "assemble-server")))
+        .join("\n");
     for (platform, sha256) in pagis_versions::GOG_SHA256 {
         let archive = format!("gogcli_{}_{platform}.tar.gz", pagis_versions::GOG_VERSION);
         let check = assemble
@@ -737,4 +912,109 @@ fn gog_asset_names_pin_v0420_for_every_pagis_target() {
         gog_asset_name("aarch64-unknown-linux-gnu"),
         "gogcli_0.42.0_linux_arm64.tar.gz"
     );
+}
+
+// --- the release workflow ---
+
+/// A tag runs the gate, then each stage in its own job after the stage it
+/// reads, and holds each publication job in the `release` environment.
+#[test]
+fn the_tag_workflow_runs_every_stage_after_the_gate() {
+    let workflow = std::fs::read_to_string(workspace_root().join(".github/workflows/release.yml"))
+        .expect("the release workflow");
+    // Each job is the text from its key to the next key at the same depth.
+    let job = |name: &str| -> String {
+        let jobs = &workflow[workflow.find("\njobs:\n").expect("jobs")..];
+        let mut body = String::new();
+        let mut inside = false;
+        for line in jobs.lines() {
+            let is_key = line.starts_with("  ")
+                && !line.starts_with("   ")
+                && !line.trim_start().starts_with('#')
+                && line.ends_with(':');
+            if is_key {
+                inside = line.trim() == format!("{name}:");
+            } else if inside {
+                body.push_str(line);
+                body.push('\n');
+            }
+        }
+        assert!(!body.is_empty(), "no job {name}");
+        body
+    };
+
+    assert!(workflow.contains("tags: [\"v*\"]"), "{workflow}");
+    assert!(job("gate").contains("uses: ./.github/workflows/ci.yml"));
+    for (name, needs, command) in [
+        (
+            "images",
+            "needs: gate",
+            "cargo xtask release images --tag \"$GITHUB_REF_NAME\"",
+        ),
+        (
+            "server-linux",
+            "needs: images",
+            "cargo xtask release linux --tag \"$GITHUB_REF_NAME\"",
+        ),
+        (
+            "server-macos",
+            "needs: images",
+            "cargo xtask release macos --tag \"$GITHUB_REF_NAME\"",
+        ),
+        (
+            "draft",
+            "needs: [server-linux, server-macos]",
+            "cargo xtask release draft --tag \"$GITHUB_REF_NAME\"",
+        ),
+        (
+            "client-macos",
+            "needs: draft",
+            "cargo xtask desktop --tag \"$GITHUB_REF_NAME\" --prepare",
+        ),
+        (
+            "client-linux",
+            "needs: draft",
+            "cargo xtask desktop --tag \"$GITHUB_REF_NAME\" --prepare",
+        ),
+        (
+            "publish-macos",
+            "needs: [client-macos, client-linux]",
+            "--publish-existing",
+        ),
+        (
+            "publish-linux",
+            "needs: [client-macos, client-linux]",
+            "--linux --tag \"$GITHUB_REF_NAME\" --publish-existing",
+        ),
+        (
+            "publish",
+            "needs: [publish-macos, publish-linux]",
+            "--draft=false",
+        ),
+    ] {
+        let body = job(name);
+        assert!(body.contains(needs), "{name}: {body}");
+        assert!(body.contains(command), "{name}: {body}");
+    }
+    for name in ["publish-macos", "publish-linux"] {
+        assert!(job(name).contains("environment: release"), "{name}");
+    }
+    // The signing jobs read the API key, never an Apple ID.
+    assert!(!workflow.contains("APPLE_APP_SPECIFIC_PASSWORD"));
+    for name in ["server-macos", "client-macos"] {
+        assert!(job(name).contains("secrets.APPLE_API_KEY_P8"), "{name}");
+    }
+    assert!(job("server-macos").contains("import-signing-identity.sh"));
+    // Each job that builds the daemon writes the analytics project into it.
+    for name in ["images", "server-linux", "server-macos"] {
+        for variable in ["PAGIS_POSTHOG_PROJECT_ID", "PAGIS_POSTHOG_TOKEN"] {
+            assert!(
+                job(name).contains(&format!("{variable}: ${{{{ secrets.{variable} }}}}")),
+                "{name}: {variable}"
+            );
+        }
+    }
+    for name in ["images", "draft", "client-macos", "client-linux"] {
+        assert!(job(name).contains("attest-build-provenance"), "{name}");
+    }
 }

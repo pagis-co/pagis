@@ -4,19 +4,15 @@
 //! tests the package of the host's architecture.
 //!
 //! Linux has no platform notary. A tagged release prepares the exact
-//! packages, waits for the distribution proof from a clean Linux
-//! machine, and then publishes those bytes with a checksum list that the
-//! Pagis release key signs (ADR-0025). The key never enters the plan:
-//! `gpg` reads it from the agent of the person who publishes.
+//! packages, and after a maintainer approves the release it publishes
+//! those bytes with a checksum list that the Pagis release key signs
+//! (ADR-0025). The key never enters the plan: `gpg` reads it from the
+//! keyring of the publication job.
 
-use std::fs;
 use std::path::Path;
 
-use anyhow::{Context, Result, bail};
-use serde::Deserialize;
-use sha2::{Digest, Sha256};
-
 use crate::desktop::DesktopContext;
+use crate::image::ANONYMOUS_PULL_FN;
 use crate::release::{ClientPlatform, REPO};
 use crate::{Action, Cmd, Step};
 
@@ -76,7 +72,7 @@ pub fn missing_signing_inputs(is_set: &dyn Fn(&str) -> bool) -> Vec<String> {
 
 pub fn linux_plan(root: &Path, cx: &DesktopContext) -> Vec<Step> {
     let desktop = root.join("desktop");
-    let reuse = "publishing the exact packages that already passed external proof";
+    let reuse = "publishing the exact packages that were prepared";
     let validate_locks = ClientPlatform::LINUX
         .into_iter()
         .map(|platform| {
@@ -146,10 +142,6 @@ pub fn linux_plan(root: &Path, cx: &DesktopContext) -> Vec<Step> {
         Step {
             name: "checksums",
             action: build(Cmd::new("sh", &["-c", &checksums_script(&cx.version)]).in_dir(&desktop)),
-        },
-        Step {
-            name: "distribution-proof",
-            action: distribution_proof_action(root, cx),
         },
         Step {
             name: "released-tuple",
@@ -241,39 +233,6 @@ fn credentials_action(root: &Path, cx: &DesktopContext) -> Action {
     )
 }
 
-fn distribution_proof_action(root: &Path, cx: &DesktopContext) -> Action {
-    if cx.tag.is_none() {
-        return Action::Skip("no release tag: distribution proof is not required".into());
-    }
-    if cx.prepare_only {
-        return Action::Skip("prepared packages await external distribution proof".into());
-    }
-    let commands = ClientPlatform::LINUX
-        .into_iter()
-        .map(|platform| {
-            Cmd::new(
-                "cargo",
-                &[
-                    "run",
-                    "--quiet",
-                    "-p",
-                    "xtask",
-                    "--",
-                    "distribution-proof",
-                    "validate-linux",
-                    &format!("dist/distribution-proof-{}.json", platform.name()),
-                    &format!("dist/{}", platform.lock_file()),
-                    &format!("desktop/release/{}", appimage_name(&cx.version, platform)),
-                    &format!("desktop/release/{}", deb_name(&cx.version, platform)),
-                    &cx.version,
-                ],
-            )
-            .in_dir(root)
-        })
-        .collect();
-    Action::Run(commands)
-}
-
 /// The published server tuple must equal the locks the packages embed:
 /// the lock files, the archives they name and the Computer image.
 fn released_tuple_action(root: &Path, cx: &DesktopContext) -> Action {
@@ -281,9 +240,10 @@ fn released_tuple_action(root: &Path, cx: &DesktopContext) -> Action {
         return Action::Skip("no release tag: no published server tuple is required".into());
     };
     if cx.prepare_only {
-        return Action::Skip("prepared packages await external distribution proof".into());
+        return Action::Skip("the prepared packages await publication".into());
     }
-    let mut script = "set -eu\ntmp=$(mktemp -d)\ntrap 'rm -rf \"$tmp\"' EXIT\n".to_string();
+    let mut script =
+        format!("set -eu\n{ANONYMOUS_PULL_FN}tmp=$(mktemp -d)\ntrap 'rm -rf \"$tmp\"' EXIT\n");
     for platform in ClientPlatform::LINUX {
         let lock = platform.lock_file();
         let archive = platform.server_package(&cx.version);
@@ -294,7 +254,7 @@ fn released_tuple_action(root: &Path, cx: &DesktopContext) -> Action {
              actual=$(shasum -a 256 \"$tmp/{archive}\" | awk '{{print $1}}')\n\
              [ \"$actual\" = \"$locked\" ] || {{ echo 'the published {archive} does not match its Runtime Lock' >&2; exit 1; }}\n\
              image=$(node -e \"process.stdout.write(require('./dist/{lock}').computer_image)\")\n\
-             docker buildx imagetools inspect \"$image\" >/dev/null\n",
+             anonymous_pull \"$image\"\n",
         ));
     }
     Action::Run(vec![Cmd::new("sh", &["-c", &script]).in_dir(root)])
@@ -307,7 +267,7 @@ fn sign_action(root: &Path, cx: &DesktopContext) -> Action {
         return Action::Skip("no release tag: nothing is signed".into());
     };
     if cx.prepare_only {
-        return Action::Skip("prepared packages await external distribution proof".into());
+        return Action::Skip("the prepared packages await publication".into());
     }
     let sums = format!("desktop/release/{}", checksums_name(&cx.version));
     let script = format!(
@@ -331,7 +291,7 @@ fn publish_action(root: &Path, cx: &DesktopContext) -> Action {
         return Action::Skip("no release tag: the packages are built and smoke tested only".into());
     };
     if cx.prepare_only {
-        return Action::Skip("prepared packages await external distribution proof".into());
+        return Action::Skip("the prepared packages await publication".into());
     }
     if !cx.missing_credentials.is_empty() {
         return fail_action(
@@ -365,161 +325,4 @@ fn publish_action(root: &Path, cx: &DesktopContext) -> Action {
 fn fail_action(root: &Path, reason: &str) -> Action {
     let script = format!("echo '{}' >&2; exit 1", reason.replace('\'', "'\\''"));
     Action::Run(vec![Cmd::new("sh", &["-c", &script]).in_dir(root)])
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct LinuxDistributionProof {
-    schema: u8,
-    release: String,
-    platform: String,
-    runtime_lock_sha256: String,
-    server_archive_sha256: String,
-    appimage_sha256: String,
-    deb_sha256: String,
-    previous_client_sha256: String,
-    distribution: String,
-    test_account: String,
-    checks: LinuxDistributionChecks,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct LinuxDistributionChecks {
-    deb_installed: bool,
-    appimage_launched: bool,
-    initial_client_owned_launch: bool,
-    authenticated_health: bool,
-    product_app_opened: bool,
-    secret_service_key_created_and_read: bool,
-    key_file_without_secret_service: bool,
-    offline_client_owned_launch: bool,
-    forward_update_read_same_key: bool,
-    no_docker_setup: bool,
-    computer_screen_ready: bool,
-    computer_shell_ready: bool,
-    workspace_reused_after_update: bool,
-    unsafe_downgrade_refused: bool,
-}
-
-#[derive(Deserialize)]
-struct ProofLock {
-    release: String,
-    platform: String,
-    arch: String,
-    asset: ProofAsset,
-}
-
-#[derive(Deserialize)]
-struct ProofAsset {
-    sha256: String,
-}
-
-/// Validate the evidence recorded on a clean Linux machine of one
-/// architecture. The proof names the exact lock, server archive, AppImage
-/// and deb bytes. A failed or omitted check blocks publication.
-pub fn validate_linux_distribution_proof(
-    proof_path: &Path,
-    lock_path: &Path,
-    appimage: &Path,
-    deb: &Path,
-    release: &str,
-) -> Result<()> {
-    let proof: LinuxDistributionProof = serde_json::from_slice(
-        &fs::read(proof_path).with_context(|| format!("read {}", proof_path.display()))?,
-    )
-    .context("parse Linux distribution proof")?;
-    let lock_bytes =
-        fs::read(lock_path).with_context(|| format!("read {}", lock_path.display()))?;
-    let lock: ProofLock =
-        serde_json::from_slice(&lock_bytes).context("parse the runtime lock for proof")?;
-    let platform = format!("{}-{}", lock.platform, lock.arch);
-    if proof.schema != 1 || proof.release != release || lock.release != release {
-        bail!("the Linux distribution proof does not name release {release}");
-    }
-    if lock.platform != "linux" || proof.platform != platform {
-        bail!(
-            "the distribution proof names {}, and the runtime lock names {platform}",
-            proof.platform
-        );
-    }
-    require_hash(
-        "runtime lock",
-        &proof.runtime_lock_sha256,
-        &hex::encode(Sha256::digest(&lock_bytes)),
-    )?;
-    require_hash(
-        "server archive",
-        &proof.server_archive_sha256,
-        &lock.asset.sha256,
-    )?;
-    require_hash("AppImage", &proof.appimage_sha256, &hash_file(appimage)?)?;
-    require_hash("deb", &proof.deb_sha256, &hash_file(deb)?)?;
-    valid_hash("previous client", &proof.previous_client_sha256)?;
-    for (name, value) in [
-        ("distribution", proof.distribution.as_str()),
-        ("test_account", proof.test_account.as_str()),
-    ] {
-        if value.trim().is_empty() {
-            bail!("the Linux distribution proof has no {name}");
-        }
-    }
-    let c = &proof.checks;
-    for (name, passed) in [
-        ("deb_installed", c.deb_installed),
-        ("appimage_launched", c.appimage_launched),
-        ("initial_client_owned_launch", c.initial_client_owned_launch),
-        ("authenticated_health", c.authenticated_health),
-        ("product_app_opened", c.product_app_opened),
-        (
-            "secret_service_key_created_and_read",
-            c.secret_service_key_created_and_read,
-        ),
-        (
-            "key_file_without_secret_service",
-            c.key_file_without_secret_service,
-        ),
-        ("offline_client_owned_launch", c.offline_client_owned_launch),
-        (
-            "forward_update_read_same_key",
-            c.forward_update_read_same_key,
-        ),
-        ("no_docker_setup", c.no_docker_setup),
-        ("computer_screen_ready", c.computer_screen_ready),
-        ("computer_shell_ready", c.computer_shell_ready),
-        (
-            "workspace_reused_after_update",
-            c.workspace_reused_after_update,
-        ),
-        ("unsafe_downgrade_refused", c.unsafe_downgrade_refused),
-    ] {
-        if !passed {
-            bail!("Linux distribution proof check {name} did not pass");
-        }
-    }
-    Ok(())
-}
-
-fn hash_file(path: &Path) -> Result<String> {
-    let bytes = fs::read(path).with_context(|| format!("read {}", path.display()))?;
-    Ok(hex::encode(Sha256::digest(&bytes)))
-}
-
-fn valid_hash(name: &str, hash: &str) -> Result<()> {
-    if hash.len() != 64
-        || !hash
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-    {
-        bail!("the Linux distribution proof has an invalid {name} hash");
-    }
-    Ok(())
-}
-
-fn require_hash(name: &str, recorded: &str, actual: &str) -> Result<()> {
-    valid_hash(name, recorded)?;
-    if recorded != actual {
-        bail!("the Linux distribution proof {name} hash does not match the release artifact");
-    }
-    Ok(())
 }

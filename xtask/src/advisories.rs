@@ -9,8 +9,8 @@
 //! advisory does not block an unrelated pull request.
 //! `cargo xtask advisories` runs the dependency checks and scans the
 //! images of the latest release, and a daily workflow runs it.
-//! `cargo xtask release` runs the dependency checks and the scan of the
-//! Computer Image that the tree builds after the gate.
+//! The images stage of `cargo xtask release` runs the dependency checks
+//! and the scan of the Computer Image that the tree builds.
 //!
 //! Trivy runs its vulnerability scanner only, because gitleaks is the
 //! secret scan. It reports the findings of high and critical severity

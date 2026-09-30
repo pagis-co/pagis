@@ -214,8 +214,9 @@ state directory and one database.
 ### The Headless Server image
 
 The Headless Server is the same daemon and Product App as the Client App's
-Server Runtime, as a Linux container image. It is not signed or notarized; its
-trust root is the registry and the digest the deployment pins.
+Server Runtime, as a Linux container image. It is not notarized; its trust
+root is the registry, the digest the deployment pins, and the provenance
+attestation of that digest.
 https://docs.pagis.co/server states the deployment.
 
 The image starts the daemon without `--local`, so it is a server and holds no

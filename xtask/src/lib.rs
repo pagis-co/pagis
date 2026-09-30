@@ -4,7 +4,7 @@
 //! <name>...` runs the named gate steps: each job of the CI workflow runs
 //! one group of them, so the local gate and CI run the same commands.
 //! `cargo xtask advisories` runs the advisory checks ([`advisories`]).
-//! `cargo xtask release` builds and publishes a release; see [`release`].
+//! `cargo xtask release <stage>` builds one stage of a release; see [`release`].
 //!
 //! Steps no-op gracefully until the parts they check exist: the Docker
 //! tests skip while Docker is unreachable, the UI steps skip until
@@ -31,9 +31,10 @@ pub mod server_image;
 pub mod tools;
 pub use desktop::{DesktopContext, DesktopPlatform, desktop_plan};
 pub use image::{
-    VERSION_LABEL, anonymous_pull_step, builder_step, check_pin, image_plan, labelled_version,
+    VERSION_LABEL, anonymous_pull_step, builder_step, check_pin, image_plan, image_published,
+    inspect_answer, labelled_version,
 };
-pub use release::{ReleaseContext, gog_asset_name, release_plan};
+pub use release::{ReleaseContext, ReleaseStage, gog_asset_name, release_plan};
 pub use server_image::{
     SERVER_IMAGE_REPOSITORY, server_image, server_image_plan, server_image_steps,
 };
