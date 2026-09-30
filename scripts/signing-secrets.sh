@@ -193,7 +193,7 @@ TOTAL_STAGES=5
 # runs the release, so stage 1 asks for it.
 TEAM_ID="${APPLE_TEAM_ID:-}"
 CERT_NAME="Developer ID Application"
-RELEASE_KEY_UID="Pagis release <release@example.invalid>"
+RELEASE_KEY_UID="Pagis release <release@pagis.co>"
 ENV_FILE="$(mktemp)"   # the library needs one; nothing is written to it
 trap 'rm -f "$ENV_FILE"' EXIT
 
