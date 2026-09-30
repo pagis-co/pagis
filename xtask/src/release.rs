@@ -3,10 +3,11 @@
 //! GHCR, and a draft GitHub Release that holds the server package of each
 //! Client App platform and the Runtime Lock that names it.
 //!
-//! A release is four stages ([`ReleaseStage`]), and the release workflow
-//! runs each one in a job of its own on the host that it needs: the
-//! images and the Linux server packages on Linux, the macOS server
-//! package and the draft release on macOS. macOS arm64 builds natively;
+//! A release is seven stages ([`ReleaseStage`]), and the release workflow
+//! runs each one in a job of its own on the host that it needs: each
+//! architecture of each image on a Linux runner of that architecture, the
+//! image manifests and the Linux server packages on Linux, the macOS
+//! server package and the draft release on macOS. macOS arm64 builds natively;
 //! the Linux targets build through `cross`, which runs the toolchain in a
 //! Docker container. Each build of `pagis` is a `cargo auditable` build
 //! (see `build_action`).
@@ -17,6 +18,8 @@ use std::io::{BufReader, Read};
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
+use crate::image::{ImagePlatform, builder_step, computer_image_steps, computer_manifest_step};
+use crate::server_image::{server_image_steps, server_manifest_step};
 use crate::{Action, Cmd, Step, tools};
 use anyhow::{Context, Result, bail};
 use pagis_versions::{CARGO_AUDITABLE_SHA256, GOG_SHA256};
@@ -781,8 +784,17 @@ const TARGETS: [Target; 3] = [
 /// [`DIST_DIR`] are the input of the next stages.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReleaseStage {
-    /// Scan and push the Computer image and the Headless Server image.
-    Images,
+    /// Build, scan and push the Computer image of each platform by digest.
+    ComputerImage,
+    /// Join the Computer image digests under the pinned tag, and resolve
+    /// the immutable digest of the tag.
+    ComputerManifest,
+    /// Build, scan and push the Headless Server image of each platform by
+    /// digest, against the immutable Computer image.
+    ServerImage,
+    /// Join the Headless Server image digests under the release tag, and
+    /// pull both images with no credentials.
+    ServerManifest,
     /// Build the Linux server packages and their Runtime Locks.
     Linux,
     /// Build, sign and notarize the macOS server package and its lock.
@@ -793,8 +805,11 @@ pub enum ReleaseStage {
 }
 
 impl ReleaseStage {
-    pub const ALL: [ReleaseStage; 4] = [
-        ReleaseStage::Images,
+    pub const ALL: [ReleaseStage; 7] = [
+        ReleaseStage::ComputerImage,
+        ReleaseStage::ComputerManifest,
+        ReleaseStage::ServerImage,
+        ReleaseStage::ServerManifest,
         ReleaseStage::Linux,
         ReleaseStage::Macos,
         ReleaseStage::Draft,
@@ -805,13 +820,19 @@ impl ReleaseStage {
             .into_iter()
             .find(|stage| stage.name() == name)
             .with_context(|| {
-                format!("{name} is not a release stage; use images, linux, macos or draft")
+                format!(
+                    "{name} is not a release stage; use computer-image, computer-manifest, \
+                     server-image, server-manifest, linux, macos or draft"
+                )
             })
     }
 
     pub fn name(self) -> &'static str {
         match self {
-            ReleaseStage::Images => "images",
+            ReleaseStage::ComputerImage => "computer-image",
+            ReleaseStage::ComputerManifest => "computer-manifest",
+            ReleaseStage::ServerImage => "server-image",
+            ReleaseStage::ServerManifest => "server-manifest",
             ReleaseStage::Linux => "linux",
             ReleaseStage::Macos => "macos",
             ReleaseStage::Draft => "draft",
@@ -826,7 +847,8 @@ impl ReleaseStage {
 }
 
 /// What the release is built from: the workspace version, the pinned
-/// computer image, and whether the registry already holds that image.
+/// computer image, whether the registry already holds that image, and
+/// the platforms the image stages build.
 #[derive(Debug, Clone)]
 pub struct ReleaseContext {
     pub version: String,
@@ -835,6 +857,9 @@ pub struct ReleaseContext {
     /// published image version is never pushed again, so every release
     /// that pins it pulls the same bytes.
     pub computer_published: bool,
+    /// The platforms that the computer-image and server-image stages
+    /// build. A release job builds one, on a runner of that architecture.
+    pub platforms: Vec<ImagePlatform>,
     pub target_dir: std::path::PathBuf,
 }
 
@@ -851,7 +876,33 @@ pub fn gog_asset_name(target: &str) -> String {
 /// Plan the steps of one release `stage` for the workspace at `root`.
 pub fn release_plan(root: &Path, cx: &ReleaseContext, stage: ReleaseStage) -> Vec<Step> {
     match stage {
-        ReleaseStage::Images => images_plan(root, cx),
+        ReleaseStage::ComputerImage => {
+            let mut steps = vec![builder_step(root)];
+            for platform in &cx.platforms {
+                steps.extend(computer_image_steps(
+                    root,
+                    &cx.image,
+                    *platform,
+                    &cx.target_dir,
+                ));
+            }
+            skip_when_published(cx, steps)
+        }
+        ReleaseStage::ComputerManifest => {
+            let mut steps = skip_when_published(cx, vec![computer_manifest_step(root, &cx.image)]);
+            steps.push(Step {
+                name: "image-digest",
+                action: image_digest_action(root, cx),
+            });
+            steps
+        }
+        ReleaseStage::ServerImage => server_images_plan(root, cx),
+        ReleaseStage::ServerManifest => vec![
+            server_manifest_step(root, &crate::server_image(&cx.version)),
+            // A new person pulls both images with no login, so the
+            // release does too before it builds anything that names them.
+            crate::anonymous_pull_step(root, &[&cx.image, &crate::server_image(&cx.version)]),
+        ],
         ReleaseStage::Linux => server_package_plan(root, cx, false),
         ReleaseStage::Macos => server_package_plan(root, cx, true),
         ReleaseStage::Draft => vec![Step {
@@ -861,51 +912,50 @@ pub fn release_plan(root: &Path, cx: &ReleaseContext, stage: ReleaseStage) -> Ve
     }
 }
 
-fn images_plan(root: &Path, cx: &ReleaseContext) -> Vec<Step> {
-    // Each image is built and exported, its filesystem is scanned for
-    // secrets and for known vulnerabilities, and only then is it pushed:
-    // a pushed layer of a public package cannot be recalled.
-    let mut steps = vec![crate::image::builder_step(root)];
-    let computer = crate::image::computer_image_steps(root, &cx.image, &cx.target_dir);
-    if cx.computer_published {
-        steps.extend(computer.into_iter().map(|step| Step {
+/// Each image is built and exported, its filesystem is scanned for
+/// secrets and for known vulnerabilities, and only then is it pushed: a
+/// pushed layer of a public package cannot be recalled. A published
+/// Computer image version is never pushed again, so its steps skip.
+fn skip_when_published(cx: &ReleaseContext, steps: Vec<Step>) -> Vec<Step> {
+    if !cx.computer_published {
+        return steps;
+    }
+    steps
+        .into_iter()
+        .map(|step| Step {
             name: step.name,
             action: Action::Skip(format!(
                 "{} is on the registry; a published image version is never pushed again",
                 cx.image
             )),
-        }));
-    } else {
-        steps.extend(computer);
-    }
-    steps.push(Step {
-        name: "image-digest",
-        action: image_digest_action(root, cx),
-    });
-    // The headless Linux server image, built against the
-    // immutable Computer image the step above resolved. It is the
-    // fourth artifact of the release and it carries the same release
-    // number as the server packages.
+        })
+        .collect()
+}
+
+/// The headless Linux server image, built against the immutable
+/// Computer image that the computer-manifest stage resolved. It is the
+/// fourth artifact of the release and it carries the same release
+/// number as the server packages.
+fn server_images_plan(root: &Path, cx: &ReleaseContext) -> Vec<Step> {
     let server_image = crate::server_image(&cx.version);
-    steps.extend(crate::server_image_steps(
-        root,
-        &server_image,
-        Some(&format!("{DIST_DIR}/computer-image.txt")),
-        &cx.target_dir,
-    ));
-    // A new person pulls both images with no login, so the release
-    // does too before it builds anything that names them.
-    steps.push(crate::anonymous_pull_step(
-        root,
-        &[&cx.image, &server_image],
-    ));
+    let computer = format!("{DIST_DIR}/computer-image.txt");
+    let mut steps = vec![builder_step(root)];
+    for platform in &cx.platforms {
+        steps.extend(server_image_steps(
+            root,
+            &server_image,
+            *platform,
+            Some(&computer),
+            &cx.target_dir,
+        ));
+    }
     steps
 }
 
 /// Build, assemble and scan the server package of each target of the
 /// stage, then pack it: the disk image on macOS, the archives on Linux.
-/// Both read the immutable Computer image that the images stage wrote to
-/// `dist/computer-image.txt`.
+/// Both read the immutable Computer image that the computer-manifest
+/// stage wrote to `dist/computer-image.txt`.
 fn server_package_plan(root: &Path, cx: &ReleaseContext, macos: bool) -> Vec<Step> {
     let targets: Vec<&Target> = TARGETS.iter().filter(|t| t.macos == macos).collect();
     let mut steps = vec![Step {

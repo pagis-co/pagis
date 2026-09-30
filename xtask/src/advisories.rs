@@ -9,8 +9,8 @@
 //! advisory does not block an unrelated pull request.
 //! `cargo xtask advisories` runs the dependency checks and scans the
 //! images of the latest release, and a daily workflow runs it.
-//! The images stage of `cargo xtask release` runs the dependency checks
-//! and the scan of the Computer Image that the tree builds.
+//! The computer-image stage of `cargo xtask release` runs the dependency
+//! checks and the scan of the Computer Image that the tree builds.
 //!
 //! Trivy runs its vulnerability scanner only, because gitleaks is the
 //! secret scan. It reports the findings of high and critical severity
@@ -20,7 +20,7 @@
 
 use std::path::Path;
 
-use crate::image::{BUILDER, PLATFORMS, builder_script};
+use crate::image::{BUILDER, ImagePlatform, builder_script};
 use crate::release::REPO;
 use crate::server_image::SERVER_IMAGE_REPOSITORY;
 use crate::{Action, Cmd, Lane, Step, tools};
@@ -259,7 +259,7 @@ fn image_scan_step(root: &Path, target_dir: &Path, docker_available: bool) -> St
 /// the release names the digest of its Computer Image. A repository
 /// without a release has no image to scan.
 fn release_image_scan_step(root: &Path, target_dir: &Path) -> Step {
-    let platforms = PLATFORMS.replace(',', " ");
+    let platforms = ImagePlatform::ALL.map(ImagePlatform::docker).join(" ");
     let body = format!(
         "if ! tag=$(gh api repos/{REPO}/releases/latest --jq .tag_name 2>\"$work/error\"); then\n\
            if grep -q 'HTTP 404' \"$work/error\"; then\n\

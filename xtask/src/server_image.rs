@@ -12,14 +12,19 @@
 //! with the whole repository as its context: the bundle it embeds is
 //! built from `ui/` in a stage of its own.
 //!
-//! As for the Computer image, the publish exports the filesystem of the
-//! image first, scans it for secrets and for known vulnerabilities, and
-//! pushes only after both scans pass.
+//! As for the Computer image, the publish exports the filesystem of
+//! each architecture first, scans it for secrets and for known
+//! vulnerabilities, and pushes that architecture by digest only after
+//! both scans pass. Then it joins both digests under the release tag.
 
 use std::path::Path;
 
 use crate::advisories::vuln_scan_step;
-use crate::image::{BUILDER, PLATFORMS, builder_step, export_dir, platform_dirs};
+use crate::image::{
+    BUILDER, ImagePlatform, builder_step, export_dir, manifest_step, push_by_digest_args,
+    record_digest_cmd,
+};
+use crate::release::DIST_DIR;
 use crate::secrets::image_secret_scan_step;
 use crate::{Action, Cmd, Step};
 
@@ -43,11 +48,31 @@ pub fn server_image(version: &str) -> String {
     format!("{SERVER_IMAGE_REPOSITORY}:{version}")
 }
 
-/// Build the image for both architectures and export its filesystem,
-/// scan the export for secrets and for known vulnerabilities, and push
-/// the image under `image`. The push builds again on the same builder
-/// with the same inputs, so it takes each layer from the build cache of
-/// the scanned build. The push step removes the export after the push.
+/// The names of the build, the secret scan, the vulnerability scan and
+/// the push of the server image for `platform`.
+fn step_names(platform: ImagePlatform) -> [&'static str; 4] {
+    match platform {
+        ImagePlatform::Amd64 => [
+            "server-image-amd64",
+            "server-image-secret-scan-amd64",
+            "server-image-vuln-scan-amd64",
+            "server-image-push-amd64",
+        ],
+        ImagePlatform::Arm64 => [
+            "server-image-arm64",
+            "server-image-secret-scan-arm64",
+            "server-image-vuln-scan-arm64",
+            "server-image-push-arm64",
+        ],
+    }
+}
+
+/// Build the image for `platform` and export its filesystem, scan the
+/// export for secrets and for known vulnerabilities, and push that
+/// platform to the repository of `image` by digest. The push builds
+/// again on the same builder with the same inputs, so it takes each
+/// layer from the build cache of the scanned build. The push step
+/// removes the export after the push.
 ///
 /// `computer_digest_file` names the file the release's `image-digest`
 /// step wrote, which holds the immutable Computer image reference the
@@ -57,19 +82,22 @@ pub fn server_image(version: &str) -> String {
 pub fn server_image_steps(
     root: &Path,
     image: &str,
+    platform: ImagePlatform,
     computer_digest_file: Option<&str>,
     target_dir: &Path,
 ) -> Vec<Step> {
-    let export = export_dir("server");
+    let [build, secret_scan, vuln_scan, push] = step_names(platform);
+    let export = export_dir("server", platform);
+    let docker_platform = platform.docker();
     let buildx = |output: &str| {
         let script = match computer_digest_file {
             Some(file) => format!(
                 "set -eu\ncomputer=$(cat {file})\ndocker buildx build --builder {BUILDER} \
-                 --platform {PLATFORMS} --build-arg PAGIS_COMPUTER_IMAGE=\"$computer\" \
+                 --platform {docker_platform} --build-arg PAGIS_COMPUTER_IMAGE=\"$computer\" \
                  {ANALYTICS_BUILD_ARGS} {output} .\n"
             ),
             None => format!(
-                "set -eu\ndocker buildx build --builder {BUILDER} --platform {PLATFORMS} \
+                "set -eu\ndocker buildx build --builder {BUILDER} --platform {docker_platform} \
                  {ANALYTICS_BUILD_ARGS} {output} .\n"
             ),
         };
@@ -77,36 +105,47 @@ pub fn server_image_steps(
     };
     vec![
         Step {
-            name: "server-image",
+            name: build,
             action: Action::Run(vec![
                 Cmd::new("rm", &["-rf", &export]).in_dir(root),
                 buildx(&format!("--output type=local,dest={export}")),
             ]),
         },
-        image_secret_scan_step(root, "server-image-secret-scan", &export, target_dir),
+        image_secret_scan_step(root, secret_scan, &export, target_dir),
         // Trivy identifies the crates of `pagis`, `gog` and the Debian
         // packages.
         vuln_scan_step(
             root,
-            "server-image-vuln-scan",
-            &platform_dirs(&export),
+            vuln_scan,
+            std::slice::from_ref(&export),
             target_dir,
             &[],
         ),
         Step {
-            name: "server-image-push",
+            name: push,
             action: Action::Run(vec![
-                buildx(&format!("-t {image} --push")),
+                Cmd::new("mkdir", &["-p", &format!("{DIST_DIR}/image-digests")]).in_dir(root),
+                buildx(&push_by_digest_args("server", image, platform)),
+                record_digest_cmd(root, "server", platform),
                 Cmd::new("rm", &["-rf", &export]).in_dir(root),
             ]),
         },
     ]
 }
 
-/// `cargo xtask server-image`: the builder, the build, the scan and the
-/// push, as `cargo xtask image` does for the Computer image.
+/// Join the digests of the server image under its tag `image`.
+pub fn server_manifest_step(root: &Path, image: &str) -> Step {
+    manifest_step(root, "server-image-manifest", "server", image)
+}
+
+/// `cargo xtask server-image`: the builder, the build, the scans and the
+/// push of each platform, then the manifest, as `cargo xtask image` does
+/// for the Computer image.
 pub fn server_image_plan(root: &Path, image: &str, target_dir: &Path) -> Vec<Step> {
     let mut steps = vec![builder_step(root)];
-    steps.extend(server_image_steps(root, image, None, target_dir));
+    for platform in ImagePlatform::ALL {
+        steps.extend(server_image_steps(root, image, platform, None, target_dir));
+    }
+    steps.push(server_manifest_step(root, image));
     steps
 }

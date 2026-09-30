@@ -4,7 +4,9 @@ use std::path::{Path, PathBuf};
 
 use pagis_versions::{CARGO_AUDITABLE_SHA256, CARGO_AUDITABLE_VERSION};
 use xtask::release::ClientPlatform;
-use xtask::{Action, Cmd, ReleaseContext, ReleaseStage, Step, gog_asset_name, release_plan};
+use xtask::{
+    Action, Cmd, ImagePlatform, ReleaseContext, ReleaseStage, Step, gog_asset_name, release_plan,
+};
 
 use crate::support::workspace_root;
 
@@ -20,6 +22,7 @@ fn context() -> ReleaseContext {
         version: "1.2.3".into(),
         image: "ghcr.io/pagis-co/pagis-computer:0.3.0".into(),
         computer_published: false,
+        platforms: ImagePlatform::ALL.to_vec(),
         target_dir: PathBuf::from("/shared/pagis-target"),
     }
 }
@@ -61,20 +64,40 @@ fn joined(step: &Step) -> String {
 fn each_stage_lists_its_steps_in_order() {
     let names = |stage| plan(stage).iter().map(|s| s.name).collect::<Vec<_>>();
     assert_eq!(
-        names(ReleaseStage::Images),
+        names(ReleaseStage::ComputerImage),
         [
             "builder",
-            "image",
-            "image-secret-scan",
-            "image-vuln-scan",
-            "image-push",
-            "image-digest",
-            "server-image",
-            "server-image-secret-scan",
-            "server-image-vuln-scan",
-            "server-image-push",
-            "anonymous-pull",
+            "image-amd64",
+            "image-secret-scan-amd64",
+            "image-vuln-scan-amd64",
+            "image-push-amd64",
+            "image-arm64",
+            "image-secret-scan-arm64",
+            "image-vuln-scan-arm64",
+            "image-push-arm64",
         ]
+    );
+    assert_eq!(
+        names(ReleaseStage::ComputerManifest),
+        ["image-manifest", "image-digest"]
+    );
+    assert_eq!(
+        names(ReleaseStage::ServerImage),
+        [
+            "builder",
+            "server-image-amd64",
+            "server-image-secret-scan-amd64",
+            "server-image-vuln-scan-amd64",
+            "server-image-push-amd64",
+            "server-image-arm64",
+            "server-image-secret-scan-arm64",
+            "server-image-vuln-scan-arm64",
+            "server-image-push-arm64",
+        ]
+    );
+    assert_eq!(
+        names(ReleaseStage::ServerManifest),
+        ["server-image-manifest", "anonymous-pull"]
     );
     assert_eq!(
         names(ReleaseStage::Linux),
@@ -107,12 +130,72 @@ fn each_stage_parses_from_its_name() {
         assert_eq!(ReleaseStage::parse(stage.name()).unwrap(), stage);
     }
     assert!(ReleaseStage::parse("publish").is_err());
+    assert!(ReleaseStage::parse("images").is_err());
+    assert_eq!(
+        ReleaseStage::ALL.map(ReleaseStage::name),
+        [
+            "computer-image",
+            "computer-manifest",
+            "server-image",
+            "server-manifest",
+            "linux",
+            "macos",
+            "draft"
+        ]
+    );
     let on_macos: Vec<&str> = ReleaseStage::ALL
         .into_iter()
         .filter(|stage| stage.needs_macos())
         .map(ReleaseStage::name)
         .collect();
     assert_eq!(on_macos, ["macos", "draft"]);
+}
+
+/// A release job builds the image stages of one platform, on a runner of
+/// that architecture.
+#[test]
+fn an_image_stage_builds_only_the_platforms_of_its_context() {
+    let cx = ReleaseContext {
+        platforms: vec![ImagePlatform::Arm64],
+        ..context()
+    };
+    let names = |stage| {
+        release_plan(Path::new("/repo"), &cx, stage)
+            .iter()
+            .map(|s| s.name)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        names(ReleaseStage::ComputerImage),
+        [
+            "builder",
+            "image-arm64",
+            "image-secret-scan-arm64",
+            "image-vuln-scan-arm64",
+            "image-push-arm64",
+        ]
+    );
+    assert_eq!(
+        names(ReleaseStage::ServerImage),
+        [
+            "builder",
+            "server-image-arm64",
+            "server-image-secret-scan-arm64",
+            "server-image-vuln-scan-arm64",
+            "server-image-push-arm64",
+        ]
+    );
+    // The manifest joins every platform, whichever job runs it.
+    let manifest = joined(step(
+        &release_plan(Path::new("/repo"), &cx, ReleaseStage::ComputerManifest),
+        "image-manifest",
+    ));
+    for arch in ["amd64", "arm64"] {
+        assert!(
+            manifest.contains(&format!("dist/image-digests/computer-{arch}.txt")),
+            "{manifest}"
+        );
+    }
 }
 
 /// A published Computer image version is never pushed again: every
@@ -124,26 +207,30 @@ fn a_published_computer_image_is_not_built_or_pushed_again() {
         computer_published: true,
         ..context()
     };
-    let steps = release_plan(Path::new("/repo"), &cx, ReleaseStage::Images);
-    for name in [
-        "image",
-        "image-secret-scan",
-        "image-vuln-scan",
-        "image-push",
-    ] {
+    let computer = release_plan(Path::new("/repo"), &cx, ReleaseStage::ComputerImage);
+    assert_eq!(computer.len(), 9);
+    for step in &computer {
         assert!(
-            matches!(step(&steps, name).action, Action::Skip(_)),
-            "{name} must skip"
+            matches!(&step.action, Action::Skip(reason) if reason.contains("never pushed again")),
+            "{} must skip",
+            step.name
         );
     }
-    for name in [
-        "builder",
-        "image-digest",
-        "server-image",
-        "server-image-push",
-        "anonymous-pull",
-    ] {
-        commands(step(&steps, name));
+    let manifest = release_plan(Path::new("/repo"), &cx, ReleaseStage::ComputerManifest);
+    assert!(matches!(
+        step(&manifest, "image-manifest").action,
+        Action::Skip(_)
+    ));
+    commands(step(&manifest, "image-digest"));
+    for step in release_plan(Path::new("/repo"), &cx, ReleaseStage::ServerImage)
+        .iter()
+        .chain(&release_plan(
+            Path::new("/repo"),
+            &cx,
+            ReleaseStage::ServerManifest,
+        ))
+    {
+        commands(step);
     }
 }
 
@@ -170,7 +257,7 @@ fn only_a_not_found_answer_means_the_image_is_not_published() {
 
 #[test]
 fn the_immutable_image_digest_is_resolved_before_server_builds() {
-    let digest = joined(step(&plan(ReleaseStage::Images), "image-digest"));
+    let digest = joined(step(&plan(ReleaseStage::ComputerManifest), "image-digest"));
     assert!(digest.contains("imagetools inspect"), "{digest}");
     assert!(digest.contains("computer-image.txt"), "{digest}");
     for (stage, target) in [
@@ -187,7 +274,7 @@ fn the_immutable_image_digest_is_resolved_before_server_builds() {
 /// release pulls them the same way, and a refusal stops the release.
 #[test]
 fn both_pinned_images_pull_with_no_credentials() {
-    let pull = joined(step(&plan(ReleaseStage::Images), "anonymous-pull"));
+    let pull = joined(step(&plan(ReleaseStage::ServerManifest), "anonymous-pull"));
     for image in [
         "ghcr.io/pagis-co/pagis-computer:0.3.0",
         "ghcr.io/pagis-co/pagis-server:1.2.3",
@@ -638,76 +725,89 @@ fn the_archives_carry_no_macos_metadata_member() {
 }
 
 /// A pushed layer of a public package cannot be recalled. So each image
-/// is built for both architectures and exported, gitleaks scans the
-/// exported filesystem, and the push comes after the scan. The push
-/// builds with the same builder, platforms and build arguments, so it
-/// takes every layer from the build cache of the scanned build. After a
-/// push the export has no use, and it holds gigabytes, so it goes.
+/// is built for one architecture and exported, gitleaks scans the
+/// exported filesystem, and the push of that architecture comes after
+/// the scan. The push builds with the same builder, platform and build
+/// arguments, so it takes every layer from the build cache of the scanned
+/// build. It pushes by digest only, and the manifest stage puts the tag
+/// on the index of both digests. After a push the export has no use, and
+/// it holds gigabytes, so it goes.
 #[test]
 fn each_image_is_scanned_for_secrets_before_its_push() {
     // The release runs from its own tree, and its scans read the pins of
     // that tree.
-    let steps = tree_plan(ReleaseStage::Images);
-    let names: Vec<&str> = steps.iter().map(|s| s.name).collect();
-    let at = |name: &str| {
-        names
-            .iter()
-            .position(|n| *n == name)
-            .unwrap_or_else(|| panic!("no step {name} in {names:?}"))
-    };
-    for (build, scan, push, export, tag) in [
+    for (stage, prefix, name, repository) in [
         (
+            ReleaseStage::ComputerImage,
             "image",
-            "image-secret-scan",
-            "image-push",
-            "dist/image-fs/computer",
-            "ghcr.io/pagis-co/pagis-computer:0.3.0",
+            "computer",
+            "ghcr.io/pagis-co/pagis-computer",
         ),
         (
+            ReleaseStage::ServerImage,
             "server-image",
-            "server-image-secret-scan",
-            "server-image-push",
-            "dist/image-fs/server",
-            "ghcr.io/pagis-co/pagis-server:1.2.3",
+            "server",
+            "ghcr.io/pagis-co/pagis-server",
         ),
     ] {
-        assert!(at(build) < at(scan) && at(scan) < at(push), "{names:?}");
+        let steps = tree_plan(stage);
+        let names: Vec<&str> = steps.iter().map(|s| s.name).collect();
+        let at = |name: &str| {
+            names
+                .iter()
+                .position(|n| *n == name)
+                .unwrap_or_else(|| panic!("no step {name} in {names:?}"))
+        };
+        for arch in ["amd64", "arm64"] {
+            let build = format!("{prefix}-{arch}");
+            let scan = format!("{prefix}-secret-scan-{arch}");
+            let push = format!("{prefix}-push-{arch}");
+            let export = format!("dist/image-fs/{name}/linux_{arch}");
+            assert!(at(&build) < at(&scan) && at(&scan) < at(&push), "{names:?}");
 
-        let built = joined(step(&steps, build));
-        assert!(!built.contains("--push"), "{built}");
-        assert!(!built.contains(tag), "{built}");
-        assert!(
-            built.contains(&format!("type=local,dest={export}")),
-            "{built}"
-        );
+            let built = joined(step(&steps, &build));
+            assert!(!built.contains("push=true"), "{built}");
+            assert!(!built.contains(repository), "{built}");
+            assert!(
+                built.contains(&format!("type=local,dest={export} ")),
+                "{built}"
+            );
 
-        let scanned = joined(step(&steps, scan));
-        assert!(scanned.contains("gitleaks"), "{scanned}");
-        assert!(scanned.contains(export), "{scanned}");
-        assert!(
-            scanned.contains("/shared/pagis-target/gitleaks"),
-            "{scanned}"
-        );
+            let scanned = joined(step(&steps, &scan));
+            assert!(scanned.contains("gitleaks"), "{scanned}");
+            assert!(scanned.contains(&export), "{scanned}");
+            assert!(
+                scanned.contains("/shared/pagis-target/gitleaks"),
+                "{scanned}"
+            );
 
-        let pushed = joined(step(&steps, push));
-        assert!(pushed.contains("--push"), "{pushed}");
-        assert!(pushed.contains(tag), "{pushed}");
-        assert!(
-            pushed.ends_with(&format!("rm -rf {export}")),
-            "the export is removed after the push: {pushed}"
-        );
-        for same in ["--builder pagis", "--platform linux/amd64,linux/arm64"] {
-            assert!(built.contains(same), "{built}");
-            assert!(pushed.contains(same), "{pushed}");
+            let pushed = joined(step(&steps, &push));
+            assert!(
+                pushed.contains(&format!(
+                    "type=image,name={repository},push-by-digest=true,name-canonical=true,push=true"
+                )),
+                "{pushed}"
+            );
+            assert!(
+                pushed.ends_with(&format!("rm -rf {export}")),
+                "the export is removed after the push: {pushed}"
+            );
+            for same in [
+                "--builder pagis".to_string(),
+                format!("--platform linux/{arch} "),
+            ] {
+                assert!(built.contains(&same), "{built}");
+                assert!(pushed.contains(&same), "{pushed}");
+            }
+            if stage == ReleaseStage::ServerImage {
+                for script in [&built, &pushed] {
+                    assert!(
+                        script.contains("--build-arg PAGIS_COMPUTER_IMAGE=\"$computer\""),
+                        "{script}"
+                    );
+                }
+            }
         }
-    }
-    let server_build = joined(step(&steps, "server-image"));
-    let server_push = joined(step(&steps, "server-image-push"));
-    for script in [server_build, server_push] {
-        assert!(
-            script.contains("--build-arg PAGIS_COMPUTER_IMAGE=\"$computer\""),
-            "{script}"
-        );
     }
 }
 
@@ -718,38 +818,38 @@ fn each_image_is_scanned_for_secrets_before_its_push() {
 #[test]
 fn each_image_and_server_package_is_scanned_for_vulnerabilities_before_it_ships() {
     let order = |steps: &[Step]| steps.iter().map(|s| s.name).collect::<Vec<_>>();
-    let steps = tree_plan(ReleaseStage::Images);
-    let names = order(&steps);
     let at = |names: &[&str], name: &str| {
         names
             .iter()
             .position(|n| *n == name)
             .unwrap_or_else(|| panic!("no step {name} in {names:?}"))
     };
-    for (secret_scan, scan, push, export) in [
+    for (stage, prefix, export) in [
         (
-            "image-secret-scan",
-            "image-vuln-scan",
-            "image-push",
+            ReleaseStage::ComputerImage,
+            "image",
             "dist/image-fs/computer",
         ),
         (
-            "server-image-secret-scan",
-            "server-image-vuln-scan",
-            "server-image-push",
+            ReleaseStage::ServerImage,
+            "server-image",
             "dist/image-fs/server",
         ),
     ] {
-        assert!(
-            at(&names, secret_scan) < at(&names, scan) && at(&names, scan) < at(&names, push),
-            "{names:?}"
-        );
-        let scanned = joined(step(&steps, scan));
-        assert!(scanned.contains("--scanners vuln"), "{scanned}");
-        assert!(scanned.contains("/shared/pagis-target/trivy"), "{scanned}");
-        for platform in ["linux_amd64", "linux_arm64"] {
+        let steps = tree_plan(stage);
+        let names = order(&steps);
+        for arch in ["amd64", "arm64"] {
+            let scan = format!("{prefix}-vuln-scan-{arch}");
             assert!(
-                scanned.contains(&format!("{export}/{platform}")),
+                at(&names, &format!("{prefix}-secret-scan-{arch}")) < at(&names, &scan)
+                    && at(&names, &scan) < at(&names, &format!("{prefix}-push-{arch}")),
+                "{names:?}"
+            );
+            let scanned = joined(step(&steps, &scan));
+            assert!(scanned.contains("--scanners vuln"), "{scanned}");
+            assert!(scanned.contains("/shared/pagis-target/trivy"), "{scanned}");
+            assert!(
+                scanned.contains(&format!("{export}/linux_{arch}")),
                 "{scanned}"
             );
         }
@@ -932,23 +1032,38 @@ fn the_tag_workflow_runs_every_stage_after_the_gate() {
     assert!(job("gate").contains("uses: ./.github/workflows/ci.yml"));
     for (name, needs, command) in [
         (
-            "images",
+            "computer-image",
             "needs: gate",
-            "cargo xtask release images --tag \"$GITHUB_REF_NAME\"",
+            "cargo xtask release computer-image --platform \"$PLATFORM\" --tag \"$GITHUB_REF_NAME\"",
+        ),
+        (
+            "computer-manifest",
+            "needs: computer-image",
+            "cargo xtask release computer-manifest --tag \"$GITHUB_REF_NAME\"",
+        ),
+        (
+            "server-image",
+            "needs: computer-manifest",
+            "cargo xtask release server-image --platform \"$PLATFORM\" --tag \"$GITHUB_REF_NAME\"",
+        ),
+        (
+            "server-manifest",
+            "needs: server-image",
+            "cargo xtask release server-manifest --tag \"$GITHUB_REF_NAME\"",
         ),
         (
             "server-linux",
-            "needs: images",
+            "needs: computer-manifest",
             "cargo xtask release linux --tag \"$GITHUB_REF_NAME\"",
         ),
         (
             "server-macos",
-            "needs: images",
+            "needs: computer-manifest",
             "cargo xtask release macos --tag \"$GITHUB_REF_NAME\"",
         ),
         (
             "draft",
-            "needs: [server-linux, server-macos]",
+            "needs: [server-linux, server-macos, server-manifest]",
             "cargo xtask release draft --tag \"$GITHUB_REF_NAME\"",
         ),
         (
@@ -991,7 +1106,7 @@ fn the_tag_workflow_runs_every_stage_after_the_gate() {
     }
     assert!(job("server-macos").contains("import-signing-identity.sh"));
     // Each job that builds the daemon writes the analytics project into it.
-    for name in ["images", "server-linux", "server-macos"] {
+    for name in ["server-image", "server-linux", "server-macos"] {
         for variable in ["PAGIS_POSTHOG_PROJECT_ID", "PAGIS_POSTHOG_TOKEN"] {
             assert!(
                 job(name).contains(&format!("{variable}: ${{{{ secrets.{variable} }}}}")),
@@ -999,7 +1114,41 @@ fn the_tag_workflow_runs_every_stage_after_the_gate() {
             );
         }
     }
-    for name in ["images", "draft", "client-macos", "client-linux"] {
+    for name in [
+        "computer-manifest",
+        "server-manifest",
+        "draft",
+        "client-macos",
+        "client-linux",
+    ] {
         assert!(job(name).contains("attest-build-provenance"), "{name}");
     }
+    // Each image job builds one platform on a runner of that
+    // architecture, with no emulation, and hands its digest to the
+    // manifest job.
+    for (name, digests) in [
+        ("computer-image", "image-digest-computer-"),
+        ("server-image", "image-digest-server-"),
+    ] {
+        let body = job(name);
+        for runner in [
+            "{ platform: amd64, runner: ubuntu-24.04 }",
+            "{ platform: arm64, runner: ubuntu-24.04-arm }",
+        ] {
+            assert!(body.contains(runner), "{name}: {body}");
+        }
+        assert!(body.contains("runs-on: ${{ matrix.runner }}"), "{name}");
+        assert!(body.contains("PLATFORM: ${{ matrix.platform }}"), "{name}");
+        assert!(
+            body.contains(&format!("name: {digests}${{{{ matrix.platform }}}}")),
+            "{name}: {body}"
+        );
+    }
+    for (name, digests) in [
+        ("computer-manifest", "pattern: image-digest-computer-*"),
+        ("server-manifest", "pattern: image-digest-server-*"),
+    ] {
+        assert!(job(name).contains(digests), "{name}");
+    }
+    assert!(!workflow.contains("setup-qemu"), "{workflow}");
 }

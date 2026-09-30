@@ -31,8 +31,8 @@ pub mod server_image;
 pub mod tools;
 pub use desktop::{DesktopContext, DesktopPlatform, desktop_plan};
 pub use image::{
-    VERSION_LABEL, anonymous_pull_step, builder_step, check_pin, image_plan, image_published,
-    inspect_answer, labelled_version,
+    ImagePlatform, VERSION_LABEL, anonymous_pull_step, builder_step, check_pin, image_plan,
+    image_published, inspect_answer, labelled_version,
 };
 pub use release::{ReleaseContext, ReleaseStage, gog_asset_name, release_plan};
 pub use server_image::{

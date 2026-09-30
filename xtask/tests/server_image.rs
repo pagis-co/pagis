@@ -6,7 +6,7 @@ use std::path::Path;
 
 use xtask::server_image::{SERVER_IMAGE_REPOSITORY, VERSION_LABEL};
 use xtask::{
-    Action, Cmd, Step, check_pin, labelled_version, server_image, server_image_plan,
+    Action, Cmd, ImagePlatform, Step, check_pin, labelled_version, server_image, server_image_plan,
     server_image_steps,
 };
 
@@ -40,29 +40,62 @@ fn target() -> &'static Path {
     Path::new("/shared/pagis-target")
 }
 
+/// Each architecture is pushed by its digest only, with no tag, after
+/// its own scans. Last, one step joins both digests into the release tag.
 #[test]
-fn the_publish_pushes_both_architectures_under_the_release_tag() {
+fn the_publish_pushes_each_architecture_by_digest_then_joins_them_under_the_release_tag() {
     let steps = server_image_plan(Path::new("/repo"), &server_image("1.2.3"), target());
-    let plan = joined(&steps);
 
-    assert!(plan.contains("buildx build"), "{plan}");
-    assert!(plan.contains("linux/amd64,linux/arm64"), "{plan}");
+    for platform in ImagePlatform::ALL {
+        let arch = platform.arch();
+        let push = steps
+            .iter()
+            .position(|s| s.name == format!("server-image-push-{arch}"))
+            .expect("a push step");
+        let pushed = joined(&steps[push..=push]);
+        assert!(
+            pushed.contains(&format!(
+                "--builder pagis --platform linux/{arch} --build-arg PAGIS_POSTHOG_PROJECT_ID \
+                 --build-arg PAGIS_POSTHOG_TOKEN --output \
+                 type=image,name=ghcr.io/pagis-co/pagis-server,push-by-digest=true,name-canonical=true,push=true \
+                 --metadata-file dist/image-digests/server-{arch}.json ."
+            )),
+            "{pushed}"
+        );
+        assert!(!pushed.contains("pagis-server:1.2.3"), "{pushed}");
+        assert!(
+            pushed.contains(&format!("dist/image-digests/server-{arch}.txt")),
+            "{pushed}"
+        );
+        assert!(
+            pushed.ends_with(&format!("rm -rf dist/image-fs/server/linux_{arch}")),
+            "{pushed}"
+        );
+    }
+    let manifest = steps.last().unwrap();
+    assert_eq!(manifest.name, "server-image-manifest");
+    let manifest = joined(std::slice::from_ref(manifest));
     assert!(
-        plan.contains("ghcr.io/pagis-co/pagis-server:1.2.3"),
-        "{plan}"
+        manifest.contains("docker buildx imagetools create -t ghcr.io/pagis-co/pagis-server:1.2.3"),
+        "{manifest}"
     );
-    assert!(plan.contains("--push"), "{plan}");
+    for arch in ["amd64", "arm64"] {
+        assert!(
+            manifest.contains(&format!("dist/image-digests/server-{arch}.txt")),
+            "{manifest}"
+        );
+    }
     assert_eq!(
         commands(&steps[1])[0].cwd.as_deref(),
         Some(Path::new("/repo"))
     );
 }
 
-/// The default `docker` driver refuses a multi-platform build, so the
-/// plan makes the container driver's builder first, as the Computer
-/// image publish does.
+/// The default `docker` driver cannot export an image and push it by
+/// digest, so the plan makes the container driver's builder first, as
+/// the Computer image publish does.
 #[test]
-fn the_publish_runs_on_a_builder_that_can_cross_build() {
+fn the_publish_runs_on_a_builder_that_can_export_and_push() {
     let steps = server_image_plan(Path::new("/repo"), &server_image("1.2.3"), target());
 
     assert_eq!(steps[0].name, "builder");
@@ -76,6 +109,7 @@ fn a_release_builds_against_the_immutable_computer_image() {
     let steps = server_image_steps(
         Path::new("/repo"),
         &server_image("1.2.3"),
+        ImagePlatform::Arm64,
         Some("dist/computer-image.txt"),
         target(),
     );
@@ -108,6 +142,7 @@ fn the_build_takes_the_posthog_project_from_the_environment() {
         server_image_steps(
             Path::new("/repo"),
             &server_image("1.2.3"),
+            ImagePlatform::Amd64,
             Some("dist/computer-image.txt"),
             target(),
         ),
@@ -202,9 +237,10 @@ fn a_publish_whose_label_is_not_the_release_names_both() {
 }
 
 /// The package is public, so the publish scans the exported filesystem
-/// of the image for secrets and pushes only after a clean scan.
+/// of each architecture for secrets and pushes it only after a clean
+/// scan.
 #[test]
-fn the_publish_scans_the_image_for_secrets_before_it_pushes() {
+fn the_publish_scans_each_architecture_for_secrets_before_it_pushes() {
     let steps = server_image_plan(&workspace_root(), &server_image("1.2.3"), target());
     let names: Vec<&str> = steps.iter().map(|s| s.name).collect();
 
@@ -212,19 +248,34 @@ fn the_publish_scans_the_image_for_secrets_before_it_pushes() {
         names,
         [
             "builder",
-            "server-image",
-            "server-image-secret-scan",
-            "server-image-vuln-scan",
-            "server-image-push"
+            "server-image-amd64",
+            "server-image-secret-scan-amd64",
+            "server-image-vuln-scan-amd64",
+            "server-image-push-amd64",
+            "server-image-arm64",
+            "server-image-secret-scan-arm64",
+            "server-image-vuln-scan-arm64",
+            "server-image-push-arm64",
+            "server-image-manifest",
         ]
     );
-    let build = joined(&steps[1..2]);
-    assert!(!build.contains("--push"), "{build}");
-    assert!(
-        build.contains("type=local,dest=dist/image-fs/server"),
-        "{build}"
-    );
-    assert!(joined(&steps[2..3]).contains("dist/image-fs/server"));
+    for (at, arch) in [(1, "amd64"), (5, "arm64")] {
+        let build = joined(&steps[at..=at]);
+        assert!(!build.contains("push=true"), "{build}");
+        assert!(
+            build.contains(&format!("--platform linux/{arch} ")),
+            "{build}"
+        );
+        assert!(
+            build.contains(&format!(
+                "type=local,dest=dist/image-fs/server/linux_{arch} "
+            )),
+            "{build}"
+        );
+        assert!(
+            joined(&steps[at + 1..=at + 1]).contains(&format!("dist/image-fs/server/linux_{arch}"))
+        );
+    }
 }
 
 /// After the secret scan and before the push, Trivy scans the export of
@@ -232,18 +283,18 @@ fn the_publish_scans_the_image_for_secrets_before_it_pushes() {
 /// `gog` and the Debian packages, and Trivy identifies each of them, so the
 /// scan prints no component for a check by hand.
 #[test]
-fn the_publish_scans_the_image_for_vulnerabilities_before_it_pushes() {
+fn the_publish_scans_each_architecture_for_vulnerabilities_before_it_pushes() {
     let steps = server_image_plan(&workspace_root(), &server_image("1.2.3"), target());
-    let scan = joined(&steps[3..4]);
 
-    assert_eq!(steps[3].name, "server-image-vuln-scan");
-    assert!(scan.contains("trivy"), "{scan}");
-    assert!(scan.contains("--scanners vuln"), "{scan}");
-    for platform in ["linux_amd64", "linux_arm64"] {
+    for (at, arch) in [(3, "amd64"), (7, "arm64")] {
+        let scan = joined(&steps[at..=at]);
+        assert_eq!(steps[at].name, format!("server-image-vuln-scan-{arch}"));
+        assert!(scan.contains("trivy"), "{scan}");
+        assert!(scan.contains("--scanners vuln"), "{scan}");
         assert!(
-            scan.contains(&format!("dist/image-fs/server/{platform}")),
+            scan.contains(&format!("dist/image-fs/server/linux_{arch}")),
             "{scan}"
         );
+        assert!(!scan.contains("by hand"), "{scan}");
     }
-    assert!(!scan.contains("by hand"), "{scan}");
 }

@@ -321,8 +321,9 @@ Locks and the signed Linux checksum list, and nothing else.
 
 A `v*` tag that names the workspace version builds all four in one workflow
 run, after the gate passes on the tagged commit. Each stage runs on the host
-it needs: the images and the Linux server packages on Linux, the signed
-macOS server package on macOS. The run holds the server packages and the
+it needs: each architecture of each image on a Linux runner of that
+architecture, the Linux server packages on Linux, the signed macOS server
+package on macOS. The run holds the server packages and the
 locks in a draft GitHub Release, and builds the clients from those locks. The
 draft becomes public only when a maintainer approves the publication. The run
 attests the provenance of each image digest and each package it builds, so
