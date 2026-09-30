@@ -670,12 +670,19 @@ async fn switching_back_to_the_running_mode_needs_no_restart() {
 }
 
 /// A server always serves a network. The Settings view shows the mode
-/// it runs with and no switch, and the routes refuse a switch.
+/// it runs with and no switch, and the routes refuse a switch. The view
+/// also names the Media Relay the server runs with, which its
+/// deployment sets in the environment and not in the file.
 #[tokio::test]
 async fn a_server_is_always_multi_user_and_refuses_the_switch() {
     let Some(daemon) = TestDaemon::start_on_postgres_with(TestDaemonOptions {
         public_origin: "https://pagis.example.net".to_string(),
         trusted_proxy: Some(std::net::Ipv4Addr::LOCALHOST.into()),
+        screen: pagis_server::ScreenRelay {
+            relay: pagis_server::MediaRelayKind::Turn,
+            advertise_ip: "10.0.1.7".to_string(),
+            media_ports: 50000..=50019,
+        },
         ..TestDaemonOptions::default()
     })
     .await
@@ -683,13 +690,24 @@ async fn a_server_is_always_multi_user_and_refuses_the_switch() {
         return;
     };
 
+    let view = settings(&daemon).await;
     assert_eq!(
-        settings(&daemon).await["multi_user"],
+        view["multi_user"],
         serde_json::json!({
             "enabled": true,
             "public_origin": "https://pagis.example.net",
             "trusted_proxy": "127.0.0.1",
             "switchable": false,
+        })
+    );
+    assert_eq!(
+        view["screen"],
+        serde_json::json!({
+            "relay": "turn",
+            "advertise_ip": "10.0.1.7",
+            "loopback": false,
+            "media_port_first": 50000,
+            "media_port_last": 50019,
         })
     );
     let before = std::fs::read_to_string(daemon.booted.home.join("config.toml")).unwrap();
@@ -765,36 +783,6 @@ async fn a_local_installation_names_the_lan_address_it_advertises() {
             "loopback": false,
             "media_port_first": 50000,
             "media_port_last": 50099,
-        })
-    );
-}
-
-/// A server names the Media Relay it runs with, which its deployment
-/// sets in the environment and not in the file.
-#[tokio::test]
-async fn a_server_names_the_media_relay_it_runs_with() {
-    let Some(daemon) = TestDaemon::start_on_postgres_with(TestDaemonOptions {
-        public_origin: "https://pagis.example.net".to_string(),
-        screen: pagis_server::ScreenRelay {
-            relay: pagis_server::MediaRelayKind::Turn,
-            advertise_ip: "10.0.1.7".to_string(),
-            media_ports: 50000..=50019,
-        },
-        ..TestDaemonOptions::default()
-    })
-    .await
-    else {
-        return;
-    };
-
-    assert_eq!(
-        settings(&daemon).await["screen"],
-        serde_json::json!({
-            "relay": "turn",
-            "advertise_ip": "10.0.1.7",
-            "loopback": false,
-            "media_port_first": 50000,
-            "media_port_last": 50019,
         })
     );
 }

@@ -304,7 +304,7 @@ async fn an_idle_turn_ends_at_its_deadline_and_a_send_wakes_the_next_one() {
     // Nothing arrives, so the turn ends at the deadline and the caller
     // issues IDLE again (RFC 2177).
     assert_eq!(
-        ava.idle(Duration::from_secs(2))
+        ava.idle(Duration::from_millis(200))
             .await
             .expect("the turn ends"),
         IdleOutcome::Deadline
@@ -315,6 +315,9 @@ async fn an_idle_turn_ends_at_its_deadline_and_a_send_wakes_the_next_one() {
         let outcome = ava.idle(Duration::from_secs(60)).await;
         (outcome, ava)
     });
+    // The session tells nothing when the server holds the IDLE, and a
+    // message that arrives before it does not wake the turn. So the
+    // send waits.
     tokio::time::sleep(Duration::from_secs(1)).await;
     let sent = ada
         .send(&note(
@@ -358,16 +361,34 @@ async fn an_idle_turn_ends_at_its_deadline_and_a_send_wakes_the_next_one() {
         message.headers
     );
 
-    // A reply carries the thread of the message it answers.
-    ada.send(&OutgoingMessage {
-        in_reply_to: Some(sent.message_id.clone()),
-        ..note(&format!("ava@{DOMAIN}"), "Re: The roof", "On Tuesday.")
-    })
-    .await
-    .expect("the host accepts the reply");
+    // A reply carries the thread of the message it answers. A reserved
+    // effect names the `Message-ID` its outcome is reconciled against,
+    // and the host delivers the reply under that identity.
+    let reserved = format!("<effect/iv-01j@{DOMAIN}>");
+    let replied = ada
+        .send(&OutgoingMessage {
+            in_reply_to: Some(sent.message_id.clone()),
+            message_id: Some(reserved.clone()),
+            ..note(&format!("ava@{DOMAIN}"), "Re: The roof", "On Tuesday.")
+        })
+        .await
+        .expect("the host accepts the reply");
+    assert_eq!(
+        replied.message_id, reserved,
+        "the send reports the reserved identity"
+    );
     let (replies, _) = ava.fetch_since(&moved).await.expect("the fetch runs");
     assert_eq!(replies.len(), 1, "{replies:?}");
     assert_eq!(replies[0].thread_id, sent.message_id);
+    let reply = ava.fetch(&replies[0].id).await.expect("the reply reads");
+    assert!(
+        reply
+            .headers
+            .iter()
+            .any(|(name, value)| name == "Message-ID" && value == &reserved),
+        "the delivered reply carries the reserved identity: {:?}",
+        reply.headers
+    );
 
     // The search reads the same folder.
     let found = ava
@@ -503,44 +524,4 @@ async fn a_refused_password_and_a_closed_port_are_different_failures() {
         .err()
         .expect("nothing listens on the port");
     assert_eq!(unreachable.0, TransportErrorCode::Unreachable);
-}
-
-/// A reserved effect names the `Message-ID` its outcome is reconciled against.
-/// The host must deliver the message under that identity, so the
-/// reservation and the message the recipient holds are the same thing.
-#[tokio::test]
-#[ignore = "needs Docker; run via cargo test -p pagis-mail -- --ignored greenmail::"]
-async fn a_send_carries_the_reserved_message_id() {
-    let server = GreenMail::start(&["ava", "ada"]).await;
-    let (mut ava, cursor) = open(&server, "ava").await;
-    let (mut ada, _) = open(&server, "ada").await;
-    let reserved = format!("<effect/iv-01j@{DOMAIN}>");
-
-    let sent = ada
-        .send(&OutgoingMessage {
-            message_id: Some(reserved.clone()),
-            ..note(
-                &format!("ava@{DOMAIN}"),
-                "The renewal",
-                "Please hold the renewal.",
-            )
-        })
-        .await
-        .expect("the host accepts the message");
-    assert_eq!(
-        sent.message_id, reserved,
-        "the send reports the reserved identity"
-    );
-
-    let (summaries, _) = ava.fetch_since(&cursor).await.expect("the fetch runs");
-    assert_eq!(summaries.len(), 1, "{summaries:?}");
-    let message = ava.fetch(&summaries[0].id).await.expect("the body reads");
-    assert!(
-        message
-            .headers
-            .iter()
-            .any(|(name, value)| name == "Message-ID" && value == &reserved),
-        "the delivered message carries the reserved identity: {:?}",
-        message.headers
-    );
 }

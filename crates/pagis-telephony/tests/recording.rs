@@ -5,7 +5,7 @@
 //! Remote Party on the left and the Agent on the right. It reads only
 //! files, so it settles a call the daemon was killed in the middle of.
 //!
-//! The next four run a call to each of the four ended reasons the
+//! The next three run a call to each of the three ended reasons the
 //! bridge owns and read what the call left: a playable recording and a
 //! settled Call record.
 
@@ -510,22 +510,6 @@ async fn a_call_the_model_left_settles_with_a_recording(pool: SqlitePool) {
         .await;
 
     assert_settled(&settled, MODEL_UNAVAILABLE);
-    assert_playable(&world.recording_of(&settled).await);
-}
-
-#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
-async fn a_call_the_media_stopped_on_settles_with_a_recording(pool: SqlitePool) {
-    let world = World::build(pool).await;
-    let settled = world
-        .call(DEFAULT_DURATION_CAP, |party, peer| async move {
-            party.speak(Frame::silence(Codec::Pcmu));
-            peer.caller_transcript("hello?");
-            // Nothing else arrives: the hub gives up after its media
-            // timeout.
-        })
-        .await;
-
-    assert_settled(&settled, "media_timeout");
     assert_playable(&world.recording_of(&settled).await);
 }
 

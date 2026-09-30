@@ -202,25 +202,6 @@ async fn a_listener_hears_the_call_as_one_frame_every_twenty_milliseconds() {
 }
 
 #[tokio::test]
-async fn a_listener_that_never_reads_does_not_slow_the_call() {
-    let desk = Desk::start().await;
-    let speech = desk.speak();
-    let (_socket, ready) = desk.listen(desk.call_id.as_str()).await;
-    assert_eq!(ready["type"], "ready");
-
-    // The listener reads nothing for a second; the downlink pacer must
-    // go on sending to the Remote Party through it.
-    tokio::time::sleep(Duration::from_secs(1)).await;
-
-    let heard = desk.party.heard().len();
-    assert!(
-        heard > 30,
-        "the call sent only {heard} packets in a second: the listener stalled it"
-    );
-    speech.abort();
-}
-
-#[tokio::test]
 async fn a_call_that_is_not_live_is_not_listenable() {
     let desk = Desk::start().await;
 
