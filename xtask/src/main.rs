@@ -260,7 +260,7 @@ fn run_release(
 
     if stage == ReleaseStage::ComputerImage {
         println!("== release: advisories");
-        let advisories = xtask::advisories::advisory_lane(&root, &cx.target_dir, true);
+        let advisories = xtask::advisories::advisory_lane(&root, &cx.target_dir);
         if !run_lanes(vec![advisories]) {
             bail!("release refused: an advisory check is red");
         }

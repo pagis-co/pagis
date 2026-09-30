@@ -21,8 +21,8 @@ use std::path::Path;
 
 use crate::advisories::vuln_scan_step;
 use crate::image::{
-    BUILDER, ImagePlatform, builder_step, export_dir, manifest_step, push_by_digest_args,
-    record_digest_cmd,
+    BUILDER, ImagePlatform, builder_step, export_dir, export_step, manifest_step,
+    push_by_digest_args, record_digest_cmd,
 };
 use crate::release::DIST_DIR;
 use crate::secrets::image_secret_scan_step;
@@ -104,13 +104,7 @@ pub fn server_image_steps(
         Cmd::new("sh", &["-c", &script]).in_dir(root)
     };
     vec![
-        Step {
-            name: build,
-            action: Action::Run(vec![
-                Cmd::new("rm", &["-rf", &export]).in_dir(root),
-                buildx(&format!("--output type=local,dest={export}")),
-            ]),
-        },
+        export_step(root, build, &export, buildx),
         image_secret_scan_step(root, secret_scan, &export, target_dir),
         // Trivy identifies the crates of `pagis`, `gog` and the Debian
         // packages.
