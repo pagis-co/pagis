@@ -270,6 +270,20 @@ fn electron_builder_signs_the_outer_dmg() {
     assert!(dmg.lines().any(|line| line.trim() == "sign: true"));
 }
 
+/// The release, not electron-builder, uploads each client package. On a
+/// tag with `GH_TOKEN` set, electron-builder publishes on its own and
+/// writes an update feed for the app, and it fails when it finds no
+/// repository. `publish: null` turns off both.
+#[test]
+fn electron_builder_publishes_nothing() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+    let config = std::fs::read_to_string(root.join("desktop/electron-builder.yml")).unwrap();
+    assert!(
+        config.lines().any(|line| line == "publish: null"),
+        "{config}"
+    );
+}
+
 #[test]
 fn generated_shell_steps_are_valid_shell() {
     for cx in [context(None, &[]), context(Some("v1.2.3"), &[])] {

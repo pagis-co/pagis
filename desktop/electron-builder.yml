@@ -3,6 +3,11 @@ appId: com.pagis.desktop
 # also reads for `app.name`: the `userData` directory and the app menu.
 copyright: Pagis
 
+# The release uploads each package itself (`cargo xtask desktop`). With no
+# publish configuration, electron-builder publishes on a CI tag and writes
+# an update feed into the app; the app has no updater, so both are off.
+publish: null
+
 directories:
   output: release
   buildResources: build
