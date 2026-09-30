@@ -3,13 +3,13 @@
 //! GHCR, and a draft GitHub Release that holds the server package of each
 //! Client App platform and the Runtime Lock that names it.
 //!
-//! A release is seven stages ([`ReleaseStage`]), and the release workflow
+//! A release is eight stages ([`ReleaseStage`]), and the release workflow
 //! runs each one in a job of its own on the host that it needs: each
 //! architecture of each image on a Linux runner of that architecture, the
-//! image manifests and the Linux server packages on Linux, the macOS
-//! server package and the draft release on macOS. macOS arm64 builds natively;
-//! the Linux targets build through `cross`, which runs the toolchain in a
-//! Docker container. Each build of `pagis` is a `cargo auditable` build
+//! image manifests and the server package of each Linux architecture on
+//! Linux, the macOS server package and the draft release on macOS. macOS
+//! arm64 builds natively; the Linux targets build through `cross`, which
+//! runs the toolchain in a Docker container. Each build of `pagis` is a `cargo auditable` build
 //! (see `build_action`).
 
 use std::fs;
@@ -861,8 +861,8 @@ pub struct ReleaseContext {
     /// published image version is never pushed again, so every release
     /// that pins it pulls the same bytes.
     pub computer_published: bool,
-    /// The platforms that the computer-image and server-image stages
-    /// build. A release job builds one, on a runner of that architecture.
+    /// The platforms that the computer-image, server-image and linux
+    /// stages build. A release job builds one.
     pub platforms: Vec<ImagePlatform>,
     pub target_dir: std::path::PathBuf,
 }
@@ -960,9 +960,16 @@ fn server_images_plan(root: &Path, cx: &ReleaseContext) -> Vec<Step> {
 /// Build, assemble and scan the server package of each target of the
 /// stage, then pack it: the disk image on macOS, the archives on Linux.
 /// Both read the immutable Computer image that the computer-manifest
-/// stage wrote to `dist/computer-image.txt`.
+/// stage wrote to `dist/computer-image.txt`. The Linux stage builds the
+/// targets of the platforms of its context, so the release workflow
+/// builds each Linux architecture in a job of its own.
 fn server_package_plan(root: &Path, cx: &ReleaseContext, macos: bool) -> Vec<Step> {
-    let targets: Vec<&Target> = TARGETS.iter().filter(|t| t.macos == macos).collect();
+    let linux: Vec<ClientPlatform> = cx.platforms.iter().map(|p| linux_client(*p)).collect();
+    let targets: Vec<&Target> = TARGETS
+        .iter()
+        .filter(|t| t.macos == macos)
+        .filter(|t| macos || linux.iter().any(|p| p.triple() == t.triple))
+        .collect();
     let mut steps = vec![Step {
         name: "ui-build",
         action: ui_build_action(root),
@@ -998,14 +1005,22 @@ fn server_package_plan(root: &Path, cx: &ReleaseContext, macos: bool) -> Vec<Ste
     } else {
         steps.push(Step {
             name: "linux-server-archives",
-            action: linux_archives_action(root, cx),
+            action: linux_archives_action(root, cx, &linux),
         });
         steps.push(Step {
             name: "linux-runtime-locks",
-            action: linux_locks_action(root, cx),
+            action: linux_locks_action(root, cx, &linux),
         });
     }
     steps
+}
+
+/// The Linux Client App platform of an architecture.
+fn linux_client(platform: ImagePlatform) -> ClientPlatform {
+    match platform {
+        ImagePlatform::Amd64 => ClientPlatform::LinuxX64,
+        ImagePlatform::Arm64 => ClientPlatform::LinuxArm64,
+    }
 }
 
 fn image_digest_action(root: &Path, cx: &ReleaseContext) -> Action {
@@ -1102,14 +1117,14 @@ fn package_action(root: &Path, built: &[&Target], cx: &ReleaseContext) -> Action
     ])
 }
 
-/// Pack the Linux server package of each architecture. The Linux Client
+/// Pack the Linux server package of each architecture of the stage. The Linux Client
 /// App installs it; the macOS Client App installs the disk image.
-fn linux_archives_action(root: &Path, cx: &ReleaseContext) -> Action {
+fn linux_archives_action(root: &Path, cx: &ReleaseContext, linux: &[ClientPlatform]) -> Action {
     // macOS `tar` would add an AppleDouble member for each file that has
     // extended attributes. The Linux Client App refuses any member its
     // lock does not name, so the archives carry the five files alone.
     let mut script = "set -eu\nexport COPYFILE_DISABLE=1\n".to_string();
-    for platform in ClientPlatform::LINUX {
+    for &platform in linux {
         let package_dir = format!("{DIST_DIR}/package-{}", platform.triple());
         let asset = platform.server_package(&cx.version);
         script.push_str(&format!(
@@ -1123,9 +1138,9 @@ fn linux_archives_action(root: &Path, cx: &ReleaseContext) -> Action {
 /// server archive of its architecture. The lock names the archive's
 /// exact bytes, and each file's bytes and mode as the archive extracts
 /// them.
-fn linux_locks_action(root: &Path, cx: &ReleaseContext) -> Action {
+fn linux_locks_action(root: &Path, cx: &ReleaseContext, linux: &[ClientPlatform]) -> Action {
     let mut script = "set -eu\n".to_string();
-    for platform in ClientPlatform::LINUX {
+    for &platform in linux {
         let archive = format!("{DIST_DIR}/{}", platform.server_package(&cx.version));
         script.push_str(&format!(
             "extracted=$(mktemp -d)\n\

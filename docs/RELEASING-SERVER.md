@@ -262,13 +262,20 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-The workflow runs `cargo xtask release <stage>` for the seven stages of the
+The workflow runs `cargo xtask release <stage>` for the eight stages of the
 server half, each in a job on the host it needs (`release_plan` in
 `xtask/src/release.rs`). A stage stops at its first failed step, and the
 workflow runs no job after a failed one. `cargo xtask release <stage>
 --dry-run` prints the plan of one stage on any host. Without `--platform`,
-the computer-image and server-image stages build each architecture in
-turn on one host.
+the computer-image, server-image and linux stages build each architecture
+in turn on one host.
+
+Each release job that compiles saves its Rust cache, also after a failure.
+A re-run of a job, or a new run on the same tag, compiles only what
+changed. A cache of a tag run is visible only to runs on that tag, so the
+first run on a new tag compiles the release builds from the start. The
+client jobs run the same build as the packaging smoke jobs of the CI
+workflow and share their cache, which main keeps warm.
 
 Two third-party programs ship with a release, each pinned and each with its
 license under `third_party/`: `gog` (MIT), the Google provider in every
@@ -347,24 +354,26 @@ The workflow runs these jobs in this order, and ADR-0025 holds why:
      digests under the release tag. Last, it pulls the manifest of both
      images with an anonymous registry token, as a new person does. The
      job attests the provenance of the server image digest.
-3. **The server packages.** Two jobs build them at the same time with the
+3. **The server packages.** Three jobs build them at the same time with the
    exact image reference, after the computer-manifest job and beside the
    server image jobs. Each builds the Product App, then `pagis` with
    the pinned, hash-checked cargo-auditable, assembles each target with its
    pinned, hash-checked `gog` and the notices, and scans each package tree
    for known vulnerabilities.
-   - `cargo xtask release linux` (Linux) builds Linux amd64 and arm64 with
-     `cross`, which runs `cargo build` in a Docker image of the target and
+   - `cargo xtask release linux --platform <platform>` (Linux) builds the
+     server package of one Linux architecture, and the workflow runs one
+     job for amd64 and one for arm64. Both jobs run on an amd64 runner.
+     The stage builds with `cross`, which runs `cargo build` in a Docker image of the target and
      runs no other cargo subcommand there. So the stage gives `cross` an
      image of its own (`CROSS_BUILD_DOCKERFILE`): the default image of the
      target, with cargo-auditable and a `cargo` that starts the `cargo` of
      the toolchain as `cargo auditable`. The images of `cross` are
      linux/amd64, and the Dockerfile names that platform, so an arm64 host
      builds and runs the image under emulation with no other setting. The
-     stage packs the gzip tar archive of each architecture and writes
-     `dist/runtime-lock-linux-x64.json` and
-     `dist/runtime-lock-linux-arm64.json` from the finished archive and the
-     files it extracts to.
+     stage packs the gzip tar archive of its architecture and writes its
+     Runtime Lock (`dist/runtime-lock-linux-x64.json` or
+     `dist/runtime-lock-linux-arm64.json`) from the finished archive and
+     the files it extracts to.
    - `cargo xtask release macos` (macOS arm64) builds on the host. The job
      imports the certificate into a keychain of its own
      (`.github/scripts/import-signing-identity.sh`). The stage signs
