@@ -10,7 +10,8 @@
 //! `cargo xtask advisories` runs the dependency checks and scans the
 //! images of the latest release, and a daily workflow runs it.
 //! The computer-image stage of `cargo xtask release` runs the dependency
-//! checks and the scan of the Computer Image that the tree builds.
+//! checks, and then scans the Computer Image of its platform before the
+//! push.
 //!
 //! Trivy runs its vulnerability scanner only, because gitleaks is the
 //! secret scan. It reports the findings of high and critical severity
@@ -20,7 +21,7 @@
 
 use std::path::Path;
 
-use crate::image::{BUILDER, ImagePlatform, builder_script};
+use crate::image::ImagePlatform;
 use crate::release::REPO;
 use crate::server_image::SERVER_IMAGE_REPOSITORY;
 use crate::{Action, Cmd, Lane, Step, tools};
@@ -41,14 +42,11 @@ fn trivy_options() -> String {
     )
 }
 
-/// The advisory lane of `cargo xtask release`: the dependency checks, and
-/// the scan of the Computer Image that this tree builds.
-pub fn advisory_lane(root: &Path, target_dir: &Path, docker_available: bool) -> Lane {
-    let mut steps = dependency_steps(root, target_dir);
-    steps.push(image_scan_step(root, target_dir, docker_available));
+/// The advisory lane of `cargo xtask release`: the dependency checks.
+pub fn advisory_lane(root: &Path, target_dir: &Path) -> Lane {
     Lane {
         name: "advisories",
-        steps,
+        steps: dependency_steps(root, target_dir),
     }
 }
 
@@ -225,33 +223,6 @@ fn rootfs_scan(manual: &[String]) -> String {
     }
     body.push_str("exit $status\n");
     body
-}
-
-/// Build the Computer Image from `computer/` for the platform of this
-/// host, on the builder of the release, and scan its filesystem. The
-/// builder takes the base images from the registry, as the release does,
-/// so the scan reports what a release of this tree ships. The export is
-/// a temporary directory that the step removes.
-fn image_scan_step(root: &Path, target_dir: &Path, docker_available: bool) -> Step {
-    if !docker_available {
-        return Step {
-            name: "image-scan",
-            action: Action::Skip("Docker unavailable".into()),
-        };
-    }
-    let body = format!(
-        "docker buildx build --builder {BUILDER} --output type=local,dest=\"$work/computer\" computer\n\
-         set -- \"$work/computer\"\n\
-         {}",
-        rootfs_scan(&computer_components(root))
-    );
-    Step {
-        name: "image-scan",
-        action: Action::Run(vec![
-            Cmd::new("sh", &["-c", &builder_script()]).in_dir(root),
-            tools::command(root, target_dir, tools::trivy(), &body, &[]),
-        ]),
-    }
 }
 
 /// Scan the Computer Image and the Headless Server image of the latest

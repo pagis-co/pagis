@@ -266,12 +266,16 @@ fn the_publish_scans_each_architecture_for_secrets_before_it_pushes() {
             build.contains(&format!("--platform linux/{arch} ")),
             "{build}"
         );
+        let export = format!("dist/image-fs/server/linux_{arch}");
         assert!(
-            build.contains(&format!(
-                "type=local,dest=dist/image-fs/server/linux_{arch} "
-            )),
+            build.contains(&format!("type=tar,dest={export}.tar ")),
             "{build}"
         );
+        assert!(
+            build.contains(&format!("tar -xf {export}.tar -C {export}")),
+            "{build}"
+        );
+        assert!(!build.contains("type=local"), "{build}");
         assert!(
             joined(&steps[at + 1..=at + 1]).contains(&format!("dist/image-fs/server/linux_{arch}"))
         );

@@ -80,10 +80,12 @@ fn assert_trivy_scan(script: &str) {
 
 // --- the lanes ---
 
+/// The release lane checks the lockfiles only. Each computer-image job of
+/// the release scans the image of its own platform before the push.
 #[test]
-fn the_advisory_lane_checks_the_lockfiles_and_scans_the_computer_image() {
+fn the_advisory_lane_checks_the_lockfiles() {
     let tmp = tempfile::tempdir().unwrap();
-    let lane = advisory_lane(tmp.path(), target(), true);
+    let lane = advisory_lane(tmp.path(), target());
     let names: Vec<&str> = lane.steps.iter().map(|step| step.name).collect();
 
     assert_eq!(lane.name, "advisories");
@@ -94,7 +96,6 @@ fn the_advisory_lane_checks_the_lockfiles_and_scans_the_computer_image() {
             "ui-npm-audit",
             "desktop-npm-audit",
             "docs-site-npm-audit",
-            "image-scan"
         ]
     );
 }
@@ -139,7 +140,7 @@ fn the_published_advisory_lane_scans_the_images_of_the_latest_release() {
 #[test]
 fn cargo_deny_checks_the_two_lockfiles_with_the_pinned_binary() {
     let tree = tempfile::tempdir().unwrap();
-    let lane = advisory_lane(tree.path(), target(), false);
+    let lane = advisory_lane(tree.path(), target());
     let deny = step(&lane, "cargo-deny");
     let script = script(deny);
 
@@ -188,7 +189,7 @@ fn npm_audit_reads_each_lockfile_at_the_high_level() {
         write(tmp.path(), &format!("{package}/package.json"), "{}");
         write(tmp.path(), &format!("{package}/package-lock.json"), "{}");
     }
-    let lane = advisory_lane(tmp.path(), target(), false);
+    let lane = advisory_lane(tmp.path(), target());
 
     for (name, package) in [
         ("ui-npm-audit", "ui"),
@@ -216,45 +217,13 @@ fn npm_audit_reads_each_lockfile_at_the_high_level() {
 #[test]
 fn npm_audit_skips_a_package_without_a_lockfile() {
     let tmp = tempfile::tempdir().unwrap();
-    let lane = advisory_lane(tmp.path(), target(), false);
+    let lane = advisory_lane(tmp.path(), target());
     for name in ["ui-npm-audit", "desktop-npm-audit", "docs-site-npm-audit"] {
         assert!(
             matches!(step(&lane, name).action, Action::Skip(_)),
             "{name} must skip without a lockfile"
         );
     }
-}
-
-// --- the scan of the Computer Image before a release ---
-
-/// The advisory lane builds the Computer Image of this tree on the
-/// builder of the release, which takes the base images from the registry,
-/// so the scan reports what a release of this tree ships.
-#[test]
-fn the_advisory_lane_scans_the_computer_image_that_this_tree_builds() {
-    let lane = advisory_lane(&workspace_root(), target(), true);
-    let scan = script(step(&lane, "image-scan"));
-
-    assert_trivy_scan(&scan);
-    assert!(
-        scan.contains("docker buildx build --builder pagis"),
-        "{scan}"
-    );
-    assert!(scan.contains("--output type=local"), "{scan}");
-    assert!(scan.contains(" computer\n"), "{scan}");
-    assert!(scan.contains("rootfs"), "{scan}");
-    for component in computer_image_components(&computer_dockerfile()) {
-        assert!(scan.contains(&component), "{component}: {scan}");
-    }
-}
-
-#[test]
-fn the_advisory_lane_skips_the_image_scan_without_docker() {
-    let lane = advisory_lane(&workspace_root(), target(), false);
-    assert_eq!(
-        step(&lane, "image-scan").action,
-        Action::Skip("Docker unavailable".into())
-    );
 }
 
 // --- the components that Trivy does not identify ---

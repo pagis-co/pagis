@@ -82,7 +82,7 @@ pub fn builder_step(root: &Path) -> Step {
 }
 
 /// The shell command that makes the builder, or finds it.
-pub(crate) fn builder_script() -> String {
+fn builder_script() -> String {
     format!(
         "docker buildx inspect {BUILDER} >/dev/null 2>&1 || \
          docker buildx create --name {BUILDER} --driver docker-container"
@@ -97,6 +97,31 @@ pub fn export_dir(name: &str, platform: ImagePlatform) -> String {
         "{DIST_DIR}/image-fs/{name}/{}",
         platform.docker().replace('/', "_")
     )
+}
+
+/// The build step `name` that exports the filesystem of an image to
+/// `export`. `buildx` makes the build command from its `--output`
+/// arguments. The build writes one tar archive, and the step unpacks it.
+/// BuildKit sends a tar archive as one stream. Its `local` exporter sends
+/// each file on its own stream, and that copy can deadlock with no
+/// progress (moby/buildkit#2950).
+pub(crate) fn export_step(
+    root: &Path,
+    name: &'static str,
+    export: &str,
+    buildx: impl Fn(&str) -> Cmd,
+) -> Step {
+    let archive = format!("{export}.tar");
+    Step {
+        name,
+        action: Action::Run(vec![
+            Cmd::new("rm", &["-rf", export, &archive]).in_dir(root),
+            buildx(&format!("--output type=tar,dest={archive}")),
+            Cmd::new("mkdir", &["-p", export]).in_dir(root),
+            Cmd::new("tar", &["-xf", &archive, "-C", export]).in_dir(root),
+            Cmd::new("rm", &["-f", &archive]).in_dir(root),
+        ]),
+    }
 }
 
 /// The file that holds the digest of the image `name` that the push of
@@ -230,13 +255,7 @@ pub fn computer_image_steps(
         Cmd::new("docker", &args).in_dir(root)
     };
     vec![
-        Step {
-            name: build,
-            action: Action::Run(vec![
-                Cmd::new("rm", &["-rf", &export]).in_dir(root),
-                buildx(&format!("--output type=local,dest={export}")),
-            ]),
-        },
+        export_step(root, build, &export, buildx),
         image_secret_scan_step(root, secret_scan, &export, target_dir),
         computer_vuln_scan_step(root, vuln_scan, std::slice::from_ref(&export), target_dir),
         Step {

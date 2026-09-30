@@ -107,13 +107,14 @@ fn the_publish_scans_each_architecture_for_secrets_before_it_pushes() {
             "{build}"
         );
         assert!(
-            build.contains(&format!("type=local,dest={export} ")),
-            "{build}"
-        );
-        assert!(
-            build.ends_with("computer"),
+            build.contains(&format!("type=tar,dest={export}.tar computer | ")),
             "the context is computer/: {build}"
         );
+        assert!(
+            build.contains(&format!("tar -xf {export}.tar -C {export}")),
+            "{build}"
+        );
+        assert!(!build.contains("type=local"), "{build}");
         let scan = joined(std::slice::from_ref(step(
             &steps,
             &format!("image-secret-scan-{arch}"),

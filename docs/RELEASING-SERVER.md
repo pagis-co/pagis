@@ -154,7 +154,10 @@ So gitleaks scans each of them before it becomes public:
   file, such as a local `.env`, because such a file does not enter the
   public tree.
 - **Each image.** The publish builds the image for both architectures
-  and exports the filesystem of each one into `dist/image-fs/`. gitleaks
+  and exports the filesystem of each one into `dist/image-fs/`. The
+  build writes one tar archive and the publish unpacks it, because the
+  file-by-file `local` exporter of BuildKit can stop with no progress.
+  gitleaks
   scans the text files of the export. The push comes only after a clean
   scan, and it takes each layer from the build cache of the scanned
   build. The push step then removes the export. The release,
@@ -200,8 +203,8 @@ advisories:
 The checks run apart from the gate, so a newly published advisory does
 not block an unrelated pull request. They run in these places:
 
-- The computer-image stage of a release runs the advisory checks before it
-  builds. Then Trivy scans each image for each architecture after its
+- The computer-image stage of a release runs cargo-deny and npm audit
+  before it builds. Then Trivy scans each image for each architecture after its
   secret scan and before its push, and the
   package tree of each Server Package before it is signed, packed and
   published. `cargo xtask image` and `cargo xtask server-image` scan each

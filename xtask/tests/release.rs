@@ -769,9 +769,14 @@ fn each_image_is_scanned_for_secrets_before_its_push() {
             assert!(!built.contains("push=true"), "{built}");
             assert!(!built.contains(repository), "{built}");
             assert!(
-                built.contains(&format!("type=local,dest={export} ")),
+                built.contains(&format!("type=tar,dest={export}.tar ")),
                 "{built}"
             );
+            assert!(
+                built.contains(&format!("tar -xf {export}.tar -C {export}")),
+                "{built}"
+            );
+            assert!(!built.contains("type=local"), "{built}");
 
             let scanned = joined(step(&steps, &scan));
             assert!(scanned.contains("gitleaks"), "{scanned}");
