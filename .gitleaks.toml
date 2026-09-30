@@ -56,3 +56,11 @@ description = """\
 the Node.js release. Their names and constants are code, not secrets."""
 targetRules = ["generic-api-key"]
 paths = ['''^dist/image-fs/computer/linux_(?:amd64|arm64)/usr/local/include/node/''']
+
+[[allowlists]]
+description = """\
+The PostgreSQL client scripts of the Headless Server image run Perl, and \
+/usr/lib/<triple>/perl/<version>/CORE/ holds the C headers of the Debian \
+libperl package. Their names and constants are code, not secrets."""
+targetRules = ["generic-api-key"]
+paths = ['''^dist/image-fs/server/linux_(?:amd64|arm64)/usr/lib/(?:x86_64|aarch64)-linux-gnu/perl/[^/]+/CORE/''']

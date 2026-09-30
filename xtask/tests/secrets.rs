@@ -303,6 +303,26 @@ fn the_computer_image_entries_apply_to_its_export_only() {
     assert!(!passed, "{printed}");
 }
 
+/// The Headless Server image carries the Perl that the PostgreSQL client
+/// scripts run, and the C headers of its library are code that the
+/// generic rule flags. The entry allows that rule there, so a provider
+/// key in a header is still a finding.
+#[test]
+fn the_perl_headers_of_the_server_image_pass_the_scan_for_the_generic_rule_only() {
+    for arch in ["aarch64", "x86_64"] {
+        let header = format!("usr/lib/{arch}-linux-gnu/perl/5.40.1/CORE/cop.h");
+        let code = format!("=for apidoc Amnh||{}\n", varied(32));
+        let root = exported_image("dist/image-fs/server", &[(&header, &code)]);
+        let (passed, printed) = image_scan(root.path(), "dist/image-fs/server");
+        assert!(passed, "{printed}");
+
+        let key = format!("ANTHROPIC_API_KEY={}\n", fake_provider_key());
+        let root = exported_image("dist/image-fs/server", &[(&header, &key)]);
+        let (passed, printed) = image_scan(root.path(), "dist/image-fs/server");
+        assert!(!passed, "{printed}");
+    }
+}
+
 // --- the pin ---
 
 #[test]
