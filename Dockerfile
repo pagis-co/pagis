@@ -90,12 +90,20 @@ FROM debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee
 #   deployment runs, because pg_dump refuses a newer server. Debian
 #   carries an older major, so it comes from the PostgreSQL apt
 #   repository, which `postgresql-common` adds with the signing key it
-#   ships.
+#   ships. The client does not need `postgresql-common` after that, and
+#   its `ssl-cert` dependency makes a "snakeoil" private key when it is
+#   installed. The build purges both, so the public image holds no
+#   private key, and removes the repository entry whose key went with
+#   them.
 # curl: the container health check, and nothing the daemon starts.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates git curl postgresql-common \
     && /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y \
     && apt-get install -y --no-install-recommends postgresql-client-18 \
+    && apt-get purge -y --auto-remove postgresql-common ssl-cert \
+    && rm -f /etc/apt/sources.list.d/pgdg.sources /etc/apt/sources.list.d/pgdg.list \
+    && test ! -e /etc/ssl/private/ssl-cert-snakeoil.key \
+    && pg_dump --version \
     && rm -rf /var/lib/apt/lists/*
 
 # The daemon starts `gog` from its own directory, so the two live
