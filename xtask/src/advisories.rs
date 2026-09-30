@@ -9,9 +9,10 @@
 //! advisory does not block an unrelated pull request.
 //! `cargo xtask advisories` runs the dependency checks and scans the
 //! images of the latest release, and a daily workflow runs it.
-//! The computer-image stage of `cargo xtask release` runs the dependency
-//! checks, and then scans the Computer Image of its platform before the
-//! push.
+//! The advisories stage of `cargo xtask release` runs the dependency
+//! checks of what a release ships, before any image build. Each
+//! computer-image job then scans the Computer Image of its platform
+//! before the push.
 //!
 //! Trivy runs its vulnerability scanner only, because gitleaks is the
 //! secret scan. It reports the findings of high and critical severity
@@ -42,35 +43,32 @@ fn trivy_options() -> String {
     )
 }
 
-/// The advisory lane of `cargo xtask release`: the dependency checks.
+/// The advisory lane of `cargo xtask release`: the dependency checks of
+/// what a release ships. The crates go into the server and the images,
+/// the server bundles the UI, and the Client App is the desktop package.
+/// No release artifact holds the docs site.
 pub fn advisory_lane(root: &Path, target_dir: &Path) -> Lane {
     Lane {
         name: "advisories",
-        steps: dependency_steps(root, target_dir),
+        steps: vec![
+            cargo_deny_step(root, target_dir),
+            npm_audit_step(root, "ui", "ui-npm-audit"),
+            npm_audit_step(root, "desktop", "desktop-npm-audit"),
+        ],
     }
 }
 
 /// `cargo xtask advisories`, which the daily workflow runs: the
-/// dependency checks, and the scan of the Computer Image and the Headless
+/// dependency checks, the docs site included, and the scan of the Computer Image and the Headless
 /// Server image of the latest release, which is what people run.
 pub fn published_advisory_lane(root: &Path, target_dir: &Path) -> Lane {
-    let mut steps = dependency_steps(root, target_dir);
+    let mut steps = advisory_lane(root, target_dir).steps;
+    steps.push(npm_audit_step(root, "docs-site", "docs-site-npm-audit"));
     steps.push(release_image_scan_step(root, target_dir));
     Lane {
         name: "advisories",
         steps,
     }
-}
-
-/// cargo-deny over the two Cargo lockfiles, and npm audit over the three
-/// npm lockfiles.
-fn dependency_steps(root: &Path, target_dir: &Path) -> Vec<Step> {
-    vec![
-        cargo_deny_step(root, target_dir),
-        npm_audit_step(root, "ui", "ui-npm-audit"),
-        npm_audit_step(root, "desktop", "desktop-npm-audit"),
-        npm_audit_step(root, "docs-site", "docs-site-npm-audit"),
-    ]
 }
 
 /// Check the advisories of the lockfiles of the workspace and

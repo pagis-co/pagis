@@ -191,8 +191,10 @@ advisories:
 
 - **cargo-deny** checks the Cargo lockfiles of the workspace and
   `computer/screend` for the targets that a release ships. `deny.toml` holds the targets and the ignored advisories.
-- **npm audit** checks the lockfiles of `ui/` and `desktop/` at the high
-  level. It reads the lockfile only.
+- **npm audit** checks the lockfiles of `ui/`, which the server bundles,
+  and `desktop/`, the Client App, at the high level. It reads the
+  lockfile only. No release artifact holds the docs site, so only the
+  daily check reads `docs-site/`.
 - **Trivy** scans the filesystem of the Computer Image, of the Headless
   Server image and of each Server Package with its vulnerability scanner
   only, because gitleaks is the secret scan. The scan fails on a finding
@@ -203,15 +205,15 @@ advisories:
 The checks run apart from the gate, so a newly published advisory does
 not block an unrelated pull request. They run in these places:
 
-- The computer-image stage of a release runs cargo-deny and npm audit
-  before it builds. Then Trivy scans each image for each architecture after its
+- The advisories stage of a release runs cargo-deny and npm audit after
+  the gate and before any image build. Then Trivy scans each image for each architecture after its
   secret scan and before its push, and the
   package tree of each Server Package before it is signed, packed and
   published. `cargo xtask image` and `cargo xtask server-image` scan each
   image in the same way.
 - `.github/workflows/advisories.yml` runs `cargo xtask advisories` each
   day and on a manual request. It runs cargo-deny and npm audit over the
-  lockfiles of main, and Trivy over the Computer Image and the Headless
+  lockfiles of main, the docs site included, and Trivy over the Computer Image and the Headless
   Server image of the latest release, for both architectures. The Runtime
   Lock of the release names its Computer Image. When a check fails, the
   workflow opens an issue that names each advisory in the output of the
@@ -318,13 +320,16 @@ The workflow runs these jobs in this order, and ADR-0025 holds why:
 
 1. **The gate.** The CI workflow runs on the tagged commit, and a red
    result stops the release. The gate scans the tracked files for secrets.
+   Then `cargo xtask release advisories` checks the lockfiles of what the
+   release ships ("The advisory checks" above), and a finding stops the
+   release.
 2. **The images.** Each image stage that builds runs as two jobs at the
    same time, one for each architecture, and each job runs on a Linux
    runner of that architecture (`--platform amd64` on `ubuntu-24.04`,
    `--platform arm64` on `ubuntu-24.04-arm`). A job hands the digest that
    it pushed to the manifest job as a workflow artifact.
    - `cargo xtask release computer-image --platform <platform>`. The
-     advisory checks run first. Then the stage builds the Computer Image
+     stage builds the Computer Image
      for its architecture and exports its filesystem, scans the export
      for secrets, then for known vulnerabilities, and pushes the image by
      digest, with no tag, only after both scans pass, from the same build

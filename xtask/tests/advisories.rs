@@ -80,24 +80,19 @@ fn assert_trivy_scan(script: &str) {
 
 // --- the lanes ---
 
-/// The release lane checks the lockfiles only. Each computer-image job of
-/// the release scans the image of its own platform before the push.
+/// The release lane checks the lockfiles of what a release ships: the
+/// crates, the UI that the server bundles and the Client App. No release
+/// artifact holds the docs site, so the daily lane alone checks it. Each
+/// computer-image job of the release scans the image of its own platform
+/// before the push.
 #[test]
-fn the_advisory_lane_checks_the_lockfiles() {
+fn the_advisory_lane_checks_the_lockfiles_that_a_release_ships() {
     let tmp = tempfile::tempdir().unwrap();
     let lane = advisory_lane(tmp.path(), target());
     let names: Vec<&str> = lane.steps.iter().map(|step| step.name).collect();
 
     assert_eq!(lane.name, "advisories");
-    assert_eq!(
-        names,
-        [
-            "cargo-deny",
-            "ui-npm-audit",
-            "desktop-npm-audit",
-            "docs-site-npm-audit",
-        ]
-    );
+    assert_eq!(names, ["cargo-deny", "ui-npm-audit", "desktop-npm-audit",]);
 }
 
 /// The daily workflow scans what people run: the images of the latest
@@ -189,7 +184,7 @@ fn npm_audit_reads_each_lockfile_at_the_high_level() {
         write(tmp.path(), &format!("{package}/package.json"), "{}");
         write(tmp.path(), &format!("{package}/package-lock.json"), "{}");
     }
-    let lane = advisory_lane(tmp.path(), target());
+    let lane = published_advisory_lane(tmp.path(), target());
 
     for (name, package) in [
         ("ui-npm-audit", "ui"),
@@ -217,7 +212,7 @@ fn npm_audit_reads_each_lockfile_at_the_high_level() {
 #[test]
 fn npm_audit_skips_a_package_without_a_lockfile() {
     let tmp = tempfile::tempdir().unwrap();
-    let lane = advisory_lane(tmp.path(), target());
+    let lane = published_advisory_lane(tmp.path(), target());
     for name in ["ui-npm-audit", "desktop-npm-audit", "docs-site-npm-audit"] {
         assert!(
             matches!(step(&lane, name).action, Action::Skip(_)),

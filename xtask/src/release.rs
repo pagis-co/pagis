@@ -784,6 +784,8 @@ const TARGETS: [Target; 3] = [
 /// [`DIST_DIR`] are the input of the next stages.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReleaseStage {
+    /// Check the lockfiles of what the release ships for advisories.
+    Advisories,
     /// Build, scan and push the Computer image of each platform by digest.
     ComputerImage,
     /// Join the Computer image digests under the pinned tag, and resolve
@@ -805,7 +807,8 @@ pub enum ReleaseStage {
 }
 
 impl ReleaseStage {
-    pub const ALL: [ReleaseStage; 7] = [
+    pub const ALL: [ReleaseStage; 8] = [
+        ReleaseStage::Advisories,
         ReleaseStage::ComputerImage,
         ReleaseStage::ComputerManifest,
         ReleaseStage::ServerImage,
@@ -821,14 +824,15 @@ impl ReleaseStage {
             .find(|stage| stage.name() == name)
             .with_context(|| {
                 format!(
-                    "{name} is not a release stage; use computer-image, computer-manifest, \
-                     server-image, server-manifest, linux, macos or draft"
+                    "{name} is not a release stage; use advisories, computer-image, \
+                     computer-manifest, server-image, server-manifest, linux, macos or draft"
                 )
             })
     }
 
     pub fn name(self) -> &'static str {
         match self {
+            ReleaseStage::Advisories => "advisories",
             ReleaseStage::ComputerImage => "computer-image",
             ReleaseStage::ComputerManifest => "computer-manifest",
             ReleaseStage::ServerImage => "server-image",
@@ -876,6 +880,7 @@ pub fn gog_asset_name(target: &str) -> String {
 /// Plan the steps of one release `stage` for the workspace at `root`.
 pub fn release_plan(root: &Path, cx: &ReleaseContext, stage: ReleaseStage) -> Vec<Step> {
     match stage {
+        ReleaseStage::Advisories => crate::advisories::advisory_lane(root, &cx.target_dir).steps,
         ReleaseStage::ComputerImage => {
             let mut steps = vec![builder_step(root)];
             for platform in &cx.platforms {

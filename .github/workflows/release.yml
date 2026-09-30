@@ -2,7 +2,8 @@
 # run builds, signs and pushes every artifact of the release
 # (docs/RELEASING-SERVER.md):
 #
-# 1. The gate: the CI workflow on the tagged commit.
+# 1. The gate: the CI workflow on the tagged commit, and the advisory
+#    checks of the lockfiles that the release ships.
 # 2. The images: the Computer image and the Headless Server image. Each
 #    platform builds on a runner of its own architecture, is scanned, and
 #    is pushed by digest. A manifest job joins the digests under the tag
@@ -37,9 +38,38 @@ jobs:
     name: gate
     uses: ./.github/workflows/ci.yml
 
+  # A newly published advisory in a crate, the UI or the Client App stops
+  # the release before any image build.
+  advisories:
+    name: advisories
+    needs: gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: cargo xtask release advisories
+        run: cargo xtask release advisories --tag "$GITHUB_REF_NAME"
+
   computer-image:
     name: Computer image (${{ matrix.platform }})
-    needs: gate
+    needs: advisories
     # Each platform builds on a runner of its own architecture, so no
     # build runs under emulation. Each job pushes its platform by digest.
     strategy:
