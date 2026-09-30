@@ -123,7 +123,7 @@ the key once, with no passphrase:
 
 ```bash
 gpg --batch --pinentry-mode loopback --passphrase '' \
-  --quick-generate-key "Pagis release <release@example.invalid>" ed25519 sign 2y
+  --quick-generate-key "Pagis release <release@pagis.co>" ed25519 sign 2y
 gpg --armor --export <fingerprint> > docs/release-key.asc
 ```
 
