@@ -734,12 +734,15 @@ async fn configured_source() -> (SqliteKnowledgeStore, SyncStatus) {
 async fn acquisition_that_does_not_settle_names_the_item_count() {
     let (store, status) = configured_source().await;
     let key = status.key();
-    let failure = ImportWait::new(&store, &key, 2, std::time::Duration::from_secs(2))
+    let failure = ImportWait::new(&store, &key, 2, std::time::Duration::from_millis(50))
         .settled()
         .await
         .expect_err("the two evidence items never arrive");
 
-    assert!(failure.contains("within 2 seconds"), "{failure}");
+    assert!(
+        failure.contains("source acquisition did not settle"),
+        "{failure}"
+    );
     assert!(failure.contains("0 of 2 items acquired"), "{failure}");
 }
 
@@ -775,7 +778,7 @@ async fn an_import_that_is_still_arriving_does_not_settle() {
         .await
         .unwrap();
 
-    let failure = ImportWait::new(&store, &key, 0, std::time::Duration::from_secs(1))
+    let failure = ImportWait::new(&store, &key, 0, std::time::Duration::from_millis(50))
         .settled()
         .await
         .expect_err("a source that is still arriving never settles");

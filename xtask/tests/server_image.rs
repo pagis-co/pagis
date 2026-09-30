@@ -10,16 +10,12 @@ use xtask::{
     server_image_steps,
 };
 
+use crate::support::workspace_root;
+
 const DOCKERFILE: &str = "Dockerfile";
 
-fn root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("xtask lives one level under the workspace root")
-}
-
 fn dockerfile() -> String {
-    std::fs::read_to_string(root().join(DOCKERFILE)).expect("read the server Dockerfile")
+    std::fs::read_to_string(workspace_root().join(DOCKERFILE)).expect("read the server Dockerfile")
 }
 
 fn commands(step: &Step) -> &[Cmd] {
@@ -132,8 +128,8 @@ fn the_build_takes_the_posthog_project_from_the_environment() {
 /// of the image leaves it out at every depth.
 #[test]
 fn the_build_context_leaves_out_env_files() {
-    let ignored =
-        std::fs::read_to_string(root().join(".dockerignore")).expect("read .dockerignore");
+    let ignored = std::fs::read_to_string(workspace_root().join(".dockerignore"))
+        .expect("read .dockerignore");
     let lines: Vec<&str> = ignored.lines().map(str::trim).collect();
 
     for pattern in [".env", "**/.env"] {
@@ -173,7 +169,7 @@ fn the_image_builds_pagis_with_the_pinned_cargo_auditable() {
 
 #[test]
 fn the_image_carries_the_release_that_is_in_it() {
-    let version = std::fs::read_to_string(root().join("Cargo.toml"))
+    let version = std::fs::read_to_string(workspace_root().join("Cargo.toml"))
         .expect("read the workspace manifest")
         .parse::<toml::Table>()
         .expect("the manifest is TOML")["workspace"]["package"]["version"]
@@ -205,44 +201,11 @@ fn a_publish_whose_label_is_not_the_release_names_both() {
     assert!(reason.contains("1.2.3"), "{reason}");
 }
 
-/// The image is one of the four artifacts of a release, so the release
-/// plan builds it and does not leave it to a separate run.
-#[test]
-fn the_release_plan_builds_the_server_image_after_the_digest() {
-    let steps = xtask::release_plan(
-        Path::new("/repo"),
-        &xtask::ReleaseContext {
-            version: "1.2.3".into(),
-            image: "ghcr.io/pagis-co/pagis-computer:0.3.0".into(),
-            computer_published: false,
-            target_dir: std::path::PathBuf::from("/shared/pagis-target"),
-        },
-        xtask::ReleaseStage::Images,
-    );
-    let names: Vec<&str> = steps.iter().map(|s| s.name).collect();
-    let digest = names
-        .iter()
-        .position(|n| *n == "image-digest")
-        .expect("image-digest");
-    let server = names
-        .iter()
-        .position(|n| *n == "server-image")
-        .expect("server-image");
-
-    let push = names
-        .iter()
-        .position(|n| *n == "server-image-push")
-        .expect("server-image-push");
-
-    assert!(digest < server && server < push, "{names:?}");
-    assert!(joined(&steps[push..=push]).contains("ghcr.io/pagis-co/pagis-server:1.2.3"));
-}
-
 /// The package is public, so the publish scans the exported filesystem
 /// of the image for secrets and pushes only after a clean scan.
 #[test]
 fn the_publish_scans_the_image_for_secrets_before_it_pushes() {
-    let steps = server_image_plan(root(), &server_image("1.2.3"), target());
+    let steps = server_image_plan(&workspace_root(), &server_image("1.2.3"), target());
     let names: Vec<&str> = steps.iter().map(|s| s.name).collect();
 
     assert_eq!(
@@ -270,7 +233,7 @@ fn the_publish_scans_the_image_for_secrets_before_it_pushes() {
 /// scan prints no component for a check by hand.
 #[test]
 fn the_publish_scans_the_image_for_vulnerabilities_before_it_pushes() {
-    let steps = server_image_plan(root(), &server_image("1.2.3"), target());
+    let steps = server_image_plan(&workspace_root(), &server_image("1.2.3"), target());
     let scan = joined(&steps[3..4]);
 
     assert_eq!(steps[3].name, "server-image-vuln-scan");

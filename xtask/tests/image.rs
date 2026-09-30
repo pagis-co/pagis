@@ -3,15 +3,15 @@
 
 use std::path::Path;
 
+use xtask::advisories::computer_image_components;
 use xtask::{Action, Cmd, Step, VERSION_LABEL, check_pin, image_plan, labelled_version};
+
+use crate::support::workspace_root;
 
 const DOCKERFILE: &str = "computer/Dockerfile";
 
 fn dockerfile() -> String {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("xtask lives one level under the workspace root");
-    std::fs::read_to_string(root.join(DOCKERFILE)).expect("read computer/Dockerfile")
+    std::fs::read_to_string(workspace_root().join(DOCKERFILE)).expect("read computer/Dockerfile")
 }
 
 fn commands(step: &Step) -> &[Cmd] {
@@ -81,11 +81,8 @@ fn the_publish_runs_on_a_builder_that_can_cross_build() {
 /// of the image for secrets and pushes only after a clean scan.
 #[test]
 fn the_publish_scans_the_image_for_secrets_before_it_pushes() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("xtask lives one level under the workspace root");
     let steps = image_plan(
-        root,
+        &workspace_root(),
         "ghcr.io/pagis-co/pagis-computer:0.3.0",
         Path::new("/shared/pagis-target"),
     );
@@ -115,11 +112,8 @@ fn the_publish_scans_the_image_for_secrets_before_it_pushes() {
 /// pinned components that Trivy does not identify.
 #[test]
 fn the_publish_scans_the_image_for_vulnerabilities_before_it_pushes() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("xtask lives one level under the workspace root");
     let steps = image_plan(
-        root,
+        &workspace_root(),
         "ghcr.io/pagis-co/pagis-computer:0.3.0",
         Path::new("/shared/pagis-target"),
     );
@@ -138,8 +132,8 @@ fn the_publish_scans_the_image_for_vulnerabilities_before_it_pushes() {
             "{scan}"
         );
     }
-    for component in ["wlroots 0.19.3", "labwc 0.9.8", "node 24.20.0"] {
-        assert!(scan.contains(component), "{component}: {scan}");
+    for component in computer_image_components(&dockerfile()) {
+        assert!(scan.contains(&component), "{component}: {scan}");
     }
 }
 

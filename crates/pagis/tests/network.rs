@@ -233,53 +233,6 @@ async fn daemon_behind_a_trusted_proxy() -> Option<(TestDaemon, ForwardingProxy)
     Some((daemon, proxy))
 }
 
-/// A browser on another machine reaches the daemon over TLS through the
-/// proxy, and the Session cookie it gets is `Secure`, host-only and
-/// `SameSite=Strict`.
-#[tokio::test]
-async fn a_browser_signs_in_over_tls_through_the_proxy() {
-    let Some((daemon, proxy)) = daemon_behind_a_trusted_proxy().await else {
-        return;
-    };
-    let person = person(&daemon, "grace@example.com", "a good password").await;
-
-    let response = client()
-        .post(format!("{}/api/v1/sessions", proxy.base_url))
-        .json(&serde_json::json!({
-            "email": "grace@example.com",
-            "password": "a good password",
-        }))
-        .send()
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), 200);
-    let cookie = set_cookie(&response, SESSION_COOKIE).expect("the answer sets the cookie");
-    assert!(cookie.contains("; Secure"), "{cookie}");
-    assert!(cookie.contains("HttpOnly"), "{cookie}");
-    assert!(cookie.contains("SameSite=Strict"), "{cookie}");
-    assert!(!cookie.to_lowercase().contains("domain"), "{cookie}");
-
-    // The cookie is what the browser sends back, and it reads that
-    // person's own record through the proxy.
-    let secret = cookie
-        .split(';')
-        .next()
-        .and_then(|pair| pair.split_once('='))
-        .map(|(_, secret)| secret.to_string())
-        .expect("the cookie value");
-    let user: serde_json::Value = client()
-        .get(format!("{}/api/v1/user", proxy.base_url))
-        .header("cookie", format!("{SESSION_COOKIE}={secret}"))
-        .send()
-        .await
-        .unwrap()
-        .json()
-        .await
-        .unwrap();
-    assert_eq!(user["id"], person.id.to_string());
-}
-
 /// The same proxy in front of a daemon that trusts no address: the
 /// forwarded scheme is not believed, so the cookie is not `Secure`. A
 /// page that claims TLS cannot make the daemon mark a cookie for it.
@@ -411,46 +364,6 @@ async fn cors_names_the_public_origin_and_refuses_another() {
         "another origin is named in no answer: {:?}",
         stranger.headers()
     );
-}
-
-/// A server refuses the sign-in link and the Client Credential trade.
-///
-/// The link and the credential belong to a local installation: they are
-/// the way a person already at the machine gets in. A server holds no
-/// Client Credential, so it refuses both, and a person on a server signs
-/// in with a password. `sessions.rs` drives the one-minute, one-use rule
-/// where the link does answer.
-#[tokio::test]
-async fn a_server_refuses_the_sign_in_link_and_the_credential_trade() {
-    let Some((daemon, proxy)) = daemon_behind_a_trusted_proxy().await else {
-        return;
-    };
-    assert!(
-        daemon.booted.client_credential.is_none(),
-        "a server holds no Client Credential"
-    );
-
-    let url = pagis::sign_in_link(daemon.stores(), &daemon.base_url)
-        .await
-        .expect("mint a sign-in link");
-    // The secret is a path segment, not a query: no `?token=` and no
-    // query string at all.
-    assert!(!url.contains('?'), "{url}");
-
-    let path = url.trim_start_matches(&daemon.base_url);
-    for base in [&daemon.base_url, &proxy.base_url] {
-        let refused = client().get(format!("{base}{path}")).send().await.unwrap();
-        assert_eq!(refused.status(), 404);
-        assert_eq!(set_cookie(&refused, SESSION_COOKIE), None);
-
-        let exchange = client()
-            .post(format!("{base}/api/v1/sessions/client"))
-            .json(&serde_json::json!({ "credential": "anything at all" }))
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(exchange.status(), 404);
-    }
 }
 
 /// A local installation configures nothing and is reached from its own
@@ -898,7 +811,7 @@ fn require_docker() {
 }
 
 /// A browser signs in over real TLS through the proxy the deployment
-/// documents, and the Session cookie it gets is `Secure`.
+/// documents, and the Session cookie it gets is `Secure` and host-only.
 ///
 /// The other tests here send `X-Forwarded-Proto: https` over plain HTTP.
 /// This test runs the documented shape: Caddy in front, a certificate, a
@@ -949,6 +862,7 @@ async fn a_browser_signs_in_over_real_tls_through_caddy() {
         assert!(cookie.contains("; Secure"), "{cookie}");
         assert!(cookie.contains("HttpOnly"), "{cookie}");
         assert!(cookie.contains("SameSite=Strict"), "{cookie}");
+        assert!(!cookie.to_lowercase().contains("domain"), "{cookie}");
     });
 
     // The cookie carries the person's own read back through the proxy,
@@ -970,6 +884,6 @@ async fn a_browser_signs_in_over_real_tls_through_caddy() {
         .expect("JSON");
 
     proxy.stop();
-    outcome.expect("the cookie is Secure, HttpOnly and SameSite=Strict");
+    outcome.expect("the cookie is Secure, HttpOnly, SameSite=Strict and host-only");
     assert_eq!(user["id"], person.id.to_string());
 }

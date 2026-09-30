@@ -238,6 +238,30 @@ async fn the_first_run_flow_makes_one_administrator_and_then_answers_nothing() {
         .find(|item| item["provider"] == "anthropic")
         .expect("anthropic");
     assert_eq!(anthropic["parts"][0]["configured"], true);
+    // The flow makes the seeded person the administrator, and no second
+    // one.
+    let roster: serde_json::Value = client()
+        .get(format!(
+            "{}/api/v1/administration/people",
+            daemon.administration_base_url
+        ))
+        .header("cookie", &cookie)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        roster["items"]
+            .as_array()
+            .expect("items")
+            .iter()
+            .filter(|person| person["role"] == UserRole::Administrator.as_str())
+            .count(),
+        1,
+        "{roster}"
+    );
 
     // The flow is spent, on both methods.
     for response in [

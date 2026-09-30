@@ -1,18 +1,19 @@
 //! A Postgres for the tests that run against both backends.
 //!
-//! One `postgres:18-alpine` container for the machine, and one schema
-//! inside one database for each test, which is the isolation
-//! `#[sqlx::test]` gives the SQLite side. The container is started
-//! through the Docker daemon with `bollard`, which the workspace already
-//! carries for the agent Computer.
+//! One `postgres:18-alpine` container for the machine, and one database
+//! for each test, which is the isolation `#[sqlx::test]` gives the
+//! SQLite side. The container is started through the Docker daemon with
+//! `bollard`, which the workspace already carries for the agent
+//! Computer.
 //!
-//! A schema, not a database: `CREATE DATABASE` copies a template, so a
-//! full run of the suite would write more than a gigabyte and fill the
-//! virtual machine the Docker host runs in. A schema costs what the test
-//! writes into it and nothing else. The connection URL carries
-//! `options=-c search_path=<schema>`, so every connection of that test —
-//! the store set, the migrations and a daemon the test boots — reads and
-//! writes inside it.
+//! Each test database is a copy of a template database that holds the
+//! migrations. The first process that needs the template of the current
+//! migrations makes it, and every later test copies it with
+//! `CREATE DATABASE ... TEMPLATE`. A copy takes about 60 ms and its drop
+//! about 20 ms, where the migrations alone take about 0.6 s, and a full
+//! run makes over 200 test databases.
+//! The name of the template holds a hash of the migrations, so a change
+//! to them makes a new template and an older one stays unused.
 //!
 //! The container has a fixed name and is shared, because the test
 //! runner gives each test a process of its own: one container for each
@@ -28,11 +29,11 @@
 //! docker rm -f -v pagis-test-postgres
 //! ```
 //!
-//! The name of each schema, and of each database that [`Cluster`]
-//! makes, holds the id of the process that made it. Each process that
-//! makes one drops first the schemas and databases of the processes
-//! that ended, so the container holds little more than the tests that
-//! run now. A name whose process id is in use again stays until its
+//! The name of each test database holds the id of the process that
+//! made it. Each process that makes one drops first the databases of the
+//! processes that ended, so the container holds little more than the
+//! tests that run now. A test database takes about 11 MB, so a run under
+//! nextest, with one process for each test, holds about 100 MB. A name whose process id is in use again stays until its
 //! run is an hour old.
 //!
 //! When Docker is not reachable, every call answers `None` with one
@@ -59,20 +60,21 @@ const NAME: &str = "pagis-test-postgres";
 ///
 /// Postgres keeps its dynamic shared memory in `/dev/shm`. The largest
 /// user is the cumulative statistics. They keep about 300 bytes for each
-/// relation that a test uses, until the schema of the relation is
-/// dropped. A test schema holds about 400 relations, so it costs about
+/// relation that a test uses, until the database of the relation is
+/// dropped. A test database holds about 400 relations, so it costs about
 /// 120 KB. The statistics grow in segments that double in size. With the
 /// Docker default of 64 MB, Postgres cannot add the next segment at
-/// about 560 schemas, and a backend crashes.
+/// about 560 databases, and a backend crashes.
 ///
-/// Each run drops the schemas of the processes that ended. Under nextest
-/// the container then holds about one schema for each test that runs,
-/// and a stress run of the store suite uses about 3 MB. The size is for
-/// the cases that this rule does not decide. A gate run makes about 240
-/// schemas. When one process holds all of them to the end of the run,
-/// as `cargo test` does, they need about 45 MB. When the one-hour rule
-/// of [`finished`] decides, an hour of stress runs makes about 1200
-/// schemas, which need about 190 MB. 512 MB holds about 3000 schemas and
+/// Each run drops the databases of the processes that ended. Under
+/// nextest the container then holds about one database for each test
+/// that runs, and a stress run of the store suite uses about 3 MB. The
+/// size is for the cases that this rule does not decide. A gate run
+/// makes about 240 databases. When one process holds all of them to the
+/// end of the run, as `cargo test` does, they need about 45 MB. When the
+/// one-hour rule of [`finished`] decides, an hour of stress runs makes
+/// about 1200 databases, which need about 190 MB. 512 MB holds about
+/// 3000 databases and
 /// the segments of parallel queries. `/dev/shm` is a tmpfs, so it uses
 /// memory only for what Postgres writes. 512 MB is one eighth of the
 /// 4 GB of the Colima virtual machine.
@@ -90,7 +92,7 @@ const READY_POLL: Duration = Duration::from_millis(200);
 /// seconds covers it.
 const ENSURE_ATTEMPTS: u32 = 120;
 const ENSURE_BACKOFF: Duration = Duration::from_millis(250);
-/// How long a test schema or database lives, when its process id is in
+/// How long a test database lives, when its process id is in
 /// use again, before a later run drops it. A run that takes longer than
 /// this is not a run.
 const STALE_AFTER: u64 = 3600;
@@ -99,7 +101,11 @@ const STALE_AFTER: u64 = 3600;
 /// is a hash of the name. Advisory locks with two keys do not meet the
 /// one-key locks of the migrations.
 const DROP_LOCK: i32 = 0x7061_6769;
-/// The one database every test schema lives in.
+/// The second key, with [`DROP_LOCK`], of the advisory lock that a
+/// process holds while it makes the template database.
+const TEMPLATE_LOCK: i32 = 0;
+/// The database that the harness connects to when it makes, copies and
+/// drops the test databases.
 const DATABASE: &str = "postgres";
 /// How many times a test tries to make its database before it fails,
 /// and how long it waits between two attempts.
@@ -130,21 +136,31 @@ fn url(address: &str) -> String {
     format!("postgres://{USER}:{PASSWORD}@{address}/{DATABASE}")
 }
 
-/// The URL of one test's schema. `search_path` sends every unqualified
-/// name of every statement into it, which is what makes one database
-/// hold many tests.
-fn schema_url(address: &str, schema: &str) -> String {
-    format!("{}?options=-c%20search_path%3D{schema}", url(address))
+/// The URL of one database of the container.
+fn database_url(address: &str, database: &str) -> String {
+    format!("postgres://{USER}:{PASSWORD}@{address}/{database}")
 }
 
-/// One empty Postgres schema, with its URL and a pool on it. Every
-/// connection the URL opens reads and writes inside the schema.
+/// The name of the template database of the current migrations. The
+/// hash covers the version and the checksum of each migration.
+fn template_name() -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::hash::DefaultHasher::new();
+    for migration in pagis_storage_postgres::MIGRATOR.iter() {
+        migration.version.hash(&mut hasher);
+        migration.checksum.hash(&mut hasher);
+    }
+    format!("pagis_template_{:016x}", hasher.finish())
+}
+
+/// One Postgres database with the migrations applied, with its URL and a
+/// pool on it.
 pub struct TestDatabase {
     pub url: String,
     pub pool: PgPool,
 }
 
-/// One empty Postgres schema with the migrations applied, or `None` when
+/// One Postgres database with the migrations applied, or `None` when
 /// Docker is not reachable.
 ///
 /// The caller holds it for the length of one test.
@@ -236,7 +252,7 @@ async fn published_address(docker: &Docker, name: &str) -> Result<String, String
 }
 
 async fn make_database(address: &str) -> Result<TestDatabase, String> {
-    let schema = format!(
+    let name = format!(
         "pagis_test_{}_{}_{}",
         started_at(),
         std::process::id(),
@@ -247,20 +263,90 @@ async fn make_database(address: &str) -> Result<TestDatabase, String> {
         .await
         .map_err(|error| format!("connect to the test Postgres at {address}: {error}"))?;
     drop_finished(&mut admin).await;
-    sqlx::query(&format!("CREATE SCHEMA {schema}"))
+    let template = template_name();
+    ensure_template(&mut admin, address, &template).await?;
+    sqlx::query(&format!("CREATE DATABASE {name} TEMPLATE {template}"))
         .execute(&mut admin)
         .await
-        .map_err(|error| format!("create the test schema: {error}"))?;
+        .map_err(|error| format!("copy the template database: {error}"))?;
     let _ = sqlx::Connection::close(admin).await;
-    let url = schema_url(address, &schema);
+    let url = database_url(address, &name);
     let pool = pagis_storage_postgres::connect(&url)
         .await
-        .map_err(|error| format!("connect to the test schema: {error}"))?;
-    pagis_storage_postgres::MIGRATOR
-        .run(&pool)
-        .await
-        .map_err(|error| format!("apply the migrations: {error}"))?;
+        .map_err(|error| format!("connect to the test database: {error}"))?;
     Ok(TestDatabase { url, pool })
+}
+
+/// Make the template database `template` with the migrations applied,
+/// unless it is there.
+///
+/// Many processes start at the same time, so one process makes it under
+/// an advisory lock while the others wait for that lock. The process
+/// migrates a database of another name and then renames it, so a
+/// template that has its name is complete. Postgres copies a template
+/// only while no session is connected to it, so the pool that migrates
+/// it closes first.
+async fn ensure_template(
+    admin: &mut sqlx::PgConnection,
+    address: &str,
+    template: &str,
+) -> Result<(), String> {
+    if database_exists(admin, template).await? {
+        return Ok(());
+    }
+    sqlx::query("SELECT pg_advisory_lock($1, $2)")
+        .bind(DROP_LOCK)
+        .bind(TEMPLATE_LOCK)
+        .execute(&mut *admin)
+        .await
+        .map_err(|error| format!("lock the template database: {error}"))?;
+    let made = match database_exists(admin, template).await {
+        Ok(true) => Ok(()),
+        Ok(false) => make_template(admin, address, template).await,
+        Err(reason) => Err(reason),
+    };
+    let _ = sqlx::query("SELECT pg_advisory_unlock($1, $2)")
+        .bind(DROP_LOCK)
+        .bind(TEMPLATE_LOCK)
+        .execute(&mut *admin)
+        .await;
+    made
+}
+
+async fn database_exists(admin: &mut sqlx::PgConnection, name: &str) -> Result<bool, String> {
+    sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1)")
+        .bind(name)
+        .fetch_one(admin)
+        .await
+        .map_err(|error| format!("look for the database {name}: {error}"))
+}
+
+/// Migrate a new database and give it the name `template`.
+async fn make_template(
+    admin: &mut sqlx::PgConnection,
+    address: &str,
+    template: &str,
+) -> Result<(), String> {
+    let building = format!("{template}_building");
+    sqlx::query(&format!("DROP DATABASE IF EXISTS {building}"))
+        .execute(&mut *admin)
+        .await
+        .map_err(|error| format!("drop an unfinished template database: {error}"))?;
+    sqlx::query(&format!("CREATE DATABASE {building}"))
+        .execute(&mut *admin)
+        .await
+        .map_err(|error| format!("create the template database: {error}"))?;
+    let pool = pagis_storage_postgres::connect(&database_url(address, &building))
+        .await
+        .map_err(|error| format!("connect to the template database: {error}"))?;
+    let migrated = pagis_storage_postgres::MIGRATOR.run(&pool).await;
+    pool.close().await;
+    migrated.map_err(|error| format!("apply the migrations to the template database: {error}"))?;
+    sqlx::query(&format!("ALTER DATABASE {building} RENAME TO {template}"))
+        .execute(&mut *admin)
+        .await
+        .map_err(|error| format!("name the template database: {error}"))?;
+    Ok(())
 }
 
 /// Find the one container, or make it, and wait until it serves.
@@ -448,7 +534,7 @@ fn container_config() -> ContainerCreateBody {
     };
     ContainerCreateBody {
         image: Some(IMAGE.to_string()),
-        // `fsync` off and no full page writes: the schemas live for one
+        // `fsync` off and no full page writes: the databases live for one
         // run, and a crash of the container loses nothing anybody wants.
         // `max_connections` covers the tests that run at the same time,
         // each with a pool of its own.
@@ -494,18 +580,12 @@ fn published_port(container: &ContainerInspectResponse) -> Option<u16> {
         .ok()
 }
 
-/// Drop the test schemas and the test databases whose run has
+/// Drop the test databases whose run has
 /// [finished]. The name carries all that the rule reads, so this needs
 /// no bookkeeping of its own.
 ///
 /// A drop that fails leaves the name to a later run.
 async fn drop_finished(admin: &mut sqlx::PgConnection) {
-    let schemas = sqlx::query_scalar::<_, String>(
-        "SELECT nspname::text FROM pg_namespace WHERE nspname LIKE 'pagis\\_test\\_%'",
-    )
-    .fetch_all(&mut *admin)
-    .await
-    .unwrap_or_default();
     let databases = sqlx::query_scalar::<_, String>(
         "SELECT datname::text FROM pg_database WHERE datname LIKE 'pagis\\_test\\_%'",
     )
@@ -515,10 +595,6 @@ async fn drop_finished(admin: &mut sqlx::PgConnection) {
     let now = unix_seconds();
     // A name that `finished` accepts holds only letters, digits and
     // underscores, so it is a valid identifier without quotes.
-    for schema in schemas.iter().filter(|name| finished(name, now, running)) {
-        let statement = format!("DROP SCHEMA IF EXISTS {schema} CASCADE");
-        drop_unless_taken(admin, schema, &statement).await;
-    }
     for database in databases.iter().filter(|name| finished(name, now, running)) {
         let statement = format!("DROP DATABASE IF EXISTS {database}");
         drop_unless_taken(admin, database, &statement).await;
@@ -547,7 +623,7 @@ async fn drop_unless_taken(admin: &mut sqlx::PgConnection, name: &str, statement
         .await;
 }
 
-/// Whether the run that named a test schema or test database has ended,
+/// Whether the run that named a test database has ended,
 /// at the second `now`.
 ///
 /// The name is `pagis_test_<second>_<pid>_<n>`: the second at which the
@@ -625,9 +701,9 @@ fn unix_seconds() -> u64 {
 
 /// One Postgres database of its own, for the backup test.
 ///
-/// A whole database and not a schema, because `pg_dump` and
-/// `pg_restore` work on a database and that is what a deployment backs
-/// up. The two URLs name the same database from the two sides of the
+/// An empty database and not a copy of the template, because a daemon
+/// that opens it migrates it and a restore writes the schema of its
+/// dump, as in a deployment. The two URLs name the same database from the two sides of the
 /// container: `url` goes through the published port, and `inside` is
 /// what a program running in the container uses.
 pub struct OwnDatabase {
@@ -891,22 +967,14 @@ mod tests {
             let ended = ended_process();
             let live = std::process::id();
             // The last part counts from 1000, apart from the numbers
-            // that this process gives to the schemas it makes.
-            let ended_schema = format!("pagis_test_{now}_{ended}_1000");
-            let live_schema = format!("pagis_test_{now}_{live}_1001");
-            let old_schema = format!("pagis_test_{old}_{live}_1002");
-            let ended_database = format!("pagis_test_{now}_{ended}_1003");
-            let live_database = format!("pagis_test_{now}_{live}_1004");
+            // that this process gives to the databases it makes.
+            let ended_database = format!("pagis_test_{now}_{ended}_1000");
+            let live_database = format!("pagis_test_{now}_{live}_1001");
+            let old_database = format!("pagis_test_{old}_{live}_1002");
             let mut admin = <sqlx::PgConnection as sqlx::Connection>::connect(&url(&address))
                 .await
                 .expect("connect to the test container");
-            for schema in [&ended_schema, &live_schema, &old_schema] {
-                sqlx::query(&format!("CREATE SCHEMA {schema}"))
-                    .execute(&mut admin)
-                    .await
-                    .expect("make a schema");
-            }
-            for database in [&ended_database, &live_database] {
+            for database in [&ended_database, &live_database, &old_database] {
                 sqlx::query(&format!("CREATE DATABASE {database}"))
                     .execute(&mut admin)
                     .await
@@ -915,30 +983,23 @@ mod tests {
 
             let next = make_database(&address)
                 .await
-                .expect("the next run makes its schema");
+                .expect("the next run makes its database");
+            let migrated: i64 = sqlx::query_scalar("SELECT count(*) FROM _sqlx_migrations")
+                .fetch_one(&next.pool)
+                .await
+                .expect("the copy of the template holds the migration table");
             next.pool.close().await;
 
-            let schemas: Vec<String> = sqlx::query_scalar("SELECT nspname::text FROM pg_namespace")
-                .fetch_all(&mut admin)
-                .await
-                .expect("read the schemas");
             let databases: Vec<String> =
                 sqlx::query_scalar("SELECT datname::text FROM pg_database")
                     .fetch_all(&mut admin)
                     .await
                     .expect("read the databases");
             let _ = sqlx::Connection::close(admin).await;
-            assert!(
-                !schemas.contains(&ended_schema),
-                "the schema of an ended process is dropped: {schemas:?}"
-            );
-            assert!(
-                schemas.contains(&live_schema),
-                "the schema of a live process stays"
-            );
-            assert!(
-                !schemas.contains(&old_schema),
-                "a schema whose run began over an hour ago is dropped"
+            assert_eq!(
+                migrated,
+                pagis_storage_postgres::MIGRATOR.iter().count() as i64,
+                "the new database holds every migration"
             );
             assert!(
                 !databases.contains(&ended_database),
@@ -947,6 +1008,10 @@ mod tests {
             assert!(
                 databases.contains(&live_database),
                 "the database of a live process stays"
+            );
+            assert!(
+                !databases.contains(&old_database),
+                "a database whose run began over an hour ago is dropped"
             );
         })
         .await;

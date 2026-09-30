@@ -219,10 +219,11 @@ impl SipMedia {
         Ok(negotiated)
     }
 
-    /// Why the media session failed, once it has: the far side's
-    /// packets cannot be read and Pagis's cannot be sent.
-    pub fn failure(&self) -> Option<String> {
-        (*self.pc.subscribe_peer_state().borrow() == PeerConnectionState::Failed).then(|| {
+    /// Wait until the media session is up. The error tells why it
+    /// failed instead: the far side's packets cannot be read and
+    /// Pagis's cannot be sent.
+    pub async fn connected(&self) -> Result<(), String> {
+        self.pc.wait_for_connected().await.map_err(|_| {
             self.pc
                 .disconnect_reason()
                 .map_or_else(|| "unknown".to_string(), |reason| format!("{reason:?}"))

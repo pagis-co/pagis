@@ -4537,29 +4537,41 @@ fn clear_retained_tool_results(transcript: &mut [TurnMessage], active_start: usi
 mod screenshot_window_tests {
     use super::*;
 
+    /// One full-size screenshot. Every call returns the same frame, so
+    /// the PNG is encoded once.
     fn screenshot() -> String {
-        use base64::Engine as _;
-        let mut png = std::io::Cursor::new(Vec::new());
-        image::DynamicImage::new_rgb8(1280, 720)
-            .write_to(&mut png, image::ImageFormat::Png)
-            .unwrap();
-        format!(
-            "data:image/png;base64,{}",
-            base64::engine::general_purpose::STANDARD.encode(png.into_inner())
-        )
+        static SCREENSHOT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+        SCREENSHOT
+            .get_or_init(|| {
+                use base64::Engine as _;
+                let mut png = std::io::Cursor::new(Vec::new());
+                image::DynamicImage::new_rgb8(1280, 720)
+                    .write_to(&mut png, image::ImageFormat::Png)
+                    .unwrap();
+                format!(
+                    "data:image/png;base64,{}",
+                    base64::engine::general_purpose::STANDARD.encode(png.into_inner())
+                )
+            })
+            .clone()
     }
 
-    /// A transcript after `results` computer calls, shrunk after each one
-    /// as the run loop does.
+    /// Computer call `n` of a session: its result goes onto the
+    /// transcript, which then shrinks as the run loop does.
+    fn call(transcript: &mut Vec<TurnMessage>, n: usize) {
+        transcript.push(TurnMessage::tool_result_with_images(
+            format!("call-{n}"),
+            "",
+            vec![screenshot()],
+        ));
+        keep_recent_screenshots(transcript);
+    }
+
+    /// A transcript after `results` computer calls.
     fn session(results: usize) -> Vec<TurnMessage> {
         let mut transcript = Vec::new();
         for n in 0..results {
-            transcript.push(TurnMessage::tool_result_with_images(
-                format!("call-{n}"),
-                "",
-                vec![screenshot()],
-            ));
-            keep_recent_screenshots(&mut transcript);
+            call(&mut transcript, n);
         }
         transcript
     }
@@ -4587,24 +4599,31 @@ mod screenshot_window_tests {
     /// chunks (`min_removal_threshold`).
     #[test]
     fn old_screenshots_shrink_together_once_in_ten_calls() {
-        let mut expected = vec![true; 10];
-        expected.extend([false; 3]);
-        assert_eq!(thumbnails(&session(13)), expected);
-
         let prefix = |transcript: &[TurnMessage]| -> Vec<(String, Vec<String>)> {
             transcript[..13]
                 .iter()
                 .map(|message| (message.text.clone(), message.images.clone()))
                 .collect()
         };
+        let mut transcript = session(13);
+        let mut expected = vec![true; 10];
+        expected.extend([false; 3]);
+        assert_eq!(thumbnails(&transcript), expected);
+        let after_13 = prefix(&transcript);
+
+        for n in 13..22 {
+            call(&mut transcript, n);
+        }
         assert_eq!(
-            prefix(&session(13)),
-            prefix(&session(22)),
+            after_13,
+            prefix(&transcript),
             "calls 14 to 22 change nothing before them"
         );
+
+        call(&mut transcript, 22);
         let mut expected = vec![true; 20];
         expected.extend([false; 3]);
-        assert_eq!(thumbnails(&session(23)), expected);
+        assert_eq!(thumbnails(&transcript), expected);
     }
 
     /// OpenAI's native computer tool refuses a call result without a

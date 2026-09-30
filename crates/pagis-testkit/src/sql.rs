@@ -178,18 +178,21 @@ impl Rows {
                 .fetch_all(pool)
                 .await
                 .map_err(error)?;
-                for (table, column, data_type) in columns {
-                    let sql = if data_type == "bytea" {
-                        format!(
-                            "SELECT \"{column}\" FROM \"{table}\" WHERE \"{column}\" IS NOT NULL"
-                        )
-                    } else {
-                        format!(
-                            "SELECT convert_to(\"{column}\"::text, 'UTF8') FROM \"{table}\" \
-                             WHERE \"{column}\" IS NOT NULL"
-                        )
-                    };
-                    let found: Vec<Vec<u8>> = sqlx::query_scalar(&sql)
+                // One statement for all the columns: a statement for
+                // each column is one round trip for each of about 650.
+                let selects: Vec<String> = columns
+                    .iter()
+                    .map(|(table, column, data_type)| {
+                        let value = if data_type == "bytea" {
+                            format!("\"{column}\"")
+                        } else {
+                            format!("convert_to(\"{column}\"::text, 'UTF8')")
+                        };
+                        format!("SELECT {value} FROM \"{table}\" WHERE \"{column}\" IS NOT NULL")
+                    })
+                    .collect();
+                if !selects.is_empty() {
+                    let found: Vec<Vec<u8>> = sqlx::query_scalar(&selects.join(" UNION ALL "))
                         .fetch_all(pool)
                         .await
                         .map_err(error)?;

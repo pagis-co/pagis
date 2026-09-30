@@ -20,6 +20,11 @@ fn target() -> &'static Path {
     Path::new("/shared/pagis-target")
 }
 
+fn computer_dockerfile() -> String {
+    std::fs::read_to_string(workspace_root().join("computer/Dockerfile"))
+        .expect("read computer/Dockerfile")
+}
+
 fn step<'a>(lane: &'a Lane, name: &str) -> &'a Step {
     lane.steps
         .iter()
@@ -238,8 +243,8 @@ fn the_advisory_lane_scans_the_computer_image_that_this_tree_builds() {
     assert!(scan.contains("--output type=local"), "{scan}");
     assert!(scan.contains(" computer\n"), "{scan}");
     assert!(scan.contains("rootfs"), "{scan}");
-    for component in ["wlroots 0.19.3", "labwc 0.9.8", "node 24.20.0"] {
-        assert!(scan.contains(component), "{component}: {scan}");
+    for component in computer_image_components(&computer_dockerfile()) {
+        assert!(scan.contains(&component), "{component}: {scan}");
     }
 }
 
@@ -261,11 +266,8 @@ fn the_advisory_lane_skips_the_image_scan_without_docker() {
 /// check by hand.
 #[test]
 fn the_components_trivy_does_not_identify_are_read_from_the_dockerfile() {
-    let dockerfile = std::fs::read_to_string(workspace_root().join("computer/Dockerfile"))
-        .expect("read computer/Dockerfile");
-
     assert_eq!(
-        computer_image_components(&dockerfile),
+        computer_image_components(&computer_dockerfile()),
         ["wlroots 0.19.3", "labwc 0.9.8", "node 24.20.0"]
     );
 }

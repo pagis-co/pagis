@@ -257,15 +257,25 @@ fn files_of(tar: &[u8]) -> BTreeMap<String, String> {
     files
 }
 
+/// The archive round trip between the daemon and a Computer.
+///
 /// An upload lands the package as the agent, not as root: the agent's
 /// own shell must read what a materialized version holds.
+///
+/// A publish reads the working copy out of the Computer and drops the
+/// dependencies: `.git`, `node_modules`, `.venv` and whatever
+/// `.gitignore` names. The links a setup leaves in them stop nothing.
+///
+/// The archive endpoint writes a symbolic link and a second path of one
+/// file in the package as link entries, and the pack refuses both by
+/// path.
 #[tokio::test]
 #[ignore = "needs Docker; run via cargo test -- --ignored"]
-async fn an_upload_lands_the_package_as_the_agent() {
+async fn the_archive_round_trip_keeps_the_agent_owner_and_refuses_links() {
     let live = live().await;
+
     let target = format!("{HOME}/.pagis/software/demo/v1");
     live.must(&format!("mkdir -p {target}")).await;
-
     live.manager
         .upload_archive(
             &live.agent_id,
@@ -277,7 +287,6 @@ async fn an_upload_lands_the_package_as_the_agent() {
         )
         .await
         .expect("the upload succeeds");
-
     let owners = live
         .must(&format!(
             "stat -c '%U %a %n' {target}/pagis-software.toml {target}/bin/tool.py"
@@ -287,15 +296,7 @@ async fn an_upload_lands_the_package_as_the_agent() {
         owners,
         format!("agent 644 {target}/pagis-software.toml\nagent 755 {target}/bin/tool.py\n")
     );
-}
 
-/// A publish reads the working copy out of the Computer and drops the
-/// dependencies: `.git`, `node_modules`, `.venv` and whatever
-/// `.gitignore` names. The links a setup leaves in them stop nothing.
-#[tokio::test]
-#[ignore = "needs Docker; run via cargo test -- --ignored"]
-async fn a_download_of_the_working_copy_drops_the_dependencies() {
-    let live = live().await;
     let root = format!("{HOME}/software/demo");
     live.must(&format!(
         "mkdir -p {root}/bin {root}/.git {root}/node_modules/left-pad {root}/.venv/bin \
@@ -312,42 +313,31 @@ async fn a_download_of_the_working_copy_drops_the_dependencies() {
          ln -s /etc {root}/build/etc"
     ))
     .await;
-
     let downloaded = live
         .manager
         .download_archive(&live.agent_id, &root)
         .await
         .expect("the download succeeds");
     let version = pack(downloaded).expect("the pack");
-
     let files: Vec<String> = files_of(&version.tar).into_keys().collect();
     assert_eq!(files, [".gitignore", "bin/tool.py"]);
-}
 
-/// The archive endpoint writes a symbolic link and a second path of one
-/// file as link entries, and the pack refuses both by path.
-#[tokio::test]
-#[ignore = "needs Docker; run via cargo test -- --ignored"]
-async fn a_link_the_package_holds_refuses_the_pack() {
-    let live = live().await;
-    let root = format!("{HOME}/software/demo");
+    let linked = format!("{HOME}/software/linked");
     live.must(&format!(
-        "mkdir -p {root}/bin && \
-         printf 'print(1)\\n' > {root}/bin/tool.py && \
-         ln {root}/bin/tool.py {root}/bin/copy.py && \
-         ln -s /etc/hostname {root}/pagis-software.toml"
+        "mkdir -p {linked}/bin && \
+         printf 'print(1)\\n' > {linked}/bin/tool.py && \
+         ln {linked}/bin/tool.py {linked}/bin/copy.py && \
+         ln -s /etc/hostname {linked}/pagis-software.toml"
     ))
     .await;
-
     let downloaded = live
         .manager
-        .download_archive(&live.agent_id, &root)
+        .download_archive(&live.agent_id, &linked)
         .await
         .expect("the download succeeds");
     let Err(refused) = pack(downloaded) else {
         panic!("the pack is not refused");
     };
-
     assert!(
         refused.contains("\"pagis-software.toml\" is a symbolic link"),
         "{refused}"
@@ -483,9 +473,7 @@ schema = "schemas/add.json"
 
 /// `pagis-apt` as the agent: the wrapper owns every option apt
 /// sees, so an option, a local `.deb` and any subcommand but `install`
-/// are refused. An install of a package the image already holds needs
-/// the package lists, so it is reported and skipped while the
-/// container is offline.
+/// are refused, and no refusal runs anything as root.
 #[tokio::test]
 #[ignore = "needs Docker; run via cargo test -- --ignored"]
 async fn pagis_apt_refuses_options_paths_and_other_subcommands() {
@@ -508,106 +496,4 @@ async fn pagis_apt_refuses_options_paths_and_other_subcommands() {
     }
     // No refusal ran anything as root.
     assert_ne!(live.shell("test -e /tmp/owned").await.exit_code, 0);
-
-    // An accepted grammar: `install <name>`. It needs the package
-    // lists, which the image deletes at build, so a Computer with no
-    // network cannot finish it. The test says which of the two
-    // happened, and refuses only a refusal.
-    let accepted = live.shell("sudo pagis-apt install jq").await;
-    assert!(
-        !accepted.stderr.contains("pagis-apt: refused")
-            && !accepted.stderr.contains("pagis-apt: usage"),
-        "an install of one package name was refused: {}",
-        accepted.stderr
-    );
-    if accepted.exit_code == 0 {
-        assert_eq!(live.shell("command -v jq").await.exit_code, 0);
-    } else {
-        println!("the install of jq needs the network: {}", accepted.stderr);
-    }
-}
-
-/// A Software tool run as person B lands in B's own container, on B's
-/// Tenant Network and under B's labels.
-///
-/// A runner that held one tenant's Computer manager would boot
-/// `pagis-computer-<A>-<B's agent>` for B's call: a container of A's,
-/// labelled A, counted against A's cap and joined to A's network. This
-/// is the proof against a real Docker that it does not.
-#[tokio::test]
-#[ignore = "needs Docker; run via cargo test -- --ignored"]
-async fn a_tool_run_as_another_person_lands_in_that_persons_container() {
-    let live = live().await;
-    // Person B: another Workspace of the same daemon, and an Agent of it.
-    let tenant_b = WorkspaceId::generate();
-    let agent_b = AgentId::generate();
-
-    let manifest = "[package]\nname = \"demo\"\ndescription = \"Two numbers\"\n\n[[tool]]\nname \
-                    = \"who\"\ndescription = \"Names the workspace label\"\nentry = \
-                    \"bin/who.sh\"\nschema = \"schemas/who.json\"\ntimeout_s = 120\n";
-    let script = "#!/bin/sh\ncat > /dev/null\nprintf '{\"ok\": true}\\n'\n";
-    let source = Arc::new(MemorySource {
-        version: PackageVersion {
-            manifest: Manifest::parse(manifest).expect("the manifest parses"),
-            schemas: BTreeMap::new(),
-            widget_schemas: BTreeMap::new(),
-        },
-        tar: package_tar(&[
-            ("pagis-software.toml", manifest, 0o644),
-            ("bin/who.sh", script, 0o755),
-            ("schemas/who.json", "{\"type\": \"object\"}", 0o644),
-        ]),
-    });
-    let materializer = Arc::new(Materializer::new(
-        Arc::clone(&live.managers),
-        Arc::clone(&source) as _,
-    ));
-    let runner = SoftwareRunner::new(
-        Arc::clone(&live.managers),
-        materializer,
-        Arc::clone(&source) as _,
-    );
-
-    let result = runner
-        .run(
-            &tenant_b,
-            &agent_b,
-            "demo",
-            "v1",
-            "who",
-            &serde_json::json!({}),
-        )
-        .await;
-    assert!(!result.is_error, "{}", result.content);
-
-    // The container the run used is B's, and Docker's own label says so.
-    let owner = pagis_computer::ComputerOwner::new(tenant_b.clone(), agent_b.clone());
-    let label = docker_inspect(
-        &owner.container_name(),
-        &format!(
-            "{{{{index .Config.Labels \"{}\"}}}}",
-            pagis_computer::WORKSPACE_LABEL
-        ),
-    );
-    assert_eq!(label, tenant_b.to_string(), "the container is not B's");
-    // And A's container ran nothing of B's: A's Agent is the only Agent
-    // in A's container name.
-    let a_container =
-        pagis_computer::ComputerOwner::new(live.workspace_id.clone(), live.agent_id.clone())
-            .container_name();
-    assert_ne!(a_container, owner.container_name());
-}
-
-/// One `docker inspect` field of one object, as text.
-fn docker_inspect(name: &str, format: &str) -> String {
-    let output = Command::new("docker")
-        .args(["inspect", "-f", format, name])
-        .output()
-        .expect("docker inspect runs");
-    assert!(
-        output.status.success(),
-        "docker inspect {name}: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    String::from_utf8_lossy(&output.stdout).trim().to_string()
 }

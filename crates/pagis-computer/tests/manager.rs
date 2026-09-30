@@ -995,7 +995,7 @@ async fn a_daemon_hold_denies_the_agents_lease_and_its_input() {
 /// A page reacts to a click over a few frames. A settled frame waits
 /// until two frames in a row are the same, so the model sees the page
 /// after its action and not in the middle of it.
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_settled_frame_waits_until_the_screen_stops_changing() {
     let h = harness_with(FakeComputerRuntime::with_image(), Duration::from_secs(600));
     h.manager.wake(&h.agent_id).await.unwrap();

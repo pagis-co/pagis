@@ -307,17 +307,27 @@ async fn a_person_with_two_machines_is_asked_which_one_and_the_command_runs_ther
     assert_eq!(items[0]["resource_id"], studio.host_id());
     assert_eq!(items[0]["allow"], serde_json::json!(["git status"]));
 
-    // The audit fact of the action names the machine it ran on.
-    let events = daemon
-        .stores()
-        .events
-        .list_by_types(&daemon.workspace_id, &["tool.completed"], None, 20)
-        .await
-        .unwrap();
-    let fact = events
-        .iter()
-        .find(|event| event.payload["name"] == "host_shell")
-        .expect("the host action is in the audit log");
+    // The audit fact of the action names the machine it ran on. The
+    // daemon writes it after the command answers.
+    let fact = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            let events = daemon
+                .stores()
+                .events
+                .list_by_types(&daemon.workspace_id, &["tool.completed"], None, 20)
+                .await
+                .unwrap();
+            if let Some(fact) = events
+                .into_iter()
+                .find(|event| event.payload["name"] == "host_shell")
+            {
+                return fact;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the host action is in the audit log");
     assert_eq!(fact.payload["host_id"], studio.host_id());
 }
 

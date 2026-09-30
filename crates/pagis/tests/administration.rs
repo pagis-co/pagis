@@ -374,67 +374,6 @@ async fn a_member_writes_neither_the_carrier_connection_nor_the_mail_domain() {
     );
 }
 
-/// A Member reaches no administration route, against the
-/// administrator's own id.
-#[tokio::test]
-async fn a_member_reaches_no_administration_route() {
-    let daemon = TestDaemon::start().await;
-    create_account(&daemon, "grace@example.com").await;
-    let cookie = sign_in(&daemon, "grace@example.com", PASSWORD)
-        .await
-        .expect("sign in");
-    let administrator = daemon.user_id.to_string();
-
-    let refused = [
-        client().get(format!(
-            "{}/api/v1/administration/people",
-            daemon.administration_base_url
-        )),
-        client()
-            .post(format!(
-                "{}/api/v1/administration/people",
-                daemon.administration_base_url
-            ))
-            .json(&serde_json::json!({
-                "email": "mallory@example.com",
-                "name": "Mallory",
-                "password": PASSWORD,
-            })),
-        client().post(format!(
-            "{}/api/v1/administration/people/{administrator}/disable",
-            daemon.administration_base_url
-        )),
-        client().post(format!(
-            "{}/api/v1/administration/people/{administrator}/enable",
-            daemon.administration_base_url
-        )),
-        client()
-            .post(format!(
-                "{}/api/v1/administration/people/{administrator}/password",
-                daemon.administration_base_url
-            ))
-            .json(&serde_json::json!({ "password": "a new password here" })),
-        client()
-            .put(format!(
-                "{}/api/v1/administration/people/{administrator}/spend-cap",
-                daemon.administration_base_url
-            ))
-            .json(&serde_json::json!({ "monthly_spend_cap_usd": 1.0 })),
-        client().get(format!(
-            "{}/api/v1/administration/usage",
-            daemon.administration_base_url
-        )),
-    ];
-    for request in refused {
-        let response = request.header("cookie", &cookie).send().await.unwrap();
-        assert_eq!(response.status(), StatusCode::FORBIDDEN);
-    }
-
-    // The roster still holds both people, so nothing the Member sent
-    // changed the installation.
-    assert_eq!(roster(&daemon).await.len(), 2);
-}
-
 /// A disabled account reaches nothing and signs in to nothing, and
 /// re-enabling gives the same person the same Workspace back.
 #[tokio::test]

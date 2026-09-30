@@ -1013,6 +1013,30 @@ async fn a_revert_lists_under_the_scope_and_files_of_the_commit_it_undoes() {
     assert_eq!(shared["items"].as_array().unwrap().len(), 0, "{shared}");
 }
 
+/// Wait until the Page Index of `workspace_id` names `revision` as its
+/// head.
+async fn index_reaches(
+    pool: &sqlx::SqlitePool,
+    workspace_id: &pagis_core::WorkspaceId,
+    revision: &str,
+) {
+    let index = pagis_storage_sqlite::SqliteMemoryPageIndex::new(pool.clone());
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let head = pagis_core::MemoryPageIndex::head(&index, workspace_id)
+            .await
+            .expect("read the head");
+        if head.as_ref().is_some_and(|head| head.revision == revision) {
+            return;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the Page Index never reached {revision}: {head:?}"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+}
+
 /// Every tenant's Memory Search is built at boot, not only the first
 /// Workspace's.
 ///
@@ -1052,7 +1076,7 @@ async fn a_second_workspaces_memory_search_is_populated_after_a_boot() {
         .expect("seed B's Workspace")
         .id;
     let agent_b = pagis_core::AgentId::generate();
-    {
+    let revision = {
         let memory = pagis_memory::GitMemoryStore::new(
             daemon.booted.home.join("memory"),
             std::sync::Arc::new(pagis_storage_sqlite::SqliteForgetStore::new(
@@ -1069,7 +1093,7 @@ async fn a_second_workspaces_memory_search_is_populated_after_a_boot() {
             path,
             "# Harbour\n\nThe harbour master answers on channel 12.\n".into(),
         );
-        memory
+        let revision = memory
             .commit(
                 &workspace_b,
                 &agent_b,
@@ -1087,6 +1111,10 @@ async fn a_second_workspaces_memory_search_is_populated_after_a_boot() {
             )
             .await
             .expect("B writes a page");
+        // The commit brings the index to its revision in the background.
+        // That sync ends before the index is cleared, so only the boot
+        // can fill it again.
+        index_reaches(daemon.pool(), &workspace_b, &revision).await;
 
         // The repository holds the page and the index holds nothing.
         for statement in [
@@ -1109,7 +1137,8 @@ async fn a_second_workspaces_memory_search_is_populated_after_a_boot() {
             .expect("read the head")
             .is_none()
         );
-    }
+        revision
+    };
 
     // A boot on the same state directory.
     let home = daemon.stop().await;
@@ -1117,18 +1146,12 @@ async fn a_second_workspaces_memory_search_is_populated_after_a_boot() {
         pagis_testkit::TestDaemon::start_on(home, pagis_testkit::TestDaemonOptions::default())
             .await;
 
+    // The sync writes the head in the transaction that writes the rows.
+    index_reaches(daemon.pool(), &workspace_b, &revision).await;
     let index = pagis_storage_sqlite::SqliteMemoryPageIndex::new(daemon.pool().clone());
-    let mut hits = Vec::new();
-    for _ in 0..200 {
-        hits = pagis_core::MemoryPageIndex::search(&index, &workspace_b, "shared", "harbour", 10)
-            .await
-            .expect("search B's pages");
-        if !hits.is_empty() {
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
-    }
-
+    let hits = pagis_core::MemoryPageIndex::search(&index, &workspace_b, "shared", "harbour", 10)
+        .await
+        .expect("search B's pages");
     assert_eq!(
         hits.len(),
         1,

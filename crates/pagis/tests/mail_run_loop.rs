@@ -14,9 +14,10 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::{Duration as ChronoDuration, SecondsFormat, Utc};
-use pagis_core::{AgentMailboxId, AgentMailboxState, AgentMailboxStore};
+use chrono::{SecondsFormat, Utc};
+use pagis_core::{AgentMailboxId, AgentMailboxState, AgentMailboxStore, Clock, SystemClock};
 use pagis_mail::fake::{FakeMailTransport, FakeMailboxHost, raw_message};
+use pagis_testkit::evaluation::FixtureClock;
 use pagis_testkit::{Script, ScriptedBrain, TestDaemon, TestDaemonOptions};
 use serde_json::Value;
 
@@ -34,6 +35,12 @@ struct Harness {
 }
 
 async fn boot() -> Harness {
+    boot_on(Arc::new(SystemClock)).await
+}
+
+/// The harness on this clock. A clock the test moves fires a Schedule
+/// when the test says, and not after a real wait.
+async fn boot_on(clock: Arc<dyn Clock>) -> Harness {
     let brain = Arc::new(ScriptedBrain::default());
     let transport = Arc::new(FakeMailTransport::default());
     let daemon = TestDaemon::start_with(TestDaemonOptions {
@@ -41,6 +48,7 @@ async fn boot() -> Harness {
         mail_host: Arc::new(FakeMailboxHost::default()),
         mail_transport: Arc::clone(&transport) as _,
         collector_interval: Duration::from_millis(50),
+        clock,
         ..TestDaemonOptions::default()
     })
     .await;
@@ -243,8 +251,9 @@ async fn agent_schedules(harness: &Harness) -> Vec<Value> {
 }
 
 /// `YYYY-MM-DDTHH:MM:SS`, the shape one-shot Schedules take.
-fn local_time_after(seconds: i64) -> String {
-    (Utc::now() + ChronoDuration::seconds(seconds))
+fn local_time_at(millis: i64) -> String {
+    chrono::DateTime::from_timestamp_millis(millis)
+        .expect("a time in range")
         .to_rfc3339_opts(SecondsFormat::Secs, true)
         .trim_end_matches('Z')
         .to_string()
@@ -299,7 +308,10 @@ async fn owner_mail_wakes_the_agent_with_the_standing_of_the_user() {
 /// fires a second Run that messages the user.
 #[tokio::test]
 async fn an_appointment_mail_becomes_a_note_a_schedule_and_a_second_run() {
-    let harness = boot().await;
+    let now = Utc::now().timestamp_millis();
+    let due = now + 60_000;
+    let clock = FixtureClock::at(now);
+    let harness = boot_on(Arc::new(clock.clone())).await;
     // The Run the mail wakes: it asks for the reminder and records the
     // source-backed fact before it answers.
     harness.brain.push(Script::tool_call(
@@ -309,7 +321,7 @@ async fn an_appointment_mail_becomes_a_note_a_schedule_and_a_second_run() {
             "kind": "one_shot",
             "name": "Clinic appointment",
             "instruction": "Remind the user about the clinic appointment",
-            "local_time": local_time_after(12),
+            "local_time": local_time_at(due),
             "timezone": "UTC",
         }),
     ));
@@ -383,9 +395,10 @@ async fn an_appointment_mail_becomes_a_note_a_schedule_and_a_second_run() {
     assert!(fact.contains("care@clinic.test"), "{fact}");
     assert!(fact.contains("Your appointment"), "{fact}");
 
-    // The Schedule fires the second Run, which speaks at the top level
-    // of the same channel the mail woke the Agent in, where the channel
-    // view reads it.
+    // The Schedule fires the second Run when its time comes. The Run
+    // speaks at the top level of the same channel the mail woke the
+    // Agent in, where the channel view reads it.
+    clock.advance_to(due);
     let runs = harness.wait_for_runs("schedule", "completed", 1).await;
     let run_id = runs[0]["id"].as_str().unwrap().to_string();
     let channel_id = harness.daemon.dm_channel_id.clone();

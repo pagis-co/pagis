@@ -180,8 +180,7 @@ async fn the_answered_media_session_comes_up() {
             .await
             .unwrap()
             .expect("the offer is answerable");
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        assert_eq!(media.failure(), None);
+        assert_eq!(media.connected().await, Ok(()));
     }
 }
 
@@ -221,6 +220,5 @@ async fn the_answer_takes_one_suite_of_many_and_echoes_its_tag() {
         crypto[0].starts_with("7 AES_CM_128_HMAC_SHA1_80 inline:"),
         "{crypto:?}"
     );
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    assert_eq!(media.failure(), None);
+    assert_eq!(media.connected().await, Ok(()));
 }

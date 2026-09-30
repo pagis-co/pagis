@@ -976,11 +976,14 @@ mod tests {
 
     #[tokio::test]
     async fn a_fallback_to_openai_sends_the_openai_computer_tool() {
+        // Anthropic answers overloaded, which the router passes to the
+        // next candidate at once. A 500 would first retry Anthropic
+        // with real backoffs of 10 s and 20 s.
         let anthropic = MockServer::start().await;
         Mock::given(method("POST"))
-            .respond_with(ResponseTemplate::new(500).set_body_json(json!({
+            .respond_with(ResponseTemplate::new(529).set_body_json(json!({
                 "type": "error",
-                "error": {"type": "api_error", "message": "overloaded"}
+                "error": {"type": "overloaded_error", "message": "Overloaded"}
             })))
             .mount(&anthropic)
             .await;

@@ -20,9 +20,13 @@ path = "junit.xml"
 [test-groups.docker]
 max-threads = 2
 
+# The Docker-real tests take the longest, and two at a time is the
+# narrowest part of the run, so they start first. Started last, they are
+# the only tests left at the end of the run.
 [[profile.default.overrides]]
 filter = 'test(/docker_real::/) | test(/greenmail::/)'
 test-group = 'docker'
+priority = 100
 
 # The egress tests install the egress rules of the Computers in the
 # firewall of the Docker host. Their chains are global to that host, so
@@ -36,11 +40,11 @@ max-threads = 1
 filter = 'test(/^egress::/)'
 test-group = 'egress'
 
-# The Postgres side of the store-trait suite. Every test makes a
-# database of its own in one shared container, and `CREATE DATABASE`
-# copies a template, so a full-width pool of them overwhelms the Colima
-# VM. Eight at a time keeps the suite fast and steady; the SQLite side
-# keeps the pool's full width.
+# The Postgres side of the store-trait suite. Every test copies a
+# migrated template into a database of its own in one shared container,
+# so a full-width pool of them overwhelms the Colima VM. Eight at a time
+# keeps the suite fast and steady; the SQLite side keeps the pool's full
+# width.
 [test-groups.postgres]
 max-threads = 8
 

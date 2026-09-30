@@ -8,10 +8,9 @@
 //! stranger `401`, on every route and every method.
 //!
 //! The documented exceptions are the first-run setup and the password
-//! sign-in, and both states of the setup are tested: it answers on a
-//! server nobody can sign in to, and `410 Gone` once somebody can.
+//! sign-in. `server_setup` tests both states of the setup: it answers on
+//! a server nobody can sign in to, and `410 Gone` once somebody can.
 
-use pagis_core::UserRole;
 use pagis_server::{ADMINISTRATION_PUBLIC_ROUTES, ADMINISTRATION_ROUTES, ROUTES, SHARED_ROUTES};
 use pagis_testkit::TestDaemon;
 use reqwest::StatusCode;
@@ -143,6 +142,22 @@ async fn every_guarded_route_refuses_a_stranger_and_a_member() {
             assert_eq!(body["error"]["code"], "forbidden");
         }
     }
+
+    // The roster still holds both people, so nothing the stranger or the
+    // Member sent changed the installation.
+    let roster: serde_json::Value = client()
+        .get(format!(
+            "{}/api/v1/administration/people",
+            daemon.administration_base_url
+        ))
+        .header("cookie", daemon.cookie())
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(roster["items"].as_array().unwrap().len(), 2, "{roster}");
 }
 
 /// The port serves the installation and not one person's content: a
@@ -528,82 +543,6 @@ async fn a_local_person_sets_their_own_way_in_on_this_port() {
         .await
         .expect("the password signs a browser in on the administration port");
     assert!(cookie.starts_with("pagis_session="));
-}
-
-/// The first-run setup answers on this port while nobody can sign in,
-/// and it is gone from the moment somebody can.
-#[tokio::test]
-async fn the_first_run_setup_answers_here_and_then_is_gone() {
-    // A server holds no Client Credential, so its first-run setup
-    // answers.
-    let Some(daemon) = TestDaemon::start_on_postgres().await else {
-        return;
-    };
-    let setup_url = format!("{}/api/v1/setup", daemon.administration_base_url);
-
-    let open = client().get(&setup_url).send().await.unwrap();
-    assert_eq!(open.status(), StatusCode::OK);
-    let state: serde_json::Value = open.json().await.unwrap();
-    assert!(!state["providers"].as_array().unwrap().is_empty());
-
-    let done = client()
-        .post(&setup_url)
-        .json(&serde_json::json!({
-            "email": "ada@example.net",
-            "password": PASSWORD,
-            "name": "Ada",
-        }))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(done.status(), StatusCode::OK);
-
-    // From the first password onwards the flow is spent, on this port as
-    // on the product port.
-    let spent = client().get(&setup_url).send().await.unwrap();
-    assert_eq!(spent.status(), StatusCode::GONE);
-    let body: serde_json::Value = spent.json().await.unwrap();
-    assert_eq!(body["error"]["code"], "setup_complete");
-    // And the administrator the flow made reads the interface.
-    let cookie = sign_in(&daemon.administration_base_url, "ada@example.net", PASSWORD)
-        .await
-        .expect("the new administrator signs in");
-    let roster = client()
-        .get(format!(
-            "{}/api/v1/administration/people",
-            daemon.administration_base_url
-        ))
-        .header("cookie", cookie)
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(roster.status(), StatusCode::OK);
-    let people: serde_json::Value = roster.json().await.unwrap();
-    assert_eq!(
-        people["items"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter(|person| person["role"] == UserRole::Administrator.as_str())
-            .count(),
-        1
-    );
-}
-
-/// The setup flow is spent on a local installation from its first boot:
-/// the seed made the administrator, and the Client Credential is how
-/// that person signs in.
-#[tokio::test]
-async fn the_setup_page_is_gone_on_a_local_installation() {
-    let daemon = TestDaemon::start().await;
-
-    let response = client()
-        .get(format!("{}/api/v1/setup", daemon.administration_base_url))
-        .send()
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::GONE);
 }
 
 /// The two routes outside the guard are the documented two and no

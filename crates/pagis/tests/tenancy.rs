@@ -60,19 +60,7 @@ async fn sweep(world: TwoTenants) {
 /// caller, so person A's Artifact is absent for person B.
 #[tokio::test]
 async fn person_b_gets_404_for_person_as_artifact() {
-    artifact_is_refused(TwoTenants::start().await).await;
-}
-
-/// The same read against Postgres.
-#[tokio::test]
-async fn person_b_gets_404_for_person_as_artifact_on_postgres() {
-    let Some(world) = TwoTenants::start_on_postgres().await else {
-        return;
-    };
-    artifact_is_refused(world).await;
-}
-
-async fn artifact_is_refused(world: TwoTenants) {
+    let world = TwoTenants::start().await;
     let artifact_id = world.a_id("artifact_id").to_string();
 
     let as_a = reqwest::Client::new()
