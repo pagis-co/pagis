@@ -74,6 +74,11 @@ CI instead reads `CSC_LINK` (the Developer ID Application certificate, a
 base64 `.p12`), `CSC_KEY_PASSWORD`, and an App Store Connect API key:
 `APPLE_API_KEY` is the path of its `.p8` file, which the job writes from the
 `APPLE_API_KEY_P8` secret, with `APPLE_API_KEY_ID` and `APPLE_API_ISSUER`.
+`.github/scripts/import-signing-identity.sh` imports the certificate into a
+keychain of the job and gives the later steps its fingerprint as
+`CSC_NAME`, so the DMG job signs from a keychain identity as a local
+release does. electron-builder never gets `CSC_LINK`: its own import of the
+certificate fails on the macOS runner.
 `scripts/signing-secrets.sh` walks the account holder through the
 certificate, the `.p12` export and the API key, and sets the secrets with
 `gh secret set`. The release tools never export the key. Missing inputs stop a tag build. An Apple Development or Apple Distribution identity does not meet this

@@ -487,6 +487,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
+      # electron-builder signs with the identity of this keychain
+      # (CSC_NAME). Its own import of CSC_LINK fails on the macOS runner.
+      - name: import the signing identity
+        run: .github/scripts/import-signing-identity.sh
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+
       - name: write the notary key
         run: .github/scripts/write-notary-key.sh
         env:
@@ -500,8 +508,6 @@ jobs:
         env:
           PAGIS_HOME: ${{ runner.temp }}/pagis-home
           GH_TOKEN: ${{ github.token }}
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
 

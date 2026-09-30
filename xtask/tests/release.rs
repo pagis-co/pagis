@@ -1162,7 +1162,28 @@ fn the_tag_workflow_runs_every_stage_after_the_gate() {
     for name in ["server-macos", "client-macos"] {
         assert!(job(name).contains("secrets.APPLE_API_KEY_P8"), "{name}");
     }
-    assert!(job("server-macos").contains("import-signing-identity.sh"));
+    // Both macOS jobs import the identity with the same script and sign
+    // with its fingerprint (`CSC_NAME`). electron-builder never gets
+    // `CSC_LINK`: its own keychain import fails on the macOS runner.
+    for name in ["server-macos", "client-macos"] {
+        assert!(job(name).contains("import-signing-identity.sh"), "{name}");
+    }
+    let client = job("client-macos");
+    let desktop_step = &client[client
+        .find("cargo xtask desktop --tag")
+        .expect("the desktop step")..];
+    let desktop_step = desktop_step
+        .split("\n      - ")
+        .next()
+        .unwrap_or(desktop_step);
+    assert!(!desktop_step.contains("CSC_LINK"), "{desktop_step}");
+    assert!(!desktop_step.contains("CSC_KEY_PASSWORD"), "{desktop_step}");
+    let script = std::fs::read_to_string(
+        workspace_root().join(".github/scripts/import-signing-identity.sh"),
+    )
+    .expect("the import script");
+    assert!(script.contains("CSC_NAME="), "{script}");
+    assert!(script.contains("GITHUB_ENV"), "{script}");
     // Each job that builds the daemon writes the analytics project into it.
     for name in ["server-image", "server-linux", "server-macos"] {
         for variable in ["PAGIS_POSTHOG_PROJECT_ID", "PAGIS_POSTHOG_TOKEN"] {
