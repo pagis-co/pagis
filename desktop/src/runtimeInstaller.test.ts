@@ -287,6 +287,53 @@ describe('the client Runtime installer', () => {
     expect(calls.filter((call) => call === 'download')).toHaveLength(1)
   })
 
+  it('reports each phase in order, with the received bytes of the download', async () => {
+    const { root, lock, source } = fixture()
+    const reporting = adapters(source, [])
+    reporting.download = async (_url, destination, _size, _signal, onBytes) => {
+      fs.writeFileSync(destination, 'fixture dmg')
+      onBytes?.(4)
+      onBytes?.(11)
+    }
+    const progress: string[] = []
+
+    await new RuntimeInstaller(path.join(root, 'runtime'), reporting).install(lock, { onProgress: (step) => {
+      progress.push(step.phase === 'downloading' ? `downloading:${step.received}/${step.total}` : step.phase)
+    } })
+
+    expect(progress).toEqual([
+      'downloading:0/11',
+      'downloading:4/11',
+      'downloading:11/11',
+      'verifying',
+      'extracting',
+      'activating',
+    ])
+  })
+
+  it('reports no download for a verified cached image', async () => {
+    const { root, lock, source } = fixture()
+    const runtime = path.join(root, 'runtime')
+    fs.mkdirSync(path.join(runtime, 'downloads'), { recursive: true })
+    fs.writeFileSync(path.join(runtime, 'downloads', `${lock.asset.sha256}.part`), 'fixture dmg')
+    const progress: string[] = []
+
+    await new RuntimeInstaller(runtime, adapters(source, [])).install(lock, { onProgress: (step) => progress.push(step.phase) })
+
+    expect(progress).toEqual(['verifying', 'extracting', 'activating'])
+  })
+
+  it('reports only the check of a release that is already installed', async () => {
+    const { root, lock, source } = fixture()
+    const installer = new RuntimeInstaller(path.join(root, 'runtime'), adapters(source, []))
+    await installer.install(lock)
+    const progress: string[] = []
+
+    await installer.install(lock, { onProgress: (step) => progress.push(step.phase) })
+
+    expect(progress).toEqual(['verifying'])
+  })
+
   it('reports missing assets, timeouts, no space and read-only storage as retryable failures', async () => {
     for (const [failure, message] of [
       [Object.assign(new Error('HTTP 404'), { code: 'ENOENT' }), /HTTP 404/],
@@ -709,7 +756,7 @@ describe('the bounded server download', () => {
       : { status: 200, headers: { 'content-length': '6' }, body: 'locked' })
 
     try {
-      await downloadLockedAsset(ASSET_URL, destination, 6, undefined, host.get)
+      await downloadLockedAsset(ASSET_URL, destination, 6, { get: host.get })
     } finally {
       await host.close()
     }
@@ -730,12 +777,37 @@ describe('the bounded server download', () => {
     }))
 
     try {
-      await downloadLockedAsset(ASSET_URL, destination, body.length, undefined, host.get)
+      await downloadLockedAsset(ASSET_URL, destination, body.length, { get: host.get })
     } finally {
       await host.close()
     }
 
     expect(fs.readFileSync(destination).equals(body)).toBe(true)
+  })
+
+  it('reports the bytes it has received, up to the whole asset', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pagis-download-'))
+    roots.push(root)
+    const body = crypto.randomBytes(1024 * 1024)
+    const host = await releaseHost(() => ({
+      status: 200,
+      headers: { 'content-length': String(body.length) },
+      body,
+    }))
+    const received: number[] = []
+
+    try {
+      await downloadLockedAsset(ASSET_URL, path.join(root, 'asset.part'), body.length, {
+        get: host.get,
+        onBytes: (bytes) => received.push(bytes),
+      })
+    } finally {
+      await host.close()
+    }
+
+    expect(received.length).toBeGreaterThan(0)
+    expect(received).toEqual([...received].sort((a, b) => a - b))
+    expect(received.at(-1)).toBe(body.length)
   })
 
   it('rejects an external redirect, a wrong length and a body that ends early', async () => {
@@ -748,7 +820,7 @@ describe('the bounded server download', () => {
     ] as const) {
       const host = await releaseHost(() => answer)
       try {
-        await expect(downloadLockedAsset(ASSET_URL, path.join(root, `${crypto.randomUUID()}.part`), 6, undefined, host.get))
+        await expect(downloadLockedAsset(ASSET_URL, path.join(root, `${crypto.randomUUID()}.part`), 6, { get: host.get }))
           .rejects.toThrow(message)
       } finally {
         await host.close()
@@ -764,7 +836,7 @@ describe('the bounded server download', () => {
     abort.abort(new Error('server installation was cancelled'))
 
     try {
-      await expect(downloadLockedAsset(ASSET_URL, path.join(root, 'asset.part'), 6, abort.signal, host.get))
+      await expect(downloadLockedAsset(ASSET_URL, path.join(root, 'asset.part'), 6, { signal: abort.signal, get: host.get }))
         .rejects.toThrow(/cancelled/)
     } finally {
       await host.close()
@@ -778,7 +850,7 @@ describe('the bounded server download', () => {
     const host = await releaseHost(() => ({ status: 404, body: 'missing' }))
 
     try {
-      await expect(downloadLockedAsset(ASSET_URL, destination, 6, undefined, host.get)).rejects.toThrow(/HTTP 404/)
+      await expect(downloadLockedAsset(ASSET_URL, destination, 6, { get: host.get })).rejects.toThrow(/HTTP 404/)
     } finally {
       await host.close()
     }

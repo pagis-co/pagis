@@ -36,6 +36,7 @@ import {
 import { RuntimeState } from './runtimeState'
 import { probeRuntimeIdentity } from './runtimeIdentity'
 import { recoveryView, sameProductOrigin } from './recoveryView'
+import { SetupProgress } from './setupProgress'
 import { type SetupState, setupFailureState } from './setupState'
 import { isTrustedSetupRequest } from './setupTrust'
 import { isServerRequest } from './setupCoordinator'
@@ -88,9 +89,14 @@ class Shell {
   private hostLink: HostLink | null = null
   private quitting = false
   private readonly controller = new ClientController({
-    install: (options) => {
-      this.setSetupState({ kind: 'installing', detail: 'Downloading and checking the Pagis server…' })
-      return this.installer.install(this.runtimeLock(), options)
+    install: async (options) => {
+      const progress = new SetupProgress((state) => this.setSetupState(state))
+      const binary = await this.installer.install(this.runtimeLock(), {
+        ...options,
+        onProgress: (step) => progress.report(step),
+      })
+      progress.starting()
+      return binary
     },
     beginLaunch: () => this.runtimeState.beginLaunch(this.runtimeLock().release),
     connect: (request, signal) => this.connect(request, signal),
@@ -257,7 +263,6 @@ class Shell {
   private createSupervisor(binary: string, beforeSpawn: () => void): DaemonSupervisor {
     const lock = this.runtimeLock()
     if (!fs.statSync(binary).isFile()) throw new Error('the installed Pagis server is missing')
-    this.setSetupState({ kind: 'installing', detail: 'Starting the Pagis server…' })
     return new DaemonSupervisor({
       home: this.home,
       binaryPath: binary,

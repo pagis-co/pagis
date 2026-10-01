@@ -326,9 +326,9 @@ describe('the second screen of the setup page', () => {
     page.button('Continue')!.click()
     page.button('Install')!.click()
 
-    page.show({ kind: 'installing', detail: 'Downloading and checking the Pagis server…' })
+    page.show({ kind: 'setting-up', step: 'download', download: { fraction: 0.25, detail: '18 of 72 MB · About 20 seconds left' } })
 
-    expect(page.visibleText()).toContain('Downloading and checking the Pagis server…')
+    expect(page.visibleText()).toContain('18 of 72 MB · About 20 seconds left')
     expect(footer(page)).toEqual(['Quit', 'Cancel'])
     page.button('Cancel')!.click()
     expect(page.calls).toEqual(['installHere:one', 'cancel'])
@@ -400,7 +400,8 @@ describe('the states of the setup page', () => {
 
   it('gives each state a title of its own, under the name of the product', () => {
     for (const [state, title] of [
-      [{ kind: 'installing', detail: 'Downloading and checking the Pagis server…' }, 'Setting up Pagis'],
+      [{ kind: 'setting-up', step: 'check', download: null }, 'Setting up Pagis'],
+      [{ kind: 'installing', detail: 'Connecting to the Pagis server…' }, 'Setting up Pagis'],
       [{ kind: 'taken-port', port: 4410, holder: 'Python (pid 82674)', suggested: 4411 }, 'Port 4410 is taken'],
       [{ kind: 'failed', reason: 'The daemon stopped.', repair: true }, 'Pagis could not start'],
       [{ kind: 'failed', reason: 'The download stopped.', repair: false }, 'Setup did not complete'],
@@ -412,6 +413,58 @@ describe('the states of the setup page', () => {
 
       expect(page.visibleText().split('\n').slice(0, 2)).toEqual(['Pagis', title])
     }
+  })
+})
+
+/** A local setup lists its steps, with a bar for the current one. Only
+ *  the download has a share to show; the other steps show a busy bar. */
+describe('the steps of a local setup', () => {
+  const steps = (page: Page<SetupState>): string[] =>
+    [...page.document.querySelectorAll<HTMLElement>('#steps li')]
+      .map((step) => `${step.dataset.state}:${step.textContent?.trim()}`)
+  const bar = (page: Page<SetupState>): HTMLElement => page.document.getElementById('setup-bar')!
+
+  it('lists the four steps, with the finished ones done and the current one marked', () => {
+    const page = openSetup()
+
+    page.show({ kind: 'setting-up', step: 'install', download: null })
+
+    expect(steps(page)).toEqual([
+      'done:Download the server',
+      'done:Check the server',
+      'current:Install the server files',
+      'pending:Start the server',
+    ])
+  })
+
+  it('fills the bar with the share of the download', () => {
+    const page = openSetup()
+
+    page.show({ kind: 'setting-up', step: 'download', download: { fraction: 0.25, detail: '18 of 72 MB' } })
+
+    expect(bar(page).getAttribute('aria-valuenow')).toBe('25')
+    expect((bar(page).firstElementChild as HTMLElement).style.width).toBe('25%')
+    expect(page.visibleText()).toContain('18 of 72 MB')
+  })
+
+  it('shows a busy bar and no detail while a step has no share', () => {
+    const page = openSetup()
+    page.show({ kind: 'setting-up', step: 'download', download: { fraction: 0.25, detail: '18 of 72 MB' } })
+
+    page.show({ kind: 'setting-up', step: 'start', download: null })
+
+    expect(bar(page).hasAttribute('aria-valuenow')).toBe(false)
+    expect(bar(page).firstElementChild!.classList.contains('progress-busy')).toBe(true)
+    expect(page.visibleText()).not.toContain('18 of 72 MB')
+  })
+
+  it('shows the steps of a local setup only', () => {
+    const page = openSetup()
+
+    page.show({ kind: 'installing', detail: 'Connecting to the Pagis server…' })
+
+    expect(page.document.getElementById('steps')!.hidden).toBe(true)
+    expect(page.visibleText()).toContain('Connecting to the Pagis server…')
   })
 })
 
