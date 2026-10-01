@@ -3,6 +3,10 @@
 // the presence store, which the firehose feeds, so a ring turns
 // without a refetch.
 //
+// The Chief of Staff's row names the designation in place of the job,
+// as the roster badge does, because the designation is why the row is
+// pinned first.
+//
 // The user's own channel with an Agent carries that Agent's presence,
 // wherever it works, because it is where the user follows it. A shared
 // channel carries the presence of the work done in that channel alone
@@ -55,7 +59,10 @@ export function ConversationRow({
       ? `${row.kind === 'agents' ? 'Sprites' : 'Group'} · quiet since ${quietSince(
           channel.updated_at,
         )}`
-      : [agent.job, activityWord(agentPresence(presence, agent.id))]
+      : [
+          row.kind === 'chief' ? 'Chief of Staff' : agent.job,
+          activityWord(agentPresence(presence, agent.id)),
+        ]
           .filter((part) => part !== '')
           .join(' · '))
 
