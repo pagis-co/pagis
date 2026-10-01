@@ -8,12 +8,13 @@ use axum::http::{Method, Response, StatusCode, header};
 use axum::routing::any;
 use pagis_computer::docker::{DockerPing, DockerSearch};
 use pagis_computer::{
-    BollardRuntime, ComputerOwner, ComputerRuntime, DockerDiscovery, IMAGE, IMAGE_VERSION, Quota,
-    RuntimeOptions, VERSION_LABEL,
+    BollardRuntime, ComputerOwner, ComputerRuntime, DockerDiscovery, IMAGE, IMAGE_VERSION,
+    ImageRemoval, Quota, RuntimeOptions, VERSION_LABEL, image_repository,
 };
 use pagis_core::{AgentId, WorkspaceId};
 use serde_json::json;
-use tracing::instrument::WithSubscriber;
+
+use crate::logs::logged;
 
 const INDEX_DIGEST: &str = "sha256:index-digest";
 const PLATFORM_MANIFEST_DIGEST: &str = "sha256:platform-manifest-digest";
@@ -55,6 +56,13 @@ struct DockerFixture {
     containerd_store: bool,
     /// The body of every container create, in order.
     creates: Arc<Mutex<Vec<serde_json::Value>>>,
+    /// What `GET /images/json` answers: every local image, of every
+    /// repository.
+    images: serde_json::Value,
+    /// The images that a container uses. Docker refuses to remove them.
+    images_in_use: &'static [&'static str],
+    /// The path and the query of every image removal, in order.
+    image_removals: Arc<Mutex<Vec<String>>>,
 }
 
 /// A Docker that runs the pinned image, under a graph driver, and
@@ -68,12 +76,16 @@ fn fixture() -> DockerFixture {
         create: CreateAnswer::Accept,
         containerd_store: false,
         creates: Arc::default(),
+        images: json!([]),
+        images_in_use: &[],
+        image_removals: Arc::default(),
     }
 }
 
 async fn docker_response(State(fixture): State<DockerFixture>, request: Request) -> Response<Body> {
     let method = request.method().clone();
     let path = request.uri().path().to_string();
+    let query = request.uri().query().unwrap_or_default().to_string();
     let body = axum::body::to_bytes(request.into_body(), usize::MAX)
         .await
         .expect("request body");
@@ -104,6 +116,33 @@ async fn docker_response(State(fixture): State<DockerFixture>, request: Request)
             json!({ "status": "downloaded" })
         };
         return json_response(StatusCode::OK, format!("{item}\n"));
+    }
+    if method == Method::GET && path.ends_with("/images/json") {
+        return json_response(StatusCode::OK, fixture.images.to_string());
+    }
+    if method == Method::DELETE && path.contains("/images/") {
+        fixture
+            .image_removals
+            .lock()
+            .expect("the image removals")
+            .push(format!("{path}?{query}"));
+        let image = path.rsplit("/images/").next().unwrap_or_default();
+        if fixture.images_in_use.contains(&image) {
+            return json_response(
+                StatusCode::CONFLICT,
+                json!({
+                    "message": format!(
+                        "conflict: unable to delete {image} (cannot be forced) - \
+                         image is being used by running container 0123"
+                    )
+                })
+                .to_string(),
+            );
+        }
+        return json_response(
+            StatusCode::OK,
+            json!([{ "Untagged": image }, { "Deleted": image }]).to_string(),
+        );
     }
     if path.ends_with("/containers/create") {
         let body: serde_json::Value =
@@ -211,34 +250,6 @@ fn json_response(status: StatusCode, body: String) -> Response<Body> {
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(body))
         .expect("fixture response")
-}
-
-/// What `run` gives, and every line the daemon logs at warning level
-/// while it runs.
-async fn logged<T>(run: impl std::future::Future<Output = T>) -> (T, String) {
-    let buffer = Arc::new(Mutex::new(Vec::new()));
-    let writer = Arc::clone(&buffer);
-    let subscriber = tracing_subscriber::fmt()
-        .with_ansi(false)
-        .with_max_level(tracing::Level::WARN)
-        .with_writer(move || Log(Arc::clone(&writer)))
-        .finish();
-    let value = run.with_subscriber(subscriber).await;
-    let log = String::from_utf8(buffer.lock().expect("the log").clone()).expect("the log is text");
-    (value, log)
-}
-
-struct Log(Arc<Mutex<Vec<u8>>>);
-
-impl std::io::Write for Log {
-    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        self.0.lock().expect("the log").extend_from_slice(bytes);
-        Ok(bytes.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
 }
 
 /// The runtime over a fake Docker endpoint, and the owner whose
@@ -407,6 +418,87 @@ async fn pull_propagates_a_docker_stream_error_without_false_completion() {
     );
 }
 
+/// One local image as `GET /images/json` lists it.
+fn image_summary(id: &str, tags: &[&str], digests: &[&str]) -> serde_json::Value {
+    json!({
+        "Id": id,
+        "ParentId": "",
+        "RepoTags": tags,
+        "RepoDigests": digests,
+        "Created": 0,
+        "Size": 0,
+        "SharedSize": -1,
+        "Labels": {},
+        "Containers": -1
+    })
+}
+
+/// The other images of the Computer Image repository are each image
+/// whose every name is of that repository, less the pinned image. An
+/// image that another repository also names is not in the list, so the
+/// daemon never touches an image of another repository, also when
+/// Docker answers the list with every image of the host.
+#[tokio::test]
+async fn the_other_images_are_the_images_of_the_computer_image_repository_less_the_pinned_one() {
+    let repository = image_repository(IMAGE);
+    let (runtime, _owner) = runtime(DockerFixture {
+        images: json!([
+            image_summary(
+                PLATFORM_CONFIG_ID,
+                &[&format!("{repository}:{IMAGE_VERSION}")],
+                &[&format!("{repository}@{INDEX_DIGEST}")]
+            ),
+            image_summary(
+                "sha256:old-by-digest",
+                &[],
+                &[&format!("{repository}@sha256:old-index")]
+            ),
+            image_summary("sha256:old-by-tag", &[&format!("{repository}:0.1.0")], &[]),
+            image_summary(
+                "sha256:also-another-repository",
+                &[&format!("{repository}:0.2.0"), "example.com/other:1"],
+                &[]
+            ),
+            image_summary(
+                "sha256:another-repository",
+                &["postgres:17"],
+                &["postgres@sha256:pg"]
+            ),
+            image_summary("sha256:untagged", &["<none>:<none>"], &["<none>@<none>"]),
+        ]),
+        ..fixture()
+    })
+    .await;
+
+    let images = runtime.other_images().await.expect("the image list");
+
+    assert_eq!(images, vec!["sha256:old-by-digest", "sha256:old-by-tag"]);
+}
+
+/// A removal never forces. An image that a container uses gets a
+/// conflict from Docker, stays, and is not an error.
+#[tokio::test]
+async fn an_image_removal_never_forces_and_an_image_in_use_stays() {
+    let removals = Arc::<Mutex<Vec<String>>>::default();
+    let (runtime, _owner) = runtime(DockerFixture {
+        images_in_use: &["sha256:in-use"],
+        image_removals: Arc::clone(&removals),
+        ..fixture()
+    })
+    .await;
+
+    let unused = runtime.remove_image("sha256:unused").await;
+    let in_use = runtime.remove_image("sha256:in-use").await;
+
+    assert_eq!(unused, Ok(ImageRemoval::Removed));
+    assert_eq!(in_use, Ok(ImageRemoval::InUse));
+    let removals = removals.lock().expect("the image removals").clone();
+    assert_eq!(removals.len(), 2, "{removals:?}");
+    for removal in &removals {
+        assert!(removal.contains("force=false"), "{removal}");
+    }
+}
+
 /// A storage driver that refuses the layer size does not stop a wake:
 /// the daemon creates the container again without the size, logs one
 /// warning for the daemon and not one for each wake, and the Health
@@ -421,7 +513,7 @@ async fn a_refused_layer_size_still_wakes_the_computer_and_warns_once() {
     let (runtime, owner) = runtime(docker).await;
     assert_eq!(runtime.container_quota().await, Quota::Unknown);
 
-    let ((first, second), log) = logged(async {
+    let ((first, second), log) = logged(tracing::Level::WARN, async {
         (
             runtime.start(&owner, &[], &[]).await,
             runtime.start(&owner, &[], &[]).await,
@@ -492,7 +584,7 @@ async fn a_taken_layer_size_is_supported_under_a_graph_driver_alone() {
         let creates = Arc::clone(&docker.creates);
         let (runtime, owner) = runtime(docker).await;
 
-        let (woken, log) = logged(runtime.start(&owner, &[], &[])).await;
+        let (woken, log) = logged(tracing::Level::WARN, runtime.start(&owner, &[], &[])).await;
 
         woken.expect("the wake starts the computer");
         let creates = creates.lock().expect("the creates").clone();

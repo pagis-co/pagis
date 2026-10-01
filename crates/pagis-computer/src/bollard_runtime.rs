@@ -25,8 +25,9 @@ use crate::docker::DockerDiscovery;
 use crate::pull_progress::PullProgress;
 use crate::{
     AGENT_LABEL, BindMount, CONTROL_PORT, ComputerLimits, ComputerOwner, ComputerRuntime, IMAGE,
-    MOUNTS_LABEL, RELAY_HOST, RunningComputer, SECCOMP_PROFILE, StartedComputer, TOKEN_MOUNT,
-    TenantResources, VERSION_LABEL, WORKSPACE_LABEL, mounts_fingerprint, network_name,
+    ImageRemoval, MOUNTS_LABEL, RELAY_HOST, RunningComputer, SECCOMP_PROFILE, StartedComputer,
+    TOKEN_MOUNT, TenantResources, VERSION_LABEL, WORKSPACE_LABEL, image_repository,
+    mounts_fingerprint, network_name,
 };
 /// How long a booting container gets to answer `/healthz`.
 const BOOT_TIMEOUT: Duration = Duration::from_secs(120);
@@ -408,6 +409,19 @@ fn layer_size_in_force(info: &bollard::models::SystemInfo) -> crate::Quota {
     }
 }
 
+/// Whether each name of `image` is of `repository`, and it has at least
+/// one. Docker gives an untagged image the name `<none>:<none>` in older
+/// API versions, which is no name.
+fn only_of(repository: &str, image: &bollard::models::ImageSummary) -> bool {
+    let mut names = image
+        .repo_tags
+        .iter()
+        .chain(&image.repo_digests)
+        .filter(|name| !name.starts_with("<none>"))
+        .peekable();
+    names.peek().is_some() && names.all(|name| image_repository(name) == repository)
+}
+
 /// One token: 32 random bytes as hexadecimal. It never reaches a
 /// command line, so its length costs nothing.
 fn new_token() -> String {
@@ -475,6 +489,46 @@ impl ComputerRuntime for BollardRuntime {
         }
         let _ = progress.send(100);
         Ok(())
+    }
+
+    /// Docker lists every local image, and the runtime keeps those that
+    /// only the Computer Image repository names. The list is not
+    /// filtered on the server, so a Docker API that ignores a filter
+    /// cannot put an image of another repository in it.
+    async fn other_images(&self) -> Result<Vec<String>, String> {
+        let docker = self.docker().await?;
+        let pinned = match docker.inspect_image(IMAGE).await {
+            Ok(image) => image.id,
+            Err(bollard::errors::Error::DockerResponseServerError {
+                status_code: 404, ..
+            }) => None,
+            Err(err) => return Err(format!("image inspect failed: {err}")),
+        }
+        .ok_or_else(|| "the pinned Computer Image is absent".to_string())?;
+        let images = docker
+            .list_images(None::<bollard::query_parameters::ListImagesOptions>)
+            .await
+            .map_err(|err| format!("image list failed: {err}"))?;
+        let repository = image_repository(IMAGE);
+        Ok(images
+            .into_iter()
+            .filter(|image| image.id != pinned && only_of(repository, image))
+            .map(|image| image.id)
+            .collect())
+    }
+
+    async fn remove_image(&self, id: &str) -> Result<ImageRemoval, String> {
+        let docker = self.docker().await?;
+        let options = bollard::query_parameters::RemoveImageOptionsBuilder::default()
+            .force(false)
+            .build();
+        match docker.remove_image(id, Some(options), None).await {
+            Ok(_) => Ok(ImageRemoval::Removed),
+            Err(bollard::errors::Error::DockerResponseServerError {
+                status_code: 409, ..
+            }) => Ok(ImageRemoval::InUse),
+            Err(err) => Err(format!("image remove failed: {err}")),
+        }
     }
 
     async fn running(&self, owner: &ComputerOwner) -> Result<Option<RunningComputer>, String> {

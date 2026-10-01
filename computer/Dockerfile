@@ -2,7 +2,7 @@
 # labwc 0.9.8 + wlroots 0.19 built from source (the trixie apt versions
 # lack ext-image-copy-capture-v1), Chromium on ozone/wayland maximized,
 # foot, and the pagis screen daemon. The daemon pulls this image from
-# GHCR the first time an agent wakes, so an installation works only
+# GHCR at boot or when an agent wakes, so an installation works only
 # while the pinned tag is on the registry. One command builds both
 # architectures and pushes it:
 #

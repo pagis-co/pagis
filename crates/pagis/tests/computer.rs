@@ -1,6 +1,7 @@
-//! Full-daemon agent computer tests over the fake runtime: wake
-//! with pull progress on the firehose, previews awake and asleep, the
-//! version refusal, and the agents list.
+//! Full-daemon agent computer tests over the fake runtime: the pull
+//! of the Computer Image that the boot starts and a wake joins, with
+//! progress on the firehose, previews awake and asleep, the version
+//! refusal, and the agents list.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -111,10 +112,22 @@ async fn the_agents_list_serves_the_seeded_assistant() {
     assert_eq!(items[0]["status"], "active");
 }
 
+/// The daemon boots with the pinned image absent and starts its pull
+/// with no wake. A wake joins that pull, shows its progress on the
+/// firehose, and pulls nothing of its own.
 #[tokio::test]
-async fn wake_pulls_with_visible_progress_and_the_state_reaches_awake() {
+async fn a_wake_joins_the_pull_that_the_boot_started_and_shows_its_progress() {
     let runtime = Arc::new(FakeComputerRuntime::default());
+    runtime.hold_pulls();
     let daemon = TestDaemon::start_with(daemon_options(&runtime)).await;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while runtime.pulls() == 0 {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the boot did not start the pull"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
     let mut socket = firehose(&daemon).await;
 
     let response = post(
@@ -125,17 +138,21 @@ async fn wake_pulls_with_visible_progress_and_the_state_reaches_awake() {
     assert_eq!(response.status(), 202);
     let body: serde_json::Value = response.json().await.unwrap();
     assert_eq!(body["state"], "pulling");
+    runtime.release_pulls();
 
     // Pull progress and the lifecycle land on the firehose.
+    let mut percents = Vec::new();
     loop {
         let frame = next_frame_of(&mut socket, "computer.state_changed").await;
         let payload = &frame["payload"]["payload"];
         if payload["state"] == "pulling" {
+            percents.push(payload["percent"].as_u64().expect("a percent"));
             continue;
         }
         assert_eq!(payload["state"], "starting");
         break;
     }
+    assert_eq!(percents.last(), Some(&100), "{percents:?}");
     let awake = next_frame_of(&mut socket, "computer.state_changed").await;
     assert_eq!(awake["payload"]["payload"]["state"], "awake");
     wait_state(&daemon, "awake").await;

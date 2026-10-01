@@ -1,13 +1,14 @@
-//! The agent computer lifecycle: the version-pinned image, the
-//! Docker runtime seam, and the manager that wakes, idle-stops, and
-//! serves screen previews. One container and one named volume per
-//! agent; `/data` survives stops.
+//! The agent computer lifecycle: the version-pinned image and its one
+//! pull for the installation, the Docker runtime seam, and the manager
+//! that wakes, idle-stops, and serves screen previews. One container and
+//! one named volume per agent; `/data` survives stops.
 
 mod bollard_runtime;
 pub mod browser;
 pub mod docker;
 pub mod exec;
 pub mod fake;
+mod image;
 mod manager;
 mod pull_progress;
 pub mod relay;
@@ -20,6 +21,7 @@ pub use docker::{
     DockerCandidate, DockerCandidateResult, DockerDiscovery, DockerReport, DockerSearch,
     DockerSource,
 };
+pub use image::ComputerImage;
 pub use manager::{
     ComputerManager, ComputerManagerDeps, DaemonHold, Preview, SHELL_HOME, ShellCommand,
     TakeoverTiming,
@@ -42,6 +44,31 @@ use serde::Serialize;
 pub use pagis_versions::{COMPUTER_IMAGE as IMAGE, COMPUTER_IMAGE_VERSION as IMAGE_VERSION};
 /// The image label the daemon verifies before booting a container.
 pub const VERSION_LABEL: &str = "org.pagis.computer.version";
+
+/// The repository of an image reference: the reference without its tag
+/// and without its digest. `ghcr.io/pagis-co/pagis-computer@sha256:…`
+/// and `ghcr.io/pagis-co/pagis-computer:0.17.1` both give
+/// `ghcr.io/pagis-co/pagis-computer`. The port of a registry is not a
+/// tag, because a tag comes after the last `/`.
+pub fn image_repository(reference: &str) -> &str {
+    let name = reference
+        .split_once('@')
+        .map_or(reference, |(name, _digest)| name);
+    match name.rfind(':') {
+        Some(colon) if !name[colon..].contains('/') => &name[..colon],
+        _ => name,
+    }
+}
+
+/// What Docker did with an image that the daemon asked it to remove.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImageRemoval {
+    Removed,
+    /// Docker answered 409 Conflict and kept the image: a container
+    /// uses it, or another image or repository refers to it. This is not
+    /// an error.
+    InUse,
+}
 /// The seccomp profile every computer runs under. It is
 /// Docker's default profile with the user-namespace calls permitted,
 /// which is what Chromium's renderer sandbox needs to start; under the
@@ -472,6 +499,17 @@ pub trait ComputerRuntime: Send + Sync {
         progress: tokio::sync::mpsc::UnboundedSender<u8>,
     ) -> Result<(), String>;
 
+    /// The ID of each local image of the Computer Image repository
+    /// ([`image_repository`] of [`IMAGE`]) other than the image that
+    /// [`IMAGE`] names. Each name of a listed image is of that
+    /// repository, so an image that another repository names is never in
+    /// the list. Fails while the pinned image is absent.
+    async fn other_images(&self) -> Result<Vec<String>, String>;
+
+    /// Remove one image by its ID, and never by force. An image that
+    /// Docker keeps is [`ImageRemoval::InUse`], not an error.
+    async fn remove_image(&self, id: &str) -> Result<ImageRemoval, String>;
+
     /// The agent's already-running container, when one exists (daemon
     /// restart recovery), with the image version it runs.
     async fn running(&self, owner: &ComputerOwner) -> Result<Option<RunningComputer>, String>;
@@ -820,5 +858,39 @@ mod tests {
     #[test]
     fn the_seccomp_profile_refuses_by_default() {
         assert_eq!(profile()["defaultAction"], "SCMP_ACT_ERRNO");
+    }
+
+    /// The repository of a reference has no tag and no digest. The port
+    /// of a registry is not a tag.
+    #[test]
+    fn the_repository_of_a_reference_has_no_tag_and_no_digest() {
+        for (reference, repository) in [
+            (
+                "ghcr.io/pagis-co/pagis-computer@sha256:0123",
+                "ghcr.io/pagis-co/pagis-computer",
+            ),
+            (
+                "ghcr.io/pagis-co/pagis-computer:0.17.1",
+                "ghcr.io/pagis-co/pagis-computer",
+            ),
+            (
+                "ghcr.io/pagis-co/pagis-computer:0.17.1@sha256:0123",
+                "ghcr.io/pagis-co/pagis-computer",
+            ),
+            (
+                "localhost:5000/pagis-computer",
+                "localhost:5000/pagis-computer",
+            ),
+            (
+                "localhost:5000/pagis-computer:dev",
+                "localhost:5000/pagis-computer",
+            ),
+        ] {
+            assert_eq!(
+                super::image_repository(reference),
+                repository,
+                "{reference}"
+            );
+        }
     }
 }

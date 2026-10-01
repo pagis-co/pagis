@@ -391,6 +391,15 @@ pub async fn app(booted: &Booted, options: AppOptions) -> anyhow::Result<Interfa
     // Docker host that does not answer gives a warning, and the boot
     // continues.
     computers.adopt_all(&tenants).await;
+    // The Computer Image of the release (ADR-0027). When the pinned
+    // image is absent, its one pull for the installation starts now, and
+    // each wake joins it. Then the old images that no container uses go.
+    // The boot does not wait for it. The adoption comes first, so a
+    // Computer of an old image is stopped and its image is free.
+    tokio::spawn({
+        let computers = Arc::clone(&computers);
+        async move { computers.prepare_image().await }
+    });
     // The retention sweep, daily. It deletes nothing until the
     // user sets a window for a class.
     let retention_policies = stores.retention_policies.clone();

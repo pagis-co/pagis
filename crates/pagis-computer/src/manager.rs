@@ -1,7 +1,7 @@
-//! The per-agent computer state machine: wake (lazy pull with
-//! progress events, boot), adoption of already-running containers,
-//! screen previews (live frame awake, stored screenshot asleep), and
-//! the idle-stop sweep.
+//! The per-agent computer state machine: wake (join the pull of the
+//! Computer Image with progress events, boot), adoption of
+//! already-running containers, screen previews (live frame awake,
+//! stored screenshot asleep), and the idle-stop sweep.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -11,10 +11,11 @@ use std::time::{Duration, Instant};
 use pagis_core::{AgentId, EventBus, NewEvent, Skills, WorkspaceId, WorkspaceStore};
 use tokio_util::sync::CancellationToken;
 
+use crate::image::Preparation;
 use crate::{
-    BindMount, CONTAINER_LANG, ComputerError, ComputerImageState, ComputerRuntime, ComputerState,
-    DEFAULT_TIMEZONE, ExecOutcome, ExecRequest, IMAGE_VERSION, InputHolder, OutputCap,
-    StartedComputer, locale_env, mounts_fingerprint,
+    BindMount, CONTAINER_LANG, ComputerError, ComputerImage, ComputerImageState, ComputerRuntime,
+    ComputerState, DEFAULT_TIMEZONE, ExecOutcome, ExecRequest, IMAGE_VERSION, InputHolder,
+    OutputCap, StartedComputer, locale_env, mounts_fingerprint,
 };
 
 /// Publish pull progress at most every this many percent.
@@ -141,6 +142,9 @@ pub struct Preview {
 
 pub struct ComputerManager {
     runtime: Arc<dyn ComputerRuntime>,
+    /// The one preparation of the Computer Image for the installation.
+    /// A wake that finds the image absent joins it.
+    image: Arc<ComputerImage>,
     /// The Skills the agent may reach (ADR-0017). Each granted
     /// Plugin's `skills/` directory mounts read-only at boot.
     skills: Arc<dyn Skills>,
@@ -175,9 +179,6 @@ pub struct ComputerManager {
     /// Serializes the inspect-to-phase transition, so concurrent wake
     /// requests cannot both decide to start the same computer.
     wake_preflight: tokio::sync::Mutex<()>,
-    /// One server-owned image download at a time. A waiter rechecks
-    /// Docker after it acquires this lock and reuses the first pull.
-    image_pull: tokio::sync::Mutex<()>,
     /// How many Computers may be awake at once, per tenant and
     /// for the whole server. Every manager of the daemon shares one
     /// ceiling, so the server count is the server's and not one
@@ -188,6 +189,9 @@ pub struct ComputerManager {
 /// What the manager needs to run the computers of one Workspace.
 pub struct ComputerManagerDeps {
     pub runtime: Arc<dyn ComputerRuntime>,
+    /// The Computer Image of the installation, which every manager
+    /// shares.
+    pub image: Arc<ComputerImage>,
     pub skills: Arc<dyn Skills>,
     pub workspaces: Arc<dyn WorkspaceStore>,
     pub agents: Arc<dyn pagis_core::AgentStore>,
@@ -203,6 +207,7 @@ impl ComputerManager {
     pub fn new(deps: ComputerManagerDeps) -> Arc<Self> {
         Arc::new(Self {
             runtime: deps.runtime,
+            image: deps.image,
             skills: deps.skills,
             workspaces: deps.workspaces,
             agents: deps.agents,
@@ -217,7 +222,6 @@ impl ComputerManager {
             timing: Mutex::new(TakeoverTiming::default()),
             running_execs: Mutex::new(HashMap::new()),
             wake_preflight: tokio::sync::Mutex::new(()),
-            image_pull: tokio::sync::Mutex::new(()),
             ceiling: deps.ceiling,
         })
     }
@@ -481,7 +485,8 @@ impl ComputerManager {
         }
     }
 
-    /// The background (pull +) boot.
+    /// The background (pull +) boot. The pull is the one of the
+    /// installation: this wake joins it and publishes its progress.
     async fn boot(
         self: &Arc<Self>,
         agent_id: &AgentId,
@@ -490,30 +495,29 @@ impl ComputerManager {
         timezone: String,
     ) -> Result<(), String> {
         if needs_pull {
-            let _pull = self.image_pull.lock().await;
-            let current = self.runtime.image_version().await?;
-            match current.as_deref() {
-                Some(IMAGE_VERSION) => {}
-                Some(_) => {
-                    return Err(ComputerError::VersionMismatch { found: current }.to_string());
-                }
-                None => {
-                    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-                    let runtime = Arc::clone(&self.runtime);
-                    let pull = tokio::spawn(async move { runtime.pull_image(tx).await });
-                    let mut published: u8 = 0;
-                    while let Some(percent) = rx.recv().await {
+            let mut preparation = self.image.join();
+            let mut published: u8 = 0;
+            loop {
+                let now = preparation.borrow_and_update().clone();
+                match now {
+                    Preparation::Pulling(percent) => {
                         if percent >= published.saturating_add(PROGRESS_STEP) || percent == 100 {
                             published = percent;
                             self.set_phase(agent_id, Phase::Pulling(percent)).await;
                         }
                     }
-                    pull.await.map_err(|err| err.to_string())??;
-                    // The pulled image must carry the pinned version.
-                    let version = self.runtime.image_version().await?;
-                    if version.as_deref() != Some(IMAGE_VERSION) {
-                        return Err(ComputerError::VersionMismatch { found: version }.to_string());
+                    Preparation::Ready => {
+                        // A wake sees the newest step of the pull only,
+                        // so it can miss the last ones. The pull is whole.
+                        if published < 100 {
+                            self.set_phase(agent_id, Phase::Pulling(100)).await;
+                        }
+                        break;
                     }
+                    Preparation::Failed(error) => return Err(error),
+                }
+                if preparation.changed().await.is_err() {
+                    return Err("the Computer Image preparation stopped".to_string());
                 }
             }
             self.set_phase(agent_id, Phase::Starting).await;
