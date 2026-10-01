@@ -14,6 +14,7 @@
 # 5. The Client App packages, built from those locks and signed.
 # 6. The publication. The `release` environment holds it until a
 #    maintainer approves it (docs/RELEASING-CLIENT.md).
+# 7. The documentation of the release, at docs.pagis.co (docs.yml).
 name: Release
 
 on:
@@ -690,3 +691,11 @@ jobs:
         run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest
         env:
           GH_TOKEN: ${{ github.token }}
+
+  # The documentation of the release goes live with the release, so its
+  # download links name files that exist (docs.yml).
+  docs:
+    name: docs
+    needs: publish
+    uses: ./.github/workflows/docs.yml
+    secrets: inherit

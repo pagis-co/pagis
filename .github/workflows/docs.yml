@@ -2,9 +2,11 @@
 # static export, and `docs-site/wrangler.jsonc` makes it a Worker of static
 # assets alone.
 #
-# - A `v*` tag builds the site from the tree of that tag and deploys it to
-#   production at docs.pagis.co, so the pages describe the release that
-#   people install.
+# - The release workflow calls this workflow after it publishes the GitHub
+#   Release of a `v*` tag. The site builds from the tree of that tag and
+#   deploys to production at docs.pagis.co, so the pages describe the
+#   release that people install, and each download link names a file that
+#   the published release holds.
 # - A manual run deploys production from the tree of the tag or of main
 #   that "Use workflow from" names. From main, it publishes a fix to the
 #   pages of the current release before the next tag.
@@ -19,8 +21,7 @@
 name: Docs
 
 on:
-  push:
-    tags: ["v*"]
+  workflow_call:
   pull_request:
     paths:
       - "docs-site/**"
@@ -32,8 +33,10 @@ on:
 
 # One production deployment at a time, in the order of the tags. A new push
 # to a pull request cancels the upload of its earlier push.
+# The group names the workflow itself, because in a call from the release
+# workflow `github.workflow` is the name of the caller.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || 'production' }}
+  group: docs-${{ github.event.pull_request.number || 'production' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:

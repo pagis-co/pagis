@@ -143,7 +143,7 @@ HEALTHCHECK --interval=15s --timeout=5s --start-period=60s --retries=5 \
 
 # The release in this image, which `cargo xtask server-image` checks
 # against the workspace version before it pushes.
-LABEL org.pagis.server.version="0.1.0"
+LABEL org.pagis.server.version="0.1.1"
 # GHCR reads this to link the package to the repository it was built
 # from, which is where a reader goes for the source and the license.
 LABEL org.opencontainers.image.source="https://github.com/pagis-co/pagis"
