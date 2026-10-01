@@ -5974,9 +5974,20 @@ export interface components {
         };
         /** @enum {string} */
         Verdict: "reflect" | "skip";
-        /** @description The voice catalogue (ADR-0020): the names an Agent Voice can take. */
+        /**
+         * @description The Provider Voice List (ADR-0020): the names an Agent Voice can take,
+         *     which are the voices of the model that speaks for the Workspace.
+         */
         VoicePage: {
+            /** @description Its voices; the first is the default. */
             items: string[];
+            /** @description The model that speaks, as its provider names it. */
+            model?: string | null;
+            /**
+             * @description The provider of the model that speaks, or `null` when no key
+             *     serves spoken replies.
+             */
+            provider?: string | null;
         };
         WakeupDto: {
             agent_id: string;

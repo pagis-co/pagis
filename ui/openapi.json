@@ -18334,7 +18334,7 @@
       },
       "VoicePage": {
         "type": "object",
-        "description": "The voice catalogue (ADR-0020): the names an Agent Voice can take.",
+        "description": "The Provider Voice List (ADR-0020): the names an Agent Voice can take,\nwhich are the voices of the model that speaks for the Workspace.",
         "required": [
           "items"
         ],
@@ -18343,7 +18343,22 @@
             "type": "array",
             "items": {
               "type": "string"
-            }
+            },
+            "description": "Its voices; the first is the default."
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The model that speaks, as its provider names it."
+          },
+          "provider": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The provider of the model that speaks, or `null` when no key\nserves spoken replies."
           }
         }
       },

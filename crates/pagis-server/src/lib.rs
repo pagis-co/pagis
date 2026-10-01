@@ -43,6 +43,7 @@ pub mod system;
 mod trust_list;
 mod user;
 mod voice;
+pub mod voice_list;
 mod widgets;
 mod workspace;
 mod ws;

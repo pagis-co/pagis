@@ -33,7 +33,13 @@ pub const PREFERENCES: [(&str, &[&str]); 6] = [
             "openrouter/openai/gpt-4o-transcribe",
         ],
     ),
-    (pagis_voice::SPEAK_ALIAS, &["openai/gpt-4o-mini-tts"]),
+    (
+        pagis_voice::SPEAK_ALIAS,
+        &[
+            "openai/gpt-4o-mini-tts",
+            "openrouter/google/gemini-3.8-flash-tts",
+        ],
+    ),
     (pagis_telephony::PHONE_ALIAS, &pagis_telephony::PHONE_MODELS),
     (
         pagis_telephony::GPT_LIVE_REASONING_ALIAS,
@@ -178,7 +184,7 @@ mod tests {
     fn no_route_when_no_keyed_provider_serves_the_alias() {
         assert_eq!(
             route_for(
-                pagis_voice::SPEAK_ALIAS,
+                pagis_telephony::PHONE_ALIAS,
                 &[Provider::Anthropic, Provider::OpenRouter]
             ),
             None

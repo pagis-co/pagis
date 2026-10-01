@@ -79,7 +79,11 @@ impl Provider {
             Provider::Anthropic => &[ProviderUse::Thinking],
             // OpenRouter transcribes a held clip and has no realtime
             // socket, so dictation is transcribed on release.
-            Provider::OpenRouter => &[ProviderUse::Thinking, ProviderUse::Dictation],
+            Provider::OpenRouter => &[
+                ProviderUse::Thinking,
+                ProviderUse::SpokenReplies,
+                ProviderUse::Dictation,
+            ],
             Provider::OpenAi => &[
                 ProviderUse::Thinking,
                 ProviderUse::SpokenReplies,

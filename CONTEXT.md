@@ -337,9 +337,9 @@ Agents read. An Agent is not a chat session. The product calls an Agent a
 _Avoid_: sprite (in the glossary, code and ADRs), bot
 
 ### Agent Voice
-How one Agent sounds, the same in a Thread and on a Call. A provider that
-does not have the voice says so, and the Call records the voice it used
-(ADR-0020).
+How one Agent sounds, the same in a Thread and on a Call. It is one name of
+the Provider Voice List. A model that does not have the voice speaks in its
+default, says so, and the Call records the voice it used (ADR-0020).
 
 ### Briefing
 The part of the system prompt that tells a Run about its Channel: who
@@ -408,21 +408,30 @@ stored.
 
 ### Provider Model List
 The models that one provider lists for the installation's key, with the
-context window, output limit and prices that the provider reports. The
-daemon refreshes it every hour and on a key change, and the Models settings
-offer it as choices. A model on the list runs even when the built-in
-metadata table does not know it. A price that nothing names is unknown,
-never zero. Reading the list is also the key check (`docs/DESIGN.md`,
-ADR-0025).
+context window, output limit and prices that the provider reports, and,
+where the provider names them, what each model outputs and the voices of
+each speech model. The daemon refreshes it every hour and on a key change,
+and the Models settings offer it as choices. A model on the list runs even
+when the built-in metadata table does not know it. A price that nothing
+names is unknown, never zero. Reading the list is also the key check
+(`docs/DESIGN.md`, ADR-0025).
 _Avoid_: model catalogue, allowed models
 
 ### Provider Use
 One thing a provider's key does in Pagis: thinking, spoken replies,
 dictation or calls. A provider serves a Model Alias only for a use it has.
-OpenAI has all four, OpenRouter has thinking and dictation, and Anthropic
-has thinking. Onboarding shows the uses of each provider and what a set of
-keys covers (ADR-0025).
+OpenAI has all four; OpenRouter has thinking, spoken replies and
+dictation; Anthropic has thinking. Onboarding shows the uses of each
+provider and what a set of keys covers (ADR-0025).
 _Avoid_: capability (a Grant word), feature
+
+### Provider Voice List
+The voices of the model that speaks for a Workspace: the first candidate of
+the `speak` alias whose provider holds a key and serves spoken replies. The
+daemon reads it from the provider with the Provider Model List; a provider
+that lists no voices, such as OpenAI, has a fixed set. Each Agent Voice is
+one of its names, and the first is the default (ADR-0020).
+_Avoid_: voice catalogue
 
 ### Roster
 The Agents of one Workspace. The roster is flat: no Agent has

@@ -2,8 +2,9 @@
 //! the channel's dictation socket, buffered on a provider without a
 //! realtime socket and live on one with it; a Thread speaks an Agent's
 //! `markdown` block and stays silent on every other block; the Agent
-//! Voice is validated against the catalogue; and nothing spoken is
-//! written to storage. The provider is a fake, so no network is used.
+//! Voice is validated against the Provider Voice List of the model that
+//! speaks; and nothing spoken is written to storage. The voice provider
+//! is a fake, so no network is used.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -12,7 +13,7 @@ use futures::{SinkExt, StreamExt};
 use pagis_core::{AuthorKind, Block, MessageStore};
 use pagis_storage_sqlite::SqliteMessageStore;
 use pagis_testkit::fixture;
-use pagis_testkit::{TestDaemon, TestDaemonOptions};
+use pagis_testkit::{TestDaemon, TestDaemonOptions, test_provider_keys};
 use pagis_voice::fake::{FakeVoice, VoiceCall};
 use reqwest::StatusCode;
 use tokio::net::TcpStream;
@@ -27,11 +28,24 @@ struct Desk {
 }
 
 impl Desk {
+    /// A desk with an OpenAI key, so `openai/gpt-4o-mini-tts` speaks and
+    /// its voices are the OpenAI voices.
     async fn start(voice: FakeVoice) -> Self {
+        Self::start_with(
+            voice,
+            TestDaemonOptions {
+                keys: test_provider_keys(vec![("OPENAI_API_KEY", "sk-test")]),
+                ..TestDaemonOptions::default()
+            },
+        )
+        .await
+    }
+
+    async fn start_with(voice: FakeVoice, options: TestDaemonOptions) -> Self {
         let voice = Arc::new(voice);
         let daemon = TestDaemon::start_with(TestDaemonOptions {
             voice: Arc::clone(&voice) as _,
-            ..TestDaemonOptions::default()
+            ..options
         })
         .await;
         Self { daemon, voice }
@@ -362,11 +376,11 @@ async fn a_thread_speaks_the_markdown_block_in_the_agent_voice_and_stores_nothin
         vec![
             VoiceCall::Speak {
                 text: "Here is the report.".to_string(),
-                voice: Some("nova".to_string()),
+                voice: "nova".to_string(),
             },
             VoiceCall::Speak {
                 text: "Tell me if it reads well.".to_string(),
-                voice: Some("nova".to_string()),
+                voice: "nova".to_string(),
             },
         ]
     );
@@ -439,19 +453,167 @@ async fn an_agent_with_no_voice_speaks_with_the_provider_default() {
         ))
         .await;
 
+    // The provider default is the first voice of the model that speaks.
     assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(response.headers()["x-pagis-voice"], "default");
+    assert_eq!(response.headers()["x-pagis-voice"], "alloy");
     assert_eq!(
         desk.voice.calls(),
         vec![VoiceCall::Speak {
             text: "Hello.".to_string(),
-            voice: None,
+            voice: "alloy".to_string(),
         }]
     );
 }
 
+/// A desk whose one key is OpenRouter's, whose `speak` alias names
+/// Gemini TTS on OpenRouter, and whose OpenRouter list names the voices
+/// of that model.
+async fn openrouter_desk() -> (Desk, wiremock::MockServer) {
+    use wiremock::matchers::{header, method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    let provider = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/models/user"))
+        .and(header("authorization", "Bearer sk-test"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": [{
+                "id": "google/gemini-3.8-flash-tts",
+                "created": 1,
+                "architecture": { "output_modalities": ["speech"] },
+                "supported_voices": ["Zephyr", "Puck", "Kore"]
+            }]
+        })))
+        .mount(&provider)
+        .await;
+    let desk = Desk::start_with(
+        FakeVoice::default(),
+        TestDaemonOptions {
+            keys: test_provider_keys(vec![("OPENROUTER_API_KEY", "sk-test")]),
+            model_list_base_url: Some(provider.uri()),
+            ..TestDaemonOptions::default()
+        },
+    )
+    .await;
+    let (status, body) = desk
+        .put_json(
+            "/api/v1/settings/model-aliases/speak",
+            serde_json::json!({ "candidates": ["openrouter/google/gemini-3.8-flash-tts"] }),
+        )
+        .await;
+    assert_eq!(status, 200, "{body}");
+    (desk, provider)
+}
+
+/// The Provider Voice List comes from the provider and the model that
+/// speak: OpenRouter names the voices of each speech model.
 #[tokio::test]
-async fn the_agent_voice_is_validated_against_the_catalogue() {
+async fn the_voice_list_is_the_voices_of_the_model_that_speaks() {
+    let (desk, _provider) = openrouter_desk().await;
+
+    let voices: serde_json::Value = desk
+        .get("/api/v1/settings/voices")
+        .await
+        .json()
+        .await
+        .unwrap();
+
+    assert_eq!(voices["provider"], "openrouter");
+    assert_eq!(voices["model"], "google/gemini-3.8-flash-tts");
+    assert_eq!(
+        voices["items"],
+        serde_json::json!(["Zephyr", "Puck", "Kore"])
+    );
+    let (status, kore) = desk
+        .post_json(
+            "/api/v1/agents",
+            serde_json::json!({ "name": "Kay", "job": "researcher", "voice": "Kore" }),
+        )
+        .await;
+    assert_eq!(status, 201, "{kore}");
+    let (status, body) = desk
+        .post_json(
+            "/api/v1/agents",
+            serde_json::json!({ "name": "Nova", "job": "researcher", "voice": "nova" }),
+        )
+        .await;
+    assert_eq!(status, 422, "{body}");
+}
+
+/// A voice the model that speaks does not have is absent: the reply
+/// takes the model's first voice and says so.
+#[tokio::test]
+async fn a_voice_the_speaking_model_lacks_falls_back_to_its_first_voice() {
+    let (desk, _provider) = openrouter_desk().await;
+    let mut agent = desk
+        .daemon
+        .stores()
+        .agents
+        .get(
+            &pagis_core::WorkspaceId::from(desk.workspace_id().await),
+            &pagis_core::AgentId::from(desk.daemon.agent_id.clone()),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    agent.voice = Some("nova".to_string());
+    desk.daemon.stores().agents.update(&agent).await.unwrap();
+    let message_id = desk.agent_message(vec![Block::markdown("Hello.")]).await;
+
+    let response = desk
+        .get(&format!(
+            "/api/v1/channels/{}/messages/{message_id}/speech?block=0",
+            desk.daemon.dm_channel_id
+        ))
+        .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["x-pagis-voice"], "Zephyr");
+}
+
+/// With no key that serves spoken replies, the list is empty and a reply
+/// is not spoken; the error names the keys that would speak it.
+#[tokio::test]
+async fn no_spoken_replies_without_a_key_that_serves_them() {
+    let desk = Desk::start_with(
+        FakeVoice::default(),
+        TestDaemonOptions {
+            keys: test_provider_keys(vec![("ANTHROPIC_API_KEY", "sk-test")]),
+            ..TestDaemonOptions::default()
+        },
+    )
+    .await;
+    let message_id = desk.agent_message(vec![Block::markdown("Hello.")]).await;
+
+    let voices: serde_json::Value = desk
+        .get("/api/v1/settings/voices")
+        .await
+        .json()
+        .await
+        .unwrap();
+    let response = desk
+        .get(&format!(
+            "/api/v1/channels/{}/messages/{message_id}/speech?block=0",
+            desk.daemon.dm_channel_id
+        ))
+        .await;
+
+    assert_eq!(voices["items"], serde_json::json!([]));
+    assert!(voices["provider"].is_null());
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("OpenAI or OpenRouter"),
+        "{body}"
+    );
+    assert!(desk.voice.calls().is_empty());
+}
+
+#[tokio::test]
+async fn the_agent_voice_is_validated_against_the_voices_of_the_model_that_speaks() {
     let desk = Desk::start(FakeVoice::default()).await;
 
     let voices: serde_json::Value = desk
@@ -466,6 +628,7 @@ async fn the_agent_voice_is_validated_against_the_catalogue() {
         .iter()
         .map(|v| v.as_str().unwrap())
         .collect();
+    assert_eq!(voices["provider"], "openai");
     assert!(names.contains(&"alloy"), "{names:?}");
     assert!(names.contains(&"nova"), "{names:?}");
 
