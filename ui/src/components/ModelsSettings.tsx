@@ -5,7 +5,7 @@
 import { useState } from 'react'
 
 import type { ApiClient, ModelAliasDto } from '../api/client'
-import { Button, Dialog, Frame, Input, Row, SectionLabel, Textarea } from '../primitives'
+import { Button, Combobox, Dialog, Frame, Input, Row, SectionLabel, Textarea } from '../primitives'
 import {
   errorMessage,
   useCreateModelAlias,
@@ -138,12 +138,12 @@ function AliasDialog({
         <div className="models-field">
           <span>Add a candidate</span>
           <span className="models-add">
-            <Input
-              aria-label="Add a candidate"
-              list="models-listed"
+            <Combobox
+              label="Add a candidate"
               placeholder="Choose a listed model or type provider/model"
               value={adding}
-              onChange={(event) => setAdding(event.target.value)}
+              onValueChange={setAdding}
+              items={listed}
               onKeyDown={(event) => {
                 if (event.key === 'Enter') {
                   event.preventDefault()
@@ -153,9 +153,6 @@ function AliasDialog({
             />
             <Button disabled={adding.trim() === ''} onClick={addCandidate}>Add candidate</Button>
           </span>
-          <datalist id="models-listed" data-testid="models-listed">
-            {listed.map((candidate) => <option key={candidate} value={candidate} />)}
-          </datalist>
         </div>
         <p className="models-note">OpenRouter candidates use openrouter/provider/model.</p>
         <p className="models-note">

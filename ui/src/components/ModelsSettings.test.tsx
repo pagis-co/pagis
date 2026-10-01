@@ -150,15 +150,11 @@ describe('ModelsSettings', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Edit default' }))
     const dialog = await screen.findByRole('dialog', { name: 'Edit default' })
-    await waitFor(() =>
-      expect(
-        [...within(dialog).getByTestId('models-listed').querySelectorAll('option')].map(
-          (option) => option.getAttribute('value'),
-        ),
-      ).toEqual(['openai/gpt-6-luna']),
-    )
-    const adding = within(dialog).getByLabelText('Add a candidate')
-    expect(adding.getAttribute('list')).toBe('models-listed')
+    const adding = within(dialog).getByRole('combobox', { name: 'Add a candidate' })
+    fireEvent.click(adding)
+    expect(
+      (await screen.findAllByRole('option')).map((option) => option.textContent),
+    ).toEqual(['openai/gpt-6-luna'])
 
     fireEvent.change(adding, { target: { value: 'openai/gpt-6-luna' } })
     fireEvent.click(within(dialog).getByRole('button', { name: 'Add candidate' }))
