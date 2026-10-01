@@ -189,3 +189,8 @@ takes the container's place (ADR-0015).
   writable-layer answer from a wake's container create and from `docker info`,
   and makes no probe container, so Health reports `unknown` until a Computer
   wakes.
+
+## Not built
+
+- The Exit Proxy inside every Computer, and on a Server the egress rule
+  that lets a Computer in Home mode reach the daemon (ADR-0029).

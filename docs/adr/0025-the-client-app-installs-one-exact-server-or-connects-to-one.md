@@ -371,3 +371,6 @@ smoke launch of the client.
   namespaces to a program with no AppArmor profile, and the Chromium sandbox
   needs them, so a person there uses the deb.
 - An rpm. A Fedora or openSUSE person uses the AppImage.
+- "Connect to a Pagis server" with a Sign-In Link of an installation in
+  Remote Access, and "Several people" with no Multi-User Mode to open
+  (ADR-0028).

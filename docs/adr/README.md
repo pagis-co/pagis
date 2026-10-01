@@ -43,3 +43,5 @@ records that touch an area before you change it.
 - [0024](0024-a-server-serves-a-network.md): A server serves a network behind a proxy, with a separate Administration Port
 - [0025](0025-the-client-app-installs-one-exact-server-or-connects-to-one.md): The Client App installs one exact server or connects to one
 - [0026](0026-the-daemon-sends-anonymous-analytics-from-a-release-build.md): The daemon sends anonymous analytics, and only a release build can
+- [0028](0028-remote-access-runs-through-the-owners-tailscale.md): Remote Access runs through the owner's Tailscale, and a client signs in with a Sign-In Link
+- [0029](0029-a-computer-can-exit-through-its-persons-host.md): A Computer on a server can exit to the internet through its Person's Host
