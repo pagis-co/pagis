@@ -40,10 +40,26 @@ configure (Anthropic, OpenAI or OpenRouter), and it runs no model itself.
 A release installs in two ways:
 
 - **The Client App** (macOS and Linux) runs Pagis on your own computer or
-  connects to a server. The [Quickstart](https://docs.pagis.co/quickstart)
-  installs it.
-- **The Headless Server** (Linux VM with Docker) runs Pagis for a team.
+  connects to a server. Download it from the
+  [latest release](https://github.com/pagis-co/pagis/releases/latest), and
+  the [Quickstart](https://docs.pagis.co/quickstart) installs it.
+- **The Headless Server** (Linux VM with Docker) runs Pagis for a team from
+  the image `ghcr.io/pagis-co/pagis-server:<release>`.
   [Deploy with Compose](https://docs.pagis.co/server/compose) starts it.
+
+The release holds one Client App package for each platform. `<release>` is
+the release number, such as `0.1.0`.
+
+| Platform | File |
+| --- | --- |
+| macOS, Apple silicon | `Pagis-<release>-arm64.dmg` |
+| Linux amd64 | `Pagis-<release>-amd64.deb` or `Pagis-<release>-x86_64.AppImage` |
+| Linux arm64 | `Pagis-<release>-arm64.deb` or `Pagis-<release>-arm64.AppImage` |
+
+On Ubuntu 24.04 and later, use the deb. The release key signs the checksum
+list of the Linux packages, and
+[Verify a download](https://docs.pagis.co/client-app/linux) tells how to
+check it.
 
 ### From source
 

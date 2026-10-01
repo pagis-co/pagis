@@ -52,7 +52,8 @@ The four services:
   `pagis` service starts only after the rules are in place. The service then
   stays up: Docker starts it again when the VM boots, and each start writes
   the rules again. It has `NET_ADMIN` and no Docker socket.
-- **`pagis`**, the release's Headless Server image, on the VM's
+- **`pagis`**, the release's Headless Server image,
+  `ghcr.io/pagis-co/pagis-server:<release>`, a public image, on the VM's
   `/var/lib/pagis`. It is the one service that receives the Docker socket,
   because it is the one that starts Computers.
 - **`proxy`**, `caddy:2-alpine`, pinned by digest, which holds the
