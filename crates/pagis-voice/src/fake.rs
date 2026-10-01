@@ -22,7 +22,7 @@ pub enum VoiceCall {
     Dictate,
     Speak {
         text: String,
-        voice: Option<String>,
+        voice: String,
     },
 }
 
@@ -127,14 +127,14 @@ impl VoiceProvider for FakeVoice {
         &self,
         _workspace_id: &pagis_core::WorkspaceId,
         text: &str,
-        voice: Option<&str>,
+        voice: &str,
     ) -> Result<Speech, VoiceError> {
         self.record(VoiceCall::Speak {
             text: text.to_string(),
-            voice: voice.map(str::to_string),
+            voice: voice.to_string(),
         });
         self.refuse()?;
-        let voice = voice.unwrap_or("default").to_string();
+        let voice = voice.to_string();
         Ok(Speech {
             audio: Bytes::from(format!("speech:{voice}:{text}")),
             media_type: "audio/mpeg".to_string(),

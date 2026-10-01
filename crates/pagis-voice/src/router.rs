@@ -29,10 +29,6 @@ use crate::{
 /// and the alias candidate serves the buffered path.
 pub const LIVE_TRANSCRIPTION_MODEL: &str = "gpt-live-transcribe";
 
-/// The voice an Agent with no voice speaks with: the provider's own
-/// default, named so the reply can say which voice was used.
-pub const DEFAULT_VOICE: &str = "alloy";
-
 /// The voice seam over the model router. One instance serves every
 /// tenant: the aliases a call resolves are the asking Workspace's own, so
 /// the Workspace is an argument and not a field.
@@ -164,12 +160,12 @@ impl VoiceProvider for RouterVoice {
         &self,
         workspace_id: &WorkspaceId,
         text: &str,
-        voice: Option<&str>,
+        voice: &str,
     ) -> Result<Speech, VoiceError> {
         let router = self
             .router_for(workspace_id, SPEAK_ALIAS, ProviderUse::SpokenReplies)
             .await?;
-        let voice = voice.unwrap_or(DEFAULT_VOICE).to_string();
+        let voice = voice.to_string();
         let mut request = SpeechRequest::new(SPEAK_ALIAS, text, voice.clone());
         request.format = Some(AudioFormat::Mp3);
         let response = router

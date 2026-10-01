@@ -33,6 +33,7 @@ mod registry;
 mod router;
 mod stream_util;
 mod types;
+mod voices;
 
 pub use accumulator::{MessageAccumulator, StreamedMessage};
 pub use config::{
@@ -56,3 +57,4 @@ pub use types::{
     TranscriptSegment, TranscriptWord, TranscriptionRequest, TranscriptionResponse, Usage,
     VideoJob, VideoRequest, VideoStatus,
 };
+pub use voices::OPENAI_VOICES;

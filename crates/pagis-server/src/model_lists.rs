@@ -213,6 +213,20 @@ pub(crate) fn reachable_candidates(
 /// question that would change it. A route that a keyed provider still
 /// serves stays as it is, because a Person or an Administrator chose it.
 pub async fn route_unrouted_aliases(state: &AppState) -> Result<(), ApiError> {
+    route_unrouted(state, true).await
+}
+
+/// Give each well-known alias but `default` of every Workspace that no
+/// keyed provider serves the preferred models of the first keyed
+/// provider that serves it. It reads no model list, so it waits on no
+/// provider. The boot runs it, because a key of the environment or of
+/// `config.toml` comes with no key route, and so does the creation of a
+/// Person, whose seed knows no key.
+pub async fn route_unrouted_plumbing(state: &AppState) -> Result<(), ApiError> {
+    route_unrouted(state, false).await
+}
+
+async fn route_unrouted(state: &AppState, with_default: bool) -> Result<(), ApiError> {
     let mut keyed = Vec::new();
     for provider in PROVIDERS {
         if state
@@ -231,6 +245,9 @@ pub async fn route_unrouted_aliases(state: &AppState) -> Result<(), ApiError> {
     let mut default: Option<Option<String>> = None;
     for workspace in state.workspaces.list().await? {
         for (name, _) in model_preference::PREFERENCES {
+            if name == DEFAULT_MODEL_ALIAS && !with_default {
+                continue;
+            }
             let Some(alias) = state
                 .model_aliases
                 .get_by_alias(&workspace.id, name)

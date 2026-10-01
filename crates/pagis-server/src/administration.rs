@@ -376,6 +376,9 @@ pub async fn create_account(
     if !route.is_empty() {
         crate::model_lists::set_default_candidates(&state, &workspace.id, &route).await?;
     }
+    // The seed knows no key, so each voice and call alias takes a
+    // provider that the installation's keys serve.
+    crate::model_lists::route_unrouted_plumbing(&state).await?;
 
     Ok((
         StatusCode::CREATED,

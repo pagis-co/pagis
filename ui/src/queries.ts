@@ -427,13 +427,13 @@ export function useCreateChannel(api: ApiClient) {
   });
 }
 
-/** The voice catalogue: the names an Agent Voice can take. */
+/** The Provider Voice List: the model that speaks for the Workspace
+ *  and its voices, the names an Agent Voice can take. It changes with
+ *  the keys and the `speak` alias, so each form reads it again. */
 export function useVoices(api: ApiClient) {
   return useQuery({
     queryKey: voicesKey,
-    queryFn: () =>
-      unwrap(api.GET("/api/v1/settings/voices")).then((page) => page.items),
-    staleTime: Infinity,
+    queryFn: () => unwrap(api.GET("/api/v1/settings/voices")),
   });
 }
 

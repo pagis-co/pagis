@@ -123,15 +123,39 @@ fn trimmed_standing_brief(brief: Option<String>) -> Option<String> {
         .filter(|brief| !brief.is_empty())
 }
 
-/// An empty voice is no voice; any other name must be in the catalogue.
-fn validate_voice(voice: Option<String>) -> Result<Option<String>, ApiError> {
+/// An empty voice is no voice. Any other name must be a voice of the
+/// model that speaks for the Workspace (ADR-0020), unless the Agent
+/// already holds it: a voice stays when the speaking model changes, and
+/// a reply then speaks in the model's default.
+async fn validate_voice(
+    state: &AppState,
+    workspace_id: &pagis_core::WorkspaceId,
+    voice: Option<String>,
+    held: Option<&str>,
+) -> Result<Option<String>, ApiError> {
     let Some(voice) = voice
         .map(|v| v.trim().to_string())
         .filter(|v| !v.is_empty())
     else {
         return Ok(None);
     };
-    pagis_voice::validate_voice(&voice).map_err(|error| ApiError::validation(error.to_string()))?;
+    if held == Some(voice.as_str()) {
+        return Ok(Some(voice));
+    }
+    let Some(list) = crate::voice_list::speaking_voices(state, workspace_id).await? else {
+        return Err(ApiError::validation(format!(
+            "no key serves spoken replies, so no voice can be chosen; add a key for {}",
+            crate::voice_list::speaking_providers()
+        )));
+    };
+    if !list.has(&voice) {
+        return Err(ApiError::validation(format!(
+            "`{voice}` is not a voice of {}/{}; choose one of {}",
+            list.provider.id(),
+            list.model,
+            list.voices.join(", ")
+        )));
+    }
     Ok(Some(voice))
 }
 
@@ -309,7 +333,7 @@ pub async fn create_agent(
         return Err(ApiError::validation("agent name must not be empty"));
     }
     request.avatar.validate().map_err(ApiError::validation)?;
-    let voice = validate_voice(request.voice)?;
+    let voice = validate_voice(&state, &tenant.workspace_id, request.voice, None).await?;
     // Everything the mailbox needs that does not need the Agent is
     // checked first, so a taken address or a reserved name answers the
     // form and makes no Agent (ADR-0019).
@@ -452,13 +476,19 @@ pub async fn update_agent(
     if name.is_empty() {
         return Err(ApiError::validation("agent name must not be empty"));
     }
-    let voice = validate_voice(request.voice)?;
     let agent_id = AgentId::from(agent_id);
     let mut agent = state
         .agent_store
         .get(&tenant.workspace_id, &agent_id)
         .await?
         .ok_or_else(|| ApiError::not_found("agent"))?;
+    let voice = validate_voice(
+        &state,
+        &tenant.workspace_id,
+        request.voice,
+        agent.voice.as_deref(),
+    )
+    .await?;
     agent.name = name;
     agent.job = request.job.trim().to_string();
     agent.description = request.description.trim().to_string();

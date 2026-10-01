@@ -1253,6 +1253,11 @@ pub async fn app(booted: &Booted, options: AppOptions) -> anyhow::Result<Interfa
     // proxy on this machine forwards.
     let this_machine_only = pagis_server::serves_this_machine_only(&state);
     pagis_server::forget::resume(&state).await?;
+    // A key of the environment or of `config.toml` comes with no key
+    // route, so the voice and call aliases take the providers it serves.
+    pagis_server::model_lists::route_unrouted_plumbing(&state)
+        .await
+        .map_err(|error| anyhow::anyhow!("routing the voice aliases failed: {}", error.message))?;
     let routers = pagis_server::routers(state);
     let mut interfaces = Interfaces {
         product: routers.product.fallback(crate::spa::serve),

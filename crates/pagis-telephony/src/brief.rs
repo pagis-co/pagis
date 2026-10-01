@@ -150,7 +150,7 @@ impl CallBrief {
             direction: CallDirection::Outbound,
             agent_id: agent.id.clone(),
             agent_name: agent.name.clone(),
-            voice: agent.voice.clone(),
+            voice: call_voice(agent),
             phone_number_id: number.id.clone(),
             own_e164: number.e164.clone(),
             remote_e164: arguments.to.clone(),
@@ -182,7 +182,7 @@ impl CallBrief {
             direction: CallDirection::Inbound,
             agent_id: agent.id.clone(),
             agent_name: agent.name.clone(),
-            voice: agent.voice.clone(),
+            voice: call_voice(agent),
             phone_number_id: number.id.clone(),
             own_e164: number.e164.clone(),
             remote_e164: remote_e164.to_string(),
@@ -203,6 +203,16 @@ impl CallBrief {
             emergency_rule: EMERGENCY_RULE,
         }
     }
+}
+
+/// The voice a call speaks in. A call runs on OpenAI, so an Agent Voice
+/// of another provider's model is absent and the call takes the OpenAI
+/// default (ADR-0020).
+fn call_voice(agent: &Agent) -> Option<String> {
+    agent
+        .voice
+        .clone()
+        .filter(|voice| llm_router::OPENAI_VOICES.contains(&voice.as_str()))
 }
 
 /// The cap of one call: the per-call override when it is shorter than

@@ -83,7 +83,7 @@ async fn each_provider_names_its_uses() {
     );
     assert_eq!(
         provider(&status, "openrouter")["uses"],
-        serde_json::json!(["thinking", "dictation"])
+        serde_json::json!(["thinking", "spoken_replies", "dictation"])
     );
     assert_eq!(
         provider(&status, "anthropic")["uses"],
@@ -106,7 +106,11 @@ async fn a_stored_key_routes_each_alias_no_keyed_provider_serves() {
         serde_json::json!(["openrouter/openai/gpt-4o-transcribe"])
     );
     assert_eq!(transcribe["reachable"], true);
-    assert_eq!(model_alias(&daemon, "speak").await["reachable"], false);
+    assert_eq!(
+        model_alias(&daemon, "speak").await["candidates"],
+        serde_json::json!(["openrouter/google/gemini-3.8-flash-tts"])
+    );
+    assert_eq!(model_alias(&daemon, "phone").await["reachable"], false);
     assert_eq!(model_alias(&daemon, "default").await["reachable"], true);
 
     store_key(&daemon, "openai").await;
@@ -115,7 +119,7 @@ async fn a_stored_key_routes_each_alias_no_keyed_provider_serves() {
         model_alias(&daemon, "transcribe").await["candidates"],
         serde_json::json!(["openrouter/openai/gpt-4o-transcribe"])
     );
-    assert_eq!(model_alias(&daemon, "speak").await["reachable"], true);
+    assert_eq!(model_alias(&daemon, "phone").await["reachable"], true);
 }
 
 /// A home with one Colima socket, which a ping never opens.
@@ -1222,6 +1226,71 @@ async fn a_created_person_starts_on_the_newest_listed_model() {
         .unwrap()
         .expect("the default alias");
     assert_eq!(alias.candidates, vec!["anthropic/vendor-new-model"]);
+}
+
+/// A key from the environment comes with no key route, so the boot gives
+/// each voice and call alias that no keyed provider serves the preferred
+/// models of a provider that serves it.
+#[tokio::test]
+async fn the_boot_routes_the_voice_aliases_to_the_keys_of_the_environment() {
+    let daemon = TestDaemon::start_with(TestDaemonOptions {
+        keys: test_provider_keys(vec![("OPENROUTER_API_KEY", "sk-test")]),
+        ..TestDaemonOptions::default()
+    })
+    .await;
+
+    assert_eq!(
+        model_alias(&daemon, "transcribe").await["candidates"],
+        serde_json::json!(["openrouter/openai/gpt-4o-transcribe"])
+    );
+    assert_eq!(
+        model_alias(&daemon, "speak").await["candidates"],
+        serde_json::json!(["openrouter/google/gemini-3.8-flash-tts"])
+    );
+}
+
+/// A Person an Administrator creates gets voice aliases that the keys of
+/// the installation serve.
+#[tokio::test]
+async fn a_created_person_gets_voice_aliases_the_keys_serve() {
+    let daemon = TestDaemon::start().await;
+    store_key(&daemon, "openrouter").await;
+
+    let created: serde_json::Value = client()
+        .post(format!(
+            "{}/api/v1/administration/people",
+            daemon.administration_base_url
+        ))
+        .header("cookie", daemon.cookie())
+        .json(&serde_json::json!({
+            "email": "lin@example.com",
+            "name": "Lin",
+            "password": "correct horse battery",
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let workspace_id = pagis_core::WorkspaceId::from(
+        created["workspace_id"]
+            .as_str()
+            .unwrap_or_else(|| panic!("the person has a Workspace: {created}"))
+            .to_string(),
+    );
+
+    let alias = daemon
+        .stores()
+        .model_aliases
+        .get_by_alias(&workspace_id, "transcribe")
+        .await
+        .unwrap()
+        .expect("the transcribe alias");
+    assert_eq!(
+        alias.candidates,
+        vec!["openrouter/openai/gpt-4o-transcribe"]
+    );
 }
 
 /// A model that the provider lists and no built-in table knows runs end

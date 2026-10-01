@@ -85,13 +85,51 @@ async fn openrouter_reports_limits_and_per_token_prices() {
     assert_eq!(auto.max_output_tokens, None);
 }
 
+/// OpenRouter names what each model outputs and the voices of each
+/// speech model, so a speech model reads as no chat model and offers its
+/// own voices.
+#[tokio::test]
+async fn openrouter_lists_speech_models_with_their_voices() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/models"))
+        .respond_with(json_body("openrouter.json"))
+        .mount(&server)
+        .await;
+
+    let router = single_provider_router(ProtocolKind::OpenAiResponses, &server.uri());
+    let models = router.list_models("p").await.unwrap();
+
+    let tts = models
+        .iter()
+        .find(|model| model.id == "google/gemini-3.8-flash-tts")
+        .unwrap();
+    assert_eq!(
+        tts.voices.as_deref(),
+        Some(&["Zephyr".to_string(), "Puck".to_string(), "Kore".to_string()][..])
+    );
+    assert_eq!(
+        tts.output_modalities.as_deref(),
+        Some(&["speech".to_string()][..])
+    );
+    assert!(!tts.looks_like_chat());
+    let sonnet = &models[0];
+    assert_eq!(sonnet.voices, None);
+    assert!(sonnet.looks_like_chat());
+}
+
 #[tokio::test]
 async fn openrouter_lists_the_models_of_the_key() {
     // OpenRouter's `/models` answers without a key, so it cannot prove
-    // one; `/models/user` takes the key.
+    // one; `/models/user` takes the key. It lists text models alone
+    // unless asked for the speech and transcription models too.
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/models/user"))
+        .and(query_param(
+            "output_modalities",
+            "text,speech,transcription",
+        ))
         .and(header("authorization", "Bearer or-key"))
         .respond_with(json_body("openrouter.json"))
         .expect(1)
