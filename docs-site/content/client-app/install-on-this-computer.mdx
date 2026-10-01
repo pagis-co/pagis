@@ -77,8 +77,9 @@ icon: HardDrive
   one-second pause, then the failure page with the log. Exit code 75 means
   "start me again" and does not count as a crash.
 - **Stops the server it started on quit.** It sends SIGINT to the exact child
-  it started, then kills that child after five seconds. A server it only
-  attached to continues to run.
+  it started, then kills that child after thirty seconds, because the
+  server stops each Computer first. A server it only attached to continues
+  to run.
 - **Is the Host of this machine.** The client registers as a Host, so an
   Agent can run a command here after the Person approves it ([ADR-0015](https://github.com/pagis-co/pagis/blob/main/docs/adr/0015-a-host-action-runs-on-a-present-client.md)).
 

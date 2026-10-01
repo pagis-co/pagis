@@ -5,17 +5,26 @@ import { createRequire } from 'node:module'
 
 const require = createRequire(import.meta.url)
 const asar = require('@electron/asar')
+const yaml = require('js-yaml')
 
 // The app is Pagis.app on macOS and the unpacked directory on Linux. The
-// packages are what a person downloads: the DMG, or the AppImage and the deb.
+// packages are what a person downloads: the DMG and the ZIP, or the
+// AppImage and the deb.
 const app = process.argv[2]
 const packages = process.argv.slice(3)
 if (!app || packages.length === 0) throw new Error('usage: node scripts/check-package.mjs <app> <package>...')
 
 const resources = app.endsWith('.app') ? path.join(app, 'Contents', 'Resources') : path.join(app, 'resources')
-const required = ['app.asar', 'runtime-lock.json']
+const required = ['app.asar', 'runtime-lock.json', 'app-update.yml']
 for (const name of required) {
-  if (!fs.statSync(path.join(resources, name)).isFile()) throw new Error(`the client package has no ${name}`)
+  if (!fs.statSync(path.join(resources, name), { throwIfNoEntry: false })?.isFile()) {
+    throw new Error(`the client package has no ${name}`)
+  }
+}
+// electron-updater reads the feed that app-update.yml names (ADR-0027).
+const feed = yaml.load(fs.readFileSync(path.join(resources, 'app-update.yml'), 'utf8'))
+if (feed?.provider !== 'github' || feed.owner !== 'pagis-co' || feed.repo !== 'pagis') {
+  throw new Error('the app-update.yml of the client package does not name the GitHub releases of pagis-co/pagis')
 }
 
 const forbiddenNames = new Set(['pagis', 'gog', 'secrets.enc'])

@@ -16,7 +16,7 @@ holds the decisions.
 
 | | Artifact | Published as | Platforms | Number it carries |
 | --- | --- | --- | --- | --- |
-| 1 | Client App and installer | macOS: a signed, notarized, stapled disk image. Linux: an AppImage and a deb, with a checksum list the release key signs. All on the GitHub Release | macOS arm64, Linux amd64, Linux arm64 | The release |
+| 1 | Client App and installer | macOS: a signed, notarized, stapled disk image, and a ZIP of the same app with its blockmap and the Update feed `latest-mac.yml`. Linux: an AppImage and a deb, with a checksum list the release key signs. All on the GitHub Release | macOS arm64, Linux amd64, Linux arm64 | The release |
 | 2 | Computer image | `ghcr.io/pagis-co/pagis-computer:<image version>` | linux/amd64, linux/arm64 | Its own image version |
 | 3 | Server package | The package the Client App downloads. On macOS it is a signed, notarized, stapled disk image. On Linux it is a gzip tar archive for each architecture. A Runtime Lock for each client platform names its package by size and SHA-256 | macOS arm64, Linux amd64, Linux arm64 | The release |
 | 4 | Headless Server image | `ghcr.io/pagis-co/pagis-server:<release>` | linux/amd64, linux/arm64 | The release |

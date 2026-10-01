@@ -7,8 +7,9 @@ export interface NewVersion {
 const LATEST_RELEASE = 'https://api.github.com/repos/pagis-co/pagis/releases/latest'
 
 /**
- * The "new version" line (ADR-0025). The app has no updater: it reads
- * the latest release and says that one is there, with a link.
+ * The new-version line of the tray on Linux, where the Client App has no
+ * updater: it reads the latest release and says that one is there, with a
+ * link.
  */
 export async function checkForNewVersion(
   current: string,

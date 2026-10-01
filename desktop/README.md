@@ -42,9 +42,14 @@ confirms that it loaded, and quits without starting a server.
 ## Packaging
 
 ```bash
-npm run pack         # macOS arm64: the DMG
+npm run pack         # macOS arm64: the DMG, and the ZIP with latest-mac.yml
 npm run pack:linux   # Linux amd64 and arm64: the AppImage and the deb
 ```
+
+The GitHub publish configuration of `electron-builder.yml` puts
+`app-update.yml` in the app, which names the releases of `pagis-co/pagis`
+for electron-updater, and makes electron-builder write the Update feeds.
+Both scripts pass `--publish never`: the release uploads each file itself.
 
 `electron-builder.yml` puts the lock of each platform and architecture in
 the package as `runtime-lock.json`, from the repository root's `dist/`:

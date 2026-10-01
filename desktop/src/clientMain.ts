@@ -3,7 +3,21 @@ import * as path from 'node:path'
 import * as os from 'node:os'
 import { pathToFileURL } from 'node:url'
 
-import { BrowserWindow, Menu, type Tray, app, dialog, ipcMain, session, shell } from 'electron'
+import {
+  BrowserWindow,
+  Menu,
+  type MessageBoxOptions,
+  type MessageBoxReturnValue,
+  Notification,
+  type Tray,
+  app,
+  autoUpdater as squirrel,
+  dialog,
+  ipcMain,
+  session,
+  shell,
+} from 'electron'
+import { autoUpdater } from 'electron-updater'
 
 import { ClientController } from './clientController'
 import { DaemonSupervisor, redact, type DaemonState } from './daemon'
@@ -45,6 +59,9 @@ import { watchServerSignIn } from './serverSignIn'
 import { ServerConnections, type ServerConnection } from './serverConnection'
 import { reportUncaughtExceptions } from './uncaughtFailure'
 import { type NewVersion, checkForNewVersion } from './updateCheck'
+import { checkAnswer, readyNotification, restartQuestion } from './updateMessages'
+import { type UpdateState, Updates } from './updates'
+import { unfinishedRuns } from './unfinishedRuns'
 import { BackupFailure, keepNewestBackup, takeUpgradeBackup } from './upgradeBackup'
 import { installBluetoothRefusal, installPermissionHandlers, type ProductWindow } from './webPermissions'
 import {
@@ -81,7 +98,20 @@ class Shell {
   private setupWindow: BrowserWindow | null = null
   private statusWindow: BrowserWindow | null = null
   private tray: Tray | null = null
+  // The release that the check on Linux found.
   private update: NewVersion | null = null
+  // The Update of the Client App on macOS (ADR-0027). electron-updater
+  // works only in the packaged app.
+  private readonly updates = process.platform === 'darwin' && app.isPackaged && !SMOKE
+    ? new Updates({
+        updater: autoUpdater,
+        installer: squirrel,
+        onState: (state) => this.onUpdateState(state),
+        notify: (version) => new Notification(readyNotification(version)).show(),
+      })
+    : null
+  // True from "Restart to Update" until the process ends.
+  private installingUpdate = false
   private setupState: SetupState = { kind: 'ready' }
   // The Upgrade that the setup window shows, until the new release is
   // active. It lives only as long as this process.
@@ -133,12 +163,12 @@ class Shell {
     } catch (error) {
       await this.openSetup()
       this.setSetupState(this.failureState(error))
-      if (!SMOKE) void this.checkVersion()
+      if (!SMOKE) this.watchForUpdates()
       return
     }
     if (connection) {
       await this.openConnected(connection)
-      if (!SMOKE) void this.checkVersion()
+      if (!SMOKE) this.watchForUpdates()
       return
     }
     let release: string | null
@@ -147,7 +177,7 @@ class Shell {
     } catch (error) {
       await this.openSetup()
       this.setSetupState(this.failureState(error))
-      if (!SMOKE) void this.checkVersion()
+      if (!SMOKE) this.watchForUpdates()
       return
     }
     const action = startAction(release, app.getVersion())
@@ -171,7 +201,7 @@ class Shell {
       app.exit(0)
       return
     }
-    void this.checkVersion()
+    this.watchForUpdates()
   }
 
   /** Stop the work of the client before the process ends (`endOnQuit`). */
@@ -369,6 +399,7 @@ class Shell {
     this.setSetupState({ kind: 'installing', detail: 'Connecting to the Pagis server…' })
     const origin = await connectToServer(url, app.getVersion(), fetch, signal)
     this.connection = this.connections.write(origin)
+    this.followConnection()
     return origin
   }
 
@@ -400,6 +431,7 @@ class Shell {
     this.connection = null
     this.signInWatch?.()
     this.signInWatch = null
+    this.followConnection()
   }
 
   /** The Client Credential the daemon wrote on its first run. */
@@ -679,9 +711,92 @@ class Shell {
     return isTrustedSetupRequest(event, this.statusWindow.webContents, pathToFileURL(path.join(__dirname, '..', 'static', 'status.html')).toString())
   }
 
+  /** Look for a newer release: the updater on macOS, the new-version line
+   *  on Linux. */
+  private watchForUpdates(): void {
+    if (process.platform === 'linux') void this.checkVersion()
+    else this.followConnection()
+  }
+
   private async checkVersion(): Promise<void> {
     this.update = await checkForNewVersion(app.getVersion())
     if (this.update && this.tray) renderTray(this.tray, this.menuActions())
+  }
+
+  /**
+   * Run the updater while this client has a Local Installation or no setup
+   * yet, and stop it while it is connected to a server: a connected client
+   * takes no Update of its own (ADR-0027).
+   */
+  private followConnection(): void {
+    if (!this.updates) return
+    if (this.connection) this.updates.stop()
+    else this.updates.start()
+    this.renderMenus()
+  }
+
+  /** The Update as the menus show it, or null where the updater does not run. */
+  private updateState(): UpdateState | null {
+    return this.updates && !this.connection ? this.updates.state : null
+  }
+
+  private onUpdateState(state: UpdateState): void {
+    this.renderMenus()
+    // Squirrel.Mac refused the Update after the server stopped and the
+    // windows closed. The Person starts Pagis again, on the old release.
+    if (this.installingUpdate && state.kind === 'failed') {
+      dialog.showErrorBox('Pagis could not install the Update', state.reason)
+      app.quit()
+    }
+  }
+
+  private renderMenus(): void {
+    if (SMOKE) return
+    Menu.setApplicationMenu(applicationMenu(this.menuActions()))
+    if (this.tray) renderTray(this.tray, this.menuActions())
+  }
+
+  /** "Check for Updates…": check now and show what the check found. */
+  private async checkForUpdates(): Promise<void> {
+    if (!this.updates) return
+    await this.messageBox(checkAnswer(await this.updates.check(), app.getVersion()))
+  }
+
+  /**
+   * "Restart to Update" (ADR-0027): ask first when Runs are in progress,
+   * stop the server, and let Squirrel.Mac install the Update and start the
+   * new Client App. Each Run in progress fails, as at every restart.
+   */
+  private async restartToUpdate(): Promise<void> {
+    if (!this.updates) return
+    const question = restartQuestion(await this.unfinishedRuns())
+    if (question !== null && (await this.messageBox(question)).response !== 0) return
+    // Squirrel.Mac can refuse the Update while the question waits.
+    if (this.updates.state.kind !== 'ready') throw new Error('the Update is not ready to install')
+    await this.controller.cancel()
+    // The windows close for the install, so they must not hide.
+    this.quitting = true
+    this.installingUpdate = true
+    this.updates.install()
+  }
+
+  /** The Runs that a restart fails. A client with no running server has
+   *  none, and null means that the server did not say. */
+  private async unfinishedRuns(): Promise<number | null> {
+    if (this.controller.state?.kind !== 'running') return 0
+    return unfinishedRuns(
+      administrationUrl(readAdministrationPort(this.home)),
+      daemonUrl(readPort(this.home)),
+      readClientCredential(this.home),
+      session.defaultSession.cookies,
+    )
+  }
+
+  /** A message box on the visible window, or on its own when no window is
+   *  visible. */
+  private messageBox(options: MessageBoxOptions): Promise<MessageBoxReturnValue> {
+    const window = [this.setupWindow, this.statusWindow, this.mainWindow].find((each) => each?.isVisible()) ?? null
+    return window === null ? dialog.showMessageBox(options) : dialog.showMessageBox(window, options)
   }
 
   /** A handoff that no setup job awaits still has to reach the person. */
@@ -744,6 +859,13 @@ class Shell {
       openAtLogin: (open: boolean) => loginItem.setOpenAtLogin(open),
       isOpenAtLogin: () => loginItem.isOpenAtLogin(),
       newVersion: () => this.update,
+      update: () => this.updateState(),
+      checkForUpdates: () => void this.checkForUpdates().catch((error: unknown) => {
+        dialog.showErrorBox('Pagis could not check for updates', this.failure(error))
+      }),
+      restartToUpdate: () => void this.restartToUpdate().catch((error: unknown) => {
+        dialog.showErrorBox('Pagis could not install the Update', this.failure(error))
+      }),
     }
   }
 }

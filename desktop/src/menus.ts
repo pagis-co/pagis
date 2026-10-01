@@ -3,6 +3,7 @@ import * as path from 'node:path'
 import { Menu, type MenuItemConstructorOptions, Tray, app, shell } from 'electron'
 
 import type { NewVersion } from './updateCheck'
+import type { UpdateState } from './updates'
 
 export interface MenuActions {
   open(): void
@@ -11,7 +12,12 @@ export interface MenuActions {
   quit(): void
   openAtLogin(open: boolean): void
   isOpenAtLogin(): boolean
+  /** The release that the Linux check found. */
   newVersion(): NewVersion | null
+  /** The state of the Update, or null where the updater does not run. */
+  update(): UpdateState | null
+  checkForUpdates(): void
+  restartToUpdate(): void
 }
 
 /**
@@ -28,7 +34,7 @@ export function trayIcon(platform: string = process.platform): string {
 /**
  * The tray item (ADR-0025), in the macOS menu bar and in the Linux
  * status area: open the window again after a close, hold "Open at
- * login", carry the new-version line, and quit.
+ * login", carry the Update item or the new-version line, and quit.
  *
  * A Linux status area shows the item through StatusNotifierItem, and
  * there a click opens the menu and sends no click event, so every action
@@ -45,6 +51,7 @@ export function createTray(actions: MenuActions): Tray {
 
 export function renderTray(tray: Tray, actions: MenuActions): void {
   const found = actions.newVersion()
+  const update = updateItem(actions)
   const items: MenuItemConstructorOptions[] = [
     { label: 'Open Pagis', click: () => actions.open() },
     { label: 'Administration', click: () => actions.openAdministration() },
@@ -56,6 +63,7 @@ export function renderTray(tray: Tray, actions: MenuActions): void {
       click: (item) => actions.openAtLogin(item.checked),
     },
   ]
+  if (update) items.push({ type: 'separator' }, update)
   if (found) {
     items.push(
       { type: 'separator' },
@@ -83,11 +91,13 @@ export function applicationMenu(actions: MenuActions, platform: string = process
     accelerator: 'CmdOrCtrl+Q',
     click: () => actions.quit(),
   }
+  const update = updateItem(actions)
   const first: MenuItemConstructorOptions = platform === 'darwin'
     ? {
         label: app.name,
         submenu: [
           { role: 'about' },
+          ...(update ? [update] : []),
           { type: 'separator' },
           { role: 'hide' },
           { role: 'hideOthers' },
@@ -127,4 +137,26 @@ export function applicationMenu(actions: MenuActions, platform: string = process
     },
     { role: 'windowMenu' },
   ])
+}
+
+/**
+ * The one menu item of an Update (ADR-0027), as VS Code shows it: a check
+ * that the Person starts, the check or the download in progress, or
+ * "Restart to Update" when the Update is ready.
+ */
+function updateItem(actions: MenuActions): MenuItemConstructorOptions | null {
+  const state = actions.update()
+  switch (state?.kind) {
+    case undefined:
+      return null
+    case 'checking':
+      return { label: 'Checking for Updates…', enabled: false }
+    case 'downloading':
+      return { label: `Downloading Pagis ${state.version}… ${state.percent}%`, enabled: false }
+    case 'ready':
+      return { label: 'Restart to Update', click: () => actions.restartToUpdate() }
+    case 'idle':
+    case 'failed':
+      return { label: 'Check for Updates…', click: () => actions.checkForUpdates() }
+  }
 }
