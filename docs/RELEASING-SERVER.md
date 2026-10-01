@@ -392,6 +392,11 @@ The workflow runs these jobs in this order, and ADR-0025 holds why:
 6. **The publication.** The publication jobs wait in the `release`
    environment until a maintainer approves them. They upload the prepared
    client packages to the draft, and the last job publishes it.
+7. **The documentation.** After the publication, the release workflow
+   calls `.github/workflows/docs.yml`, which builds the documentation site
+   from the tree of the tag and deploys it to docs.pagis.co. The Quickstart
+   links to the client packages of the release, so the site goes live only
+   when the release holds them.
 
 A finding of the secret scan stops the release before the release
 pushes anything that holds it. When the finding is a secret, revoke it

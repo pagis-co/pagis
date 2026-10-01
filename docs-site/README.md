@@ -159,7 +159,7 @@ release (`.github/workflows/docs.yml`):
 | --- | --- |
 | A pull request that changes the site | A preview version with the alias `pr-<number>`, at a `workers.dev` URL that the job summary shows. It does not change production. |
 | A push to `main` | None |
-| A `v*` tag | Production at docs.pagis.co, from the tree of the tag |
+| The publication of a `v*` release | Production at docs.pagis.co, from the tree of the tag. `release.yml` calls this workflow after it publishes the GitHub Release, so the download links of the Quickstart name files that exist. |
 | A manual run of the **Docs** workflow | Production at docs.pagis.co, from the tree of the tag or of `main` in "Use workflow from" |
 
 So docs.pagis.co shows the pages of the latest release. A change to a page

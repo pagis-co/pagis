@@ -158,9 +158,10 @@ gate steps with `cargo xtask step`:
 The **CI success** job passes only when each other job passes. It is the
 one check that a pull request needs. `.github/workflows/advisories.yml`
 runs `cargo xtask advisories` each day. For a `v*` tag,
-`.github/workflows/release.yml` prepares the Client App packages and
-`.github/workflows/docs.yml` deploys the documentation site, and a manual
-run of it deploys the site from `main`. That workflow also uploads a preview of the site for a pull request that changes it.
+`.github/workflows/release.yml` prepares the Client App packages, and
+after it publishes the release it calls `.github/workflows/docs.yml`,
+which deploys the documentation site. A manual run of the docs workflow
+deploys the site from `main`. That workflow also uploads a preview of the site for a pull request that changes it.
 
 ## Pull requests
 

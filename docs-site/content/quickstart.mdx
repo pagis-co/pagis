@@ -14,25 +14,25 @@ It runs on macOS arm64, and on Linux amd64 and arm64.
 
 ### Download the Client App
 
-Download the package for your computer from the
-[latest release](https://github.com/pagis-co/pagis/releases/latest).
-`<release>` is the release number in the file name, such as `0.1.0`.
+Download the package for your computer. Each link downloads the file from
+the GitHub Release of this release.
 
 <Tabs items={['macOS', 'Linux']}>
   <Tab value="macOS">
-    Download `Pagis-<release>-arm64.dmg`, for macOS on Apple silicon. Open
-    it and drag Pagis to Applications.
+    Download <ReleaseFile name="Pagis-{release}-arm64.dmg" />, for macOS on
+    Apple silicon. Open it and drag Pagis to Applications.
   </Tab>
   <Tab value="Linux">
     Download the deb or the AppImage for your architecture:
 
     | Architecture | deb | AppImage |
     | --- | --- | --- |
-    | amd64 | `Pagis-<release>-amd64.deb` | `Pagis-<release>-x86_64.AppImage` |
-    | arm64 | `Pagis-<release>-arm64.deb` | `Pagis-<release>-arm64.AppImage` |
+    | amd64 | <ReleaseFile name="Pagis-{release}-amd64.deb" /> | <ReleaseFile name="Pagis-{release}-x86_64.AppImage" /> |
+    | arm64 | <ReleaseFile name="Pagis-{release}-arm64.deb" /> | <ReleaseFile name="Pagis-{release}-arm64.AppImage" /> |
 
     On Ubuntu 24.04 and later, use the deb, and install it with
-    `sudo apt install ./Pagis-<release>-amd64.deb` (or the arm64 file).
+    <ReleaseCode text="sudo apt install ./Pagis-{release}-amd64.deb" /> (or
+    the arm64 file).
     [Linux](/client-app/linux) tells
     how to verify the download with the release key.
   </Tab>
