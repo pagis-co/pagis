@@ -31,18 +31,36 @@ pub enum Provider {
     Anthropic,
     OpenAi,
     OpenRouter,
+    Deepgram,
 }
 
 /// Every known provider, in display order.
-pub const PROVIDERS: [Provider; 3] = [Provider::Anthropic, Provider::OpenAi, Provider::OpenRouter];
+pub const PROVIDERS: [Provider; 4] = [
+    Provider::Anthropic,
+    Provider::OpenAi,
+    Provider::OpenRouter,
+    Provider::Deepgram,
+];
 
 impl Provider {
-    /// The stable API identifier (`anthropic`, `openai`, or `openrouter`).
+    /// The stable API identifier: `anthropic`, `openai`, `openrouter` or
+    /// `deepgram`.
     pub fn id(self) -> &'static str {
         match self {
             Provider::Anthropic => "anthropic",
             Provider::OpenAi => "openai",
             Provider::OpenRouter => "openrouter",
+            Provider::Deepgram => "deepgram",
+        }
+    }
+
+    /// The name a person reads.
+    pub fn name(self) -> &'static str {
+        match self {
+            Provider::Anthropic => "Anthropic",
+            Provider::OpenAi => "OpenAI",
+            Provider::OpenRouter => "OpenRouter",
+            Provider::Deepgram => "Deepgram",
         }
     }
 
@@ -52,6 +70,7 @@ impl Provider {
             Provider::Anthropic => "ANTHROPIC_API_KEY",
             Provider::OpenAi => "OPENAI_API_KEY",
             Provider::OpenRouter => "OPENROUTER_API_KEY",
+            Provider::Deepgram => "DEEPGRAM_API_KEY",
         }
     }
 
@@ -65,6 +84,7 @@ impl Provider {
             Provider::Anthropic => "anthropic_api_key",
             Provider::OpenAi => "openai_api_key",
             Provider::OpenRouter => "openrouter_api_key",
+            Provider::Deepgram => "deepgram_api_key",
         }
     }
 
@@ -90,6 +110,9 @@ impl Provider {
                 ProviderUse::Dictation,
                 ProviderUse::Calls,
             ],
+            // Deepgram speaks with Aura and transcribes with Nova, live
+            // over `/listen` and buffered.
+            Provider::Deepgram => &[ProviderUse::SpokenReplies, ProviderUse::Dictation],
         }
     }
 
@@ -426,6 +449,10 @@ mod tests {
                 },
                 ProviderKeyStatus {
                     provider: Provider::OpenRouter,
+                    source: None,
+                },
+                ProviderKeyStatus {
+                    provider: Provider::Deepgram,
                     source: None,
                 },
             ]

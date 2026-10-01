@@ -20,7 +20,7 @@
 
 use std::collections::BTreeMap;
 
-use pagis_core::{PROVIDERS, Provider};
+use pagis_core::PROVIDERS;
 use pagis_mail::{Endpoint, MANUAL_PROVIDER, MIGADU_PROVIDER};
 use pagis_telephony::{PLIVO_PROVIDER, TELNYX_PROVIDER, TWILIO_PROVIDER};
 
@@ -536,16 +536,6 @@ fn group_of(entry: &ProviderEntry) -> &'static str {
     }
 }
 
-/// The label of a model provider, as the Administration Interface
-/// names it.
-fn model_label(provider: Provider) -> &'static str {
-    match provider {
-        Provider::Anthropic => "Anthropic",
-        Provider::OpenAi => "OpenAI",
-        Provider::OpenRouter => "OpenRouter",
-    }
-}
-
 /// Every provider the installation sets up, in the order the
 /// Administration Interface shows them: the model providers first, then
 /// each catalog entry that declares an installation part.
@@ -554,7 +544,7 @@ pub fn installation_setups() -> Vec<InstallationSetup> {
         .into_iter()
         .map(|provider| InstallationSetup {
             provider: provider.id(),
-            label: model_label(provider),
+            label: provider.name(),
             group: "models",
             parts: MODEL_KEY_SETUP,
         })

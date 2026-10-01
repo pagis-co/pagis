@@ -29,6 +29,7 @@ pub const PREFERENCES: [(&str, &[&str]); 6] = [
     (
         pagis_voice::TRANSCRIBE_ALIAS,
         &[
+            "deepgram/nova-3",
             "openai/gpt-4o-transcribe",
             "openrouter/openai/gpt-4o-transcribe",
         ],
@@ -36,6 +37,7 @@ pub const PREFERENCES: [(&str, &[&str]); 6] = [
     (
         pagis_voice::SPEAK_ALIAS,
         &[
+            "deepgram/aura-2",
             "openai/gpt-4o-mini-tts",
             "openrouter/google/gemini-3.8-flash-tts",
         ],
@@ -147,9 +149,14 @@ mod tests {
         }
     }
 
+    /// Each provider that thinks names one default model, so its route is
+    /// one model and a key of it always has a model to preselect.
     #[test]
-    fn the_default_preference_names_one_model_for_each_provider() {
-        for provider in pagis_core::PROVIDERS {
+    fn the_default_preference_names_one_model_for_each_provider_that_thinks() {
+        for provider in pagis_core::PROVIDERS
+            .into_iter()
+            .filter(|provider| provider.serves(pagis_core::ProviderUse::Thinking))
+        {
             assert_eq!(
                 candidates_of(DEFAULT_MODEL_ALIAS, provider).len(),
                 1,

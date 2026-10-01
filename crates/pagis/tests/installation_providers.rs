@@ -189,6 +189,7 @@ async fn the_administration_port_lists_what_the_installation_sets_up_for_every_p
             "anthropic",
             "openai",
             "openrouter",
+            "deepgram",
             "google",
             "telnyx",
             "twilio",

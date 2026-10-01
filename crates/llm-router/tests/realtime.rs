@@ -3,8 +3,8 @@
 use std::time::Duration;
 
 use llm_router::{
-    Candidate, Error, ProtocolKind, ProviderConfig, RealtimeMessage, RetryConfig, Router,
-    RouterConfig,
+    Candidate, Error, ProtocolKind, ProviderConfig, RealtimeMessage, RealtimeProtocol, RetryConfig,
+    Router, RouterConfig,
 };
 use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
 
@@ -140,7 +140,10 @@ async fn a_transcription_session_opens_with_the_transcription_intent() {
     let (base_url, server) = ws_server().await;
     let router = router_for(&base_url, ProtocolKind::OpenAiChat);
 
-    let mut connection = router.realtime_transcription_connect("m").await.unwrap();
+    let mut connection = router
+        .realtime_transcription_connect("m", 24_000)
+        .await
+        .unwrap();
     assert_eq!(connection.model, "gpt-realtime-2.1");
     let first = connection.next().await.unwrap().unwrap();
     assert_eq!(
@@ -157,4 +160,33 @@ async fn a_transcription_session_opens_with_the_transcription_intent() {
     let (path, auth) = server.await.unwrap();
     assert_eq!(path, "/v1/realtime?intent=transcription");
     assert_eq!(auth, "Bearer test-key");
+}
+
+/// Deepgram streams speech to text on `/listen`: the model and the audio
+/// format go in the query, and the key goes as a `Token`.
+#[tokio::test]
+async fn a_deepgram_transcription_socket_opens_listen_with_the_audio_format() {
+    let (base_url, server) = ws_server().await;
+    let router = router_for_model(&base_url, ProtocolKind::Deepgram, "nova-3");
+
+    let mut connection = router
+        .realtime_transcription_connect("m", 24_000)
+        .await
+        .unwrap();
+    assert_eq!(connection.protocol, RealtimeProtocol::DeepgramListen);
+    connection.next().await.unwrap().unwrap();
+    connection
+        .send(RealtimeMessage::text("{\"type\":\"KeepAlive\"}"))
+        .await
+        .unwrap();
+    connection.next().await.unwrap().unwrap();
+    connection.close().await.unwrap();
+
+    let (path, auth) = server.await.unwrap();
+    assert_eq!(
+        path,
+        "/v1/listen?model=nova-3&encoding=linear16&sample_rate=24000&channels=1\
+         &interim_results=true&punctuate=true&smart_format=true"
+    );
+    assert_eq!(auth, "Token test-key");
 }

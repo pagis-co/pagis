@@ -11,7 +11,7 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
 
-use crate::config::ProviderConfig;
+use crate::config::{ProtocolKind, ProviderConfig};
 use crate::error::Error;
 
 /// The frames of a realtime socket, re-exported so callers do not depend on
@@ -75,11 +75,16 @@ impl RealtimeConnection {
 
 /// What a realtime socket is opened for. OpenAI keys the socket by
 /// query: a conversation names its model, a transcription-only session
-/// names its intent and picks the transcription model in `session.update`.
+/// names its intent and picks the transcription model and the audio
+/// format in `session.update`. Deepgram takes the model and the audio
+/// format in the query of `/listen`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RealtimeIntent {
     Conversation,
-    Transcription,
+    /// Speech to text of PCM16 mono audio at `sample_rate` Hz.
+    Transcription {
+        sample_rate: u32,
+    },
 }
 
 /// The event contract carried by one conversation socket.
@@ -90,6 +95,9 @@ pub enum RealtimeIntent {
 pub enum RealtimeProtocol {
     OpenAiRealtime,
     OpenAiLive,
+    /// Deepgram's streaming speech to text: binary PCM frames in, JSON
+    /// `Results` out, and `CloseStream` to finish.
+    DeepgramListen,
 }
 
 /// Open the provider's realtime WebSocket for `model`, authenticated with
@@ -101,7 +109,13 @@ pub(crate) async fn connect(
     intent: RealtimeIntent,
     timeout: std::time::Duration,
 ) -> Result<RealtimeConnection, Error> {
-    let (url, protocol) = realtime_url(provider_key, &provider.base_url, model, intent)?;
+    let (url, protocol) = realtime_url(
+        provider_key,
+        provider.protocol,
+        &provider.base_url,
+        model,
+        intent,
+    )?;
     let mut request = url
         .as_str()
         .into_client_request()
@@ -121,9 +135,13 @@ pub(crate) async fn connect(
         headers.insert(name, value);
     }
     if !provider.api_key.is_empty() {
+        let scheme = match protocol {
+            RealtimeProtocol::DeepgramListen => "Token",
+            RealtimeProtocol::OpenAiRealtime | RealtimeProtocol::OpenAiLive => "Bearer",
+        };
         let value = crate::protocol::sensitive_header(
             provider_key,
-            &format!("Bearer {}", provider.api_key),
+            &format!("{scheme} {}", provider.api_key),
         )?;
         headers.insert(reqwest::header::AUTHORIZATION, value);
     }
@@ -143,9 +161,11 @@ pub(crate) async fn connect(
 /// Derive the realtime WebSocket URL from the provider's HTTP base URL:
 /// `https://host/v1` becomes `wss://host/v1/realtime?model=...` for a
 /// conversation and `wss://host/v1/realtime?intent=transcription` for a
-/// transcription-only session.
+/// transcription-only session. On Deepgram a transcription session is
+/// `wss://host/v1/listen` with the model and the audio format.
 fn realtime_url(
     provider_key: &str,
+    kind: ProtocolKind,
     base_url: &str,
     model: &str,
     intent: RealtimeIntent,
@@ -169,8 +189,27 @@ fn realtime_url(
             "provider `{provider_key}` base_url cannot switch to `{scheme}`"
         ))
     })?;
-    let protocol = match intent {
-        RealtimeIntent::Conversation => {
+    let protocol = match (kind, intent) {
+        (ProtocolKind::Deepgram, RealtimeIntent::Transcription { sample_rate }) => {
+            let path = format!("{}/listen", url.path().trim_end_matches('/'));
+            url.set_path(&path);
+            url.query_pairs_mut()
+                .append_pair("model", model)
+                .append_pair("encoding", "linear16")
+                .append_pair("sample_rate", &sample_rate.to_string())
+                .append_pair("channels", "1")
+                .append_pair("interim_results", "true")
+                .append_pair("punctuate", "true")
+                .append_pair("smart_format", "true");
+            RealtimeProtocol::DeepgramListen
+        }
+        (ProtocolKind::Deepgram, RealtimeIntent::Conversation) => {
+            return Err(Error::Unsupported {
+                provider: provider_key.to_owned(),
+                feature: "realtime conversation",
+            });
+        }
+        (_, RealtimeIntent::Conversation) => {
             if model.starts_with("gpt-live-") {
                 let path = format!("{}/live/sessions", url.path().trim_end_matches('/'));
                 url.set_path(&path);
@@ -182,7 +221,7 @@ fn realtime_url(
                 RealtimeProtocol::OpenAiRealtime
             }
         }
-        RealtimeIntent::Transcription => {
+        (_, RealtimeIntent::Transcription { .. }) => {
             let path = format!("{}/realtime", url.path().trim_end_matches('/'));
             url.set_path(&path);
             url.query_pairs_mut().append_pair("intent", "transcription");
@@ -201,12 +240,13 @@ fn realtime_error(provider: &str, error: impl std::fmt::Display) -> Error {
 
 #[cfg(test)]
 mod tests {
-    use super::{RealtimeIntent, RealtimeProtocol, realtime_url};
+    use super::{ProtocolKind, RealtimeIntent, RealtimeProtocol, realtime_url};
 
     #[test]
     fn derives_the_websocket_url_from_the_base_url() {
         let (url, protocol) = realtime_url(
             "p",
+            ProtocolKind::OpenAiChat,
             "https://api.openai.com/v1",
             "gpt-realtime-2.1",
             RealtimeIntent::Conversation,
@@ -219,6 +259,7 @@ mod tests {
         );
         let (url, protocol) = realtime_url(
             "p",
+            ProtocolKind::OpenAiChat,
             "http://localhost:8000/v1",
             "unmute-model",
             RealtimeIntent::Conversation,
@@ -235,9 +276,12 @@ mod tests {
     fn a_transcription_session_names_its_intent_and_not_a_model() {
         let (url, protocol) = realtime_url(
             "p",
+            ProtocolKind::OpenAiChat,
             "https://api.openai.com/v1",
             "gpt-4o-transcribe",
-            RealtimeIntent::Transcription,
+            RealtimeIntent::Transcription {
+                sample_rate: 24_000,
+            },
         )
         .unwrap();
         assert_eq!(protocol, RealtimeProtocol::OpenAiRealtime);

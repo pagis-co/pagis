@@ -118,6 +118,52 @@ async fn openrouter_lists_speech_models_with_their_voices() {
     assert!(sonnet.looks_like_chat());
 }
 
+/// Deepgram's public `/models` answers without a key, so it cannot prove
+/// one. The list reads the projects of the key first, then the models of
+/// its project. A speech model is one Aura generation, whose voices are
+/// its models; a transcription model is one Nova generation.
+#[tokio::test]
+async fn deepgram_lists_the_models_of_the_project_of_the_key() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/projects"))
+        .and(header("authorization", "Token dg-key"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "projects": [{ "project_id": "proj-1", "name": "Pagis" }]
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/projects/proj-1/models"))
+        .and(header("authorization", "Token dg-key"))
+        .respond_with(json_body("deepgram.json"))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let mut provider = ProviderConfig::deepgram("dg-key");
+    provider.base_url = server.uri();
+    let router = Router::new(RouterConfig::new().provider("deepgram", provider)).unwrap();
+
+    let models = router.list_models("deepgram").await.unwrap();
+
+    assert_eq!(ids(&models), ["nova-3", "nova-2", "aura-2", "aura"]);
+    assert_eq!(
+        models[0].output_modalities.as_deref(),
+        Some(&["transcription".to_string()][..])
+    );
+    assert_eq!(
+        models[2].voices.as_deref(),
+        Some(
+            &[
+                "aura-2-thalia-en".to_string(),
+                "aura-2-andromeda-en".to_string()
+            ][..]
+        )
+    );
+    assert!(models.iter().all(|model| !model.looks_like_chat()));
+}
+
 #[tokio::test]
 async fn openrouter_lists_the_models_of_the_key() {
     // OpenRouter's `/models` answers without a key, so it cannot prove
@@ -239,7 +285,7 @@ async fn a_refused_key_returns_the_providers_words() {
 
 #[tokio::test]
 async fn a_protocol_without_a_list_endpoint_says_so() {
-    let router = single_provider_router(ProtocolKind::Deepgram, "https://api.deepgram.com/v1");
+    let router = single_provider_router(ProtocolKind::Veo, "https://veo.example/v1");
 
     let error = router.list_models("p").await.unwrap_err();
 

@@ -88,7 +88,10 @@ credentials, and hands it over. The application pumps the frames and taps
 the cheap events for metering. This works for every provider on the
 OpenAI dialect, and it is the path that the dictation of a Thread takes:
 a transcription-only session is the same dialect, so live speech to text
-needs no translation layer.
+needs no translation layer. Deepgram's live speech to text is its own
+dialect on `/listen`: the router opens it with the model and the audio
+format in the query and names it `DeepgramListen`, and the application
+reads its `Results` with an adapter of its own.
 
 A provider whose wire events differ needs a session adapter that
 translates them, with its own declared capabilities: turn detection, user
@@ -101,7 +104,7 @@ one. Voice-activity policy is not abstracted.
 ## What is absent
 
 Streaming image generation, streaming speech, the chat-bridge modalities
-of a provider that has no native codec, and the session
+of a provider that has no native codec, and the conversation session
 adapters for the providers that are not on the OpenAI dialect. Each is
 absent because no consumer needs it, and each is declared absent rather
 than emulated.

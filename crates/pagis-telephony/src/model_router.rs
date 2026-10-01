@@ -103,7 +103,7 @@ impl KeyedModelSessions {
             let mut provider_config = match provider {
                 Provider::OpenAi => ProviderConfig::openai(key),
                 // `Provider::uses` gives them no call use.
-                Provider::Anthropic | Provider::OpenRouter => continue,
+                Provider::Anthropic | Provider::OpenRouter | Provider::Deepgram => continue,
             };
             if let Some(base_url) = self.base_urls.get(&provider) {
                 provider_config.base_url = base_url.clone();
@@ -509,6 +509,8 @@ impl RouterSession {
             let parsed = match self.connection.protocol {
                 RealtimeProtocol::OpenAiRealtime => ServerEvent::parse_realtime(&event),
                 RealtimeProtocol::OpenAiLive => ServerEvent::parse_live(&event),
+                // A call opens no transcription-only socket.
+                RealtimeProtocol::DeepgramListen => ServerEvent::Other,
             };
             if self.connection.protocol == RealtimeProtocol::OpenAiLive {
                 if let Some(event) = self.accept_transcript(parsed)

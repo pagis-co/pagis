@@ -11,6 +11,7 @@
 //! Nothing here stores audio. A clip is transcribed and dropped, and
 //! synthesized speech is handed to the caller and not kept.
 
+mod deepgram;
 pub mod fake;
 mod router;
 mod wav;
