@@ -6,7 +6,8 @@ use std::process::Command;
 
 use xtask::desktop::{DesktopContext, DesktopPlatform, desktop_plan};
 use xtask::desktop_linux::{
-    RELEASE_KEY, appimage_name, checksums_name, deb_name, feed_name, missing_signing_inputs,
+    RELEASE_KEY, UPDATE_KEY, appimage_name, checksums_name, deb_name, feed_name,
+    missing_signing_inputs,
 };
 use xtask::release::ClientPlatform;
 use xtask::{Action, Cmd, Step};
@@ -145,10 +146,10 @@ fn the_inventory_checks_each_architecture_and_the_exact_deb() {
 }
 
 /// Each feed names the AppImage and the deb of its architecture with their
-/// true SHA-512 and size, and the deb carries the release key and the
+/// true SHA-512 and size, and the deb carries the Update Key and the
 /// `package-type` file from which electron-updater knows a deb (ADR-0027).
 #[test]
-fn the_inventory_checks_the_update_feeds_the_release_key_and_the_deb_type() {
+fn the_inventory_checks_the_update_feeds_the_update_key_and_the_deb_type() {
     let steps = desktop_plan(Path::new("/repo"), &context(None));
     let inventory = joined(step(&steps, "inventory"));
     for (feed, appimage, deb) in [
@@ -172,7 +173,7 @@ fn the_inventory_checks_the_update_feeds_the_release_key_and_the_deb_type() {
     }
     assert!(
         inventory.contains(
-            "cmp ../docs/release-key.asc \"$extracted/opt/Pagis/resources/release-key.asc\""
+            "cmp ../docs/update-key.pem \"$extracted/opt/Pagis/resources/update-key.pem\""
         ),
         "{inventory}"
     );
@@ -277,19 +278,74 @@ fn publication_reuses_the_prepared_bytes_and_signs_their_checksums() {
     assert!(!upload.contains("--clobber"), "{upload}");
 }
 
+/// The files that the publication uploads.
+fn upload_files(steps: &[Step]) -> Vec<String> {
+    commands(step(steps, "publish"))[0].args.clone()
+}
+
+/// The Update Key signs the exact checksum list with Ed25519 (ADR-0027).
+/// The private key goes from the environment to a file that only the job
+/// user reads, and the file is gone before the check of the signature with
+/// the public key of the repository.
 #[test]
-fn publication_without_the_release_key_fails() {
+fn publication_signs_the_checksum_list_with_the_update_key() {
     let mut publish = context(Some("v1.2.3"));
     publish.publish_existing = true;
-    publish.missing_credentials = vec!["PAGIS_RELEASE_GPG_KEY".into()];
+    let steps = desktop_plan(Path::new("/repo"), &publish);
+    let sign = joined(step(&steps, "sign-checksums"));
+    let sums = "desktop/release/Pagis-1.2.3-linux.SHA256SUMS";
+    let ordered = [
+        format!("test -f {UPDATE_KEY} ||"),
+        ": \"${PAGIS_UPDATE_SIGNING_KEY:?".to_string(),
+        format!("rm -f {sums}.asc {sums}.sig"),
+        "key=$(mktemp)".to_string(),
+        "chmod 600 \"$key\"".to_string(),
+        "printf '%s\\n' \"$PAGIS_UPDATE_SIGNING_KEY\" > \"$key\"".to_string(),
+        format!("openssl pkeyutl -sign -rawin -inkey \"$key\" -in {sums} -out {sums}.sig"),
+        "rm -f \"$key\"".to_string(),
+        format!(
+            "openssl pkeyutl -verify -pubin -inkey {UPDATE_KEY} -rawin -in {sums} -sigfile {sums}.sig"
+        ),
+    ];
+    let mut from = 0;
+    for part in &ordered {
+        let at = sign[from..]
+            .find(part.as_str())
+            .unwrap_or_else(|| panic!("no {part} after byte {from}: {sign}"));
+        from += at + part.len();
+    }
+    assert_eq!(UPDATE_KEY, "docs/update-key.pem");
+    assert!(
+        sign.contains("trap 'rm -f \"$keyring\" \"$key\"' EXIT"),
+        "{sign}"
+    );
+    let upload = upload_files(&steps);
+    assert!(upload.contains(&format!("{sums}.sig")), "{upload:?}");
+    assert!(upload.contains(&format!("{sums}.asc")), "{upload:?}");
+}
+
+#[test]
+fn publication_without_the_signing_keys_fails() {
+    let mut publish = context(Some("v1.2.3"));
+    publish.publish_existing = true;
+    publish.missing_credentials = vec!["PAGIS_UPDATE_SIGNING_KEY".into()];
     let steps = desktop_plan(Path::new("/repo"), &publish);
     assert!(joined(step(&steps, "credentials")).contains("exit 1"));
     assert!(joined(step(&steps, "publish")).contains("exit 1"));
     assert_eq!(
         missing_signing_inputs(&|_| false),
-        ["PAGIS_RELEASE_GPG_KEY"]
+        ["PAGIS_RELEASE_GPG_KEY", "PAGIS_UPDATE_SIGNING_KEY"]
     );
-    assert!(missing_signing_inputs(&|name| name == "PAGIS_RELEASE_GPG_KEY").is_empty());
+    assert_eq!(
+        missing_signing_inputs(&|name| name == "PAGIS_RELEASE_GPG_KEY"),
+        ["PAGIS_UPDATE_SIGNING_KEY"]
+    );
+    assert!(
+        missing_signing_inputs(&|name| {
+            name == "PAGIS_RELEASE_GPG_KEY" || name == "PAGIS_UPDATE_SIGNING_KEY"
+        })
+        .is_empty()
+    );
 }
 
 #[test]
@@ -351,7 +407,7 @@ fn electron_builder_packs_linux_with_the_lock_of_each_architecture() {
     );
     assert!(linux.contains("executableName: pagis-client"), "{linux}");
     assert!(
-        linux.contains("    - from: ../docs/release-key.asc\n      to: release-key.asc\n"),
+        linux.contains("    - from: ../docs/update-key.pem\n      to: update-key.pem\n"),
         "{linux}"
     );
     for section in ["appImage", "deb"] {

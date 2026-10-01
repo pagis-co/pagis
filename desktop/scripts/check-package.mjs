@@ -1,3 +1,4 @@
+import * as crypto from 'node:crypto'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { execFileSync } from 'node:child_process'
@@ -17,9 +18,9 @@ if (!app || packages.length === 0) throw new Error('usage: node scripts/check-pa
 
 const mac = app.endsWith('.app')
 const resources = mac ? path.join(app, 'Contents', 'Resources') : path.join(app, 'resources')
-// On Linux the public release key checks the signed checksum list of an
+// On Linux the public Update Key checks the signed checksum list of an
 // Update (ADR-0027).
-const required = ['app.asar', 'runtime-lock.json', 'app-update.yml', ...(mac ? [] : ['release-key.asc'])]
+const required = ['app.asar', 'runtime-lock.json', 'app-update.yml', ...(mac ? [] : ['update-key.pem'])]
 for (const name of required) {
   if (!fs.statSync(path.join(resources, name), { throwIfNoEntry: false })?.isFile()) {
     throw new Error(`the client package has no ${name}`)
@@ -31,10 +32,24 @@ if (feed?.provider !== 'github' || feed.owner !== 'pagis-co' || feed.repo !== 'p
   throw new Error('the app-update.yml of the client package does not name the GitHub releases of pagis-co/pagis')
 }
 
+// The package holds the public key of the repository. The private half is
+// a secret of the release, so the repository file must be an Ed25519
+// public key in SPKI PEM, as `openssl pkey -pubout` writes it.
 if (!mac) {
-  const releaseKey = fileURLToPath(new URL('../../docs/release-key.asc', import.meta.url))
-  if (!fs.readFileSync(path.join(resources, 'release-key.asc')).equals(fs.readFileSync(releaseKey))) {
-    throw new Error('the release-key.asc of the client package is not docs/release-key.asc')
+  const repositoryFile = fileURLToPath(new URL('../../docs/update-key.pem', import.meta.url))
+  if (!fs.existsSync(repositoryFile)) throw new Error('the repository has no docs/update-key.pem')
+  const repositoryKey = fs.readFileSync(repositoryFile, 'utf8')
+  let publicKey
+  try {
+    publicKey = crypto.createPublicKey(repositoryKey)
+  } catch {
+    publicKey = null
+  }
+  if (publicKey?.asymmetricKeyType !== 'ed25519' || publicKey.export({ type: 'spki', format: 'pem' }) !== repositoryKey) {
+    throw new Error('docs/update-key.pem is not an Ed25519 public key in SPKI PEM')
+  }
+  if (fs.readFileSync(path.join(resources, 'update-key.pem'), 'utf8') !== repositoryKey) {
+    throw new Error('the update-key.pem of the client package is not docs/update-key.pem')
   }
 }
 

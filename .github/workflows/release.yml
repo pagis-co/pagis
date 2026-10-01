@@ -685,11 +685,17 @@ jobs:
         env:
           PAGIS_RELEASE_GPG_PRIVATE_KEY: ${{ secrets.PAGIS_RELEASE_GPG_PRIVATE_KEY }}
 
+      # The publication signs the checksum list into
+      # Pagis-<release>-linux.SHA256SUMS.asc with the release key, and into
+      # Pagis-<release>-linux.SHA256SUMS.sig with the Update Key, which the
+      # Client App checks (ADR-0027). It verifies the .sig with
+      # docs/update-key.pem.
       - name: cargo xtask desktop --linux --publish-existing
         run: cargo xtask desktop --linux --tag "$GITHUB_REF_NAME" --publish-existing
         env:
           GH_TOKEN: ${{ github.token }}
           PAGIS_RELEASE_GPG_KEY: ${{ steps.key.outputs.fingerprint }}
+          PAGIS_UPDATE_SIGNING_KEY: ${{ secrets.PAGIS_UPDATE_SIGNING_KEY }}
 
   publish:
     name: publish the release

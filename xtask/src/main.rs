@@ -317,7 +317,8 @@ fn run_desktop(args: &[String]) -> Result<()> {
         // signed and notarized when they were prepared, and signs nothing.
         xtask::DesktopPlatform::Mac if publish_existing => Vec::new(),
         xtask::DesktopPlatform::Mac => desktop::missing_signing_inputs(&is_set),
-        // Linux signs only at publication, with the release key.
+        // Linux signs only at publication, with the release key and the
+        // Update Key.
         xtask::DesktopPlatform::Linux if publish_existing => {
             xtask::desktop_linux::missing_signing_inputs(&is_set)
         }

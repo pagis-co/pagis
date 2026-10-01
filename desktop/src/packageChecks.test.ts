@@ -11,7 +11,6 @@ import { createPackage } from '@electron/asar'
 import { afterEach, describe, expect, it } from 'vitest'
 
 const SCRIPTS = path.join(__dirname, '..', 'scripts')
-const RELEASE_KEY = path.join(__dirname, '..', '..', 'docs', 'release-key.asc')
 
 const roots: string[] = []
 afterEach(() => {
@@ -25,12 +24,39 @@ function temporary(): string {
 }
 
 /** Run a check script, and answer its error output, or null when it passed. */
-function check(script: string, args: string[]): string | null {
+function check(script: string, args: string[], scripts = SCRIPTS): string | null {
   try {
-    execFileSync(process.execPath, [path.join(SCRIPTS, script), ...args], { stdio: 'pipe' })
+    execFileSync(process.execPath, [path.join(scripts, script), ...args], { stdio: 'pipe' })
     return null
   } catch (error) {
     return String((error as { stderr: Buffer }).stderr)
+  }
+}
+
+/**
+ * A copy of the repository layout around `scripts/`, whose
+ * `docs/update-key.pem` is `updateKey`. check-package.mjs compares the key
+ * in a Linux package with that file, so a test runs the script there with
+ * a key that it generates, never with the real key.
+ */
+function repository(updateKey: string): string {
+  const root = temporary()
+  const scripts = path.join(root, 'desktop', 'scripts')
+  fs.mkdirSync(scripts, { recursive: true })
+  fs.copyFileSync(path.join(SCRIPTS, 'check-package.mjs'), path.join(scripts, 'check-package.mjs'))
+  fs.symlinkSync(path.join(__dirname, '..', 'node_modules'), path.join(root, 'desktop', 'node_modules'))
+  fs.mkdirSync(path.join(root, 'docs'))
+  fs.writeFileSync(path.join(root, 'docs', 'update-key.pem'), updateKey)
+  return scripts
+}
+
+/** An Ed25519 public key in SPKI PEM, as `openssl pkey -pubout` writes it,
+ *  and its private key in PKCS#8 PEM. */
+function updateKeyPair(): { publicPem: string; privatePem: string } {
+  const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519')
+  return {
+    publicPem: publicKey.export({ type: 'spki', format: 'pem' }) as string,
+    privatePem: privateKey.export({ type: 'pkcs8', format: 'pem' }) as string,
   }
 }
 
@@ -154,7 +180,7 @@ describe('the inventory of the packaged app', () => {
 
   /** The unpacked Linux app, as electron-builder writes it beside the
    *  AppImage and the deb. */
-  async function linuxApp(releaseKey: Buffer | null): Promise<string[]> {
+  async function linuxApp(updateKey: string | null): Promise<string[]> {
     const root = temporary()
     const source = path.join(root, 'source')
     for (const name of ['static/tray.png', 'dist/design/tokens.css', 'dist/design/inter.woff2',
@@ -168,7 +194,7 @@ describe('the inventory of the packaged app', () => {
     await createPackage(source, path.join(resources, 'app.asar'))
     fs.writeFileSync(path.join(resources, 'runtime-lock.json'), '{}')
     fs.writeFileSync(path.join(resources, 'app-update.yml'), 'owner: pagis-co\nrepo: pagis\nprovider: github\n')
-    if (releaseKey !== null) fs.writeFileSync(path.join(resources, 'release-key.asc'), releaseKey)
+    if (updateKey !== null) fs.writeFileSync(path.join(resources, 'update-key.pem'), updateKey)
     const packages = ['Pagis-1.2.3-x86_64.AppImage', 'Pagis-1.2.3-amd64.deb'].map((name) => path.join(root, name))
     for (const file of packages) fs.writeFileSync(file, 'package')
     return [app, ...packages]
@@ -180,17 +206,34 @@ describe('the inventory of the packaged app', () => {
     expect(check('check-package.mjs', await packagedApp(config))).toBeNull()
   })
 
-  /** The Linux package embeds the public release key, which checks the
+  /** The Linux package embeds the public Update Key, which checks the
    *  signed checksum list of an Update (ADR-0027). */
-  it('accepts a Linux app that holds the release key of the repository', async () => {
-    expect(check('check-package.mjs', await linuxApp(fs.readFileSync(RELEASE_KEY)))).toBeNull()
+  it('accepts a Linux app that holds the Update Key of the repository', async () => {
+    const { publicPem } = updateKeyPair()
+
+    expect(check('check-package.mjs', await linuxApp(publicPem), repository(publicPem))).toBeNull()
   })
 
-  it('refuses a Linux app with no release key, or with another key', async () => {
-    expect(check('check-package.mjs', await linuxApp(null))).toContain('release-key.asc')
-    expect(check('check-package.mjs', await linuxApp(Buffer.from('another key')))).toContain(
-      'the release-key.asc of the client package is not docs/release-key.asc',
+  it('refuses a Linux app with no Update Key, or with another key', async () => {
+    const scripts = repository(updateKeyPair().publicPem)
+
+    expect(check('check-package.mjs', await linuxApp(null), scripts)).toContain('update-key.pem')
+    expect(check('check-package.mjs', await linuxApp(updateKeyPair().publicPem), scripts)).toContain(
+      'the update-key.pem of the client package is not docs/update-key.pem',
     )
+  })
+
+  /** The private half of the Update Key is a secret of the release, and
+   *  never a file of the repository or of a package. */
+  it('refuses an Update Key that is not an Ed25519 public key in SPKI PEM', async () => {
+    const { privatePem } = updateKeyPair()
+    const rsa = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 }).publicKey
+      .export({ type: 'spki', format: 'pem' }) as string
+    for (const key of [privatePem, rsa]) {
+      expect(check('check-package.mjs', await linuxApp(key), repository(key))).toContain(
+        'docs/update-key.pem is not an Ed25519 public key in SPKI PEM',
+      )
+    }
   })
 
   it('refuses an app with no app-update.yml, or one that names another feed', async () => {

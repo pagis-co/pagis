@@ -181,13 +181,13 @@ finish() {
 
 # ──────────────────────────────────────────────────────────────────────────
 # STAGES: the signing secrets of the release workflow. The macOS jobs read
-# five repository secrets. The Linux publication reads the release key from
-# the `release` environment, which holds each publication until a
-# maintainer approves it. Nothing here goes to .env: every value is a
+# five repository secrets. The Linux publication reads the release key and
+# the Update Key from the `release` environment, which holds each
+# publication until a maintainer approves it. Nothing here goes to .env: every value is a
 # GitHub secret only.
 # ──────────────────────────────────────────────────────────────────────────
 
-TOTAL_STAGES=5
+TOTAL_STAGES=6
 # The Apple Developer Team ID of the certificate that signs the DMG. It is
 # not a secret (every signed binary carries it), but it belongs to whoever
 # runs the release, so stage 1 asks for it.
@@ -324,14 +324,41 @@ else
   SKIPPED+=("the 'release' environment with you as reviewer, and its secret PAGIS_RELEASE_GPG_PRIVATE_KEY")
 fi
 
-# ── 5. Check ──────────────────────────────────────────────────────────────
+# ── 5. The Update Key ─────────────────────────────────────────────────────
+stage "The Update Key"
+say "The Update Key signs the checksum list of the Linux packages for the Client App, which checks each Update with it."
+say "Its public half is docs/update-key.pem; its private half is the secret PAGIS_UPDATE_SIGNING_KEY of the 'release' environment."
+update_key="$repo_root/docs/update-key.pem"
+if [[ -f "$update_key" ]]; then
+  # Each Client App in use checks Updates with the key in its package, so
+  # a new key would stop their Updates.
+  say "docs/update-key.pem exists. Keep it, and keep the secret that holds its private half."
+elif gh_ready; then
+  private_key=$(mktemp)
+  chmod 600 "$private_key"
+  openssl genpkey -algorithm ed25519 -out "$private_key"
+  if gh secret set PAGIS_UPDATE_SIGNING_KEY --env release < "$private_key" >/dev/null 2>&1; then
+    openssl pkey -in "$private_key" -pubout -out "$update_key"
+    WRITTEN_SECRET+=("PAGIS_UPDATE_SIGNING_KEY (release environment)")
+    printf '  %s✓ set%s GitHub secret PAGIS_UPDATE_SIGNING_KEY of the release environment\n' "$GREEN" "$RESET"
+    say "Wrote docs/update-key.pem. Commit it: each Linux package embeds it."
+  else
+    SKIPPED+=("the Update Key: gh could not set the secret PAGIS_UPDATE_SIGNING_KEY of the release environment")
+  fi
+  # The secret is the only copy of the private key.
+  rm -f "$private_key"
+else
+  SKIPPED+=("the Update Key and its secret PAGIS_UPDATE_SIGNING_KEY: run this script again where gh can set secrets")
+fi
+
+# ── 6. Check ──────────────────────────────────────────────────────────────
 stage "Check"
 say "The release workflow reads these secrets:"
 if gh_ready; then
   gh secret list 2>/dev/null | sed 's/^/    /'
   gh secret list --env release 2>/dev/null | sed 's/^/    release: /'
 fi
-say "Commit docs/release-key.asc. A 'v*' tag then builds, signs and drafts the release:"
+say "Commit docs/release-key.asc and docs/update-key.pem. A 'v*' tag then builds, signs and drafts the release:"
 note "    git tag v<version> && git push origin v<version>"
 pause
 

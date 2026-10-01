@@ -60,8 +60,8 @@ server.
 It includes no server binary. On macOS it turns on the hardened runtime with
 the audio-input and network entitlements, and notarizes when the Apple
 credentials are present. On Linux it signs nothing: the release signs the
-checksum list, and the package embeds the public release key
-`docs/release-key.asc` as `release-key.asc`, which checks the list of an
+checksum list, and the package embeds the public Update Key
+`docs/update-key.pem` as `update-key.pem`, which checks the list of an
 Update.
 
 CI runs the same steps through one command, and so can you. A macOS host

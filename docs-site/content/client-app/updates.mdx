@@ -26,8 +26,8 @@ on macOS and from the AppImage and the deb on Linux.
   - On macOS, macOS checks that the new app has the signature of the Pagis
     team.
   - On Linux, the Client App downloads `Pagis-<release>-linux.SHA256SUMS`
-    and its signature `Pagis-<release>-linux.SHA256SUMS.asc` from the
-    release. The signature must verify with the Pagis release key in the
+    and its Ed25519 signature `Pagis-<release>-linux.SHA256SUMS.sig` from
+    the release. The signature must verify with the Pagis Update Key in the
     package, and the SHA-256 of the download must be the value on its line
     of the list.
 

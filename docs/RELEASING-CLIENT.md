@@ -127,11 +127,15 @@ publishes the draft.
 
 ## Linux
 
-Linux has no platform notary. The Pagis release key signs the checksum list of
-the four packages, and the Runtime Lock inside each package pins the server
-archive of its architecture (ADR-0025). Each package embeds the public release
-key as `release-key.asc`, and the Client App checks an Update against the
-signed list with it (ADR-0027).
+Linux has no platform notary. Two keys sign the checksum list of the four
+packages, and the Runtime Lock inside each package pins the server archive of
+its architecture (ADR-0025):
+
+- The **release key**, an OpenPGP key, signs it for a person who checks a
+  download with `gpg`.
+- The **Update Key**, an Ed25519 key, signs it for the Client App, which
+  checks each Update with it (ADR-0027). Each package embeds the public
+  Update Key as `update-key.pem`.
 
 ### The release key
 
@@ -152,6 +156,26 @@ it, and each such job waits for a reviewer. The publication job signs with
 no person present, which is why the key has no passphrase. The approval of
 the environment protects it instead.
 
+### The Update Key
+
+The Update Key is an Ed25519 key that signs only Updates. Its public half is
+`docs/update-key.pem`, in SPKI PEM as `openssl pkey -pubout` writes it, and
+the tag must contain it. The private half, in PKCS#8 PEM, is the
+`PAGIS_UPDATE_SIGNING_KEY` secret of the `release` environment.
+`scripts/signing-secrets.sh` makes the key once:
+
+```bash
+key=$(mktemp)
+openssl genpkey -algorithm ed25519 -out "$key"
+openssl pkey -in "$key" -pubout -out docs/update-key.pem
+gh secret set PAGIS_UPDATE_SIGNING_KEY --env release < "$key"
+rm "$key"
+```
+
+Each Client App checks Updates with the key in its own package. So a new
+Update Key reaches only the clients that already embed it, and the old key
+must sign until no client in use holds it.
+
 ### Prepare the exact packages
 
 On a `v*` tag, the **prepare Linux packages** CI job downloads
@@ -164,7 +188,7 @@ cargo xtask desktop --tag v0.1.0 --prepare
 
 It builds the AppImage and the deb for amd64 and arm64 on one amd64 runner,
 checks that each unpacked client and each exact deb carry the lock of their
-architecture, the release key `docs/release-key.asc` and no server, runs the
+architecture, the Update Key `docs/update-key.pem` and no server, runs the
 compiled installer against a real archive, smoke tests the amd64 client under
 a virtual display, and writes `Pagis-0.1.0-linux.SHA256SUMS`. Each deb must
 hold the `package-type` file from which electron-updater knows a deb.
@@ -185,18 +209,27 @@ secret is revoked and replaced.
 Approve the **publish the Linux clients** job. The job puts the four packages,
 the checksum list and the two feeds in `desktop/release/` and both locks from
 the draft in `dist/`, imports the release key, sets `PAGIS_RELEASE_GPG_KEY` to
-its fingerprint, and runs:
+its fingerprint, gives the job `PAGIS_UPDATE_SIGNING_KEY`, and runs:
 
 ```bash
 cargo xtask desktop --linux --tag v0.1.0 --publish-existing
 ```
 
 It does not rebuild. It compares the locks and archives with the draft, pulls
-the Computer image with no credentials, checks every hash in the list, signs
-the list with the release key into `Pagis-0.1.0-linux.SHA256SUMS.asc`,
-verifies that signature with `docs/release-key.asc`, and uploads the four
-packages, the list, the signature and the two feeds without `--clobber`. A
-Client App finds the Update only after the last job publishes the draft, and
-it installs the Update only when the signature of the list verifies with the
-key in its own package. So a release that changes the release key reaches
-only the clients that already embed the new key.
+the Computer image with no credentials, and checks every hash in the list.
+Then it signs the list two times:
+
+- with the release key into `Pagis-0.1.0-linux.SHA256SUMS.asc`, and verifies
+  that signature with `docs/release-key.asc`;
+- with the Update Key into `Pagis-0.1.0-linux.SHA256SUMS.sig`, a raw 64-byte
+  Ed25519 signature of the exact list
+  (`openssl pkeyutl -sign -rawin`), and verifies it with
+  `docs/update-key.pem` (`openssl pkeyutl -verify -pubin -rawin`). The job
+  writes the private key to a temporary file that only the job user can
+  read, and removes the file after it signs.
+
+A missing secret, `docs/release-key.asc` or `docs/update-key.pem` stops
+publication. The job uploads the four packages, the list, both signatures and
+the two feeds without `--clobber`. A Client App finds the Update only after
+the last job publishes the draft, and it installs the Update only when the
+`.sig` verifies with the Update Key in its own package.

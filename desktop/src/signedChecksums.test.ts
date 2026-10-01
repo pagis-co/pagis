@@ -1,4 +1,4 @@
-// The trust of an Update on Linux (ADR-0027): the release key signs the
+// The trust of an Update on Linux (ADR-0027): the Update Key signs the
 // checksum list of a release, and a download must have the SHA-256 on its
 // line. Each test signs with a key that it generates, never a real key.
 
@@ -7,8 +7,7 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 
-import * as openpgp from 'openpgp'
-import { afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 
 import { checkSignedChecksum } from './signedChecksums'
 
@@ -16,18 +15,17 @@ const RELEASE = 'https://github.com/pagis-co/pagis/releases/download/v1.2.0'
 const LIST = 'Pagis-1.2.0-linux.SHA256SUMS'
 const APPIMAGE = 'Pagis-1.2.0-x86_64.AppImage'
 
-interface KeyPair {
-  privateKey: string
-  publicKey: string
+/** A key pair as the release holds it: the private key signs, and the
+ *  package embeds the public key as SPKI PEM. */
+function keyPair(type: 'ed25519' | 'ed448' = 'ed25519') {
+  const { privateKey, publicKey } = type === 'ed25519'
+    ? crypto.generateKeyPairSync('ed25519')
+    : crypto.generateKeyPairSync('ed448')
+  return { privateKey, publicPem: publicKey.export({ type: 'spki', format: 'pem' }) as string }
 }
 
-let releaseKey: KeyPair
-let otherKey: KeyPair
-
-beforeAll(async () => {
-  releaseKey = await openpgp.generateKey({ userIDs: [{ name: 'Test release key' }], format: 'armored' })
-  otherKey = await openpgp.generateKey({ userIDs: [{ name: 'Another key' }], format: 'armored' })
-})
+const updateKey = keyPair()
+const otherKey = keyPair()
 
 const roots: string[] = []
 afterEach(() => {
@@ -47,85 +45,82 @@ function sha256(bytes: Buffer): string {
   return crypto.createHash('sha256').update(bytes).digest('hex')
 }
 
-/** A detached signature, as `gpg --armor --detach-sign` makes one. */
-async function sign(list: string, key: KeyPair): Promise<string> {
-  const signingKeys = await openpgp.readPrivateKey({ armoredKey: key.privateKey })
-  const message = await openpgp.createMessage({ binary: Buffer.from(list) })
-  return (await openpgp.sign({ message, signingKeys, detached: true, format: 'armored' })) as string
+/** The raw 64-byte Ed25519 signature, as `openssl pkeyutl -sign -rawin` writes it. */
+function sign(list: string, key: crypto.KeyObject = updateKey.privateKey): Buffer {
+  return crypto.sign(null, Buffer.from(list), key)
 }
 
 /** The release files on GitHub. Each other address answers 404. */
-function github(files: Record<string, string>): { request: typeof fetch; asked: string[] } {
+function github(files: Record<string, string | Buffer>): { request: typeof fetch; asked: string[] } {
   const asked: string[] = []
   const request = (async (url: string | URL) => {
     asked.push(String(url))
     const body = files[String(url)]
-    return body === undefined ? new Response('Not Found', { status: 404 }) : new Response(body)
+    return body === undefined ? new Response('Not Found', { status: 404 }) : new Response(new Uint8Array(Buffer.from(body)))
   }) as typeof fetch
   return { request, asked }
 }
 
+function release(list: string, signature: Buffer) {
+  return github({ [`${RELEASE}/${LIST}`]: list, [`${RELEASE}/${LIST}.sig`]: signature })
+}
+
 describe('the signed checksum list of an Update', () => {
-  it('accepts a download whose SHA-256 is on its line of a list that the release key signed', async () => {
+  it('accepts a download whose SHA-256 is on its line of a list that the Update Key signed', async () => {
     const bytes = crypto.randomBytes(4096)
-    const file = download(APPIMAGE, bytes)
     const list = [
       `${sha256(bytes)}  ${APPIMAGE}`,
       `${sha256(Buffer.from('deb'))}  Pagis-1.2.0-amd64.deb`,
       '',
     ].join('\n')
-    const { request, asked } = github({
-      [`${RELEASE}/${LIST}`]: list,
-      [`${RELEASE}/${LIST}.asc`]: await sign(list, releaseKey),
-    })
+    const { request, asked } = release(list, sign(list))
 
-    await expect(checkSignedChecksum(file, '1.2.0', releaseKey.publicKey, request)).resolves.toBeUndefined()
-    expect(asked.sort()).toEqual([`${RELEASE}/${LIST}`, `${RELEASE}/${LIST}.asc`])
+    await expect(checkSignedChecksum(download(APPIMAGE, bytes), '1.2.0', updateKey.publicPem, request))
+      .resolves.toBeUndefined()
+    expect(asked.sort()).toEqual([`${RELEASE}/${LIST}`, `${RELEASE}/${LIST}.sig`])
   })
 
   it('refuses a list that another key signed', async () => {
     const bytes = crypto.randomBytes(64)
     const list = `${sha256(bytes)}  ${APPIMAGE}\n`
-    const { request } = github({
-      [`${RELEASE}/${LIST}`]: list,
-      [`${RELEASE}/${LIST}.asc`]: await sign(list, otherKey),
-    })
+    const { request } = release(list, sign(list, otherKey.privateKey))
 
-    await expect(checkSignedChecksum(download(APPIMAGE, bytes), '1.2.0', releaseKey.publicKey, request))
-      .rejects.toThrow(`${LIST} does not verify with the Pagis release key`)
+    await expect(checkSignedChecksum(download(APPIMAGE, bytes), '1.2.0', updateKey.publicPem, request))
+      .rejects.toThrow(`${LIST} does not verify with the Pagis Update Key`)
   })
 
-  it('refuses a list that changed after the release key signed it', async () => {
+  it('refuses a list that changed after the Update Key signed it', async () => {
     const bytes = crypto.randomBytes(64)
     const signed = `${sha256(Buffer.from('the real package'))}  ${APPIMAGE}\n`
-    const { request } = github({
-      [`${RELEASE}/${LIST}`]: `${sha256(bytes)}  ${APPIMAGE}\n`,
-      [`${RELEASE}/${LIST}.asc`]: await sign(signed, releaseKey),
-    })
+    const { request } = release(`${sha256(bytes)}  ${APPIMAGE}\n`, sign(signed))
 
-    await expect(checkSignedChecksum(download(APPIMAGE, bytes), '1.2.0', releaseKey.publicKey, request))
-      .rejects.toThrow(`${LIST} does not verify with the Pagis release key`)
+    await expect(checkSignedChecksum(download(APPIMAGE, bytes), '1.2.0', updateKey.publicPem, request))
+      .rejects.toThrow(`${LIST} does not verify with the Pagis Update Key`)
   })
 
-  it('refuses a signature file that holds no OpenPGP signature', async () => {
+  it('refuses a signature file that holds no Ed25519 signature', async () => {
     const bytes = crypto.randomBytes(64)
-    const { request } = github({
-      [`${RELEASE}/${LIST}`]: `${sha256(bytes)}  ${APPIMAGE}\n`,
-      [`${RELEASE}/${LIST}.asc`]: 'not a signature',
-    })
+    const { request } = release(`${sha256(bytes)}  ${APPIMAGE}\n`, Buffer.from('not a signature'))
 
-    await expect(checkSignedChecksum(download(APPIMAGE, bytes), '1.2.0', releaseKey.publicKey, request))
-      .rejects.toThrow(`${LIST} does not verify with the Pagis release key`)
+    await expect(checkSignedChecksum(download(APPIMAGE, bytes), '1.2.0', updateKey.publicPem, request))
+      .rejects.toThrow(`${LIST} does not verify with the Pagis Update Key`)
+  })
+
+  it('refuses an Update Key that is not an Ed25519 public key', async () => {
+    const bytes = crypto.randomBytes(64)
+    const list = `${sha256(bytes)}  ${APPIMAGE}\n`
+    const ed448 = keyPair('ed448')
+    const { request } = release(list, crypto.sign(null, Buffer.from(list), ed448.privateKey))
+
+    await expect(checkSignedChecksum(download(APPIMAGE, bytes), '1.2.0', ed448.publicPem, request))
+      .rejects.toThrow('the Pagis Update Key is not an Ed25519 public key')
   })
 
   it('refuses a download whose SHA-256 is not the one on its line', async () => {
     const list = `${sha256(Buffer.from('the real package'))}  ${APPIMAGE}\n`
-    const { request } = github({
-      [`${RELEASE}/${LIST}`]: list,
-      [`${RELEASE}/${LIST}.asc`]: await sign(list, releaseKey),
-    })
+    const { request } = release(list, sign(list))
 
-    await expect(checkSignedChecksum(download(APPIMAGE, crypto.randomBytes(64)), '1.2.0', releaseKey.publicKey, request))
+    await expect(checkSignedChecksum(download(APPIMAGE, crypto.randomBytes(64)), '1.2.0', updateKey.publicPem, request))
       .rejects.toThrow(`the SHA-256 of the downloaded ${APPIMAGE} is not the one in ${LIST}`)
   })
 
@@ -135,12 +130,9 @@ describe('the signed checksum list of an Update', () => {
       `${sha256(bytes)}  Pagis-1.2.0-arm64.AppImage\n`,
       `${sha256(bytes)}  ${APPIMAGE}\n${sha256(bytes)} *${APPIMAGE}\n`,
     ]) {
-      const { request } = github({
-        [`${RELEASE}/${LIST}`]: list,
-        [`${RELEASE}/${LIST}.asc`]: await sign(list, releaseKey),
-      })
+      const { request } = release(list, sign(list))
 
-      await expect(checkSignedChecksum(download(APPIMAGE, bytes), '1.2.0', releaseKey.publicKey, request))
+      await expect(checkSignedChecksum(download(APPIMAGE, bytes), '1.2.0', updateKey.publicPem, request))
         .rejects.toThrow(`${LIST} does not have one line for ${APPIMAGE}`)
     }
   })
@@ -150,22 +142,13 @@ describe('the signed checksum list of an Update', () => {
     const list = `${sha256(bytes)}  ${APPIMAGE}\n`
 
     const noSignature = github({ [`${RELEASE}/${LIST}`]: list })
-    await expect(checkSignedChecksum(download(APPIMAGE, bytes), '1.2.0', releaseKey.publicKey, noSignature.request))
-      .rejects.toThrow(`the download of ${LIST}.asc answered HTTP 404`)
+    await expect(checkSignedChecksum(download(APPIMAGE, bytes), '1.2.0', updateKey.publicPem, noSignature.request))
+      .rejects.toThrow(`the download of ${LIST}.sig answered HTTP 404`)
 
     const offline = (async () => {
       throw new TypeError('fetch failed')
     }) as unknown as typeof fetch
-    await expect(checkSignedChecksum(download(APPIMAGE, bytes), '1.2.0', releaseKey.publicKey, offline))
+    await expect(checkSignedChecksum(download(APPIMAGE, bytes), '1.2.0', updateKey.publicPem, offline))
       .rejects.toThrow(`the download of ${LIST} failed: fetch failed`)
-  })
-
-  /** The key that the Linux package embeds, in the form openpgp.js reads. */
-  it('reads the public release key of the repository', async () => {
-    const armoredKey = fs.readFileSync(path.join(__dirname, '..', '..', 'docs', 'release-key.asc'), 'utf8')
-
-    const key = await openpgp.readKey({ armoredKey })
-
-    expect(key.isPrivate()).toBe(false)
   })
 })

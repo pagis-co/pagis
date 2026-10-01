@@ -903,7 +903,7 @@ function clientUpdates(onState: (state: UpdateState) => void): Updates | null {
  * Squirrel.Mac on macOS. On Linux electron-updater chooses its updater by
  * the package: a deb holds `resources/package-type`, and an AppImage runs
  * with APPIMAGE set. Each checks the download against the signed checksum
- * list, with the public release key that the package embeds.
+ * list, with the public Update Key that the package embeds.
  */
 function updateInstaller(): Installer | null {
   if (process.platform === 'darwin') return { kind: 'squirrel', squirrel }
@@ -911,7 +911,7 @@ function updateInstaller(): Installer | null {
   const verify = (update: UpdateDownloadedEvent) => checkSignedChecksum(
     update.downloadedFile,
     update.version,
-    fs.readFileSync(path.join(process.resourcesPath, 'release-key.asc'), 'utf8'),
+    fs.readFileSync(path.join(process.resourcesPath, 'update-key.pem'), 'utf8'),
   )
   if (autoUpdater instanceof DebUpdater) return { kind: 'deb', verify }
   const appImage = process.env.APPIMAGE

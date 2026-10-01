@@ -309,11 +309,11 @@ describe('the Update of the Client App', () => {
     await updates.check()
     updater.downloaded('1.1.0')
 
-    await check.fail(new Error('Pagis-1.1.0-linux.SHA256SUMS does not verify with the Pagis release key'))
+    await check.fail(new Error('Pagis-1.1.0-linux.SHA256SUMS does not verify with the Pagis Update Key'))
 
     expect(updates.state).toEqual({
       kind: 'failed',
-      reason: 'Pagis-1.1.0-linux.SHA256SUMS does not verify with the Pagis release key',
+      reason: 'Pagis-1.1.0-linux.SHA256SUMS does not verify with the Pagis Update Key',
     })
     expect(notify).not.toHaveBeenCalled()
     updates.installAtQuit()

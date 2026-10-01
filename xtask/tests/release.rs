@@ -1245,6 +1245,15 @@ fn the_tag_workflow_runs_every_stage_after_the_gate() {
         "{linux}"
     );
     assert!(job("draft").contains("pattern: server-*"));
+    // The Linux publication signs with the release key and with the
+    // Update Key, which are secrets of the `release` environment.
+    let publish_linux = job("publish-linux");
+    for secret in [
+        "PAGIS_RELEASE_GPG_PRIVATE_KEY: ${{ secrets.PAGIS_RELEASE_GPG_PRIVATE_KEY }}",
+        "PAGIS_UPDATE_SIGNING_KEY: ${{ secrets.PAGIS_UPDATE_SIGNING_KEY }}",
+    ] {
+        assert!(publish_linux.contains(secret), "{secret}: {publish_linux}");
+    }
     // The prepared Linux packages travel with the Update feed of each
     // architecture, which the publication uploads (ADR-0027).
     for feed in ["latest-linux.yml", "latest-linux-arm64.yml"] {

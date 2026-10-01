@@ -69,7 +69,7 @@ dmg:
 
 # Linux ships an AppImage and a deb for amd64 and arm64 (ADR-0025). The
 # release signs their checksum list; electron-builder signs nothing on Linux.
-# The package embeds the public release key, which checks the signed
+# The package embeds the public Update Key, which checks the signed
 # checksum list of an Update (ADR-0027). electron-builder builds the
 # AppImage first and the deb after it, and only the deb gets the
 # `package-type` file from which electron-updater knows a deb.
@@ -86,8 +86,8 @@ linux:
   extraResources:
     - from: ../dist/runtime-lock-linux-${arch}.json
       to: runtime-lock.json
-    - from: ../docs/release-key.asc
-      to: release-key.asc
+    - from: ../docs/update-key.pem
+      to: update-key.pem
   # `pagis` is the server's own command, so the client has another name.
   executableName: pagis-client
   category: Office
