@@ -144,11 +144,14 @@ that is not a token.
 ## Primitives
 
 `src/primitives/` holds the controls every screen renders through:
-Button, IconButton, TooltipButton, Input, Textarea, Select, Tabs, Menu,
+Button, IconButton, TooltipButton, Input, Textarea, Combobox, Select, Tabs, Menu,
 Dialog, Toast, Badge, Avatar, Switch, LogoMark, and the layout frames.
 Behaviour comes from Radix Primitives, which gives focus, keyboard and portal
-handling; the look comes from the tokens. A screen imports Radix only
-through the primitives. Icons are Lucide, inline as SVG, at 14, 16 or
+handling; the look comes from the tokens. The Combobox, a field that
+also offers a list of choices, takes its keyboard and ARIA behaviour from
+Downshift and draws its list in a Radix Popover, because a native
+`<datalist>` list grows past the window and does not scroll. A screen
+imports Radix and Downshift only through the primitives. Icons are Lucide, inline as SVG, at 14, 16 or
 20 px: the glyph of a small, a medium and a large control.
 
 A screen does not write its own control. A control that is missing is

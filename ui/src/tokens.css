@@ -200,6 +200,9 @@
   --z-inspector: 30;
   --z-overlay: 40;
   --z-overlay-controls: 50;
+  /* A list that opens from a control: a select, a menu or a combobox.
+   * It sits above a dialog, because a dialog holds such controls. */
+  --z-popover: 60;
 }
 
 @media (prefers-color-scheme: dark) {

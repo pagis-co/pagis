@@ -39,7 +39,7 @@ function inputTags(code: string): string[] {
 }
 
 describe('the screens render through the primitives', () => {
-  for (const tag of ['button', 'select', 'textarea'] as const) {
+  for (const tag of ['button', 'select', 'textarea', 'datalist'] as const) {
     it(`writes no native <${tag}>`, () => {
       for (const screen of screens()) {
         expect(
@@ -197,16 +197,16 @@ describe('the primitives own their padding, border and radius', () => {
   })
 })
 
-// Behaviour comes from Radix through the primitives only, an icon
+// Behaviour comes from Radix and Downshift through the primitives only, an icon
 // takes one of the three control sizes, and a fixed look lives in a
 // stylesheet, not in an inline style.
 
 describe('the screens hold to the primitives', () => {
-  it('imports no Radix package', () => {
+  it('imports no Radix or Downshift package', () => {
     for (const screen of screens()) {
       expect(
-        screen.code.includes("from '@radix-ui/"),
-        `${screen.name} reaches Radix around the primitives`,
+        /from '(?:@radix-ui\/|downshift')/.test(screen.code),
+        `${screen.name} reaches Radix or Downshift around the primitives`,
       ).toBe(false)
     }
   })

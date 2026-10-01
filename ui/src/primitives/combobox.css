@@ -1,0 +1,36 @@
+/* Combobox. Every value comes from `tokens.css`. */
+
+.ui-combobox-content {
+  width: var(--radix-popover-trigger-width);
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-raised);
+  z-index: var(--z-popover);
+}
+
+/* The list keeps inside the window: Radix gives the room left below
+ * (or above) the field, less the border. */
+.ui-combobox-list {
+  box-sizing: border-box;
+  max-height: min(18rem, calc(var(--radix-popover-content-available-height) - 2px));
+  margin: 0;
+  padding: var(--space-1);
+  list-style: none;
+  overflow: hidden auto;
+  overscroll-behavior: contain;
+}
+
+.ui-combobox-item {
+  font-size: var(--text-sm);
+  padding: var(--space-1-5) var(--space-2);
+  border-radius: var(--radius-sm);
+  overflow-wrap: anywhere;
+  cursor: pointer;
+  user-select: none;
+}
+
+.ui-combobox-item[data-highlighted] {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
