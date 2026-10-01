@@ -91,7 +91,7 @@ holds the details.
 
 The user documentation is at [docs.pagis.co](https://docs.pagis.co), and
 [docs-site/](docs-site) holds its source. Each release deploys the pages of
-its own tree. The documents below are for the people who build Pagis.
+its own tree, and a manual run of the Docs workflow deploys `main`. The documents below are for the people who build Pagis.
 
 | Topic | Document |
 | --- | --- |
