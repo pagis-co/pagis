@@ -464,6 +464,7 @@ fn product_router(state: Arc<AppState>) -> Router {
         )
         .route("/api/v1/calls/{call_id}/control", post(calls::control))
         .route("/api/v1/runs/{run_id}/cancel", post(runs::cancel_run))
+        .route("/api/v1/runs/{run_id}/dismiss", post(runs::dismiss_run))
         .route("/api/v1/runs/{run_id}/retry", post(runs::retry_review))
         .route("/api/v1/runs/{run_id}/events", get(runs::run_events))
         .route("/api/v1/runs/{run_id}/steps", get(runs::run_steps))
@@ -632,6 +633,7 @@ fn product_router(state: Arc<AppState>) -> Router {
         )
         .route("/api/v1/calls", get(calls::list_calls))
         .route("/api/v1/calls/{call_id}", get(calls::get_call))
+        .route("/api/v1/calls/{call_id}/dismiss", post(calls::dismiss_call))
         .route("/api/v1/calls/{call_id}/hangup", post(calls::hang_up))
         .route("/api/v1/calls/{call_id}/tier", post(calls::drop_call_tier))
         .route(

@@ -7,7 +7,8 @@
 use async_trait::async_trait;
 use pagis_core::{
     AgentId, ArtifactId, Call, CallDirection, CallId, CallOutcome, CallState, CallStore,
-    Classification, PhoneNumberId, RunId, StoreError, TranscriptLine, TrustTier, WorkspaceId,
+    Classification, PhoneNumberId, RunId, StoreError, TranscriptLine, TrustTier, UnixMillis,
+    WorkspaceId,
 };
 use sqlx::{Row, SqlitePool};
 
@@ -27,7 +28,7 @@ impl SqliteCallStore {
 const COLUMNS: &str = "id, workspace_id, agent_id, run_id, phone_number_id, direction, \
      remote_e164, agent_name, own_e164, purpose, tools, tier, state, outcome, ended_reason, \
      classification, message_left, transcript, recording_artifact_id, created_at, ringing_at, \
-     answered_at, ended_at";
+     answered_at, ended_at, dismissed_at";
 
 /// The transcript goes to the row as JSON, so its times survive.
 fn transcript_json(lines: &[TranscriptLine]) -> Result<String, StoreError> {
@@ -80,6 +81,7 @@ fn from_row(row: &sqlx::sqlite::SqliteRow) -> Result<Call, StoreError> {
         ringing_at: row.get("ringing_at"),
         answered_at: row.get("answered_at"),
         ended_at: row.get("ended_at"),
+        dismissed_at: row.get("dismissed_at"),
     })
 }
 
@@ -88,7 +90,7 @@ impl CallStore for SqliteCallStore {
     async fn insert(&self, call: &Call) -> Result<(), StoreError> {
         sqlx::query(&format!(
             "INSERT INTO calls ({COLUMNS}) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         ))
         .bind(call.id.as_str())
         .bind(call.workspace_id.as_str())
@@ -113,6 +115,7 @@ impl CallStore for SqliteCallStore {
         .bind(call.ringing_at)
         .bind(call.answered_at)
         .bind(call.ended_at)
+        .bind(call.dismissed_at)
         .execute(&self.pool)
         .await
         .map_err(db_err)?;
@@ -203,5 +206,24 @@ impl CallStore for SqliteCallStore {
         .await
         .map_err(db_err)?;
         rows.iter().map(from_row).collect()
+    }
+
+    async fn dismiss(
+        &self,
+        workspace_id: &WorkspaceId,
+        id: &CallId,
+        at: UnixMillis,
+    ) -> Result<bool, StoreError> {
+        let dismissed = sqlx::query(
+            "UPDATE calls SET dismissed_at = COALESCE(dismissed_at, ?) \
+             WHERE id = ? AND workspace_id = ?",
+        )
+        .bind(at)
+        .bind(id.as_str())
+        .bind(workspace_id.as_str())
+        .execute(&self.pool)
+        .await
+        .map_err(db_err)?;
+        Ok(dismissed.rows_affected() > 0)
     }
 }

@@ -999,6 +999,10 @@ pub struct Run {
     pub started_at: Option<UnixMillis>,
     pub ended_at: Option<UnixMillis>,
     pub created_at: UnixMillis,
+    /// When the Person dismissed the Run from the Needs-You Queue.
+    /// `RunStore::update` does not write it; only `RunStore::dismiss`
+    /// does.
+    pub dismissed_at: Option<UnixMillis>,
 }
 
 impl Run {
@@ -2255,6 +2259,10 @@ pub struct Call {
     pub ringing_at: Option<UnixMillis>,
     pub answered_at: Option<UnixMillis>,
     pub ended_at: Option<UnixMillis>,
+    /// When the Person dismissed the missed Call from the Needs-You
+    /// Queue. `CallStore::update` does not write it; only
+    /// `CallStore::dismiss` does.
+    pub dismissed_at: Option<UnixMillis>,
 }
 
 /// Which side sent one Text Message (ADR-0020).

@@ -59,6 +59,7 @@ async fn seeded_run(backend: &Backend, workspace_id: &WorkspaceId) -> RunId {
         state: RunState::Queued,
         error: None,
         failure_kind: None,
+        dismissed_at: None,
         created_at: now_ms(),
         started_at: None,
         ended_at: None,

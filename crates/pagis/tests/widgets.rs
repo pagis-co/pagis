@@ -119,6 +119,7 @@ async fn seed_version(daemon: &TestDaemon, name: &str, manifest: serde_json::Val
         origin: None,
         state: RunState::Completed,
         failure_kind: None,
+        dismissed_at: None,
         error: None,
         started_at: None,
         ended_at: None,

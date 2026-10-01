@@ -563,6 +563,11 @@ pub const ROUTES: &[Route] = &[
         authenticated: true,
     },
     Route {
+        path: "/api/v1/runs/{run_id}/dismiss",
+        methods: &["post"],
+        authenticated: true,
+    },
+    Route {
         path: "/api/v1/runs/{run_id}/retry",
         methods: &["post"],
         authenticated: true,
@@ -840,6 +845,11 @@ pub const ROUTES: &[Route] = &[
     Route {
         path: "/api/v1/calls/{call_id}",
         methods: &["get"],
+        authenticated: true,
+    },
+    Route {
+        path: "/api/v1/calls/{call_id}/dismiss",
+        methods: &["post"],
         authenticated: true,
     },
     Route {

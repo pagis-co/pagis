@@ -1,13 +1,13 @@
 //! Typed fixture builders. Seeds are Rust values, not SQL files.
 
 use pagis_core::{
-    Agent, AgentStatus, Artifact, AuthorKind, Block, Channel, ChannelKind, ChannelParticipant,
-    Grant, Message, MessageStatus, ParticipantKind, Request, RequestState, Run, RunState,
-    TriggerKind, Workspace, now_ms,
+    Agent, AgentStatus, Artifact, AuthorKind, Block, Call, CallDirection, CallOutcome, CallState,
+    Channel, ChannelKind, ChannelParticipant, Grant, Message, MessageStatus, ParticipantKind,
+    Request, RequestState, Run, RunState, TriggerKind, TrustTier, Workspace, now_ms,
 };
 use pagis_core::{
-    AgentId, ArtifactId, ChannelId, GrantId, MessageId, ParticipantId, RequestId, RunId, UserId,
-    WorkspaceId,
+    AgentId, ArtifactId, CallId, ChannelId, GrantId, MessageId, ParticipantId, PhoneNumberId,
+    RequestId, RunId, UserId, WorkspaceId,
 };
 
 /// A Workspace that belongs to a person, and the Org and the person to
@@ -93,10 +93,42 @@ pub fn queued_run(workspace_id: &WorkspaceId, agent_id: &AgentId, channel_id: &C
         origin: None,
         state: RunState::Queued,
         failure_kind: None,
+        dismissed_at: None,
         error: None,
         started_at: None,
         ended_at: None,
         created_at: now_ms(),
+    }
+}
+
+/// An inbound Call of the Run that nobody answered.
+pub fn missed_call(workspace_id: &WorkspaceId, agent_id: &AgentId, run_id: &RunId) -> Call {
+    let at = now_ms();
+    Call {
+        id: CallId::generate(),
+        workspace_id: workspace_id.clone(),
+        agent_id: agent_id.clone(),
+        run_id: run_id.clone(),
+        phone_number_id: PhoneNumberId::generate(),
+        direction: CallDirection::Inbound,
+        remote_e164: "+14155550199".to_string(),
+        agent_name: "Sage".to_string(),
+        own_e164: "+14155550123".to_string(),
+        purpose: String::new(),
+        tools: Vec::new(),
+        tier: TrustTier::Unknown,
+        state: CallState::Ended,
+        outcome: Some(CallOutcome::NoAnswer),
+        ended_reason: Some("no_answer".to_string()),
+        classification: None,
+        message_left: false,
+        transcript: Vec::new(),
+        recording_artifact_id: None,
+        created_at: at,
+        ringing_at: Some(at),
+        answered_at: None,
+        ended_at: Some(at),
+        dismissed_at: None,
     }
 }
 

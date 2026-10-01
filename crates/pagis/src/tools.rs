@@ -213,6 +213,7 @@ impl pagis_telephony::InboundRuns for BrokerInboundRuns {
             origin: None,
             state: RunState::Running,
             failure_kind: None,
+            dismissed_at: None,
             error: None,
             started_at: Some(now),
             ended_at: None,

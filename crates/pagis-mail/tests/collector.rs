@@ -182,6 +182,7 @@ impl World {
             origin: None,
             state: RunState::Running,
             failure_kind: None,
+            dismissed_at: None,
             error: None,
             started_at: Some(now_ms()),
             ended_at: None,

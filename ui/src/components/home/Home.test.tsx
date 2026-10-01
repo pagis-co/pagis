@@ -93,6 +93,7 @@ function stubApi(
     report?: unknown
     writingRunId?: string | null
     keypad?: { failed_attempts: number; suspended_until: number | null }
+    failedRuns?: RunDto[]
   } = {},
 ) {
   const post = vi.fn(async () => ({ data: { ok: true } }))
@@ -167,6 +168,7 @@ function stubApi(
       if (path === '/api/v1/runs') {
         const state = init?.params?.query?.state
         if (state === 'completed') return { data: { items: [run({ id: 'done-1' })] } }
+        if (state === 'failed') return { data: { items: options.failedRuns ?? [] } }
         return { data: { items: [] } }
       }
       return { data: { items: [] } }
@@ -326,6 +328,60 @@ describe('Needs you', () => {
     expect(useComposerDraft.getState().byScope['channel-1']).toBe(
       'Please call +14155550199 back. They called and nobody answered.',
     )
+  })
+
+  it('dismisses a failure when the reader opens its run', async () => {
+    const { api, post } = stubApi({
+      failedRuns: [run({ id: 'run-2', state: 'failed', error: 'the request timed out' })],
+    })
+    const opened = mount(api)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Open run' }))
+
+    expect(opened.run).toEqual(['run-2'])
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith('/api/v1/runs/{run_id}/dismiss', {
+        params: { path: { run_id: 'run-2' } },
+      }),
+    )
+  })
+
+  it('dismisses a failure with no visit to its run', async () => {
+    const { api, post } = stubApi({
+      failedRuns: [run({ id: 'run-2', state: 'failed', error: 'the request timed out' })],
+    })
+    const opened = mount(api)
+
+    const line = await screen.findByText('Sage could not finish the work')
+    const card = line.closest('.ui-frame') as HTMLElement
+    fireEvent.click(within(card).getByRole('button', { name: 'Dismiss' }))
+
+    expect(opened.run).toEqual([])
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith('/api/v1/runs/{run_id}/dismiss', {
+        params: { path: { run_id: 'run-2' } },
+      }),
+    )
+  })
+
+  it('dismisses a missed call when the reader calls back, or dismisses it alone', async () => {
+    const { api, post } = stubApi({
+      calls: [missedCall(), missedCall({ id: 'call-2', remote_e164: '+14155550188' })],
+    })
+    mount(api)
+
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Call back' }))[0])
+    const second = screen.getByText('Sage missed a call from +14155550188').closest('.ui-frame')
+    fireEvent.click(within(second as HTMLElement).getByRole('button', { name: 'Dismiss' }))
+
+    await waitFor(() => {
+      expect(post).toHaveBeenCalledWith('/api/v1/calls/{call_id}/dismiss', {
+        params: { path: { call_id: 'call-1' } },
+      })
+      expect(post).toHaveBeenCalledWith('/api/v1/calls/{call_id}/dismiss', {
+        params: { path: { call_id: 'call-2' } },
+      })
+    })
   })
 
   it('tells the reader when a keypad delay starts, and clears the count', async () => {

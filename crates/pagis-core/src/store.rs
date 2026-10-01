@@ -891,6 +891,15 @@ pub trait RunStore: Send + Sync {
         before: Option<&RunId>,
         limit: u32,
     ) -> Result<Vec<Run>, StoreError>;
+    /// Mark the Run dismissed from the Needs-You Queue at `at`. A Run
+    /// that is already dismissed keeps its first time. `false` when the
+    /// Workspace holds no such Run.
+    async fn dismiss(
+        &self,
+        workspace_id: &WorkspaceId,
+        id: &RunId,
+        at: UnixMillis,
+    ) -> Result<bool, StoreError>;
     /// Record the synced source content that the Run read through one
     /// Connection (ADR-0008). A Forget of a Source Item that the Run
     /// read forgets each message of the Run and deletes its retained
@@ -1501,6 +1510,15 @@ pub trait CallStore: Send + Sync {
         before: Option<&CallId>,
         limit: u32,
     ) -> Result<Vec<Call>, StoreError>;
+    /// Mark the Call dismissed from the Needs-You Queue at `at`. A Call
+    /// that is already dismissed keeps its first time. `false` when the
+    /// Workspace holds no such Call.
+    async fn dismiss(
+        &self,
+        workspace_id: &WorkspaceId,
+        id: &CallId,
+        at: UnixMillis,
+    ) -> Result<bool, StoreError>;
 }
 
 /// The Software List (ADR-0016): which packages a Workspace

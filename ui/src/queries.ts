@@ -18,9 +18,11 @@ import type {
   ApiClient,
   AgentDto,
   BindingValueRequest,
+  CallSummaryDto,
   MessageDto,
   EnableMultiUserBody,
   PluginSourceRequest,
+  RunDto,
   SystemSettingsBody,
   ThreadDto,
   TimelineItem,
@@ -1114,6 +1116,31 @@ export function useRunTranscript(api: ApiClient, runId: string | null) {
         }),
       ),
     enabled: runId !== null,
+  });
+}
+
+/** The reader dismisses a Run from the Needs-You Queue. Every cached
+ *  runs list marks it at once, so the item leaves the queue before the
+ *  daemon answers; the `run.dismissed` WS event refreshes the other
+ *  clients. */
+export function useDismissRun(api: ApiClient) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (runId: string) =>
+      expectNoContent(
+        api.POST("/api/v1/runs/{run_id}/dismiss", {
+          params: { path: { run_id: runId } },
+        }),
+      ),
+    onMutate: (runId) => {
+      const at = Date.now();
+      queryClient.setQueriesData<RunDto[]>({ queryKey: ["runs"] }, (runs) =>
+        runs?.map((run) =>
+          run.id === runId ? { ...run, dismissed_at: run.dismissed_at ?? at } : run,
+        ),
+      );
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["runs"] }),
   });
 }
 
@@ -2252,6 +2279,31 @@ export function useMailMessage(
       ),
     retry: false,
     gcTime: 0,
+  });
+}
+
+/** The reader dismisses a missed Call from the Needs-You Queue. Every
+ *  cached calls list marks it at once, so the item leaves the queue
+ *  before the daemon answers; the `call.dismissed` WS event refreshes
+ *  the other clients. */
+export function useDismissCall(api: ApiClient) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (callId: string) =>
+      expectNoContent(
+        api.POST("/api/v1/calls/{call_id}/dismiss", {
+          params: { path: { call_id: callId } },
+        }),
+      ),
+    onMutate: (callId) => {
+      const at = Date.now();
+      queryClient.setQueriesData<CallSummaryDto[]>({ queryKey: ["calls"] }, (calls) =>
+        calls?.map((call) =>
+          call.id === callId ? { ...call, dismissed_at: call.dismissed_at ?? at } : call,
+        ),
+      );
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["calls"] }),
   });
 }
 

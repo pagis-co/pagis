@@ -23,6 +23,8 @@ import {
   useAgents,
   useChannels,
   useClearKeypadFailures,
+  useDismissCall,
+  useDismissRun,
   useReport,
   useRunScheduleNow,
   useRuns,
@@ -37,26 +39,31 @@ import { ChannelComposer } from '../composer/ChannelComposer'
 import { runDuration, triggerText } from '../runs/runs'
 import { chiefOfStaff } from '../sidebar/conversations'
 import { briefLine, homeDate, workRecord } from './report'
-import { callBackDraft, queueAction, queueLine, type QueueItem } from './queue'
+import { callBackDraft, isDismissible, queueAction, queueLine, type QueueItem } from './queue'
 import { useQueue } from './useQueue'
 
 import './home.css'
 
 /** One row of the queue. The row is one card frame: a dot in the
  *  state hue, the line that says what waits, the detail under it, and
- *  one primary action in the footer. A pending approval keeps its own
- *  card, which carries the decision. */
+ *  one primary action in the footer, with Dismiss at its end when the
+ *  item only tells the reader. A pending approval keeps its own card,
+ *  which carries the decision. */
 function QueueRow({
   api,
   item,
   agentName,
   onOpen,
+  onDismiss = null,
   busy = false,
 }: {
   api: ApiClient
   item: QueueItem
   agentName: string
   onOpen: () => void
+  /** Takes the item out of the queue; `null` where only the action
+   *  of the item settles it. */
+  onDismiss?: (() => void) | null
   /** The action of the row runs now. */
   busy?: boolean
 }) {
@@ -95,6 +102,11 @@ function QueueRow({
           <Button variant="primary" size="sm" disabled={busy} onClick={onOpen}>
             {queueAction(item)}
           </Button>
+          {onDismiss !== null && (
+            <Button variant="ghost" size="sm" onClick={onDismiss}>
+              Dismiss
+            </Button>
+          )}
         </CardFooter>
       </Card>
     </li>
@@ -124,6 +136,8 @@ export function Home({
   const writeNow = useRunScheduleNow(api)
   const queue = useQueue(api)
   const clearKeypad = useClearKeypadFailures(api)
+  const dismissRun = useDismissRun(api)
+  const dismissCall = useDismissCall(api)
   // The record answers what the presence store does not hold: the work
   // that is done.
   const completed = useRuns(api, '', '', 'completed')
@@ -150,11 +164,18 @@ export function Home({
     [channels.data],
   )
 
+  /** Takes a missed call or a failure out of the queue. */
+  const dismissItem = (item: QueueItem) => {
+    if (item.kind === 'call') dismissCall.mutate(item.id)
+    if (item.kind === 'failed') dismissRun.mutate(item.runId)
+  }
+
   /** A failed run opens its run, a waiting run its conversation, and a
    *  missed call the Agent's DM with the call-back message already
    *  written: the call then goes through the Call Brief and the
    *  approval card like every other call (ADR-0020). The keypad notice
-   *  clears the failed-attempt count of the Workspace (ADR-0021). */
+   *  clears the failed-attempt count of the Workspace (ADR-0021). A
+   *  missed call or a failure the reader acts on leaves the queue. */
   const openItem = (item: QueueItem) => {
     if (item.kind === 'approval') return
     if (item.kind === 'keypad') return clearKeypad.mutate()
@@ -162,9 +183,13 @@ export function Home({
       const channelId = directMessageChannel(channels.data ?? [], item.agentId)
       if (channelId === null) return
       setDraft(threadScope(channelId), callBackDraft(item))
+      dismissItem(item)
       return onOpenChannel(channelId)
     }
-    if (item.kind === 'failed') return onOpenRun(item.runId)
+    if (item.kind === 'failed') {
+      dismissItem(item)
+      return onOpenRun(item.runId)
+    }
     if (item.channelId !== null) return onOpenChannel(item.channelId)
     return onOpenRun(item.runId)
   }
@@ -235,6 +260,7 @@ export function Home({
                   item.kind === 'keypad' ? '' : (agentNames[item.agentId] ?? 'A sprite')
                 }
                 onOpen={() => openItem(item)}
+                onDismiss={isDismissible(item) ? () => dismissItem(item) : null}
                 busy={item.kind === 'keypad' && clearKeypad.isPending}
               />
             ))}

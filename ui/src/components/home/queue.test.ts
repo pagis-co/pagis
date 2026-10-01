@@ -145,6 +145,21 @@ describe('buildQueue', () => {
     ])
   })
 
+  it('leaves out a failure and a missed call the reader dismissed', () => {
+    const queue = buildQueue({
+      requests: [],
+      liveRuns: [],
+      failedRuns: [
+        run({ id: 'dismissed', state: 'failed', dismissed_at: NOW }),
+        run({ id: 'open', state: 'failed' }),
+      ],
+      calls: [call({ id: 'dismissed', dismissed_at: NOW }), call({ id: 'open' })],
+      now: NOW,
+    })
+
+    expect(queue.map((item) => `${item.kind}:${item.id}`)).toEqual(['call:open', 'failed:open'])
+  })
+
   it('does not read a failed run with a call trigger as a missed call', () => {
     const queue = buildQueue({
       requests: [],

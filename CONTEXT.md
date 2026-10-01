@@ -1052,7 +1052,9 @@ _Avoid_: side panel
 ### Needs-You Queue
 What waits for the Person: approvals, questions, failed Runs, missed
 Calls, the Keypad Code delay after too many failed attempts, and the rules
-that wait for an approval (ADR-0022, ADR-0021).
+that wait for an approval (ADR-0022, ADR-0021). A failed Run or a missed
+Call leaves the queue when the Person acts on it or dismisses it; the
+record keeps the time of the dismissal.
 
 ### Progress
 The daemon's derived line for one Run: what it does now, from the Run

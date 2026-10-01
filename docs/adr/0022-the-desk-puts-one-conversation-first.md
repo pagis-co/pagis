@@ -48,6 +48,11 @@ Staff's direct Channel. On a phone the same column is the drawer.
 ### Home is the Report
 
 Home renders the Needs-You Queue, then the Report, then the day's work record.
+A failed Run or a missed Call only tells the Person, so it leaves the queue
+when the Person opens the Run, calls back or dismisses it. The Run or the Call
+keeps the time of the dismissal, so the item stays out after a reload and on
+every client. A decision, a question and the Keypad Code delay have no
+dismissal: their own action settles them.
 The Report is a message the Chief of Staff writes into its direct Channel on a
 Schedule the seed creates, once a day in the Workspace timezone, and on demand
 from Home. Its prompt names the questions and their order. Between Reports,
