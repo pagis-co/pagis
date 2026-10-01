@@ -316,8 +316,8 @@ Artifacts 1, 3 and 4 come from one commit with one number, and are never
 published apart. The Computer image changes on its own schedule, so a release
 pins one version resolved to an immutable digest, and a published version of
 it is never pushed again. A release publishes these four, the three Runtime
-Locks, the signed Linux checksum list, and the Update feeds and the macOS ZIP
-of ADR-0027, and nothing else.
+Locks, the signed Linux checksum list, and the Update files of ADR-0027, and
+nothing else.
 `docs/RELEASING-SERVER.md` states the matrix.
 
 A `v*` tag that names the workspace version builds all four in one workflow
