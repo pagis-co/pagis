@@ -3,10 +3,16 @@ appId: com.pagis.desktop
 # also reads for `app.name`: the `userData` directory and the app menu.
 copyright: Pagis
 
-# The release uploads each package itself (`cargo xtask desktop`). With no
-# publish configuration, electron-builder publishes on a CI tag and writes
-# an update feed into the app; the app has no updater, so both are off.
-publish: null
+# electron-updater reads the Update feeds of the GitHub releases of this
+# repository (ADR-0027). With this configuration electron-builder puts
+# app-update.yml, which names the repository, in the app, and writes each
+# feed beside the packages. The release uploads every file itself
+# (`cargo xtask desktop`), and the pack scripts pass `--publish never`, so
+# electron-builder uploads nothing.
+publish:
+  provider: github
+  owner: pagis-co
+  repo: pagis
 
 directories:
   output: release
@@ -22,10 +28,18 @@ files:
 # itself is a separate release asset and never travels inside this app.
 mac:
   category: public.app-category.productivity
+  # The DMG installs the app. The ZIP of the same signed, notarized and
+  # stapled app is the Update that Squirrel.Mac installs (ADR-0027).
   target:
     - target: dmg
       arch:
         - arm64
+    - target: zip
+      arch:
+        - arm64
+  # The ZIP takes this name: the release uploads it by name, and
+  # electron-updater picks the arm64 file of the feed by its name.
+  artifactName: ${productName}-${version}-${arch}.${ext}
   extraResources:
     - from: ../dist/runtime-lock-darwin-arm64.json
       to: runtime-lock.json
@@ -48,6 +62,10 @@ dmg:
   # CI attaches the DMG to the release by name, so the name
   # is pinned here and not left to the default.
   artifactName: ${productName}-${version}-${arch}.${ext}
+  # The release staples the notarization ticket to the DMG after
+  # electron-builder, which changes its bytes. Squirrel.Mac installs the
+  # ZIP, so the feed names the ZIP alone, and the DMG has no blockmap.
+  writeUpdateInfo: false
 
 # Linux ships an AppImage and a deb for amd64 and arm64 (ADR-0025). The
 # release signs their checksum list; electron-builder signs nothing on Linux.

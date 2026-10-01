@@ -1,12 +1,13 @@
 import { type ChildProcess, spawn } from 'node:child_process'
+import { EventEmitter } from 'node:events'
 import * as fs from 'node:fs'
 import * as net from 'node:net'
 import * as os from 'node:os'
 import * as path from 'node:path'
 
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { DaemonSupervisor, DiagnosticLog, type DaemonState } from './daemon'
+import { DaemonSupervisor, DiagnosticLog, STOP_GRACE_MS, stopOwnedChild, type DaemonState } from './daemon'
 import { configPath, readAdministrationPort, readPort } from './dataDirectory'
 import { sleep, waitForHealth } from './health'
 import { PidFile } from './pidFile'
@@ -436,5 +437,58 @@ describe('the daemon supervisor', () => {
 
     expect(supervisor.pid).toBeNull()
     expect(PidFile.inside(home).read()).toBeNull()
+  })
+})
+
+/** A child that ends on the signal the test names, and records each
+ *  signal it gets. */
+class FakeChild extends EventEmitter {
+  exitCode: number | null = null
+  signalCode: NodeJS.Signals | null = null
+  signals: string[] = []
+
+  constructor(private readonly endsOn: string) {
+    super()
+  }
+
+  kill(signal: string): boolean {
+    this.signals.push(signal)
+    if (signal === this.endsOn) {
+      this.signalCode = signal as NodeJS.Signals
+      this.emit('close', null, signal)
+    }
+    return true
+  }
+}
+
+// The daemon stops each Computer with a 10-second `docker stop` on
+// SIGINT, so it gets 30 seconds, as the Compose file gives the Headless
+// Server, before the client kills it.
+describe('the stop of the daemon', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('gives the daemon 30 seconds after SIGINT before it kills it', async () => {
+    vi.useFakeTimers()
+    const child = new FakeChild('SIGKILL')
+
+    const stopped = stopOwnedChild(child as unknown as ChildProcess)
+    expect(child.signals).toEqual(['SIGINT'])
+    await vi.advanceTimersByTimeAsync(STOP_GRACE_MS - 1)
+    expect(child.signals).toEqual(['SIGINT'])
+    await vi.advanceTimersByTimeAsync(1)
+    await stopped
+
+    expect(STOP_GRACE_MS).toBe(30000)
+    expect(child.signals).toEqual(['SIGINT', 'SIGKILL'])
+  })
+
+  it('does not kill a daemon that stops on SIGINT', async () => {
+    const child = new FakeChild('SIGINT')
+
+    await stopOwnedChild(child as unknown as ChildProcess)
+
+    expect(child.signals).toEqual(['SIGINT'])
   })
 })

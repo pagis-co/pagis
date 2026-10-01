@@ -84,11 +84,21 @@ certificate, the `.p12` export and the API key, and sets the secrets with
 `gh secret set`. The release tools never export the key. Missing inputs stop a tag build. An Apple Development or Apple Distribution identity does not meet this
 gate.
 
+electron-builder signs, notarizes and staples the app, and packs it twice:
+in the DMG that a Person installs, and in a ZIP that electron-updater
+installs as an Update (ADR-0027). It also writes the blockmap of the ZIP and
+the feed `latest-mac.yml`, which names the ZIP with its SHA-512 and size.
+The pack passes `--publish never`, so electron-builder uploads nothing.
+
 `--prepare` signs the outer DMG, submits it for notarization, and staples the
 accepted ticket. It then mounts that exact DMG. The mounted app must contain
 the same lock as `dist/runtime-lock-darwin-arm64.json`, and it must pass the client signature,
-team, Gatekeeper, package inventory, compiled installer, and isolated setup
-smoke checks. It does not publish.
+team, stapled ticket, Gatekeeper, package inventory, compiled installer, and isolated setup
+smoke checks. It unpacks the exact ZIP with `ditto` and checks that app in
+the same way, but for the compiled installer and the smoke. The package
+inventory requires `app-update.yml`, which names the GitHub releases of
+`pagis-co/pagis`. Last, it checks that `latest-mac.yml` names the ZIP alone,
+with its true SHA-512 and size. It does not publish.
 
 ### Publish the prepared bytes
 
@@ -97,20 +107,23 @@ tree and of each image, because the release workflow publishes nothing
 after a finding. Do not publish a client until each found secret is revoked
 and replaced.
 
-Approve the **publish the macOS client** job. The job puts the prepared DMG
-in `desktop/release/`, the lock and the server package from the draft in
-`dist/`, and runs:
+Approve the **publish the macOS client** job. The job puts the prepared DMG,
+ZIP, blockmap and `latest-mac.yml` in `desktop/release/`, the lock and the
+server package from the draft in `dist/`, and runs:
 
 ```bash
 cargo xtask desktop --tag v0.1.0 --publish-existing
 ```
 
 The publish command does not rebuild, re-sign, re-notarize or check the DMG
-again, so it needs no signing input: the prepare job checked those exact
-bytes, and the workflow artifact carries them unchanged. It compares the
-local server package and Runtime Lock with the draft, pulls the immutable
-Computer image with no credentials, and uploads the client without
-`--clobber`. A changed server tuple stops publication.
+and the ZIP again, so it needs no signing input: the prepare job checked
+those exact bytes, and the workflow artifact carries them unchanged. It
+compares the local server package and Runtime Lock with the draft, pulls the
+immutable Computer image with no credentials, and uploads the DMG, the ZIP,
+the blockmap and `latest-mac.yml` without `--clobber`. A changed server
+tuple stops publication. electron-updater reads the feed of the latest
+published release, so a Client App finds the Update only after the last job
+publishes the draft.
 
 ## Linux
 

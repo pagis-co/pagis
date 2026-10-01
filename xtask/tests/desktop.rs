@@ -6,7 +6,7 @@ use std::process::Command;
 
 use xtask::desktop::{
     DesktopContext, DesktopPlatform, check_tag, check_version, desktop_plan, dmg_name,
-    missing_signing_inputs,
+    missing_signing_inputs, zip_name,
 };
 use xtask::{Action, Cmd, Step};
 
@@ -148,7 +148,11 @@ fn routine_packaging_checks_the_client_inventory_and_compiled_runtime_boundary()
     let steps = desktop_plan(Path::new("/repo"), &context(None, &[]));
     let inventory = joined(step(&steps, "inventory"));
     assert!(
-        inventory.contains("check-package.mjs"),
+        inventory.contains("check-package.mjs \"$app\" \"$dmg\" \"$zip\""),
+        "command: {inventory}"
+    );
+    assert!(
+        inventory.contains("check-update-feed.mjs release/latest-mac.yml \"$zip\""),
         "command: {inventory}"
     );
     let runtime = joined(step(&steps, "packaged-runtime"));
@@ -222,6 +226,44 @@ fn a_tag_verifies_the_existing_server_tuple_before_client_upload() {
     assert!(signed.contains("spctl --assess"), "command: {signed}");
 }
 
+/// Squirrel.Mac installs the app in the ZIP, so a release checks that app
+/// as it checks the app in the DMG, and checks that the feed names the
+/// exact ZIP.
+#[test]
+fn a_tag_checks_the_app_in_the_zip_and_the_update_feed() {
+    let steps = desktop_plan(Path::new("/repo"), &context(Some("v1.2.3"), &[]));
+    let signed = joined(step(&steps, "signed-client"));
+    let app_checks = signed
+        .split("check_app() {")
+        .nth(1)
+        .and_then(|rest| rest.split("\n}\n").next())
+        .unwrap_or_else(|| panic!("no check_app function: {signed}"));
+    for check in [
+        "cmp dist/runtime-lock-darwin-arm64.json",
+        "check-package.mjs",
+        "codesign --verify --deep --strict",
+        "Developer ID Application",
+        "TeamIdentifier",
+        "stapler validate \"$1\"",
+        "spctl --assess --type execute",
+    ] {
+        assert!(
+            app_checks.contains(check),
+            "check_app lacks {check}: {app_checks}"
+        );
+    }
+    for expected in [
+        "check_app \"$app\" \"$dmg\"",
+        "zip='desktop/release/Pagis-1.2.3-arm64.zip'",
+        "/usr/bin/ditto -x -k \"$zip\" \"$unzipped\"",
+        "check_app \"$unzipped/Pagis.app\" \"$zip\"",
+        "\"$zip.blockmap\"",
+        "node desktop/scripts/check-update-feed.mjs desktop/release/latest-mac.yml \"$zip\" 1.2.3",
+    ] {
+        assert!(signed.contains(expected), "no {expected}: {signed}");
+    }
+}
+
 #[test]
 fn a_prepared_package_stops_before_publication_and_publish_reuses_its_bytes() {
     let mut prepare = context(Some("v1.2.3"), &[]);
@@ -269,17 +311,48 @@ fn electron_builder_signs_the_outer_dmg() {
     assert!(dmg.lines().any(|line| line.trim() == "sign: true"));
 }
 
-/// The release, not electron-builder, uploads each client package. On a
-/// tag with `GH_TOKEN` set, electron-builder publishes on its own and
-/// writes an update feed for the app, and it fails when it finds no
-/// repository. `publish: null` turns off both.
+/// electron-builder puts app-update.yml in the app and writes the feed from
+/// the GitHub publish configuration. The release, not electron-builder,
+/// uploads each file: on a tag with `GH_TOKEN` set, electron-builder
+/// publishes on its own unless the pack says `--publish never`.
 #[test]
-fn electron_builder_publishes_nothing() {
+fn electron_builder_writes_the_github_feed_and_publishes_nothing() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
     let config = std::fs::read_to_string(root.join("desktop/electron-builder.yml")).unwrap();
     assert!(
-        config.lines().any(|line| line == "publish: null"),
+        config.contains("\npublish:\n  provider: github\n  owner: pagis-co\n  repo: pagis\n"),
         "{config}"
+    );
+    let manifest = std::fs::read_to_string(root.join("desktop/package.json")).unwrap();
+    let package: serde_json::Value = serde_json::from_str(&manifest).unwrap();
+    for script in ["pack", "pack:linux"] {
+        let command = package["scripts"][script].as_str().unwrap();
+        assert!(
+            command.contains("electron-builder") && command.ends_with("--publish never"),
+            "{script}: {command}"
+        );
+    }
+}
+
+/// Squirrel.Mac installs the ZIP. The release staples the DMG after
+/// electron-builder, which changes its bytes, so the feed names the ZIP
+/// alone.
+#[test]
+fn the_mac_app_ships_as_a_dmg_and_a_zip_and_the_feed_names_the_zip() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+    let config = std::fs::read_to_string(root.join("desktop/electron-builder.yml")).unwrap();
+    let mac = config.split("\nmac:\n").nth(1).expect("mac section");
+    let mac = mac.split("\n\n").next().unwrap();
+    assert!(mac.contains("    - target: dmg\n"), "{mac}");
+    assert!(mac.contains("    - target: zip\n"), "{mac}");
+    assert!(
+        mac.contains("\n  artifactName: ${productName}-${version}-${arch}.${ext}\n"),
+        "{mac}"
+    );
+    let dmg = config.split("\ndmg:\n").nth(1).expect("dmg section");
+    assert!(
+        dmg.lines()
+            .any(|line| line.trim() == "writeUpdateInfo: false")
     );
 }
 
@@ -305,11 +378,13 @@ fn generated_shell_steps_are_valid_shell() {
 }
 
 #[test]
-fn the_dmg_is_attached_to_the_release_of_the_tag() {
+fn the_dmg_the_zip_and_the_feed_are_attached_to_the_release_of_the_tag() {
     let steps = desktop_plan(Path::new("/repo"), &context(Some("v1.2.3"), &[]));
     assert_eq!(
         joined(step(&steps, "publish")),
-        "gh release upload v1.2.3 desktop/release/Pagis-1.2.3-arm64.dmg --repo pagis-co/pagis"
+        "gh release upload v1.2.3 desktop/release/Pagis-1.2.3-arm64.dmg \
+         desktop/release/Pagis-1.2.3-arm64.zip desktop/release/Pagis-1.2.3-arm64.zip.blockmap \
+         desktop/release/latest-mac.yml --repo pagis-co/pagis"
     );
     assert_eq!(
         commands(step(&steps, "publish"))[0].cwd.as_deref(),
@@ -382,8 +457,9 @@ fn missing_signing_inputs_names_the_unmet_alternatives() {
 // --- versions ---
 
 #[test]
-fn the_dmg_carries_the_release_version() {
+fn the_dmg_and_the_zip_carry_the_release_version() {
     assert_eq!(dmg_name("1.2.3"), "Pagis-1.2.3-arm64.dmg");
+    assert_eq!(zip_name("1.2.3"), "Pagis-1.2.3-arm64.zip");
 }
 
 #[test]

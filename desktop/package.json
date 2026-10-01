@@ -11,8 +11,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "start": "npm run build && electron .",
-    "pack": "npm run build && electron-builder --mac --arm64 --config electron-builder.yml",
-    "pack:linux": "npm run build && electron-builder --linux --x64 --arm64 --config electron-builder.yml"
+    "pack": "npm run build && electron-builder --mac --arm64 --config electron-builder.yml --publish never",
+    "pack:linux": "npm run build && electron-builder --linux --x64 --arm64 --config electron-builder.yml --publish never"
   },
   "devDependencies": {
     "@electron/asar": "^3.4.1",
@@ -22,11 +22,13 @@
     "@types/semver": "^7.8.0",
     "electron": "^44.1.1",
     "electron-builder": "^26.15.3",
+    "js-yaml": "^4.3.2",
     "jsdom": "^30.1.1",
     "typescript": "^5.9.3",
     "vitest": "^4.1.11"
   },
   "dependencies": {
+    "electron-updater": "^6.8.10",
     "semver": "^7.8.5"
   },
   "homepage": "https://github.com/pagis-co/pagis",

@@ -1,0 +1,66 @@
+---
+title: Updates
+description: How the Client App finds, downloads and installs an Update, and then upgrades the installation on this computer.
+icon: Download
+---
+
+An Update is a newer release of the Client App. On macOS the Client App
+finds, downloads and installs each Update itself
+([ADR-0027](https://github.com/pagis-co/pagis/blob/main/docs/adr/0027-the-client-app-installs-updates-and-upgrades-its-installation.md)).
+
+## Check and download
+
+- **When it checks.** The Client App reads the releases of Pagis on GitHub
+  when it starts, and every 24 hours while it runs. It does not take a
+  prerelease.
+- **Check for Updates…** in the tray menu and in the Pagis menu checks
+  immediately. A message box shows the result: Pagis is up to date, an
+  Update downloads, or the reason why the check failed.
+- **The download.** When the Client App finds an Update, it downloads it
+  and asks no question. The menus show the progress, for example
+  "Downloading Pagis 0.2.0… 40%".
+- **The checks.** The download must have the SHA-512 and the size that the
+  feed of the release gives. Then macOS checks that the new app has the
+  signature of the Pagis team. After these checks, the menus show "Restart
+  to Update", and the Client App sends one notification.
+
+Only a Client App that installed Pagis on this computer, or that has no
+setup yet, checks for Updates. A Client App that is connected to a server
+does not check.
+
+## Install the Update
+
+- **Restart to Update** stops the server on this computer, installs the
+  Update and starts the new Client App. A restart stops each Run that has
+  not finished. When Runs are in progress, the Client App tells you how
+  many, and asks before it continues.
+- **Quit Pagis** also installs a downloaded Update. The next start opens
+  the new Client App.
+
+## The Upgrade at the next start
+
+The new Client App upgrades the installation on this computer when it
+starts, and asks no setup question. The window shows each step:
+
+1. The `pagis` command of the old release makes a Backup at
+   `~/.pagis/backups/<old release>`.
+2. The Client App installs the server of its own release and starts it.
+   The server migrates the data.
+3. The Client App removes the Backup of the Upgrade before it, and the
+   files of the other releases.
+
+When the Backup fails, the Upgrade stops before the data changes, and the
+window offers Retry and "Continue without a Backup". After the new server
+starts, the old release does not start again.
+[Back up and restore](/client-app/backup#the-backup-of-an-upgrade) tells how
+to restore the Backup.
+
+## On Linux
+
+The Client App on Linux does not install Updates. When a newer release is
+out, the tray menu shows a line such as "Pagis 0.2.0 is out", which opens
+the page of that release. Download the new package from that page and
+install it.
+
+Pagis has no setting that turns off the check or the download, and no beta
+or other release channel.

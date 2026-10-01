@@ -20,7 +20,8 @@ use crate::{Action, Cmd, Step};
 /// The platform a Client App is packed for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DesktopPlatform {
-    /// macOS arm64: a signed, notarized DMG.
+    /// macOS arm64: a signed, notarized DMG, and a ZIP of the same app
+    /// with the Update feed that names it.
     Mac,
     /// Linux amd64 and arm64: an AppImage and a deb for each.
     Linux,
@@ -56,6 +57,15 @@ impl DesktopContext {
 pub fn dmg_name(version: &str) -> String {
     format!("Pagis-{version}-arm64.dmg")
 }
+
+/// The ZIP of the same app, which Squirrel.Mac installs as an Update
+/// (ADR-0027). electron-builder writes its blockmap beside it.
+pub fn zip_name(version: &str) -> String {
+    format!("Pagis-{version}-arm64.zip")
+}
+
+/// The Update feed that electron-updater reads on macOS. It names the ZIP.
+const MAC_FEED: &str = "latest-mac.yml";
 
 /// The missing alternatives for signing and notarization. A local keychain
 /// identity avoids exporting a private key. CI can still use an imported P12.
@@ -204,7 +214,7 @@ fn mac_plan(root: &Path, cx: &DesktopContext) -> Vec<Step> {
 
 fn loose_app_action(cx: &DesktopContext, command: Cmd) -> Action {
     if cx.tag.is_some() {
-        Action::Skip("the release checks the mounted app from the exact DMG".into())
+        Action::Skip("the release checks the app from the exact DMG and the exact ZIP".into())
     } else {
         Action::Run(vec![command])
     }
@@ -232,8 +242,52 @@ fn signed_client_action(root: &Path, cx: &DesktopContext) -> Action {
         return Action::Skip("the exact DMG was checked when it was prepared".into());
     }
     let dmg = format!("desktop/release/{}", dmg_name(&cx.version));
+    let zip = format!("desktop/release/{}", zip_name(&cx.version));
+    let version = &cx.version;
+    // `check_app` holds the checks of each copy of the app that the release
+    // publishes: the app in the DMG, which a Person installs, and the app
+    // in the ZIP, which Squirrel.Mac installs as an Update.
     let script = format!(
-        "set -eu\ndmg='{dmg}'\nmount=$(mktemp -d)\ncopy=$(mktemp -d)\nmounted=0\ncleanup() {{\n  if [ \"$mounted\" -eq 1 ]; then /usr/bin/hdiutil detach \"$mount\" >/dev/null || true; fi\n  rm -rf \"$mount\" \"$copy\"\n}}\ntrap cleanup EXIT HUP INT TERM\n/usr/bin/hdiutil attach -readonly -nobrowse -mountpoint \"$mount\" \"$dmg\" >/dev/null\nmounted=1\napp=\"$mount/Pagis.app\"\n[ -d \"$app\" ] || {{ echo 'the exact DMG has no Pagis.app' >&2; exit 1; }}\ncmp dist/runtime-lock-darwin-arm64.json \"$app/Contents/Resources/runtime-lock.json\"\nnode desktop/scripts/check-package.mjs \"$app\" \"$dmg\"\nnode desktop/scripts/check-packaged-runtime.mjs \"$app\"\n/usr/bin/codesign --verify --deep --strict --verbose=2 \"$app\"\n/usr/bin/codesign -dv --verbose=4 \"$app\" 2>&1 | grep '^Authority=Developer ID Application:' >/dev/null\nteam=$(/usr/bin/codesign -dv --verbose=4 \"$app\" 2>&1 | sed -n 's/^TeamIdentifier=//p')\nlocked_team=$(node -e \"process.stdout.write(require('./dist/runtime-lock-darwin-arm64.json').asset.team_id)\")\n[ \"$team\" = \"$locked_team\" ] || {{ echo 'the client and server signing teams differ' >&2; exit 1; }}\n/usr/bin/codesign --verify --strict --verbose=2 \"$dmg\"\n/usr/bin/xcrun stapler validate \"$dmg\"\n/usr/sbin/spctl --assess --type execute --verbose=2 \"$app\"\n/usr/sbin/spctl --assess --type open --context context:primary-signature --verbose=2 \"$dmg\"\n/usr/bin/ditto \"$app\" \"$copy/Pagis.app\"\n(cd \"$copy\" && ./Pagis.app/Contents/MacOS/Pagis --smoke)\n"
+        r#"set -eu
+dmg='{dmg}'
+zip='{zip}'
+mount=$(mktemp -d)
+copy=$(mktemp -d)
+unzipped=$(mktemp -d)
+mounted=0
+cleanup() {{
+  if [ "$mounted" -eq 1 ]; then /usr/bin/hdiutil detach "$mount" >/dev/null || true; fi
+  rm -rf "$mount" "$copy" "$unzipped"
+}}
+trap cleanup EXIT HUP INT TERM
+locked_team=$(node -e "process.stdout.write(require('./dist/runtime-lock-darwin-arm64.json').asset.team_id)")
+check_app() {{
+  cmp dist/runtime-lock-darwin-arm64.json "$1/Contents/Resources/runtime-lock.json"
+  node desktop/scripts/check-package.mjs "$1" "$2"
+  /usr/bin/codesign --verify --deep --strict --verbose=2 "$1"
+  /usr/bin/codesign -dv --verbose=4 "$1" 2>&1 | grep '^Authority=Developer ID Application:' >/dev/null
+  team=$(/usr/bin/codesign -dv --verbose=4 "$1" 2>&1 | sed -n 's/^TeamIdentifier=//p')
+  [ "$team" = "$locked_team" ] || {{ echo 'the client and server signing teams differ' >&2; exit 1; }}
+  /usr/bin/xcrun stapler validate "$1"
+  /usr/sbin/spctl --assess --type execute --verbose=2 "$1"
+}}
+/usr/bin/hdiutil attach -readonly -nobrowse -mountpoint "$mount" "$dmg" >/dev/null
+mounted=1
+app="$mount/Pagis.app"
+[ -d "$app" ] || {{ echo 'the exact DMG has no Pagis.app' >&2; exit 1; }}
+check_app "$app" "$dmg"
+node desktop/scripts/check-packaged-runtime.mjs "$app"
+/usr/bin/codesign --verify --strict --verbose=2 "$dmg"
+/usr/bin/xcrun stapler validate "$dmg"
+/usr/sbin/spctl --assess --type open --context context:primary-signature --verbose=2 "$dmg"
+/usr/bin/ditto "$app" "$copy/Pagis.app"
+(cd "$copy" && ./Pagis.app/Contents/MacOS/Pagis --smoke)
+/usr/bin/ditto -x -k "$zip" "$unzipped"
+[ -d "$unzipped/Pagis.app" ] || {{ echo 'the exact ZIP has no Pagis.app' >&2; exit 1; }}
+check_app "$unzipped/Pagis.app" "$zip"
+[ -f "$zip.blockmap" ] || {{ echo 'the ZIP has no blockmap' >&2; exit 1; }}
+node desktop/scripts/check-update-feed.mjs desktop/release/{MAC_FEED} "$zip" {version}
+"#
     );
     Action::Run(vec![Cmd::new("sh", &["-c", &script]).in_dir(root)])
 }
@@ -261,8 +315,11 @@ const PACKAGE_INVENTORY_SCRIPT: &str = concat!(
     "set -eu\n",
     "app=\"$(find release -maxdepth 2 -type d -name Pagis.app -print -quit)\"\n",
     "[ -n \"$app\" ] || { echo 'the packaged Pagis.app is missing' >&2; exit 1; }\n",
-    "dmg=\"release/$(node -p \"'Pagis-' + require('./package.json').version + '-arm64.dmg'\")\"\n",
-    "node scripts/check-package.mjs \"$app\" \"$dmg\"\n",
+    "version=\"$(node -p \"require('./package.json').version\")\"\n",
+    "dmg=\"release/Pagis-$version-arm64.dmg\"\n",
+    "zip=\"release/Pagis-$version-arm64.zip\"\n",
+    "node scripts/check-package.mjs \"$app\" \"$dmg\" \"$zip\"\n",
+    "node scripts/check-update-feed.mjs release/latest-mac.yml \"$zip\" \"$version\"\n",
 );
 
 const PACKAGED_RUNTIME_SCRIPT: &str = concat!(
@@ -283,9 +340,11 @@ const SMOKE_SCRIPT: &str = concat!(
     "./Pagis.app/Contents/MacOS/Pagis --smoke\n",
 );
 
-/// Attach the DMG to the draft release of the tag, beside the server
-/// packages it holds. An unsigned DMG is never published: macOS would
-/// refuse to open it.
+/// Attach the DMG, the ZIP with its blockmap, and the feed that names the
+/// ZIP to the draft release of the tag, beside the server packages it
+/// holds. `gh release upload` without `--clobber` refuses a file that the
+/// draft holds. An unsigned DMG is never published: macOS would refuse to
+/// open it.
 fn publish_action(root: &Path, cx: &DesktopContext) -> Action {
     let Some(tag) = &cx.tag else {
         return Action::Skip("no release tag: the app is packed and smoke tested only".into());
@@ -303,8 +362,17 @@ fn publish_action(root: &Path, cx: &DesktopContext) -> Action {
         );
     }
     let dmg = format!("desktop/release/{}", dmg_name(&cx.version));
+    let zip = format!("desktop/release/{}", zip_name(&cx.version));
+    let blockmap = format!("{zip}.blockmap");
+    let feed = format!("desktop/release/{MAC_FEED}");
     Action::Run(vec![
-        Cmd::new("gh", &["release", "upload", tag, &dmg, "--repo", REPO]).in_dir(root),
+        Cmd::new(
+            "gh",
+            &[
+                "release", "upload", tag, &dmg, &zip, &blockmap, &feed, "--repo", REPO,
+            ],
+        )
+        .in_dir(root),
     ])
 }
 
