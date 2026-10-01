@@ -289,9 +289,9 @@ lifetime and supervises no process.
 
 ### Updates never roll data backwards
 
-The Client App has no updater. It reads the latest release and shows a line
-with a link when one is newer. A newer Client App installs its own tuple beside
-the active release. A failure before launch leaves the old release usable;
+The Client App installs Updates, and a newer Client App upgrades its Local
+Installation at start (ADR-0027). It installs its own tuple beside the active
+release. A failure before launch leaves the old release usable;
 once the marker names the new release, every restart stays on it, because
 opening the installation may have changed its data, and the client offers
 retry, repair or a newer client.
@@ -316,7 +316,8 @@ Artifacts 1, 3 and 4 come from one commit with one number, and are never
 published apart. The Computer image changes on its own schedule, so a release
 pins one version resolved to an immutable digest, and a published version of
 it is never pushed again. A release publishes these four, the three Runtime
-Locks and the signed Linux checksum list, and nothing else.
+Locks, the signed Linux checksum list, and the Update feeds and the macOS ZIP
+of ADR-0027, and nothing else.
 `docs/RELEASING-SERVER.md` states the matrix.
 
 A `v*` tag that names the workspace version builds all four in one workflow
