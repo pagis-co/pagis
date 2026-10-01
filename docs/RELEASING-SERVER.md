@@ -120,7 +120,10 @@ repository as its context:
    licenses and notices, and every program the daemon starts. It starts the
    daemon without `--local` and sets `PAGIS_REQUIRE_PUBLIC_ORIGIN`, so the
    daemon refuses to start with `--local` or without a Public Origin whose
-   host is not loopback.
+   host is not loopback. It upgrades the Debian packages of its base
+   image before it installs its own, so each build holds the Debian
+   security fixes that are out, also before Docker publishes a base image
+   that holds them.
 
 **Every program the daemon starts is in the image**, so a Computer, a
 memory repack or a git Plugin does not fail on a VM that carries nothing
@@ -240,7 +243,9 @@ each one by hand with the security advisories of its upstream project.
 
 **When a check fails**, find the update that removes the advisory first:
 
-1. Update the dependency or the component, and run the check again.
+1. Update the dependency or the component, and run the check again. A
+   Debian package of the Headless Server image takes its fix at the next
+   build, because the image upgrades its packages.
 2. When no update removes the advisory, find out how an installation can
    reach it. Record the exception with that reason and the update that you
    checked: an `ignore` entry with a `reason` in `deny.toml`, or the

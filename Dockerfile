@@ -96,7 +96,12 @@ FROM debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee
 #   private key, and removes the repository entry whose key went with
 #   them.
 # curl: the container health check, and nothing the daemon starts.
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# The upgrade takes each Debian security fix that is out at build time,
+# also before Docker publishes a base image that holds it, so the
+# vulnerability scan of a release does not stop on a fixed package of the
+# base.
+RUN apt-get update && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends \
     ca-certificates git curl postgresql-common \
     && /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y \
     && apt-get install -y --no-install-recommends postgresql-client-18 \
