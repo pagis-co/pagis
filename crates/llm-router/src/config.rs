@@ -239,14 +239,18 @@ impl ProviderConfig {
     }
 
     /// OpenRouter over its Responses API. This protocol also gives
-    /// compatible routed models access to provider-defined tools.
+    /// compatible routed models access to provider-defined tools. The
+    /// model list of the key names the speech and transcription models
+    /// too, with the voices of each speech model; without the filter it
+    /// names text models alone.
     pub fn openrouter(api_key: impl Into<String>) -> Self {
         let mut config = Self::new(
             ProtocolKind::OpenAiResponses,
             "https://openrouter.ai/api/v1",
             api_key,
         );
-        config.compat.model_list_path = "/models/user".to_owned();
+        config.compat.model_list_path =
+            "/models/user?output_modalities=text,speech,transcription".to_owned();
         config
     }
 

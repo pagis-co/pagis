@@ -391,6 +391,15 @@ pub async fn app(booted: &Booted, options: AppOptions) -> anyhow::Result<Interfa
     // Docker host that does not answer gives a warning, and the boot
     // continues.
     computers.adopt_all(&tenants).await;
+    // The Computer Image of the release (ADR-0027). When the pinned
+    // image is absent, its one pull for the installation starts now, and
+    // each wake joins it. Then the old images that no container uses go.
+    // The boot does not wait for it. The adoption comes first, so a
+    // Computer of an old image is stopped and its image is free.
+    tokio::spawn({
+        let computers = Arc::clone(&computers);
+        async move { computers.prepare_image().await }
+    });
     // The retention sweep, daily. It deletes nothing until the
     // user sets a window for a class.
     let retention_policies = stores.retention_policies.clone();
@@ -1244,6 +1253,11 @@ pub async fn app(booted: &Booted, options: AppOptions) -> anyhow::Result<Interfa
     // proxy on this machine forwards.
     let this_machine_only = pagis_server::serves_this_machine_only(&state);
     pagis_server::forget::resume(&state).await?;
+    // A key of the environment or of `config.toml` comes with no key
+    // route, so the voice and call aliases take the providers it serves.
+    pagis_server::model_lists::route_unrouted_plumbing(&state)
+        .await
+        .map_err(|error| anyhow::anyhow!("routing the voice aliases failed: {}", error.message))?;
     let routers = pagis_server::routers(state);
     let mut interfaces = Interfaces {
         product: routers.product.fallback(crate::spa::serve),

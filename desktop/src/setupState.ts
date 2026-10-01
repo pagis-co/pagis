@@ -1,8 +1,15 @@
 import type { DaemonState } from './daemon'
 
 /** A step of the setup of the local server, in the order that the setup
- *  page lists them. */
-export type SetupStep = 'download' | 'check' | 'install' | 'start'
+ *  page lists them. Only an Upgrade has the Backup step. */
+export type SetupStep = 'backup' | 'download' | 'check' | 'install' | 'start'
+
+/** The Upgrade that a local setup does (ADR-0027): the release that it
+ *  upgrades the installation to, and whether it took a Backup first. */
+export interface Upgrade {
+  release: string
+  backup: boolean
+}
 
 /** The share of the Server Package that the client has received, from 0
  *  to 1, and the words under the bar: the megabytes and the time left. */
@@ -18,8 +25,13 @@ export type SetupState =
    *  on another port. */
   | { kind: 'installing'; detail: string }
   /** The setup of the local server, at one of its steps. `download` is
-   *  set only while the client downloads the Server Package. */
-  | { kind: 'setting-up'; step: SetupStep; download: DownloadProgress | null }
+   *  set only while the client downloads the Server Package, and
+   *  `upgrade` only while the setup upgrades an installation. */
+  | { kind: 'setting-up'; step: SetupStep; download: DownloadProgress | null; upgrade: Upgrade | null }
+  /** The Backup of an Upgrade did not complete, so the Upgrade stopped
+   *  before the data changed. The page offers to try the Backup again,
+   *  or to continue the Upgrade to `release` without a Backup. */
+  | { kind: 'backup-failed'; release: string; reason: string }
   /** `repair` is true where this computer holds an installation that a
    *  repair can check and start again. A repair asks no setup question.
    *  `log` is what a stopped server printed, or empty. */

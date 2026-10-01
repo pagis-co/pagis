@@ -55,6 +55,17 @@ describe('setup page bridge', () => {
     expect(setupRequest(invoke.mock.calls[0]?.[1])).toEqual({ kind: 'server', url: 'pagis.example.com' })
   })
 
+  /** After a failed Backup, the Person tries the Upgrade again with a
+   *  Backup, or continues it without one. */
+  it('upgrades again with a Backup or without one', async () => {
+    const api = await setupApi()
+
+    await api.upgrade(true)
+    await api.upgrade(false)
+
+    expect(invoke.mock.calls).toEqual([['pagis:upgrade', true], ['pagis:upgrade', false]])
+  })
+
   it('tries the connected server again', async () => {
     const api = await setupApi()
 

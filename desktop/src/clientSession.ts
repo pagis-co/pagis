@@ -116,6 +116,28 @@ export async function reusableSession(
 }
 
 /**
+ * A Session for a request of the client to its own installation, on the
+ * product port or on the Administration Port: the Session that the jar
+ * holds, else a Session that the client trades for the Client Credential
+ * and keeps in the jar. A cookie is host-only, so the one Session serves
+ * both ports.
+ */
+export async function installationSession(
+  productUrl: string,
+  credential: string | null,
+  jar: CookieJar & CookieReader,
+  request: typeof fetch = fetch,
+  signal?: AbortSignal,
+): Promise<HeldSession> {
+  const reused = await reusableSession(productUrl, jar, request, signal)
+  if (reused !== null) return reused
+  if (credential === null) throw new Error('the Pagis server has no client credential')
+  const traded = await exchangeClientCredential(productUrl, credential, signal, request)
+  await holdSession(productUrl, traded, jar)
+  return traded
+}
+
+/**
  * Show the product to the person, already signed in. The page reads the
  * cookie from the jar of its Electron session, so the Session must be in
  * that jar before the window loads the URL.

@@ -7,7 +7,7 @@
  * and the Computer image are one exact tuple and nothing else runs. That
  * rule cannot hold here, because the administrator owns the server's
  * version and updates it when they choose. A connect-only client
- * downloads nothing, so it needs a different rule for a different
+ * downloads no server, so it needs a different rule for a different
  * problem: a compatibility range over the version the server reports.
  *
  * The range is SemVer's own: the client accepts its own release and

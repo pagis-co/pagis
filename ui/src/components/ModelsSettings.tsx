@@ -5,7 +5,8 @@
 import { useState } from 'react'
 
 import type { ApiClient, ModelAliasDto } from '../api/client'
-import { Button, Combobox, Dialog, Frame, Input, Row, SectionLabel, Textarea } from '../primitives'
+import { Badge, Button, Combobox, Dialog, Frame, Input, Row, SectionLabel, Textarea } from '../primitives'
+import { providersOr } from '../providers'
 import {
   errorMessage,
   useCreateModelAlias,
@@ -26,6 +27,12 @@ const ALIAS_NOTES: Record<string, string> = {
   phone: 'telephone conversations',
   'phone-classifier': 'outbound answer detection',
   reflect: 'memory reflection Runs',
+}
+
+/** The providers an alias's candidates name, any one of which would
+ *  make it reachable. */
+function neededProviders(candidates: string[]): string {
+  return providersOr(candidates.map((candidate) => candidate.split('/')[0]))
 }
 
 function candidatesOf(value: string): string[] {
@@ -58,7 +65,7 @@ function AliasDialog({
   const update = useUpdateModelAlias(api)
   const remove = useDeleteModelAlias(api)
   const lists = useModelLists(api)
-  const listed = (lists.data ?? []).flatMap((entry) => entry.models.map((model) => model.candidate))
+  const listed = (lists.data?.providers ?? []).flatMap((entry) => entry.models.map((model) => model.candidate))
   const candidates = candidatesOf(draft)
   const activeSettings = (alias?.settings ?? []).filter((setting) =>
     setting.when_candidates.some((candidate) => candidates.includes(candidate)),
@@ -216,6 +223,9 @@ export function ModelsSettings({ api }: { api: ApiClient }) {
             </ul>
             {alias.alias in ALIAS_NOTES && (
               <span className="models-note">{ALIAS_NOTES[alias.alias]}</span>
+            )}
+            {alias.reachable ? null : (
+              <Badge tone="waiting">Needs a key for {neededProviders(alias.candidates)}</Badge>
             )}
             <span className="models-spacer" />
             <Button aria-label={`Edit ${alias.alias}`} onClick={() => setAliasDialog(alias)}>

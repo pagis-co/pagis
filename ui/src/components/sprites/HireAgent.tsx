@@ -16,7 +16,6 @@ import {
   Button,
   Dialog,
   Input,
-  Select,
   Textarea,
 } from "../../primitives";
 import {
@@ -25,10 +24,10 @@ import {
   useCreateAgent,
   useCreateConnectionGrant,
   useMailboxOffers,
-  useVoices,
   type NewMailboxBody,
 } from "../../queries";
 import { CapabilityPicker } from "../ConnectionCapabilities";
+import { VoicePicker } from "./VoicePicker";
 import {
   MailboxFields,
   NoMailboxProvider,
@@ -48,10 +47,6 @@ import {
 import "../agent.css";
 import "../settings.css";
 import "./sprites.css";
-
-/** A Radix Select item cannot carry an empty value, and the draft
- *  writes `null` for "leave the voice to the provider". */
-const PROVIDER_DEFAULT_VOICE = "provider-default";
 
 const STEPS = ["face", "job", "voice", "access"] as const;
 type Step = (typeof STEPS)[number];
@@ -129,7 +124,6 @@ export function HireAgent({
   const [failure, setFailure] = useState<unknown>(null);
   const [hiring, setHiring] = useState(false);
 
-  const voices = useVoices(api);
   const connections = useConnections(api);
   const createAgent = useCreateAgent(api);
   const createGrant = useCreateConnectionGrant(api);
@@ -326,22 +320,10 @@ export function HireAgent({
               value={draft.personality}
               onChange={(event) => patch({ personality: event.target.value })}
             />
-            <Select
-              label="Sprite voice"
-              value={draft.voice === "" ? PROVIDER_DEFAULT_VOICE : draft.voice}
-              onValueChange={(next) =>
-                patch({ voice: next === PROVIDER_DEFAULT_VOICE ? "" : next })
-              }
-              items={[
-                {
-                  value: PROVIDER_DEFAULT_VOICE,
-                  label: "Provider default voice",
-                },
-                ...(voices.data ?? []).map((name) => ({
-                  value: name,
-                  label: name,
-                })),
-              ]}
+            <VoicePicker
+              api={api}
+              value={draft.voice}
+              onChange={(voice) => patch({ voice })}
             />
           </>
         )}

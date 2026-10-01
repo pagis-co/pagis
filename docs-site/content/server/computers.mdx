@@ -5,10 +5,15 @@ icon: Monitor
 ---
 
 An Agent's Computer is a container the daemon starts on this machine's
-Docker host, from the Computer image of the release. The daemon pulls the
-image the first time an Agent wakes, so the VM needs a route to the
-registry. It compares the image's version label with its own pin and boots
-nothing on a mismatch.
+Docker host, from the Computer Image of the release. When the daemon starts,
+and when an Agent wakes, the daemon pulls the image if it is absent, so the
+VM needs a route to the registry. All the Agents of the server share one
+pull. The daemon compares the image's version label with its own pin and
+boots nothing on a mismatch. When the pinned image is present, the daemon
+removes each other Computer Image that no container uses and whose version
+is not newer than the pin. A newer image stays: before a Client App
+installs an Update, it has the daemon pull the Computer Image of the next
+release.
 
 Each Computer gets a container, a volume and the Tenant Network of its
 Workspace, and the daemon reaches it on the VM's loopback. A Computer that
@@ -141,7 +146,8 @@ Docker:
 
 `docker info` then shows `Storage Driver: overlay2` and
 `Backing Filesystem: xfs`. Docker does not show the images of the other
-store, so the daemon pulls the Computer image again at the next wake.
+store, so the daemon pulls the Computer Image again when it starts or at
+the next wake.
 
 On every other host, the daemon makes the volume or the container without
 the size, logs one warning, and the Computer wakes. **Nothing then bounds

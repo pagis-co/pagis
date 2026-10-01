@@ -14,7 +14,7 @@ use llm_router::{
     Candidate, ProviderConfig, RealtimeConnection, RealtimeMessage, RealtimeProtocol, Router,
     RouterConfig,
 };
-use pagis_core::{ModelAliasStore, Provider, ProviderKeys, WorkspaceId};
+use pagis_core::{ModelAliasStore, Provider, ProviderKeys, ProviderUse, WorkspaceId};
 use serde_json::{Value, json};
 use tokio::time::Instant;
 
@@ -97,9 +97,16 @@ impl KeyedModelSessions {
             else {
                 continue;
             };
+            if !provider.serves(ProviderUse::Calls) {
+                continue;
+            }
             let mut provider_config = match provider {
                 Provider::OpenAi => ProviderConfig::openai(key),
-                Provider::Anthropic | Provider::OpenRouter => continue,
+                // `Provider::uses` gives them no call use.
+                Provider::Anthropic
+                | Provider::OpenRouter
+                | Provider::Deepgram
+                | Provider::ElevenLabs => continue,
             };
             if let Some(base_url) = self.base_urls.get(&provider) {
                 provider_config.base_url = base_url.clone();
@@ -505,6 +512,10 @@ impl RouterSession {
             let parsed = match self.connection.protocol {
                 RealtimeProtocol::OpenAiRealtime => ServerEvent::parse_realtime(&event),
                 RealtimeProtocol::OpenAiLive => ServerEvent::parse_live(&event),
+                // A call opens no transcription-only socket.
+                RealtimeProtocol::DeepgramListen | RealtimeProtocol::ElevenLabsScribe => {
+                    ServerEvent::Other
+                }
             };
             if self.connection.protocol == RealtimeProtocol::OpenAiLive {
                 if let Some(event) = self.accept_transcript(parsed)

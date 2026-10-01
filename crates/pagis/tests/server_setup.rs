@@ -178,7 +178,7 @@ async fn the_first_run_flow_makes_one_administrator_and_then_answers_nothing() {
         .unwrap();
     assert_eq!(
         state["providers"].as_array().expect("providers").len(),
-        3,
+        pagis_core::PROVIDERS.len(),
         "{state}"
     );
     // The product port's sign-in page names where the first

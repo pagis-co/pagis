@@ -1,5 +1,5 @@
 import type { InstallProgress } from './runtimeInstaller'
-import type { SetupState, SetupStep } from './setupState'
+import type { SetupState, SetupStep, Upgrade } from './setupState'
 
 /** The span of the speed that gives the time left. A shorter span makes
  *  the estimate jump with each change of speed. */
@@ -21,7 +21,8 @@ const STEP_OF_PHASE: Record<InstallProgress['phase'], SetupStep> = {
  * Turn the phases of the Runtime installer and the start of the server
  * into the steps that the setup page shows. A download also gets its
  * share and its time left, from the speed of its last five seconds, as
- * the download windows of browsers and of the Finder do.
+ * the download windows of browsers and of the Finder do. Each step of an
+ * Upgrade names the Upgrade.
  */
 export class SetupProgress {
   private samples: { at: number; received: number }[] = []
@@ -30,13 +31,20 @@ export class SetupProgress {
 
   constructor(
     private readonly show: (state: SetupState) => void,
+    private readonly upgrade: Upgrade | null = null,
     private readonly now: () => number = Date.now,
   ) {}
+
+  /** The setup begins: an Upgrade with its Backup, else with the
+   *  download. The page then shows the steps before the first report. */
+  begin(): void {
+    this.step(this.upgrade?.backup ? 'backup' : 'download')
+  }
 
   report(progress: InstallProgress): void {
     if (progress.phase !== 'downloading') {
       this.samples = []
-      this.show({ kind: 'setting-up', step: STEP_OF_PHASE[progress.phase], download: null })
+      this.step(STEP_OF_PHASE[progress.phase])
       return
     }
     const at = this.now()
@@ -53,12 +61,17 @@ export class SetupProgress {
         fraction: progress.total === 0 ? 1 : progress.received / progress.total,
         detail: downloadDetail(progress.received, progress.total, this.secondsLeft(at, progress)),
       },
+      upgrade: this.upgrade,
     })
   }
 
   /** The server is installed, and the client starts it. */
   starting(): void {
-    this.show({ kind: 'setting-up', step: 'start', download: null })
+    this.step('start')
+  }
+
+  private step(step: SetupStep): void {
+    this.show({ kind: 'setting-up', step, download: null, upgrade: this.upgrade })
   }
 
   private secondsLeft(at: number, progress: { received: number; total: number }): number | null {

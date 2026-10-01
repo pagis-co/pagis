@@ -7,18 +7,16 @@
 import { useState } from "react";
 
 import type { ApiClient } from "../../api/client";
-import { Button, Input, Select } from "../../primitives";
-import { errorMessage, useVoices } from "../../queries";
+import { Button, Input } from "../../primitives";
+import { errorMessage } from "../../queries";
+import { VoicePicker } from "./VoicePicker";
 
 import "../agent.css";
 import "../settings.css";
 
-/** What "leave the voice to the provider" is worth inside the Select: a
- *  Radix item cannot carry an empty value, and the form writes `null`. */
-const PROVIDER_DEFAULT_VOICE = "provider-default";
-
 /** The profile fields the form writes. `voice` is the Agent Voice
- *  (ADR-0020); `null` leaves it to the provider. */
+ *  (ADR-0020); `null` leaves it to the default voice of the model that
+ *  speaks. */
 export interface AgentFields {
   name: string;
   job: string;
@@ -50,7 +48,6 @@ export function AgentForm({
   const [description, setDescription] = useState(initial.description);
   const [personality, setPersonality] = useState(initial.personality);
   const [voice, setVoice] = useState(initial.voice ?? "");
-  const voices = useVoices(api);
 
   return (
     <form
@@ -90,17 +87,7 @@ export function AgentForm({
         value={personality}
         onChange={(e) => setPersonality(e.target.value)}
       />
-      <Select
-        label="Sprite voice"
-        value={voice === "" ? PROVIDER_DEFAULT_VOICE : voice}
-        onValueChange={(next) =>
-          setVoice(next === PROVIDER_DEFAULT_VOICE ? "" : next)
-        }
-        items={[
-          { value: PROVIDER_DEFAULT_VOICE, label: "Provider default voice" },
-          ...(voices.data ?? []).map((name) => ({ value: name, label: name })),
-        ]}
-      />
+      <VoicePicker api={api} value={voice} onChange={setVoice} />
       {failure != null && (
         <p className="settings-error" role="alert">
           {errorMessage(failure, "That sprite could not be saved.")}

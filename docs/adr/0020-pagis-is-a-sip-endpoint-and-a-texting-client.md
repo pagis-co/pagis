@@ -222,7 +222,14 @@ browser opens a dictate socket for the Channel and sends PCM; the daemon relays
 it to a transcription-only provider session with manual commit and returns
 deltas and a final transcript. Audio stays off the domain-event socket, and the
 provider credential stays in the daemon. Where live transcription is absent,
-the daemon transcribes the held clip on release.
+the daemon transcribes the held clip on release. OpenRouter is such a
+provider: it transcribes a clip on `/audio/transcriptions` and has no
+realtime socket. Deepgram streams on its own `/listen` socket: the daemon
+sends the PCM frames as they come, each final result adds to the draft, and
+the release sends `CloseStream`, after which Deepgram sends its last results
+and closes. ElevenLabs streams on Scribe's realtime socket with a manual
+commit: the daemon sends each PCM frame as a base64 chunk, the release
+sends a commit, and the committed transcript is the final draft.
 
 The transcript is a draft in the composer, never a sent message, because
 speech-to-text mishears names and numbers and the message goes to an Agent
@@ -235,12 +242,22 @@ and the browser plays them in order. No spoken audio is stored: a clip is
 discarded after transcription and speech is streamed. A Call's recording is the
 exception, because there the recording is the record.
 
-The Agent record carries one voice from a catalogue the daemon validates. It is
-the voice of spoken replies and of Calls. Where a provider lacks it, the seam
-declares it absent, the Call uses the provider default, and the record says
-which voice was used. A provider that fixes the voice once a session has
-emitted audio takes a change at the next Call. Two workspace aliases carry the
-transcription and speech models.
+Two workspace aliases carry the transcription and speech models. The Agent
+record carries one voice from the Provider Voice List: the voices of the model
+that speaks, which is the first candidate of the `speak` alias whose provider
+holds a key and serves spoken replies. The daemon reads the list from that
+provider, as it reads the Provider Model List: OpenRouter names the voices of
+each speech model in its model list, Deepgram lists each Aura voice as a
+model, ElevenLabs lists the voices of the account, and OpenAI lists no
+voices, so its fixed set is the list. A voice has an id, which the Agent
+holds, and a name where the id is not one, which a person reads. The daemon
+validates a new voice against the list. The voice
+is the voice of spoken replies and of Calls. Where the model that speaks lacks
+it, because the `speak` alias changed provider, the reply takes the model's
+first voice and says which voice spoke. A Call runs on OpenAI, so a voice that
+is not an OpenAI voice is absent there: the Call uses the OpenAI default, and
+the record says which voice was used. A provider that fixes the voice once a
+session has emitted audio takes a change at the next Call.
 
 ### Texting
 

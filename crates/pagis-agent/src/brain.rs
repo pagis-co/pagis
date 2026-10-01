@@ -14,7 +14,7 @@ use llm_router::{
 };
 pub use llm_router::{JsonSchemaFormat, Usage};
 use pagis_broker::ToolDef;
-use pagis_core::{Provider, ProviderKeys};
+use pagis_core::{Provider, ProviderKeys, ProviderUse};
 
 /// A model failure the run records as its error.
 #[derive(Debug, Clone, thiserror::Error)]
@@ -280,10 +280,13 @@ impl RouterBrain {
         }
 
         let mut config = RouterConfig::new();
-        let mut anthropic_available = false;
-        let mut openai_available = false;
-        let mut openrouter_available = false;
+        // The providers that hold a key and think. A key of a provider
+        // that only speaks or transcribes serves no Run.
+        let mut available = Vec::new();
         for provider in pagis_core::PROVIDERS {
+            if !provider.serves(ProviderUse::Thinking) {
+                continue;
+            }
             let Some((key, _)) = self
                 .keys
                 .resolve(provider)
@@ -295,18 +298,18 @@ impl RouterBrain {
                 provider.id(),
                 provider_config(provider, key, self.base_urls.get(&provider)),
             );
-            match provider {
-                Provider::Anthropic => anthropic_available = true,
-                Provider::OpenAi => openai_available = true,
-                Provider::OpenRouter => openrouter_available = true,
-            }
+            available.push(provider);
         }
-        if !anthropic_available && !openai_available && !openrouter_available {
-            return Err(BrainError::new(
-                "no model provider is configured; add a key in onboarding \
-                 or set ANTHROPIC_API_KEY, OPENAI_API_KEY, or OPENROUTER_API_KEY"
-                    .to_string(),
-            ));
+        if available.is_empty() {
+            let variables: Vec<&str> = pagis_core::PROVIDERS
+                .into_iter()
+                .filter(|provider| provider.serves(ProviderUse::Thinking))
+                .map(Provider::env_var)
+                .collect();
+            return Err(BrainError::new(format!(
+                "no model provider is configured; add a key in onboarding or set {}",
+                variables.join(", ")
+            )));
         }
         let mut candidates = Vec::new();
         let mut served = Vec::new();
@@ -319,12 +322,7 @@ impl RouterBrain {
             let provider = Provider::from_id(provider_id).ok_or_else(|| {
                 BrainError::new(format!("unknown model provider `{provider_id}`"))
             })?;
-            let available = match provider {
-                Provider::Anthropic => anthropic_available,
-                Provider::OpenAi => openai_available,
-                Provider::OpenRouter => openrouter_available,
-            };
-            if available {
+            if available.contains(&provider) {
                 served.push((provider, model.to_string()));
                 candidates.push(Candidate::new(provider_id, model));
             }
@@ -368,6 +366,10 @@ pub(crate) fn provider_config(
         // carries it.
         Provider::OpenAi => ProviderConfig::openai_responses(key),
         Provider::OpenRouter => ProviderConfig::openrouter(key),
+        // No Run thinks on Deepgram or ElevenLabs; their entries serve
+        // the model list.
+        Provider::Deepgram => ProviderConfig::deepgram(key),
+        Provider::ElevenLabs => ProviderConfig::elevenlabs(key),
     };
     if let Some(base_url) = base_url {
         config.base_url = base_url.clone();
@@ -503,7 +505,9 @@ fn computer_tool(provider: Provider, native: bool) -> Tool {
         Provider::OpenAi | Provider::OpenRouter if native => {
             Tool::provider_defined("computer", "computer", serde_json::Map::new())
         }
-        Provider::OpenAi | Provider::OpenRouter => portable_computer_tool(),
+        Provider::OpenAi | Provider::OpenRouter | Provider::Deepgram | Provider::ElevenLabs => {
+            portable_computer_tool()
+        }
     }
 }
 
@@ -513,7 +517,7 @@ fn openai_model(provider: Provider, model: &str) -> bool {
     match provider {
         Provider::OpenAi => true,
         Provider::OpenRouter => model.starts_with("openai/"),
-        Provider::Anthropic => false,
+        Provider::Anthropic | Provider::Deepgram | Provider::ElevenLabs => false,
     }
 }
 

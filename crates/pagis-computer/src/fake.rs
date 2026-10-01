@@ -12,9 +12,12 @@ use pagis_core::{
 };
 
 use crate::{
-    ComputerRuntime, ExecOutcome, ExecRequest, IMAGE_VERSION, InputHolder, RunningComputer,
-    StartedComputer,
+    ComputerRuntime, ExecOutcome, ExecRequest, IMAGE, IMAGE_VERSION, ImageRemoval, InputHolder,
+    OtherImage, RunningComputer, StartedComputer,
 };
+
+/// What every image call answers while Docker does not answer.
+const NO_DOCKER: &str = "cannot reach Docker: no endpoint answered";
 
 /// A Media Relay for tests: the daemon relay on loopback, with
 /// the operating system picking each session's port, so parallel test
@@ -75,7 +78,18 @@ struct Booted {
 }
 
 struct FakeState {
+    /// Whether Docker answers the image calls.
+    docker_answers: bool,
     image_version: Option<String>,
+    /// The version label of the image that a pull installs.
+    pulled_version: String,
+    /// The other images of the Computer Image repository, each with
+    /// whether a container uses it.
+    old_images: Vec<(OtherImage, bool)>,
+    /// Every image the daemon removed, in order.
+    removed_images: Vec<String>,
+    /// Every image that a pull fetched, in order.
+    pulled_images: Vec<String>,
     /// Running containers and what each one booted with.
     running: HashMap<AgentId, Booted>,
     /// The mount set of every start, in order.
@@ -102,6 +116,8 @@ struct FakeState {
     pulls: u32,
     pull_error: Option<String>,
     pull_delay: Duration,
+    /// Every pull waits here until a test releases it.
+    pull_gate: std::sync::Arc<tokio::sync::Semaphore>,
     inputs: Vec<(InputHolder, crate::exec::InputOp)>,
     fail_input: Option<String>,
     /// The error every live frame fetch answers with, when set.
@@ -163,7 +179,12 @@ impl Default for FakeComputerRuntime {
     fn default() -> Self {
         Self {
             state: Mutex::new(FakeState {
+                docker_answers: true,
                 image_version: None,
+                pulled_version: IMAGE_VERSION.to_string(),
+                old_images: Vec::new(),
+                removed_images: Vec::new(),
+                pulled_images: Vec::new(),
                 running: HashMap::new(),
                 mounts: Vec::new(),
                 start_envs: Vec::new(),
@@ -180,6 +201,7 @@ impl Default for FakeComputerRuntime {
                 pulls: 0,
                 pull_error: None,
                 pull_delay: Duration::ZERO,
+                pull_gate: open_gate(),
                 inputs: Vec::new(),
                 fail_input: None,
                 fail_frame: None,
@@ -211,6 +233,64 @@ impl FakeComputerRuntime {
 
     pub fn set_image_version(&self, version: Option<&str>) {
         self.state.lock().expect("fake state").image_version = version.map(str::to_string);
+    }
+
+    /// Whether Docker answers the image calls from now on. A machine
+    /// where Docker is not installed or does not run answers none.
+    pub fn set_docker_answers(&self, answers: bool) {
+        self.state.lock().expect("fake state").docker_answers = answers;
+    }
+
+    /// The version label of the image that the next pull installs, as a
+    /// registry that serves another image under the pinned reference.
+    pub fn pull_installs(&self, version: &str) {
+        self.state.lock().expect("fake state").pulled_version = version.to_string();
+    }
+
+    /// One more image of the Computer Image repository beside the pinned
+    /// one, of an older version. `in_use` says whether a container uses
+    /// it.
+    pub fn add_old_image(&self, id: &str, in_use: bool) {
+        self.add_other_image(id, Some("0.0.1"), in_use);
+    }
+
+    /// One more image of the Computer Image repository beside the pinned
+    /// one, with its version label.
+    pub fn add_other_image(&self, id: &str, version: Option<&str>, in_use: bool) {
+        let image = OtherImage {
+            id: id.to_string(),
+            version: version.map(str::to_string),
+        };
+        self.state
+            .lock()
+            .expect("fake state")
+            .old_images
+            .push((image, in_use));
+    }
+
+    /// The other images of the repository that are still present.
+    pub fn old_images(&self) -> Vec<String> {
+        self.state
+            .lock()
+            .expect("fake state")
+            .old_images
+            .iter()
+            .map(|(image, _)| image.id.clone())
+            .collect()
+    }
+
+    /// Every image that a pull fetched, in order.
+    pub fn pulled_images(&self) -> Vec<String> {
+        self.state.lock().expect("fake state").pulled_images.clone()
+    }
+
+    /// Every image the daemon removed, in order.
+    pub fn removed_images(&self) -> Vec<String> {
+        self.state
+            .lock()
+            .expect("fake state")
+            .removed_images
+            .clone()
     }
 
     /// How many bytes each Agent volume holds.
@@ -249,6 +329,19 @@ impl FakeComputerRuntime {
 
     pub fn set_pull_delay(&self, delay: Duration) {
         self.state.lock().expect("fake state").pull_delay = delay;
+    }
+
+    /// Hold every pull after it starts and before it reports progress,
+    /// until [`Self::release_pulls`]. A test that must act while a pull
+    /// runs holds it, instead of racing a delay.
+    pub fn hold_pulls(&self) {
+        self.state.lock().expect("fake state").pull_gate =
+            std::sync::Arc::new(tokio::sync::Semaphore::new(0));
+    }
+
+    /// Let every held pull, and every pull after it, go on.
+    pub fn release_pulls(&self) {
+        self.state.lock().expect("fake state").pull_gate.close();
     }
 
     pub fn starts(&self) -> u32 {
@@ -538,6 +631,23 @@ impl FakeComputerRuntime {
     }
 }
 
+/// A gate that every pull passes.
+fn open_gate() -> std::sync::Arc<tokio::sync::Semaphore> {
+    let gate = tokio::sync::Semaphore::new(0);
+    gate.close();
+    std::sync::Arc::new(gate)
+}
+
+impl FakeState {
+    /// `Err` while Docker does not answer.
+    fn answering(&self) -> Result<(), String> {
+        match self.docker_answers {
+            true => Ok(()),
+            false => Err(NO_DOCKER.to_string()),
+        }
+    }
+}
+
 /// The agent a fake computer belongs to: its control address is
 /// `fake:<agent>`.
 fn fake_agent(computer: &StartedComputer) -> AgentId {
@@ -570,18 +680,28 @@ fn daemon_holds(state: &FakeState, computer: &StartedComputer) -> Result<(), Str
 #[async_trait]
 impl ComputerRuntime for FakeComputerRuntime {
     async fn image_version(&self) -> Result<Option<String>, String> {
-        Ok(self.state.lock().expect("fake state").image_version.clone())
+        let state = self.state.lock().expect("fake state");
+        state.answering()?;
+        Ok(state.image_version.clone())
     }
 
     async fn pull_image(
         &self,
+        image: &str,
         progress: tokio::sync::mpsc::UnboundedSender<u8>,
     ) -> Result<(), String> {
-        let (delay, error) = {
+        let (delay, error, gate) = {
             let mut state = self.state.lock().expect("fake state");
+            state.answering()?;
             state.pulls += 1;
-            (state.pull_delay, state.pull_error.take())
+            (
+                state.pull_delay,
+                state.pull_error.take(),
+                std::sync::Arc::clone(&state.pull_gate),
+            )
         };
+        // A closed gate lets the pull go on.
+        let _ = gate.acquire().await;
         tokio::time::sleep(delay).await;
         for percent in [10u8, 50, 100] {
             let _ = progress.send(percent);
@@ -590,12 +710,38 @@ impl ComputerRuntime for FakeComputerRuntime {
             return Err(error);
         }
         let mut state = self.state.lock().expect("fake state");
-        // A pull installs the pinned image unless the test scripted a
-        // poisoned registry by presetting a different version.
-        if state.image_version.is_none() {
-            state.image_version = Some(IMAGE_VERSION.to_string());
+        if image == IMAGE {
+            state.image_version = Some(state.pulled_version.clone());
         }
+        state.pulled_images.push(image.to_string());
         Ok(())
+    }
+
+    async fn other_images(&self) -> Result<Vec<OtherImage>, String> {
+        let state = self.state.lock().expect("fake state");
+        state.answering()?;
+        if state.image_version.is_none() {
+            return Err("the pinned Computer Image is absent".to_string());
+        }
+        Ok(state
+            .old_images
+            .iter()
+            .map(|(image, _)| image.clone())
+            .collect())
+    }
+
+    async fn remove_image(&self, id: &str) -> Result<ImageRemoval, String> {
+        let mut state = self.state.lock().expect("fake state");
+        state.answering()?;
+        let Some(at) = state.old_images.iter().position(|(old, _)| old.id == id) else {
+            return Err(format!("no such image: {id}"));
+        };
+        if state.old_images[at].1 {
+            return Ok(ImageRemoval::InUse);
+        }
+        state.old_images.remove(at);
+        state.removed_images.push(id.to_string());
+        Ok(ImageRemoval::Removed)
     }
 
     async fn running(

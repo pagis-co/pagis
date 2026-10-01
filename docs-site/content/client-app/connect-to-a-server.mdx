@@ -41,6 +41,29 @@ says so and offers "Try again" and "Choose another setup". It offers no
 repair, because the client installed nothing. Quit stops no process, because
 the client started none.
 
+## Updates
+
+A connected Client App follows the release of its server
+([ADR-0027](https://github.com/pagis-co/pagis/blob/main/docs/adr/0027-the-client-app-installs-updates-and-upgrades-its-installation.md)).
+Its Compatibility Range refuses a server older than itself, so it takes only
+the Update to the release of its server, and never an Update past it. At
+each check (at start, every 24 hours, and from "Check for Updates…"), it
+reads the release of the server from the health route:
+
+- When the server runs a newer release, the client downloads the Update to
+  that release from the feed of that release on GitHub. It checks and
+  installs that Update as in [Updates](/client-app/updates). So when the
+  Administrator updates the server past the Compatibility Range, the check at
+  the next start gets the Update that this client needs.
+- When the server runs the same release or an older one, there is no Update.
+  "Check for Updates…" says that Pagis is up to date with its server, and
+  names both releases.
+- When the server does not answer, the check fails and gives that reason.
+
+The client prepares nothing for a restart, because it supervises no server.
+"Restart to Update" asks no question about Runs, because the Runs belong to
+the server.
+
 ## Only over https
 
 **The client connects to a server only over `https://`.** It refuses an

@@ -45,6 +45,144 @@ async fn speech_round_trips_on_openai_protocol() {
     assert_eq!(sent["speed"], 1.5);
 }
 
+/// The Responses protocol carries OpenRouter, whose `/audio/speech` and
+/// `/audio/transcriptions` take the OpenAI request shape. A buffered
+/// clip and a spoken reply go there, not to `/responses`.
+#[tokio::test]
+async fn speech_and_transcription_take_the_openai_audio_routes_on_the_responses_protocol() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/audio/speech"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "audio/mpeg")
+                .set_body_bytes(b"mp3-bytes".to_vec()),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/audio/transcriptions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "text": "Hello world.",
+            "usage": {"seconds": 1.5, "cost": 0.0001}
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let router = single_provider_router(ProtocolKind::OpenAiResponses, &server.uri());
+
+    let mut speech = SpeechRequest::new("m", "Hello there", "Kore");
+    speech.format = Some(AudioFormat::Mp3);
+    let spoken = router.speech(&speech).await.unwrap();
+    let transcribed = router
+        .transcribe(&TranscriptionRequest::new(
+            "m",
+            b"wav-bytes".to_vec(),
+            "audio/wav",
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(spoken.audio.as_ref(), b"mp3-bytes");
+    assert_eq!(transcribed.text, "Hello world.");
+    let requests = server.received_requests().await.unwrap();
+    let sent: Value = requests[0].body_json().unwrap();
+    assert_eq!(sent["voice"], "Kore");
+    assert_eq!(sent["response_format"], "mp3");
+    let body = String::from_utf8_lossy(&requests[1].body);
+    assert!(body.contains("concrete-model"));
+    assert!(body.contains("name=\"response_format\""));
+    assert!(!body.contains("verbose_json"));
+}
+
+/// Deepgram's voice is its model: `aura-2-thalia-en` is the Thalia voice
+/// of Aura-2. The text goes in the body and the format in the query.
+#[tokio::test]
+async fn speech_round_trips_on_deepgram_protocol_with_the_voice_as_the_model() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/speak"))
+        .and(query_param("model", "aura-2-thalia-en"))
+        .and(query_param("encoding", "mp3"))
+        .and(header("authorization", "Token test-key"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "audio/mpeg")
+                .set_body_bytes(b"mp3-bytes".to_vec()),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let router = single_provider_router(ProtocolKind::Deepgram, &server.uri());
+
+    let mut req = SpeechRequest::new("m", "Hello there", "aura-2-thalia-en");
+    req.format = Some(AudioFormat::Mp3);
+    let response = router.speech(&req).await.unwrap();
+
+    assert_eq!(response.audio.as_ref(), b"mp3-bytes");
+    assert_eq!(response.media_type, "audio/mpeg");
+    let sent: Value = server.received_requests().await.unwrap()[0]
+        .body_json()
+        .unwrap();
+    assert_eq!(sent, json!({ "text": "Hello there" }));
+}
+
+/// ElevenLabs transcribes a held clip with Scribe: a multipart upload of
+/// the file and the model, and the words with their times back.
+#[tokio::test]
+async fn transcription_round_trips_on_elevenlabs_protocol() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/speech-to-text"))
+        .and(header("xi-api-key", "test-key"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "language_code": "en",
+            "text": "Book the room.",
+            "words": [
+                {"text": "Book", "start": 0.0, "end": 0.4, "type": "word"},
+                {"text": " ", "start": 0.4, "end": 0.5, "type": "spacing"},
+                {"text": "the", "start": 0.5, "end": 0.7, "type": "word"}
+            ]
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let router = single_provider_router(ProtocolKind::ElevenLabs, &server.uri());
+
+    let response = router
+        .transcribe(&TranscriptionRequest::new(
+            "m",
+            b"wav-bytes".to_vec(),
+            "audio/wav",
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(response.text, "Book the room.");
+    assert_eq!(response.language.as_deref(), Some("en"));
+    assert_eq!(
+        response.words,
+        vec![
+            TranscriptWord {
+                start_s: 0.0,
+                end_s: 0.4,
+                word: "Book".into()
+            },
+            TranscriptWord {
+                start_s: 0.5,
+                end_s: 0.7,
+                word: "the".into()
+            },
+        ]
+    );
+    let request = &server.received_requests().await.unwrap()[0];
+    let body = String::from_utf8_lossy(&request.body);
+    assert!(body.contains("name=\"model_id\""), "{body}");
+    assert!(body.contains("concrete-model"), "{body}");
+    assert!(body.contains("name=\"file\""), "{body}");
+}
+
 #[tokio::test]
 async fn transcription_round_trips_on_openai_protocol() {
     let server = MockServer::start().await;

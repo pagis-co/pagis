@@ -91,6 +91,19 @@ export class RuntimeState {
   }
 }
 
+/**
+ * What a start of the Client App does with the release that its Local
+ * Installation records (`releaseToStart`): it starts its own release
+ * again, upgrades an older one with no setup question (ADR-0027), or
+ * shows setup. Setup also comes for a newer release, which this client
+ * then refuses to start.
+ */
+export function startAction(recorded: string | null, own: string): 'resume' | 'upgrade' | 'setup' {
+  if (recorded === own) return 'resume'
+  if (recorded !== null && semver.lt(parseRelease(recorded), parseRelease(own))) return 'upgrade'
+  return 'setup'
+}
+
 function release(value: unknown): value is string {
   return typeof value === 'string' && semver.valid(value) !== null
 }

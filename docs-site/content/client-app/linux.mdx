@@ -1,6 +1,6 @@
 ---
 title: Linux
-description: The packages, the Installation Key, the tray and the download check of the Client App on Linux.
+description: The packages, the Installation Key, the tray, the Updates and the download check of the Client App on Linux.
 icon: Terminal
 ---
 
@@ -21,7 +21,14 @@ icon: Terminal
   status area there is no item: open Pagis from the application launcher,
   and the running client shows its window.
 - **Open at login** writes `~/.config/autostart/pagis-client.desktop`. From
-  an AppImage, the entry starts the AppImage file.
+  an AppImage, the entry starts the AppImage file. An Update gives that
+  file a new name, and the Client App writes the entry again.
+- **Updates.** The AppImage and the deb install each
+  [Update](/client-app/updates) after a check against the checksum list
+  that the Pagis Update Key signed. The package holds the public key as
+  `resources/update-key.pem`. An AppImage replaces its own file, so keep
+  it in a folder that you can write to. A deb asks for your password at
+  Restart to Update.
 - **One client.** A second start shows the window of the running client and
   quits, as on macOS.
 - **Verify a download.** The release lists the SHA-256 of the four Linux

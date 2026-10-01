@@ -79,6 +79,16 @@ export function runtimeLockFile(target: ClientPlatform): string {
   return `runtime-lock-${target.platform}-${target.arch}.json`
 }
 
+/** The URL below which the GitHub release `release` serves its assets. */
+export function releaseUrl(release: string): string {
+  return `${RELEASES}/v${release}`
+}
+
+/** The URL of the asset `name` of the GitHub release `release`. */
+export function releaseAssetUrl(release: string, name: string): string {
+  return `${releaseUrl(release)}/${name}`
+}
+
 /** The client carries no Runtime Lock it can use: a build from source
  *  with no lock, or a lock that does not parse for this client. The
  *  message names no file; `detail` holds the cause for the log. */
@@ -170,7 +180,7 @@ export function parseRuntimeLock(
 }
 
 function lockedAsset(value: Record<string, unknown>, format: string, expectedName: string, release: string): LockedAsset {
-  const expectedUrl = `${RELEASES}/v${release}/${expectedName}`
+  const expectedUrl = releaseAssetUrl(release, expectedName)
   if (value.format !== format || value.name !== expectedName || value.url !== expectedUrl) {
     throw new Error(`runtime lock asset does not name the exact release ${format} package`)
   }

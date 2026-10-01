@@ -9,6 +9,7 @@ import { pipeline } from 'node:stream/promises'
 import { promisify } from 'node:util'
 
 import type { LockedEntry, RuntimeLock } from './runtimeLock'
+import { executableInUse } from './runtimeUse'
 
 const exec = promisify(execFile)
 
@@ -89,6 +90,48 @@ export class RuntimeInstaller {
     })
   }
 
+  /**
+   * Put the Server Package of `lock` into the download cache, and install
+   * nothing. Before a restart to an Update, the client downloads the
+   * package of the next release (ADR-0027). The client of that release
+   * uses the cache only when the bytes match its own embedded lock.
+   */
+  download(lock: RuntimeLock, signal?: AbortSignal): Promise<void> {
+    return serialized(this.root, async () => {
+      const asset = await this.cachePackage(lock, { signal })
+      try {
+        await requireFile(asset, lock.asset.size, lock.asset.sha256, 'downloaded server package')
+      } catch (error) {
+        removeOwnedFile(asset)
+        throw error
+      }
+    }).catch((error: unknown) => {
+      throw installationError(error)
+    })
+  }
+
+  /**
+   * Remove the package directory and the download of each release but
+   * the release of `lock`, once that release is active (ADR-0027). A
+   * package directory stays while a process uses one of its files
+   * (ADR-0025). The data of the installation is not in this directory.
+   */
+  removeOtherReleases(lock: RuntimeLock, inUse: (file: string) => Promise<boolean> = executableInUse): Promise<void> {
+    return serialized(this.root, async () => {
+      const releases = path.join(this.root, 'releases')
+      for (const release of ownedEntries(this.root, releases)) {
+        if (release === lock.release) continue
+        const directory = path.join(releases, release)
+        if (await filesInUse(directory, inUse)) continue
+        fs.rmSync(directory, { recursive: true, force: true })
+      }
+      const downloads = path.join(this.root, 'downloads')
+      for (const name of ownedEntries(this.root, downloads)) {
+        if (name !== `${lock.asset.sha256}.part`) fs.rmSync(path.join(downloads, name), { recursive: true, force: true })
+      }
+    })
+  }
+
   private async installLocked(lock: RuntimeLock, options: InstallOptions): Promise<string> {
     const signal = options.signal
     const report = options.onProgress ?? (() => {})
@@ -116,25 +159,10 @@ export class RuntimeInstaller {
       }
     }
 
-    const downloads = path.join(this.root, 'downloads')
     const staging = path.join(this.root, 'staging')
-    requireOwnedDirectory(this.root, downloads)
     requireOwnedDirectory(this.root, staging)
-    const asset = path.join(downloads, `${lock.asset.sha256}.part`)
-    if (!(await matchesFile(asset, lock.asset.size, lock.asset.sha256))) {
-      removeOwnedFile(asset)
-      this.writeState(lock.release, 'downloading', null)
-      const total = lock.asset.size
-      report({ phase: 'downloading', received: 0, total })
-      try {
-        await this.adapters.download(lock.asset.url, asset, total, signal, (received) => {
-          report({ phase: 'downloading', received, total })
-        })
-      } catch (error) {
-        removeOwnedFile(asset)
-        throw installationError(error)
-      }
-    }
+    this.writeState(lock.release, 'downloading', null)
+    const asset = await this.cachePackage(lock, options)
     throwIfCancelled(signal)
     this.writeState(lock.release, 'verifying', null)
     report({ phase: 'verifying' })
@@ -189,6 +217,32 @@ export class RuntimeInstaller {
       if (detach) await detach()
       removeOwnedTree(this.root, staging, workName)
     }
+  }
+
+  /**
+   * The path of the Server Package of `lock` in the download cache. The
+   * client downloads it first when the cache does not hold a file with
+   * the locked size and hash. The caller checks the bytes of a new
+   * download.
+   */
+  private async cachePackage(lock: RuntimeLock, options: InstallOptions): Promise<string> {
+    const downloads = path.join(this.root, 'downloads')
+    requireOwnedDirectory(this.root, downloads)
+    const asset = path.join(downloads, `${lock.asset.sha256}.part`)
+    if (await matchesFile(asset, lock.asset.size, lock.asset.sha256)) return asset
+    removeOwnedFile(asset)
+    const report = options.onProgress ?? (() => {})
+    const total = lock.asset.size
+    report({ phase: 'downloading', received: 0, total })
+    try {
+      await this.adapters.download(lock.asset.url, asset, total, options.signal, (received) => {
+        report({ phase: 'downloading', received, total })
+      })
+    } catch (error) {
+      removeOwnedFile(asset)
+      throw installationError(error)
+    }
+    return asset
   }
 
   /**
@@ -561,6 +615,23 @@ function requireSafePath(root: string, target: string): void {
     if (metadata.isSymbolicLink()) throw new Error(`${current} is not a safe runtime path`)
     if (current !== resolvedTarget && !metadata.isDirectory()) throw new Error(`${current} is not a safe runtime directory`)
   }
+}
+
+/** The names in a directory of the runtime directory, or none when the
+ *  directory is absent. */
+function ownedEntries(root: string, directory: string): string[] {
+  requireSafePath(root, directory)
+  if (!fs.existsSync(directory)) return []
+  if (!fs.lstatSync(directory).isDirectory()) throw new Error(`${directory} is not a safe runtime directory`)
+  return fs.readdirSync(directory)
+}
+
+/** Whether a process uses a regular file in the tree of `directory`. */
+async function filesInUse(directory: string, inUse: (file: string) => Promise<boolean>): Promise<boolean> {
+  for (const entry of fs.readdirSync(directory, { recursive: true, withFileTypes: true })) {
+    if (entry.isFile() && await inUse(path.join(entry.parentPath, entry.name))) return true
+  }
+  return false
 }
 
 function removeOwnedFile(file: string): void {

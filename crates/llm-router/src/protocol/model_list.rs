@@ -11,6 +11,9 @@
 //!   (OpenRouter, Together), `context_window` (Groq), `max_context_length`
 //!   (Mistral), `max_model_len` (vLLM), and `top_provider` (OpenRouter).
 //! - Prices: OpenRouter's `pricing` holds USD per token as strings.
+//! - Kinds and voices: OpenRouter's `architecture.output_modalities`
+//!   names what a model outputs, and `supported_voices` names the voices
+//!   of a speech model.
 //!
 //! A zero or negative number means "not reported", because providers use
 //! both for an unknown value (OpenRouter prices a variable router at -1).
@@ -20,7 +23,7 @@ use serde_json::Value;
 
 use crate::error::Error;
 use crate::protocol::ModelPage;
-use crate::registry::{ListedModel, ModelPrices};
+use crate::registry::{ListedModel, ListedVoice, ModelPrices};
 
 /// Decode an OpenAI-shaped list: one page, newest first when the server
 /// reports `created`, otherwise in the server's order.
@@ -51,6 +54,12 @@ pub(super) fn parse_openai(provider_key: &str, body: &[u8]) -> Result<ModelPage,
                     context_window,
                     max_output_tokens,
                     prices,
+                    output_modalities: model
+                        .architecture
+                        .and_then(|architecture| architecture.output_modalities),
+                    voices: model
+                        .supported_voices
+                        .map(|voices| voices.into_iter().map(ListedVoice::named_by_id).collect()),
                 },
             )
         })
@@ -82,10 +91,9 @@ pub(super) fn parse_anthropic(provider_key: &str, body: &[u8]) -> Result<ModelPa
             .data
             .into_iter()
             .map(|model| ListedModel {
-                id: model.id,
                 context_window: positive(model.max_input_tokens),
                 max_output_tokens: positive(model.max_tokens),
-                prices: None,
+                ..ListedModel::new(model.id)
             })
             .collect(),
         next,
@@ -150,6 +158,17 @@ struct OpenAiModel {
     top_provider: Option<TopProvider>,
     #[serde(default)]
     pricing: Option<Value>,
+    #[serde(default)]
+    architecture: Option<Architecture>,
+    #[serde(default)]
+    supported_voices: Option<Vec<String>>,
+}
+
+/// OpenRouter's description of what a model takes and gives.
+#[derive(Deserialize)]
+struct Architecture {
+    #[serde(default)]
+    output_modalities: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]

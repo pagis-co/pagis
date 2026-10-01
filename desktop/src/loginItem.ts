@@ -36,8 +36,22 @@ export class AutostartEntry implements LoginItem {
       fs.rmSync(this.file, { force: true })
       return
     }
+    this.write(this.env.APPIMAGE || this.execPath)
+  }
+
+  /**
+   * Write the entry again when it is on, so that it starts `executable`:
+   * by default the AppImage file or the executable of this start. An
+   * Update gives the AppImage file the name of the new release and removes
+   * the old file (ADR-0027).
+   */
+  refresh(executable: string = this.env.APPIMAGE || this.execPath): void {
+    if (this.isOpenAtLogin()) this.write(executable)
+  }
+
+  private write(executable: string): void {
     fs.mkdirSync(path.dirname(this.file), { recursive: true })
-    fs.writeFileSync(this.file, autostartEntry(this.env.APPIMAGE || this.execPath))
+    fs.writeFileSync(this.file, autostartEntry(executable))
   }
 }
 

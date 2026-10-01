@@ -31,18 +31,40 @@ pub enum Provider {
     Anthropic,
     OpenAi,
     OpenRouter,
+    Deepgram,
+    ElevenLabs,
 }
 
 /// Every known provider, in display order.
-pub const PROVIDERS: [Provider; 3] = [Provider::Anthropic, Provider::OpenAi, Provider::OpenRouter];
+pub const PROVIDERS: [Provider; 5] = [
+    Provider::Anthropic,
+    Provider::OpenAi,
+    Provider::OpenRouter,
+    Provider::Deepgram,
+    Provider::ElevenLabs,
+];
 
 impl Provider {
-    /// The stable API identifier (`anthropic`, `openai`, or `openrouter`).
+    /// The stable API identifier: `anthropic`, `openai`, `openrouter`,
+    /// `deepgram` or `elevenlabs`.
     pub fn id(self) -> &'static str {
         match self {
             Provider::Anthropic => "anthropic",
             Provider::OpenAi => "openai",
             Provider::OpenRouter => "openrouter",
+            Provider::Deepgram => "deepgram",
+            Provider::ElevenLabs => "elevenlabs",
+        }
+    }
+
+    /// The name a person reads.
+    pub fn name(self) -> &'static str {
+        match self {
+            Provider::Anthropic => "Anthropic",
+            Provider::OpenAi => "OpenAI",
+            Provider::OpenRouter => "OpenRouter",
+            Provider::Deepgram => "Deepgram",
+            Provider::ElevenLabs => "ElevenLabs",
         }
     }
 
@@ -52,6 +74,8 @@ impl Provider {
             Provider::Anthropic => "ANTHROPIC_API_KEY",
             Provider::OpenAi => "OPENAI_API_KEY",
             Provider::OpenRouter => "OPENROUTER_API_KEY",
+            Provider::Deepgram => "DEEPGRAM_API_KEY",
+            Provider::ElevenLabs => "ELEVENLABS_API_KEY",
         }
     }
 
@@ -65,11 +89,69 @@ impl Provider {
             Provider::Anthropic => "anthropic_api_key",
             Provider::OpenAi => "openai_api_key",
             Provider::OpenRouter => "openrouter_api_key",
+            Provider::Deepgram => "deepgram_api_key",
+            Provider::ElevenLabs => "elevenlabs_api_key",
         }
     }
 
     pub fn from_id(id: &str) -> Option<Provider> {
         PROVIDERS.into_iter().find(|p| p.id() == id)
+    }
+
+    /// What Pagis does with this provider's key. A provider serves a
+    /// Model Alias only for a use it lists here.
+    pub fn uses(self) -> &'static [ProviderUse] {
+        match self {
+            Provider::Anthropic => &[ProviderUse::Thinking],
+            // OpenRouter transcribes a held clip and has no realtime
+            // socket, so dictation is transcribed on release.
+            Provider::OpenRouter => &[
+                ProviderUse::Thinking,
+                ProviderUse::SpokenReplies,
+                ProviderUse::Dictation,
+            ],
+            Provider::OpenAi => &[
+                ProviderUse::Thinking,
+                ProviderUse::SpokenReplies,
+                ProviderUse::Dictation,
+                ProviderUse::Calls,
+            ],
+            // Deepgram speaks with Aura and transcribes with Nova, live
+            // over `/listen` and buffered.
+            Provider::Deepgram => &[ProviderUse::SpokenReplies, ProviderUse::Dictation],
+            // ElevenLabs speaks, and transcribes with Scribe, live over its
+            // realtime socket and buffered.
+            Provider::ElevenLabs => &[ProviderUse::SpokenReplies, ProviderUse::Dictation],
+        }
+    }
+
+    pub fn serves(self, provider_use: ProviderUse) -> bool {
+        self.uses().contains(&provider_use)
+    }
+}
+
+/// One thing a provider's key does in Pagis, as the Person reads it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ProviderUse {
+    /// The Runs of every Agent: the `default` alias and the others the
+    /// Person adds.
+    Thinking,
+    /// The Agent Voice of spoken replies: the `speak` alias.
+    SpokenReplies,
+    /// Speech to text: the `transcribe` alias.
+    Dictation,
+    /// Live telephone conversations: the `phone` aliases.
+    Calls,
+}
+
+impl ProviderUse {
+    pub fn id(self) -> &'static str {
+        match self {
+            ProviderUse::Thinking => "thinking",
+            ProviderUse::SpokenReplies => "spoken_replies",
+            ProviderUse::Dictation => "dictation",
+            ProviderUse::Calls => "calls",
+        }
     }
 }
 
@@ -376,6 +458,14 @@ mod tests {
                 },
                 ProviderKeyStatus {
                     provider: Provider::OpenRouter,
+                    source: None,
+                },
+                ProviderKeyStatus {
+                    provider: Provider::Deepgram,
+                    source: None,
+                },
+                ProviderKeyStatus {
+                    provider: Provider::ElevenLabs,
                     source: None,
                 },
             ]

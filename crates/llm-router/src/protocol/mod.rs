@@ -24,7 +24,7 @@ use futures::stream::BoxStream;
 
 use crate::config::{ProtocolKind, ProviderConfig};
 use crate::error::Error;
-use crate::registry::ListedModel;
+use crate::registry::{ListedModel, ListedVoice};
 use crate::types::{
     ChatRequest, ChatResponse, EmbeddingsRequest, EmbeddingsResponse, ImageRequest, ImageResponse,
     SpeechRequest, StreamEvent, TranscriptionRequest, TranscriptionResponse, VideoJob,
@@ -41,6 +41,14 @@ pub type EventStream = BoxStream<'static, Result<StreamEvent, Error>>;
 #[derive(Debug, Clone, PartialEq)]
 pub struct ModelPage {
     pub models: Vec<ListedModel>,
+    /// The cursor of the next page, or `None` on the last page.
+    pub next: Option<String>,
+}
+
+/// One page of the voices a provider lists apart from its models.
+#[derive(Debug, Clone, PartialEq)]
+pub struct VoicePage {
+    pub voices: Vec<ListedVoice>,
     /// The cursor of the next page, or `None` on the last page.
     pub next: Option<String>,
 }
@@ -196,6 +204,36 @@ pub trait Protocol: Send + Sync {
     /// Decode one page of the model list.
     fn parse_list_models(&self, provider_key: &str, _body: &[u8]) -> Result<ModelPage, Error> {
         Err(unsupported_model_list(provider_key))
+    }
+
+    /// Whether the provider lists its voices apart from its models: the
+    /// voices of an account, which every speech model takes. The model
+    /// list then reads them and gives them to each speech model.
+    fn lists_voices_apart(&self) -> bool {
+        false
+    }
+
+    /// Build the request for one page of the voices listed apart.
+    /// `after` is the cursor of the previous page.
+    fn build_list_voices_request(
+        &self,
+        _http: &reqwest::Client,
+        provider_key: &str,
+        _provider: &ProviderConfig,
+        _after: Option<&str>,
+    ) -> Result<reqwest::RequestBuilder, Error> {
+        Err(Error::Unsupported {
+            provider: provider_key.to_owned(),
+            feature: "voice list",
+        })
+    }
+
+    /// Decode one page of the voices listed apart.
+    fn parse_list_voices(&self, provider_key: &str, _body: &[u8]) -> Result<VoicePage, Error> {
+        Err(Error::Unsupported {
+            provider: provider_key.to_owned(),
+            feature: "voice list",
+        })
     }
 
     /// Build a request that submits a video-generation job.

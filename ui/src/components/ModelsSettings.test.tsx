@@ -19,18 +19,21 @@ function stubApi() {
                 {
                   alias: 'default',
                   candidates: ['anthropic/claude-sonnet-4-6', 'openai/gpt-5'],
+                  reachable: true,
                   settings: [],
                   updated_at: 1,
                 },
                 {
                   alias: 'transcribe',
                   candidates: ['openai/gpt-4o-transcribe'],
+                  reachable: false,
                   settings: [],
                   updated_at: 1,
                 },
                 {
                   alias: 'phone',
                   candidates: ['openai/gpt-live-1'],
+                  reachable: true,
                   settings: [{
                     alias: 'gpt-live-reasoning',
                     label: 'GPT-Live reasoning model',
@@ -43,12 +46,14 @@ function stubApi() {
                 {
                   alias: 'gpt-live-reasoning',
                   candidates: ['openai/gpt-5.6-terra'],
+                  reachable: true,
                   settings: [],
                   updated_at: 1,
                 },
                 {
                   alias: 'draft',
                   candidates: ['openai/gpt-5-mini'],
+                  reachable: true,
                   settings: [],
                   updated_at: 1,
                 },
@@ -58,6 +63,7 @@ function stubApi() {
         case '/api/v1/settings/models':
           return {
             data: {
+              preselected: 'openai/gpt-6-luna',
               providers: [
                 {
                   provider: 'openai',
@@ -95,6 +101,15 @@ function mount(api: ReturnType<typeof stubApi>) {
 }
 
 describe('ModelsSettings', () => {
+  it('names the key an alias needs when no provider of its candidates holds one', async () => {
+    mount(stubApi())
+
+    const transcribe = (await screen.findByText('transcribe')).closest('.ui-row') as HTMLElement
+    expect(within(transcribe).getByText('Needs a key for OpenAI')).toBeTruthy()
+    const row = screen.getByText('default').closest('.ui-row') as HTMLElement
+    expect(within(row).queryByText(/Needs a key/)).toBeNull()
+  })
+
   it('lists each alias as ordered chips with a note', async () => {
     mount(stubApi())
 

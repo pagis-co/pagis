@@ -295,6 +295,11 @@ pub const ADMINISTRATION_ROUTES: &[Route] = &[
         authenticated: true,
     },
     Route {
+        path: "/api/v1/administration/computer-image/pull",
+        methods: &["post"],
+        authenticated: true,
+    },
+    Route {
         path: "/api/v1/user",
         methods: &["get"],
         authenticated: true,

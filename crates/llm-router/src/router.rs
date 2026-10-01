@@ -7,7 +7,7 @@ use crate::config::{Candidate, ProviderConfig, RouterConfig};
 use crate::error::Error;
 use crate::protocol::{EventStream, Protocol, codec};
 use crate::realtime::RealtimeIntent;
-use crate::registry::{self, ListedModel, ModelInfo, ModelMetadata};
+use crate::registry::{self, ListedModel, ListedVoice, ModelInfo, ModelMetadata};
 use crate::stream_util::with_idle_timeout;
 use crate::types::{
     ChatRequest, ChatResponse, EmbeddingsRequest, EmbeddingsResponse, ImageRequest, ImageResponse,
@@ -174,16 +174,21 @@ impl Router {
         self.realtime(model, RealtimeIntent::Conversation).await
     }
 
-    /// Open a transcription-only realtime session: the same socket as
+    /// Open a transcription-only realtime session for PCM16 mono audio at
+    /// `sample_rate` Hz. On OpenAI it is the same socket as
     /// [`Router::realtime_connect`], opened with `intent=transcription`
-    /// instead of a model. The caller picks the transcription model in
-    /// its `session.update`; the returned connection's `model` is the
-    /// candidate that served the alias.
+    /// instead of a model, and the caller picks the transcription model
+    /// and the audio format in its `session.update`. On Deepgram it is
+    /// `/listen`, with the model and the audio format in the query. The
+    /// returned connection's `model` is the candidate that served the
+    /// alias, and its `protocol` names the dialect.
     pub async fn realtime_transcription_connect(
         &self,
         model: &str,
+        sample_rate: u32,
     ) -> Result<crate::realtime::RealtimeConnection, Error> {
-        self.realtime(model, RealtimeIntent::Transcription).await
+        self.realtime(model, RealtimeIntent::Transcription { sample_rate })
+            .await
     }
 
     async fn realtime(
@@ -193,7 +198,14 @@ impl Router {
     ) -> Result<crate::realtime::RealtimeConnection, Error> {
         self.run(model, |candidate| async move {
             let (provider, _) = self.provider(&candidate.provider)?;
-            if provider.protocol != crate::config::ProtocolKind::OpenAiChat {
+            let served = match provider.protocol {
+                crate::config::ProtocolKind::OpenAiChat => true,
+                crate::config::ProtocolKind::Deepgram | crate::config::ProtocolKind::ElevenLabs => {
+                    matches!(intent, RealtimeIntent::Transcription { .. })
+                }
+                _ => false,
+            };
+            if !served {
                 return Err(Error::Unsupported {
                     provider: candidate.provider.clone(),
                     feature: "realtime",
@@ -302,6 +314,9 @@ impl Router {
     /// A protocol with no list endpoint returns [`Error::Unsupported`]. A
     /// key the provider refuses returns its [`Error::Provider`] (401 or
     /// 403) with the provider's message.
+    ///
+    /// A provider that lists the voices of an account apart from its
+    /// models gives those voices to each speech model.
     pub async fn list_models(&self, provider_key: &str) -> Result<Vec<ListedModel>, Error> {
         let (provider, protocol) = self.provider(provider_key)?;
         let candidate = Candidate::new(provider_key, "");
@@ -319,12 +334,54 @@ impl Router {
             models.extend(page.models);
             match page.next {
                 Some(next) => after = Some(next),
-                None => return Ok(models),
+                None => {
+                    if protocol.lists_voices_apart() {
+                        let voices = self.list_voices(provider_key).await?;
+                        for model in &mut models {
+                            let speaks = model
+                                .output_modalities
+                                .iter()
+                                .flatten()
+                                .any(|output| output == "speech");
+                            if speaks {
+                                model.voices = Some(voices.clone());
+                            }
+                        }
+                    }
+                    return Ok(models);
+                }
             }
         }
         Err(Error::InvalidResponse {
             provider: provider_key.to_owned(),
             message: format!("the model list has more than {MAX_MODEL_PAGES} pages"),
+        })
+    }
+
+    /// The voices a provider lists apart from its models, every page.
+    async fn list_voices(&self, provider_key: &str) -> Result<Vec<ListedVoice>, Error> {
+        let (provider, protocol) = self.provider(provider_key)?;
+        let candidate = Candidate::new(provider_key, "");
+        let mut voices = Vec::new();
+        let mut after: Option<String> = None;
+        for _ in 0..MAX_MODEL_PAGES {
+            let request = protocol.build_list_voices_request(
+                &self.http,
+                provider_key,
+                provider,
+                after.as_deref(),
+            )?;
+            let body = self.fetch(&candidate, protocol, request).await?;
+            let page = protocol.parse_list_voices(provider_key, &body)?;
+            voices.extend(page.voices);
+            match page.next {
+                Some(next) => after = Some(next),
+                None => return Ok(voices),
+            }
+        }
+        Err(Error::InvalidResponse {
+            provider: provider_key.to_owned(),
+            message: format!("the voice list has more than {MAX_MODEL_PAGES} pages"),
         })
     }
 

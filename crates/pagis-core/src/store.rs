@@ -149,10 +149,12 @@ pub trait WorkspaceStore: Send + Sync {
 
 #[async_trait]
 pub trait OnboardingStore: Send + Sync {
-    async fn model_verification(
+    /// The key check of each provider the model step checked.
+    async fn model_verifications(
         &self,
         workspace_id: &WorkspaceId,
-    ) -> Result<Option<OnboardingModelVerification>, StoreError>;
+    ) -> Result<Vec<OnboardingModelVerification>, StoreError>;
+    /// Record one provider's key check, in place of its earlier one.
     async fn set_model_verification(
         &self,
         workspace_id: &WorkspaceId,

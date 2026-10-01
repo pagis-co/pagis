@@ -170,6 +170,7 @@ impl Desk {
         let screens = tempfile::tempdir().expect("screens dir");
         let manager = ComputerManager::new(ComputerManagerDeps {
             runtime: Arc::clone(&runtime) as _,
+            image: pagis_computer::ComputerImage::new(Arc::clone(&runtime) as _),
             skills: Arc::new(pagis_core::NoSkills),
             workspaces: Arc::new(FakeWorkspaces::with_timezone(&workspace_id, "UTC")),
             agents: Arc::new(FakeAgents::open()),

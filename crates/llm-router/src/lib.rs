@@ -33,6 +33,7 @@ mod registry;
 mod router;
 mod stream_util;
 mod types;
+mod voices;
 
 pub use accumulator::{MessageAccumulator, StreamedMessage};
 pub use config::{
@@ -44,8 +45,8 @@ pub use realtime::{
     RealtimeConnection, RealtimeIntent, RealtimeMessage, RealtimeProtocol, RealtimeSocket,
 };
 pub use registry::{
-    DEFAULT_CONTEXT_WINDOW, DEFAULT_MAX_OUTPUT_TOKENS, ListedModel, ModelInfo, ModelMetadata,
-    ModelPrices, model_info, model_metadata,
+    DEFAULT_CONTEXT_WINDOW, DEFAULT_MAX_OUTPUT_TOKENS, ListedModel, ListedVoice, ModelInfo,
+    ModelMetadata, ModelPrices, model_info, model_metadata,
 };
 pub use router::{AttemptInfo, ChatStream, Router};
 pub use types::{
@@ -56,3 +57,4 @@ pub use types::{
     TranscriptSegment, TranscriptWord, TranscriptionRequest, TranscriptionResponse, Usage,
     VideoJob, VideoRequest, VideoStatus,
 };
+pub use voices::OPENAI_VOICES;

@@ -449,6 +449,8 @@ pub struct Providers {
     pub anthropic_api_key: Option<String>,
     pub openai_api_key: Option<String>,
     pub openrouter_api_key: Option<String>,
+    pub deepgram_api_key: Option<String>,
+    pub elevenlabs_api_key: Option<String>,
 }
 
 impl Default for Config {
@@ -692,6 +694,12 @@ impl Config {
         }
         if let Some(key) = &self.providers.openai_api_key {
             keys.insert(Provider::OpenAi, key.clone());
+        }
+        if let Some(key) = &self.providers.elevenlabs_api_key {
+            keys.insert(Provider::ElevenLabs, key.clone());
+        }
+        if let Some(key) = &self.providers.deepgram_api_key {
+            keys.insert(Provider::Deepgram, key.clone());
         }
         if let Some(key) = &self.providers.openrouter_api_key {
             keys.insert(Provider::OpenRouter, key.clone());
@@ -1324,7 +1332,8 @@ mod tests {
         std::fs::write(
             &path,
             "port = 4400\n[providers]\nanthropic_api_key = \"sk-config\"\n\
-             openrouter_api_key = \"sk-openrouter\"\n",
+             openrouter_api_key = \"sk-openrouter\"\ndeepgram_api_key = \"sk-deepgram\"\n\
+             elevenlabs_api_key = \"sk-elevenlabs\"\n",
         )
         .unwrap();
 
@@ -1338,6 +1347,14 @@ mod tests {
         assert_eq!(
             config.provider_keys().get(&Provider::OpenRouter),
             Some(&"sk-openrouter".to_string())
+        );
+        assert_eq!(
+            config.provider_keys().get(&Provider::Deepgram),
+            Some(&"sk-deepgram".to_string())
+        );
+        assert_eq!(
+            config.provider_keys().get(&Provider::ElevenLabs),
+            Some(&"sk-elevenlabs".to_string())
         );
     }
 

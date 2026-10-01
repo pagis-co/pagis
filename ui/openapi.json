@@ -10,6 +10,88 @@
     "version": "0.1.1"
   },
   "paths": {
+    "/api/v1/administration/computer-image/pull": {
+      "post": {
+        "tags": [
+          "administration"
+        ],
+        "summary": "Pull a Computer Image, and answer when the pull ends.",
+        "description": "Before a restart to an Update, the Client App of a Local Installation\nasks for the Computer Image that the next release pins, so the new\ndaemon finds it present (ADR-0027). The daemon pulls only an image of\nthe repository of its own pinned image, and only by its digest. A\nsecond request for the same image joins the pull that runs, and a\nrequest that goes away does not stop the pull. A failed pull answers\n`502`, and `503` where Docker does not answer.",
+        "operationId": "pull_computer_image",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ComputerImagePullRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ComputerImageDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/administration/health": {
       "get": {
         "tags": [
@@ -10952,6 +11034,31 @@
           }
         }
       },
+      "ComputerImageDto": {
+        "type": "object",
+        "description": "The Computer Image that the daemon pulled.",
+        "required": [
+          "image"
+        ],
+        "properties": {
+          "image": {
+            "type": "string"
+          }
+        }
+      },
+      "ComputerImagePullRequest": {
+        "type": "object",
+        "description": "The Computer Image that the Client App asks the daemon to pull.",
+        "required": [
+          "image"
+        ],
+        "properties": {
+          "image": {
+            "type": "string",
+            "description": "`<repository>@sha256:<64 lowercase hexadecimal characters>`. The\nrepository is the repository of the pinned Computer Image."
+          }
+        }
+      },
       "Condition": {
         "type": "object",
         "required": [
@@ -14154,6 +14261,7 @@
         "required": [
           "alias",
           "candidates",
+          "reachable",
           "settings",
           "updated_at"
         ],
@@ -14166,6 +14274,10 @@
             "items": {
               "type": "string"
             }
+          },
+          "reachable": {
+            "type": "boolean",
+            "description": "Whether a candidate names a provider that holds a key and serves\nthe alias's use. An alias that is not reachable fails each call."
           },
           "settings": {
             "type": "array",
@@ -14251,6 +14363,13 @@
           "providers"
         ],
         "properties": {
+          "preselected": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The candidate a default pick takes: the default route of these\nkeys and lists. `null` when no provider holds a key."
+          },
           "providers": {
             "type": "array",
             "items": {
@@ -14460,9 +14579,17 @@
         "required": [
           "completed",
           "providers",
+          "checks",
           "docker"
         ],
         "properties": {
+          "checks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModelCheckDto"
+            },
+            "description": "The server-owned key check of each provider that passed one. A\ncheck whose credential has changed since is left out."
+          },
           "completed": {
             "type": "boolean"
           },
@@ -14476,17 +14603,6 @@
               "null"
             ],
             "description": "The Docker endpoint an Administrator typed, or `null` for\ndiscovery. It is `null` for a Member."
-          },
-          "model": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/ModelCheckDto",
-                "description": "The current server-owned key check. `null` when no check passed,\nor when the checked credential has changed since."
-              }
-            ]
           },
           "providers": {
             "type": "array",
@@ -15379,7 +15495,8 @@
         "description": "One provider's key status. `source` is `env`, `config`, or\n`secret_file` when a key is configured.",
         "required": [
           "provider",
-          "configured"
+          "configured",
+          "uses"
         ],
         "properties": {
           "configured": {
@@ -15393,6 +15510,13 @@
               "string",
               "null"
             ]
+          },
+          "uses": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "What the key does in Pagis: `thinking`, `spoken_replies`,\n`dictation` and `calls`."
           }
         }
       },
@@ -15417,13 +15541,6 @@
               "$ref": "#/components/schemas/ListedModelDto"
             },
             "description": "Newest first where the provider reports a release order. Empty\nwhen `error` is set."
-          },
-          "preselected": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "The model id a default pick takes: the newest listed model whose\nname reads as a chat model. `None` when the list has none."
           },
           "provider": {
             "type": "string"
@@ -16779,20 +16896,13 @@
       },
       "SetOnboardingDefaultModelRequest": {
         "type": "object",
-        "required": [
-          "provider"
-        ],
         "properties": {
-          "model": {
+          "candidate": {
             "type": [
               "string",
               "null"
             ],
-            "description": "The model id as the provider lists it, without the provider\nprefix. `null` takes the preselection: the newest listed chat model,\nor the provider's fallback candidate when its list is not available."
-          },
-          "provider": {
-            "type": "string",
-            "description": "`anthropic`, `openai`, or `openrouter`."
+            "description": "The `provider/model` candidate, e.g. `anthropic/claude-sonnet-5-5`.\n`null` takes the preselection."
           }
         }
       },
@@ -18574,9 +18684,29 @@
           "skip"
         ]
       },
+      "VoiceDto": {
+        "type": "object",
+        "description": "One voice of the model that speaks.",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "What an Agent Voice holds."
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The name a person reads, or `null` when the id is the name."
+          }
+        }
+      },
       "VoicePage": {
         "type": "object",
-        "description": "The voice catalogue (ADR-0020): the names an Agent Voice can take.",
+        "description": "The Provider Voice List (ADR-0020): the names an Agent Voice can take,\nwhich are the voices of the model that speaks for the Workspace.",
         "required": [
           "items"
         ],
@@ -18584,8 +18714,23 @@
           "items": {
             "type": "array",
             "items": {
-              "type": "string"
-            }
+              "$ref": "#/components/schemas/VoiceDto"
+            },
+            "description": "Its voices; the first is the default."
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The model that speaks, as its provider names it."
+          },
+          "provider": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The provider of the model that speaks, or `null` when no key\nserves spoken replies."
           }
         }
       },

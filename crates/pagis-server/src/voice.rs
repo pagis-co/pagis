@@ -368,7 +368,7 @@ pub async fn speak_block(
             )));
         }
     };
-    let voice = match &message.author_agent_id {
+    let wanted = match &message.author_agent_id {
         Some(agent_id) => state
             .agent_store
             .get(&tenant.workspace_id, &AgentId::from(agent_id.to_string()))
@@ -376,9 +376,26 @@ pub async fn speak_block(
             .and_then(|agent| agent.voice),
         None => None,
     };
+    // The voice of the model that speaks: the Agent's when the model
+    // has it, else the model's first voice (ADR-0020).
+    let list = crate::voice_list::speaking_voices(&state, &tenant.workspace_id)
+        .await?
+        .ok_or_else(|| {
+            voice_unavailable(format!(
+                "no key serves spoken replies; add a key for {}",
+                crate::voice_list::speaking_providers()
+            ))
+        })?;
+    let voice = list.voice_for(wanted.as_deref()).ok_or_else(|| {
+        voice_unavailable(format!(
+            "{}/{} names no voice",
+            list.provider.id(),
+            list.model
+        ))
+    })?;
     let speech = state
         .voice
-        .speak(&tenant.workspace_id, &text, voice.as_deref())
+        .speak(&tenant.workspace_id, &text, voice)
         .await
         .map_err(voice_error)?;
     if !crate::channels::message_is_readable(&state, &message).await? {
@@ -403,17 +420,37 @@ fn block_type(block: &Block) -> String {
 
 fn voice_error(error: VoiceError) -> ApiError {
     tracing::warn!(error = %error, "speech failed");
+    voice_unavailable(error.to_string())
+}
+
+fn voice_unavailable(message: String) -> ApiError {
     ApiError {
         status: StatusCode::SERVICE_UNAVAILABLE,
         code: "voice_unavailable",
-        message: error.to_string(),
+        message,
     }
 }
 
-/// The voice catalogue (ADR-0020): the names an Agent Voice can take.
+/// The Provider Voice List (ADR-0020): the names an Agent Voice can take,
+/// which are the voices of the model that speaks for the Workspace.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct VoicePage {
-    pub items: Vec<String>,
+    /// The provider of the model that speaks, or `null` when no key
+    /// serves spoken replies.
+    pub provider: Option<String>,
+    /// The model that speaks, as its provider names it.
+    pub model: Option<String>,
+    /// Its voices; the first is the default.
+    pub items: Vec<VoiceDto>,
+}
+
+/// One voice of the model that speaks.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct VoiceDto {
+    /// What an Agent Voice holds.
+    pub id: String,
+    /// The name a person reads, or `null` when the id is the name.
+    pub name: Option<String>,
 }
 
 #[utoipa::path(
@@ -424,8 +461,28 @@ pub struct VoicePage {
         (status = 401, body = crate::error::ErrorBody),
     )
 )]
-pub async fn list_voices() -> Json<VoicePage> {
-    Json(VoicePage {
-        items: pagis_voice::VOICES.iter().map(|v| v.to_string()).collect(),
-    })
+pub async fn list_voices(
+    State(state): State<Arc<AppState>>,
+    tenant: Tenant,
+) -> Result<Json<VoicePage>, ApiError> {
+    let list = crate::voice_list::speaking_voices(&state, &tenant.workspace_id).await?;
+    Ok(Json(match list {
+        Some(list) => VoicePage {
+            provider: Some(list.provider.id().to_string()),
+            model: Some(list.model),
+            items: list
+                .voices
+                .into_iter()
+                .map(|voice| VoiceDto {
+                    id: voice.id,
+                    name: voice.name,
+                })
+                .collect(),
+        },
+        None => VoicePage {
+            provider: None,
+            model: None,
+            items: Vec::new(),
+        },
+    }))
 }
