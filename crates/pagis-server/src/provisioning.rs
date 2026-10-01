@@ -23,7 +23,9 @@ pub const DEFAULT_WORKSPACE_NAME: &str = "Workspace";
 /// The first sprite of a new Workspace. Onboarding introduces it
 /// by this name; the person renames it later like any other Agent.
 pub const DEFAULT_ASSISTANT_NAME: &str = "Pixie";
-const DEFAULT_ASSISTANT_JOB: &str = "general assistant";
+/// The seed names this sprite the Chief of Staff (ADR-0022), so its job
+/// says so until the person writes another.
+const DEFAULT_ASSISTANT_JOB: &str = "Chief of Staff";
 const DEFAULT_ASSISTANT_DESCRIPTION: &str =
     "Ask Pixie for anything that has no other sprite to own it.";
 const DEFAULT_ASSISTANT_PERSONALITY: &str =

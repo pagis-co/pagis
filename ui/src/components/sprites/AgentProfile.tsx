@@ -177,6 +177,7 @@ export function AgentProfile({
   onOpenSyncSettings: () => void;
 }) {
   const agents = useAgents(api);
+  const workspace = useWorkspace(api);
   const runs = useRuns(api, agentId, "", "");
   const [section, setSection] = useState<Section>("about");
   const agent = (agents.data ?? []).find((row) => row.id === agentId);
@@ -215,6 +216,9 @@ export function AgentProfile({
           <h2>{agent.name}</h2>
           <span className="agent-job">{agent.job}</span>
         </div>
+        {workspace.data?.chief_of_staff_agent_id === agent.id && (
+          <Badge tone="neutral">Chief of Staff</Badge>
+        )}
         <Badge tone={activityTone(presence)}>{activityWord(presence)}</Badge>
         <span className="sprite-row-last">
           {lastActiveLabel(lastActiveAt(runs.data ?? [], agent.id))}

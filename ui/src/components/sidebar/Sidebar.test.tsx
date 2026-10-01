@@ -246,14 +246,14 @@ describe('Sidebar', () => {
     )
   })
 
-  // The pinned row says why it is pinned: the designation the roster
-  // badge shows, not the job, which every other row names.
-  it('names the Chief of Staff and its Activity', async () => {
+  // The Chief of Staff is a designation, not a job: the row names the
+  // job the user wrote, as every other row does.
+  it('names the job of the Chief of Staff and its Activity', async () => {
     mount({ pathname: '/', selectedId: null })
 
     const chief = await row('Sage')
     expect(within(chief).getByTestId('conversation-status').textContent).toBe(
-      'Chief of Staff · Idle',
+      'general assistant · Idle',
     )
   })
 

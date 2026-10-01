@@ -55,7 +55,7 @@ async fn first_boot_creates_the_layout_the_credential_the_db_and_the_seed() {
         .unwrap();
     assert_eq!(agents.len(), 1);
     assert_eq!(agents[0].name, "Pixie");
-    assert_eq!(agents[0].job, "general assistant");
+    assert_eq!(agents[0].job, "Chief of Staff");
 
     // The assistant's DM channel, with Pixie as its agent participant.
     let channels = booted

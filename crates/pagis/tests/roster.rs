@@ -274,7 +274,7 @@ async fn the_seeded_assistant_introduces_itself_once() {
     assert_eq!(messages.len(), 1);
     assert_eq!(
         messages[0]["text_content"],
-        "Hi, I'm Pixie, your general assistant."
+        "Hi, I'm Pixie, your Chief of Staff."
     );
     assert_eq!(messages[0]["author_kind"], "agent");
     assert!(messages[0]["run_id"].is_null());
