@@ -157,6 +157,101 @@ body {
   overflow-wrap: anywhere;
 }
 
+/* The steps of a local setup, one under the other. A finished step
+ * carries a check, the current step a turning ring, and a next step an
+ * empty ring, as the step lists of the macOS installer do. */
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.steps li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.steps li::before {
+  content: '';
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: var(--space-4);
+  height: var(--space-4);
+  border: 2px solid currentColor;
+  border-radius: var(--radius-pill);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-bold);
+}
+
+.steps li[data-state='pending'] {
+  opacity: var(--opacity-disabled);
+}
+
+.steps li[data-state='current'] {
+  font-weight: var(--weight-semibold);
+}
+
+.steps li[data-state='current']::before {
+  border-right-color: transparent;
+  animation: step-turn var(--duration-ambient) linear infinite;
+}
+
+.steps li[data-state='done']::before {
+  content: '✓';
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+@keyframes step-turn {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+/* The bar of the current step, in the look of the progress bar of the
+ * product's onboarding. A step with no share to show gets a busy bar
+ * instead of a share that is not true. */
+.progress {
+  width: 100%;
+  height: var(--space-2);
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--accent-tint);
+}
+
+.progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  transition: width var(--duration-panel) ease;
+}
+
+.progress-busy {
+  width: 40%;
+  animation: progress-sweep var(--duration-ambient) linear infinite;
+}
+
+@keyframes progress-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+
+.progress-detail {
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
 .log {
   max-height: 12rem;
   margin: 0;

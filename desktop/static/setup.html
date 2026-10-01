@@ -72,6 +72,18 @@
             <h1 id="state-title" class="title"></h1>
             <div id="state" class="state">
               <p id="state-message"></p>
+              <!-- The steps of a local setup. The bar is the share of the
+                   download, or busy in a step with no share to show. -->
+              <ol id="steps" class="steps" hidden>
+                <li data-step="download">Download the server</li>
+                <li data-step="check">Check the server</li>
+                <li data-step="install">Install the server files</li>
+                <li data-step="start">Start the server</li>
+              </ol>
+              <div id="setup-bar" class="progress" role="progressbar" aria-label="Setup progress" aria-valuemin="0" aria-valuemax="100" hidden>
+                <span class="progress-fill"></span>
+              </div>
+              <p id="setup-detail" class="progress-detail" hidden></p>
             </div>
           </section>
         </div>
@@ -96,6 +108,8 @@
       const element = (id) => document.getElementById(id)
       const screens = { use: element('use'), who: element('who'), status: element('status') }
       const [stateTitle, stateBox, stateMessage] = ['state-title', 'state', 'state-message'].map(element)
+      const [steps, bar, setupDetail] = ['steps', 'setup-bar', 'setup-detail'].map(element)
+      const STEPS = ['download', 'check', 'install', 'start']
       const [server, address, addressError, progress] =
         ['server', 'server-url', 'server-url-error', 'server-progress'].map(element)
       const buttons = Object.fromEntries(
@@ -123,6 +137,8 @@
         switch (state.kind) {
           case 'installing':
             return { title: 'Setting up Pagis', message: state.detail, tone: 'working' }
+          case 'setting-up':
+            return { title: 'Setting up Pagis', message: '', tone: 'working' }
           case 'taken-port':
             return {
               title: `Port ${state.port} is taken`,
@@ -157,7 +173,9 @@
           stateBox.setAttribute('role', shown.tone === 'failed' ? 'alert' : 'status')
           stateTitle.textContent = shown.title
           stateMessage.textContent = shown.message
+          stateMessage.hidden = shown.message === ''
         }
+        renderSteps(shown !== null && current.kind === 'setting-up' ? current : null)
         server.hidden = selected('use') !== 'connect'
         progress.hidden = !checking
         progress.textContent = checking ? current.detail : ''
@@ -165,7 +183,7 @@
         if (view === 'use') visible.add('continue')
         if (view === 'who') { visible.add('back'); visible.add('install') }
         if (view === 'status') {
-          if (current.kind === 'installing') visible.add('cancel')
+          if (current.kind === 'installing' || current.kind === 'setting-up') visible.add('cancel')
           if (current.kind === 'taken-port') visible.add('use-port')
           if (current.kind === 'failed' || current.kind === 'connection-failed') visible.add('choose')
           if (current.kind === 'failed' && current.repair) visible.add('repair')
@@ -174,6 +192,29 @@
         for (const [id, button] of Object.entries(buttons)) button.hidden = !visible.has(id)
         buttons.continue.disabled = checking
         if (current.kind === 'taken-port') buttons['use-port'].textContent = `Use port ${current.suggested}`
+      }
+
+      /** Mark each step done, current or pending, and fill the bar with the
+       *  share of the download. Only a local setup has steps. */
+      function renderSteps(state) {
+        steps.hidden = state === null
+        bar.hidden = state === null
+        setupDetail.hidden = state?.download == null
+        if (state === null) return
+        const at = STEPS.indexOf(state.step)
+        for (const item of steps.children) {
+          const index = STEPS.indexOf(item.dataset.step)
+          item.dataset.state = index < at ? 'done' : index === at ? 'current' : 'pending'
+          if (index === at) item.setAttribute('aria-current', 'step')
+          else item.removeAttribute('aria-current')
+        }
+        const fill = bar.firstElementChild
+        const download = state.download
+        fill.classList.toggle('progress-busy', download === null)
+        fill.style.width = download === null ? '' : `${download.fraction * 100}%`
+        if (download === null) bar.removeAttribute('aria-valuenow')
+        else bar.setAttribute('aria-valuenow', String(Math.round(download.fraction * 100)))
+        setupDetail.textContent = download?.detail ?? ''
       }
 
       /** Show a problem with the server address under its field, or clear

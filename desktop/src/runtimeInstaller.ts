@@ -13,7 +13,15 @@ import type { LockedEntry, RuntimeLock } from './runtimeLock'
 const exec = promisify(execFile)
 
 interface CommonAdapters {
-  download(url: string, destination: string, maxBytes: number, signal?: AbortSignal): Promise<void>
+  /** Download the asset, and report the bytes received so far to
+   *  `onBytes` as they arrive. */
+  download(
+    url: string,
+    destination: string,
+    maxBytes: number,
+    signal?: AbortSignal,
+    onBytes?: (received: number) => void,
+  ): Promise<void>
   activate(staged: string, destination: string): Promise<void>
 }
 
@@ -48,6 +56,12 @@ export type RuntimeInstallerAdapters = DarwinAdapters | LinuxAdapters
 
 type InstallPhase = 'downloading' | 'verifying' | 'extracting' | 'activating'
 
+/** The phase that an installation enters. A download also gives the
+ *  bytes received of the locked size. */
+export type InstallProgress =
+  | { phase: 'downloading'; received: number; total: number }
+  | { phase: Exclude<InstallPhase, 'downloading'> }
+
 interface InstallState {
   schema: 1
   release: string
@@ -58,6 +72,7 @@ interface InstallState {
 export interface InstallOptions {
   signal?: AbortSignal
   beforeReplace?: () => Promise<void>
+  onProgress?: (progress: InstallProgress) => void
 }
 
 const installQueues = new Map<string, Promise<void>>()
@@ -76,6 +91,7 @@ export class RuntimeInstaller {
 
   private async installLocked(lock: RuntimeLock, options: InstallOptions): Promise<string> {
     const signal = options.signal
+    const report = options.onProgress ?? (() => {})
     throwIfCancelled(signal)
     if (lock.platform !== this.adapters.platform) {
       throw new Error(`this client installs ${this.adapters.platform} packages and cannot install a ${lock.platform} one`)
@@ -89,6 +105,7 @@ export class RuntimeInstaller {
     requireSafePath(this.root, installRoot)
     let replaceInstalled = false
     if (fs.existsSync(installRoot)) {
+      report({ phase: 'verifying' })
       try {
         await this.verifyTree(installRoot, lock, undefined)
         this.clearState()
@@ -107,8 +124,12 @@ export class RuntimeInstaller {
     if (!(await matchesFile(asset, lock.asset.size, lock.asset.sha256))) {
       removeOwnedFile(asset)
       this.writeState(lock.release, 'downloading', null)
+      const total = lock.asset.size
+      report({ phase: 'downloading', received: 0, total })
       try {
-        await this.adapters.download(lock.asset.url, asset, lock.asset.size, signal)
+        await this.adapters.download(lock.asset.url, asset, total, signal, (received) => {
+          report({ phase: 'downloading', received, total })
+        })
       } catch (error) {
         removeOwnedFile(asset)
         throw installationError(error)
@@ -116,6 +137,7 @@ export class RuntimeInstaller {
     }
     throwIfCancelled(signal)
     this.writeState(lock.release, 'verifying', null)
+    report({ phase: 'verifying' })
     await requireFile(asset, lock.asset.size, lock.asset.sha256, 'downloaded server package')
     const quarantine = await this.admitDownload(asset, lock)
     throwIfCancelled(signal)
@@ -123,6 +145,7 @@ export class RuntimeInstaller {
     const work = fs.mkdtempSync(path.join(staging, 'install-'))
     const workName = path.basename(work)
     this.writeState(lock.release, 'extracting', workName)
+    report({ phase: 'extracting' })
     // The package opens here: the macOS disk image mounts read-only, and
     // the Linux archive extracts. The installer then copies only the
     // locked files out of it.
@@ -139,6 +162,7 @@ export class RuntimeInstaller {
       detach = undefined
       throwIfCancelled(signal)
       this.writeState(lock.release, 'activating', workName)
+      report({ phase: 'activating' })
       requireOwnedDirectory(this.root, path.dirname(installRoot))
       let retainedInstalled: string | null = null
       if (replaceInstalled) {
@@ -366,6 +390,13 @@ export type HttpsGet = (
   respond: (response: http.IncomingMessage) => void,
 ) => http.ClientRequest
 
+export interface DownloadOptions {
+  signal?: AbortSignal
+  /** Called with the bytes received so far, as each chunk arrives. */
+  onBytes?: (received: number) => void
+  get?: HttpsGet
+}
+
 /**
  * Download the locked asset into `destination`. It reads the body with
  * Node's `https` module, which streams it into the file with
@@ -376,8 +407,7 @@ export async function downloadLockedAsset(
   url: string,
   destination: string,
   maxBytes: number,
-  signal?: AbortSignal,
-  get: HttpsGet = https.get,
+  { signal, onBytes, get = https.get }: DownloadOptions = {},
 ): Promise<void> {
   let current = new URL(url)
   if (current.protocol !== 'https:' || current.hostname !== 'github.com') {
@@ -390,7 +420,7 @@ export async function downloadLockedAsset(
       const response = await request(get, current, abort)
       const status = response.statusCode ?? 0
       if (![301, 302, 303, 307, 308].includes(status)) {
-        await save(response, destination, maxBytes, abort)
+        await save(response, destination, maxBytes, abort, onBytes)
         return
       }
       response.destroy()
@@ -422,6 +452,7 @@ async function save(
   destination: string,
   maxBytes: number,
   signal: AbortSignal,
+  onBytes?: (received: number) => void,
 ): Promise<void> {
   if (response.statusCode !== 200) {
     response.destroy()
@@ -436,8 +467,12 @@ async function save(
   const count = new Transform({
     transform(chunk: Buffer, _encoding, done) {
       size += chunk.length
-      if (size > maxBytes) done(new Error('server download exceeds the Runtime Lock size'))
-      else done(null, chunk)
+      if (size > maxBytes) {
+        done(new Error('server download exceeds the Runtime Lock size'))
+        return
+      }
+      onBytes?.(size)
+      done(null, chunk)
     },
   })
   try {
@@ -461,8 +496,14 @@ function downloadHost(hostname: string): boolean {
   return hostname === 'github.com' || hostname === 'release-assets.githubusercontent.com'
 }
 
-async function downloadQuarantined(url: string, destination: string, maxBytes: number, signal?: AbortSignal): Promise<void> {
-  await downloadLockedAsset(url, destination, maxBytes, signal)
+async function downloadQuarantined(
+  url: string,
+  destination: string,
+  maxBytes: number,
+  signal?: AbortSignal,
+  onBytes?: (received: number) => void,
+): Promise<void> {
+  await downloadLockedAsset(url, destination, maxBytes, { signal, onBytes })
   const timestamp = Math.floor(Date.now() / 1000).toString(16)
   await command('/usr/bin/xattr', [
     '-w',
@@ -595,7 +636,8 @@ export async function extractArchive(archive: string, destination: string, names
 
 const linuxAdapters: LinuxAdapters = {
   platform: 'linux',
-  download: (url, destination, maxBytes, signal) => downloadLockedAsset(url, destination, maxBytes, signal),
+  download: (url, destination, maxBytes, signal, onBytes) =>
+    downloadLockedAsset(url, destination, maxBytes, { signal, onBytes }),
   async activate(staged, destination) { fs.renameSync(staged, destination) },
   extract: extractArchive,
 }
