@@ -1,4 +1,4 @@
-// The route a first run walks: welcome, model, computer. The shell
+// The route a first run walks: welcome, providers, computer. The shell
 // renders one step at a time and the stepper reads this list, so the
 // order is written once.
 
@@ -11,7 +11,7 @@ export interface Step {
 
 export const STEPS: Step[] = [
   { id: 'welcome', label: 'Welcome' },
-  { id: 'model', label: 'Model' },
+  { id: 'model', label: 'Providers' },
   { id: 'computer', label: 'Computer' },
 ]
 

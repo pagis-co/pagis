@@ -220,42 +220,43 @@ async fn a_live_dictation_runs_a_transcription_only_session_ended_by_the_commit(
     );
 }
 
+/// A provider that `Provider::uses` gives no voice use is not selected,
+/// even with a key and a candidate in the alias.
 #[tokio::test]
-async fn a_provider_without_a_realtime_socket_declares_dictation_absent() {
-    // Anthropic has no realtime socket; the router says Unsupported and
-    // the seam says None, never an error.
-    let voice = voice(
-        Provider::Anthropic,
-        "http://127.0.0.1:9/v1",
-        &["anthropic/claude-sonnet-4-6"],
-        &[],
-    );
+async fn a_provider_without_a_voice_use_is_not_selected() {
+    for (provider, transcribe, speak) in [
+        (
+            Provider::Anthropic,
+            "anthropic/claude-sonnet-5-5",
+            "anthropic/claude-sonnet-5-5",
+        ),
+        (
+            Provider::OpenRouter,
+            "openrouter/openai/gpt-4o-transcribe",
+            "openrouter/openai/gpt-4o-mini-tts",
+        ),
+    ] {
+        let voice = voice(provider, "http://127.0.0.1:9/v1", &[transcribe], &[speak]);
 
-    assert!(voice.dictate(&workspace()).await.unwrap().is_none());
-}
-
-#[tokio::test]
-async fn openrouter_is_not_selected_for_voice_aliases() {
-    let voice = voice(
-        Provider::OpenRouter,
-        "http://127.0.0.1:9/v1",
-        &["openrouter/openai/gpt-4o-transcribe"],
-        &["openrouter/openai/gpt-4o-mini-tts"],
-    );
-
-    let error = voice
-        .transcribe(
-            &workspace(),
-            Clip {
-                pcm16: vec![0, 0].into(),
-            },
-        )
-        .await
-        .unwrap_err();
-    assert!(matches!(error, VoiceError::NoProvider(alias) if alias == "transcribe"));
-
-    let error = voice.speak(&workspace(), "x", None).await.unwrap_err();
-    assert!(matches!(error, VoiceError::NoProvider(alias) if alias == "speak"));
+        let error = voice
+            .transcribe(
+                &workspace(),
+                Clip {
+                    pcm16: vec![0, 0].into(),
+                },
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(error, VoiceError::NoProvider(alias) if alias == "transcribe"));
+        let error = voice
+            .dictate(&workspace())
+            .await
+            .err()
+            .expect("no dictation");
+        assert!(matches!(error, VoiceError::NoProvider(alias) if alias == "transcribe"));
+        let error = voice.speak(&workspace(), "x", None).await.unwrap_err();
+        assert!(matches!(error, VoiceError::NoProvider(alias) if alias == "speak"));
+    }
 }
 
 #[tokio::test]

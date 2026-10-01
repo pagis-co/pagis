@@ -31,6 +31,9 @@ pub struct ProviderKeyDto {
     pub provider: String,
     pub configured: bool,
     pub source: Option<String>,
+    /// What the key does in Pagis: `thinking`, `spoken_replies`,
+    /// `dictation` and `calls`.
+    pub uses: Vec<String>,
 }
 
 /// Everything the onboarding wizard needs in one read.
@@ -38,9 +41,9 @@ pub struct ProviderKeyDto {
 pub struct OnboardingDto {
     pub completed: bool,
     pub providers: Vec<ProviderKeyDto>,
-    /// The current server-owned key check. `null` when no check passed,
-    /// or when the checked credential has changed since.
-    pub model: Option<ModelCheckDto>,
+    /// The server-owned key check of each provider that passed one. A
+    /// check whose credential has changed since is left out.
+    pub checks: Vec<ModelCheckDto>,
     /// Docker discovery. A Member reads the endpoint in use and no
     /// candidate: the candidates name the sockets of the installation's
     /// own host.
@@ -82,25 +85,29 @@ fn model_proof(provider: Provider, source: pagis_core::KeySource, key: &str) -> 
     hex::encode(mac.finalize().into_bytes())
 }
 
-async fn current_verification(
-    state: &AppState,
-    tenant: &Tenant,
-) -> Result<Option<OnboardingModelVerification>, ApiError> {
-    let Some(saved) = state
+/// The key checks whose credential still resolves: a check proves the
+/// key it read the list with, and no other.
+async fn current_checks(state: &AppState, tenant: &Tenant) -> Result<Vec<ModelCheckDto>, ApiError> {
+    let mut checks = Vec::new();
+    for saved in state
         .onboarding
-        .model_verification(&tenant.workspace_id)
+        .model_verifications(&tenant.workspace_id)
         .await?
-    else {
-        return Ok(None);
-    };
-    let Some(provider) = Provider::from_id(&saved.provider) else {
-        return Ok(None);
-    };
-    let Some((key, source)) = state.keys.resolve(provider).map_err(secret_error)? else {
-        return Ok(None);
-    };
-    let proof = model_proof(provider, source, &key);
-    Ok((saved.proof == proof).then_some(saved))
+    {
+        let Some(provider) = Provider::from_id(&saved.provider) else {
+            continue;
+        };
+        let Some((key, source)) = state.keys.resolve(provider).map_err(secret_error)? else {
+            continue;
+        };
+        if saved.proof == model_proof(provider, source, &key) {
+            checks.push(ModelCheckDto {
+                provider: saved.provider,
+                available: saved.available,
+            });
+        }
+    }
+    Ok(checks)
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -126,6 +133,9 @@ pub struct ModelAliasSettingDto {
 pub struct ModelAliasDto {
     pub alias: String,
     pub candidates: Vec<String>,
+    /// Whether a candidate names a provider that holds a key and serves
+    /// the alias's use. An alias that is not reachable fails each call.
+    pub reachable: bool,
     pub settings: Vec<ModelAliasSettingDto>,
     pub updated_at: i64,
 }
@@ -1131,13 +1141,23 @@ fn validate_alias(alias: &str, candidates: &[String]) -> Result<(), ApiError> {
     Ok(())
 }
 
-fn alias_dto(model_alias: pagis_core::ModelAlias) -> ModelAliasDto {
-    ModelAliasDto {
+fn alias_dto(
+    keys: &ProviderKeys,
+    model_alias: pagis_core::ModelAlias,
+) -> Result<ModelAliasDto, ApiError> {
+    let reachable = !crate::model_lists::reachable_candidates(
+        keys,
+        crate::provisioning::alias_use(&model_alias.alias),
+        model_alias.candidates.clone(),
+    )?
+    .is_empty();
+    Ok(ModelAliasDto {
         alias: model_alias.alias,
         candidates: model_alias.candidates,
+        reachable,
         settings: Vec::new(),
         updated_at: model_alias.updated_at,
-    }
+    })
 }
 
 #[utoipa::path(
@@ -1187,11 +1207,11 @@ pub async fn list_model_aliases(
             } else {
                 Vec::new()
             };
-            let mut dto = alias_dto(model_alias);
+            let mut dto = alias_dto(&state.keys, model_alias)?;
             dto.settings = settings;
-            dto
+            Ok(dto)
         })
-        .collect();
+        .collect::<Result<_, ApiError>>()?;
     Ok(Json(ModelAliasPage { items }))
 }
 
@@ -1237,7 +1257,10 @@ pub async fn create_model_alias(
         serde_json::json!({ "alias": model_alias.alias.as_str(), "action": "created" }),
     )
     .await?;
-    Ok((StatusCode::CREATED, Json(alias_dto(model_alias))))
+    Ok((
+        StatusCode::CREATED,
+        Json(alias_dto(&state.keys, model_alias)?),
+    ))
 }
 
 #[utoipa::path(
@@ -1325,9 +1348,16 @@ pub async fn update_model_alias(
             payload: serde_json::json!({ "alias": alias }),
         })
         .await?;
+    let reachable = !crate::model_lists::reachable_candidates(
+        &state.keys,
+        crate::provisioning::alias_use(&alias),
+        request.candidates.clone(),
+    )?
+    .is_empty();
     Ok(Json(ModelAliasDto {
         alias,
         candidates: request.candidates,
+        reachable,
         settings: Vec::new(),
         updated_at,
     }))
@@ -1348,6 +1378,12 @@ fn provider_statuses(keys: &ProviderKeys) -> Result<Vec<ProviderKeyDto>, ApiErro
             provider: status.provider.id().to_string(),
             configured: status.source.is_some(),
             source: status.source.map(|source| source.as_str().to_string()),
+            uses: status
+                .provider
+                .uses()
+                .iter()
+                .map(|provider_use| provider_use.id().to_string())
+                .collect(),
         })
         .collect())
 }
@@ -1390,12 +1426,7 @@ pub async fn onboarding_status(
             pagis_core::UserRole::Administrator => provider_statuses(&state.keys)?,
             pagis_core::UserRole::Member => Vec::new(),
         },
-        model: current_verification(&state, &tenant)
-            .await?
-            .map(|verification| ModelCheckDto {
-                provider: verification.provider,
-                available: verification.available,
-            }),
+        checks: current_checks(&state, &tenant).await?,
         docker: match tenant.role {
             pagis_core::UserRole::Administrator => docker.into(),
             pagis_core::UserRole::Member => crate::system::DockerReportDto {

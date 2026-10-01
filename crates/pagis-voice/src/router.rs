@@ -16,7 +16,7 @@ use llm_router::{
     AudioFormat, Candidate, Error, ProviderConfig, RealtimeConnection, RealtimeMessage, Router,
     RouterConfig, SpeechRequest, TranscriptionRequest,
 };
-use pagis_core::{ModelAliasStore, Provider, ProviderKeys, WorkspaceId};
+use pagis_core::{ModelAliasStore, Provider, ProviderKeys, ProviderUse, WorkspaceId};
 
 use crate::{
     Clip, DictationInput, DictationSession, SAMPLE_RATE, SPEAK_ALIAS, Speech, TRANSCRIBE_ALIAS,
@@ -63,12 +63,13 @@ impl RouterVoice {
     }
 
     /// The router for one alias: the alias's candidates on every
-    /// provider that has a key. Built per call; the HTTP client and
-    /// its pool are shared.
+    /// provider that has a key and serves `provider_use`. Built per
+    /// call; the HTTP client and its pool are shared.
     async fn router_for(
         &self,
         workspace_id: &WorkspaceId,
         alias: &str,
+        provider_use: ProviderUse,
     ) -> Result<Router, VoiceError> {
         let model_alias = self
             .aliases
@@ -85,13 +86,13 @@ impl RouterVoice {
             else {
                 continue;
             };
+            if !provider.serves(provider_use) {
+                continue;
+            }
             let mut provider_config = match provider {
                 Provider::OpenAi => ProviderConfig::openai(key),
-                Provider::Anthropic => ProviderConfig::anthropic(key),
-                // OpenRouter's Responses endpoint carries text agent turns.
-                // It does not carry Pagis's speech, transcription, or realtime
-                // voice paths, so voice aliases do not select it.
-                Provider::OpenRouter => continue,
+                // `Provider::uses` gives them no voice use.
+                Provider::Anthropic | Provider::OpenRouter => continue,
             };
             if let Some(base_url) = self.base_urls.get(&provider) {
                 provider_config.base_url = base_url.clone();
@@ -122,7 +123,9 @@ impl VoiceProvider for RouterVoice {
         workspace_id: &WorkspaceId,
         clip: Clip,
     ) -> Result<String, VoiceError> {
-        let router = self.router_for(workspace_id, TRANSCRIBE_ALIAS).await?;
+        let router = self
+            .router_for(workspace_id, TRANSCRIBE_ALIAS, ProviderUse::Dictation)
+            .await?;
         let request = TranscriptionRequest::new(
             TRANSCRIBE_ALIAS,
             pcm16_wav(&clip.pcm16, SAMPLE_RATE),
@@ -139,7 +142,9 @@ impl VoiceProvider for RouterVoice {
         &self,
         workspace_id: &WorkspaceId,
     ) -> Result<Option<DictationSession>, VoiceError> {
-        let router = self.router_for(workspace_id, TRANSCRIBE_ALIAS).await?;
+        let router = self
+            .router_for(workspace_id, TRANSCRIBE_ALIAS, ProviderUse::Dictation)
+            .await?;
         let connection = match router
             .realtime_transcription_connect(TRANSCRIBE_ALIAS)
             .await
@@ -160,7 +165,9 @@ impl VoiceProvider for RouterVoice {
         text: &str,
         voice: Option<&str>,
     ) -> Result<Speech, VoiceError> {
-        let router = self.router_for(workspace_id, SPEAK_ALIAS).await?;
+        let router = self
+            .router_for(workspace_id, SPEAK_ALIAS, ProviderUse::SpokenReplies)
+            .await?;
         let voice = voice.unwrap_or(DEFAULT_VOICE).to_string();
         let mut request = SpeechRequest::new(SPEAK_ALIAS, text, voice.clone());
         request.format = Some(AudioFormat::Mp3);

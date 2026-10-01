@@ -7,20 +7,23 @@
 //! it as the choices of each provider, beside a typed id.
 //!
 //! The default route is one model (ADR-0025). The person picks it at
-//! onboarding from the list of the provider they chose. The
-//! preselection is the provider's model in the [`DEFAULT_PREFERENCE`]
-//! when the list names it, else the newest listed chat model. A provider
-//! whose list is not available takes its [`preferred_candidate`].
-//! Fallback candidates on other providers are the person's own addition
-//! in the Models settings, never the seed's.
+//! onboarding from the lists of the providers they gave keys. The
+//! preselection follows the [`DEFAULT_PREFERENCE`]: the first preferred
+//! model that a keyed provider lists, else the newest listed chat model.
+//! A provider whose list is not available takes its
+//! [`preferred_candidate`]. Fallback candidates are the person's own
+//! addition in the Models settings, never the seed's.
 
 use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
+use llm_router::ListedModel;
 use pagis_agent::{ModelCatalog, ModelListError};
-use pagis_core::{DEFAULT_MODEL_ALIAS, PROVIDERS, Provider, ProviderKeys, WorkspaceId};
+use pagis_core::{
+    DEFAULT_MODEL_ALIAS, PROVIDERS, Provider, ProviderKeys, ProviderUse, WorkspaceId,
+};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -51,10 +54,6 @@ pub struct ProviderModelsDto {
     /// Newest first where the provider reports a release order. Empty
     /// when `error` is set.
     pub models: Vec<ListedModelDto>,
-    /// The model id a default pick takes: the provider's preferred model
-    /// when the list names it, else the newest listed model whose name
-    /// reads as a chat model. `None` when the list has neither.
-    pub preselected: Option<String>,
     /// The provider's own words when the list call failed.
     pub error: Option<String>,
 }
@@ -63,16 +62,16 @@ pub struct ProviderModelsDto {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ModelListsDto {
     pub providers: Vec<ProviderModelsDto>,
+    /// The candidate a default pick takes: the default route of these
+    /// keys and lists. `null` when no provider holds a key.
+    pub preselected: Option<String>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct SetOnboardingDefaultModelRequest {
-    /// `anthropic`, `openai`, or `openrouter`.
-    pub provider: String,
-    /// The model id as the provider lists it, without the provider
-    /// prefix. `null` takes the preselection of the provider's list, or
-    /// the provider's preferred model when its list is not available.
-    pub model: Option<String>,
+    /// The `provider/model` candidate, e.g. `anthropic/claude-sonnet-5-5`.
+    /// `null` takes the preselection.
+    pub candidate: Option<String>,
 }
 
 /// The Model Preference of the `default` alias: the models the product
@@ -117,85 +116,77 @@ fn preferred_model(provider: Provider) -> &'static str {
     &preferred_candidate(provider)[provider.id().len() + 1..]
 }
 
-/// The model id a list preselects for `provider`, without the provider
-/// prefix: the preferred model when the list names it, else the newest
-/// listed model whose name reads as a chat model.
-fn preselected_model(provider: Provider, listed: &[llm_router::ListedModel]) -> Option<String> {
-    let preferred = preferred_model(provider);
-    listed
-        .iter()
-        .find(|model| model.id == preferred)
-        .or_else(|| listed.iter().find(|model| model.looks_like_chat()))
-        .map(|model| model.id.clone())
+/// The list of each provider that holds a key, or `None` where the list
+/// call failed.
+type KeyedLists = Vec<(Provider, Option<Arc<[ListedModel]>>)>;
+
+/// The default route of the keyed providers' lists: the first preferred
+/// model whose provider lists it, else the newest listed chat model of
+/// the first provider whose list answers, else the preferred model of
+/// the first provider, or `None` when no provider holds a key. Providers
+/// go in the order of the [`DEFAULT_PREFERENCE`].
+fn route_of_lists(lists: &KeyedLists) -> Option<String> {
+    let keyed: Vec<_> = DEFAULT_PREFERENCE
+        .into_iter()
+        .filter_map(|candidate| {
+            let provider = provider_of(candidate);
+            lists
+                .iter()
+                .find(|(listed, _)| *listed == provider)
+                .map(|(_, list)| (provider, list.as_deref()))
+        })
+        .collect();
+    let preferred_listed = keyed.iter().find_map(|(provider, list)| {
+        let model = preferred_model(*provider);
+        (*list)?
+            .iter()
+            .any(|listed| listed.id == model)
+            .then(|| preferred_candidate(*provider).to_string())
+    });
+    let newest_listed = || {
+        keyed.iter().find_map(|(provider, list)| {
+            let model = (*list)?.iter().find(|model| model.looks_like_chat())?;
+            Some(format!("{}/{}", provider.id(), model.id))
+        })
+    };
+    preferred_listed.or_else(newest_listed).or_else(|| {
+        keyed
+            .first()
+            .map(|(provider, _)| preferred_candidate(*provider).to_string())
+    })
 }
 
-/// The preselected default model of one provider, as a candidate: the
-/// [`preselected_model`] of its list, or its preferred model when the
-/// list call fails or lists no chat model.
-pub async fn preselected(models: &ModelCatalog, provider: Provider) -> String {
-    match models.models(provider).await {
-        Ok(list) => match preselected_model(provider, &list) {
-            Some(model) => format!("{}/{model}", provider.id()),
-            None => preferred_candidate(provider).to_string(),
-        },
-        Err(error) => {
-            tracing::warn!(provider = provider.id(), %error, "the default model takes the preferred model");
-            preferred_candidate(provider).to_string()
-        }
-    }
-}
-
-/// The default route for a Workspace that nobody picked a model for:
-/// the first preferred model whose provider holds a key and lists it,
-/// else the newest listed chat model of the first keyed provider whose
-/// list answers, else the preferred model of the first keyed provider,
-/// or `None` when no provider holds a key. Providers go in the order of
-/// the [`DEFAULT_PREFERENCE`].
-pub async fn default_route(
-    keys: &ProviderKeys,
-    models: &ModelCatalog,
-) -> Result<Option<String>, ApiError> {
-    let mut keyed = Vec::new();
-    for candidate in DEFAULT_PREFERENCE {
-        let provider = provider_of(candidate);
-        if keys
-            .resolve(provider)
-            .map_err(crate::settings::secret_error)?
-            .is_none()
+/// The list of each provider that holds a key and serves thinking.
+async fn keyed_lists(keys: &ProviderKeys, models: &ModelCatalog) -> Result<KeyedLists, ApiError> {
+    let mut lists = Vec::new();
+    for provider in PROVIDERS {
+        if !provider.serves(ProviderUse::Thinking)
+            || keys
+                .resolve(provider)
+                .map_err(crate::settings::secret_error)?
+                .is_none()
         {
             continue;
         }
-        let listed = match models.models(provider).await {
+        let list = match models.models(provider).await {
             Ok(list) => Some(list),
             Err(error) => {
                 tracing::warn!(provider = provider.id(), %error, "the provider did not list its models");
                 None
             }
         };
-        keyed.push((provider, listed));
+        lists.push((provider, list));
     }
-    let preferred_listed = keyed.iter().find_map(|(provider, listed)| {
-        let model = preferred_model(*provider);
-        listed
-            .as_ref()?
-            .iter()
-            .any(|listed| listed.id == model)
-            .then(|| preferred_candidate(*provider).to_string())
-    });
-    let newest_listed = || {
-        keyed.iter().find_map(|(provider, listed)| {
-            let model = listed
-                .as_ref()?
-                .iter()
-                .find(|model| model.looks_like_chat())?;
-            Some(format!("{}/{}", provider.id(), model.id))
-        })
-    };
-    Ok(preferred_listed.or_else(newest_listed).or_else(|| {
-        keyed
-            .first()
-            .map(|(provider, _)| preferred_candidate(*provider).to_string())
-    }))
+    Ok(lists)
+}
+
+/// The default route for a Workspace that nobody picked a model for:
+/// the [`route_of_lists`] of the installation's keys.
+pub async fn default_route(
+    keys: &ProviderKeys,
+    models: &ModelCatalog,
+) -> Result<Option<String>, ApiError> {
+    Ok(route_of_lists(&keyed_lists(keys, models).await?))
 }
 
 /// The default route of a Person that an Administrator creates. The
@@ -213,7 +204,7 @@ pub async fn route_for_new_person(
         .await?
         .map(|alias| alias.candidates)
         .unwrap_or_default();
-    let reachable = reachable_candidates(&state.keys, chosen)?;
+    let reachable = reachable_candidates(&state.keys, ProviderUse::Thinking, chosen)?;
     if !reachable.is_empty() {
         return Ok(reachable);
     }
@@ -223,9 +214,11 @@ pub async fn route_for_new_person(
         .collect())
 }
 
-/// The candidates of a route whose provider holds a key, in order.
-fn reachable_candidates(
+/// The candidates of a route whose provider holds a key and serves
+/// `provider_use`, in order.
+pub(crate) fn reachable_candidates(
     keys: &ProviderKeys,
+    provider_use: ProviderUse,
     candidates: Vec<String>,
 ) -> Result<Vec<String>, ApiError> {
     let mut reachable = Vec::new();
@@ -234,10 +227,11 @@ fn reachable_candidates(
             .split_once('/')
             .and_then(|(provider, _)| Provider::from_id(provider));
         let Some(provider) = provider else { continue };
-        if keys
-            .resolve(provider)
-            .map_err(crate::settings::secret_error)?
-            .is_some()
+        if provider.serves(provider_use)
+            && keys
+                .resolve(provider)
+                .map_err(crate::settings::secret_error)?
+                .is_some()
         {
             reachable.push(candidate);
         }
@@ -263,7 +257,7 @@ pub async fn route_unrouted_workspaces(state: &AppState) -> Result<(), ApiError>
         else {
             continue;
         };
-        if !reachable_candidates(&state.keys, alias.candidates)?.is_empty() {
+        if !reachable_candidates(&state.keys, ProviderUse::Thinking, alias.candidates)?.is_empty() {
             continue;
         }
         let candidate = match &route {
@@ -327,10 +321,9 @@ pub fn key_changed(models: &Arc<ModelCatalog>, provider: Provider) {
     });
 }
 
-fn provider_dto(provider: Provider, listed: &[llm_router::ListedModel]) -> ProviderModelsDto {
+fn provider_dto(provider: Provider, listed: &[ListedModel]) -> ProviderModelsDto {
     ProviderModelsDto {
         provider: provider.id().to_string(),
-        preselected: preselected_model(provider, listed),
         models: listed
             .iter()
             .map(|model| {
@@ -364,23 +357,33 @@ pub async fn list_models(
     _tenant: Tenant,
 ) -> Result<Json<ModelListsDto>, ApiError> {
     let mut providers = Vec::new();
+    let mut lists = KeyedLists::new();
     for provider in PROVIDERS {
         match state.models.models(provider).await {
-            Ok(listed) => providers.push(provider_dto(provider, &listed)),
+            Ok(listed) => {
+                providers.push(provider_dto(provider, &listed));
+                lists.push((provider, Some(listed)));
+            }
             Err(ModelListError::NoKey(_)) => {}
             Err(ModelListError::Secret(message)) => {
                 tracing::error!(%message, "secret store error");
                 return Err(ApiError::internal());
             }
-            Err(ModelListError::Provider(error)) => providers.push(ProviderModelsDto {
-                provider: provider.id().to_string(),
-                models: Vec::new(),
-                preselected: None,
-                error: Some(error.to_string()),
-            }),
+            Err(ModelListError::Provider(error)) => {
+                providers.push(ProviderModelsDto {
+                    provider: provider.id().to_string(),
+                    models: Vec::new(),
+                    error: Some(error.to_string()),
+                });
+                lists.push((provider, None));
+            }
         }
     }
-    Ok(Json(ModelListsDto { providers }))
+    let preselected = route_of_lists(&lists);
+    Ok(Json(ModelListsDto {
+        providers,
+        preselected,
+    }))
 }
 
 #[utoipa::path(
@@ -404,23 +407,34 @@ pub async fn set_onboarding_default_model(
     Json(request): Json<SetOnboardingDefaultModelRequest>,
 ) -> Result<StatusCode, ApiError> {
     crate::settings::refuse_after_onboarding(&state, &tenant).await?;
-    let provider =
-        Provider::from_id(&request.provider).ok_or_else(|| ApiError::not_found("provider"))?;
-    if state
-        .keys
-        .resolve(provider)
-        .map_err(crate::settings::secret_error)?
-        .is_none()
-    {
-        return Err(ApiError::validation(format!(
-            "no key is configured for {}",
-            provider.id()
-        )));
-    }
-    let candidate = match request.model.as_deref().map(str::trim) {
-        Some("") => return Err(ApiError::validation("model must not be empty")),
-        Some(model) => format!("{}/{model}", provider.id()),
-        None => preselected(&state.models, provider).await,
+    let candidate = match request.candidate.as_deref().map(str::trim) {
+        None => default_route(&state.keys, &state.models)
+            .await?
+            .ok_or_else(|| ApiError::validation("no provider holds a key"))?,
+        Some(candidate) => {
+            let provider = candidate
+                .split_once('/')
+                .filter(|(provider, model)| !provider.is_empty() && !model.is_empty())
+                .ok_or_else(|| {
+                    ApiError::validation("the model must be a `provider/model` candidate")
+                })?
+                .0;
+            let provider =
+                Provider::from_id(provider).ok_or_else(|| ApiError::not_found("provider"))?;
+            if reachable_candidates(
+                &state.keys,
+                ProviderUse::Thinking,
+                vec![candidate.to_string()],
+            )?
+            .is_empty()
+            {
+                return Err(ApiError::validation(format!(
+                    "no key is configured for {}",
+                    provider.id()
+                )));
+            }
+            candidate.to_string()
+        }
     };
     set_default_route(&state, &tenant.workspace_id, candidate).await?;
     Ok(StatusCode::NO_CONTENT)
@@ -428,9 +442,10 @@ pub async fn set_onboarding_default_model(
 
 #[cfg(test)]
 mod preselection_tests {
+    use llm_router::ListedModel;
     use pagis_core::{PROVIDERS, Provider};
 
-    use super::{DEFAULT_PREFERENCE, preferred_candidate};
+    use super::{DEFAULT_PREFERENCE, preferred_candidate, route_of_lists};
 
     /// Each provider names exactly one model in the Model Preference, so
     /// a provider with a key always has a model to preselect.
@@ -447,33 +462,50 @@ mod preselection_tests {
         }
     }
 
+    fn listed(ids: &[&str]) -> Option<std::sync::Arc<[ListedModel]>> {
+        Some(ids.iter().map(|id| ListedModel::new(*id)).collect())
+    }
+
     /// The preferred model wins over a newer listed model: OpenRouter
     /// lists small free models newest first.
     #[test]
     fn the_preselection_is_the_preferred_model_when_the_list_names_it() {
-        let listed = [
-            llm_router::ListedModel::new("qwen/qwen3.8-27b:free"),
-            llm_router::ListedModel::new("openai/gpt-6-luna"),
-        ];
+        let lists = vec![(
+            Provider::OpenRouter,
+            listed(&["qwen/qwen3.8-27b:free", "openai/gpt-6-luna"]),
+        )];
 
-        let dto = super::provider_dto(Provider::OpenRouter, &listed);
-
-        assert_eq!(dto.preselected.as_deref(), Some("openai/gpt-6-luna"));
+        assert_eq!(
+            route_of_lists(&lists).as_deref(),
+            Some("openrouter/openai/gpt-6-luna")
+        );
     }
 
     /// A list that does not name the preferred model preselects its
     /// newest chat model.
     #[test]
     fn the_preselection_skips_models_that_take_no_chat_turn() {
-        let listed = [
-            llm_router::ListedModel::new("gpt-image-2"),
-            llm_router::ListedModel::new("gpt-realtime-2.1"),
-            llm_router::ListedModel::new("gpt-6-sol"),
-            llm_router::ListedModel::new("gpt-5.6-luna"),
-        ];
+        let lists = vec![(
+            Provider::OpenAi,
+            listed(&[
+                "gpt-image-2",
+                "gpt-realtime-2.1",
+                "gpt-6-sol",
+                "gpt-5.6-luna",
+            ]),
+        )];
 
-        let dto = super::provider_dto(Provider::OpenAi, &listed);
+        assert_eq!(route_of_lists(&lists).as_deref(), Some("openai/gpt-6-sol"));
+    }
 
-        assert_eq!(dto.preselected.as_deref(), Some("gpt-6-sol"));
+    /// A provider whose list is not available takes its preferred model.
+    #[test]
+    fn no_list_takes_the_preferred_model() {
+        let lists = vec![(Provider::Anthropic, None)];
+
+        assert_eq!(
+            route_of_lists(&lists).as_deref(),
+            Some("anthropic/claude-sonnet-5-5")
+        );
     }
 }

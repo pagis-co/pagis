@@ -91,7 +91,7 @@ pub use pending_evidence::{
 pub use seal::{DataKey, SealError, TenantKeys, data_key_name};
 pub use secrets::{
     KeySource, MemorySecretStore, PROVIDERS, Provider, ProviderKeyStatus, ProviderKeys,
-    SecretError, SecretStore, workspace_secret_name,
+    ProviderUse, SecretError, SecretStore, workspace_secret_name,
 };
 pub use skill::{
     FIRST_PARTY_SKILLS, MAX_SKILL_DESCRIPTION, NoSkills, SKILL_SEPARATOR, Skill, SkillMount, Skills,

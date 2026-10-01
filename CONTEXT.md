@@ -117,7 +117,8 @@ only a program on its own machine. A Server is always in it (ADR-0024).
 
 ### Onboarding
 The first steps the Product App shows a new Local Installation: welcome,
-model, computer. It takes one provider key and an optional Docker endpoint.
+providers, computer. It takes a key for one provider or more, the default
+model, and an optional Docker endpoint.
 A server, and a Person whom an Administrator creates, skip it (ADR-0025).
 _Avoid_: wizard
 
@@ -412,6 +413,13 @@ metadata table does not know it. A price that nothing names is unknown,
 never zero. Reading the list is also the key check (`docs/DESIGN.md`,
 ADR-0025).
 _Avoid_: model catalogue, allowed models
+
+### Provider Use
+One thing a provider's key does in Pagis: thinking, spoken replies,
+dictation or calls. A provider serves a Model Alias only for a use it has.
+OpenAI has all four; Anthropic and OpenRouter have thinking. Onboarding
+shows the uses of each provider and what a set of keys covers (ADR-0025).
+_Avoid_: capability (a Grant word), feature
 
 ### Roster
 The Agents of one Workspace. The roster is flat: no Agent has

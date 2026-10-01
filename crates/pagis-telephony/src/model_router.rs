@@ -14,7 +14,7 @@ use llm_router::{
     Candidate, ProviderConfig, RealtimeConnection, RealtimeMessage, RealtimeProtocol, Router,
     RouterConfig,
 };
-use pagis_core::{ModelAliasStore, Provider, ProviderKeys, WorkspaceId};
+use pagis_core::{ModelAliasStore, Provider, ProviderKeys, ProviderUse, WorkspaceId};
 use serde_json::{Value, json};
 use tokio::time::Instant;
 
@@ -97,8 +97,12 @@ impl KeyedModelSessions {
             else {
                 continue;
             };
+            if !provider.serves(ProviderUse::Calls) {
+                continue;
+            }
             let mut provider_config = match provider {
                 Provider::OpenAi => ProviderConfig::openai(key),
+                // `Provider::uses` gives them no call use.
                 Provider::Anthropic | Provider::OpenRouter => continue,
             };
             if let Some(base_url) = self.base_urls.get(&provider) {

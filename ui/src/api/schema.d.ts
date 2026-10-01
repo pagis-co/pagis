@@ -4381,6 +4381,11 @@ export interface components {
         ModelAliasDto: {
             alias: string;
             candidates: string[];
+            /**
+             * @description Whether a candidate names a provider that holds a key and serves
+             *     the alias's use. An alias that is not reachable fails each call.
+             */
+            reachable: boolean;
             settings: components["schemas"]["ModelAliasSettingDto"][];
             /** Format: int64 */
             updated_at: number;
@@ -4409,6 +4414,11 @@ export interface components {
         };
         /** @description The lists of every provider that holds a key. */
         ModelListsDto: {
+            /**
+             * @description The candidate a default pick takes: the default route of these
+             *     keys and lists. `null` when no provider holds a key.
+             */
+            preselected?: string | null;
             providers: components["schemas"]["ProviderModelsDto"][];
         };
         /** @description The multi-user mode as the Settings view shows it (ADR-0024). */
@@ -4474,6 +4484,11 @@ export interface components {
         };
         /** @description Everything the onboarding wizard needs in one read. */
         OnboardingDto: {
+            /**
+             * @description The server-owned key check of each provider that passed one. A
+             *     check whose credential has changed since is left out.
+             */
+            checks: components["schemas"]["ModelCheckDto"][];
             completed: boolean;
             /**
              * @description Docker discovery. A Member reads the endpoint in use and no
@@ -4486,7 +4501,6 @@ export interface components {
              *     discovery. It is `null` for a Member.
              */
             docker_endpoint?: string | null;
-            model?: null | components["schemas"]["ModelCheckDto"];
             providers: components["schemas"]["ProviderKeyDto"][];
         };
         /** @enum {string} */
@@ -4857,6 +4871,11 @@ export interface components {
             configured: boolean;
             provider: string;
             source?: string | null;
+            /**
+             * @description What the key does in Pagis: `thinking`, `spoken_replies`,
+             *     `dictation` and `calls`.
+             */
+            uses: string[];
         };
         /** @description One provider's list, or why it is missing. */
         ProviderModelsDto: {
@@ -4867,12 +4886,6 @@ export interface components {
              *     when `error` is set.
              */
             models: components["schemas"]["ListedModelDto"][];
-            /**
-             * @description The model id a default pick takes: the provider's preferred model
-             *     when the list names it, else the newest listed model whose name
-             *     reads as a chat model. `None` when the list has neither.
-             */
-            preselected?: string | null;
             provider: string;
         };
         ProviderPage: {
@@ -5340,13 +5353,10 @@ export interface components {
         };
         SetOnboardingDefaultModelRequest: {
             /**
-             * @description The model id as the provider lists it, without the provider
-             *     prefix. `null` takes the preselection of the provider's list, or
-             *     the provider's preferred model when its list is not available.
+             * @description The `provider/model` candidate, e.g. `anthropic/claude-sonnet-5-5`.
+             *     `null` takes the preselection.
              */
-            model?: string | null;
-            /** @description `anthropic`, `openai`, or `openrouter`. */
-            provider: string;
+            candidate?: string | null;
         };
         SetOnboardingDockerEndpointRequest: {
             /**
