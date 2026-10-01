@@ -136,7 +136,7 @@
         "tags": [
           "administration"
         ],
-        "summary": "Create an account and the person's Workspace.",
+        "summary": "Create an account and the person's Workspace, and answer the\nPerson's invite.",
         "description": "The Workspace comes from the same seed a local first run uses, so the\nperson signs in to a sprite that can already think: the Org's\nprovider keys serve them and they hold none of their own.",
         "operationId": "create_account",
         "requestBody": {
@@ -155,7 +155,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PersonDto"
+                  "$ref": "#/components/schemas/NewPersonDto"
                 }
               }
             }
@@ -500,6 +500,78 @@
           },
           "422": {
             "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/administration/people/{user_id}/sign-in-links": {
+      "post": {
+        "tags": [
+          "sign_in_links"
+        ],
+        "summary": "Make a new invite for a Person: a link for their next Session, good\nfor seven days and one use. An Administrator asks for one when the\ninvite of the account expired, or when the Person has no Session\nleft.",
+        "operationId": "make_invite_link",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "description": "The person",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignInLinkDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The account is disabled",
             "content": {
               "application/json": {
                 "schema": {
@@ -6403,12 +6475,64 @@
         }
       }
     },
+    "/api/v1/sessions/link": {
+      "post": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Trade the secret of a Sign-In Link of the Public Origin for a\nSession, from any machine.",
+        "description": "The page at `/sign-in` posts the secret, so opening the link spends\nnothing. Each refusal counts against the source address with the\nlimits of a password sign-in, and every refusal answers the same way.",
+        "operationId": "sign_in_with_link",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LinkSignInRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Signed in; the session is in an HTTP-only cookie",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The link is spent, expired or not a link of the Public Origin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/sessions/link/{code}": {
       "get": {
         "tags": [
           "sessions"
         ],
-        "operationId": "sign_in_with_link",
+        "operationId": "sign_in_with_start_link",
         "parameters": [
           {
             "name": "code",
@@ -8273,6 +8397,113 @@
             }
           },
           "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/settings/sessions": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "The live Sessions of the signed-in Person, newest first.",
+        "operationId": "list_my_sessions",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MySessionsDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/settings/sessions/{session_id}": {
+      "delete": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "End one Session of the signed-in Person: a lost phone, or a browser\nthey no longer use. Each socket of that Session closes. A Session of\nanother Person reads as absent. Ending the Session that asks is a\nsign-out, and its answer clears the cookie.",
+        "operationId": "end_my_session",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "description": "One Session of the signed-in Person",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The Session ended"
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/settings/sign-in-links": {
+      "post": {
+        "tags": [
+          "sign_in_links"
+        ],
+        "summary": "Make a link for one more client of the signed-in Person: another\nbrowser, or an app on a phone. It is good for five minutes and one\nuse, and it signs that client in as the same Person.",
+        "operationId": "make_client_link",
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignInLinkDto"
+                }
+              }
+            }
+          },
+          "401": {
             "description": "",
             "content": {
               "application/json": {
@@ -11154,8 +11385,7 @@
         "type": "object",
         "required": [
           "email",
-          "name",
-          "password"
+          "name"
         ],
         "properties": {
           "email": {
@@ -11166,8 +11396,11 @@
             "description": "What the agents call the person."
           },
           "password": {
-            "type": "string",
-            "description": "The first password. The person changes it later; the daemon keeps\nonly its argon2id hash."
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A first password, or `null` for none: the person then signs in\nwith the invite alone. The daemon keeps only its argon2id hash."
           }
         }
       },
@@ -12856,6 +13089,25 @@
         ],
         "description": "The block types the daemon and the UI both know."
       },
+      "LinkSignInRequest": {
+        "type": "object",
+        "required": [
+          "secret"
+        ],
+        "properties": {
+          "secret": {
+            "type": "string",
+            "description": "The secret of a Sign-In Link of the Public Origin: the fragment of\n`<public origin>/sign-in#<secret>`."
+          },
+          "timezone": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The IANA timezone of the browser. At the Person's first sign-in it\nbecomes their timezone, as with a password."
+          }
+        }
+      },
       "ListContactRequest": {
         "type": "object",
         "required": [
@@ -14039,6 +14291,65 @@
           }
         }
       },
+      "MySessionDto": {
+        "type": "object",
+        "description": "One Session of the signed-in Person, for their Sessions list.",
+        "required": [
+          "id",
+          "client_kind",
+          "created_at",
+          "last_used_at",
+          "expires_at",
+          "current"
+        ],
+        "properties": {
+          "client_kind": {
+            "type": "string",
+            "description": "`browser` or `desktop`."
+          },
+          "client_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The machine name of a Client App, or the browser and the system\nof a browser, such as \"Safari on macOS\". `null` where the client\nsaid neither."
+          },
+          "created_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "current": {
+            "type": "boolean",
+            "description": "True for the Session that asks, so the list says which client is\nthis one."
+          },
+          "expires_at": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Thirty days after the last use."
+          },
+          "id": {
+            "type": "string"
+          },
+          "last_used_at": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "MySessionsDto": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MySessionDto"
+            }
+          }
+        }
+      },
       "MyUsageDto": {
         "type": "object",
         "description": "What the signed-in person spent, and the cap they are under.",
@@ -14123,6 +14434,23 @@
               "null"
             ],
             "description": "The password of an inbox the user made at a manual host. A host\nwith an API mints its own and refuses this."
+          }
+        }
+      },
+      "NewPersonDto": {
+        "type": "object",
+        "description": "A new account, and the invite that signs the Person in for the first\ntime.",
+        "required": [
+          "person",
+          "invite"
+        ],
+        "properties": {
+          "invite": {
+            "$ref": "#/components/schemas/SignInLinkDto",
+            "description": "A Sign-In Link of the Public Origin for the Person's first\nSession, good for seven days and one use."
+          },
+          "person": {
+            "$ref": "#/components/schemas/PersonDto"
           }
         }
       },
@@ -16651,6 +16979,30 @@
               "type": "string"
             },
             "description": "The provider ids the flow may take a key for."
+          }
+        }
+      },
+      "SignInLinkDto": {
+        "type": "object",
+        "description": "A link of the Public Origin, as a route that makes one answers it.",
+        "required": [
+          "url",
+          "expires_at",
+          "qr_svg"
+        ],
+        "properties": {
+          "expires_at": {
+            "type": "integer",
+            "format": "int64",
+            "description": "When the link stops working, in Unix milliseconds."
+          },
+          "qr_svg": {
+            "type": "string",
+            "description": "A QR code of the URL, as an SVG document."
+          },
+          "url": {
+            "type": "string",
+            "description": "`<public origin>/sign-in#<secret>`. It is good for one use."
           }
         }
       },

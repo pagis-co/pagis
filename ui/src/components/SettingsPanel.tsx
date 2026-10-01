@@ -6,6 +6,7 @@ import { Connections } from './Connections'
 import { Hosts } from './settings/Hosts'
 import { ModelsSettings } from './ModelsSettings'
 import { Retention } from './settings/Retention'
+import { Sessions } from './settings/Sessions'
 import { Usage } from './settings/Usage'
 import { SettingsNav } from './settings/SettingsNav'
 import { Vault } from './settings/Vault'
@@ -21,6 +22,7 @@ import './settings.css'
 export type SettingsSection =
   | 'connections'
   | 'hosts'
+  | 'sessions'
   | 'vault'
   | 'trusted-contacts'
   | 'models'
@@ -35,14 +37,15 @@ export interface SettingsGroup {
   sections: { value: SettingsSection; label: string }[]
 }
 
-/** Three groups: who the agents reach, what they think with, and the
- *  machine they run on. */
+/** Three groups: who reaches the Workspace and whom the agents reach,
+ *  what they think with, and the machine they run on. */
 export const SETTINGS_GROUPS: SettingsGroup[] = [
   {
     label: 'Access',
     sections: [
       { value: 'connections', label: 'Connections' },
       { value: 'hosts', label: 'Hosts' },
+      { value: 'sessions', label: 'Sessions' },
       { value: 'vault', label: 'Vault' },
       { value: 'trusted-contacts', label: 'Trusted contacts' },
     ],
@@ -157,6 +160,7 @@ export function SettingsPanel({
         </section>
       )}
       {section === 'hosts' && <Hosts api={api} />}
+      {section === 'sessions' && <Sessions api={api} />}
       {section === 'vault' && <Vault api={api} />}
       {section === 'trusted-contacts' && <TrustedContacts api={api} />}
       {section === 'models' && <ModelsSettings api={api} />}

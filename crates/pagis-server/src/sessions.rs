@@ -1,4 +1,4 @@
-//! The two ways in, and the way out.
+//! The ways in, and the ways out.
 //!
 //! **Password**, on a server: `POST /api/v1/sessions` takes an email and
 //! a password and answers with a session cookie. A refusal never says
@@ -23,21 +23,36 @@
 //! gets `429` and does not queue. So a burst of sign-ins holds at most
 //! one thread for each core, and every other request still answers.
 //!
+//! **Sign-In Link of the Public Origin**, on every installation:
+//! `POST /api/v1/sessions/link` takes the secret of a link that a
+//! signed-in Person, an Administrator or `pagis pair` made
+//! ([`crate::sign_in_links`]) and answers with a session cookie, from
+//! any machine. It counts each refusal against the source address with
+//! the same limits as a password, so a guess at a secret costs what a
+//! guess at a password costs.
+//!
 //! **Client Credential**, on a local installation: the daemon writes
 //! `~/.pagis/client-credential` on first run, readable only by the OS
 //! user, and the Client App trades it at
 //! `POST /api/v1/sessions/client`. The file is never handed to a
 //! browser; a browser a person opens by hand gets in through the
-//! one-time sign-in link the `pagis` binary prints.
+//! start link the `pagis` binary prints.
 //!
-//! The trade and the link answer a request from this machine alone,
-//! never one that came through a proxy, even a proxy on the same
+//! The trade and the start link answer a request from this machine
+//! alone, never one that came through a proxy, even a proxy on the same
 //! machine ([`crate::forwarded::is_from_this_machine`] holds the rule).
 //! A local installation that other People reach through the owner's
 //! proxy therefore keeps both as the owner's own way in.
 //!
 //! A server holds no Client Credential, so it refuses both the exchange
-//! and the link, and a credential file is never a way into a server.
+//! and the start link, and a credential file is never a way into a
+//! server.
+//!
+//! **The ways out**: a Person signs out of the Session they hold, and
+//! reads and removes their own other Sessions in Settings. A browser
+//! Session carries the name of its browser and system, from its
+//! `User-Agent` ([`crate::client_name`]), so the Person knows which one
+//! to remove.
 //!
 //! Over a network the Session cookie carries `Secure` when the
 //! reverse proxy reports TLS, and the rate limit counts against the
@@ -57,16 +72,16 @@ use axum::extract::{ConnectInfo, Path, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use pagis_core::{
-    ClientKind, SESSION_LIFETIME_MS, SIGN_IN_LINK_LIFETIME_MS, Session, SessionId, SignInLink,
-    SignInLinkId, SignInLinkStore, StoreError, UnixMillis, User, UserId,
+    ClientKind, SESSION_LIFETIME_MS, Session, SessionId, SignInLinkKind, UnixMillis, User, UserId,
 };
 use rand::RngCore;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tokio::sync::Semaphore;
 use utoipa::ToSchema;
 
 use crate::AppState;
 use crate::auth::{Tenant, cleared_session_cookie, hash_secret, session_cookie};
+use crate::client_name::browser_session_name;
 use crate::error::ApiError;
 use crate::user::UserDto;
 
@@ -241,12 +256,12 @@ impl SignInLimits {
         let mut counts = self.counts.lock().expect("sign-in limit lock");
         counts.retain(|_, counts| now - counts.first_at < ATTEMPT_WINDOW_MS);
         if keys
-            .both()
+            .all()
             .any(|key| counts.get(key).is_some_and(Counts::is_locked))
         {
             return None;
         }
-        for key in keys.both() {
+        for key in keys.all() {
             counts
                 .entry(key.clone())
                 .or_insert_with(|| Counts::new(now))
@@ -260,20 +275,30 @@ impl SignInLimits {
 /// names, and where it came from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct LimitKeys {
-    account: String,
+    /// `None` for a Sign-In Link, whose secret names no account until it
+    /// is spent.
+    account: Option<String>,
     address: String,
 }
 
 impl LimitKeys {
     fn new(email: &str, address: IpAddr) -> Self {
         Self {
-            account: format!("account:{}", email.trim().to_lowercase()),
+            account: Some(format!("account:{}", email.trim().to_lowercase())),
             address: format!("address:{address}"),
         }
     }
 
-    fn both(&self) -> impl Iterator<Item = &String> {
-        [&self.account, &self.address].into_iter()
+    /// The keys of an attempt that names no account: the address alone.
+    fn address(address: IpAddr) -> Self {
+        Self {
+            account: None,
+            address: format!("address:{address}"),
+        }
+    }
+
+    fn all(&self) -> impl Iterator<Item = &String> {
+        self.account.iter().chain(std::iter::once(&self.address))
     }
 }
 
@@ -289,7 +314,7 @@ impl Reservation<'_> {
     /// The password was not checked, so the attempt does not count.
     fn release(self) {
         let mut counts = self.limits.counts.lock().expect("sign-in limit lock");
-        for key in self.keys.both() {
+        for key in self.keys.all() {
             if let Some(counts) = counts.get_mut(key) {
                 counts.failures = counts.failures.saturating_sub(1);
             }
@@ -300,7 +325,9 @@ impl Reservation<'_> {
     /// the address counts a sign-in in place of the attempt.
     fn succeed(self, now: UnixMillis) {
         let mut counts = self.limits.counts.lock().expect("sign-in limit lock");
-        counts.remove(&self.keys.account);
+        if let Some(account) = &self.keys.account {
+            counts.remove(account);
+        }
         let address = counts
             .entry(self.keys.address)
             .or_insert_with(|| Counts::new(now));
@@ -348,11 +375,25 @@ pub struct PasswordSignInRequest {
 /// The longest machine name a Session keeps.
 const CLIENT_NAME_MAX: usize = 255;
 
-/// The kind of client a sign-in came from, and its machine name. The
-/// Client App names its machine; a browser names nothing.
-fn session_client(client_name: Option<&str>) -> Result<(ClientKind, Option<String>), ApiError> {
+/// A refused Sign-In Link. It is the same answer for a secret that
+/// names no link, a link that is spent or expired, a link of the other
+/// kind, and a link of a disabled Person.
+fn link_refused() -> ApiError {
+    ApiError {
+        status: StatusCode::UNAUTHORIZED,
+        code: "unauthorized",
+        message: "that sign-in link is spent or expired".to_string(),
+    }
+}
+
+/// The kind of client a sign-in came from, and its name. The Client App
+/// names its machine; a browser is named for its `User-Agent`.
+fn session_client(
+    client_name: Option<&str>,
+    headers: &HeaderMap,
+) -> Result<(ClientKind, Option<String>), ApiError> {
     match client_name.map(str::trim).filter(|name| !name.is_empty()) {
-        None => Ok((ClientKind::Browser, None)),
+        None => Ok((ClientKind::Browser, browser_session_name(headers))),
         Some(name) if name.chars().count() > CLIENT_NAME_MAX => Err(ApiError::validation(format!(
             "client_name is longer than {CLIENT_NAME_MAX} characters"
         ))),
@@ -377,7 +418,7 @@ pub async fn sign_in_with_password(
     Json(body): Json<PasswordSignInRequest>,
 ) -> Result<Response, ApiError> {
     let now = state.clock.now_ms();
-    let (client_kind, client_name) = session_client(body.client_name.as_deref())?;
+    let (client_kind, client_name) = session_client(body.client_name.as_deref(), &headers)?;
     // Behind a reverse proxy every request comes from the proxy, so the
     // limiter would count one address for the whole network. It counts
     // the address the trusted proxy forwarded instead.
@@ -461,12 +502,85 @@ pub async fn sign_in_with_client_credential(
     let secure = state.proxy.is_secure(peer, &headers);
     // Only the Client App holds the credential, so the Session is its own
     // whether or not it names the machine.
-    let (_, client_name) = session_client(body.client_name.as_deref())?;
+    let (_, client_name) = session_client(body.client_name.as_deref(), &headers)?;
     open_session(
         &state,
         &user.id,
         ClientKind::Desktop,
         client_name,
+        now,
+        secure,
+    )
+    .await
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct LinkSignInRequest {
+    /// The secret of a Sign-In Link of the Public Origin: the fragment of
+    /// `<public origin>/sign-in#<secret>`.
+    pub secret: String,
+    /// The IANA timezone of the browser. At the Person's first sign-in it
+    /// becomes their timezone, as with a password.
+    #[serde(default)]
+    pub timezone: Option<String>,
+}
+
+/// Trade the secret of a Sign-In Link of the Public Origin for a
+/// Session, from any machine.
+///
+/// The page at `/sign-in` posts the secret, so opening the link spends
+/// nothing. Each refusal counts against the source address with the
+/// limits of a password sign-in, and every refusal answers the same way.
+#[utoipa::path(
+    post,
+    path = "/api/v1/sessions/link",
+    request_body = LinkSignInRequest,
+    responses(
+        (status = 200, body = UserDto, description = "Signed in; the session is in an HTTP-only cookie"),
+        (status = 401, body = crate::error::ErrorBody, description = "The link is spent, expired or not a link of the Public Origin"),
+        (status = 429, body = crate::error::ErrorBody),
+    )
+)]
+pub async fn sign_in_with_link(
+    State(state): State<Arc<AppState>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Json(body): Json<LinkSignInRequest>,
+) -> Result<Response, ApiError> {
+    let now = state.clock.now_ms();
+    let keys = LimitKeys::address(state.proxy.client_address(peer, &headers));
+    let secure = state.proxy.is_secure(peer, &headers);
+    // The attempt counts before the first await, as a password does.
+    let attempt = state
+        .sign_in_limits
+        .reserve(keys, now)
+        .ok_or_else(rate_limited)?;
+    let spent = state
+        .sign_in_links
+        .consume(
+            &hash_secret(body.secret.trim()),
+            SignInLinkKind::PublicOrigin,
+            now,
+        )
+        .await?;
+    let user = match spent {
+        Some(user_id) => state.users.get(&user_id).await?,
+        None => None,
+    };
+    // A disabled Person signs in to nothing; the link is spent all the
+    // same, and the refusal keeps the attempt counted.
+    let Some(user) = user.filter(|user| !user.is_disabled()) else {
+        return Err(link_refused());
+    };
+    attempt.succeed(now);
+    if user.last_signed_in_at.is_none() {
+        crate::workspace::take_first_timezone(&state, &user.id, body.timezone.as_deref()).await?;
+    }
+    open_session(
+        &state,
+        &user.id,
+        ClientKind::Browser,
+        browser_session_name(&headers),
         now,
         secure,
     )
@@ -484,14 +598,14 @@ pub async fn sign_in_with_client_credential(
         (status = 404, body = crate::error::ErrorBody, description = "This installation holds no Client Credential"),
     )
 )]
-pub async fn sign_in_with_link(
+pub async fn sign_in_with_start_link(
     State(state): State<Arc<AppState>>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     Path(code): Path<String>,
 ) -> Result<Response, ApiError> {
-    // The link belongs to a local installation, as the Client Credential
-    // does: a server signs a browser in with a password.
+    // The start link belongs to a local installation, as the Client
+    // Credential does.
     if state.client_credential.is_none() {
         return Err(ApiError::not_found("a sign-in link"));
     }
@@ -499,16 +613,19 @@ pub async fn sign_in_with_link(
     let now = state.clock.now_ms();
     let Some(user_id) = state
         .sign_in_links
-        .consume(&hash_secret(&code), now)
+        .consume(&hash_secret(&code), SignInLinkKind::Start, now)
         .await?
     else {
-        return Err(ApiError {
-            status: StatusCode::UNAUTHORIZED,
-            code: "unauthorized",
-            message: "that sign-in link is spent or expired".to_string(),
-        });
+        return Err(link_refused());
     };
-    let secret = mint_session(&state, &user_id, ClientKind::Browser, None, now).await?;
+    let secret = mint_session(
+        &state,
+        &user_id,
+        ClientKind::Browser,
+        browser_session_name(&headers),
+        now,
+    )
+    .await?;
     let secure = state.proxy.is_secure(peer, &headers);
     Ok((
         StatusCode::SEE_OTHER,
@@ -538,6 +655,105 @@ pub async fn sign_out(
     // connection that opens between the two finds no Session.
     state.sessions.delete(&tenant.session_id).await?;
     state.live_connections.end_session(&tenant.session_id);
+    let secure = state.proxy.is_secure(peer, &headers);
+    Ok((
+        StatusCode::NO_CONTENT,
+        [(header::SET_COOKIE, cleared_session_cookie(secure))],
+    )
+        .into_response())
+}
+
+/// One Session of the signed-in Person, for their Sessions list.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct MySessionDto {
+    pub id: String,
+    /// `browser` or `desktop`.
+    pub client_kind: String,
+    /// The machine name of a Client App, or the browser and the system
+    /// of a browser, such as "Safari on macOS". `null` where the client
+    /// said neither.
+    pub client_name: Option<String>,
+    pub created_at: i64,
+    pub last_used_at: i64,
+    /// Thirty days after the last use.
+    pub expires_at: i64,
+    /// True for the Session that asks, so the list says which client is
+    /// this one.
+    pub current: bool,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct MySessionsDto {
+    pub items: Vec<MySessionDto>,
+}
+
+/// The live Sessions of the signed-in Person, newest first.
+#[utoipa::path(
+    get,
+    path = "/api/v1/settings/sessions",
+    responses(
+        (status = 200, body = MySessionsDto),
+        (status = 401, body = crate::error::ErrorBody),
+    )
+)]
+pub async fn list_my_sessions(
+    State(state): State<Arc<AppState>>,
+    tenant: Tenant,
+) -> Result<Json<MySessionsDto>, ApiError> {
+    let now = state.clock.now_ms();
+    let items = state
+        .sessions
+        .list_live_for_user(&tenant.user_id, now)
+        .await?
+        .into_iter()
+        .map(|session| MySessionDto {
+            current: session.id == tenant.session_id,
+            id: session.id.to_string(),
+            client_kind: session.client_kind.as_str().to_string(),
+            client_name: session.client_name,
+            created_at: session.created_at,
+            last_used_at: session.last_used_at,
+            expires_at: session.expires_at,
+        })
+        .collect();
+    Ok(Json(MySessionsDto { items }))
+}
+
+/// End one Session of the signed-in Person: a lost phone, or a browser
+/// they no longer use. Each socket of that Session closes. A Session of
+/// another Person reads as absent. Ending the Session that asks is a
+/// sign-out, and its answer clears the cookie.
+#[utoipa::path(
+    delete,
+    path = "/api/v1/settings/sessions/{session_id}",
+    params(("session_id" = String, Path, description = "One Session of the signed-in Person")),
+    responses(
+        (status = 204, description = "The Session ended"),
+        (status = 401, body = crate::error::ErrorBody),
+        (status = 404, body = crate::error::ErrorBody),
+    )
+)]
+pub async fn end_my_session(
+    State(state): State<Arc<AppState>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    tenant: Tenant,
+    Path(session_id): Path<String>,
+) -> Result<Response, ApiError> {
+    let now = state.clock.now_ms();
+    let session = state
+        .sessions
+        .find_live_by_id(&SessionId::from(session_id), now)
+        .await?
+        .filter(|session| session.user_id == tenant.user_id)
+        .ok_or_else(|| ApiError::not_found("that session"))?;
+    // The record goes first and the live connections after, as at a
+    // sign-out.
+    state.sessions.delete(&session.id).await?;
+    state.live_connections.end_session(&session.id);
+    if session.id != tenant.session_id {
+        return Ok(StatusCode::NO_CONTENT.into_response());
+    }
     let secure = state.proxy.is_secure(peer, &headers);
     Ok((
         StatusCode::NO_CONTENT,
@@ -634,36 +850,6 @@ async fn mint_session(
     Ok(secret)
 }
 
-/// Write a one-time sign-in link and return the URL to open. The `pagis`
-/// binary prints it: it is good for one minute and one use.
-///
-/// It is the one URL of the daemon that carries a secret, and it
-/// is bounded on both sides: one minute of life and one use. A link a
-/// log or a browser history kept is already spent. The URL starts at the
-/// Public Origin, so a person on another machine follows the same link.
-pub async fn mint_sign_in_link(
-    links: &dyn SignInLinkStore,
-    user_id: &UserId,
-    public_origin: &str,
-    now: UnixMillis,
-) -> Result<String, StoreError> {
-    let secret = random_secret();
-    links
-        .create(&SignInLink {
-            id: SignInLinkId::generate(),
-            user_id: user_id.clone(),
-            token_hash: hash_secret(&secret),
-            created_at: now,
-            expires_at: now + SIGN_IN_LINK_LIFETIME_MS,
-            used_at: None,
-        })
-        .await?;
-    Ok(format!(
-        "{}/api/v1/sessions/link/{secret}",
-        public_origin.trim_end_matches('/')
-    ))
-}
-
 /// A 32-byte secret in lowercase hexadecimal, for a cookie or a link.
 pub fn random_secret() -> String {
     let mut bytes = [0u8; 32];
@@ -702,10 +888,49 @@ mod tests {
         assert_eq!(
             keys(),
             LimitKeys {
-                account: "account:ada@example.com".to_string(),
+                account: Some("account:ada@example.com".to_string()),
                 address: "address:127.0.0.1".to_string(),
             }
         );
+    }
+
+    /// A link names no account, so its refusals count against the
+    /// address alone, and the address they lock is locked for a
+    /// password too.
+    #[test]
+    fn link_refusals_lock_the_address_alone() {
+        let limits = SignInLimits::default();
+        let link = || LimitKeys::address("127.0.0.1".parse().unwrap());
+        for attempt in 0..MAX_ATTEMPTS {
+            assert!(
+                limits.reserve(link(), 0).is_some(),
+                "attempt {attempt} is allowed"
+            );
+        }
+        assert!(limits.reserve(link(), 0).is_none());
+        assert!(
+            limits.reserve(keys(), 0).is_none(),
+            "a password from the same address is locked too"
+        );
+        assert!(
+            limits
+                .reserve(keys_at("ada@example.com", "192.0.2.1"), 0)
+                .is_some(),
+            "the account itself is not locked"
+        );
+    }
+
+    #[test]
+    fn a_link_sign_in_counts_against_the_address() {
+        let limits = SignInLimits::default();
+        let link = || LimitKeys::address("127.0.0.1".parse().unwrap());
+        for sign_in in 0..MAX_SIGN_INS {
+            limits
+                .reserve(link(), 0)
+                .unwrap_or_else(|| panic!("sign-in {sign_in} is allowed"))
+                .succeed(0);
+        }
+        assert!(limits.reserve(link(), 0).is_none());
     }
 
     #[test]

@@ -1,0 +1,34 @@
+/* A Sign-In Link: the QR code over the address and its copy button,
+ * and the time left under them. Every value comes from `tokens.css`. */
+
+.sign-in-link {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* The code carries its own light square and quiet zone, so a camera
+ * reads it in the dark theme too. */
+.sign-in-link-qr {
+  width: 15rem;
+  height: 15rem;
+  border-radius: var(--radius-md);
+}
+
+.sign-in-link-address {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+}
+
+.sign-in-link-address > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.sign-in-link-left {
+  font-size: var(--text-sm);
+  color: var(--muted);
+}

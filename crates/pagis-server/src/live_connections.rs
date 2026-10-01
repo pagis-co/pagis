@@ -2,9 +2,11 @@
 //!
 //! A socket and a Media Relay path check the Session once, when they
 //! open, and then live on. The Session can end while they are open: the
-//! Person signs out; an Administrator disables the Person, resets their
-//! password or sets a way in for them; or the Session reaches its
-//! expiry. Each Session that holds a live connection has one signal
+//! Person signs out or removes it from their Sessions list; an
+//! Administrator disables the Person, resets their password or sets a
+//! way in for them; or the Session reaches its expiry. A use of the
+//! Session moves its expiry, and the expiry here moves with it. Each
+//! Session that holds a live connection has one signal
 //! here. Every socket and every Media Relay path of that Session waits
 //! on the signal and closes when it fires. The OWASP WebSocket Security
 //! Cheat Sheet recommends this: authority is checked during the
@@ -19,6 +21,7 @@
 //! all.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -43,10 +46,12 @@ pub struct LiveConnections {
     sessions: Mutex<HashMap<SessionId, LiveSession>>,
 }
 
-/// The signal of one Session, and the Person the Session belongs to.
+/// The signal of one Session, the Person the Session belongs to, and
+/// when it expires.
 struct LiveSession {
     user_id: UserId,
     ended: CancellationToken,
+    expires_at: Arc<AtomicI64>,
 }
 
 impl LiveConnections {
@@ -63,34 +68,51 @@ impl LiveConnections {
     /// first live connection of a Session makes the signal, and a timer
     /// that fires it at the Session's expiry.
     pub fn bind(self: &Arc<Self>, tenant: &Tenant) -> CancellationToken {
-        let ended = {
+        let (ended, expires_at) = {
             let mut sessions = self.sessions.lock().expect("live connections lock");
             if let Some(session) = sessions.get(&tenant.session_id) {
+                session
+                    .expires_at
+                    .fetch_max(tenant.session_expires_at, Ordering::SeqCst);
                 return session.ended.child_token();
             }
             let ended = CancellationToken::new();
+            let expires_at = Arc::new(AtomicI64::new(tenant.session_expires_at));
             sessions.insert(
                 tenant.session_id.clone(),
                 LiveSession {
                     user_id: tenant.user_id.clone(),
                     ended: ended.clone(),
+                    expires_at: Arc::clone(&expires_at),
                 },
             );
-            ended
+            (ended, expires_at)
         };
         let connections = Arc::clone(self);
         let session_id = tenant.session_id.clone();
-        let expires_at = tenant.session_expires_at;
         let signal = ended.clone();
         tokio::spawn(async move {
             tokio::select! {
                 () = signal.cancelled() => {}
-                () = reach(connections.clock.as_ref(), expires_at) => {
+                () = reach_expiry(connections.clock.as_ref(), &expires_at) => {
                     connections.end_session(&session_id);
                 }
             }
         });
         ended.child_token()
+    }
+
+    /// Move the expiry of one Session that holds a live connection: a
+    /// request used the Session. An expiry never moves back.
+    pub fn extend(&self, session_id: &SessionId, expires_at: UnixMillis) {
+        if let Some(session) = self
+            .sessions
+            .lock()
+            .expect("live connections lock")
+            .get(session_id)
+        {
+            session.expires_at.fetch_max(expires_at, Ordering::SeqCst);
+        }
     }
 
     /// End one Session: the Person signed out of it.
@@ -118,6 +140,18 @@ impl LiveConnections {
                 session.ended.cancel();
                 false
             });
+    }
+}
+
+/// Complete when `clock` reaches the expiry. An expiry that moved while
+/// the wait ran is waited for again.
+async fn reach_expiry(clock: &dyn Clock, expires_at: &AtomicI64) {
+    loop {
+        let at = expires_at.load(Ordering::SeqCst);
+        reach(clock, at).await;
+        if expires_at.load(Ordering::SeqCst) <= at {
+            return;
+        }
     }
 }
 
@@ -240,6 +274,25 @@ mod tests {
         assert!(laptop.is_cancelled());
         assert!(phone.is_cancelled());
         assert!(!someone_else.is_cancelled());
+    }
+
+    /// A use of the Session moves its expiry, and the signal waits for
+    /// the new one.
+    #[tokio::test]
+    async fn a_signal_waits_for_an_expiry_that_moved() {
+        let connections = LiveConnections::new(Arc::new(pagis_core::SystemClock));
+        let session = tenant(&UserId::generate(), pagis_core::now_ms() + 50);
+        let expiring = connections.bind(&session);
+
+        connections.extend(&session.session_id, later());
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(
+            !expiring.is_cancelled(),
+            "the signal fired at the expiry the Session had before its use"
+        );
+
+        connections.end_session(&session.session_id);
+        assert!(expiring.is_cancelled());
     }
 
     #[tokio::test]

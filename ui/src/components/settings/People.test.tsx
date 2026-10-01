@@ -33,6 +33,23 @@ const MEMBER = {
   created_at: 2,
 }
 
+/** The person the administrator creates. */
+const MABEL = {
+  ...MEMBER,
+  id: 'u-mabel',
+  email: 'mabel@example.com',
+  name: 'Mabel',
+  workspace_id: 'ws-3',
+  monthly_spend_cap_usd: null,
+}
+
+/** An invite as the daemon answers it: good for seven days. */
+const INVITE = {
+  url: 'https://pagis.example/sign-in#secret',
+  expires_at: Date.now() + 7 * 24 * 60 * 60 * 1_000,
+  qr_svg: '<svg xmlns="http://www.w3.org/2000/svg"></svg>',
+}
+
 function total(costUsd: number) {
   return {
     input_tokens: 10,
@@ -65,7 +82,15 @@ function stubApi() {
       }
       throw new Error(`unexpected GET ${path}`)
     }),
-    POST: vi.fn(async () => ({ data: MEMBER })),
+    POST: vi.fn(async (path: string) => {
+      if (path === '/api/v1/administration/people') {
+        return { data: { person: MABEL, invite: INVITE } }
+      }
+      if (path === '/api/v1/administration/people/{user_id}/sign-in-links') {
+        return { data: INVITE }
+      }
+      return { data: MEMBER }
+    }),
     PUT: vi.fn(async () => ({ data: MEMBER })),
   }
 }
@@ -123,6 +148,63 @@ describe('People', () => {
         },
       }),
     )
+  })
+
+  it('creates an account with no password and shows the invite', async () => {
+    const api = stubApi()
+    mount(api)
+    await screen.findByText('Grace')
+
+    await userEvent.type(screen.getByLabelText('Email address'), 'mabel@example.com')
+    await userEvent.type(screen.getByLabelText('Name'), 'Mabel')
+    await userEvent.click(screen.getByRole('button', { name: 'Create account' }))
+
+    await waitFor(() =>
+      expect(api.POST).toHaveBeenCalledWith('/api/v1/administration/people', {
+        body: { email: 'mabel@example.com', name: 'Mabel' },
+      }),
+    )
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText(/Send this link to Mabel/)).toBeTruthy()
+    expect(
+      (within(dialog).getByLabelText('Sign-in link') as HTMLInputElement).value,
+    ).toBe(INVITE.url)
+    expect(within(dialog).getByAltText('QR code of the sign-in link')).toBeTruthy()
+    expect(within(dialog).getByText(/Expires in 7 days/)).toBeTruthy()
+  })
+
+  it('makes a new invite for a person on the roster', async () => {
+    const api = stubApi()
+    mount(api)
+    const grace = (await screen.findByText('Grace')).closest('.people-row') as HTMLElement
+
+    await userEvent.click(within(grace).getByRole('button', { name: 'New invite for Grace' }))
+
+    await waitFor(() =>
+      expect(api.POST).toHaveBeenCalledWith(
+        '/api/v1/administration/people/{user_id}/sign-in-links',
+        { params: { path: { user_id: 'u-grace' } } },
+      ),
+    )
+    const dialog = await screen.findByRole('dialog')
+    expect(
+      (within(dialog).getByLabelText('Sign-in link') as HTMLInputElement).value,
+    ).toBe(INVITE.url)
+  })
+
+  it('offers no invite for a disabled account', async () => {
+    const api = stubApi()
+    api.GET = vi.fn(async (path: string) => {
+      if (path === '/api/v1/administration/people') {
+        return { data: { items: [ADMINISTRATOR, { ...MEMBER, disabled: true }] } }
+      }
+      return { data: { from: 0, to: 1, total: total(0), items: [] } }
+    })
+    mount(api)
+
+    const grace = (await screen.findByText('Grace')).closest('.people-row') as HTMLElement
+    const invite = within(grace).getByRole('button', { name: 'New invite for Grace' })
+    expect(invite.getAttribute('disabled')).not.toBeNull()
   })
 
   it('disables an account and offers to enable a disabled one', async () => {

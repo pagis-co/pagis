@@ -159,7 +159,7 @@ async fn the_administrator_reads_spend_per_person() {
     let channel = daemon.dm_channel_id.clone();
 
     // A second person, who spends nothing.
-    let person: serde_json::Value = client()
+    let created: serde_json::Value = client()
         .post(format!(
             "{}/api/v1/administration/people",
             daemon.administration_base_url
@@ -176,6 +176,7 @@ async fn the_administrator_reads_spend_per_person() {
         .json()
         .await
         .unwrap();
+    let person = &created["person"];
 
     say(&daemon, daemon.cookie(), &channel, "p1", "Do a thing").await;
     wait_for_usage(&daemon, daemon.cookie()).await;

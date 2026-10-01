@@ -15,6 +15,7 @@ pub mod logging;
 pub mod mail_events;
 mod package;
 mod page_signals;
+mod pair;
 pub mod plugin_tools;
 pub mod retention;
 pub mod schedule_tools;
@@ -29,10 +30,11 @@ pub use analytics::AnalyticsOptions;
 pub use app::{AppOptions, Interfaces, app};
 pub use boot::{
     Booted, CLIENT_CREDENTIAL_FILE, Installation, boot, create_state_directory,
-    plugin_logs_directory, sign_in_link,
+    plugin_logs_directory, start_link,
 };
 pub use config::{Administration, Config, Screen, Turn};
 pub use package::validate_server_package;
+pub use pair::{Pairing, pair};
 pub use secrets::{EncryptedFileSecretStore, platform_secret_store};
 pub use spa::product_app_is_built;
 pub use system::{FileSystemConfig, taken_administration_port_message, taken_port_message};

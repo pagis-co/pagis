@@ -32,7 +32,8 @@ async fn create_account(daemon: &TestDaemon, email: &str) -> serde_json::Value {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::CREATED);
-    response.json().await.unwrap()
+    let created: serde_json::Value = response.json().await.unwrap();
+    created["person"].clone()
 }
 
 /// Sign in with a password and answer the `Cookie` header value.

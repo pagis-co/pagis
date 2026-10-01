@@ -154,7 +154,9 @@ impl ClientKind {
     }
 }
 
-/// How long a Session lives before the person signs in again.
+/// How long a Session lives after its last use. A use moves the expiry
+/// forward, because a client that signed in with a Sign-In Link has no
+/// password to sign in with again (ADR-0028).
 pub const SESSION_LIFETIME_MS: i64 = 30 * 24 * 60 * 60 * 1_000;
 
 /// What a signed-in client holds. The record never holds the cookie
@@ -165,24 +167,67 @@ pub struct Session {
     pub user_id: UserId,
     pub token_hash: String,
     pub client_kind: ClientKind,
-    /// The machine name a Client App reported when it signed in. A
-    /// browser Session has none.
+    /// What the client is called: the machine name a Client App
+    /// reported, or the browser and the system that a browser's
+    /// User-Agent names, such as "Safari on macOS". `None` where the
+    /// client says neither.
     pub client_name: Option<String>,
     pub created_at: UnixMillis,
     pub last_used_at: UnixMillis,
+    /// [`SESSION_LIFETIME_MS`] after the last use.
     pub expires_at: UnixMillis,
 }
 
-/// How long a one-time sign-in link stays usable.
-pub const SIGN_IN_LINK_LIFETIME_MS: i64 = 60 * 1_000;
+/// Where a Sign-In Link is spent. Each route that spends a link spends
+/// a link of its own kind alone, so a link never opens a way in that it
+/// was not made for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SignInLinkKind {
+    /// The link that the `pagis` binary prints at start on a Local
+    /// Installation. A browser on the same machine opens it, and the
+    /// daemon accepts it from that machine alone (ADR-0025).
+    Start,
+    /// A link of the Public Origin, `<public origin>/sign-in#<secret>`.
+    /// A client on any machine that reaches the Public Origin spends it
+    /// (ADR-0028).
+    PublicOrigin,
+}
 
-/// A one-time sign-in link, for a browser a person opens by hand on a
-/// local installation. It is good for one minute and one use.
+impl SignInLinkKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SignInLinkKind::Start => "start",
+            SignInLinkKind::PublicOrigin => "public_origin",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "start" => Some(SignInLinkKind::Start),
+            "public_origin" => Some(SignInLinkKind::PublicOrigin),
+            _ => None,
+        }
+    }
+}
+
+/// How long the start link stays usable.
+pub const START_LINK_LIFETIME_MS: i64 = 60 * 1_000;
+/// How long a link of the Public Origin for one more client stays
+/// usable: the link a signed-in Person makes in Settings, and the link
+/// that `pagis pair` prints.
+pub const CLIENT_LINK_LIFETIME_MS: i64 = 5 * 60 * 1_000;
+/// How long the link of an invite stays usable. An Administrator who
+/// creates a Person sends it, and the Person can open it days later.
+pub const INVITE_LINK_LIFETIME_MS: i64 = 7 * 24 * 60 * 60 * 1_000;
+
+/// A one-use URL whose secret trades for a Session of one Person. The
+/// record holds only the SHA-256 of the secret.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SignInLink {
     pub id: SignInLinkId,
     pub user_id: UserId,
     pub token_hash: String,
+    pub kind: SignInLinkKind,
     pub created_at: UnixMillis,
     pub expires_at: UnixMillis,
     pub used_at: Option<UnixMillis>,
@@ -287,14 +332,27 @@ pub trait SessionStore: Send + Sync {
         id: &SessionId,
         now: UnixMillis,
     ) -> Result<Option<Session>, StoreError>;
-    /// Remember that the Session was used. The daemon does this rarely,
-    /// so one request is not one write.
-    async fn touch(&self, id: &SessionId, at: UnixMillis) -> Result<(), StoreError>;
+    /// Remember that the Session was used at `at`, and move its expiry
+    /// to `expires_at`. The daemon does this rarely, so one request is
+    /// not one write.
+    async fn touch(
+        &self,
+        id: &SessionId,
+        at: UnixMillis,
+        expires_at: UnixMillis,
+    ) -> Result<(), StoreError>;
     /// Every Session that has not expired, newest first. The
     /// Administration Interface reads it to say who is signed in, from
     /// which kind of client, and since when. It holds every Person of
     /// the installation, because one installation is one Org.
     async fn list_live(&self, now: UnixMillis) -> Result<Vec<Session>, StoreError>;
+    /// Every Session of one Person that has not expired, newest first.
+    /// The Person reads their own in Settings, under Sessions.
+    async fn list_live_for_user(
+        &self,
+        user_id: &UserId,
+        now: UnixMillis,
+    ) -> Result<Vec<Session>, StoreError>;
     /// Sign out. `false` when the Session was already gone.
     async fn delete(&self, id: &SessionId) -> Result<bool, StoreError>;
     /// End every Session of one Person, and answer how many ended.
@@ -309,10 +367,13 @@ pub trait SessionStore: Send + Sync {
 #[async_trait]
 pub trait SignInLinkStore: Send + Sync {
     async fn create(&self, link: &SignInLink) -> Result<(), StoreError>;
-    /// Spend the link. It answers the person once, and never again.
+    /// Spend a live link of this kind. It answers the Person once, and
+    /// never again. A link of another kind answers `None` and stays
+    /// unspent.
     async fn consume(
         &self,
         token_hash: &str,
+        kind: SignInLinkKind,
         now: UnixMillis,
     ) -> Result<Option<UserId>, StoreError>;
 }

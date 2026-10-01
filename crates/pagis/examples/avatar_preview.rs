@@ -17,7 +17,7 @@ async fn main() -> anyhow::Result<()> {
     println!("PAGIS_DEV_API_URL={}", daemon.base_url);
     // The dev server proxies `/api`, so a sign-in link opened on its own
     // origin puts the session cookie where the page reads it.
-    let sign_in = pagis::sign_in_link(&daemon.booted.stores, "http://127.0.0.1:5188").await?;
+    let sign_in = pagis::start_link(&daemon.booted.stores, "http://127.0.0.1:5188").await?;
     println!("Sign in within one minute: {sign_in}");
     println!("Then open http://127.0.0.1:5188/agents/{}", daemon.agent_id);
     println!("This is a temporary test workspace. Stop this process to remove it.");

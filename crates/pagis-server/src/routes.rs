@@ -125,9 +125,15 @@ pub const PUBLIC_ROUTES: &[(&str, &str)] = &[
          Credential and gets a Session.",
     ),
     (
+        "/api/v1/sessions/link",
+        "A way in: the secret of a Sign-In Link of the Public Origin \
+         is the credential, and the route hands out a Session. It counts \
+         each refusal against the source address, as a password does.",
+    ),
+    (
         "/api/v1/sessions/link/{code}",
-        "A way in: a sign-in link secret is the credential, and \
-         the route hands out a Session.",
+        "A way in: the secret of the start link is the credential, and \
+         the route hands out a Session to a browser on this machine.",
     ),
 ];
 
@@ -251,6 +257,11 @@ pub const ADMINISTRATION_ROUTES: &[Route] = &[
     Route {
         path: "/api/v1/administration/people/{user_id}/sign-in",
         methods: &["put"],
+        authenticated: true,
+    },
+    Route {
+        path: "/api/v1/administration/people/{user_id}/sign-in-links",
+        methods: &["post"],
         authenticated: true,
     },
     Route {
@@ -963,6 +974,21 @@ pub const ROUTES: &[Route] = &[
         authenticated: true,
     },
     Route {
+        path: "/api/v1/settings/sessions",
+        methods: &["get"],
+        authenticated: true,
+    },
+    Route {
+        path: "/api/v1/settings/sessions/{session_id}",
+        methods: &["delete"],
+        authenticated: true,
+    },
+    Route {
+        path: "/api/v1/settings/sign-in-links",
+        methods: &["post"],
+        authenticated: true,
+    },
+    Route {
         path: "/api/v1/ws",
         methods: &["get"],
         authenticated: true,
@@ -1019,6 +1045,11 @@ pub const ROUTES: &[Route] = &[
     },
     Route {
         path: "/api/v1/sessions/client",
+        methods: &["post"],
+        authenticated: false,
+    },
+    Route {
+        path: "/api/v1/sessions/link",
         methods: &["post"],
         authenticated: false,
     },

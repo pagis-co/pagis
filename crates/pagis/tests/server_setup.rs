@@ -692,7 +692,7 @@ async fn a_server_behind_a_proxy_on_loopback_holds_no_credential() {
 
     // Neither is a link, even one this installation's own store minted.
     let administrator = administrator(&daemon).await;
-    let url = pagis_server::mint_sign_in_link(
+    let url = pagis_server::mint_start_link(
         daemon.stores().sign_in_links.as_ref(),
         &administrator.id,
         &daemon.base_url,

@@ -47,8 +47,13 @@ the proxy's TLS.
 The installation keeps its Client Credential, so the Client App on the
 machine stays signed in. The first-run route stays closed, because a
 credential exists. The Administrator creates the other People in the
-Administration Interface. To sign in from a browser on another machine,
-the owner sets their own address and password there too ([ADR-0024](https://github.com/pagis-co/pagis/blob/main/docs/adr/0024-a-server-serves-a-network.md)).
+Administration Interface, and each new Person gets an invite link. To sign
+in from a browser or a phone on another machine, the owner selects **Sign in
+another browser or app** under **Settings → Sessions** in the Client App, or
+runs `pagis pair` on this machine (the command is in
+[Back up and restore](/client-app/backup)), and opens the link there
+([Sign-In Links](/server/sign-in#sign-in-links)). The owner can also set
+their own address and password in the Administration Interface ([ADR-0024](https://github.com/pagis-co/pagis/blob/main/docs/adr/0024-a-server-serves-a-network.md)).
 
 **Turn the mode off** with the same switch and **Turn off and restart**. The
 daemon clears the Public Origin and the Trusted Proxy and binds loopback.

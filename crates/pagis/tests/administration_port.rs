@@ -62,8 +62,8 @@ async fn member(daemon: &TestDaemon) -> (String, String) {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::CREATED);
-    let person: serde_json::Value = response.json().await.unwrap();
-    let id = person["id"].as_str().unwrap().to_string();
+    let created: serde_json::Value = response.json().await.unwrap();
+    let id = created["person"]["id"].as_str().unwrap().to_string();
     let cookie = sign_in(&daemon.base_url, "grace@example.com", PASSWORD)
         .await
         .expect("the member signs in");

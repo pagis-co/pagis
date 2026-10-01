@@ -933,7 +933,7 @@ async fn a_created_person_starts_on_the_newest_listed_model() {
         .await
         .unwrap();
     let workspace_id = pagis_core::WorkspaceId::from(
-        created["workspace_id"]
+        created["person"]["workspace_id"]
             .as_str()
             .unwrap_or_else(|| panic!("the person has a Workspace: {created}"))
             .to_string(),

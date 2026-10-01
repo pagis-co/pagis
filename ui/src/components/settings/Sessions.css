@@ -1,0 +1,21 @@
+/* The Sessions section: one row for each signed-in browser or app.
+ * Every value comes from `tokens.css`. */
+
+.my-session-row {
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.my-session-name {
+  font-weight: var(--weight-medium);
+}
+
+.my-session-time {
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+/* Remove sits at the end of the row. */
+.my-session-remove {
+  margin-left: auto;
+}

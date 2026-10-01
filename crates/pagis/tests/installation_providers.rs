@@ -153,7 +153,7 @@ async fn member(daemon: &TestDaemon) -> String {
     )
     .await;
     assert_eq!(status, 201, "{person}");
-    assert_eq!(person["role"], UserRole::Member.as_str());
+    assert_eq!(person["person"]["role"], UserRole::Member.as_str());
     let response = client()
         .post(product(daemon, "/api/v1/sessions"))
         .json(&serde_json::json!({ "email": "grace@example.com", "password": PASSWORD }))

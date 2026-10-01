@@ -7,15 +7,21 @@
 //! The cookie is HTTP-only, so a script in the page cannot read it, and
 //! the value never appears in a URL. The record holds the SHA-256 of the
 //! value alone, so a stolen row signs nobody in.
+//!
+//! A Session ends thirty days after its last use (ADR-0028). At most
+//! once an hour a request moves the expiry of its Session forward, and
+//! the answer to that request hands the browser the same cookie again
+//! with a new `Max-Age`, so the cookie lives as long as the Session.
 
+use std::net::SocketAddr;
 use std::sync::Arc;
 
-use axum::extract::{FromRequestParts, Request, State};
-use axum::http::HeaderMap;
+use axum::extract::{ConnectInfo, FromRequestParts, Request, State};
 use axum::http::request::Parts;
+use axum::http::{HeaderMap, HeaderValue, header};
 use axum::middleware::Next;
 use axum::response::Response;
-use pagis_core::{SessionId, UnixMillis, UserId, UserRole, WorkspaceId};
+use pagis_core::{SESSION_LIFETIME_MS, SessionId, UnixMillis, UserId, UserRole, WorkspaceId};
 use sha2::{Digest, Sha256};
 
 use crate::AppState;
@@ -26,10 +32,11 @@ pub const SESSION_COOKIE: &str = "pagis_session";
 
 /// How long a client keeps the cookie. It matches the Session record, so
 /// the browser drops a cookie the daemon would refuse anyway.
-const COOKIE_MAX_AGE_SECS: i64 = pagis_core::SESSION_LIFETIME_MS / 1_000;
+const COOKIE_MAX_AGE_SECS: i64 = SESSION_LIFETIME_MS / 1_000;
 
-/// How long the daemon leaves `last_used_at` alone. One request must not
-/// be one write, and the field only has to show recent use.
+/// How long the daemon leaves `last_used_at` and the expiry alone. One
+/// request must not be one write, and an hour is nothing against thirty
+/// days.
 const TOUCH_INTERVAL_MS: i64 = 60 * 60 * 1_000;
 
 /// Who the request comes from, and whose data it may touch. The
@@ -134,27 +141,59 @@ fn secure_attribute(secure: bool) -> &'static str {
 
 /// Resolve the session cookie and put the [`Tenant`] in the request.
 /// Every authenticated route runs behind this.
+///
+/// When the request moved the expiry of its Session, the answer sets the
+/// same cookie again with a full `Max-Age`.
 pub async fn authenticate(
     State(state): State<Arc<AppState>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     mut request: Request,
     next: Next,
 ) -> Result<Response, ApiError> {
-    let tenant = resolve(&state, request.headers())
+    let resolved = resolve_session(&state, request.headers())
         .await?
         .ok_or_else(ApiError::unauthorized)?;
-    request.extensions_mut().insert(tenant);
-    Ok(next.run(request).await)
+    let renewed = resolved.renewed.then(|| {
+        session_cookie(
+            &resolved.secret,
+            state.proxy.is_secure(peer, request.headers()),
+        )
+    });
+    request.extensions_mut().insert(resolved.tenant);
+    let mut response = next.run(request).await;
+    if let Some(cookie) = renewed.and_then(|cookie| HeaderValue::from_str(&cookie).ok()) {
+        response.headers_mut().append(header::SET_COOKIE, cookie);
+    }
+    Ok(response)
 }
 
 /// The tenant of a request, or `None` when it carries no live Session.
 /// The WebSocket routes use it too: they upgrade first and read the same
 /// cookie, so a socket and a REST call authenticate the same way.
 pub async fn resolve(state: &AppState, headers: &HeaderMap) -> Result<Option<Tenant>, ApiError> {
+    Ok(resolve_session(state, headers)
+        .await?
+        .map(|resolved| resolved.tenant))
+}
+
+/// A live Session as one request found it.
+struct Resolved {
+    tenant: Tenant,
+    /// The cookie value that named the Session.
+    secret: String,
+    /// True when this request moved the expiry of the Session.
+    renewed: bool,
+}
+
+async fn resolve_session(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<Option<Resolved>, ApiError> {
     let Some(secret) = cookie(headers, SESSION_COOKIE) else {
         return Ok(None);
     };
     let now = state.clock.now_ms();
-    let Some(session) = state.sessions.find_live(&hash_secret(&secret), now).await? else {
+    let Some(mut session) = state.sessions.find_live(&hash_secret(&secret), now).await? else {
         return Ok(None);
     };
     let Some(user) = state.users.get(&session.user_id).await? else {
@@ -172,15 +211,29 @@ pub async fn resolve(state: &AppState, headers: &HeaderMap) -> Result<Option<Ten
     let Some(workspace) = state.workspaces.for_user(&user.id).await? else {
         return Ok(None);
     };
-    if now - session.last_used_at > TOUCH_INTERVAL_MS {
-        state.sessions.touch(&session.id, now).await?;
+    let renewed = now - session.last_used_at > TOUCH_INTERVAL_MS;
+    if renewed {
+        session.expires_at = now + SESSION_LIFETIME_MS;
+        state
+            .sessions
+            .touch(&session.id, now, session.expires_at)
+            .await?;
+        // A socket of this Session closes at the expiry, so the expiry
+        // it waits for moves too.
+        state
+            .live_connections
+            .extend(&session.id, session.expires_at);
     }
-    Ok(Some(Tenant {
-        workspace_id: workspace.id,
-        user_id: user.id,
-        role: user.role,
-        session_id: session.id,
-        session_expires_at: session.expires_at,
+    Ok(Some(Resolved {
+        tenant: Tenant {
+            workspace_id: workspace.id,
+            user_id: user.id,
+            role: user.role,
+            session_id: session.id,
+            session_expires_at: session.expires_at,
+        },
+        secret,
+        renewed,
     }))
 }
 

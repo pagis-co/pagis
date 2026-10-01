@@ -1,6 +1,7 @@
-//! Full-daemon identity tests: the two ways in, the way out, the
-//! rate limit, the bounded password checks, the expiry, and two people
-//! in one Org who see only their own roster.
+//! Full-daemon identity tests: the ways in, the ways out, the rate
+//! limit, the bounded password checks, the expiry that a use moves, the
+//! Person's own Sessions, and two people in one Org who see only their
+//! own roster.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
@@ -611,7 +612,7 @@ async fn a_session_that_expired_opens_nothing() {
 #[tokio::test]
 async fn a_sign_in_link_works_once_and_hands_the_browser_a_cookie() {
     let daemon = TestDaemon::start().await;
-    let url = pagis::sign_in_link(daemon.stores(), &daemon.public_origin)
+    let url = pagis::start_link(daemon.stores(), &daemon.public_origin)
         .await
         .expect("mint a sign-in link");
     // The secret is a path segment and the URL carries no query at all.
@@ -867,6 +868,256 @@ async fn a_socket_closes_when_its_session_reaches_its_expiry() {
 
     clock.advance_to(expires_at);
 
+    assert_eq!(
+        pagis_testkit::read_until_closed(&mut socket).await.code,
+        SESSION_ENDED
+    );
+}
+
+/// The live Sessions of the signed-in Person, as the list answers them.
+async fn my_sessions(daemon: &TestDaemon, cookie: &str) -> Vec<serde_json::Value> {
+    let response = client()
+        .get(format!("{}/api/v1/settings/sessions", daemon.base_url))
+        .header("cookie", cookie)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let page: serde_json::Value = response.json().await.unwrap();
+    page["items"].as_array().unwrap().clone()
+}
+
+/// End one Session as the Session of `cookie`, and answer the status.
+async fn end_session(daemon: &TestDaemon, cookie: &str, session_id: &str) -> reqwest::Response {
+    client()
+        .delete(format!(
+            "{}/api/v1/settings/sessions/{session_id}",
+            daemon.base_url
+        ))
+        .header("cookie", cookie)
+        .send()
+        .await
+        .unwrap()
+}
+
+/// A Person reads their own Sessions, which one is this one, and none
+/// of another Person's. Removing one ends it at once.
+#[tokio::test]
+async fn a_person_reads_their_own_sessions_and_removes_one() {
+    let daemon = TestDaemon::start().await;
+    let (grace, _) = second_person(daemon.pool(), "grace@example.com", "a good password").await;
+    let graces = daemon.cookie_for(&grace.id).await;
+    let phone = daemon.cookie_for(&daemon.user_id).await;
+
+    let sessions = my_sessions(&daemon, daemon.cookie()).await;
+    assert_eq!(sessions.len(), 2, "{sessions:?}");
+    let current: Vec<_> = sessions
+        .iter()
+        .filter(|session| session["current"] == true)
+        .collect();
+    assert_eq!(current.len(), 1, "one Session is this one: {sessions:?}");
+    let other = sessions
+        .iter()
+        .find(|session| session["current"] == false)
+        .unwrap();
+    for field in ["created_at", "last_used_at", "expires_at"] {
+        assert!(other[field].is_i64(), "{field}: {other}");
+    }
+
+    let ended = end_session(&daemon, daemon.cookie(), other["id"].as_str().unwrap()).await;
+    assert_eq!(ended.status(), 204);
+    assert_eq!(
+        session_cookie(&ended),
+        None,
+        "removing another Session keeps this one"
+    );
+
+    let after = client()
+        .get(format!("{}/api/v1/user", daemon.base_url))
+        .header("cookie", &phone)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(after.status(), 401, "the removed Session opens nothing");
+    assert_eq!(my_sessions(&daemon, daemon.cookie()).await.len(), 1);
+    assert_eq!(
+        my_sessions(&daemon, &graces).await.len(),
+        1,
+        "another Person's Sessions are not in the list"
+    );
+}
+
+/// A Session of another Person reads as absent, and it stays live.
+#[tokio::test]
+async fn another_persons_session_cannot_be_removed() {
+    let daemon = TestDaemon::start().await;
+    let (grace, _) = second_person(daemon.pool(), "grace@example.com", "a good password").await;
+    let graces = daemon.cookie_for(&grace.id).await;
+    let graces_id = my_sessions(&daemon, &graces).await[0]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let refused = end_session(&daemon, daemon.cookie(), &graces_id).await;
+
+    assert_eq!(refused.status(), 404);
+    let still = client()
+        .get(format!("{}/api/v1/user", daemon.base_url))
+        .header("cookie", &graces)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(still.status(), 200);
+}
+
+/// Removing the Session that asks is a sign-out: the answer clears the
+/// cookie, and the Session opens nothing after it.
+#[tokio::test]
+async fn removing_the_current_session_signs_it_out() {
+    let daemon = TestDaemon::start().await;
+    let cookie = daemon.cookie_for(&daemon.user_id).await;
+    let current = my_sessions(&daemon, &cookie)
+        .await
+        .into_iter()
+        .find(|session| session["current"] == true)
+        .unwrap();
+
+    let ended = end_session(&daemon, &cookie, current["id"].as_str().unwrap()).await;
+
+    assert_eq!(ended.status(), 204);
+    let cleared = ended
+        .headers()
+        .get(reqwest::header::SET_COOKIE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    assert!(cleared.contains("Max-Age=0"), "{cleared}");
+    let after = client()
+        .get(format!("{}/api/v1/user", daemon.base_url))
+        .header("cookie", &cookie)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(after.status(), 401);
+}
+
+/// A Session last used at `used_at` that ends at `expires_at`. The
+/// answer is its `Cookie` header and its id.
+async fn session_at(daemon: &TestDaemon, used_at: i64, expires_at: i64) -> (String, SessionId) {
+    let secret = pagis_server::random_secret();
+    let id = SessionId::generate();
+    SqliteSessionStore::new(daemon.pool().clone())
+        .create(&Session {
+            id: id.clone(),
+            user_id: daemon.user_id.clone(),
+            token_hash: pagis_server::hash_secret(&secret),
+            client_kind: ClientKind::Browser,
+            client_name: None,
+            created_at: used_at,
+            last_used_at: used_at,
+            expires_at,
+        })
+        .await
+        .unwrap();
+    (format!("{SESSION_COOKIE}={secret}"), id)
+}
+
+const HOUR: i64 = 60 * 60 * 1_000;
+const THIRTY_DAYS: i64 = pagis_core::SESSION_LIFETIME_MS;
+
+/// A Session ends thirty days after its last use. A use more than an
+/// hour after the last one moves the expiry, and the answer hands the
+/// browser the same cookie with a full `Max-Age`, so the cookie lives as
+/// long as the Session.
+#[tokio::test]
+async fn a_use_moves_the_expiry_and_renews_the_cookie() {
+    let start = now_ms();
+    let clock = std::sync::Arc::new(ManualClock::at(start));
+    let daemon = TestDaemon::start_with(pagis_testkit::TestDaemonOptions {
+        clock: clock.clone(),
+        ..pagis_testkit::TestDaemonOptions::default()
+    })
+    .await;
+    let (cookie, id) = session_at(&daemon, start - 2 * HOUR, start + HOUR).await;
+    let user = || {
+        client()
+            .get(format!("{}/api/v1/user", daemon.base_url))
+            .header("cookie", &cookie)
+            .send()
+    };
+
+    let used = user().await.unwrap();
+
+    assert_eq!(used.status(), 200);
+    let renewed = used
+        .headers()
+        .get(reqwest::header::SET_COOKIE)
+        .and_then(|value| value.to_str().ok())
+        .expect("the answer renews the cookie")
+        .to_string();
+    assert!(renewed.starts_with(&format!("{cookie};")), "{renewed}");
+    assert!(
+        renewed.contains(&format!("Max-Age={}", THIRTY_DAYS / 1_000)),
+        "{renewed}"
+    );
+    let session = SqliteSessionStore::new(daemon.pool().clone())
+        .find_live_by_id(&id, start)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(session.last_used_at, start);
+    assert_eq!(session.expires_at, start + THIRTY_DAYS);
+
+    // Within the hour a request writes nothing and sets no cookie.
+    clock.advance_to(start + HOUR / 2);
+    let again = user().await.unwrap();
+    assert_eq!(again.status(), 200);
+    assert!(again.headers().get(reqwest::header::SET_COOKIE).is_none());
+
+    // Past the expiry the Session had before its use, it still opens.
+    clock.advance_to(start + 2 * HOUR);
+    assert_eq!(user().await.unwrap().status(), 200);
+
+    // Thirty days after its last use, it ends.
+    clock.advance_to(start + 2 * HOUR + THIRTY_DAYS);
+    assert_eq!(user().await.unwrap().status(), 401);
+}
+
+/// A socket of a Session waits for the expiry that a later use moved,
+/// and closes at the new one.
+#[tokio::test]
+async fn a_socket_lives_past_the_expiry_that_a_use_moved() {
+    let start = now_ms();
+    let clock = std::sync::Arc::new(ManualClock::at(start));
+    let daemon = TestDaemon::start_with(pagis_testkit::TestDaemonOptions {
+        clock: clock.clone(),
+        ..pagis_testkit::TestDaemonOptions::default()
+    })
+    .await;
+    // Used half an hour ago, so the handshake of the socket moves
+    // nothing, and the socket waits for the expiry one hour on.
+    let (cookie, _) = session_at(&daemon, start - HOUR / 2, start + HOUR).await;
+    let mut socket = daemon.event_socket(&cookie).await;
+    assert!(answers(&mut socket).await);
+
+    // A request after the hour moves the expiry.
+    let used_at = start + HOUR * 3 / 4;
+    clock.advance_to(used_at);
+    let used = client()
+        .get(format!("{}/api/v1/user", daemon.base_url))
+        .header("cookie", &cookie)
+        .send()
+        .await
+        .unwrap();
+    assert!(used.headers().get(reqwest::header::SET_COOKIE).is_some());
+
+    clock.advance_to(start + 2 * HOUR);
+    assert!(
+        answers(&mut socket).await,
+        "the socket closed at the expiry the Session had before its use"
+    );
+
+    clock.advance_to(used_at + THIRTY_DAYS);
     assert_eq!(
         pagis_testkit::read_until_closed(&mut socket).await.code,
         SESSION_ENDED

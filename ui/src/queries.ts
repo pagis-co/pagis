@@ -74,6 +74,8 @@ export const peopleKey = ["administration", "people"] as const;
 export const installationUsageKey = (period: string) =>
   ["administration", "usage", period] as const;
 export const liveSessionsKey = ["administration", "sessions"] as const;
+/** The signed-in person's own Sessions. */
+export const mySessionsKey = ["sessions"] as const;
 /** The person's own machines. */
 export const hostsKey = ["hosts"] as const;
 /** Every machine of the installation, on the administration port. */
@@ -985,6 +987,65 @@ function signInMessage(status: number): string {
     return "Too many attempts. Wait a minute, then sign in again.";
   }
   return `Sign-in failed (${status}). Try again.`;
+}
+
+/** Trade the secret of a Sign-In Link for a Session. The page at
+ *  `/sign-in` posts it, so opening the link spends nothing. The daemon
+ *  answers with an HTTP-only cookie, as a password sign-in does. */
+export function useLinkSignIn(api: ApiClient) {
+  return useMutation({
+    mutationFn: async (secret: string) => {
+      const { data, response } = await api.POST("/api/v1/sessions/link", {
+        body: { secret, timezone: deviceTimezone() },
+      });
+      if (data === undefined) throw new Error(linkSignInMessage(response.status));
+      return data;
+    },
+  });
+}
+
+/** What the sign-in page tells a person whose link was refused. */
+function linkSignInMessage(status: number): string {
+  if (status === 401) {
+    return "This sign-in link is spent or expired. Ask for a new link.";
+  }
+  if (status === 429) {
+    return "Too many attempts. Wait a few minutes, then open the link again.";
+  }
+  return `Sign-in failed (${status}). Open the link again.`;
+}
+
+/** The signed-in person's own Sessions: each browser and app that is
+ *  signed in as them, and which one is this one. */
+export function useMySessions(api: ApiClient) {
+  return useQuery({
+    queryKey: mySessionsKey,
+    queryFn: async () =>
+      (await unwrap(api.GET("/api/v1/settings/sessions"))).items,
+  });
+}
+
+/** End one of the person's own Sessions. Its browser or app is signed
+ *  out at once. */
+export function useEndMySession(api: ApiClient) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (sessionId: string) =>
+      expectNoContent(
+        api.DELETE("/api/v1/settings/sessions/{session_id}", {
+          params: { path: { session_id: sessionId } },
+        }),
+      ),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: mySessionsKey }),
+  });
+}
+
+/** Make a Sign-In Link for one more browser or app of the signed-in
+ *  person. It is good for five minutes and one use. */
+export function useMakeSignInLink(api: ApiClient) {
+  return useMutation({
+    mutationFn: () => unwrap(api.POST("/api/v1/settings/sign-in-links")),
+  });
 }
 
 /** End the session. The daemon clears the cookie; every cached
@@ -2605,12 +2666,27 @@ function invalidatePeople(queryClient: QueryClient) {
   void queryClient.invalidateQueries({ queryKey: liveSessionsKey });
 }
 
+/** Create an account. The answer holds the person's invite: a Sign-In
+ *  Link good for seven days and one use. A first password is optional. */
 export function useCreateAccount(api: ApiClient) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (body: { email: string; name: string; password: string }) =>
+    mutationFn: (body: { email: string; name: string; password?: string }) =>
       unwrap(api.POST("/api/v1/administration/people", { body })),
     onSuccess: () => invalidatePeople(queryClient),
+  });
+}
+
+/** Make a new invite for a person whose invite expired, or who has no
+ *  Session left. */
+export function useMakeInvite(api: ApiClient) {
+  return useMutation({
+    mutationFn: (userId: string) =>
+      unwrap(
+        api.POST("/api/v1/administration/people/{user_id}/sign-in-links", {
+          params: { path: { user_id: userId } },
+        }),
+      ),
   });
 }
 

@@ -3,7 +3,7 @@
 
 use async_trait::async_trait;
 use pagis_core::{
-    ClientKind, Org, OrgId, OrgStore, Session, SessionId, SessionStore, SignInLink,
+    ClientKind, Org, OrgId, OrgStore, Session, SessionId, SessionStore, SignInLink, SignInLinkKind,
     SignInLinkStore, StoreError, UnixMillis, User, UserId, UserRole, UserStore, WorkspaceId,
 };
 use sqlx::{Row, SqlitePool};
@@ -401,14 +401,37 @@ impl SessionStore for SqliteSessionStore {
         rows.iter().map(row_to_session).collect()
     }
 
-    async fn touch(&self, id: &SessionId, at: UnixMillis) -> Result<(), StoreError> {
-        sqlx::query("UPDATE sessions SET last_used_at = ? WHERE id = ?")
+    async fn touch(
+        &self,
+        id: &SessionId,
+        at: UnixMillis,
+        expires_at: UnixMillis,
+    ) -> Result<(), StoreError> {
+        sqlx::query("UPDATE sessions SET last_used_at = ?, expires_at = ? WHERE id = ?")
             .bind(at)
+            .bind(expires_at)
             .bind(id.as_str())
             .execute(&self.pool)
             .await
             .map_err(db_err)?;
         Ok(())
+    }
+
+    async fn list_live_for_user(
+        &self,
+        user_id: &UserId,
+        now: UnixMillis,
+    ) -> Result<Vec<Session>, StoreError> {
+        let rows = sqlx::query(&format!(
+            "SELECT {SESSION_COLUMNS} FROM sessions WHERE user_id = ? AND expires_at > ? \
+             ORDER BY created_at DESC, id DESC"
+        ))
+        .bind(user_id.as_str())
+        .bind(now)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(db_err)?;
+        rows.iter().map(row_to_session).collect()
     }
 
     async fn delete(&self, id: &SessionId) -> Result<bool, StoreError> {
@@ -454,12 +477,14 @@ impl SqliteSignInLinkStore {
 impl SignInLinkStore for SqliteSignInLinkStore {
     async fn create(&self, link: &SignInLink) -> Result<(), StoreError> {
         sqlx::query(
-            "INSERT INTO sign_in_links (id, user_id, token_hash, created_at, expires_at, used_at) \
-             VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO sign_in_links \
+             (id, user_id, token_hash, kind, created_at, expires_at, used_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(link.id.as_str())
         .bind(link.user_id.as_str())
         .bind(&link.token_hash)
+        .bind(link.kind.as_str())
         .bind(link.created_at)
         .bind(link.expires_at)
         .bind(link.used_at)
@@ -472,16 +497,19 @@ impl SignInLinkStore for SqliteSignInLinkStore {
     async fn consume(
         &self,
         token_hash: &str,
+        kind: SignInLinkKind,
         now: UnixMillis,
     ) -> Result<Option<UserId>, StoreError> {
         // The UPDATE is the guard: one row moves from unused to used, so
-        // two requests with the same link cannot both sign in.
+        // two requests with the same link cannot both sign in. A link of
+        // another kind matches no row, so it stays unspent.
         let spent = sqlx::query(
             "UPDATE sign_in_links SET used_at = ? \
-             WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?",
+             WHERE token_hash = ? AND kind = ? AND used_at IS NULL AND expires_at > ?",
         )
         .bind(now)
         .bind(token_hash)
+        .bind(kind.as_str())
         .bind(now)
         .execute(&self.pool)
         .await

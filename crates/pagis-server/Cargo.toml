@@ -32,6 +32,8 @@ pagis-telephony.workspace = true
 pagis-trigger.workspace = true
 pagis-vault.workspace = true
 pagis-voice.workspace = true
+# The QR code of a Sign-In Link, as SVG and as terminal text.
+qrcode.workspace = true
 # The session and sign-in-link secrets.
 rand.workspace = true
 serde.workspace = true

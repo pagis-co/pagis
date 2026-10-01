@@ -508,6 +508,25 @@ async fn seed_a(
     // who disabled, reset or capped the administrator would fail here.
     owned.insert("user_id", daemon.user_id.to_string());
 
+    // A Session of A's own, beside the one the harness signs A in with,
+    // so a route that ended it would not end the harness.
+    let session = pagis_core::Session {
+        id: pagis_core::SessionId::generate(),
+        user_id: daemon.user_id.clone(),
+        token_hash: "the hash of A's other Session".to_string(),
+        client_kind: pagis_core::ClientKind::Browser,
+        client_name: Some("Safari on iPhone".to_string()),
+        created_at: now,
+        last_used_at: now,
+        expires_at: now + pagis_core::SESSION_LIFETIME_MS,
+    };
+    stores
+        .sessions
+        .create(&session)
+        .await
+        .expect("write A's other Session");
+    owned.insert("session_id", session.id.to_string());
+
     let messages = &stores.messages;
     let message = fixture::user_message(workspace_id, &channel_id, "A's own words");
     messages.insert(&message).await.expect("write A's message");

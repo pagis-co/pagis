@@ -571,7 +571,7 @@ async fn a_credential_trade_from_another_address_is_refused() {
 async fn the_sign_in_link_works_from_this_machine_alone() {
     let (daemon, proxy) = local_installation_behind_its_owners_proxy().await;
 
-    let through_the_proxy = pagis::sign_in_link(daemon.stores(), &daemon.base_url)
+    let through_the_proxy = pagis::start_link(daemon.stores(), &daemon.base_url)
         .await
         .expect("mint a sign-in link");
     let path = through_the_proxy.trim_start_matches(&daemon.base_url);
@@ -583,7 +583,7 @@ async fn the_sign_in_link_works_from_this_machine_alone() {
     assert_eq!(refused.status(), 403);
     assert_eq!(set_cookie(&refused, SESSION_COOKIE), None);
 
-    let here = pagis::sign_in_link(daemon.stores(), &daemon.base_url)
+    let here = pagis::start_link(daemon.stores(), &daemon.base_url)
         .await
         .expect("mint a sign-in link");
     let signed_in = client().get(&here).send().await.unwrap();
@@ -593,7 +593,7 @@ async fn the_sign_in_link_works_from_this_machine_alone() {
     // The link the start banner prints starts at the local origin, which
     // is loopback, where this rule lets it in, whatever the Public Origin
     // names.
-    let printed = pagis::sign_in_link(
+    let printed = pagis::start_link(
         daemon.stores(),
         &daemon.booted.config.local_origin(daemon.addr.port()),
     )

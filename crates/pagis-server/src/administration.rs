@@ -1,7 +1,10 @@
 //! What an Administrator does to the installation's people.
 //!
-//! Accounts are Administrator-created with a password: there is no self-signup and no second Org. An Administrator
-//! makes an account, disables and re-enables it, resets a password,
+//! An Administrator creates every account: there is no self-signup and
+//! no second Org. An Administrator makes an account, which answers with
+//! the Person's invite, a Sign-In Link good for seven days and one use
+//! (ADR-0028), and makes a new invite when that one expired. An
+//! Administrator disables and re-enables an account, resets a password,
 //! reads the roster with the last sign-in, reads what each person spent,
 //! and sets each person's monthly Spend Cap.
 //!
@@ -93,9 +96,20 @@ pub struct CreateAccountRequest {
     pub email: String,
     /// What the agents call the person.
     pub name: String,
-    /// The first password. The person changes it later; the daemon keeps
-    /// only its argon2id hash.
-    pub password: String,
+    /// A first password, or `null` for none: the person then signs in
+    /// with the invite alone. The daemon keeps only its argon2id hash.
+    #[serde(default)]
+    pub password: Option<String>,
+}
+
+/// A new account, and the invite that signs the Person in for the first
+/// time.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct NewPersonDto {
+    pub person: PersonDto,
+    /// A Sign-In Link of the Public Origin for the Person's first
+    /// Session, good for seven days and one use.
+    pub invite: crate::sign_in_links::SignInLinkDto,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -234,7 +248,7 @@ async fn period(state: &AppState, tenant: &Tenant, query: &PeriodQuery) -> Usage
 }
 
 /// The Person this path names, inside this installation's Org.
-async fn person_of(state: &AppState, id: &str) -> Result<User, ApiError> {
+pub(crate) async fn person_of(state: &AppState, id: &str) -> Result<User, ApiError> {
     let org = org(state).await?;
     let person = state
         .users
@@ -287,7 +301,8 @@ pub async fn list_people(
     Ok(Json(RosterDto { items }))
 }
 
-/// Create an account and the person's Workspace.
+/// Create an account and the person's Workspace, and answer the
+/// Person's invite.
 ///
 /// The Workspace comes from the same seed a local first run uses, so the
 /// person signs in to a sprite that can already think: the Org's
@@ -297,7 +312,7 @@ pub async fn list_people(
     path = "/api/v1/administration/people",
     request_body = CreateAccountRequest,
     responses(
-        (status = 201, body = PersonDto),
+        (status = 201, body = NewPersonDto),
         (status = 401, body = crate::error::ErrorBody),
         (status = 403, body = crate::error::ErrorBody),
         (status = 409, body = crate::error::ErrorBody),
@@ -308,20 +323,24 @@ pub async fn create_account(
     State(state): State<Arc<AppState>>,
     administrator: Administrator,
     Json(request): Json<CreateAccountRequest>,
-) -> Result<(StatusCode, Json<PersonDto>), ApiError> {
+) -> Result<(StatusCode, Json<NewPersonDto>), ApiError> {
     let email = check_email(&request.email)?;
     let name = request.name.trim().to_string();
     if name.is_empty() {
         return Err(ApiError::validation("a person needs a name"));
     }
-    let password_hash = check_password(&request.password)?;
+    let password_hash = request
+        .password
+        .as_deref()
+        .map(check_password)
+        .transpose()?;
     let org = org(&state).await?;
     let now = state.clock.now_ms();
 
     let person = User {
         email: Some(email),
         name: Some(name.clone()),
-        password_hash: Some(password_hash),
+        password_hash,
         ..User::new(org.id, UserRole::Member, now)
     };
     // The unique index on the address is what refuses a second account
@@ -375,10 +394,14 @@ pub async fn create_account(
     if !route.is_empty() {
         crate::model_lists::set_default_candidates(&state, &workspace.id, &route).await?;
     }
+    let invite = crate::sign_in_links::invite(&state, &person.id, now).await?;
 
     Ok((
         StatusCode::CREATED,
-        Json(person_dto(&person, Some(&workspace.id))),
+        Json(NewPersonDto {
+            person: person_dto(&person, Some(&workspace.id)),
+            invite,
+        }),
     ))
 }
 
@@ -1038,6 +1061,10 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route(
             "/api/v1/administration/people/{user_id}/sign-in",
             put(set_sign_in),
+        )
+        .route(
+            "/api/v1/administration/people/{user_id}/sign-in-links",
+            post(crate::sign_in_links::make_invite_link),
         )
         .route(
             "/api/v1/administration/people/{user_id}/spend-cap",

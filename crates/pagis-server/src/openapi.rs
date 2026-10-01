@@ -30,6 +30,7 @@ use crate::schedules;
 use crate::sessions;
 use crate::settings;
 use crate::setup;
+use crate::sign_in_links;
 use crate::software;
 use crate::subscriptions;
 use crate::system;
@@ -171,7 +172,12 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         sessions::sign_in_with_password,
         sessions::sign_in_with_client_credential,
         sessions::sign_in_with_link,
+        sessions::sign_in_with_start_link,
         sessions::sign_out,
+        sessions::list_my_sessions,
+        sessions::end_my_session,
+        sign_in_links::make_client_link,
+        sign_in_links::make_invite_link,
         administration::list_people,
         administration::create_account,
         administration::disable_account,
@@ -238,6 +244,7 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         providers::ConfigureSetupPartRequest,
         administration::RosterDto,
         administration::CreateAccountRequest,
+        administration::NewPersonDto,
         administration::ResetPasswordRequest,
         administration::SetSpendCapRequest,
         administration::UsageTotalDto,
@@ -411,6 +418,10 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         settings::CompleteOnboardingRequest,
         sessions::PasswordSignInRequest,
         sessions::ClientCredentialRequest,
+        sessions::LinkSignInRequest,
+        sessions::MySessionDto,
+        sessions::MySessionsDto,
+        sign_in_links::SignInLinkDto,
         user::UserDto,
         user::AdministrationAddress,
         workspace::WorkspaceDto,
