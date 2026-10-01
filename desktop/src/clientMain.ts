@@ -33,11 +33,11 @@ import {
   thisPlatform,
   type RuntimeLock,
 } from './runtimeLock'
-import { RuntimeState } from './runtimeState'
+import { RuntimeState, startAction } from './runtimeState'
 import { probeRuntimeIdentity } from './runtimeIdentity'
 import { recoveryView, sameProductOrigin } from './recoveryView'
 import { SetupProgress } from './setupProgress'
-import { type SetupState, setupFailureState } from './setupState'
+import { type SetupState, type Upgrade, setupFailureState } from './setupState'
 import { isTrustedSetupRequest } from './setupTrust'
 import { isServerRequest } from './setupCoordinator'
 import { assertServerIsReady, connectToServer } from './serverOnboarding'
@@ -45,6 +45,7 @@ import { watchServerSignIn } from './serverSignIn'
 import { ServerConnections, type ServerConnection } from './serverConnection'
 import { reportUncaughtExceptions } from './uncaughtFailure'
 import { type NewVersion, checkForNewVersion } from './updateCheck'
+import { BackupFailure, keepNewestBackup, takeUpgradeBackup } from './upgradeBackup'
 import { installBluetoothRefusal, installPermissionHandlers, type ProductWindow } from './webPermissions'
 import {
   applyProductWebRtcPolicy,
@@ -82,6 +83,9 @@ class Shell {
   private tray: Tray | null = null
   private update: NewVersion | null = null
   private setupState: SetupState = { kind: 'ready' }
+  // The Upgrade that the setup window shows, until the new release is
+  // active. It lives only as long as this process.
+  private upgrading: Upgrade | null = null
   private lock: RuntimeLock | null = null
   private readonly installer = new RuntimeInstaller(this.runtimeRoot)
   // This machine as a Host. A host action runs here, through the
@@ -89,8 +93,9 @@ class Shell {
   private hostLink: HostLink | null = null
   private quitting = false
   private readonly controller = new ClientController({
+    backUp: (signal) => this.backUpForUpgrade(signal),
     install: async (options) => {
-      const progress = new SetupProgress((state) => this.setSetupState(state))
+      const progress = new SetupProgress((state) => this.setSetupState(state), this.upgrading)
       const binary = await this.installer.install(this.runtimeLock(), {
         ...options,
         onProgress: (step) => progress.report(step),
@@ -145,7 +150,8 @@ class Shell {
       if (!SMOKE) void this.checkVersion()
       return
     }
-    if (release === app.getVersion()) {
+    const action = startAction(release, app.getVersion())
+    if (action === 'resume') {
       try {
         await this.controller.resume()
       } catch (error) {
@@ -154,6 +160,8 @@ class Shell {
           this.setSetupState(this.failureState(error))
         }
       }
+    } else if (action === 'upgrade') {
+      await this.upgradeInstallation(true)
     } else {
       await this.openSetup()
     }
@@ -260,6 +268,56 @@ class Shell {
     return this.lock
   }
 
+  /**
+   * Upgrade the Local Installation of an older release to the release of
+   * this client (ADR-0027). The setup window shows each step and asks no
+   * setup question. A failure stays on the setup page: a failed Backup
+   * offers Retry and "Continue without a Backup", and each other failure
+   * offers what a failed start offers.
+   */
+  private async upgradeInstallation(backup: boolean): Promise<void> {
+    this.upgrading = { release: app.getVersion(), backup }
+    new SetupProgress((state) => this.setSetupState(state), this.upgrading).begin()
+    await this.openSetup()
+    try {
+      await this.controller.upgrade(backup)
+    } catch (error) {
+      this.setSetupState(this.failureState(error))
+    }
+  }
+
+  /**
+   * The Backup of an Upgrade, taken with the server program of the
+   * release that the installation records, on the State Directory that
+   * the daemon gets. Once the new release started on the data, no
+   * Upgrade is due, so there is no Backup to take.
+   */
+  private async backUpForUpgrade(signal: AbortSignal): Promise<void> {
+    const lock = this.runtimeLock()
+    const old = this.runtimeState.releaseToStart()
+    if (old === null || startAction(old, lock.release) !== 'upgrade') return
+    await takeUpgradeBackup({
+      program: path.join(this.runtimeRoot, 'releases', old, `${lock.platform}-${lock.arch}`, 'pagis'),
+      home: this.home,
+      release: old,
+      signal,
+    })
+  }
+
+  /**
+   * Keep one Backup, and the package and the download of the active
+   * release alone. The product opens while this runs, and a failure
+   * does not stop it: the next activation tries again.
+   */
+  private async removeOldFiles(): Promise<void> {
+    try {
+      await keepNewestBackup(this.home)
+      await this.installer.removeOtherReleases(this.runtimeLock())
+    } catch (error) {
+      console.error(`pagis: the client did not remove the old Backups and releases: ${this.failure(error)}`)
+    }
+  }
+
   private createSupervisor(binary: string, beforeSpawn: () => void): DaemonSupervisor {
     const lock = this.runtimeLock()
     if (!fs.statSync(binary).isFile()) throw new Error('the installed Pagis server is missing')
@@ -336,6 +394,8 @@ class Shell {
    *  of its own server and of nobody else's. */
   private activateOwnRuntime(): void {
     this.runtimeState.activate(this.runtimeLock().release)
+    this.upgrading = null
+    void this.removeOldFiles()
     this.connections.forget()
     this.connection = null
     this.signInWatch?.()
@@ -564,6 +624,10 @@ class Shell {
         throw isServerRequest(request) ? this.serverCheckFailure(error) : this.setupFailure(error)
       })
     })
+    ipcMain.handle('pagis:upgrade', (event, backup: unknown) => {
+      if (!this.trustedSetup(event) || typeof backup !== 'boolean') throw new Error('invalid upgrade request')
+      return this.upgradeInstallation(backup)
+    })
     ipcMain.handle('pagis:cancel-setup', async (event) => {
       if (!this.trustedSetup(event)) throw new Error('untrusted setup request')
       await this.controller.cancel()
@@ -647,9 +711,14 @@ class Shell {
    * A failure of this computer's installation as the setup page shows
    * it: the taken-port page when the server found its port taken, else
    * the reason. Repair is offered only where this computer holds an
-   * installation, and never on a client with no Runtime Lock.
+   * installation, and never on a client with no Runtime Lock. A failed
+   * Backup stopped an Upgrade before the data changed, so it offers the
+   * Upgrade again, with a Backup or without one.
    */
   private failureState(error: unknown): SetupState {
+    if (error instanceof BackupFailure) {
+      return { kind: 'backup-failed', release: app.getVersion(), reason: this.failure(error) }
+    }
     const repair = this.installedHere() && !(error instanceof NoRuntimeLockError)
     return setupFailureState(this.failure(error), this.controller.state, repair)
   }

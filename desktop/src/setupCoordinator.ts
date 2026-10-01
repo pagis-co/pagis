@@ -16,6 +16,8 @@ export type SetupRequest =
   | { kind: 'server'; url: string }
 
 export interface SetupDependencies {
+  /** Take a Backup of the Local Installation before an Upgrade. */
+  backUp(): Promise<void>
   install(): Promise<string>
   cancel?(): void | Promise<void>
   start(binary: string): Promise<string>
@@ -43,12 +45,33 @@ export class SetupCoordinator {
   run(request: unknown): Promise<void> {
     const parsed = setupRequest(request)
     if (!parsed) return Promise.reject(refusal(request))
+    return this.begin(parsed.kind, (generation) => parsed.kind === 'local'
+      ? this.runLocal(parsed.people, generation)
+      : this.runServer(parsed.url, generation))
+  }
+
+  /**
+   * Upgrade the Local Installation of an older release to the release of
+   * this client (ADR-0027): a Backup first, unless the Person continues
+   * without one, then the local setup. A failed Backup stops the Upgrade
+   * before the new server opens the data.
+   */
+  upgrade(backup: boolean): Promise<void> {
+    return this.begin('local', async (generation) => {
+      if (backup) {
+        await this.dependencies.backUp()
+        this.requireCurrent(generation)
+      }
+      await this.runLocal('one', generation)
+    })
+  }
+
+  /** Run one setup job at a time. A request while a job runs joins it. */
+  private begin(kind: SetupRequest['kind'], run: (generation: number) => Promise<void>): Promise<void> {
     if (this.job) return this.job
     const generation = ++this.generation
-    const job = parsed.kind === 'local'
-      ? this.runLocal(parsed.people, generation)
-      : this.runServer(parsed.url, generation)
-    this.jobKind = parsed.kind
+    const job = run(generation)
+    this.jobKind = kind
     this.job = job.finally(() => { this.job = null; this.jobKind = null })
     return this.job
   }

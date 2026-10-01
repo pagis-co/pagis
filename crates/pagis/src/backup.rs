@@ -64,20 +64,26 @@ pub const DATABASE_DUMP: &str = "database.dump";
 /// cannot check.
 pub const SCHEMA: u32 = 1;
 
+/// The directory of the state directory where the Client App keeps the
+/// Backup of the last Upgrade of a local installation (ADR-0027).
+pub const BACKUPS_DIR: &str = "backups";
+
 /// What the state directory never carries into an archive: the log
 /// files, which are not data, the instance lock, which belongs to the
 /// process that holds it, the Client Credential, which is a live way
 /// into a local installation and belongs to the machine the daemon runs
 /// on, the Key File a local installation generates, which is the
-/// Installation Key, and the Computer tokens, which are live while their
-/// Computers run. A restore writes a fresh credential at its next boot,
+/// Installation Key, the Computer tokens, which are live while their
+/// Computers run, and the Backup of the last Upgrade, which is a copy of
+/// older data. A restore writes a fresh credential at its next boot,
 /// and each Computer gets a new token at its next start.
-const EXCLUDED: [&str; 5] = [
+const EXCLUDED: [&str; 6] = [
     "logs",
     "pagis.lock",
     crate::CLIENT_CREDENTIAL_FILE,
     crate::secrets::GENERATED_KEY_FILE,
     crate::boot::COMPUTER_TOKENS_DIR,
+    BACKUPS_DIR,
 ];
 
 /// Which backend held the records when the archive was taken.
@@ -458,6 +464,27 @@ mod tests {
                 .join(crate::secrets::GENERATED_KEY_FILE)
                 .exists(),
             "the archive carries the Installation Key"
+        );
+    }
+
+    /// The Client App keeps the Backup of the last Upgrade in the state
+    /// directory. A Backup that carried it would hold the copy of an
+    /// earlier copy, and each Upgrade would make the next Backup larger.
+    #[test]
+    fn an_archive_carries_no_backup() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        let out = dir.path().join("archive");
+        let installation = installation(&home);
+        std::fs::create_dir_all(home.join(BACKUPS_DIR).join("0.1.0/state")).unwrap();
+        std::fs::write(home.join(BACKUPS_DIR).join("0.1.0/manifest.json"), "{}").unwrap();
+
+        installation.back_up(&out).unwrap();
+
+        assert!(out.join("state/secrets.enc").exists());
+        assert!(
+            !out.join("state").join(BACKUPS_DIR).exists(),
+            "the archive carries the Backup of an earlier Upgrade"
         );
     }
 

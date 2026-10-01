@@ -14,6 +14,7 @@ describe('client setup', () => {
     let finishInstall!: (binary: string) => void
     const installing = new Promise<string>((resolve) => { finishInstall = resolve })
     const setup = new SetupCoordinator({
+      backUp: async () => {},
       install: async () => { calls.push('install'); return installing },
       start: async (binary) => { calls.push(`start:${binary}`); return 'http://127.0.0.1:4400/' },
       activate: () => calls.push('activate'),
@@ -36,6 +37,7 @@ describe('client setup', () => {
   it('installs for several People, then opens the Multi-User Mode switch after the product', async () => {
     const calls: string[] = []
     const setup = new SetupCoordinator({
+      backUp: async () => {},
       install: async () => { calls.push('install'); return '/installed/pagis' },
       start: async (binary) => { calls.push(`start:${binary}`); return 'http://127.0.0.1:4400/' },
       activate: () => calls.push('activate'),
@@ -56,6 +58,7 @@ describe('client setup', () => {
     const calls: string[] = []
     let finishOpen!: () => void
     const setup = new SetupCoordinator({
+      backUp: async () => {},
       install: async () => '/installed/pagis',
       cancel: () => { calls.push('cancel'); finishOpen() },
       start: async () => 'http://127.0.0.1:4400/',
@@ -78,6 +81,7 @@ describe('client setup', () => {
    *  the setup page shows the refusal as it is: in words for a person. */
   it('rejects an unknown kind, remote and extra native arguments in words for a person', async () => {
     const setup = new SetupCoordinator({
+      backUp: async () => {},
       install: async () => '/installed/pagis',
       start: async () => 'http://127.0.0.1:4400/', activate: () => {},
       openProduct: async () => {},
@@ -99,6 +103,7 @@ describe('client setup', () => {
     let rejectInstall!: (error: Error) => void
     const calls: string[] = []
     const setup = new SetupCoordinator({
+      backUp: async () => {},
       install: () => new Promise((_resolve, reject) => { rejectInstall = reject }),
       cancel: () => { calls.push('cancel'); rejectInstall(new Error('cancelled')) },
       start: async () => '',
@@ -117,6 +122,7 @@ describe('client setup', () => {
     let finishInstall!: (binary: string) => void
     const calls: string[] = []
     const setup = new SetupCoordinator({
+      backUp: async () => {},
       install: () => new Promise((resolve) => { finishInstall = resolve }),
       cancel: () => { calls.push('cancel') },
       start: async () => '',
@@ -137,6 +143,7 @@ describe('client setup', () => {
     let finishStart!: (url: string) => void
     const calls: string[] = []
     const setup = new SetupCoordinator({
+      backUp: async () => {},
       install: async () => '/installed/pagis',
       cancel: () => { calls.push('stop-owned-child'); finishStart('http://127.0.0.1:4400/') },
       start: () => new Promise((resolve) => { finishStart = resolve }),
@@ -159,6 +166,7 @@ describe('client setup', () => {
     const state = new RuntimeState(root)
     state.activate('0.1.0')
     const setup = new SetupCoordinator({
+      backUp: async () => {},
       install: async () => '/installed/pagis',
       start: async () => { state.beginLaunch('0.2.0'); throw new Error('startup interrupted') },
       activate: () => state.activate('0.2.0'), openProduct: async () => {},
@@ -174,12 +182,82 @@ describe('client setup', () => {
   })
 })
 
+/** A newer client upgrades the Local Installation of an older release
+ *  at start, and asks no setup question (ADR-0027). */
+describe('the Upgrade of a Local Installation', () => {
+  function upgrade(calls: string[], backUp: () => Promise<void> = async () => { calls.push('back-up') }): SetupCoordinator {
+    return new SetupCoordinator({
+      backUp,
+      install: async () => { calls.push('install'); return '/installed/pagis' },
+      start: async (binary) => { calls.push(`start:${binary}`); return 'http://127.0.0.1:4400/' },
+      activate: () => calls.push('activate'),
+      openProduct: async (url) => { calls.push(`open-product:${url}`) },
+      connect: async () => { calls.push('connect'); return 'https://pagis.example.com/' },
+      openMultiUserSwitch: async () => { calls.push('open-multi-user-switch') },
+    })
+  }
+
+  it('takes a Backup, then installs, starts, activates and opens the product', async () => {
+    const calls: string[] = []
+
+    await upgrade(calls).upgrade(true)
+
+    expect(calls).toEqual([
+      'back-up', 'install', 'start:/installed/pagis', 'activate', 'open-product:http://127.0.0.1:4400/',
+    ])
+  })
+
+  it('continues without a Backup when the Person asks for that', async () => {
+    const calls: string[] = []
+
+    await upgrade(calls).upgrade(false)
+
+    expect(calls).toEqual(['install', 'start:/installed/pagis', 'activate', 'open-product:http://127.0.0.1:4400/'])
+  })
+
+  it('stops before it installs or starts anything when the Backup fails', async () => {
+    const calls: string[] = []
+    const setup = upgrade(calls, async () => { throw new Error('the Backup did not complete') })
+
+    await expect(setup.upgrade(true)).rejects.toThrow('the Backup did not complete')
+
+    expect(calls).toEqual([])
+  })
+
+  it('is a setup of the local installation while it runs', async () => {
+    let finishBackup!: () => void
+    const setup = upgrade([], () => new Promise((resolve) => { finishBackup = resolve }))
+
+    const job = setup.upgrade(true)
+    expect(setup.setsUpLocal).toBe(true)
+    finishBackup()
+    await job
+
+    expect(setup.setsUpLocal).toBe(false)
+  })
+
+  it('starts nothing after a cancel during the Backup', async () => {
+    const calls: string[] = []
+    let finishBackup!: () => void
+    const setup = upgrade(calls, () => new Promise((resolve) => { finishBackup = resolve }))
+    const job = setup.upgrade(true)
+
+    const cancel = setup.cancel()
+    finishBackup()
+    await expect(job).rejects.toThrow(/cancelled/)
+    await cancel
+
+    expect(calls).toEqual([])
+  })
+})
+
 describe('setup against a server the client did not start', () => {
   const SERVER = { kind: 'server', url: 'pagis.example.com' }
 
   it('connects and opens the product, and installs nothing', async () => {
     const calls: string[] = []
     const setup = new SetupCoordinator({
+      backUp: async () => {},
       install: async () => { calls.push('install'); return '/installed/pagis' },
       start: async () => { calls.push('start'); return '' },
       activate: () => calls.push('activate'),
@@ -200,6 +278,7 @@ describe('setup against a server the client did not start', () => {
    *  carries an email address or a password is not a setup request. */
   it('refuses a request with no address, or with anything besides the address', async () => {
     const setup = new SetupCoordinator({
+      backUp: async () => {},
       install: async () => '/installed/pagis', start: async () => '',
       activate: () => {}, openProduct: async () => {},
       connect: async () => 'https://pagis.example.com/',
@@ -229,6 +308,7 @@ describe('setup against a server the client did not start', () => {
     const calls: string[] = []
     let finishConnect!: (origin: string) => void
     const setup = new SetupCoordinator({
+      backUp: async () => {},
       install: async () => '/installed/pagis', start: async () => '',
       activate: () => {},
       openProduct: async () => { calls.push('open-product') },

@@ -673,6 +673,54 @@ describe('the Linux server package', () => {
   })
 })
 
+/** After an Upgrade, the client keeps the package and the download of
+ *  its own release alone (ADR-0027). */
+describe('the removal of the other releases', () => {
+  /** An installed release 0.1.0, with the package directory and the
+   *  download of an older release beside it. */
+  async function upgraded(): Promise<{ runtime: string; lock: DarwinRuntimeLock; installer: RuntimeInstaller }> {
+    const { root, lock, source } = fixture()
+    const runtime = path.join(root, 'runtime')
+    const installer = new RuntimeInstaller(runtime, adapters(source, []))
+    await installer.install(lock)
+    for (const release of ['0.0.8', '0.0.9']) {
+      const old = path.join(runtime, 'releases', release, 'darwin-arm64')
+      fs.mkdirSync(old, { recursive: true })
+      for (const name of ['pagis', 'gog']) fs.writeFileSync(path.join(old, name), release, { mode: 0o755 })
+    }
+    fs.writeFileSync(path.join(runtime, 'downloads', `${'c'.repeat(64)}.part`), 'old package')
+    return { runtime, lock, installer }
+  }
+
+  it('removes the package directories and the downloads of every other release', async () => {
+    const { runtime, lock, installer } = await upgraded()
+
+    await installer.removeOtherReleases(lock, async () => false)
+
+    expect(fs.readdirSync(path.join(runtime, 'releases'))).toEqual(['0.1.0'])
+    expect(fs.readdirSync(path.join(runtime, 'downloads'))).toEqual([`${lock.asset.sha256}.part`])
+    expect(fs.readFileSync(path.join(runtime, 'releases', '0.1.0', 'darwin-arm64', 'pagis'), 'utf8')).toBe('server')
+  })
+
+  it('keeps a release whose files a process still uses', async () => {
+    const { runtime, lock, installer } = await upgraded()
+    const used = path.join(runtime, 'releases', '0.0.9', 'darwin-arm64', 'gog')
+
+    await installer.removeOtherReleases(lock, async (file) => file === used)
+
+    expect(fs.readdirSync(path.join(runtime, 'releases')).sort()).toEqual(['0.0.9', '0.1.0'])
+  })
+
+  it('removes nothing when no release was installed', async () => {
+    const { root, lock, source } = fixture()
+    const runtime = path.join(root, 'runtime')
+
+    await new RuntimeInstaller(runtime, adapters(source, [])).removeOtherReleases(lock, async () => false)
+
+    expect(fs.existsSync(path.join(runtime, 'releases'))).toBe(false)
+  })
+})
+
 /** A person with the Client App finds the `pagis` command for a backup
  *  from the Back up and restore page of the documentation site alone, so
  *  the page names the file where the installer puts it, under the

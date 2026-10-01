@@ -16,8 +16,8 @@ Server Runtime that the client installed:
 | Linux arm64 | `~/.config/Pagis/runtime/releases/<release>/linux-arm64/pagis` |
 
 `<release>` is a release number, such as `0.1.0`. The `releases` directory
-holds one directory for each release that the client installed, and the
-client starts the highest one. Use that one.
+holds the release that the client runs. After an Upgrade, the client
+removes the directories of the other releases. Use the highest one.
 
 A backup needs a stopped server, and `pagis backup` refuses to run beside
 a running one. Select "Quit Pagis" in the tray menu first: quit stops the
@@ -67,3 +67,29 @@ With a Key File, copy it back to `~/.pagis/installation-key`, mode 600.
 Then open Pagis. The client starts the restored installation and opens it
 signed in. The release of the client must be the release of the backup or a
 newer one.
+
+## The Backup of an Upgrade
+
+A Client App of a newer release upgrades the installation when it starts
+([ADR-0027](https://github.com/pagis-co/pagis/blob/main/docs/adr/0027-the-client-app-installs-updates-and-upgrades-its-installation.md)).
+Before the new server opens the data, the `pagis` command of the old release
+makes a Backup. The client keeps it in the state directory, at
+`~/.pagis/backups/<old release>`, for example `~/.pagis/backups/0.1.1`. A
+Backup leaves out the `backups` directory.
+
+The client keeps one Backup of an Upgrade. When an Upgrade is complete, it
+removes the Backup of the Upgrade before it. To keep a Backup longer, copy it
+to another place. Each Backup is a full copy of the data, so an Upgrade
+needs the free disk space for one more copy.
+
+To put the data back as it was before the last Upgrade, quit Pagis, move the
+state directory away, and restore the Backup from it:
+
+```bash
+mv ~/.pagis ~/.pagis-before-restore
+"$pagis" restore ~/.pagis-before-restore/backups/0.1.1
+```
+
+Copy a Key File back as above, then open Pagis. The client starts its own
+release on the restored data, and that release upgrades the data again.
+Pagis has no command that starts the old release again.
