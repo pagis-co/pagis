@@ -380,6 +380,7 @@ function closesWithin(child: ChildProcess, timeoutMs: number): Promise<boolean> 
 export function redact(value: string): string {
   return value
     .replace(/(\/api\/v1\/sessions\/link\/)[^\s"'/?&]+/gi, '$1[redacted]')
+    .replace(/(\/sign-in#)[^\s"']+/gi, '$1[redacted]')
     .replace(/(pagis_session=)[^;\s"']+/gi, '$1[redacted]')
     .replace(/("?(?:credential|token|api[_-]?key|secret)"?\s*[:=]\s*["']?)[^\s,"'}]+/gi, '$1[redacted]')
 }

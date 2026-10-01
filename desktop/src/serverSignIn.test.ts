@@ -7,7 +7,7 @@ import { EventEmitter } from 'node:events'
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { type ChangedCookie, watchServerSignIn } from './serverSignIn'
+import { type ChangedCookie, openServerPage, watchServerSignIn } from './serverSignIn'
 
 const SERVER = 'https://pagis.example.com/'
 
@@ -173,5 +173,33 @@ describe('the Session cookie of an https:// server', () => {
 
     await vi.waitFor(() => expect(signedIn).toHaveBeenCalledTimes(1))
     expect(jar.sets).toEqual([])
+  })
+})
+
+/** The error of an Electron load whose page failed, as `loadURL` rejects
+ *  with it. */
+function loadFailure(code: string, errno: number, url: string): Error {
+  return Object.assign(new Error(`${code} (${errno}) loading '${url}'`), { code, errno, url })
+}
+
+describe('the product window on a server this client did not start', () => {
+  const LINK = `${SERVER}sign-in#6f1c0d2e`
+
+  /** The page of a Sign-In Link opens the app once the server signs it
+   *  in, which can be before its own load finished. Electron then
+   *  rejects the load of the link with ERR_ABORTED, and the window
+   *  shows the app. */
+  it('opens the page of a Sign-In Link that goes on to the app before its load finished', async () => {
+    const window = { loadURL: vi.fn(async () => { throw loadFailure('ERR_ABORTED', -3, SERVER) }) }
+
+    await expect(openServerPage(window, LINK)).resolves.toBeUndefined()
+
+    expect(window.loadURL).toHaveBeenCalledWith(LINK)
+  })
+
+  it('fails when the page does not load', async () => {
+    const window = { loadURL: vi.fn(async () => { throw loadFailure('ERR_CONNECTION_REFUSED', -102, SERVER) }) }
+
+    await expect(openServerPage(window, SERVER)).rejects.toThrow(/ERR_CONNECTION_REFUSED/)
   })
 })

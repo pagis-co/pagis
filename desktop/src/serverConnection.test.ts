@@ -52,6 +52,25 @@ describe('the server a connect-only client opens again', () => {
     expect(Object.keys(JSON.parse(stored) as object).sort()).toEqual(['origin'])
   })
 
+  /** A Sign-In Link carries its secret after `#`. The client keeps the
+   *  origin of the link, and a stored link is not a file it wrote. */
+  it('keeps the origin of a Sign-In Link and never its secret', () => {
+    const secret = '6f1c0d2e9b8a7f6e5d4c3b2a1908f7e6d5c4b3a29180f7e6d5c4b3a291807f6e'
+    const connections = new ServerConnections(root)
+
+    expect(connections.write(`https://pagis.example.com/sign-in#${secret}`)).toEqual({
+      origin: 'https://pagis.example.com/',
+    })
+
+    expect(fs.readFileSync(path.join(root, 'server.json'), 'utf8')).not.toContain(secret)
+    expect(fs.readdirSync(root)).toEqual(['server.json'])
+
+    fs.writeFileSync(path.join(root, 'server.json'), JSON.stringify({
+      origin: `https://pagis.example.com/sign-in#${secret}`,
+    }))
+    expect(() => new ServerConnections(root).read()).toThrow(/is invalid/)
+  })
+
   /** A stored http:// origin of another computer fails here, and the
    *  start then opens the setup page with the reason. Nothing converts
    *  it. */

@@ -1,5 +1,7 @@
 //! The name of a browser Session, from the `User-Agent` of the browser
-//! that signed in: "Safari on macOS", "Chrome on Android".
+//! that signed in: "Safari on macOS", "Chrome on Android", and "Pagis on
+//! macOS" for the product window of a Client App that connects to a
+//! server.
 //!
 //! The Person reads the name in their Sessions list, so they know which
 //! Session to remove. It is a label and nothing more: a client can send
@@ -12,8 +14,10 @@ use axum::http::header::USER_AGENT;
 
 /// The browsers, in the order they are checked. A browser built on
 /// another one names that one too (Edge says `Chrome/` and `Safari/`),
-/// so the more specific token comes first.
+/// so the more specific token comes first. The Client App is Electron,
+/// which puts the name and the version of the app before `Chrome/`.
 const BROWSERS: &[(&str, &str)] = &[
+    ("Pagis/", "Pagis"),
     ("Edg/", "Edge"),
     ("EdgA/", "Edge"),
     ("EdgiOS/", "Edge"),
@@ -117,6 +121,31 @@ mod tests {
                 "Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) AppleWebKit/537.36 (KHTML, like \
                  Gecko) Chrome/139.0.0.0 Safari/537.36",
                 "Chrome on ChromeOS",
+            ),
+        ] {
+            assert_eq!(name_of(agent).as_deref(), Some(name), "{agent}");
+        }
+    }
+
+    /// The product window of the Pagis Client App sends Electron's
+    /// `User-Agent`, which names the app before Chrome and Safari.
+    #[test]
+    fn the_client_app_is_named_pagis_with_its_system() {
+        for (agent, name) in [
+            (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, \
+                 like Gecko) Pagis/0.1.1 Chrome/152.0.7977.65 Electron/44.1.1 Safari/537.36",
+                "Pagis on macOS",
+            ),
+            (
+                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) \
+                 Pagis/0.1.1 Chrome/152.0.7977.65 Electron/44.1.1 Safari/537.36",
+                "Pagis on Linux",
+            ),
+            (
+                "Mozilla/5.0 (X11; Linux aarch64) AppleWebKit/537.36 (KHTML, like Gecko) \
+                 Pagis/0.1.1 Chrome/152.0.7977.65 Electron/44.1.1 Safari/537.36",
+                "Pagis on Linux",
             ),
         ] {
             assert_eq!(name_of(agent).as_deref(), Some(name), "{agent}");

@@ -292,7 +292,7 @@ describe('setup against a server the client did not start', () => {
       { ...SERVER, password: 'correct horse battery' },
       { ...SERVER, people: 'several' },
     ]) {
-      await expect(setup.run(request)).rejects.toThrow('Enter the address of your Pagis server, then select Continue.')
+      await expect(setup.run(request)).rejects.toThrow('Enter the address of your Pagis server, or paste a sign-in link, then select Continue.')
     }
   })
 

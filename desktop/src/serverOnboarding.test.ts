@@ -35,12 +35,47 @@ describe('onboarding against a server the client did not start', () => {
       '/api/v1/setup': () => setUp(),
     })
 
-    const origin = await connectToServer('pagis.example.com', CLIENT, fetcher as unknown as typeof fetch)
+    const address = await connectToServer('pagis.example.com', CLIENT, fetcher as unknown as typeof fetch)
 
-    expect(origin).toBe('https://pagis.example.com/')
+    expect(address).toEqual({ origin: 'https://pagis.example.com/', opens: 'https://pagis.example.com/' })
     const paths = fetcher.mock.calls.map((call) => new URL(String(call[0])).pathname)
     expect(paths).toEqual(['/api/v1/health', '/api/v1/setup'])
     for (const [, init] of fetcher.mock.calls) expect(init?.method ?? 'GET').toBe('GET')
+  })
+
+  /** A Sign-In Link of an installation in Remote Access (ADR-0028). The
+   *  client checks the server at the origin of the link, and the product
+   *  window opens the link itself: the Product App's page at `/sign-in`
+   *  trades the secret, so the client sends the secret nowhere. */
+  it('checks the server of a Sign-In Link at its origin, and opens the product window at the link', async () => {
+    const secret = '6f1c0d2e9b8a7f6e5d4c3b2a1908f7e6d5c4b3a29180f7e6d5c4b3a291807f6e'
+    const link = `https://pagis-home.tail1234.ts.net/sign-in#${secret}`
+    const fetcher = server({
+      '/api/v1/health': () => healthy(),
+      '/api/v1/setup': () => setUp(),
+    })
+
+    const address = await connectToServer(link, CLIENT, fetcher as unknown as typeof fetch)
+
+    expect(address).toEqual({ origin: 'https://pagis-home.tail1234.ts.net/', opens: link })
+    const sent = fetcher.mock.calls.map((call) => String(call[0]))
+    expect(sent).toEqual([
+      'https://pagis-home.tail1234.ts.net/api/v1/health',
+      'https://pagis-home.tail1234.ts.net/api/v1/setup',
+    ])
+    for (const [, init] of fetcher.mock.calls) expect(JSON.stringify(init ?? {})).not.toContain(secret)
+  })
+
+  /** The link is not spent before the client knows that it can work
+   *  with the server: the product window opens it only after the checks. */
+  it('refuses a Sign-In Link of a server outside its compatibility range', async () => {
+    const fetcher = server({ '/api/v1/health': () => healthy('2.0.0') })
+
+    await expect(connectToServer(
+      'https://pagis-home.tail1234.ts.net/sign-in#6f1c0d2e',
+      CLIENT,
+      fetcher as unknown as typeof fetch,
+    )).rejects.toThrow(/Update Pagis on this computer/)
   })
 
   it('says what to do when no Pagis server answers', async () => {
@@ -102,6 +137,18 @@ describe('onboarding against a server the client did not start', () => {
     })
 
     await expect(connectToServer('http://192.168.1.10:4400', CLIENT, fetcher as unknown as typeof fetch)).rejects.toThrow(/only over https:\/\//)
+    await expect(connectToServer('http://192.168.1.10:4400/sign-in#6f1c0d2e', CLIENT, fetcher as unknown as typeof fetch)).rejects.toThrow(/only over https:\/\//)
+
+    expect(fetcher).not.toHaveBeenCalled()
+  })
+
+  it('sends nothing for a Sign-In Link with no secret', async () => {
+    const fetcher = server({
+      '/api/v1/health': () => healthy(),
+      '/api/v1/setup': () => setUp(),
+    })
+
+    await expect(connectToServer('https://pagis.example.com/sign-in', CLIENT, fetcher as unknown as typeof fetch)).rejects.toThrow(/sign-in link is not complete/)
 
     expect(fetcher).not.toHaveBeenCalled()
   })

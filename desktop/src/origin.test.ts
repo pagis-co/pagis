@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { isTrustedServerOrigin, loopbackOrigin, opensInSystemBrowser, serverOrigin } from './origin'
+import { isTrustedServerOrigin, loopbackOrigin, opensInSystemBrowser, serverAddress, serverOrigin } from './origin'
 
 describe('the origin the client talks to', () => {
   it('is the loopback port for a server this client started', () => {
@@ -45,6 +45,79 @@ describe('the origin the client talks to', () => {
     expect(() => serverOrigin('file:///etc/passwd')).toThrow(/https:\/\/ or http:\/\//)
     expect(() => serverOrigin('ws://pagis.example.com')).toThrow(/https:\/\/ or http:\/\//)
     expect(() => serverOrigin('https://ada:secret@pagis.example.com')).toThrow(/Leave the user name/)
+  })
+})
+
+/** The secret of a Sign-In Link of the Public Origin (ADR-0028). */
+const SECRET = '6f1c0d2e9b8a7f6e5d4c3b2a1908f7e6d5c4b3a29180f7e6d5c4b3a291807f6e'
+
+describe('what the person typed in the Server address field', () => {
+  it('is an address: the product window opens the origin of the server', () => {
+    expect(serverAddress('pagis.example.com')).toEqual({
+      origin: 'https://pagis.example.com/',
+      opens: 'https://pagis.example.com/',
+    })
+    expect(serverAddress('https://pagis.example.com/settings#sessions')).toEqual({
+      origin: 'https://pagis.example.com/',
+      opens: 'https://pagis.example.com/',
+    })
+  })
+
+  /** The Product App's page at `/sign-in` posts the secret and puts the
+   *  Session cookie in the jar of the product window. The client keeps
+   *  the origin alone. */
+  it('is a Sign-In Link: the client keeps the origin, and the product window opens the link', () => {
+    const link = `https://pagis-home.tail1234.ts.net/sign-in#${SECRET}`
+
+    const address = serverAddress(`  ${link}  `)
+
+    expect(address).toEqual({ origin: 'https://pagis-home.tail1234.ts.net/', opens: link })
+    expect(address.origin).not.toContain(SECRET)
+  })
+
+  it('opens the link on the origin that the client checked, whatever else the person pasted', () => {
+    expect(serverAddress(`HTTPS://Pagis.Example.com:443/sign-in?from=mail#${SECRET}`)).toEqual({
+      origin: 'https://pagis.example.com/',
+      opens: `https://pagis.example.com/sign-in#${SECRET}`,
+    })
+    expect(serverAddress(`http://127.0.0.1:4400/sign-in#${SECRET}`)).toEqual({
+      origin: 'http://127.0.0.1:4400/',
+      opens: `http://127.0.0.1:4400/sign-in#${SECRET}`,
+    })
+  })
+
+  /** A message app or a copy can cut the part after `#` off. The page
+   *  of the link would sign nobody in, so the field refuses it. */
+  it('refuses a Sign-In Link with no secret', () => {
+    for (const typed of [
+      'https://pagis.example.com/sign-in',
+      'https://pagis.example.com/sign-in#',
+      'pagis.example.com/sign-in',
+    ]) {
+      expect(() => serverAddress(typed), typed).toThrow(
+        'This sign-in link is not complete. Copy the whole link, then paste it again.',
+      )
+    }
+  })
+
+  /** Over http:// the secret, the Session and every Host command would
+   *  cross the network as clear text. */
+  it('refuses an http:// Sign-In Link of another computer, as it refuses the address', () => {
+    for (const typed of [
+      `http://192.168.1.10:4400/sign-in#${SECRET}`,
+      `http://pagis.example.com/sign-in#${SECRET}`,
+    ]) {
+      expect(() => serverAddress(typed), typed).toThrow(/only over https:\/\//)
+    }
+  })
+
+  it('refuses what serverOrigin refuses, in the same words', () => {
+    for (const typed of ['', 'ftp://pagis.example.com/sign-in#x', `https://ada:pw@pagis.example.com/sign-in#${SECRET}`]) {
+      let refusal = ''
+      try { serverOrigin(typed) } catch (error) { refusal = (error as Error).message }
+      expect(refusal, typed).not.toBe('')
+      expect(() => serverAddress(typed), typed).toThrow(refusal)
+    }
   })
 })
 

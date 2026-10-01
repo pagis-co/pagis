@@ -10,7 +10,7 @@ import { JSDOM } from 'jsdom'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import type { DaemonState } from './daemon'
-import { serverOrigin } from './origin'
+import { serverAddress } from './origin'
 import type { SetupState } from './setupState'
 
 interface Page<State = unknown> {
@@ -89,7 +89,7 @@ function footer(page: Page<unknown>): string[] {
     .map((button) => button.textContent?.trim() ?? '')
 }
 
-/** Type a server address, then press Continue. */
+/** Type a server address or paste a sign-in link, then press Continue. */
 function connectTo(page: Page<SetupState>, address: string): void {
   choose(page, 'Connect to a Pagis server')
   ;(page.document.getElementById('server-url') as HTMLInputElement).value = address
@@ -147,13 +147,33 @@ describe('the first screen of the setup page', () => {
 
     choose(page, 'Connect to a Pagis server')
     const lines = page.visibleText().split('\n')
-    const field = lines.indexOf('Server address')
+    const field = lines.indexOf('Server address or sign-in link')
     expect(field).toBeGreaterThan(lines.indexOf('Connect to a Pagis server'))
-    expect(lines[field + 1]).toBe('Connect only to a server you trust.')
+    expect(lines[field + 2]).toBe('Connect only to a server you trust.')
+    const input = page.document.getElementById('server-url')!
+    expect(input.nextElementSibling?.id, 'the trust line is not under the field').toBe('connect-trust')
     expect(page.document.getElementById('connect-trust')?.closest('.field')).not.toBeNull()
 
     choose(page, 'Install on this computer')
     expect(page.visibleText()).not.toMatch(/Server address|trust/)
+  })
+
+  /** An installation in Remote Access signs a client in with a Sign-In
+   *  Link alone (ADR-0028). The hint under the label says where a link
+   *  comes from, and a screen reader reads it with the field. */
+  it('says that the field takes an address or a sign-in link, and where a link comes from', () => {
+    const page = openSetup()
+    page.show({ kind: 'ready' })
+    choose(page, 'Connect to a Pagis server')
+
+    const lines = page.visibleText().split('\n')
+    const field = lines.indexOf('Server address or sign-in link')
+    expect(lines[field + 1]).toBe(
+      'Paste a sign-in link from an invite or from Settings → Sessions, or type the address of the server.',
+    )
+    const input = page.document.getElementById('server-url')!
+    expect(input.previousElementSibling?.id).toBe('server-url-hint')
+    expect((input.getAttribute('aria-describedby') ?? '').split(' ')).toEqual(['server-url-hint', 'connect-trust'])
   })
 
   /** The setup page states the trust in one line. The Connect to a
@@ -194,6 +214,19 @@ describe('the first screen of the setup page', () => {
     expect(page.calls).toEqual(['connectToServer:https://pagis.example.com'])
   })
 
+  /** The main process keeps the origin of the link, and the product
+   *  window opens the link, whose page trades the secret. */
+  it('sends a sign-in link as the person pasted it on Continue', () => {
+    const page = openSetup()
+    page.show({ kind: 'ready' })
+    const link = 'https://pagis-home.tail1234.ts.net/sign-in#6f1c0d2e9b8a7f6e5d4c3b2a1908f7e6'
+
+    connectTo(page, link)
+
+    expect(addressMessage(page)).toBeNull()
+    expect(page.calls).toEqual([`connectToServer:${link}`])
+  })
+
   it('sends the address when the person presses Enter in the field', () => {
     const page = openSetup()
     page.show({ kind: 'ready' })
@@ -214,15 +247,15 @@ describe('the first screen of the setup page', () => {
       connectTo(page, address)
 
       expect(page.calls).toEqual([])
-      expect(addressMessage(page)).toBe('Enter the address of your Pagis server.')
+      expect(addressMessage(page)).toBe('Enter the address of your Pagis server, or paste a sign-in link.')
       expect(page.document.activeElement?.id).toBe('server-url')
     }
   })
 
-  /** The main process reads the address with serverOrigin and refuses
+  /** The main process reads the address with serverAddress and refuses
    *  it with the same words, so the page and the main process never
-   *  disagree on an address. */
-  it('names a malformed server address on its field, in the words of the main process', () => {
+   *  disagree on an address or a link. */
+  it('names a malformed server address or sign-in link on its field, in the words of the main process', () => {
     for (const url of [
       'ada@example.com',
       'pagis example.com',
@@ -230,6 +263,9 @@ describe('the first screen of the setup page', () => {
       'ftp://pagis.example.com',
       'https://ada:secret@pagis.example.com',
       'http://pagis.example.com',
+      'https://pagis.example.com/sign-in',
+      'https://pagis.example.com/sign-in#',
+      'http://192.168.1.10:4400/sign-in#6f1c0d2e',
     ]) {
       const page = openSetup()
       page.show({ kind: 'ready' })
@@ -238,7 +274,7 @@ describe('the first screen of the setup page', () => {
 
       expect(page.calls, url).toEqual([])
       let refusal = ''
-      try { serverOrigin(url) } catch (error) { refusal = (error as Error).message }
+      try { serverAddress(url) } catch (error) { refusal = (error as Error).message }
       expect(refusal, url).not.toBe('')
       expect(addressMessage(page), url).toBe(refusal)
       expect(page.document.activeElement?.id, url).toBe('server-url')
