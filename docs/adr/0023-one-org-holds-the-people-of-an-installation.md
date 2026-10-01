@@ -118,8 +118,9 @@ socket upgrade from an origin it does not serve (ADR-0024), because
 
 A password sign-in, the trade of a Client Credential, and a Sign-In Link
 (ADR-0025, ADR-0028) hand out a Session. A refused password counts against the
-account and against the source address. A second device of a Person signs in
-with a Sign-In Link that a signed-in client or `pagis pair` makes.
+account and against the source address. Another browser or app of a
+Person signs in with a Sign-In Link that a signed-in client or `pagis pair`
+makes.
 
 ## Consequences
 
