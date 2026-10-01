@@ -164,9 +164,9 @@ describe("the sprite roster", () => {
     );
 
     const row = await screen.findByRole("button", { name: /^Clown,/ });
-    expect(within(row).getByText("Chief of Staff")).toBeTruthy();
+    expect(within(row).getByText("Main sprite")).toBeTruthy();
     const other = screen.getByRole("button", { name: /^Sage,/ });
-    expect(within(other).queryByText("Chief of Staff")).toBeNull();
+    expect(within(other).queryByText("Main sprite")).toBeNull();
   });
 
   // The ring stands for the work of a conversation (ADR-0022), so the
@@ -525,7 +525,7 @@ describe("the agent profile", () => {
     const header = (
       await screen.findByRole("heading", { name: "Sage" })
     ).closest("header") as HTMLElement;
-    expect(await within(header).findByText("Chief of Staff")).toBeTruthy();
+    expect(await within(header).findByText("Main sprite")).toBeTruthy();
   });
 
   it("leaves the Chief of Staff badge off another sprite's header", async () => {
@@ -535,7 +535,7 @@ describe("the agent profile", () => {
       await screen.findByRole("heading", { name: "Sage" })
     ).closest("header") as HTMLElement;
     await screen.findByRole("button", { name: "Make Sage the Chief of Staff" });
-    expect(within(header).queryByText("Chief of Staff")).toBeNull();
+    expect(within(header).queryByText("Main sprite")).toBeNull();
   });
 
   it("shows the Docker hint on the Desk when Docker is absent", async () => {

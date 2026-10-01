@@ -217,7 +217,7 @@ export function AgentProfile({
           <span className="agent-job">{agent.job}</span>
         </div>
         {workspace.data?.chief_of_staff_agent_id === agent.id && (
-          <Badge tone="neutral">Chief of Staff</Badge>
+          <Badge tone="neutral">Main sprite</Badge>
         )}
         <Badge tone={activityTone(presence)}>{activityWord(presence)}</Badge>
         <span className="sprite-row-last">
