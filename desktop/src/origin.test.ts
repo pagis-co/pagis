@@ -49,7 +49,7 @@ describe('the origin the client talks to', () => {
 })
 
 /** The secret of a Sign-In Link of the Public Origin (ADR-0028). */
-const SECRET = '6f1c0d2e9b8a7f6e5d4c3b2a1908f7e6d5c4b3a29180f7e6d5c4b3a291807f6e'
+const SECRET = 'not-a-real-link-secret'
 
 describe('what the person typed in the Server address field', () => {
   it('is an address: the product window opens the origin of the server', () => {

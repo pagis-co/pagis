@@ -55,7 +55,7 @@ describe('the server a connect-only client opens again', () => {
   /** A Sign-In Link carries its secret after `#`. The client keeps the
    *  origin of the link, and a stored link is not a file it wrote. */
   it('keeps the origin of a Sign-In Link and never its secret', () => {
-    const secret = '6f1c0d2e9b8a7f6e5d4c3b2a1908f7e6d5c4b3a29180f7e6d5c4b3a291807f6e'
+    const secret = 'not-a-real-link-secret'
     const connections = new ServerConnections(root)
 
     expect(connections.write(`https://pagis.example.com/sign-in#${secret}`)).toEqual({

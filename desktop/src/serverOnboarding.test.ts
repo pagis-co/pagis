@@ -48,7 +48,7 @@ describe('onboarding against a server the client did not start', () => {
    *  window opens the link itself: the Product App's page at `/sign-in`
    *  trades the secret, so the client sends the secret nowhere. */
   it('checks the server of a Sign-In Link at its origin, and opens the product window at the link', async () => {
-    const secret = '6f1c0d2e9b8a7f6e5d4c3b2a1908f7e6d5c4b3a29180f7e6d5c4b3a291807f6e'
+    const secret = 'not-a-real-link-secret'
     const link = `https://pagis-home.tail1234.ts.net/sign-in#${secret}`
     const fetcher = server({
       '/api/v1/health': () => healthy(),
