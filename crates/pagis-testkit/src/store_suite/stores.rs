@@ -18,8 +18,8 @@ use pagis_core::{
 
 use crate::fixture::{
     agent, agent_message, agent_participant, artifact, channel, credential_grant, host_grant,
-    pending_form_request, pending_request, queued_run, software_package, software_version,
-    user_message, user_participant,
+    missed_call, pending_form_request, pending_request, queued_run, software_package,
+    software_version, user_message, user_participant,
 };
 
 use super::Backend;
@@ -714,6 +714,52 @@ pub async fn run_roundtrips_and_updates_through_store(backend: &Backend) {
 
     assert_eq!(store.get(&ws.id, &run.id).await.unwrap(), Some(run));
     assert_eq!(store.list_unfinished().await.unwrap(), vec![]);
+}
+
+pub async fn a_dismissed_run_keeps_its_first_dismissal(backend: &Backend) {
+    let ws = backend.seeded_workspace().await;
+    let other_ws = backend.seeded_workspace().await;
+    let a = agent(&ws.id);
+    backend.stores().agents.create(&a).await.unwrap();
+    let ch = channel(&ws.id);
+    backend.stores().channels.create(&ch).await.unwrap();
+    let store = &backend.stores().runs;
+    let mut run = queued_run(&ws.id, &a.id, &ch.id);
+    store.create(&run).await.unwrap();
+
+    assert!(!store.dismiss(&other_ws.id, &run.id, 5).await.unwrap());
+    assert!(store.dismiss(&ws.id, &run.id, 10).await.unwrap());
+    assert!(store.dismiss(&ws.id, &run.id, 20).await.unwrap());
+    // A later write of the run state leaves the dismissal alone.
+    run.state = RunState::Failed;
+    store.update(&run).await.unwrap();
+
+    let read = store.get(&ws.id, &run.id).await.unwrap().unwrap();
+    assert_eq!(read.dismissed_at, Some(10));
+    assert_eq!(read.state, RunState::Failed);
+}
+
+pub async fn a_dismissed_call_keeps_its_first_dismissal(backend: &Backend) {
+    let ws = backend.seeded_workspace().await;
+    let other_ws = backend.seeded_workspace().await;
+    let a = agent(&ws.id);
+    backend.stores().agents.create(&a).await.unwrap();
+    let ch = channel(&ws.id);
+    backend.stores().channels.create(&ch).await.unwrap();
+    let run = queued_run(&ws.id, &a.id, &ch.id);
+    backend.stores().runs.create(&run).await.unwrap();
+    let store = &backend.stores().calls;
+    let call = missed_call(&ws.id, &a.id, &run.id);
+    store.insert(&call).await.unwrap();
+
+    assert!(!store.dismiss(&other_ws.id, &call.id, 5).await.unwrap());
+    assert!(store.dismiss(&ws.id, &call.id, 10).await.unwrap());
+    assert!(store.dismiss(&ws.id, &call.id, 20).await.unwrap());
+    // A later write of the record leaves the dismissal alone.
+    store.update(&call).await.unwrap();
+
+    let read = store.get(&ws.id, &call.id).await.unwrap().unwrap();
+    assert_eq!(read.dismissed_at, Some(10));
 }
 
 pub async fn artifact_roundtrips_through_store(backend: &Backend) {
@@ -2531,6 +2577,8 @@ macro_rules! store_suite_stores {
             finalize_settles_a_streaming_message,
             fail_streaming_marks_only_streaming_messages,
             run_roundtrips_and_updates_through_store,
+            a_dismissed_run_keeps_its_first_dismissal,
+            a_dismissed_call_keeps_its_first_dismissal,
             artifact_roundtrips_through_store,
             duplicate_content_dedups_to_the_original_artifact,
             same_content_in_another_workspace_is_a_new_artifact,

@@ -241,6 +241,9 @@ pub struct CallSummaryDto {
     pub created_at: i64,
     pub answered_at: Option<i64>,
     pub ended_at: Option<i64>,
+    /// When the Person dismissed the missed Call from the Needs-You
+    /// Queue.
+    pub dismissed_at: Option<i64>,
 }
 
 impl From<Call> for CallSummaryDto {
@@ -265,6 +268,7 @@ impl From<Call> for CallSummaryDto {
             created_at: call.created_at,
             answered_at: call.answered_at,
             ended_at: call.ended_at,
+            dismissed_at: call.dismissed_at,
         }
     }
 }
@@ -463,5 +467,45 @@ pub async fn hang_up(
         .hub(&tenant.workspace_id, &CallId::from(call_id))
         .ok_or_else(|| ApiError::not_found("that live call"))?;
     hub.hangup().await;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// The Person dismisses a missed Call from the Needs-You Queue. The
+/// record keeps the time, so the queue leaves it out on every client
+/// and after a reload. A second dismissal keeps the first time.
+#[utoipa::path(post, path = "/api/v1/calls/{call_id}/dismiss",
+    params(("call_id" = String, Path, description = "The Call")),
+    responses(
+        (status = 204, description = "The Call is out of the Needs-You Queue"),
+        (status = 401, body = crate::error::ErrorBody),
+        (status = 404, body = crate::error::ErrorBody),
+    )
+)]
+pub async fn dismiss_call(
+    State(state): State<Arc<AppState>>,
+    tenant: Tenant,
+    Path(call_id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    let call_id = CallId::from(call_id);
+    if !state
+        .calls
+        .dismiss(&tenant.workspace_id, &call_id, state.clock.now_ms())
+        .await
+        .map_err(|_| ApiError::internal())?
+    {
+        return Err(ApiError::not_found("that call"));
+    }
+    // Every client of the Person drops the queue item.
+    let _ = state
+        .bus
+        .publish(pagis_core::NewEvent {
+            workspace_id: tenant.workspace_id.clone(),
+            event_type: "call.dismissed".into(),
+            agent_id: None,
+            run_id: None,
+            channel_id: None,
+            payload: serde_json::json!({ "call_id": call_id.as_str() }),
+        })
+        .await;
     Ok(StatusCode::NO_CONTENT)
 }

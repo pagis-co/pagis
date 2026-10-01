@@ -543,6 +543,7 @@ async fn seed_run(
         origin: None,
         state: RunState::Completed,
         failure_kind: None,
+        dismissed_at: None,
         error: None,
         started_at: Some(now_ms()),
         ended_at: Some(now_ms()),

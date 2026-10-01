@@ -48,6 +48,7 @@ mod mail_events;
 mod mail_run_loop;
 mod mail_tools;
 mod memory;
+mod needs_you;
 mod network;
 mod onboarding;
 mod ops;

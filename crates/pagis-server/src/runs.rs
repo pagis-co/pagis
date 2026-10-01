@@ -1,5 +1,5 @@
-//! Runs REST: cancel one run, list runs, read a run's events and
-//! its steps.
+//! Runs REST: cancel one run, dismiss one from the Needs-You Queue,
+//! list runs, read a run's events and its steps.
 
 use std::sync::Arc;
 
@@ -75,6 +75,8 @@ pub struct RunDto {
     pub ended_at: Option<i64>,
     pub created_at: i64,
     pub duration_ms: Option<i64>,
+    /// When the Person dismissed the Run from the Needs-You Queue.
+    pub dismissed_at: Option<i64>,
 }
 
 impl From<Run> for RunDto {
@@ -102,6 +104,7 @@ impl From<Run> for RunDto {
             ended_at: run.ended_at,
             created_at: run.created_at,
             duration_ms,
+            dismissed_at: run.dismissed_at,
         }
     }
 }
@@ -309,6 +312,47 @@ pub async fn cancel_run(
         )),
         CancelOutcome::NotFound => Err(ApiError::not_found("run")),
     }
+}
+
+/// The Person dismisses a Run from the Needs-You Queue. The Run keeps
+/// the time, so the queue leaves it out on every client and after a
+/// reload. A second dismissal keeps the first time.
+#[utoipa::path(
+    post,
+    path = "/api/v1/runs/{run_id}/dismiss",
+    params(("run_id" = String, Path,)),
+    responses(
+        (status = 204, description = "The Run is out of the Needs-You Queue"),
+        (status = 401, body = crate::error::ErrorBody),
+        (status = 404, body = crate::error::ErrorBody),
+    )
+)]
+pub async fn dismiss_run(
+    State(state): State<Arc<AppState>>,
+    tenant: Tenant,
+    Path(run_id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    let run_id = RunId::from(run_id);
+    if !state
+        .runs
+        .dismiss(&tenant.workspace_id, &run_id, state.clock.now_ms())
+        .await?
+    {
+        return Err(ApiError::not_found("run"));
+    }
+    // Every client of the Person drops the queue item.
+    let _ = state
+        .bus
+        .publish(pagis_core::NewEvent {
+            workspace_id: tenant.workspace_id.clone(),
+            event_type: "run.dismissed".into(),
+            agent_id: None,
+            run_id: Some(run_id),
+            channel_id: None,
+            payload: serde_json::json!({}),
+        })
+        .await;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[derive(Debug, Serialize, ToSchema)]

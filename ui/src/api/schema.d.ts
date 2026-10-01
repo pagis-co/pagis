@@ -641,6 +641,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/calls/{call_id}/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * The Person dismisses a missed Call from the Needs-You Queue. The
+         *     record keeps the time, so the queue leaves it out on every client
+         *     and after a reload. A second dismissal keeps the first time.
+         */
+        post: operations["dismiss_call"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/calls/{call_id}/hangup": {
         parameters: {
             query?: never;
@@ -1443,6 +1464,27 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["cancel_run"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * The Person dismisses a Run from the Needs-You Queue. The Run keeps
+         *     the time, so the queue leaves it out on every client and after a
+         *     reload. A second dismissal keeps the first time.
+         */
+        post: operations["dismiss_run"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2926,6 +2968,12 @@ export interface components {
             created_at: number;
             /** @description `outbound` or `inbound`. */
             direction: string;
+            /**
+             * Format: int64
+             * @description When the Person dismissed the missed Call from the Needs-You
+             *     Queue.
+             */
+            dismissed_at?: number | null;
             /** Format: int64 */
             ended_at?: number | null;
             ended_reason?: string | null;
@@ -4921,6 +4969,11 @@ export interface components {
             channel_id?: string | null;
             /** Format: int64 */
             created_at: number;
+            /**
+             * Format: int64
+             * @description When the Person dismissed the Run from the Needs-You Queue.
+             */
+            dismissed_at?: number | null;
             /** Format: int64 */
             duration_ms?: number | null;
             /** Format: int64 */
@@ -7668,6 +7721,43 @@ export interface operations {
             };
         };
     };
+    dismiss_call: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Call */
+                call_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The Call is out of the Needs-You Queue */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     hang_up: {
         parameters: {
             query?: never;
@@ -9850,6 +9940,42 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["RunCancelResponse"];
                 };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    dismiss_run: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The Run is out of the Needs-You Queue */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             401: {
                 headers: {

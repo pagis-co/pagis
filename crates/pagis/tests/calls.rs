@@ -60,6 +60,7 @@ async fn seed_call_record(daemon: &TestDaemon, call_id: &CallId) {
             ringing_at: None,
             answered_at: Some(now_ms()),
             ended_at: None,
+            dismissed_at: None,
         })
         .await
         .expect("write the Call record of the live call");
@@ -334,6 +335,7 @@ async fn a_call_left_live_by_a_stopped_daemon_settles_at_boot() {
         origin: None,
         state: RunState::Running,
         failure_kind: None,
+        dismissed_at: None,
         error: None,
         started_at: Some(now_ms()),
         ended_at: None,
@@ -368,6 +370,7 @@ async fn a_call_left_live_by_a_stopped_daemon_settles_at_boot() {
         ringing_at: None,
         answered_at: Some(now_ms()),
         ended_at: None,
+        dismissed_at: None,
     };
     SqliteCallStore::new(pool.clone())
         .insert(&live)
@@ -430,6 +433,7 @@ async fn the_calls_list_filters_by_direction_and_pages() {
         origin: None,
         state: RunState::Completed,
         failure_kind: None,
+        dismissed_at: None,
         error: None,
         started_at: Some(now_ms()),
         ended_at: Some(now_ms()),
@@ -474,6 +478,7 @@ async fn the_calls_list_filters_by_direction_and_pages() {
                 ringing_at: None,
                 answered_at: None,
                 ended_at: Some(now_ms()),
+                dismissed_at: None,
             })
             .await
             .expect("the call");

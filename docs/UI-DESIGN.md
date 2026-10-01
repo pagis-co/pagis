@@ -39,8 +39,10 @@ Every destination, Channel, Thread, Run, Agent and settings section has
 a URL, so a refresh keeps the place and any view is linkable.
 
 - **Home** (`/`) — the needs-you queue first: approvals, questions,
-  failed Runs, missed calls, each with an inline action. Then the
-  Report, then the work record of the day.
+  failed Runs, missed calls, each with an inline action. A failed Run or
+  a missed call also has Dismiss, and it leaves the queue when the
+  person opens it, calls back or dismisses it. Then the Report, then
+  the work record of the day.
 - **Sprites** (`/sprites`, `/sprites/<id>`) — the roster and a profile
   for each Agent: about (job, personality, voice), the desk (live
   screen, wake, take control, disk), contact (number, mailbox, outgoing

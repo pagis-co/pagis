@@ -301,6 +301,7 @@ impl World {
             origin: None,
             state: RunState::Running,
             failure_kind: None,
+            dismissed_at: None,
             error: None,
             started_at: Some(now_ms()),
             ended_at: None,
@@ -583,6 +584,7 @@ async fn a_killed_daemon_settles_its_calls_at_the_next_start(pool: SqlitePool) {
         ringing_at: None,
         answered_at: Some(now_ms()),
         ended_at: None,
+        dismissed_at: None,
     };
     world.calls.insert(&interrupted).await.unwrap();
 

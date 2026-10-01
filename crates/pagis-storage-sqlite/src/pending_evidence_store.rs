@@ -492,6 +492,7 @@ impl PendingEvidenceStore for SqlitePendingEvidenceStore {
                 origin: None,
                 state: RunState::Queued,
                 failure_kind: None,
+                dismissed_at: None,
                 error: None,
                 started_at: None,
                 ended_at: None,

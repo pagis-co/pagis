@@ -701,6 +701,7 @@ async fn seed_a(
         ringing_at: Some(now),
         answered_at: Some(now),
         ended_at: None,
+        dismissed_at: None,
     };
     calls.insert(&call).await.expect("write A's call");
     owned.insert("call_id", call.id.to_string());

@@ -2350,6 +2350,51 @@
         }
       }
     },
+    "/api/v1/calls/{call_id}/dismiss": {
+      "post": {
+        "tags": [
+          "calls"
+        ],
+        "summary": "The Person dismisses a missed Call from the Needs-You Queue. The\nrecord keeps the time, so the queue leaves it out on every client\nand after a reload. A second dismissal keeps the first time.",
+        "operationId": "dismiss_call",
+        "parameters": [
+          {
+            "name": "call_id",
+            "in": "path",
+            "description": "The Call",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The Call is out of the Needs-You Queue"
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/calls/{call_id}/hangup": {
       "post": {
         "tags": [
@@ -5464,6 +5509,50 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{run_id}/dismiss": {
+      "post": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "The Person dismisses a Run from the Needs-You Queue. The Run keeps\nthe time, so the queue leaves it out on every client and after a\nreload. A second dismissal keeps the first time.",
+        "operationId": "dismiss_run",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The Run is out of the Needs-You Queue"
           },
           "401": {
             "description": "",
@@ -10145,6 +10234,14 @@
           "direction": {
             "type": "string",
             "description": "`outbound` or `inbound`."
+          },
+          "dismissed_at": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "When the Person dismissed the missed Call from the Needs-You\nQueue."
           },
           "ended_at": {
             "type": [
@@ -15387,6 +15484,14 @@
           "created_at": {
             "type": "integer",
             "format": "int64"
+          },
+          "dismissed_at": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "When the Person dismissed the Run from the Needs-You Queue."
           },
           "duration_ms": {
             "type": [

@@ -188,7 +188,8 @@ export function isToday(at: number, now: number = Date.now()): boolean {
  * A decision comes first, then a question, then a keypad delay, then a
  * call nobody answered, then a failure; inside one kind the newest is
  * first. Only today's calls and failures join, so the queue stays a
- * queue and not a record.
+ * queue and not a record, and a call or a failure the reader dismissed
+ * leaves it.
  */
 export function buildQueue({
   requests,
@@ -211,11 +212,15 @@ export function buildQueue({
     ...requests.filter((request) => request.state === 'pending').map(approvalItem),
     ...liveRuns.filter(isWaitingForUser).map(waitingItem),
     ...(notice === null ? [] : [notice]),
-    ...calls.filter((call) => isMissedCall(call, now)).map(missedCallItem),
+    ...calls
+      .filter((call) => isMissedCall(call, now) && call.dismissed_at == null)
+      .map(missedCallItem),
     ...failedRuns
       .filter(
         (run) =>
-          run.state === 'failed' && isToday(run.ended_at ?? run.created_at, now),
+          run.state === 'failed' &&
+          run.dismissed_at == null &&
+          isToday(run.ended_at ?? run.created_at, now),
       )
       .map(failedItem),
   ]
@@ -239,6 +244,13 @@ export function queueLine(item: QueueItem, agentName: string): string {
     case 'keypad':
       return `Callers entered a wrong keypad code ${item.failedAttempts} times`
   }
+}
+
+/** Can the reader dismiss the item without its action? A decision, a
+ *  question and the keypad delay stay until their own action settles
+ *  them; a call nobody answered and a failure only tell the reader. */
+export function isDismissible(item: QueueItem): boolean {
+  return item.kind === 'call' || item.kind === 'failed'
 }
 
 /** The name of the control that settles the item. */

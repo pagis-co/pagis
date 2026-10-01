@@ -78,6 +78,7 @@ fn queued_run(workspace_id: &WorkspaceId, agent_id: &AgentId, channel_id: &Chann
         origin: None,
         state: RunState::Queued,
         failure_kind: None,
+        dismissed_at: None,
         error: None,
         started_at: None,
         ended_at: None,

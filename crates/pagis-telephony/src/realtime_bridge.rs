@@ -274,6 +274,7 @@ impl RealtimeBridge {
             ringing_at: None,
             answered_at,
             ended_at: None,
+            dismissed_at: None,
         };
         if let Err(error) = self.deps.calls.insert(&record).await {
             tracing::error!(%error, "the Call record was not written");

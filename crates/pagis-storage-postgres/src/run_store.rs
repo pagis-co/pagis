@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use pagis_core::knowledge::SourceRead;
 use pagis_core::{
     AgentId, ChannelId, ConnectionId, MessageId, Run, RunId, RunOrigin, RunState, RunStore,
-    StoreError, TriggerKind, WorkspaceId,
+    StoreError, TriggerKind, UnixMillis, WorkspaceId,
 };
 use sqlx::{PgPool, Row};
 
@@ -10,7 +10,7 @@ use crate::db_err;
 
 const COLUMNS: &str = "id, workspace_id, agent_id, channel_id, root_message_id, trigger_kind, \
      trigger_ref, hop_count, origin_agent_id, origin_channel_id, origin_root_message_id, \
-     state, error, failure_kind, started_at, ended_at, created_at";
+     state, error, failure_kind, started_at, ended_at, created_at, dismissed_at";
 
 #[derive(Clone)]
 pub struct PostgresRunStore {
@@ -64,6 +64,7 @@ fn row_to_run(row: &sqlx::postgres::PgRow) -> Result<Run, StoreError> {
         started_at: row.get("started_at"),
         ended_at: row.get("ended_at"),
         created_at: row.get("created_at"),
+        dismissed_at: row.get("dismissed_at"),
     })
 }
 
@@ -73,8 +74,9 @@ impl RunStore for PostgresRunStore {
         sqlx::query(
             "INSERT INTO runs (id, workspace_id, agent_id, channel_id, root_message_id, \
              trigger_kind, trigger_ref, hop_count, origin_agent_id, origin_channel_id, \
-             origin_root_message_id, state, error, failure_kind, started_at, ended_at, created_at) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)",
+             origin_root_message_id, state, error, failure_kind, started_at, ended_at, created_at, \
+             dismissed_at) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)",
         )
         .bind(run.id.as_str())
         .bind(run.workspace_id.as_str())
@@ -102,6 +104,7 @@ impl RunStore for PostgresRunStore {
         .bind(run.started_at)
         .bind(run.ended_at)
         .bind(run.created_at)
+        .bind(run.dismissed_at)
         .execute(&self.pool)
         .await
         .map_err(db_err)?;
@@ -199,6 +202,25 @@ impl RunStore for PostgresRunStore {
             .await
             .map_err(db_err)?;
         rows.iter().map(row_to_run).collect()
+    }
+
+    async fn dismiss(
+        &self,
+        workspace_id: &WorkspaceId,
+        id: &RunId,
+        at: UnixMillis,
+    ) -> Result<bool, StoreError> {
+        let dismissed = sqlx::query(
+            "UPDATE runs SET dismissed_at = COALESCE(dismissed_at, $1) \
+             WHERE id = $2 AND workspace_id = $3",
+        )
+        .bind(at)
+        .bind(id.as_str())
+        .bind(workspace_id.as_str())
+        .execute(&self.pool)
+        .await
+        .map_err(db_err)?;
+        Ok(dismissed.rows_affected() > 0)
     }
 
     async fn record_source_reads(

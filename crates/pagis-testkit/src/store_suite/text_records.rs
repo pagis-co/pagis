@@ -47,6 +47,7 @@ async fn seed(backend: &Backend) -> (Workspace, Agent, Agent, RunId) {
         state: RunState::Queued,
         origin: None,
         failure_kind: None,
+        dismissed_at: None,
         error: None,
         created_at: now_ms(),
         started_at: None,

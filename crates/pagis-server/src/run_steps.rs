@@ -196,6 +196,7 @@ mod tests {
             origin: None,
             state,
             failure_kind: None,
+            dismissed_at: None,
             error: None,
             started_at,
             ended_at,

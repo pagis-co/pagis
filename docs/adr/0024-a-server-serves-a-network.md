@@ -255,8 +255,10 @@ The store-trait tests live in `pagis-testkit` and run on both backends from
 one set of bodies, as does the two-Workspace harness. The Postgres suite shares
 one `postgres:18-alpine` container, one schema for each test, started through
 Docker, and skips with a message when Docker is not reachable. Each backend
-holds one migration baseline, `0001_baseline.sql`, in the same order with the
-same comments. Full-text relevance is defined by properties on both
+holds the same migrations: the baseline `0001_baseline.sql` and each change
+after it, with the same number, in the same order and with the same comments.
+A migration that a release shipped does not change, because an installation
+refuses to start on a changed migration. Full-text relevance is defined by properties on both
 (ADR-0008).
 
 ### Backup and restore
