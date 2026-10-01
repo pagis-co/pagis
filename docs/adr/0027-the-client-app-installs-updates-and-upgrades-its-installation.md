@@ -43,6 +43,14 @@ while it runs. "Check for Updates…" in the tray menu and in the application
 menu checks immediately and shows the result. The Client App downloads an
 Update when it finds one and asks no question.
 
+A Client App checks only after setup. On the setup page it could download
+the latest release, then connect to an older server, and install that Update
+at quit; the new Client App would then refuse the server. A fresh Client App
+from the Quickstart is the latest release. Each check sets its feed: the
+GitHub releases for a Local Installation, and the feed of one release for a
+connected Client App, because a Client App can change from one to the other
+while it runs.
+
 The Client App of a Local Installation then prepares the restart:
 
 - It reads the Runtime Lock that the release of the Update publishes, and
@@ -135,9 +143,13 @@ this too.
 
 A connected Client App refuses a server older than itself (its Compatibility
 Range). So it takes only the Update to its server's release, and never an
-Update past it. It reads the feed of that release, not of the latest
-release. When the server's release is not newer than the Client App, there
-is no Update.
+Update past it. At each check it reads the server's release from the health
+route, and then the feed of that release, not of the latest release. When
+the server's release is not newer than the Client App, there is no Update,
+and "Check for Updates…" says that Pagis is up to date with its server. A
+connected Client App prepares no restart and asks no Runs question, because
+it supervises no server. Its checked Update installs at quit, as on a Local
+Installation.
 
 ### A release publishes the feeds
 
@@ -165,6 +177,11 @@ the signature with `docs/update-key.pem` before it uploads.
   signed with the old key installs.
 - A rotation of the release key, which expires on 2028-09-29.
 - A setting that turns off the check or the download.
+- A way to drop a ready Update. When a Local Installation fails to start and
+  the Person then connects the Client App to an older server, an Update of
+  the latest release that is already ready still installs at quit, and the
+  new Client App refuses that server. Squirrel.Mac has no call that drops a
+  ready Update.
 - An Update notice on the Headless Server. An operator upgrades with Docker
   Compose.
 - A command that reverses an Upgrade. A Person restores the Backup with
