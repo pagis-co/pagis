@@ -281,7 +281,9 @@ async fn runtime_with_token(
         docker_context: None,
         docker_config_dir: temp.path().join("docker"),
         home: temp.path().join("home"),
-        system_socket: temp.path().join("docker.sock"),
+        runtime_dir: None,
+        temp_dir: temp.path().join("tmp"),
+        root: temp.path().to_path_buf(),
     };
     let owner = ComputerOwner::new(WorkspaceId::generate(), AgentId::generate());
     let tokens_dir = temp.path().join("tokens");

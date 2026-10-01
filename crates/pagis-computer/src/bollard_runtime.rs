@@ -22,6 +22,7 @@ use pagis_core::{AgentId, WorkspaceId};
 use tokio::io::AsyncWriteExt;
 
 use crate::docker::DockerDiscovery;
+use crate::pull_progress::PullProgress;
 use crate::{
     AGENT_LABEL, BindMount, CONTROL_PORT, ComputerLimits, ComputerOwner, ComputerRuntime, IMAGE,
     MOUNTS_LABEL, RELAY_HOST, RunningComputer, SECCOMP_PROFILE, StartedComputer, TOKEN_MOUNT,
@@ -460,23 +461,17 @@ impl ComputerRuntime for BollardRuntime {
             .from_image(IMAGE)
             .build();
         let mut stream = docker.create_image(Some(options), None, None);
-        // Whole-pull percent from the per-layer byte counters.
-        let mut layers: HashMap<String, (i64, i64)> = HashMap::new();
+        let mut pull = PullProgress::default();
         while let Some(info) = stream.next().await {
             let info = info.map_err(|err| format!("image pull failed: {err}"))?;
-            if let (Some(id), Some(detail)) = (info.id, info.progress_detail)
-                && let (Some(current), Some(total)) = (detail.current, detail.total)
-                && total > 0
-            {
-                layers.insert(id, (current, total));
-                let (done, all) = layers
-                    .values()
-                    .fold((0i64, 0i64), |(d, a), (c, t)| (d + c, a + t));
-                if all > 0 {
-                    let percent = ((done * 100) / all).clamp(0, 100) as u8;
-                    let _ = progress.send(percent);
-                }
-            }
+            let detail = info.progress_detail.unwrap_or_default();
+            pull.update(
+                info.id.as_deref(),
+                info.status.as_deref(),
+                detail.current,
+                detail.total,
+            );
+            let _ = progress.send(pull.percent());
         }
         let _ = progress.send(100);
         Ok(())

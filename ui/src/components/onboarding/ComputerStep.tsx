@@ -23,18 +23,9 @@ import {
   useSetOnboardingDockerEndpoint,
   useWakeComputer,
 } from '../../queries'
+import { dockerSourceName } from '../dockerSource'
 
 import { StepLayout } from './StepLayout'
-
-/** Where one candidate endpoint came from (ADR-0024). */
-const SOURCE_NAMES: Record<string, string> = {
-  override: 'Your endpoint',
-  environment: 'DOCKER_HOST',
-  context: 'Docker context',
-  docker_run: 'Docker Desktop',
-  colima: 'Colima',
-  system_socket: 'System socket',
-}
 
 /** What the daemon says one computer is doing, in the user's words. */
 const STATE_LINES: Record<string, string> = {
@@ -55,7 +46,6 @@ function ConnectionDetails({
 }) {
   const [open, setOpen] = useState(false)
   const [endpoint, setEndpoint] = useState(dockerEndpoint ?? '')
-  const probe = useRecheckDocker()
   const save = useSetOnboardingDockerEndpoint(api)
   const Chevron = open ? ChevronDown : ChevronRight
 
@@ -83,7 +73,7 @@ function ConnectionDetails({
                     {candidate.reachable ? 'Answers' : 'Silent'}
                   </Badge>
                   <span className="onboarding-candidate-endpoint">
-                    {SOURCE_NAMES[candidate.source] ?? candidate.source} ·{' '}
+                    {dockerSourceName(candidate.source)} ·{' '}
                     {candidate.endpoint}
                   </span>
                   {candidate.error === null ? null : (
@@ -114,9 +104,6 @@ function ConnectionDetails({
               onClick={() => save.mutate(endpoint.trim() === '' ? null : endpoint.trim())}
             >
               Use this endpoint
-            </Button>
-            <Button disabled={probe.isPending} onClick={() => probe.mutate()}>
-              Check again
             </Button>
           </div>
         </div>
@@ -201,9 +188,10 @@ export function ComputerStep({
         </p>
         {reachable ? null : (
           <p className="onboarding-hint">
-            Install Docker Desktop, Colima, or Docker Engine and start it,
-            then check again. Pagis tries every endpoint below, so one
-            socket that stays silent does not mean Docker is missing.
+            Start Docker Desktop, OrbStack, Colima, Rancher Desktop, Lima,
+            Podman, or Docker Engine, then check again. Pagis tries each
+            of their sockets, so one socket that stays silent does not
+            mean Docker is missing.
           </p>
         )}
         {canSetEndpoint ? (

@@ -21,8 +21,9 @@ export type SetupState =
    *  set only while the client downloads the Server Package. */
   | { kind: 'setting-up'; step: SetupStep; download: DownloadProgress | null }
   /** `repair` is true where this computer holds an installation that a
-   *  repair can check and start again. A repair asks no setup question. */
-  | { kind: 'failed'; reason: string; repair: boolean }
+   *  repair can check and start again. A repair asks no setup question.
+   *  `log` is what a stopped server printed, or empty. */
+  | { kind: 'failed'; reason: string; repair: boolean; log: string }
   | { kind: 'taken-port'; port: number; holder: string; suggested: number }
   /** A client connected to a server could not open it. It installed
    *  nothing on this computer, so there is nothing to repair. */
@@ -40,5 +41,5 @@ export type SetupState =
  */
 export function setupFailureState(reason: string, daemon: DaemonState | null, installed: boolean): SetupState {
   if (daemon?.kind === 'taken-port') return daemon
-  return { kind: 'failed', reason, repair: installed }
+  return { kind: 'failed', reason, repair: installed, log: daemon?.kind === 'failed' ? daemon.log : '' }
 }

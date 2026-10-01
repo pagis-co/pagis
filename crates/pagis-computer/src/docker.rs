@@ -1,8 +1,10 @@
 //! Docker discovery (ADR-0024). Pagis finds the Docker daemon itself,
 //! for the Client App and the CLI alike: it pings a fixed list of
 //! candidate endpoints in order and remembers the first that answers.
-//! The fixed socket of `connect_with_local_defaults` misses Colima and
-//! a Docker Desktop that runs under the user's home.
+//! The fixed socket of `connect_with_local_defaults` misses every
+//! engine that listens under the user's home: Docker Desktop,
+//! OrbStack, Colima, Rancher Desktop, Lima, rootless Docker and Podman.
+//! containerd has no Docker API, so it is not a candidate.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -18,7 +20,9 @@ const PING_TIMEOUT: Duration = Duration::from_secs(2);
 const CONNECT_TIMEOUT_SECONDS: u64 = 120;
 
 /// Where one candidate endpoint comes from. The order of the variants
-/// is the order the probe tries them, after any override.
+/// is the order the probe tries them, after any override. The engines
+/// that listen under the user's home come before the system socket,
+/// and Podman, whose Docker API is a compatibility layer, comes last.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DockerSource {
     /// The endpoint the user typed in System settings.
@@ -27,12 +31,24 @@ pub enum DockerSource {
     Environment,
     /// The endpoint of the current docker context.
     Context,
-    /// `~/.docker/run/docker.sock`, where Docker Desktop listens.
-    DockerRun,
-    /// `$HOME/.colima/<profile>/docker.sock`.
+    /// `~/.docker/run/docker.sock` on macOS and
+    /// `~/.docker/desktop/docker.sock` on Linux.
+    DockerDesktop,
+    /// `~/.orbstack/run/docker.sock`.
+    OrbStack,
+    /// `<profile>/docker.sock` under `~/.colima` or `~/.config/colima`.
     Colima,
+    /// `~/.rd/docker.sock`.
+    RancherDesktop,
+    /// `~/.lima/<instance>/sock/docker.sock`.
+    Lima,
+    /// `$XDG_RUNTIME_DIR/docker.sock`.
+    RootlessDocker,
     /// `/var/run/docker.sock`.
     SystemSocket,
+    /// `$XDG_RUNTIME_DIR/podman/podman.sock`,
+    /// `$TMPDIR/podman/<machine>-api.sock` and `/run/podman/podman.sock`.
+    Podman,
 }
 
 impl DockerSource {
@@ -41,9 +57,14 @@ impl DockerSource {
             DockerSource::Override => "override",
             DockerSource::Environment => "environment",
             DockerSource::Context => "context",
-            DockerSource::DockerRun => "docker_run",
+            DockerSource::DockerDesktop => "docker_desktop",
+            DockerSource::OrbStack => "orbstack",
             DockerSource::Colima => "colima",
+            DockerSource::RancherDesktop => "rancher_desktop",
+            DockerSource::Lima => "lima",
+            DockerSource::RootlessDocker => "rootless_docker",
             DockerSource::SystemSocket => "system_socket",
+            DockerSource::Podman => "podman",
         }
     }
 }
@@ -147,12 +168,20 @@ pub struct DockerSearch {
     /// `DOCKER_CONTEXT`. It wins over `currentContext` in
     /// `~/.docker/config.json`, as the docker CLI reads it.
     pub docker_context: Option<String>,
-    /// `~/.docker`, which holds `config.json` and `contexts/`.
+    /// `~/.docker`, which holds `config.json`, `contexts/` and the
+    /// Docker Desktop sockets.
     pub docker_config_dir: PathBuf,
-    /// The user's home, which holds `.colima/<profile>/docker.sock`.
+    /// The user's home, which holds the sockets of OrbStack, Colima,
+    /// Rancher Desktop and Lima.
     pub home: PathBuf,
-    /// `/var/run/docker.sock`.
-    pub system_socket: PathBuf,
+    /// `XDG_RUNTIME_DIR`, where rootless Docker and rootless Podman
+    /// listen on Linux.
+    pub runtime_dir: Option<PathBuf>,
+    /// `TMPDIR`, or `/tmp` without it, where a Podman machine on macOS
+    /// puts its API socket.
+    pub temp_dir: PathBuf,
+    /// `/`, which holds the system sockets of Docker Engine and Podman.
+    pub root: PathBuf,
 }
 
 impl DockerSearch {
@@ -167,7 +196,13 @@ impl DockerSearch {
                 .filter(|v| !v.is_empty()),
             docker_config_dir: home.join(".docker"),
             home,
-            system_socket: PathBuf::from("/var/run/docker.sock"),
+            runtime_dir: std::env::var_os("XDG_RUNTIME_DIR")
+                .filter(|v| !v.is_empty())
+                .map(PathBuf::from),
+            temp_dir: std::env::var_os("TMPDIR")
+                .filter(|v| !v.is_empty())
+                .map_or_else(|| PathBuf::from("/tmp"), PathBuf::from),
+            root: PathBuf::from("/"),
         }
     }
 
@@ -199,16 +234,65 @@ impl DockerSearch {
         if let Some(endpoint) = self.context_endpoint() {
             push(DockerSource::Context, endpoint);
         }
-        if let Some(endpoint) = socket_endpoint(&self.docker_config_dir.join("run/docker.sock")) {
-            push(DockerSource::DockerRun, endpoint);
-        }
-        for endpoint in self.colima_endpoints() {
-            push(DockerSource::Colima, endpoint);
-        }
-        if let Some(endpoint) = socket_endpoint(&self.system_socket) {
-            push(DockerSource::SystemSocket, endpoint);
+        for (source, path) in self.sockets() {
+            if let Some(endpoint) = socket_endpoint(&path) {
+                push(source, endpoint);
+            }
         }
         candidates
+    }
+
+    /// The socket path of every engine, in probe order. Colima and Lima
+    /// keep one socket for each profile or instance, so each directory
+    /// under their home is a path.
+    fn sockets(&self) -> Vec<(DockerSource, PathBuf)> {
+        let home = &self.home;
+        let mut sockets = vec![
+            (
+                DockerSource::DockerDesktop,
+                self.docker_config_dir.join("run/docker.sock"),
+            ),
+            (
+                DockerSource::DockerDesktop,
+                self.docker_config_dir.join("desktop/docker.sock"),
+            ),
+            (
+                DockerSource::OrbStack,
+                home.join(".orbstack/run/docker.sock"),
+            ),
+        ];
+        for colima in [home.join(".colima"), home.join(".config/colima")] {
+            for profile in entries(&colima) {
+                sockets.push((DockerSource::Colima, profile.join("docker.sock")));
+            }
+        }
+        sockets.push((DockerSource::RancherDesktop, home.join(".rd/docker.sock")));
+        for instance in entries(&home.join(".lima")) {
+            sockets.push((DockerSource::Lima, instance.join("sock/docker.sock")));
+        }
+        if let Some(runtime) = &self.runtime_dir {
+            sockets.push((DockerSource::RootlessDocker, runtime.join("docker.sock")));
+        }
+        sockets.push((
+            DockerSource::SystemSocket,
+            self.root.join("var/run/docker.sock"),
+        ));
+        if let Some(runtime) = &self.runtime_dir {
+            sockets.push((DockerSource::Podman, runtime.join("podman/podman.sock")));
+        }
+        for machine in entries(&self.temp_dir.join("podman")) {
+            if machine
+                .file_name()
+                .is_some_and(|name| name.to_string_lossy().ends_with("-api.sock"))
+            {
+                sockets.push((DockerSource::Podman, machine));
+            }
+        }
+        sockets.push((
+            DockerSource::Podman,
+            self.root.join("run/podman/podman.sock"),
+        ));
+        sockets
     }
 
     /// The docker endpoint of the current context. The name comes from
@@ -251,23 +335,18 @@ impl DockerSearch {
         }
         None
     }
+}
 
-    /// Every Colima profile's socket, in name order, so the list does
-    /// not depend on how the file system enumerates the directory.
-    fn colima_endpoints(&self) -> Vec<String> {
-        let Ok(profiles) = std::fs::read_dir(self.home.join(".colima")) else {
-            return Vec::new();
-        };
-        let mut sockets: Vec<PathBuf> = profiles
-            .flatten()
-            .map(|entry| entry.path().join("docker.sock"))
-            .collect();
-        sockets.sort();
-        sockets
-            .iter()
-            .filter_map(|path| socket_endpoint(path))
-            .collect()
-    }
+/// The entries of a directory, in name order, so the candidates do not
+/// depend on how the file system enumerates it. A directory that is
+/// not there has none.
+fn entries(dir: &Path) -> Vec<PathBuf> {
+    let Ok(read) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut entries: Vec<PathBuf> = read.flatten().map(|entry| entry.path()).collect();
+    entries.sort();
+    entries
 }
 
 fn socket_endpoint(path: &Path) -> Option<String> {
@@ -415,28 +494,52 @@ mod tests {
         }
     }
 
-    /// A home with a Docker Desktop socket, two Colima profiles and a
-    /// system socket, all of them files a ping never opens.
-    fn fake_home() -> (tempfile::TempDir, DockerSearch) {
-        let dir = tempfile::tempdir().unwrap();
-        let home = dir.path().to_path_buf();
-        for path in [
-            home.join(".docker/run"),
-            home.join(".colima/default"),
-            home.join(".colima/work"),
-            home.join("var/run"),
-        ] {
-            std::fs::create_dir_all(&path).unwrap();
-            std::fs::write(path.join("docker.sock"), "").unwrap();
-        }
-        let search = DockerSearch {
+    /// The socket files of every engine discovery knows, under one
+    /// temporary root. A ping never opens them.
+    const SOCKETS: &[&str] = &[
+        "home/.docker/run/docker.sock",
+        "home/.docker/desktop/docker.sock",
+        "home/.orbstack/run/docker.sock",
+        "home/.colima/default/docker.sock",
+        "home/.colima/work/docker.sock",
+        "home/.config/colima/default/docker.sock",
+        "home/.rd/docker.sock",
+        "home/.lima/docker/sock/docker.sock",
+        "run/user/501/docker.sock",
+        "var/run/docker.sock",
+        "run/user/501/podman/podman.sock",
+        "tmp/podman/podman-machine-default-api.sock",
+        "tmp/podman/podman-machine-default-gvproxy.sock",
+        "run/podman/podman.sock",
+    ];
+
+    /// A search rooted at an empty temporary directory.
+    fn search_under(root: &Path) -> DockerSearch {
+        DockerSearch {
             docker_host: None,
             docker_context: None,
-            docker_config_dir: home.join(".docker"),
-            system_socket: home.join("var/run/docker.sock"),
-            home,
-        };
+            docker_config_dir: root.join("home/.docker"),
+            home: root.join("home"),
+            runtime_dir: Some(root.join("run/user/501")),
+            temp_dir: root.join("tmp"),
+            root: root.to_path_buf(),
+        }
+    }
+
+    /// A machine with a socket for every engine discovery knows.
+    fn fake_home() -> (tempfile::TempDir, DockerSearch) {
+        let dir = tempfile::tempdir().unwrap();
+        for socket in SOCKETS {
+            let path = dir.path().join(socket);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, "").unwrap();
+        }
+        let search = search_under(dir.path());
         (dir, search)
+    }
+
+    fn socket(dir: &tempfile::TempDir, path: &str) -> String {
+        format!("unix://{}/{path}", dir.path().display())
     }
 
     fn endpoints(candidates: &[DockerCandidate]) -> Vec<(&'static str, String)> {
@@ -450,7 +553,6 @@ mod tests {
     fn candidates_follow_the_fixed_order() {
         let (dir, mut search) = fake_home();
         search.docker_host = Some("tcp://127.0.0.1:2375".to_string());
-        let home = dir.path();
 
         let candidates = search.candidates(None);
 
@@ -459,21 +561,30 @@ mod tests {
             vec![
                 ("environment", "tcp://127.0.0.1:2375".to_string()),
                 (
-                    "docker_run",
-                    format!("unix://{}/.docker/run/docker.sock", home.display())
+                    "docker_desktop",
+                    socket(&dir, "home/.docker/run/docker.sock")
                 ),
+                (
+                    "docker_desktop",
+                    socket(&dir, "home/.docker/desktop/docker.sock")
+                ),
+                ("orbstack", socket(&dir, "home/.orbstack/run/docker.sock")),
+                ("colima", socket(&dir, "home/.colima/default/docker.sock")),
+                ("colima", socket(&dir, "home/.colima/work/docker.sock")),
                 (
                     "colima",
-                    format!("unix://{}/.colima/default/docker.sock", home.display())
+                    socket(&dir, "home/.config/colima/default/docker.sock")
                 ),
+                ("rancher_desktop", socket(&dir, "home/.rd/docker.sock")),
+                ("lima", socket(&dir, "home/.lima/docker/sock/docker.sock")),
+                ("rootless_docker", socket(&dir, "run/user/501/docker.sock")),
+                ("system_socket", socket(&dir, "var/run/docker.sock")),
+                ("podman", socket(&dir, "run/user/501/podman/podman.sock")),
                 (
-                    "colima",
-                    format!("unix://{}/.colima/work/docker.sock", home.display())
+                    "podman",
+                    socket(&dir, "tmp/podman/podman-machine-default-api.sock")
                 ),
-                (
-                    "system_socket",
-                    format!("unix://{}/var/run/docker.sock", home.display())
-                ),
+                ("podman", socket(&dir, "run/podman/podman.sock")),
             ]
         );
     }
@@ -481,21 +592,25 @@ mod tests {
     #[test]
     fn a_socket_that_is_not_there_is_not_a_candidate() {
         let dir = tempfile::tempdir().unwrap();
-        let search = DockerSearch {
-            docker_host: None,
-            docker_context: None,
-            docker_config_dir: dir.path().join(".docker"),
-            home: dir.path().to_path_buf(),
-            system_socket: dir.path().join("var/run/docker.sock"),
-        };
 
-        assert!(search.candidates(None).is_empty());
+        assert!(search_under(dir.path()).candidates(None).is_empty());
+    }
+
+    #[test]
+    fn a_machine_without_a_runtime_directory_has_no_rootless_candidates() {
+        let (_dir, mut search) = fake_home();
+        search.runtime_dir = None;
+
+        let sources: Vec<_> = search.candidates(None).iter().map(|c| c.source).collect();
+
+        assert!(!sources.contains(&DockerSource::RootlessDocker));
+        assert!(sources.contains(&DockerSource::Podman));
     }
 
     #[test]
     fn the_override_comes_first_and_is_listed_once() {
         let (dir, search) = fake_home();
-        let colima = format!("{}/.colima/work/docker.sock", dir.path().display());
+        let colima = format!("{}/home/.colima/work/docker.sock", dir.path().display());
 
         let candidates = search.candidates(Some(&colima));
 
@@ -513,7 +628,7 @@ mod tests {
     #[test]
     fn the_current_context_endpoint_is_a_candidate() {
         let (dir, search) = fake_home();
-        let docker = dir.path().join(".docker");
+        let docker = dir.path().join("home/.docker");
         std::fs::write(docker.join("config.json"), r#"{"currentContext":"colima"}"#).unwrap();
         let meta = docker.join("contexts/meta/abc123");
         std::fs::create_dir_all(&meta).unwrap();
@@ -537,25 +652,24 @@ mod tests {
     #[tokio::test]
     async fn the_probe_asks_in_order_and_keeps_the_first_that_answers() {
         let (dir, search) = fake_home();
-        let colima = format!(
-            "unix://{}/.colima/default/docker.sock",
-            dir.path().display()
-        );
+        let colima = socket(&dir, "home/.colima/default/docker.sock");
         let ping = ScriptedPing::new(&[&colima]);
         let discovery = DockerDiscovery::new(search, Arc::clone(&ping) as _, None);
 
         let report = discovery.probe().await;
 
         assert_eq!(report.endpoint, Some(colima.clone()));
+        let colima_at = ping.asked().iter().position(|e| *e == colima).unwrap();
         assert_eq!(
             ping.asked()[0],
-            format!("unix://{}/.docker/run/docker.sock", dir.path().display())
+            socket(&dir, "home/.docker/run/docker.sock")
         );
-        assert_eq!(ping.asked()[1], colima);
         // Every candidate is pinged, so the table has a result for each.
-        assert_eq!(report.candidates.len(), 4);
+        assert_eq!(report.candidates.len(), ping.asked().len());
+        // The Podman gvproxy socket is not an API socket.
+        assert_eq!(report.candidates.len(), SOCKETS.len() - 1);
         assert!(!report.candidates[0].reachable());
-        assert!(report.candidates[1].reachable());
+        assert!(report.candidates[colima_at].reachable());
         assert_eq!(
             report.candidates[0].error.as_deref(),
             Some("connection refused")
@@ -578,10 +692,7 @@ mod tests {
     #[tokio::test]
     async fn the_remembered_endpoint_serves_the_next_connect() {
         let (dir, search) = fake_home();
-        let colima = format!(
-            "unix://{}/.colima/default/docker.sock",
-            dir.path().display()
-        );
+        let colima = socket(&dir, "home/.colima/default/docker.sock");
         let ping = ScriptedPing::new(&[&colima]);
         let discovery = DockerDiscovery::new(search, Arc::clone(&ping) as _, None);
 
@@ -597,11 +708,8 @@ mod tests {
     #[tokio::test]
     async fn a_new_override_reconnects_on_the_next_use() {
         let (dir, search) = fake_home();
-        let default = format!(
-            "unix://{}/.colima/default/docker.sock",
-            dir.path().display()
-        );
-        let work = format!("unix://{}/.colima/work/docker.sock", dir.path().display());
+        let default = socket(&dir, "home/.colima/default/docker.sock");
+        let work = socket(&dir, "home/.colima/work/docker.sock");
         let ping = ScriptedPing::new(&[&default, &work]);
         let discovery = DockerDiscovery::new(search, ping as _, None);
         assert_eq!(discovery.endpoint().await, Some(default));

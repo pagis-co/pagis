@@ -9,6 +9,7 @@ pub mod docker;
 pub mod exec;
 pub mod fake;
 mod manager;
+mod pull_progress;
 pub mod relay;
 mod tenants;
 pub mod test_docker;

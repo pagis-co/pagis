@@ -506,7 +506,7 @@ class Shell {
   private renderFailure(state: DaemonState): void {
     if (state.kind === 'starting') return
     if (this.setupWindow) {
-      if (state.kind === 'failed') this.setSetupState({ kind: 'failed', reason: state.reason, repair: true })
+      if (state.kind === 'failed') this.setSetupState(setupFailureState(state.reason, state, true))
       return
     }
     this.mainWindow?.hide()
@@ -521,7 +521,7 @@ class Shell {
       this.mainWindow !== null || this.statusWindow !== null,
     )
     if (view === 'setup') {
-      if (state.kind === 'failed') this.setSetupState({ kind: 'failed', reason: state.reason, repair: true })
+      if (state.kind === 'failed') this.setSetupState(setupFailureState(state.reason, state, true))
       if (state.kind === 'taken-port') this.setSetupState(state)
       return
     }
