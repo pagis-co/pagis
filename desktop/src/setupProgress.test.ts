@@ -15,7 +15,7 @@ function progress(): { shown: SetupState[]; at(ms: number): void; setup: SetupPr
   return {
     shown,
     at: (ms) => { now = ms },
-    setup: new SetupProgress((state) => shown.push(state), () => now),
+    setup: new SetupProgress((state) => shown.push(state), null, () => now),
   }
 }
 
@@ -51,11 +51,38 @@ describe('the progress of a local setup', () => {
     setup.starting()
 
     expect(shown).toEqual([
-      { kind: 'setting-up', step: 'check', download: null },
-      { kind: 'setting-up', step: 'install', download: null },
-      { kind: 'setting-up', step: 'install', download: null },
-      { kind: 'setting-up', step: 'start', download: null },
+      { kind: 'setting-up', step: 'check', download: null, upgrade: null },
+      { kind: 'setting-up', step: 'install', download: null, upgrade: null },
+      { kind: 'setting-up', step: 'install', download: null, upgrade: null },
+      { kind: 'setting-up', step: 'start', download: null, upgrade: null },
     ])
+  })
+
+  /** An Upgrade shows the same steps under a heading that names the new
+   *  release, after its Backup step. */
+  it('names the Upgrade in each step of an Upgrade, from the Backup on', () => {
+    const shown: SetupState[] = []
+    const upgrade = { release: '0.2.0', backup: true }
+    const setup = new SetupProgress((state) => shown.push(state), upgrade)
+
+    setup.begin()
+    setup.report({ phase: 'verifying' })
+    setup.starting()
+
+    expect(shown).toEqual([
+      { kind: 'setting-up', step: 'backup', download: null, upgrade },
+      { kind: 'setting-up', step: 'check', download: null, upgrade },
+      { kind: 'setting-up', step: 'start', download: null, upgrade },
+    ])
+  })
+
+  it('begins an Upgrade without a Backup at the download', () => {
+    const shown: SetupState[] = []
+    const upgrade = { release: '0.2.0', backup: false }
+
+    new SetupProgress((state) => shown.push(state), upgrade).begin()
+
+    expect(shown).toEqual([{ kind: 'setting-up', step: 'download', download: null, upgrade }])
   })
 
   it('shows the share of the download, and no time left in its first two seconds', () => {
@@ -66,8 +93,8 @@ describe('the progress of a local setup', () => {
     setup.report({ phase: 'downloading', received: 9 * MB, total: 72 * MB })
 
     expect(shown).toEqual([
-      { kind: 'setting-up', step: 'download', download: { fraction: 0, detail: '0 of 72 MB' } },
-      { kind: 'setting-up', step: 'download', download: { fraction: 0.125, detail: '9 of 72 MB' } },
+      { kind: 'setting-up', step: 'download', download: { fraction: 0, detail: '0 of 72 MB' }, upgrade: null },
+      { kind: 'setting-up', step: 'download', download: { fraction: 0.125, detail: '9 of 72 MB' }, upgrade: null },
     ])
   })
 
@@ -88,6 +115,7 @@ describe('the progress of a local setup', () => {
       kind: 'setting-up',
       step: 'download',
       download: { fraction: 30 / 72, detail: '30 of 72 MB · About 15 seconds left' },
+      upgrade: null,
     })
   })
 
