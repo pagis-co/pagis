@@ -244,6 +244,13 @@ impl ComputerManagers {
         self.image.prepare().await;
     }
 
+    /// Pull `image`, the Computer Image of the next release by its
+    /// digest, for the Client App before it restarts to an Update
+    /// (ADR-0027). It returns when the pull ends.
+    pub async fn pull_image(&self, image: &str) -> Result<(), crate::ImagePullError> {
+        self.image.pull(image).await
+    }
+
     /// Stop the Computers of every tenant: the daemon stops for good.
     /// A restart for a settings change does not call it, and the next
     /// daemon adopts the Computers that still run.

@@ -673,6 +673,62 @@ describe('the Linux server package', () => {
   })
 })
 
+/** Before a restart to an Update, the client puts the Server Package of
+ *  the next release into its download cache (ADR-0027). The new client
+ *  uses the cache only when its bytes match its own embedded lock. */
+describe('the download of a Server Package before an Update', () => {
+  it('puts the package into the download cache and installs nothing', async () => {
+    const { root, lock, source } = fixture()
+    const runtime = path.join(root, 'runtime')
+    const calls: string[] = []
+
+    await new RuntimeInstaller(runtime, adapters(source, calls)).download(lock)
+
+    expect(calls).toEqual(['download'])
+    expect(fs.readFileSync(path.join(runtime, 'downloads', `${lock.asset.sha256}.part`), 'utf8')).toBe('fixture dmg')
+    expect(fs.existsSync(path.join(runtime, 'releases'))).toBe(false)
+    expect(fs.existsSync(path.join(runtime, 'install.json'))).toBe(false)
+  })
+
+  it('downloads nothing when the cache holds the package, and the install uses the cache', async () => {
+    const { root, lock, source } = fixture()
+    const runtime = path.join(root, 'runtime')
+    const calls: string[] = []
+    const installer = new RuntimeInstaller(runtime, adapters(source, calls))
+
+    await installer.download(lock)
+    await installer.download(lock)
+    await installer.install(lock)
+
+    expect(calls.filter((call) => call === 'download')).toHaveLength(1)
+  })
+
+  it('refuses bytes that do not match the lock, and keeps no cache file', async () => {
+    const { root, lock, source } = fixture()
+    const runtime = path.join(root, 'runtime')
+    const changed = adapters(source, [])
+    changed.download = async (_url, destination) => { fs.writeFileSync(destination, 'changed bytes') }
+
+    await expect(new RuntimeInstaller(runtime, changed).download(lock)).rejects.toThrow(/wrong size|wrong hash/)
+
+    expect(fs.readdirSync(path.join(runtime, 'downloads'))).toEqual([])
+  })
+
+  it('keeps no partial file when the download fails', async () => {
+    const { root, lock, source } = fixture()
+    const runtime = path.join(root, 'runtime')
+    const failed = adapters(source, [])
+    failed.download = async (_url, destination) => {
+      fs.writeFileSync(destination, 'part')
+      throw new Error('server download failed with HTTP 404')
+    }
+
+    await expect(new RuntimeInstaller(runtime, failed).download(lock)).rejects.toThrow(/HTTP 404/)
+
+    expect(fs.readdirSync(path.join(runtime, 'downloads'))).toEqual([])
+  })
+})
+
 /** After an Upgrade, the client keeps the package and the download of
  *  its own release alone (ADR-0027). */
 describe('the removal of the other releases', () => {

@@ -61,6 +61,7 @@ import { reportUncaughtExceptions } from './uncaughtFailure'
 import { checkSignedChecksum } from './signedChecksums'
 import { checkAnswer, readyNotification, restartQuestion } from './updateMessages'
 import { type Installer, type UpdateState, Updates } from './updates'
+import { prepareUpdate, pullComputerImage, releaseLock } from './updatePreparation'
 import { unfinishedRuns } from './unfinishedRuns'
 import { BackupFailure, keepNewestBackup, takeUpgradeBackup } from './upgradeBackup'
 import { installBluetoothRefusal, installPermissionHandlers, type ProductWindow } from './webPermissions'
@@ -100,7 +101,10 @@ class Shell {
   private tray: Tray | null = null
   // The Update of the Client App (ADR-0027). electron-updater works only
   // in the packaged app.
-  private readonly updates = clientUpdates((state) => this.onUpdateState(state))
+  private readonly updates = clientUpdates(
+    (state) => this.onUpdateState(state),
+    (version) => this.prepareUpdate(version),
+  )
   // True from "Restart to Update" until the process ends.
   private installingUpdate = false
   private setupState: SetupState = { kind: 'ready' }
@@ -769,6 +773,25 @@ class Shell {
     this.updates.install()
   }
 
+  /**
+   * Prepare the restart to an Update (ADR-0027): the Server Package of
+   * the Update goes into the download cache, and the daemon pulls its
+   * Computer Image. Only a Local Installation has a cache and a daemon.
+   */
+  private prepareUpdate(version: string): Promise<void> {
+    if (this.connection || !this.installedHere()) return Promise.resolve()
+    return prepareUpdate(version, {
+      readLock: (release) => releaseLock(release),
+      download: (lock) => this.installer.download(lock),
+      pull: (image) => pullComputerImage(image, {
+        administrationUrl: administrationUrl(readAdministrationPort(this.home)),
+        productUrl: daemonUrl(readPort(this.home)),
+        credential: readClientCredential(this.home),
+        jar: session.defaultSession.cookies,
+      }),
+    })
+  }
+
   /** The Runs that a restart fails. A client with no running server has
    *  none, and null means that the server did not say. */
   private async unfinishedRuns(): Promise<number | null> {
@@ -887,7 +910,10 @@ function refreshAutostart(executable?: string): void {
  * installs none: from source, in the smoke test, and on Linux outside an
  * AppImage and a deb.
  */
-function clientUpdates(onState: (state: UpdateState) => void): Updates | null {
+function clientUpdates(
+  onState: (state: UpdateState) => void,
+  prepare: (version: string) => Promise<void>,
+): Updates | null {
   if (!app.isPackaged || SMOKE) return null
   const installer = updateInstaller()
   if (installer === null) return null
@@ -896,6 +922,7 @@ function clientUpdates(onState: (state: UpdateState) => void): Updates | null {
     installer,
     onState,
     notify: (version) => new Notification(readyNotification(version)).show(),
+    prepare,
   })
 }
 

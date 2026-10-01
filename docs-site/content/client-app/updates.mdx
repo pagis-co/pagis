@@ -31,9 +31,18 @@ on macOS and from the AppImage and the deb on Linux.
     package, and the SHA-256 of the download must be the value on its line
     of the list.
 
-  After these checks, the menus show "Restart to Update", and the Client
-  App sends one notification. When a check fails, the menus show "Check
-  for Updates…" again, and nothing installs.
+  When a check fails, the menus show "Check for Updates…" again, and
+  nothing installs.
+- **The preparation.** A Client App that installed Pagis on this computer
+  then prepares the restart, and the menus show "Preparing Pagis 0.2.0…".
+  It downloads the Server Package of the new release, and the server on
+  this computer pulls the Computer Image of that release. The new Client App
+  uses the downloaded package only when its bytes match the Runtime Lock
+  that the new Client App contains. When a step fails, the Update
+  continues, and the new Client App and its server download what is
+  missing.
+- **Ready.** The menus then show "Restart to Update", and the Client App
+  sends one notification.
 
 Only a Client App that installed Pagis on this computer, or that has no
 setup yet, checks for Updates. A Client App that is connected to a server

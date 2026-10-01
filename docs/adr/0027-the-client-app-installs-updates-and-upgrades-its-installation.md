@@ -126,7 +126,9 @@ stops the Upgrade before the data changes, and the window offers Retry and
 At boot, when Docker answers and the pinned Computer Image is absent, the
 daemon starts one pull for the installation, and each wake joins it. When
 the pinned image is present, the daemon removes each other image of the
-Computer Image repository that no container uses. The Headless Server does
+Computer Image repository that no container uses, except an image whose
+version label is newer than the pin: that is the image of the next release,
+which the Client App had it pull before a restart. The Headless Server does
 this too.
 
 ### A connected Client App follows its server

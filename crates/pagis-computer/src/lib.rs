@@ -21,7 +21,7 @@ pub use docker::{
     DockerCandidate, DockerCandidateResult, DockerDiscovery, DockerReport, DockerSearch,
     DockerSource,
 };
-pub use image::ComputerImage;
+pub use image::{ComputerImage, ImagePullError};
 pub use manager::{
     ComputerManager, ComputerManagerDeps, DaemonHold, Preview, SHELL_HOME, ShellCommand,
     TakeoverTiming,
@@ -58,6 +58,15 @@ pub fn image_repository(reference: &str) -> &str {
         Some(colon) if !name[colon..].contains('/') => &name[..colon],
         _ => name,
     }
+}
+
+/// One local image of the Computer Image repository other than the
+/// pinned one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OtherImage {
+    pub id: String,
+    /// Its [`VERSION_LABEL`], or `None` where it has none.
+    pub version: Option<String>,
 }
 
 /// What Docker did with an image that the daemon asked it to remove.
@@ -493,18 +502,21 @@ pub trait ComputerRuntime: Send + Sync {
     /// not present locally.
     async fn image_version(&self) -> Result<Option<String>, String>;
 
-    /// Pull the pinned image, reporting whole-pull percentages.
+    /// Pull `image`, reporting whole-pull percentages. The daemon pulls
+    /// [`IMAGE`], and an image of its repository by digest that the
+    /// Client App asks for.
     async fn pull_image(
         &self,
+        image: &str,
         progress: tokio::sync::mpsc::UnboundedSender<u8>,
     ) -> Result<(), String>;
 
-    /// The ID of each local image of the Computer Image repository
+    /// Each local image of the Computer Image repository
     /// ([`image_repository`] of [`IMAGE`]) other than the image that
     /// [`IMAGE`] names. Each name of a listed image is of that
     /// repository, so an image that another repository names is never in
     /// the list. Fails while the pinned image is absent.
-    async fn other_images(&self) -> Result<Vec<String>, String>;
+    async fn other_images(&self) -> Result<Vec<OtherImage>, String>;
 
     /// Remove one image by its ID, and never by force. An image that
     /// Docker keeps is [`ImageRemoval::InUse`], not an error.

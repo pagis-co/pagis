@@ -4,6 +4,32 @@
  */
 
 export interface paths {
+    "/api/v1/administration/computer-image/pull": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Pull a Computer Image, and answer when the pull ends.
+         * @description Before a restart to an Update, the Client App of a Local Installation
+         *     asks for the Computer Image that the next release pins, so the new
+         *     daemon finds it present (ADR-0027). The daemon pulls only an image of
+         *     the repository of its own pinned image, and only by its digest. A
+         *     second request for the same image joins the pull that runs, and a
+         *     request that goes away does not stop the pull. A failed pull answers
+         *     `502`, and `503` where Docker does not answer.
+         */
+        post: operations["pull_computer_image"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/administration/health": {
         parameters: {
             query?: never;
@@ -3141,6 +3167,18 @@ export interface components {
             /** @description `off`, `pulling`, `starting`, `awake`, or `failed`. */
             state: string;
         };
+        /** @description The Computer Image that the daemon pulled. */
+        ComputerImageDto: {
+            image: string;
+        };
+        /** @description The Computer Image that the Client App asks the daemon to pull. */
+        ComputerImagePullRequest: {
+            /**
+             * @description `<repository>@sha256:<64 lowercase hexadecimal characters>`. The
+             *     repository is the repository of the pinned Computer Image.
+             */
+            image: string;
+        };
         Condition: {
             operator: components["schemas"]["Operator"];
             signal: string;
@@ -5994,6 +6032,69 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    pull_computer_image: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ComputerImagePullRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComputerImageDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     installation_health: {
         parameters: {
             query?: never;

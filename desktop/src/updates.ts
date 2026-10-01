@@ -13,7 +13,10 @@ export type UpdateState =
   | { kind: 'checking' }
   | { kind: 'downloading'; version: string; percent: number }
   /** The Update passed its check: Squirrel.Mac accepted its code
-   *  signature, or it is on the signed checksum list of its release. */
+   *  signature, or it is on the signed checksum list of its release. The
+   *  Client App prepares the restart (`UpdatesOptions.prepare`). */
+  | { kind: 'preparing'; version: string }
+  /** The Update passed its check, and the restart is prepared. */
   | { kind: 'ready'; version: string }
   | { kind: 'failed'; reason: string }
 
@@ -75,6 +78,9 @@ export interface UpdatesOptions {
   onState(state: UpdateState): void
   /** Tell the Person that an Update is ready. */
   notify(version: string): void
+  /** Prepare the restart to the Update, before it is ready (ADR-0027). A
+   *  failure does not stop the Update. */
+  prepare(version: string): Promise<void>
 }
 
 /**
@@ -123,7 +129,7 @@ export class Updates {
     })
     if (installer.kind === 'squirrel') {
       installer.squirrel.on('update-downloaded', () => {
-        if (this.downloaded !== null) this.ready(this.downloaded)
+        if (this.downloaded !== null) void this.ready(this.downloaded)
       })
     }
     if (installer.kind === 'appimage') {
@@ -154,7 +160,7 @@ export class Updates {
   /** Check for an Update. electron-updater downloads one that it finds. */
   async check(): Promise<CheckResult> {
     const state = this.current
-    if (state.kind === 'downloading') return { kind: 'found', version: state.version }
+    if (state.kind === 'downloading' || state.kind === 'preparing') return { kind: 'found', version: state.version }
     if (state.kind === 'ready') return state
     this.lastCheck = Date.now()
     try {
@@ -214,10 +220,23 @@ export class Updates {
       if (current()) this.set({ kind: 'failed', reason: reasonOf(error) })
       return
     }
-    if (current()) this.ready(update.version)
+    if (current()) await this.ready(update.version)
   }
 
-  private ready(version: string): void {
+  /** The Update passed its check. Prepare the restart, then offer it.
+   *  Squirrel.Mac can report the same Update again. */
+  private async ready(version: string): Promise<void> {
+    const state = this.current
+    if ((state.kind === 'preparing' || state.kind === 'ready') && state.version === version) return
+    this.set({ kind: 'preparing', version })
+    try {
+      await this.options.prepare(version)
+    } catch (error) {
+      console.error(`pagis: the client did not prepare the restart to Pagis ${version}: ${reasonOf(error)}`)
+    }
+    // An error of the updater while the preparation ran stays.
+    const now = this.current
+    if (now.kind !== 'preparing' || now.version !== version) return
     this.set({ kind: 'ready', version })
     if (this.notified === version) return
     this.notified = version

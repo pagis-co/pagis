@@ -130,8 +130,8 @@ export function applicationMenu(actions: MenuActions, platform: string = process
 
 /**
  * The one menu item of an Update (ADR-0027), as VS Code shows it: a check
- * that the Person starts, the check or the download in progress, or
- * "Restart to Update" when the Update is ready.
+ * that the Person starts, the check, the download or the preparation in
+ * progress, or "Restart to Update" when the Update is ready.
  */
 function updateItem(actions: MenuActions): MenuItemConstructorOptions | null {
   const state = actions.update()
@@ -142,6 +142,8 @@ function updateItem(actions: MenuActions): MenuItemConstructorOptions | null {
       return { label: 'Checking for Updates…', enabled: false }
     case 'downloading':
       return { label: `Downloading Pagis ${state.version}… ${state.percent}%`, enabled: false }
+    case 'preparing':
+      return { label: `Preparing Pagis ${state.version}…`, enabled: false }
     case 'ready':
       return { label: 'Restart to Update', click: () => actions.restartToUpdate() }
     case 'idle':
