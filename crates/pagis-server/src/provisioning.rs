@@ -14,8 +14,8 @@ use pagis_core::{
     Agent, AgentId, AgentStatus, AgentStore, Channel, ChannelId, ChannelKind, ChannelParticipant,
     ChannelStore, CreatorKind, DEFAULT_MODEL_ALIAS, EventLog, MessageStore, ModelAlias,
     ModelAliasId, ModelAliasStore, NewEvent, ParticipantId, ParticipantKind, ParticipantStore,
-    Schedule, ScheduleId, ScheduleKind, ScheduleState, ScheduleStore, StoreError, UnixMillis,
-    UserId, Workspace, WorkspaceId, WorkspaceStore,
+    ProviderUse, Schedule, ScheduleId, ScheduleKind, ScheduleState, ScheduleStore, StoreError,
+    UnixMillis, UserId, Workspace, WorkspaceId, WorkspaceStore,
 };
 
 /// The name a Workspace takes when nobody named it.
@@ -81,6 +81,19 @@ pub fn well_known_aliases() -> [(&'static str, Vec<&'static str>); 6] {
             pagis_telephony::PHONE_CLASSIFIER_MODELS.to_vec(),
         ),
     ]
+}
+
+/// What a provider must serve to answer an alias. The voice and call
+/// aliases are plumbing; every other alias carries the Runs of Agents.
+pub fn alias_use(alias: &str) -> ProviderUse {
+    match alias {
+        pagis_voice::SPEAK_ALIAS => ProviderUse::SpokenReplies,
+        pagis_voice::TRANSCRIBE_ALIAS => ProviderUse::Dictation,
+        pagis_telephony::PHONE_ALIAS
+        | pagis_telephony::GPT_LIVE_REASONING_ALIAS
+        | pagis_telephony::PHONE_CLASSIFIER_ALIAS => ProviderUse::Calls,
+        _ => ProviderUse::Thinking,
+    }
 }
 
 /// The stores the seed writes through. It names traits alone, so the

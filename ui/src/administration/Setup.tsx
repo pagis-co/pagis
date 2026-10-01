@@ -14,13 +14,8 @@ import { useState } from 'react'
 
 import type { ApiClient } from '../api/client'
 import { Button, Frame, Input, Row, SectionLabel } from '../primitives'
+import { providerName } from '../providers'
 import { errorMessage, useCompleteSetup } from '../queries'
-
-const PROVIDER_NAMES: Record<string, string> = {
-  anthropic: 'Anthropic',
-  openai: 'OpenAI',
-  openrouter: 'OpenRouter',
-}
 
 /** The floor the daemon enforces, stated before the person types. */
 const MIN_PASSWORD_LENGTH = 12
@@ -104,7 +99,7 @@ export function Setup({
           {providers.map((provider) => (
             <Row key={provider}>
               <span className="administration-key">
-                {PROVIDER_NAMES[provider] ?? provider}
+                {providerName(provider)}
               </span>
               {configured.includes(provider) ? (
                 <span className="administration-note">
@@ -113,7 +108,7 @@ export function Setup({
               ) : (
                 <Input
                   type="password"
-                  aria-label={`${PROVIDER_NAMES[provider] ?? provider} key`}
+                  aria-label={`${providerName(provider)} key`}
                   placeholder="Key"
                   autoComplete="off"
                   value={keys[provider] ?? ''}

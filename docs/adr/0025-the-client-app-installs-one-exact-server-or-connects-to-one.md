@@ -234,29 +234,35 @@ client start the server again.
 
 ### Local onboarding
 
-The Product App opens the local onboarding: welcome, model, computer. It sets
-the model key, the default model and the Docker endpoint through onboarding
-routes on the product port that answer `409` once onboarding is finished
-(ADR-0024). The daemon records the progress, so a reload or restart opens on
-the first unanswered step.
+The Product App opens the local onboarding: welcome, providers, computer. It
+sets the provider keys, the default model and the Docker endpoint through
+onboarding routes on the product port that answer `409` once onboarding is
+finished (ADR-0024). The daemon records the progress, so a reload or restart
+opens on the first unanswered step.
 
-A stored key is enough to finish. The optional check reads the provider's
-model list with the key, which costs nothing, and passes when the provider
-answers, with no comparison against a model name Pagis holds. A typed key is
-stored only when the check passes. A key the provider refuses (401 or 403)
-fails with the provider's words, is not stored, and does not replace the
+The providers step takes a key for each provider the person has, in one form.
+Each provider says what its key does in Pagis: thinking, spoken replies,
+dictation, calls. A
+summary says what the keys cover and names the key that each missing part
+needs, so a person with an Anthropic key alone learns that calls need an
+OpenAI key before a call fails. A stored key of a provider that thinks is
+enough to finish. The optional check of each key reads the provider's model
+list with the key, which costs nothing, and passes when the provider answers,
+with no comparison against a model name Pagis holds. A typed key is stored
+only when the check passes. A key the provider refuses (401 or 403) fails
+with the provider's words, is not stored, and does not replace the
 installation's key. Only a passed check reads as ready: "the key works; N
-models available".
+models available". The daemon keeps one check for each provider.
 
-The model step offers the provider's list, newest first: Anthropic lists newest
-first, and the daemon orders an OpenAI-shaped list by `created`, as Open WebUI,
-LibreChat and Continue do. The selection follows the Model Preference of the
-`default` alias, which names one model for each provider, best first:
-`openai/gpt-6-luna`, `openrouter/openai/gpt-6-luna`, then
-`anthropic/claude-sonnet-5-5`. The step selects the provider's preferred model
-when its list names it, else the newest listed chat model. The newest model of
-a list is not a good default by itself: OpenRouter lists small free models
-first. Cline works the same way: its OpenRouter picker offers the live list
+The step offers one model picker over the lists of the keyed providers, each
+newest first: Anthropic lists newest first, and the daemon orders an
+OpenAI-shaped list by `created`, as Open WebUI, LibreChat and Continue do. The
+selection follows the Model Preference of the `default` alias, which names one
+model for each provider, best first: `openai/gpt-6-luna`,
+`openrouter/openai/gpt-6-luna`, then `anthropic/claude-sonnet-5-5`. The step
+selects the first preferred model that a keyed provider lists, else the newest
+listed chat model. The newest model of a list is not a good default by itself:
+OpenRouter lists small free models first. Cline works the same way: its OpenRouter picker offers the live list
 and starts on one default model that the program names for each provider. The
 picked model is the whole `default` alias. Without a list the daemon names the
 provider's preferred model. A Person an Administrator creates takes the

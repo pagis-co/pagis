@@ -61,14 +61,14 @@ async fn verified_runtime_finishes_local_setup_and_answers_the_first_message() {
         .await;
     assert_eq!(status, 200, "{key}");
     // The model step names the default model; with no list to pick
-    // from, the daemon takes the provider's fallback model.
+    // from, the daemon takes the preferred model of the keyed provider.
     let model = client
         .put(format!(
             "{}/api/v1/settings/onboarding/default-model",
             daemon.base_url
         ))
         .header("cookie", daemon.cookie())
-        .json(&serde_json::json!({ "provider": "anthropic", "model": null }))
+        .json(&serde_json::json!({ "candidate": null }))
         .send()
         .await
         .unwrap();

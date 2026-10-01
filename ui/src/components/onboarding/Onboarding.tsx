@@ -1,4 +1,4 @@
-// First run: welcome, model, computer, then Pagis. The daemon holds
+// First run: welcome, providers, computer, then Pagis. The daemon holds
 // the durable part — the stored keys, the Docker endpoint and the
 // image job — so a reload or a daemon restart comes back where it left
 // off, and only the step the user is reading lives here.
@@ -46,7 +46,7 @@ export function Onboarding({ api }: { api: ApiClient }) {
           <ModelStep
             api={api}
             providers={status.data.providers}
-            verified={status.data.model}
+            checks={status.data.checks}
             onBack={() => setStep('welcome')}
             onContinue={() => setStep('computer')}
           />

@@ -71,6 +71,49 @@ impl Provider {
     pub fn from_id(id: &str) -> Option<Provider> {
         PROVIDERS.into_iter().find(|p| p.id() == id)
     }
+
+    /// What Pagis does with this provider's key. A provider serves a
+    /// Model Alias only for a use it lists here.
+    pub fn uses(self) -> &'static [ProviderUse] {
+        match self {
+            Provider::Anthropic | Provider::OpenRouter => &[ProviderUse::Thinking],
+            Provider::OpenAi => &[
+                ProviderUse::Thinking,
+                ProviderUse::SpokenReplies,
+                ProviderUse::Dictation,
+                ProviderUse::Calls,
+            ],
+        }
+    }
+
+    pub fn serves(self, provider_use: ProviderUse) -> bool {
+        self.uses().contains(&provider_use)
+    }
+}
+
+/// One thing a provider's key does in Pagis, as the Person reads it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ProviderUse {
+    /// The Runs of every Agent: the `default` alias and the others the
+    /// Person adds.
+    Thinking,
+    /// The Agent Voice of spoken replies: the `speak` alias.
+    SpokenReplies,
+    /// Speech to text: the `transcribe` alias.
+    Dictation,
+    /// Live telephone conversations: the `phone` aliases.
+    Calls,
+}
+
+impl ProviderUse {
+    pub fn id(self) -> &'static str {
+        match self {
+            ProviderUse::Thinking => "thinking",
+            ProviderUse::SpokenReplies => "spoken_replies",
+            ProviderUse::Dictation => "dictation",
+            ProviderUse::Calls => "calls",
+        }
+    }
 }
 
 /// Where a resolved key came from.
