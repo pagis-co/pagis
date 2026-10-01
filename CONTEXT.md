@@ -224,6 +224,12 @@ Local Installation causes an Upgrade at the next start. A connected Client
 App takes only the Update to its server's release (ADR-0027).
 _Avoid_: auto-update, patch, new version
 
+### Update Key
+The Ed25519 key that signs the Linux checksum list of each release for the
+Update of a Client App. The Client App embeds its public half and installs
+no Update that it did not sign. It signs nothing else (ADR-0027).
+_Avoid_: release key (the OpenPGP key that a Person checks a download with)
+
 ### Upgrade
 The first start of a newer Server Runtime release on the data of an
 installation: a Backup of the old release on a Local Installation, the

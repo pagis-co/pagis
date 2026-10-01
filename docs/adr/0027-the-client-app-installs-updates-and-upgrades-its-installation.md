@@ -65,17 +65,25 @@ menu show "Restart to Update", and the Client App sends one notification.
 - **macOS.** The release publishes a ZIP of the signed, notarized and
   stapled application beside the DMG. Squirrel.Mac installs it only when the
   new bundle satisfies the designated requirement of the running bundle.
-- **Linux.** The Client App embeds the public release key
-  (`docs/release-key.asc`). It installs an Update only when
-  `Pagis-<release>-linux.SHA256SUMS.asc` verifies the checksum list with that
-  key, and the SHA-256 of the downloaded file is the value on its line in the
-  list. openpgp.js does the check. An AppImage replaces itself and asks for
-  nothing. A deb installs with `dpkg -i` through the system's password
+- **Linux.** The Client App embeds the public half of the Update Key
+  (`docs/update-key.pem`), an Ed25519 key that signs only Updates. It
+  installs an Update only when `Pagis-<release>-linux.SHA256SUMS.sig` is a
+  valid signature of the checksum list by that key, and the SHA-256 of the
+  downloaded file is the value on its line in the list. Node's own crypto
+  module does the check, so the Client App adds no dependency for it. An
+  AppImage replaces itself and asks for nothing. A deb installs with `dpkg -i` through the system's password
   prompt (`pkexec` or a similar program), and the Person types their
   password.
 
 The feeds (`latest-mac.yml`, `latest-linux.yml`, `latest-linux-arm64.yml`)
 only name files. A feed is not a trust root.
+
+The OpenPGP release key of ADR-0025 stays, so a Person can check a download
+by hand with `gpg`. Products that check their own Updates sign them with
+Ed25519: Sparkle, the Tauri updater and Tailscale. OpenPGP is the trust of a
+distribution's package manager, which checks with the system `gpgv`. The
+research found no Electron application that bundles an OpenPGP library to
+check its Updates, and openpgp.js is LGPL-3.0, while the Client App is MIT.
 
 ### Restart to Update
 
@@ -132,8 +140,11 @@ is no Update.
 ### A release publishes the feeds
 
 A release publishes, in addition to the artifacts of ADR-0025, the ZIP of
-the macOS Client App with its blockmap, and the three feeds. The publication
-jobs upload them with the client packages.
+the macOS Client App with its blockmap, the three feeds, and the Update Key
+signature of the Linux checksum list. The publication jobs upload them with
+the client packages. The private half of the Update Key is a secret of the
+protected `release` environment, as the release key is, and the job checks
+the signature with `docs/update-key.pem` before it uploads.
 
 ## Consequences
 
@@ -147,9 +158,10 @@ jobs upload them with the client packages.
 ## Not built
 
 - Release channels, a beta, and a staged rollout.
-- A rotation of the release key. The key expires on 2028-09-29. Each Client
-  App on Linux trusts only the key that it embeds, so a new key reaches only
-  the Client Apps that a release with that key installs.
+- A rotation of the Update Key. Each Client App on Linux trusts only the
+  key that it embeds, so a new key reaches only the Client Apps that a release
+  signed with the old key installs.
+- A rotation of the release key, which expires on 2028-09-29.
 - A setting that turns off the check or the download.
 - An Update notice on the Headless Server. An operator upgrades with Docker
   Compose.
