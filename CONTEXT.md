@@ -217,6 +217,20 @@ believes. The daemon terminates no TLS: the Trusted Proxy holds the
 certificate (ADR-0024).
 _Avoid_: upstream, front-end proxy, load balancer
 
+### Update
+A newer Client App release that the Client App finds, downloads, checks
+and installs over itself. Installing an Update on the Client App of a
+Local Installation causes an Upgrade at the next start. A connected Client
+App takes only the Update to its server's release (ADR-0027).
+_Avoid_: auto-update, patch, new version
+
+### Upgrade
+The first start of a newer Server Runtime release on the data of an
+installation: a Backup of the old release on a Local Installation, the
+Release Marker, and the migration. Nothing reverses an Upgrade (ADR-0025,
+ADR-0027).
+_Avoid_: update (of an installation), migration
+
 ## Org, People and access
 
 ### Administrator
