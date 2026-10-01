@@ -914,7 +914,20 @@ function updateInstaller(): Installer | null {
     fs.readFileSync(path.join(process.resourcesPath, 'release-key.asc'), 'utf8'),
   )
   if (autoUpdater instanceof DebUpdater) return { kind: 'deb', verify }
-  if (autoUpdater instanceof AppImageUpdater) return { kind: 'appimage', verify }
+  const appImage = process.env.APPIMAGE
+  if (autoUpdater instanceof AppImageUpdater && appImage) {
+    return {
+      kind: 'appimage',
+      verify,
+      file: appImage,
+      // Electron starts the new file after this process ended, so the new
+      // process gets the single-instance lock.
+      restart: (file) => {
+        app.relaunch({ execPath: file, args: [] })
+        app.quit()
+      },
+    }
+  }
   return null
 }
 

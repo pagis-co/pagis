@@ -38,8 +38,15 @@ export interface Updater {
   on(event: 'update-available', listener: (info: UpdateInfo) => void): unknown
   on(event: 'download-progress', listener: (progress: ProgressInfo) => void): unknown
   on(event: 'update-downloaded', listener: (event: UpdateDownloadedEvent) => void): unknown
+  /** The AppImage updater gave the AppImage file the name of the new
+   *  release. */
+  on(event: 'appimage-filename-updated', listener: (file: string) => void): unknown
   on(event: 'error', listener: (error: Error) => void): unknown
 }
+
+/** The check of a Linux download against the signed checksum list of its
+ *  release. It rejects with the reason when the download does not pass. */
+type Verify = (update: UpdateDownloadedEvent) => Promise<void>
 
 /**
  * What checks a downloaded Update and installs it (ADR-0027).
@@ -49,15 +56,17 @@ export interface Updater {
  *   reports `update-downloaded` only when the new bundle satisfies the
  *   designated requirement of the running one, and it installs the Update
  *   when the app quits.
- * - `appimage` and `deb`: electron-updater on Linux. `verify` checks the
- *   download against the signed checksum list of its release. An AppImage
- *   replaces itself at "Restart to Update" and at quit. A deb installs with
- *   `pkexec dpkg -i` only at "Restart to Update", because a password prompt
- *   at quit or at logout stops the shutdown.
+ * - `appimage`: electron-updater replaces the AppImage `file`, at "Restart
+ *   to Update" and at quit. `restart` quits and starts the new file after
+ *   this process ended.
+ * - `deb`: electron-updater installs the deb with `pkexec dpkg -i` only at
+ *   "Restart to Update", because a password prompt at quit or at logout
+ *   stops the shutdown.
  */
 export type Installer =
   | { kind: 'squirrel'; squirrel: { on(event: 'update-downloaded', listener: () => void): unknown } }
-  | { kind: 'appimage' | 'deb'; verify(update: UpdateDownloadedEvent): Promise<void> }
+  | { kind: 'appimage'; verify: Verify; file: string; restart(file: string): void }
+  | { kind: 'deb'; verify: Verify }
 
 export interface UpdatesOptions {
   updater: Updater
@@ -83,6 +92,8 @@ export class Updates {
   private downloaded: string | null = null
   private notified: string | null = null
   private installing = false
+  // The AppImage file. An install can give it the name of the new release.
+  private appImage: string | null = null
   private timer: ReturnType<typeof setInterval> | null = null
   private lastCheck = 0
 
@@ -114,6 +125,10 @@ export class Updates {
       installer.squirrel.on('update-downloaded', () => {
         if (this.downloaded !== null) this.ready(this.downloaded)
       })
+    }
+    if (installer.kind === 'appimage') {
+      this.appImage = installer.file
+      updater.on('appimage-filename-updated', (file) => { this.appImage = file })
     }
     updater.on('error', (error) => this.set({ kind: 'failed', reason: reasonOf(error) }))
   }
@@ -155,31 +170,43 @@ export class Updates {
     }
   }
 
-  /** Quit, install the ready Update, and start the new Client App. */
+  /**
+   * Quit, install the ready Update, and start the new Client App.
+   *
+   * electron-updater starts a new AppImage before this process ends. The
+   * new process then finds the single-instance lock taken and exits, and
+   * Pagis does not come back. So an AppImage installs with no start, and
+   * `restart` starts the new file after this process ended, as Electron
+   * does for a deb.
+   */
   install(): void {
     if (this.current.kind !== 'ready') throw new Error('no Update is ready to install')
     this.installing = true
-    this.options.updater.quitAndInstall()
+    const { installer, updater } = this.options
+    if (installer.kind !== 'appimage') updater.quitAndInstall()
+    else if (this.installAppImage()) installer.restart(this.appImage ?? installer.file)
   }
 
   /**
    * Install a ready AppImage Update while the Client App quits, with the
-   * call that electron-updater makes at quit: a silent install that starts
-   * nothing. Squirrel.Mac installs at quit by itself, and a deb installs
-   * only at "Restart to Update".
+   * call that electron-updater makes at quit. Squirrel.Mac installs at quit
+   * by itself, and a deb installs only at "Restart to Update".
    */
   installAtQuit(): void {
     if (this.options.installer.kind !== 'appimage' || this.current.kind !== 'ready' || this.installing) return
     this.installing = true
-    this.options.updater.install?.(true, false)
+    this.installAppImage()
+  }
+
+  /** Replace the AppImage file and start nothing. electron-updater reports
+   *  a failure with `error`, and then this answers false. */
+  private installAppImage(): boolean {
+    return this.options.updater.install?.(true, false) ?? false
   }
 
   /** Check a Linux download. A result that comes after another state,
    *  such as an error of electron-updater, changes nothing. */
-  private async checkDownload(
-    verify: (update: UpdateDownloadedEvent) => Promise<void>,
-    update: UpdateDownloadedEvent,
-  ): Promise<void> {
+  private async checkDownload(verify: Verify, update: UpdateDownloadedEvent): Promise<void> {
     const current = () => this.current.kind === 'downloading' && this.current.version === update.version
     try {
       await verify(update)

@@ -18,8 +18,13 @@ class FakeUpdater extends EventEmitter {
   allowPrerelease = true
   checks = 0
   installs = 0
-  /** The arguments of each `install` at quit. */
-  quitInstalls: [boolean, boolean][] = []
+  /** The arguments of each `install`, which installs and does not quit. */
+  installCalls: [boolean, boolean][] = []
+  /** Where `install` moves the AppImage file, or null when the file keeps
+   *  its name. */
+  movesTo: string | null = null
+  /** Whether `install` fails. electron-updater then emits `error`. */
+  installFails = false
   answers: (string | null | Error)[] = []
 
   async checkForUpdates(): Promise<UpdateCheckResult | null> {
@@ -47,7 +52,12 @@ class FakeUpdater extends EventEmitter {
   }
 
   install(isSilent: boolean, isForceRunAfter: boolean): boolean {
-    this.quitInstalls.push([isSilent, isForceRunAfter])
+    this.installCalls.push([isSilent, isForceRunAfter])
+    if (this.installFails) {
+      this.emit('error', new Error('EACCES: permission denied, rename'))
+      return false
+    }
+    if (this.movesTo !== null) this.emit('appimage-filename-updated', this.movesTo)
     return true
   }
 
@@ -72,6 +82,28 @@ function newUpdates(installer: (squirrel: EventEmitter) => Installer = (squirrel
     notify,
   })
   return { updater, squirrel, states, notify, updates }
+}
+
+const APPIMAGE = '/home/me/Apps/Pagis-1.0.0-x86_64.AppImage'
+
+/** The AppImage installer. `restarts` holds the file of each restart. */
+function appImage(verify: (update: UpdateDownloadedEvent) => Promise<void>) {
+  const restarts: string[] = []
+  const installer: Installer = { kind: 'appimage', verify, file: APPIMAGE, restart: (file) => { restarts.push(file) } }
+  return { installer, restarts }
+}
+
+/** An AppImage Update of 1.1.0 that passed its check. */
+async function readyAppImage() {
+  const check = verification()
+  const { installer, restarts } = appImage(check.verify)
+  const { updates, updater } = newUpdates(() => installer)
+  updater.answers = ['1.1.0']
+  await updates.check()
+  updater.downloaded('1.1.0', '/cache/pending/Pagis-1.1.0-x86_64.AppImage')
+  await check.pass()
+  expect(updates.state).toEqual({ kind: 'ready', version: '1.1.0' })
+  return { updates, updater, restarts }
 }
 
 /** The check of a Linux download, which the test settles. */
@@ -110,8 +142,9 @@ describe('the Update of the Client App', () => {
   /** electron-updater would install each Linux download at quit, before
    *  the check of the signed checksum list. */
   it('does not let electron-updater install a download at quit on Linux', () => {
-    for (const kind of ['appimage', 'deb'] as const) {
-      const { updater } = newUpdates(() => ({ kind, verify: async () => undefined }))
+    const verify = async () => undefined
+    for (const installer of [appImage(verify).installer, { kind: 'deb', verify } as const]) {
+      const { updater } = newUpdates(() => installer)
 
       expect(updater.autoDownload).toBe(true)
       expect(updater.autoInstallOnAppQuit).toBe(false)
@@ -253,7 +286,7 @@ describe('the Update of the Client App', () => {
 
   it('is ready on Linux only when the download passed the signed checksum list, and notifies one time', async () => {
     const check = verification()
-    const { updates, updater, notify } = newUpdates(() => ({ kind: 'appimage', verify: check.verify }))
+    const { updates, updater, notify } = newUpdates(() => appImage(check.verify).installer)
     updater.answers = ['1.1.0']
     await updates.check()
 
@@ -271,7 +304,7 @@ describe('the Update of the Client App', () => {
 
   it('fails on Linux with the reason when the download does not pass, and installs nothing', async () => {
     const check = verification()
-    const { updates, updater, notify } = newUpdates(() => ({ kind: 'appimage', verify: check.verify }))
+    const { updates, updater, notify } = newUpdates(() => appImage(check.verify).installer)
     updater.answers = ['1.1.0']
     await updates.check()
     updater.downloaded('1.1.0')
@@ -284,13 +317,13 @@ describe('the Update of the Client App', () => {
     })
     expect(notify).not.toHaveBeenCalled()
     updates.installAtQuit()
-    expect(updater.quitInstalls).toEqual([])
+    expect(updater.installCalls).toEqual([])
     expect(() => updates.install()).toThrow(/no Update is ready/)
   })
 
   it('keeps a failure that comes while the check runs', async () => {
     const check = verification()
-    const { updates, updater, notify } = newUpdates(() => ({ kind: 'appimage', verify: check.verify }))
+    const { updates, updater, notify } = newUpdates(() => appImage(check.verify).installer)
     updater.answers = ['1.1.0']
     await updates.check()
     updater.downloaded('1.1.0')
@@ -304,36 +337,69 @@ describe('the Update of the Client App', () => {
 
   /** At quit, the Client App makes the call that electron-updater makes
    *  when autoInstallOnAppQuit is on: a silent install, and no start. */
-  it('installs a ready AppImage Update at quit, and only a ready one', async () => {
+  it('installs a ready AppImage Update at quit, and only a ready one, and starts nothing', async () => {
     const check = verification()
-    const { updates, updater } = newUpdates(() => ({ kind: 'appimage', verify: check.verify }))
+    const { installer, restarts } = appImage(check.verify)
+    const { updates, updater } = newUpdates(() => installer)
 
     updates.installAtQuit()
     updater.answers = ['1.1.0']
     await updates.check()
     updater.downloaded('1.1.0')
     updates.installAtQuit()
-    expect(updater.quitInstalls).toEqual([])
+    expect(updater.installCalls).toEqual([])
 
     await check.pass()
+    updater.movesTo = '/home/me/Apps/Pagis-1.1.0-x86_64.AppImage'
     updates.installAtQuit()
 
-    expect(updater.quitInstalls).toEqual([[true, false]])
+    expect(updater.installCalls).toEqual([[true, false]])
+    expect(restarts).toEqual([])
+  })
+
+  /**
+   * electron-updater would start the new AppImage before this process
+   * ends. The new process then finds the single-instance lock taken and
+   * exits, and Pagis does not come back. So the AppImage installs with no
+   * start, and the new file starts after this process ended.
+   */
+  it('restarts into the new AppImage file after the install, and electron-updater starts nothing', async () => {
+    const { updates, updater, restarts } = await readyAppImage()
+    updater.movesTo = '/home/me/Apps/Pagis-1.1.0-x86_64.AppImage'
+
+    updates.install()
+
+    expect(updater.installCalls).toEqual([[true, false]])
+    expect(updater.installs).toBe(0)
+    expect(restarts).toEqual(['/home/me/Apps/Pagis-1.1.0-x86_64.AppImage'])
+  })
+
+  it('restarts the same AppImage file when the Update keeps its name', async () => {
+    const { updates, restarts } = await readyAppImage()
+
+    updates.install()
+
+    expect(restarts).toEqual([APPIMAGE])
+  })
+
+  it('does not restart when the AppImage install fails', async () => {
+    const { updates, updater, restarts } = await readyAppImage()
+    updater.installFails = true
+
+    updates.install()
+
+    expect(restarts).toEqual([])
+    expect(updates.state).toEqual({ kind: 'failed', reason: 'EACCES: permission denied, rename' })
   })
 
   it('does not install again at quit after Restart to Update', async () => {
-    const check = verification()
-    const { updates, updater } = newUpdates(() => ({ kind: 'appimage', verify: check.verify }))
-    updater.answers = ['1.1.0']
-    await updates.check()
-    updater.downloaded('1.1.0')
-    await check.pass()
+    const { updates, updater, restarts } = await readyAppImage()
 
     updates.install()
     updates.installAtQuit()
 
-    expect(updater.installs).toBe(1)
-    expect(updater.quitInstalls).toEqual([])
+    expect(updater.installCalls).toEqual([[true, false]])
+    expect(restarts).toEqual([APPIMAGE])
   })
 
   /** A password prompt at quit or at logout stops the shutdown. */
@@ -346,10 +412,11 @@ describe('the Update of the Client App', () => {
     await check.pass()
 
     updates.installAtQuit()
-    expect(updater.quitInstalls).toEqual([])
+    expect(updater.installCalls).toEqual([])
 
     updates.install()
     expect(updater.installs).toBe(1)
+    expect(updater.installCalls).toEqual([])
   })
 
   /** Squirrel.Mac installs the Update that it accepted when the app quits. */
@@ -362,6 +429,6 @@ describe('the Update of the Client App', () => {
 
     updates.installAtQuit()
 
-    expect(updater.quitInstalls).toEqual([])
+    expect(updater.installCalls).toEqual([])
   })
 })
