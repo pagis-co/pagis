@@ -16,7 +16,7 @@ holds the decisions.
 
 | | Artifact | Published as | Platforms | Number it carries |
 | --- | --- | --- | --- | --- |
-| 1 | Client App and installer | macOS: a signed, notarized, stapled disk image, and a ZIP of the same app with its blockmap and the Update feed `latest-mac.yml`. Linux: an AppImage and a deb, with a checksum list the release key signs. All on the GitHub Release | macOS arm64, Linux amd64, Linux arm64 | The release |
+| 1 | Client App and installer | macOS: a signed, notarized, stapled disk image, and a ZIP of the same app with its blockmap and the Update feed `latest-mac.yml`. Linux: an AppImage and a deb, with a checksum list that the release key and the Update Key sign, and the Update feeds `latest-linux.yml` and `latest-linux-arm64.yml`. All on the GitHub Release | macOS arm64, Linux amd64, Linux arm64 | The release |
 | 2 | Computer image | `ghcr.io/pagis-co/pagis-computer:<image version>` | linux/amd64, linux/arm64 | Its own image version |
 | 3 | Server package | The package the Client App downloads. On macOS it is a signed, notarized, stapled disk image. On Linux it is a gzip tar archive for each architecture. A Runtime Lock for each client platform names its package by size and SHA-256 | macOS arm64, Linux amd64, Linux arm64 | The release |
 | 4 | Headless Server image | `ghcr.io/pagis-co/pagis-server:<release>` | linux/amd64, linux/arm64 | The release |
@@ -304,11 +304,13 @@ release without them sends no analytics.
 | `PAGIS_POSTHOG_PROJECT_ID` | Repository secret | The PostHog project that a release build writes into the daemon (ADR-0026) |
 | `PAGIS_POSTHOG_TOKEN` | Repository secret | The project token of that PostHog project |
 | `PAGIS_RELEASE_GPG_PRIVATE_KEY` | Secret of the `release` environment | The private half of the Linux release key, with no passphrase |
+| `PAGIS_UPDATE_SIGNING_KEY` | Secret of the `release` environment | The private half of the Update Key, an Ed25519 key in PKCS#8 PEM |
 
 - **The `release` environment.** Each publication job waits in it until a
   required reviewer approves it. Make the maintainers its reviewers.
-- **The release key.** Its public half is `docs/release-key.asc`, and the
-  tag must contain it (`docs/RELEASING-CLIENT.md`).
+- **The release key and the Update Key.** Their public halves are
+  `docs/release-key.asc` and `docs/update-key.pem`, and the tag must contain
+  both (`docs/RELEASING-CLIENT.md`).
 - **The packages.** The image jobs push with the job token, so the
   organization must let a workflow publish packages. The first push of each
   image makes a private GHCR package. The anonymous pull then stops the

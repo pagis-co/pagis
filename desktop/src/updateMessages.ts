@@ -2,10 +2,14 @@ import type { MessageBoxOptions, NotificationConstructorOptions } from 'electron
 
 import type { CheckResult } from './updates'
 
-const INSTALL = 'Select Restart to Update in the Pagis menu.'
+/** "Restart to Update" and where it is: in the Pagis menu on macOS, and
+ *  on Linux in the tray menu and in the File menu of the window. */
+function restartItem(platform: string): string {
+  return `Restart to Update in ${platform === 'darwin' ? 'the Pagis menu' : 'the tray menu or in the File menu'}`
+}
 
 /** The message box that answers "Check for Updates…". */
-export function checkAnswer(result: CheckResult, release: string): MessageBoxOptions {
+export function checkAnswer(result: CheckResult, release: string, platform: string = process.platform): MessageBoxOptions {
   switch (result.kind) {
     case 'up-to-date':
       return { type: 'info', message: 'Pagis is up to date.', detail: `Pagis ${release} is the newest release.` }
@@ -13,10 +17,10 @@ export function checkAnswer(result: CheckResult, release: string): MessageBoxOpt
       return {
         type: 'info',
         message: `Pagis ${result.version} is available.`,
-        detail: 'Pagis downloads it now. When the download is complete, select Restart to Update in the Pagis menu.',
+        detail: `Pagis downloads it now. When the download is complete, select ${restartItem(platform)}.`,
       }
     case 'ready':
-      return { type: 'info', message: `Pagis ${result.version} is ready to install.`, detail: INSTALL }
+      return { type: 'info', message: `Pagis ${result.version} is ready to install.`, detail: `Select ${restartItem(platform)}.` }
     case 'failed':
       return { type: 'error', message: 'Pagis could not check for updates.', detail: result.reason }
   }
@@ -46,6 +50,6 @@ export function restartQuestion(unfinished: number | null): MessageBoxOptions | 
 }
 
 /** The one notification of an Update that is ready. */
-export function readyNotification(version: string): NotificationConstructorOptions {
-  return { title: `Pagis ${version} is ready to install`, body: INSTALL }
+export function readyNotification(version: string, platform: string = process.platform): NotificationConstructorOptions {
+  return { title: `Pagis ${version} is ready to install`, body: `Select ${restartItem(platform)}.` }
 }

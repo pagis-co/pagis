@@ -1,7 +1,9 @@
+import * as crypto from 'node:crypto'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { createRequire } from 'node:module'
+import { fileURLToPath } from 'node:url'
 
 const require = createRequire(import.meta.url)
 const asar = require('@electron/asar')
@@ -14,8 +16,11 @@ const app = process.argv[2]
 const packages = process.argv.slice(3)
 if (!app || packages.length === 0) throw new Error('usage: node scripts/check-package.mjs <app> <package>...')
 
-const resources = app.endsWith('.app') ? path.join(app, 'Contents', 'Resources') : path.join(app, 'resources')
-const required = ['app.asar', 'runtime-lock.json', 'app-update.yml']
+const mac = app.endsWith('.app')
+const resources = mac ? path.join(app, 'Contents', 'Resources') : path.join(app, 'resources')
+// On Linux the public Update Key checks the signed checksum list of an
+// Update (ADR-0027).
+const required = ['app.asar', 'runtime-lock.json', 'app-update.yml', ...(mac ? [] : ['update-key.pem'])]
 for (const name of required) {
   if (!fs.statSync(path.join(resources, name), { throwIfNoEntry: false })?.isFile()) {
     throw new Error(`the client package has no ${name}`)
@@ -25,6 +30,27 @@ for (const name of required) {
 const feed = yaml.load(fs.readFileSync(path.join(resources, 'app-update.yml'), 'utf8'))
 if (feed?.provider !== 'github' || feed.owner !== 'pagis-co' || feed.repo !== 'pagis') {
   throw new Error('the app-update.yml of the client package does not name the GitHub releases of pagis-co/pagis')
+}
+
+// The package holds the public key of the repository. The private half is
+// a secret of the release, so the repository file must be an Ed25519
+// public key in SPKI PEM, as `openssl pkey -pubout` writes it.
+if (!mac) {
+  const repositoryFile = fileURLToPath(new URL('../../docs/update-key.pem', import.meta.url))
+  if (!fs.existsSync(repositoryFile)) throw new Error('the repository has no docs/update-key.pem')
+  const repositoryKey = fs.readFileSync(repositoryFile, 'utf8')
+  let publicKey
+  try {
+    publicKey = crypto.createPublicKey(repositoryKey)
+  } catch {
+    publicKey = null
+  }
+  if (publicKey?.asymmetricKeyType !== 'ed25519' || publicKey.export({ type: 'spki', format: 'pem' }) !== repositoryKey) {
+    throw new Error('docs/update-key.pem is not an Ed25519 public key in SPKI PEM')
+  }
+  if (fs.readFileSync(path.join(resources, 'update-key.pem'), 'utf8') !== repositoryKey) {
+    throw new Error('the update-key.pem of the client package is not docs/update-key.pem')
+  }
 }
 
 const forbiddenNames = new Set(['pagis', 'gog', 'secrets.enc'])
@@ -38,7 +64,7 @@ for (const file of walk(resources)) {
 // The tray draws these files. macOS loads the @2x file beside the
 // template image for a Retina screen.
 const archived = new Set(asar.listPackage(path.join(resources, 'app.asar')))
-const trayIcons = app.endsWith('.app') ? ['trayTemplate.png', 'trayTemplate@2x.png'] : ['tray.png']
+const trayIcons = mac ? ['trayTemplate.png', 'trayTemplate@2x.png'] : ['tray.png']
 for (const name of trayIcons) {
   if (!archived.has(`/static/${name}`)) throw new Error(`the client app archive has no static/${name}`)
 }
