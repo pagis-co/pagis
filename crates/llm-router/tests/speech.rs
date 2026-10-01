@@ -96,6 +96,38 @@ async fn speech_and_transcription_take_the_openai_audio_routes_on_the_responses_
     assert!(!body.contains("verbose_json"));
 }
 
+/// Deepgram's voice is its model: `aura-2-thalia-en` is the Thalia voice
+/// of Aura-2. The text goes in the body and the format in the query.
+#[tokio::test]
+async fn speech_round_trips_on_deepgram_protocol_with_the_voice_as_the_model() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/speak"))
+        .and(query_param("model", "aura-2-thalia-en"))
+        .and(query_param("encoding", "mp3"))
+        .and(header("authorization", "Token test-key"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "audio/mpeg")
+                .set_body_bytes(b"mp3-bytes".to_vec()),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let router = single_provider_router(ProtocolKind::Deepgram, &server.uri());
+
+    let mut req = SpeechRequest::new("m", "Hello there", "aura-2-thalia-en");
+    req.format = Some(AudioFormat::Mp3);
+    let response = router.speech(&req).await.unwrap();
+
+    assert_eq!(response.audio.as_ref(), b"mp3-bytes");
+    assert_eq!(response.media_type, "audio/mpeg");
+    let sent: Value = server.received_requests().await.unwrap()[0]
+        .body_json()
+        .unwrap();
+    assert_eq!(sent, json!({ "text": "Hello there" }));
+}
+
 #[tokio::test]
 async fn transcription_round_trips_on_openai_protocol() {
     let server = MockServer::start().await;

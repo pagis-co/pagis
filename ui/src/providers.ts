@@ -1,11 +1,12 @@
 // The display names of the model providers that the daemon holds keys
 // for. The daemon names a provider by its id: `anthropic`, `openai`,
-// `openrouter`.
+// `openrouter`, `deepgram`.
 
 const PROVIDER_NAMES: Record<string, string> = {
   anthropic: 'Anthropic',
   openai: 'OpenAI',
   openrouter: 'OpenRouter',
+  deepgram: 'Deepgram',
 }
 
 /** The name a person reads for a provider id. An unknown id reads as

@@ -13,8 +13,8 @@ use base64::Engine;
 use futures::stream::SplitSink;
 use futures::{SinkExt, StreamExt};
 use llm_router::{
-    AudioFormat, Candidate, Error, ProviderConfig, RealtimeConnection, RealtimeMessage, Router,
-    RouterConfig, SpeechRequest, TranscriptionRequest,
+    AudioFormat, Candidate, Error, ProviderConfig, RealtimeConnection, RealtimeMessage,
+    RealtimeProtocol, Router, RouterConfig, SpeechRequest, TranscriptionRequest,
 };
 use pagis_core::{ModelAliasStore, Provider, ProviderKeys, ProviderUse, WorkspaceId};
 
@@ -88,6 +88,7 @@ impl RouterVoice {
             let mut provider_config = match provider {
                 Provider::OpenAi => ProviderConfig::openai(key),
                 Provider::OpenRouter => ProviderConfig::openrouter(key),
+                Provider::Deepgram => ProviderConfig::deepgram(key),
                 // `Provider::uses` gives it no voice use.
                 Provider::Anthropic => continue,
             };
@@ -143,7 +144,7 @@ impl VoiceProvider for RouterVoice {
             .router_for(workspace_id, TRANSCRIBE_ALIAS, ProviderUse::Dictation)
             .await?;
         let connection = match router
-            .realtime_transcription_connect(TRANSCRIBE_ALIAS)
+            .realtime_transcription_connect(TRANSCRIBE_ALIAS, SAMPLE_RATE)
             .await
         {
             Ok(connection) => connection,
@@ -153,7 +154,14 @@ impl VoiceProvider for RouterVoice {
             }
             Err(error) => return Err(VoiceError::Provider(error.to_string())),
         };
-        Ok(Some(open_transcription_session(connection).await?))
+        match connection.protocol {
+            RealtimeProtocol::DeepgramListen => {
+                Ok(Some(crate::deepgram::open_listen_session(connection)))
+            }
+            RealtimeProtocol::OpenAiRealtime | RealtimeProtocol::OpenAiLive => {
+                Ok(Some(open_transcription_session(connection).await?))
+            }
+        }
     }
 
     async fn speak(

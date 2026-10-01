@@ -157,6 +157,110 @@ async fn transcription_server() -> (
     (format!("http://127.0.0.1:{}/v1", addr.port()), handle)
 }
 
+/// A one-session Deepgram `/listen` server: it records the audio frames
+/// and the control messages, answers `CloseStream` with an interim and
+/// two final results and the closing metadata, and hands the record over.
+#[allow(clippy::result_large_err)]
+async fn listen_server() -> (
+    String,
+    tokio::task::JoinHandle<(String, String, Vec<Vec<u8>>, Vec<serde_json::Value>)>,
+) {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let handle = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut seen_path = String::new();
+        let mut seen_auth = String::new();
+        let mut socket = tokio_tungstenite::accept_hdr_async(
+            stream,
+            |req: &tokio_tungstenite::tungstenite::handshake::server::Request, resp| {
+                seen_path = req.uri().to_string();
+                seen_auth = req
+                    .headers()
+                    .get("authorization")
+                    .and_then(|value| value.to_str().ok())
+                    .unwrap_or_default()
+                    .to_string();
+                Ok(resp)
+            },
+        )
+        .await
+        .unwrap();
+        let mut audio = Vec::new();
+        let mut controls = Vec::new();
+        while let Some(Ok(frame)) = socket.next().await {
+            match frame {
+                Message::Binary(bytes) => audio.push(bytes.to_vec()),
+                Message::Text(text) => {
+                    let control: serde_json::Value = serde_json::from_str(&text).unwrap();
+                    let close = control["type"] == "CloseStream";
+                    controls.push(control);
+                    if close {
+                        for frame in [
+                            r#"{"type":"Results","is_final":true,"channel":{"alternatives":[{"transcript":"Book the"}]}}"#,
+                            r#"{"type":"Results","is_final":false,"channel":{"alternatives":[{"transcript":"room"}]}}"#,
+                            r#"{"type":"Results","is_final":true,"channel":{"alternatives":[{"transcript":"room."}]}}"#,
+                            r#"{"type":"Metadata","request_id":"r1"}"#,
+                        ] {
+                            socket.send(Message::text(frame)).await.unwrap();
+                        }
+                        socket.close(None).await.ok();
+                        break;
+                    }
+                }
+                _ => break,
+            }
+        }
+        (seen_path, seen_auth, audio, controls)
+    });
+    (format!("http://127.0.0.1:{}/v1", addr.port()), handle)
+}
+
+/// Deepgram streams PCM frames to `/listen` and finishes on
+/// `CloseStream`. Each final result adds to the draft; an interim one
+/// waits for its final, and the whole draft ends the session.
+#[tokio::test]
+async fn a_live_dictation_on_deepgram_streams_frames_and_ends_on_close_stream() {
+    let (base_url, server) = listen_server().await;
+    let voice = voice(Provider::Deepgram, &base_url, &["deepgram/nova-3"], &[]);
+
+    let mut session = voice
+        .dictate(&workspace())
+        .await
+        .unwrap()
+        .expect("Deepgram has a live socket");
+    session.input.append(&[1, 0, 2, 0]).await.unwrap();
+    session.input.commit().await.unwrap();
+
+    let mut heard = Vec::new();
+    while let Some(piece) = session.transcripts.next().await {
+        let piece = piece.unwrap();
+        let done = matches!(piece, Transcript::Final(_));
+        heard.push(piece);
+        if done {
+            break;
+        }
+    }
+    assert_eq!(
+        heard,
+        vec![
+            Transcript::Delta("Book the".to_string()),
+            Transcript::Delta(" room.".to_string()),
+            Transcript::Final("Book the room.".to_string()),
+        ]
+    );
+    drop(session);
+
+    let (path, auth, audio, controls) = server.await.unwrap();
+    assert!(
+        path.starts_with("/v1/listen?model=nova-3&encoding=linear16&sample_rate=24000"),
+        "{path}"
+    );
+    assert_eq!(auth, "Token test-key");
+    assert_eq!(audio, vec![vec![1, 0, 2, 0]]);
+    assert_eq!(controls, vec![serde_json::json!({ "type": "CloseStream" })]);
+}
+
 #[tokio::test]
 async fn a_live_dictation_runs_a_transcription_only_session_ended_by_the_commit() {
     let (base_url, server) = transcription_server().await;

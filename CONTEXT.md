@@ -421,8 +421,9 @@ _Avoid_: model catalogue, allowed models
 One thing a provider's key does in Pagis: thinking, spoken replies,
 dictation or calls. A provider serves a Model Alias only for a use it has.
 OpenAI has all four; OpenRouter has thinking, spoken replies and
-dictation; Anthropic has thinking. Onboarding shows the uses of each
-provider and what a set of keys covers (ADR-0025).
+dictation; Deepgram has spoken replies and dictation; Anthropic has
+thinking. Onboarding shows the uses of each provider and what a set of
+keys covers (ADR-0025).
 _Avoid_: capability (a Grant word), feature
 
 ### Provider Voice List

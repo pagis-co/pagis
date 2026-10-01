@@ -482,6 +482,7 @@ async fn serve_list(server: &MockServer, provider: Provider, models: &[(&str, u6
         Provider::Anthropic => ("/models", "x-api-key", "sk-test"),
         Provider::OpenAi => ("/models", "authorization", "Bearer sk-test"),
         Provider::OpenRouter => ("/models/user", "authorization", "Bearer sk-test"),
+        Provider::Deepgram => panic!("Deepgram lists its projects first: use serve_deepgram"),
     };
     let data: Vec<serde_json::Value> = models
         .iter()
@@ -494,6 +495,31 @@ async fn serve_list(server: &MockServer, provider: Provider, models: &[(&str, u6
             ResponseTemplate::new(200)
                 .set_body_json(serde_json::json!({ "data": data, "has_more": false })),
         )
+        .mount(server)
+        .await;
+}
+
+/// Serve Deepgram's list for the key `sk-test`: one project, whose
+/// models are Nova-3 and the Aura-2 voices Thalia and Andromeda.
+async fn serve_deepgram(server: &MockServer) {
+    Mock::given(method("GET"))
+        .and(path("/projects"))
+        .and(header("authorization", "Token sk-test"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "projects": [{ "project_id": "proj-1", "name": "Pagis" }]
+        })))
+        .mount(server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/projects/proj-1/models"))
+        .and(header("authorization", "Token sk-test"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "stt": [{ "canonical_name": "nova-3-general", "architecture": "nova-3" }],
+            "tts": [
+                { "canonical_name": "aura-2-thalia-en", "architecture": "aura-2" },
+                { "canonical_name": "aura-2-andromeda-en", "architecture": "aura-2" }
+            ]
+        })))
         .mount(server)
         .await;
 }
@@ -1226,6 +1252,77 @@ async fn a_created_person_starts_on_the_newest_listed_model() {
         .unwrap()
         .expect("the default alias");
     assert_eq!(alias.candidates, vec!["anthropic/vendor-new-model"]);
+}
+
+/// A Deepgram key speaks and transcribes. Dictation and spoken replies
+/// prefer it, and its voices are the Aura voices its project lists.
+#[tokio::test]
+async fn a_deepgram_key_serves_dictation_and_spoken_replies_with_its_voices() {
+    let server = MockServer::start().await;
+    serve_deepgram(&server).await;
+    let daemon = daemon_listing(&server).await;
+
+    store_key(&daemon, "deepgram").await;
+
+    assert_eq!(
+        model_alias(&daemon, "transcribe").await["candidates"],
+        serde_json::json!(["deepgram/nova-3"])
+    );
+    assert_eq!(
+        model_alias(&daemon, "speak").await["candidates"],
+        serde_json::json!(["deepgram/aura-2"])
+    );
+    let voices: serde_json::Value = client()
+        .get(format!("{}/api/v1/settings/voices", daemon.base_url))
+        .header("cookie", daemon.cookie())
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(voices["provider"], "deepgram");
+    assert_eq!(voices["model"], "aura-2");
+    assert_eq!(
+        voices["items"],
+        serde_json::json!(["aura-2-thalia-en", "aura-2-andromeda-en"])
+    );
+    let status = status(&daemon).await;
+    assert_eq!(
+        provider(&status, "deepgram")["uses"],
+        serde_json::json!(["spoken_replies", "dictation"])
+    );
+}
+
+/// The keys a person types at onboarding are stored one at a time, so a
+/// route can land on the first key that serves it. The pick of the model
+/// ends the step and gives each voice and call alias the provider its
+/// preference names first among all the keys.
+#[tokio::test]
+async fn the_onboarding_pick_gives_each_voice_alias_its_preferred_keyed_provider() {
+    let daemon = TestDaemon::start().await;
+    store_key(&daemon, "openai").await;
+    store_key(&daemon, "deepgram").await;
+    assert_eq!(
+        model_alias(&daemon, "transcribe").await["candidates"],
+        serde_json::json!(["openai/gpt-4o-transcribe"])
+    );
+
+    let response = pick_default_model(&daemon, None).await;
+
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    assert_eq!(
+        model_alias(&daemon, "transcribe").await["candidates"],
+        serde_json::json!(["deepgram/nova-3"])
+    );
+    assert_eq!(
+        model_alias(&daemon, "speak").await["candidates"],
+        serde_json::json!(["deepgram/aura-2"])
+    );
+    assert_eq!(
+        model_alias(&daemon, "phone").await["candidates"],
+        serde_json::json!(["openai/gpt-live-1", "openai/gpt-realtime-2.1"])
+    );
 }
 
 /// A key from the environment comes with no key route, so the boot gives

@@ -226,11 +226,11 @@ pub async fn route_unrouted_plumbing(state: &AppState) -> Result<(), ApiError> {
     route_unrouted(state, false).await
 }
 
-async fn route_unrouted(state: &AppState, with_default: bool) -> Result<(), ApiError> {
+/// The providers that hold a key, in the product's order.
+fn keyed_providers(keys: &ProviderKeys) -> Result<Vec<Provider>, ApiError> {
     let mut keyed = Vec::new();
     for provider in PROVIDERS {
-        if state
-            .keys
+        if keys
             .resolve(provider)
             .map_err(crate::settings::secret_error)?
             .is_some()
@@ -238,6 +238,37 @@ async fn route_unrouted(state: &AppState, with_default: bool) -> Result<(), ApiE
             keyed.push(provider);
         }
     }
+    Ok(keyed)
+}
+
+/// Give each well-known alias but `default` of one Workspace the
+/// preferred models of the first keyed provider that serves it, whatever
+/// its route is now. The onboarding pick runs it: the person typed their
+/// keys a moment ago, and each stored key routed only the aliases no
+/// earlier key served, so a route can sit on a key that the preference
+/// names after another one the person also gave.
+pub async fn route_by_preference(
+    state: &AppState,
+    workspace_id: &WorkspaceId,
+) -> Result<(), ApiError> {
+    let keyed = keyed_providers(&state.keys)?;
+    for (name, _) in model_preference::PREFERENCES {
+        if name == DEFAULT_MODEL_ALIAS {
+            continue;
+        }
+        let Some(route) = model_preference::route_for(name, &keyed) else {
+            continue;
+        };
+        state
+            .model_aliases
+            .update_candidates(workspace_id, name, &route, pagis_core::now_ms())
+            .await?;
+    }
+    Ok(())
+}
+
+async fn route_unrouted(state: &AppState, with_default: bool) -> Result<(), ApiError> {
+    let keyed = keyed_providers(&state.keys)?;
     if keyed.is_empty() {
         // No provider holds a key, so no route can reach one.
         return Ok(());
@@ -442,6 +473,7 @@ pub async fn set_onboarding_default_model(
         }
     };
     set_default_route(&state, &tenant.workspace_id, candidate).await?;
+    route_by_preference(&state, &tenant.workspace_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 

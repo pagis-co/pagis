@@ -76,17 +76,19 @@ pub async fn speaking_voices(
             .iter()
             .map(|voice| voice.to_string())
             .collect(),
-        Provider::Anthropic | Provider::OpenRouter => match state.models.models(provider).await {
-            Ok(listed) => listed
-                .iter()
-                .find(|listed| listed.id == model)
-                .and_then(|listed| listed.voices.clone())
-                .unwrap_or_default(),
-            Err(error) => {
-                tracing::warn!(provider = provider.id(), %error, "the provider did not list its voices");
-                Vec::new()
+        Provider::Anthropic | Provider::OpenRouter | Provider::Deepgram => {
+            match state.models.models(provider).await {
+                Ok(listed) => listed
+                    .iter()
+                    .find(|listed| listed.id == model)
+                    .and_then(|listed| listed.voices.clone())
+                    .unwrap_or_default(),
+                Err(error) => {
+                    tracing::warn!(provider = provider.id(), %error, "the provider did not list its voices");
+                    Vec::new()
+                }
             }
-        },
+        }
     };
     Ok(Some(VoiceList {
         provider,
@@ -96,23 +98,15 @@ pub async fn speaking_voices(
 }
 
 /// The providers that would speak a reply, for a message that names the
-/// key a person lacks: "OpenAI or OpenRouter".
+/// key a person lacks: "Deepgram, OpenAI or OpenRouter".
 pub fn speaking_providers() -> String {
     let names: Vec<&str> = crate::model_preference::preferred_providers(pagis_voice::SPEAK_ALIAS)
         .into_iter()
-        .map(provider_name)
+        .map(Provider::name)
         .collect();
     match names.split_last() {
         Some((last, rest)) if !rest.is_empty() => format!("{} or {last}", rest.join(", ")),
         _ => names.join(""),
-    }
-}
-
-fn provider_name(provider: Provider) -> &'static str {
-    match provider {
-        Provider::Anthropic => "Anthropic",
-        Provider::OpenAi => "OpenAI",
-        Provider::OpenRouter => "OpenRouter",
     }
 }
 
@@ -144,6 +138,6 @@ mod tests {
 
     #[test]
     fn the_message_names_each_provider_that_would_speak() {
-        assert_eq!(speaking_providers(), "OpenAI or OpenRouter");
+        assert_eq!(speaking_providers(), "Deepgram, OpenAI or OpenRouter");
     }
 }

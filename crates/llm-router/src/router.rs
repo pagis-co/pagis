@@ -174,16 +174,21 @@ impl Router {
         self.realtime(model, RealtimeIntent::Conversation).await
     }
 
-    /// Open a transcription-only realtime session: the same socket as
+    /// Open a transcription-only realtime session for PCM16 mono audio at
+    /// `sample_rate` Hz. On OpenAI it is the same socket as
     /// [`Router::realtime_connect`], opened with `intent=transcription`
-    /// instead of a model. The caller picks the transcription model in
-    /// its `session.update`; the returned connection's `model` is the
-    /// candidate that served the alias.
+    /// instead of a model, and the caller picks the transcription model
+    /// and the audio format in its `session.update`. On Deepgram it is
+    /// `/listen`, with the model and the audio format in the query. The
+    /// returned connection's `model` is the candidate that served the
+    /// alias, and its `protocol` names the dialect.
     pub async fn realtime_transcription_connect(
         &self,
         model: &str,
+        sample_rate: u32,
     ) -> Result<crate::realtime::RealtimeConnection, Error> {
-        self.realtime(model, RealtimeIntent::Transcription).await
+        self.realtime(model, RealtimeIntent::Transcription { sample_rate })
+            .await
     }
 
     async fn realtime(
@@ -193,7 +198,14 @@ impl Router {
     ) -> Result<crate::realtime::RealtimeConnection, Error> {
         self.run(model, |candidate| async move {
             let (provider, _) = self.provider(&candidate.provider)?;
-            if provider.protocol != crate::config::ProtocolKind::OpenAiChat {
+            let served = match provider.protocol {
+                crate::config::ProtocolKind::OpenAiChat => true,
+                crate::config::ProtocolKind::Deepgram => {
+                    matches!(intent, RealtimeIntent::Transcription { .. })
+                }
+                _ => false,
+            };
+            if !served {
                 return Err(Error::Unsupported {
                     provider: candidate.provider.clone(),
                     feature: "realtime",

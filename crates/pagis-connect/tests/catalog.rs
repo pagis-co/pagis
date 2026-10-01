@@ -292,7 +292,7 @@ fn every_provider_declares_what_the_installation_sets_up() {
             .map(|part| (part.id, part.kind))
             .collect()
     };
-    for provider in ["anthropic", "openai", "openrouter"] {
+    for provider in ["anthropic", "openai", "openrouter", "deepgram"] {
         assert_eq!(parts(provider), vec![("key", SetupKind::ModelKey)]);
     }
     assert_eq!(
@@ -323,6 +323,7 @@ fn every_provider_declares_what_the_installation_sets_up() {
             ("anthropic", "models"),
             ("openai", "models"),
             ("openrouter", "models"),
+            ("deepgram", "models"),
             ("google", "accounts"),
             ("telnyx", "telephony"),
             ("twilio", "telephony"),
