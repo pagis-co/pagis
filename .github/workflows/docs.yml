@@ -5,6 +5,9 @@
 # - A `v*` tag builds the site from the tree of that tag and deploys it to
 #   production at docs.pagis.co, so the pages describe the release that
 #   people install.
+# - A manual run deploys production from the tree of the tag or of main
+#   that "Use workflow from" names. From main, it publishes a fix to the
+#   pages of the current release before the next tag.
 # - A pull request that changes the site uploads a preview version with the
 #   alias `pr-<number>`. The upload changes nothing in production, and the
 #   job summary shows the preview URL. A pull request from a fork gets no
@@ -23,8 +26,8 @@ on:
       - "docs-site/**"
       - "Cargo.toml"
       - ".github/workflows/docs.yml"
-  # Deploy a tag again, for example after a change to the Cloudflare
-  # account. Choose the tag in "Use workflow from".
+  # Deploy a tag again, or main with a fix to the pages. Choose the tag or
+  # main in "Use workflow from".
   workflow_dispatch:
 
 # One production deployment at a time, in the order of the tags. A new push
@@ -46,8 +49,12 @@ env:
 jobs:
   deploy:
     name: deploy docs.pagis.co
-    # Production shows a release, never a branch.
-    if: github.event_name != 'pull_request' && github.ref_type == 'tag'
+    # Production shows a release tag, or main when a person runs the
+    # workflow by hand. It never shows another branch.
+    if: >-
+      github.event_name != 'pull_request' &&
+      (github.ref_type == 'tag' ||
+       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment:
