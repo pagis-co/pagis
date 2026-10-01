@@ -91,6 +91,26 @@ export class RuntimeInstaller {
   }
 
   /**
+   * Put the Server Package of `lock` into the download cache, and install
+   * nothing. Before a restart to an Update, the client downloads the
+   * package of the next release (ADR-0027). The client of that release
+   * uses the cache only when the bytes match its own embedded lock.
+   */
+  download(lock: RuntimeLock, signal?: AbortSignal): Promise<void> {
+    return serialized(this.root, async () => {
+      const asset = await this.cachePackage(lock, { signal })
+      try {
+        await requireFile(asset, lock.asset.size, lock.asset.sha256, 'downloaded server package')
+      } catch (error) {
+        removeOwnedFile(asset)
+        throw error
+      }
+    }).catch((error: unknown) => {
+      throw installationError(error)
+    })
+  }
+
+  /**
    * Remove the package directory and the download of each release but
    * the release of `lock`, once that release is active (ADR-0027). A
    * package directory stays while a process uses one of its files
@@ -139,25 +159,10 @@ export class RuntimeInstaller {
       }
     }
 
-    const downloads = path.join(this.root, 'downloads')
     const staging = path.join(this.root, 'staging')
-    requireOwnedDirectory(this.root, downloads)
     requireOwnedDirectory(this.root, staging)
-    const asset = path.join(downloads, `${lock.asset.sha256}.part`)
-    if (!(await matchesFile(asset, lock.asset.size, lock.asset.sha256))) {
-      removeOwnedFile(asset)
-      this.writeState(lock.release, 'downloading', null)
-      const total = lock.asset.size
-      report({ phase: 'downloading', received: 0, total })
-      try {
-        await this.adapters.download(lock.asset.url, asset, total, signal, (received) => {
-          report({ phase: 'downloading', received, total })
-        })
-      } catch (error) {
-        removeOwnedFile(asset)
-        throw installationError(error)
-      }
-    }
+    this.writeState(lock.release, 'downloading', null)
+    const asset = await this.cachePackage(lock, options)
     throwIfCancelled(signal)
     this.writeState(lock.release, 'verifying', null)
     report({ phase: 'verifying' })
@@ -212,6 +217,32 @@ export class RuntimeInstaller {
       if (detach) await detach()
       removeOwnedTree(this.root, staging, workName)
     }
+  }
+
+  /**
+   * The path of the Server Package of `lock` in the download cache. The
+   * client downloads it first when the cache does not hold a file with
+   * the locked size and hash. The caller checks the bytes of a new
+   * download.
+   */
+  private async cachePackage(lock: RuntimeLock, options: InstallOptions): Promise<string> {
+    const downloads = path.join(this.root, 'downloads')
+    requireOwnedDirectory(this.root, downloads)
+    const asset = path.join(downloads, `${lock.asset.sha256}.part`)
+    if (await matchesFile(asset, lock.asset.size, lock.asset.sha256)) return asset
+    removeOwnedFile(asset)
+    const report = options.onProgress ?? (() => {})
+    const total = lock.asset.size
+    report({ phase: 'downloading', received: 0, total })
+    try {
+      await this.adapters.download(lock.asset.url, asset, total, options.signal, (received) => {
+        report({ phase: 'downloading', received, total })
+      })
+    } catch (error) {
+      removeOwnedFile(asset)
+      throw installationError(error)
+    }
+    return asset
   }
 
   /**

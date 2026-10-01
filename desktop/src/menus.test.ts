@@ -138,10 +138,11 @@ describe('the menus', () => {
     for (const menu of menus(menuActions)) expect(item(menu, 'Check for Updates…')).toBeDefined()
   })
 
-  it('shows a check and a download in progress as disabled items', () => {
+  it('shows a check, a download and a preparation in progress as disabled items', () => {
     for (const [state, label] of [
       [{ kind: 'checking' }, 'Checking for Updates…'],
       [{ kind: 'downloading', version: '1.1.0', percent: 40 }, 'Downloading Pagis 1.1.0… 40%'],
+      [{ kind: 'preparing', version: '1.1.0' }, 'Preparing Pagis 1.1.0…'],
     ] as const) {
       for (const menu of menus(actions(vi.fn(), state))) {
         expect(item(menu, label)?.enabled).toBe(false)

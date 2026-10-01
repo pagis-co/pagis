@@ -1,11 +1,4 @@
-import {
-  type CookieJar,
-  type CookieReader,
-  SESSION_COOKIE,
-  exchangeClientCredential,
-  holdSession,
-  reusableSession,
-} from './clientSession'
+import { type CookieJar, type CookieReader, SESSION_COOKIE, installationSession } from './clientSession'
 
 /** How long the client waits for the server's answer. */
 const TIMEOUT_MS = 5000
@@ -16,10 +9,7 @@ const TIMEOUT_MS = 5000
  * it. `unfinished_runs` of the installation health holds it, and the
  * Administration Port answers it to an Administrator.
  *
- * The client signs in there as for the administration window: with the
- * Session that the jar holds, else with a Session that it trades for the
- * Client Credential on the product port. A cookie is host-only, so the
- * one Session serves both ports.
+ * The client signs in there with `installationSession`.
  */
 export async function unfinishedRuns(
   administrationUrl: string,
@@ -30,12 +20,7 @@ export async function unfinishedRuns(
 ): Promise<number | null> {
   try {
     const signal = AbortSignal.timeout(TIMEOUT_MS)
-    let held = await reusableSession(productUrl, jar, request, signal)
-    if (held === null) {
-      if (credential === null) throw new Error('the Pagis server has no client credential')
-      held = await exchangeClientCredential(productUrl, credential, signal, request)
-      await holdSession(productUrl, held, jar)
-    }
+    const held = await installationSession(productUrl, credential, jar, request, signal)
     const response = await request(new URL('/api/v1/administration/health', administrationUrl), {
       redirect: 'error',
       signal,

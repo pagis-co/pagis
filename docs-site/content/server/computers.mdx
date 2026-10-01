@@ -10,7 +10,10 @@ and when an Agent wakes, the daemon pulls the image if it is absent, so the
 VM needs a route to the registry. All the Agents of the server share one
 pull. The daemon compares the image's version label with its own pin and
 boots nothing on a mismatch. When the pinned image is present, the daemon
-removes each other Computer Image that no container uses.
+removes each other Computer Image that no container uses and whose version
+is not newer than the pin. A newer image stays: before a Client App
+installs an Update, it has the daemon pull the Computer Image of the next
+release.
 
 Each Computer gets a container, a volume and the Tenant Network of its
 Workspace, and the daemon reaches it on the VM's loopback. A Computer that

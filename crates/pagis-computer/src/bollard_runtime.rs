@@ -25,9 +25,9 @@ use crate::docker::DockerDiscovery;
 use crate::pull_progress::PullProgress;
 use crate::{
     AGENT_LABEL, BindMount, CONTROL_PORT, ComputerLimits, ComputerOwner, ComputerRuntime, IMAGE,
-    ImageRemoval, MOUNTS_LABEL, RELAY_HOST, RunningComputer, SECCOMP_PROFILE, StartedComputer,
-    TOKEN_MOUNT, TenantResources, VERSION_LABEL, WORKSPACE_LABEL, image_repository,
-    mounts_fingerprint, network_name,
+    ImageRemoval, MOUNTS_LABEL, OtherImage, RELAY_HOST, RunningComputer, SECCOMP_PROFILE,
+    StartedComputer, TOKEN_MOUNT, TenantResources, VERSION_LABEL, WORKSPACE_LABEL,
+    image_repository, mounts_fingerprint, network_name,
 };
 /// How long a booting container gets to answer `/healthz`.
 const BOOT_TIMEOUT: Duration = Duration::from_secs(120);
@@ -468,11 +468,12 @@ impl ComputerRuntime for BollardRuntime {
 
     async fn pull_image(
         &self,
+        image: &str,
         progress: tokio::sync::mpsc::UnboundedSender<u8>,
     ) -> Result<(), String> {
         let docker = self.docker().await?;
         let options = bollard::query_parameters::CreateImageOptionsBuilder::default()
-            .from_image(IMAGE)
+            .from_image(image)
             .build();
         let mut stream = docker.create_image(Some(options), None, None);
         let mut pull = PullProgress::default();
@@ -495,7 +496,7 @@ impl ComputerRuntime for BollardRuntime {
     /// only the Computer Image repository names. The list is not
     /// filtered on the server, so a Docker API that ignores a filter
     /// cannot put an image of another repository in it.
-    async fn other_images(&self) -> Result<Vec<String>, String> {
+    async fn other_images(&self) -> Result<Vec<OtherImage>, String> {
         let docker = self.docker().await?;
         let pinned = match docker.inspect_image(IMAGE).await {
             Ok(image) => image.id,
@@ -513,7 +514,10 @@ impl ComputerRuntime for BollardRuntime {
         Ok(images
             .into_iter()
             .filter(|image| image.id != pinned && only_of(repository, image))
-            .map(|image| image.id)
+            .map(|image| OtherImage {
+                version: image.labels.get(VERSION_LABEL).cloned(),
+                id: image.id,
+            })
             .collect())
     }
 

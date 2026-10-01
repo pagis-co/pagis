@@ -3,13 +3,40 @@
 //! boot, and each wake that finds the image absent joins it. A
 //! preparation pulls the pinned image when it is absent, checks its
 //! version label, and then removes each other image of its repository
-//! that no container uses.
+//! that no container uses and that is not newer than the pin.
+//!
+//! Before a restart to an Update, the Client App asks the daemon to pull
+//! the Computer Image of the next release ([`ComputerImage::pull`]). That
+//! image is newer than the pin, so it stays until the daemon of the next
+//! release runs.
 
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use tokio::sync::{mpsc, watch};
 
-use crate::{ComputerError, ComputerRuntime, IMAGE, IMAGE_VERSION, ImageRemoval};
+use crate::{
+    ComputerError, ComputerRuntime, IMAGE, IMAGE_VERSION, ImageRemoval, OtherImage,
+    image_repository,
+};
+
+/// Why a pull of a named Computer Image did not give the image.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ImagePullError {
+    /// The name is not an image of the Computer Image repository by its
+    /// digest.
+    #[error("{0}")]
+    Refused(String),
+    /// Docker does not answer.
+    #[error("Docker does not answer: {0}")]
+    NoDocker(String),
+    /// The pull started and failed.
+    #[error("the pull of the Computer Image failed: {0}")]
+    Failed(String),
+}
+
+/// The end of one pull of a named image: `None` while it runs.
+type PullEnd = Option<Result<(), String>>;
 
 /// How far one preparation is.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -32,6 +59,9 @@ pub struct ComputerImage {
     /// preparation that ends takes it out, so the next join starts a new
     /// one.
     running: Mutex<Option<watch::Receiver<Preparation>>>,
+    /// The pulls of named images that run now, by name. They work as
+    /// `running` does.
+    pulls: Mutex<HashMap<String, watch::Receiver<PullEnd>>>,
 }
 
 impl ComputerImage {
@@ -39,7 +69,68 @@ impl ComputerImage {
         Arc::new(Self {
             runtime,
             running: Mutex::new(None),
+            pulls: Mutex::new(HashMap::new()),
         })
+    }
+
+    /// Pull `image`, an image of the Computer Image repository by its
+    /// digest, and return when the pull ends. The Client App asks for the
+    /// image of the next release before it restarts to an Update. A
+    /// second request for the same image joins the pull that runs. The
+    /// pull runs in a task of its own, so a request that goes away does
+    /// not stop it.
+    pub async fn pull(self: &Arc<Self>, image: &str) -> Result<(), ImagePullError> {
+        check_reference(image)?;
+        if let Err(error) = self.runtime.image_version().await {
+            return Err(ImagePullError::NoDocker(error));
+        }
+        let mut pull = self.join_pull(image);
+        let end = pull
+            .wait_for(Option::is_some)
+            .await
+            .ok()
+            .and_then(|end| end.clone());
+        match end {
+            Some(Ok(())) => Ok(()),
+            Some(Err(error)) => Err(ImagePullError::Failed(error)),
+            // The task stopped with no end, which it does only when the
+            // daemon stops.
+            None => Err(ImagePullError::Failed(
+                "the pull stopped before it ended".to_string(),
+            )),
+        }
+    }
+
+    /// Join the pull of `image` that runs now, or start one.
+    fn join_pull(self: &Arc<Self>, image: &str) -> watch::Receiver<PullEnd> {
+        let mut pulls = self.pulls.lock().expect("the computer image lock");
+        // A closed channel is a pull that stopped with no end.
+        if let Some(pull) = pulls.get(image)
+            && pull.has_changed().is_ok()
+        {
+            return pull.clone();
+        }
+        let (end, pull) = watch::channel(None);
+        pulls.insert(image.to_string(), pull.clone());
+        let this = Arc::clone(self);
+        let image = image.to_string();
+        tokio::spawn(async move {
+            tracing::info!(%image, "pulling a Computer Image that the Client App asked for");
+            // Nobody reads the percents of this pull.
+            let (progress, _percents) = mpsc::unbounded_channel();
+            let pulled = this.runtime.pull_image(&image, progress).await;
+            match &pulled {
+                Ok(()) => tracing::info!(%image, "the Computer Image is present"),
+                Err(error) => tracing::warn!(%error, %image, "the Computer Image pull failed"),
+            }
+            // A request from here on starts a new pull.
+            this.pulls
+                .lock()
+                .expect("the computer image lock")
+                .remove(&image);
+            end.send_replace(Some(pulled));
+        });
+        pull
     }
 
     /// Prepare the image at daemon boot, and return when the
@@ -118,7 +209,7 @@ impl ComputerImage {
                 });
             }
         };
-        let (pulled, ()) = tokio::join!(self.runtime.pull_image(progress), forward);
+        let (pulled, ()) = tokio::join!(self.runtime.pull_image(IMAGE, progress), forward);
         pulled?;
         // The pulled image must carry the pinned version.
         let version = self.runtime.image_version().await?;
@@ -130,8 +221,10 @@ impl ComputerImage {
     }
 
     /// Remove each other image of the repository that no container
-    /// uses. A removal never forces, so an image in use stays. A failure
-    /// here does not fail the preparation: the pinned image is present.
+    /// uses. A removal never forces, so an image in use stays. An image
+    /// whose version is newer than the pin stays too: the Client App had
+    /// it pulled for the next release. A failure here does not fail the
+    /// preparation: the pinned image is present.
     async fn remove_unused(&self) {
         let images = match self.runtime.other_images().await {
             Ok(images) => images,
@@ -140,7 +233,11 @@ impl ComputerImage {
                 return;
             }
         };
-        for image in images {
+        for OtherImage { id: image, version } in images {
+            if is_newer_than_pin(version.as_deref()) {
+                tracing::debug!(%image, ?version, "a newer Computer Image stays for the next release");
+                continue;
+            }
             match self.runtime.remove_image(&image).await {
                 Ok(ImageRemoval::Removed) => {
                     tracing::info!(%image, "removed an old Computer Image");
@@ -153,5 +250,45 @@ impl ComputerImage {
                 }
             }
         }
+    }
+}
+
+/// Whether `version`, a version label, is a SemVer version newer than
+/// the pinned one. An image with no label, or with a label that is not
+/// SemVer, is not.
+fn is_newer_than_pin(version: Option<&str>) -> bool {
+    let (Some(version), Ok(pinned)) = (version, semver::Version::parse(IMAGE_VERSION)) else {
+        return false;
+    };
+    semver::Version::parse(version).is_ok_and(|version| version > pinned)
+}
+
+/// Refuse a name that is not `<repository>@sha256:<64 lowercase
+/// hexadecimal characters>`, where the repository is the repository of
+/// the pinned image. A digest names exactly one image, and a tag can
+/// move.
+fn check_reference(image: &str) -> Result<(), ImagePullError> {
+    let repository = image_repository(IMAGE);
+    if image_repository(image) != repository {
+        return Err(ImagePullError::Refused(format!(
+            "{image} is not an image of the Computer Image repository {repository}"
+        )));
+    }
+    match image
+        .strip_prefix(repository)
+        .and_then(|rest| rest.strip_prefix("@sha256:"))
+    {
+        Some(digest)
+            if digest.len() == 64
+                && digest
+                    .bytes()
+                    .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f')) =>
+        {
+            Ok(())
+        }
+        _ => Err(ImagePullError::Refused(format!(
+            "{image} names no digest: the daemon pulls a Computer Image only as \
+             {repository}@sha256:<64 lowercase hexadecimal characters>"
+        ))),
     }
 }

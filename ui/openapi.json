@@ -10,6 +10,88 @@
     "version": "0.1.1"
   },
   "paths": {
+    "/api/v1/administration/computer-image/pull": {
+      "post": {
+        "tags": [
+          "administration"
+        ],
+        "summary": "Pull a Computer Image, and answer when the pull ends.",
+        "description": "Before a restart to an Update, the Client App of a Local Installation\nasks for the Computer Image that the next release pins, so the new\ndaemon finds it present (ADR-0027). The daemon pulls only an image of\nthe repository of its own pinned image, and only by its digest. A\nsecond request for the same image joins the pull that runs, and a\nrequest that goes away does not stop the pull. A failed pull answers\n`502`, and `503` where Docker does not answer.",
+        "operationId": "pull_computer_image",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ComputerImagePullRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ComputerImageDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/administration/health": {
       "get": {
         "tags": [
@@ -10718,6 +10800,31 @@
           "state": {
             "type": "string",
             "description": "`off`, `pulling`, `starting`, `awake`, or `failed`."
+          }
+        }
+      },
+      "ComputerImageDto": {
+        "type": "object",
+        "description": "The Computer Image that the daemon pulled.",
+        "required": [
+          "image"
+        ],
+        "properties": {
+          "image": {
+            "type": "string"
+          }
+        }
+      },
+      "ComputerImagePullRequest": {
+        "type": "object",
+        "description": "The Computer Image that the Client App asks the daemon to pull.",
+        "required": [
+          "image"
+        ],
+        "properties": {
+          "image": {
+            "type": "string",
+            "description": "`<repository>@sha256:<64 lowercase hexadecimal characters>`. The\nrepository is the repository of the pinned Computer Image."
           }
         }
       },

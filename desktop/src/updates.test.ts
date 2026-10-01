@@ -1,6 +1,7 @@
 // The Update of the Client App (ADR-0027): electron-updater checks and
 // downloads, Squirrel.Mac on macOS or the signed checksum list on Linux
-// checks the download, and the menus read the state.
+// checks the download, the Client App prepares the restart, and the menus
+// read the state.
 
 import { EventEmitter } from 'node:events'
 
@@ -70,18 +71,41 @@ class FakeUpdater extends EventEmitter {
   }
 }
 
-function newUpdates(installer: (squirrel: EventEmitter) => Installer = (squirrel) => ({ kind: 'squirrel', squirrel })) {
+interface NewUpdatesOptions {
+  installer?: (squirrel: EventEmitter) => Installer
+  prepare?: (version: string) => Promise<void>
+}
+
+function newUpdates({
+  installer = (squirrel) => ({ kind: 'squirrel', squirrel }),
+  prepare = async () => {},
+}: NewUpdatesOptions = {}) {
   const updater = new FakeUpdater()
   const squirrel = new EventEmitter()
   const states: UpdateState[] = []
   const notify = vi.fn()
+  const preparations = vi.fn(prepare)
   const updates = new Updates({
     updater,
     installer: installer(squirrel),
     onState: (state) => states.push(state),
     notify,
+    prepare: preparations,
   })
-  return { updater, squirrel, states, notify, updates }
+  return { updater, squirrel, states, notify, preparations, updates }
+}
+
+/** Let the promises that an event starts run to their end. */
+async function settle(): Promise<void> {
+  for (let turn = 0; turn < 10; turn += 1) await Promise.resolve()
+}
+
+/** A promise that the test resolves or rejects. */
+function deferred() {
+  let resolve!: () => void
+  let reject!: (error: Error) => void
+  const promise = new Promise<void>((done, fail) => { resolve = done; reject = fail })
+  return { promise, resolve, reject }
 }
 
 const APPIMAGE = '/home/me/Apps/Pagis-1.0.0-x86_64.AppImage'
@@ -97,7 +121,7 @@ function appImage(verify: (update: UpdateDownloadedEvent) => Promise<void>) {
 async function readyAppImage() {
   const check = verification()
   const { installer, restarts } = appImage(check.verify)
-  const { updates, updater } = newUpdates(() => installer)
+  const { updates, updater } = newUpdates({ installer: () => installer })
   updater.answers = ['1.1.0']
   await updates.check()
   updater.downloaded('1.1.0', '/cache/pending/Pagis-1.1.0-x86_64.AppImage')
@@ -144,7 +168,7 @@ describe('the Update of the Client App', () => {
   it('does not let electron-updater install a download at quit on Linux', () => {
     const verify = async () => undefined
     for (const installer of [appImage(verify).installer, { kind: 'deb', verify } as const]) {
-      const { updater } = newUpdates(() => installer)
+      const { updater } = newUpdates({ installer: () => installer })
 
       expect(updater.autoDownload).toBe(true)
       expect(updater.autoInstallOnAppQuit).toBe(false)
@@ -190,10 +214,71 @@ describe('the Update of the Client App', () => {
 
     squirrel.emit('update-downloaded')
     squirrel.emit('update-downloaded')
+    await settle()
 
     expect(updates.state).toEqual({ kind: 'ready', version: '1.1.0' })
     expect(notify).toHaveBeenCalledTimes(1)
     expect(notify).toHaveBeenCalledWith('1.1.0')
+  })
+
+  it('prepares the restart before the Update is ready, and prepares one time', async () => {
+    const preparation = deferred()
+    const { updates, updater, squirrel, notify, preparations, states } = newUpdates({ prepare: () => preparation.promise })
+    updater.answers = ['1.1.0']
+    await updates.check()
+    updater.downloaded('1.1.0')
+
+    squirrel.emit('update-downloaded')
+    squirrel.emit('update-downloaded')
+    await settle()
+
+    expect(updates.state).toEqual({ kind: 'preparing', version: '1.1.0' })
+    expect(preparations).toHaveBeenCalledTimes(1)
+    expect(preparations).toHaveBeenCalledWith('1.1.0')
+    expect(notify).not.toHaveBeenCalled()
+
+    preparation.resolve()
+    await settle()
+
+    expect(updates.state).toEqual({ kind: 'ready', version: '1.1.0' })
+    expect(notify).toHaveBeenCalledTimes(1)
+    expect(states.filter((state) => state.kind === 'preparing')).toHaveLength(1)
+  })
+
+  it('makes the Update ready when the preparation fails, and logs the reason', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const { updates, updater, squirrel, notify } = newUpdates({
+      prepare: async () => {
+        throw new Error('the release has no Runtime Lock')
+      },
+    })
+    updater.answers = ['1.1.0']
+    await updates.check()
+    updater.downloaded('1.1.0')
+
+    squirrel.emit('update-downloaded')
+    await settle()
+
+    expect(updates.state).toEqual({ kind: 'ready', version: '1.1.0' })
+    expect(notify).toHaveBeenCalledWith('1.1.0')
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('the release has no Runtime Lock'))
+    log.mockRestore()
+  })
+
+  it('keeps an error of the updater that comes while it prepares', async () => {
+    const preparation = deferred()
+    const { updates, updater, squirrel, notify } = newUpdates({ prepare: () => preparation.promise })
+    updater.answers = ['1.1.0']
+    await updates.check()
+    updater.downloaded('1.1.0')
+    squirrel.emit('update-downloaded')
+
+    updater.emit('error', new Error('the Update file is gone'))
+    preparation.resolve()
+    await settle()
+
+    expect(updates.state).toEqual({ kind: 'failed', reason: 'the Update file is gone' })
+    expect(notify).not.toHaveBeenCalled()
   })
 
   it('fails when Squirrel.Mac refuses the bundle', async () => {
@@ -218,14 +303,18 @@ describe('the Update of the Client App', () => {
     expect(updates.state).toEqual({ kind: 'failed', reason: 'net::ERR_INTERNET_DISCONNECTED' })
   })
 
-  it('does not check again while an Update downloads or is ready', async () => {
-    const { updates, updater, squirrel } = newUpdates()
+  it('does not check again while an Update downloads, prepares or is ready', async () => {
+    const preparation = deferred()
+    const { updates, updater, squirrel } = newUpdates({ prepare: () => preparation.promise })
     updater.answers = ['1.1.0']
     await updates.check()
 
     expect(await updates.check()).toEqual({ kind: 'found', version: '1.1.0' })
     updater.downloaded('1.1.0')
     squirrel.emit('update-downloaded')
+    expect(await updates.check()).toEqual({ kind: 'found', version: '1.1.0' })
+    preparation.resolve()
+    await settle()
     expect(await updates.check()).toEqual({ kind: 'ready', version: '1.1.0' })
     expect(updater.checks).toBe(1)
   })
@@ -271,7 +360,8 @@ describe('the Update of the Client App', () => {
   })
 
   it('installs only a ready Update', async () => {
-    const { updates, updater, squirrel } = newUpdates()
+    const preparation = deferred()
+    const { updates, updater, squirrel } = newUpdates({ prepare: () => preparation.promise })
 
     expect(() => updates.install()).toThrow(/no Update is ready/)
 
@@ -279,6 +369,9 @@ describe('the Update of the Client App', () => {
     await updates.check()
     updater.downloaded('1.1.0')
     squirrel.emit('update-downloaded')
+    expect(() => updates.install()).toThrow(/no Update is ready/)
+    preparation.resolve()
+    await settle()
     updates.install()
 
     expect(updater.installs).toBe(1)
@@ -286,7 +379,7 @@ describe('the Update of the Client App', () => {
 
   it('is ready on Linux only when the download passed the signed checksum list, and notifies one time', async () => {
     const check = verification()
-    const { updates, updater, notify } = newUpdates(() => appImage(check.verify).installer)
+    const { updates, updater, notify } = newUpdates({ installer: () => appImage(check.verify).installer })
     updater.answers = ['1.1.0']
     await updates.check()
 
@@ -302,9 +395,34 @@ describe('the Update of the Client App', () => {
     expect(notify).toHaveBeenCalledWith('1.1.0')
   })
 
+  it('prepares the restart on Linux after the download passed the signed checksum list', async () => {
+    const check = verification()
+    const preparation = deferred()
+    const { updates, updater, notify, preparations } = newUpdates({
+      installer: () => appImage(check.verify).installer,
+      prepare: () => preparation.promise,
+    })
+    updater.answers = ['1.1.0']
+    await updates.check()
+    updater.downloaded('1.1.0', '/cache/pending/Pagis-1.1.0-x86_64.AppImage')
+    expect(preparations).not.toHaveBeenCalled()
+
+    await check.pass()
+
+    expect(updates.state).toEqual({ kind: 'preparing', version: '1.1.0' })
+    expect(preparations).toHaveBeenCalledWith('1.1.0')
+    expect(notify).not.toHaveBeenCalled()
+
+    preparation.resolve()
+    await settle()
+
+    expect(updates.state).toEqual({ kind: 'ready', version: '1.1.0' })
+    expect(notify).toHaveBeenCalledTimes(1)
+  })
+
   it('fails on Linux with the reason when the download does not pass, and installs nothing', async () => {
     const check = verification()
-    const { updates, updater, notify } = newUpdates(() => appImage(check.verify).installer)
+    const { updates, updater, notify } = newUpdates({ installer: () => appImage(check.verify).installer })
     updater.answers = ['1.1.0']
     await updates.check()
     updater.downloaded('1.1.0')
@@ -323,7 +441,7 @@ describe('the Update of the Client App', () => {
 
   it('keeps a failure that comes while the check runs', async () => {
     const check = verification()
-    const { updates, updater, notify } = newUpdates(() => appImage(check.verify).installer)
+    const { updates, updater, notify } = newUpdates({ installer: () => appImage(check.verify).installer })
     updater.answers = ['1.1.0']
     await updates.check()
     updater.downloaded('1.1.0')
@@ -340,7 +458,7 @@ describe('the Update of the Client App', () => {
   it('installs a ready AppImage Update at quit, and only a ready one, and starts nothing', async () => {
     const check = verification()
     const { installer, restarts } = appImage(check.verify)
-    const { updates, updater } = newUpdates(() => installer)
+    const { updates, updater } = newUpdates({ installer: () => installer })
 
     updates.installAtQuit()
     updater.answers = ['1.1.0']
@@ -405,7 +523,7 @@ describe('the Update of the Client App', () => {
   /** A password prompt at quit or at logout stops the shutdown. */
   it('installs a deb only from Restart to Update, never at quit', async () => {
     const check = verification()
-    const { updates, updater } = newUpdates(() => ({ kind: 'deb', verify: check.verify }))
+    const { updates, updater } = newUpdates({ installer: () => ({ kind: 'deb', verify: check.verify }) })
     updater.answers = ['1.1.0']
     await updates.check()
     updater.downloaded('1.1.0', '/cache/pending/Pagis-1.1.0-amd64.deb')

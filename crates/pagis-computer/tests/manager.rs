@@ -11,8 +11,9 @@ use pagis_computer::fake::ice_check;
 use pagis_computer::fake::{FakeComputerRuntime, FakeWorkspaces};
 use pagis_computer::{
     AwakeCaps, AwakeCeiling, BindMount, ComputerError, ComputerImage, ComputerManager,
-    ComputerManagerDeps, ComputerState, ExecOutcome, IMAGE_VERSION, IceCredentials, InputHolder,
-    OutputCap, PLUGIN_MOUNT_ROOT, SHELL_HOME, ShellCommand, TakeoverTiming,
+    ComputerManagerDeps, ComputerState, ExecOutcome, IMAGE, IMAGE_VERSION, IceCredentials,
+    ImagePullError, InputHolder, OutputCap, PLUGIN_MOUNT_ROOT, SHELL_HOME, ShellCommand,
+    TakeoverTiming, image_repository,
 };
 use tokio_util::sync::CancellationToken;
 
@@ -367,6 +368,163 @@ async fn the_boot_does_nothing_and_warns_of_nothing_when_docker_does_not_answer(
     assert_eq!(runtime.pulls(), 0);
     assert!(runtime.removed_images().is_empty());
     assert!(log.is_empty(), "{log}");
+}
+
+/// The version after the pinned one: the Computer Image that a newer
+/// release pins.
+fn next_version() -> String {
+    let pinned = semver::Version::parse(IMAGE_VERSION).expect("the pin is SemVer");
+    semver::Version::new(pinned.major, pinned.minor + 1, 0).to_string()
+}
+
+/// The old daemon pulled the Computer Image of the next release for the
+/// Client App. That image is newer than the pin, so it stays until the
+/// daemon of that release runs. An image of the pinned version or of an
+/// older one goes.
+#[tokio::test]
+async fn the_boot_keeps_an_unused_image_that_is_newer_than_the_pin() {
+    let runtime = Arc::new(FakeComputerRuntime::with_image());
+    runtime.add_other_image("sha256:next", Some(&next_version()), false);
+    runtime.add_other_image("sha256:pinned-again", Some(IMAGE_VERSION), false);
+    runtime.add_other_image("sha256:no-label", None, false);
+    runtime.add_old_image("sha256:old", false);
+    let managers = daemon_managers(&runtime, Duration::from_secs(600), AwakeCaps::default());
+
+    managers.prepare_image().await;
+
+    assert_eq!(
+        runtime.removed_images(),
+        vec!["sha256:pinned-again", "sha256:no-label", "sha256:old"]
+    );
+    assert_eq!(runtime.old_images(), vec!["sha256:next"]);
+}
+
+/// The Computer Image of the next release, by its digest.
+fn next_image() -> String {
+    format!("{}@sha256:{}", image_repository(IMAGE), "d".repeat(64))
+}
+
+/// Before a restart to an Update, the Client App asks the daemon to pull
+/// the Computer Image of the next release, and the daemon answers when
+/// the pull ends.
+#[tokio::test]
+async fn the_daemon_pulls_an_image_of_the_computer_image_repository_by_its_digest() {
+    let runtime = Arc::new(FakeComputerRuntime::with_image());
+    let managers = daemon_managers(&runtime, Duration::from_secs(600), AwakeCaps::default());
+
+    managers.pull_image(&next_image()).await.expect("the pull");
+
+    assert_eq!(runtime.pulled_images(), vec![next_image()]);
+}
+
+/// The daemon pulls only the repository of its pinned Computer Image,
+/// and only by a digest: a tag can move, and another repository is not
+/// a Computer Image.
+#[tokio::test]
+async fn a_pull_refuses_another_repository_and_a_reference_that_is_not_a_digest() {
+    let runtime = Arc::new(FakeComputerRuntime::with_image());
+    let managers = daemon_managers(&runtime, Duration::from_secs(600), AwakeCaps::default());
+    let repository = image_repository(IMAGE);
+    let digest = "d".repeat(64);
+
+    for image in [
+        format!("example.com/other@sha256:{digest}"),
+        format!("{repository}-other@sha256:{digest}"),
+        format!("{repository}:0.99.0"),
+        repository.to_string(),
+        format!("{repository}@sha256:{}", "D".repeat(64)),
+        format!("{repository}@sha256:{}", "d".repeat(63)),
+        format!("{repository}:0.99.0@sha256:{digest}"),
+    ] {
+        let refused = managers.pull_image(&image).await;
+        assert!(
+            matches!(refused, Err(ImagePullError::Refused(_))),
+            "{image}: {refused:?}"
+        );
+    }
+    assert_eq!(runtime.pulls(), 0);
+}
+
+#[tokio::test]
+async fn a_pull_answers_that_docker_does_not_answer() {
+    let runtime = Arc::new(FakeComputerRuntime::with_image());
+    runtime.set_docker_answers(false);
+    let managers = daemon_managers(&runtime, Duration::from_secs(600), AwakeCaps::default());
+
+    let answer = managers.pull_image(&next_image()).await;
+
+    assert!(
+        matches!(answer, Err(ImagePullError::NoDocker(_))),
+        "{answer:?}"
+    );
+    assert_eq!(runtime.pulls(), 0);
+}
+
+#[tokio::test]
+async fn a_failed_pull_answers_the_reason() {
+    let runtime = Arc::new(FakeComputerRuntime::with_image());
+    runtime.fail_pull("registry denied the manifest");
+    let managers = daemon_managers(&runtime, Duration::from_secs(600), AwakeCaps::default());
+
+    let answer = managers.pull_image(&next_image()).await;
+
+    assert_eq!(
+        answer,
+        Err(ImagePullError::Failed(
+            "registry denied the manifest".to_string()
+        ))
+    );
+    assert!(runtime.pulled_images().is_empty());
+}
+
+/// A second request for the same image joins the pull that runs, and
+/// each request gets the end of that one pull.
+#[tokio::test]
+async fn a_second_request_for_the_same_image_joins_the_pull() {
+    let runtime = Arc::new(FakeComputerRuntime::with_image());
+    runtime.hold_pulls();
+    let managers = daemon_managers(&runtime, Duration::from_secs(600), AwakeCaps::default());
+    let request = || {
+        let managers = Arc::clone(&managers);
+        tokio::spawn(async move { managers.pull_image(&next_image()).await })
+    };
+
+    let first = request();
+    wait_pulls(&runtime, 1).await;
+    let second = request();
+    tokio::task::yield_now().await;
+    runtime.release_pulls();
+
+    assert_eq!(first.await.unwrap(), Ok(()));
+    assert_eq!(second.await.unwrap(), Ok(()));
+    assert_eq!(runtime.pulls(), 1);
+}
+
+/// The pull runs in a task of its own, so it ends also when the request
+/// that started it goes away.
+#[tokio::test]
+async fn a_pull_goes_on_when_its_request_goes_away() {
+    let runtime = Arc::new(FakeComputerRuntime::with_image());
+    runtime.hold_pulls();
+    let managers = daemon_managers(&runtime, Duration::from_secs(600), AwakeCaps::default());
+    let request = tokio::spawn({
+        let managers = Arc::clone(&managers);
+        async move { managers.pull_image(&next_image()).await }
+    });
+    wait_pulls(&runtime, 1).await;
+
+    request.abort();
+    runtime.release_pulls();
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while runtime.pulled_images().is_empty() {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the pull stopped with its request"
+        );
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    assert_eq!(runtime.pulled_images(), vec![next_image()]);
 }
 
 #[tokio::test]

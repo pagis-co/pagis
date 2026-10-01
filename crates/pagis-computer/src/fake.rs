@@ -12,8 +12,8 @@ use pagis_core::{
 };
 
 use crate::{
-    ComputerRuntime, ExecOutcome, ExecRequest, IMAGE_VERSION, ImageRemoval, InputHolder,
-    RunningComputer, StartedComputer,
+    ComputerRuntime, ExecOutcome, ExecRequest, IMAGE, IMAGE_VERSION, ImageRemoval, InputHolder,
+    OtherImage, RunningComputer, StartedComputer,
 };
 
 /// What every image call answers while Docker does not answer.
@@ -85,9 +85,11 @@ struct FakeState {
     pulled_version: String,
     /// The other images of the Computer Image repository, each with
     /// whether a container uses it.
-    old_images: Vec<(String, bool)>,
+    old_images: Vec<(OtherImage, bool)>,
     /// Every image the daemon removed, in order.
     removed_images: Vec<String>,
+    /// Every image that a pull fetched, in order.
+    pulled_images: Vec<String>,
     /// Running containers and what each one booted with.
     running: HashMap<AgentId, Booted>,
     /// The mount set of every start, in order.
@@ -182,6 +184,7 @@ impl Default for FakeComputerRuntime {
                 pulled_version: IMAGE_VERSION.to_string(),
                 old_images: Vec::new(),
                 removed_images: Vec::new(),
+                pulled_images: Vec::new(),
                 running: HashMap::new(),
                 mounts: Vec::new(),
                 start_envs: Vec::new(),
@@ -245,13 +248,24 @@ impl FakeComputerRuntime {
     }
 
     /// One more image of the Computer Image repository beside the pinned
-    /// one. `in_use` says whether a container uses it.
+    /// one, of an older version. `in_use` says whether a container uses
+    /// it.
     pub fn add_old_image(&self, id: &str, in_use: bool) {
+        self.add_other_image(id, Some("0.0.1"), in_use);
+    }
+
+    /// One more image of the Computer Image repository beside the pinned
+    /// one, with its version label.
+    pub fn add_other_image(&self, id: &str, version: Option<&str>, in_use: bool) {
+        let image = OtherImage {
+            id: id.to_string(),
+            version: version.map(str::to_string),
+        };
         self.state
             .lock()
             .expect("fake state")
             .old_images
-            .push((id.to_string(), in_use));
+            .push((image, in_use));
     }
 
     /// The other images of the repository that are still present.
@@ -261,8 +275,13 @@ impl FakeComputerRuntime {
             .expect("fake state")
             .old_images
             .iter()
-            .map(|(id, _)| id.clone())
+            .map(|(image, _)| image.id.clone())
             .collect()
+    }
+
+    /// Every image that a pull fetched, in order.
+    pub fn pulled_images(&self) -> Vec<String> {
+        self.state.lock().expect("fake state").pulled_images.clone()
     }
 
     /// Every image the daemon removed, in order.
@@ -668,6 +687,7 @@ impl ComputerRuntime for FakeComputerRuntime {
 
     async fn pull_image(
         &self,
+        image: &str,
         progress: tokio::sync::mpsc::UnboundedSender<u8>,
     ) -> Result<(), String> {
         let (delay, error, gate) = {
@@ -690,23 +710,30 @@ impl ComputerRuntime for FakeComputerRuntime {
             return Err(error);
         }
         let mut state = self.state.lock().expect("fake state");
-        state.image_version = Some(state.pulled_version.clone());
+        if image == IMAGE {
+            state.image_version = Some(state.pulled_version.clone());
+        }
+        state.pulled_images.push(image.to_string());
         Ok(())
     }
 
-    async fn other_images(&self) -> Result<Vec<String>, String> {
+    async fn other_images(&self) -> Result<Vec<OtherImage>, String> {
         let state = self.state.lock().expect("fake state");
         state.answering()?;
         if state.image_version.is_none() {
             return Err("the pinned Computer Image is absent".to_string());
         }
-        Ok(state.old_images.iter().map(|(id, _)| id.clone()).collect())
+        Ok(state
+            .old_images
+            .iter()
+            .map(|(image, _)| image.clone())
+            .collect())
     }
 
     async fn remove_image(&self, id: &str) -> Result<ImageRemoval, String> {
         let mut state = self.state.lock().expect("fake state");
         state.answering()?;
-        let Some(at) = state.old_images.iter().position(|(old, _)| old == id) else {
+        let Some(at) = state.old_images.iter().position(|(old, _)| old.id == id) else {
             return Err(format!("no such image: {id}"));
         };
         if state.old_images[at].1 {

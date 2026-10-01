@@ -9,7 +9,7 @@ use axum::routing::any;
 use pagis_computer::docker::{DockerPing, DockerSearch};
 use pagis_computer::{
     BollardRuntime, ComputerOwner, ComputerRuntime, DockerDiscovery, IMAGE, IMAGE_VERSION,
-    ImageRemoval, Quota, RuntimeOptions, VERSION_LABEL, image_repository,
+    ImageRemoval, OtherImage, Quota, RuntimeOptions, VERSION_LABEL, image_repository,
 };
 use pagis_core::{AgentId, WorkspaceId};
 use serde_json::json;
@@ -63,6 +63,8 @@ struct DockerFixture {
     images_in_use: &'static [&'static str],
     /// The path and the query of every image removal, in order.
     image_removals: Arc<Mutex<Vec<String>>>,
+    /// The query of every image pull, in order.
+    image_pulls: Arc<Mutex<Vec<String>>>,
 }
 
 /// A Docker that runs the pinned image, under a graph driver, and
@@ -79,6 +81,7 @@ fn fixture() -> DockerFixture {
         images: json!([]),
         images_in_use: &[],
         image_removals: Arc::default(),
+        image_pulls: Arc::default(),
     }
 }
 
@@ -107,6 +110,11 @@ async fn docker_response(State(fixture): State<DockerFixture>, request: Request)
         );
     }
     if path.ends_with("/images/create") {
+        fixture
+            .image_pulls
+            .lock()
+            .expect("the image pulls")
+            .push(query);
         let item = if fixture.pull_error {
             json!({
                 "error": "manifest rejected",
@@ -407,7 +415,7 @@ async fn pull_propagates_a_docker_stream_error_without_false_completion() {
     let (progress, mut updates) = tokio::sync::mpsc::unbounded_channel();
 
     let error = runtime
-        .pull_image(progress)
+        .pull_image(IMAGE, progress)
         .await
         .expect_err("embedded Docker pull error must fail");
 
@@ -418,8 +426,42 @@ async fn pull_propagates_a_docker_stream_error_without_false_completion() {
     );
 }
 
-/// One local image as `GET /images/json` lists it.
-fn image_summary(id: &str, tags: &[&str], digests: &[&str]) -> serde_json::Value {
+/// A pull asks Docker for the image that the caller names: the pinned
+/// image at boot, or the image of the next release for the Client App.
+#[tokio::test]
+async fn a_pull_asks_docker_for_the_image_that_it_names() {
+    let pulls = Arc::<Mutex<Vec<String>>>::default();
+    let (runtime, _owner) = runtime(DockerFixture {
+        image_pulls: Arc::clone(&pulls),
+        ..fixture()
+    })
+    .await;
+    let next = format!("{}@sha256:{}", image_repository(IMAGE), "d".repeat(64));
+    let (progress, _updates) = tokio::sync::mpsc::unbounded_channel();
+
+    runtime.pull_image(&next, progress).await.expect("the pull");
+
+    let pulls = pulls.lock().expect("the image pulls").clone();
+    assert_eq!(pulls.len(), 1, "{pulls:?}");
+    let asked = pulls[0]
+        .replace("%2F", "/")
+        .replace("%3A", ":")
+        .replace("%40", "@");
+    assert!(asked.contains(&format!("fromImage={next}")), "{asked}");
+}
+
+/// One local image as `GET /images/json` lists it, with its version
+/// label when it has one.
+fn image_summary(
+    id: &str,
+    tags: &[&str],
+    digests: &[&str],
+    version: Option<&str>,
+) -> serde_json::Value {
+    let labels = match version {
+        Some(version) => json!({ VERSION_LABEL: version }),
+        None => json!({}),
+    };
     json!({
         "Id": id,
         "ParentId": "",
@@ -428,16 +470,17 @@ fn image_summary(id: &str, tags: &[&str], digests: &[&str]) -> serde_json::Value
         "Created": 0,
         "Size": 0,
         "SharedSize": -1,
-        "Labels": {},
+        "Labels": labels,
         "Containers": -1
     })
 }
 
 /// The other images of the Computer Image repository are each image
-/// whose every name is of that repository, less the pinned image. An
-/// image that another repository also names is not in the list, so the
-/// daemon never touches an image of another repository, also when
-/// Docker answers the list with every image of the host.
+/// whose every name is of that repository, less the pinned image, each
+/// with its version label. An image that another repository also names
+/// is not in the list, so the daemon never touches an image of another
+/// repository, also when Docker answers the list with every image of the
+/// host.
 #[tokio::test]
 async fn the_other_images_are_the_images_of_the_computer_image_repository_less_the_pinned_one() {
     let repository = image_repository(IMAGE);
@@ -446,25 +489,39 @@ async fn the_other_images_are_the_images_of_the_computer_image_repository_less_t
             image_summary(
                 PLATFORM_CONFIG_ID,
                 &[&format!("{repository}:{IMAGE_VERSION}")],
-                &[&format!("{repository}@{INDEX_DIGEST}")]
+                &[&format!("{repository}@{INDEX_DIGEST}")],
+                Some(IMAGE_VERSION)
             ),
             image_summary(
                 "sha256:old-by-digest",
                 &[],
-                &[&format!("{repository}@sha256:old-index")]
+                &[&format!("{repository}@sha256:old-index")],
+                Some("0.1.0")
             ),
-            image_summary("sha256:old-by-tag", &[&format!("{repository}:0.1.0")], &[]),
+            image_summary(
+                "sha256:old-by-tag",
+                &[&format!("{repository}:0.1.0")],
+                &[],
+                None
+            ),
             image_summary(
                 "sha256:also-another-repository",
                 &[&format!("{repository}:0.2.0"), "example.com/other:1"],
-                &[]
+                &[],
+                None
             ),
             image_summary(
                 "sha256:another-repository",
                 &["postgres:17"],
-                &["postgres@sha256:pg"]
+                &["postgres@sha256:pg"],
+                None
             ),
-            image_summary("sha256:untagged", &["<none>:<none>"], &["<none>@<none>"]),
+            image_summary(
+                "sha256:untagged",
+                &["<none>:<none>"],
+                &["<none>@<none>"],
+                None
+            ),
         ]),
         ..fixture()
     })
@@ -472,7 +529,19 @@ async fn the_other_images_are_the_images_of_the_computer_image_repository_less_t
 
     let images = runtime.other_images().await.expect("the image list");
 
-    assert_eq!(images, vec!["sha256:old-by-digest", "sha256:old-by-tag"]);
+    assert_eq!(
+        images,
+        vec![
+            OtherImage {
+                id: "sha256:old-by-digest".to_string(),
+                version: Some("0.1.0".to_string()),
+            },
+            OtherImage {
+                id: "sha256:old-by-tag".to_string(),
+                version: None,
+            },
+        ]
+    );
 }
 
 /// A removal never forces. An image that a container uses gets a

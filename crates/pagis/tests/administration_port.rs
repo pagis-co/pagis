@@ -470,6 +470,97 @@ async fn the_health_view_reports_the_container_quota() {
     }
 }
 
+/// The daemon with a fake runtime whose pinned Computer Image is present,
+/// so the boot pulls nothing.
+async fn daemon_with_image() -> (
+    TestDaemon,
+    std::sync::Arc<pagis_computer::fake::FakeComputerRuntime>,
+) {
+    let runtime = std::sync::Arc::new(pagis_computer::fake::FakeComputerRuntime::with_image());
+    let daemon = TestDaemon::start_with(pagis_testkit::TestDaemonOptions {
+        computer: std::sync::Arc::clone(&runtime) as _,
+        ..Default::default()
+    })
+    .await;
+    (daemon, runtime)
+}
+
+/// Ask the daemon to pull `image`, and answer the status and the body.
+async fn pull(daemon: &TestDaemon, image: &str) -> (StatusCode, serde_json::Value) {
+    let response = client()
+        .post(format!(
+            "{}/api/v1/administration/computer-image/pull",
+            daemon.administration_base_url
+        ))
+        .header("cookie", daemon.cookie())
+        .json(&serde_json::json!({ "image": image }))
+        .send()
+        .await
+        .unwrap();
+    (response.status(), response.json().await.unwrap())
+}
+
+/// The Computer Image of the next release, by its digest.
+fn next_image() -> String {
+    format!(
+        "{}@sha256:{}",
+        pagis_computer::image_repository(pagis_computer::IMAGE),
+        "d".repeat(64)
+    )
+}
+
+/// Before a restart to an Update, the Client App asks the daemon to pull
+/// the Computer Image of the next release. The daemon answers when the
+/// pull ends, and refuses an image of another repository or one that is
+/// not named by its digest.
+#[tokio::test]
+async fn the_administrator_pulls_the_computer_image_of_the_next_release() {
+    let (daemon, runtime) = daemon_with_image().await;
+
+    let (status, body) = pull(&daemon, &next_image()).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["image"], next_image());
+    assert_eq!(runtime.pulled_images(), vec![next_image()]);
+
+    for image in [
+        format!("example.com/other@sha256:{}", "d".repeat(64)),
+        format!(
+            "{}:0.99.0",
+            pagis_computer::image_repository(pagis_computer::IMAGE)
+        ),
+    ] {
+        let (status, body) = pull(&daemon, &image).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{image}: {body}");
+        assert_eq!(body["error"]["code"], "validation", "{body}");
+    }
+    assert_eq!(runtime.pulled_images(), vec![next_image()]);
+}
+
+/// Where Docker does not answer, the pull answers 503, and a pull that
+/// fails answers 502. Each answer gives the reason.
+#[tokio::test]
+async fn a_pull_answers_why_it_got_no_image() {
+    let (daemon, runtime) = daemon_with_image().await;
+
+    runtime.fail_pull("registry denied the manifest");
+    let (status, body) = pull(&daemon, &next_image()).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{body}");
+    assert_eq!(body["error"]["code"], "image_pull_failed", "{body}");
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("registry denied the manifest"),
+        "{body}"
+    );
+
+    runtime.set_docker_answers(false);
+    let (status, body) = pull(&daemon, &next_image()).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+    assert_eq!(body["error"]["code"], "docker_unavailable", "{body}");
+    assert!(runtime.pulled_images().is_empty());
+}
+
 /// The installation settings answer on this port.
 #[tokio::test]
 async fn the_installation_settings_answer_on_the_administration_port() {
