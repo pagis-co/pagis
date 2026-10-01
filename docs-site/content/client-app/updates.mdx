@@ -11,13 +11,17 @@ on macOS and from the AppImage and the deb on Linux.
 
 ## Check and download
 
-- **When it checks.** The Client App reads the releases of Pagis on GitHub
-  when it starts, and every 24 hours while it runs. It does not take a
-  prerelease.
+- **When it checks.** After setup, the Client App reads the releases of
+  Pagis on GitHub when it starts, and every 24 hours while it runs. It does
+  not take a prerelease.
+- **Which release.** A Client App that installed Pagis on this computer
+  takes the latest release. A Client App that is connected to a server
+  takes only the release of its server
+  ([Connect to a server](/client-app/connect-to-a-server#updates)).
 - **Check for Updates…** in the tray menu checks immediately. It is also in
   the Pagis menu on macOS, and in the File menu of the window on Linux. A
-  message box shows the result: Pagis is up to date, an Update downloads,
-  or the reason why the check failed.
+  message box shows the result: Pagis is up to date (or up to date with its
+  server), an Update downloads, or the reason why the check failed.
 - **The download.** When the Client App finds an Update, it downloads it
   and asks no question. The menus show the progress, for example
   "Downloading Pagis 0.2.0… 40%".
@@ -40,20 +44,22 @@ on macOS and from the AppImage and the deb on Linux.
   uses the downloaded package only when its bytes match the Runtime Lock
   that the new Client App contains. When a step fails, the Update
   continues, and the new Client App and its server download what is
-  missing.
+  missing. A connected Client App prepares nothing.
 - **Ready.** The menus then show "Restart to Update", and the Client App
   sends one notification.
 
-Only a Client App that installed Pagis on this computer, or that has no
-setup yet, checks for Updates. A Client App that is connected to a server
-does not check.
+A Client App with no setup does not check for Updates. The Quickstart
+gives the latest release. An Update before setup could be newer than the
+server that the Client App then connects to, and the new Client App would
+refuse that server.
 
 ## Install the Update
 
 - **Restart to Update** stops the server on this computer, installs the
   Update and starts the new Client App. A restart stops each Run that has
   not finished. When Runs are in progress, the Client App tells you how
-  many, and asks before it continues.
+  many, and asks before it continues. A connected Client App asks no
+  question, because the Runs belong to its server.
 - **Quit Pagis** also installs a downloaded Update. The next start opens
   the new Client App.
 - **The AppImage** replaces its own file, and the new file has the name of

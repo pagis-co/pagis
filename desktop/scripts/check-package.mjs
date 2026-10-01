@@ -7,7 +7,6 @@ import { fileURLToPath } from 'node:url'
 
 const require = createRequire(import.meta.url)
 const asar = require('@electron/asar')
-const yaml = require('js-yaml')
 
 // The app is Pagis.app on macOS and the unpacked directory on Linux. The
 // packages are what a person downloads: the DMG and the ZIP, or the
@@ -19,19 +18,14 @@ if (!app || packages.length === 0) throw new Error('usage: node scripts/check-pa
 const mac = app.endsWith('.app')
 const resources = mac ? path.join(app, 'Contents', 'Resources') : path.join(app, 'resources')
 // On Linux the public Update Key checks the signed checksum list of an
-// Update (ADR-0027).
+// Update (ADR-0027). electron-updater reads the name of its download cache
+// from app-update.yml. The Client App sets the feed itself at each check.
 const required = ['app.asar', 'runtime-lock.json', 'app-update.yml', ...(mac ? [] : ['update-key.pem'])]
 for (const name of required) {
   if (!fs.statSync(path.join(resources, name), { throwIfNoEntry: false })?.isFile()) {
     throw new Error(`the client package has no ${name}`)
   }
 }
-// electron-updater reads the feed that app-update.yml names (ADR-0027).
-const feed = yaml.load(fs.readFileSync(path.join(resources, 'app-update.yml'), 'utf8'))
-if (feed?.provider !== 'github' || feed.owner !== 'pagis-co' || feed.repo !== 'pagis') {
-  throw new Error('the app-update.yml of the client package does not name the GitHub releases of pagis-co/pagis')
-}
-
 // The package holds the public key of the repository. The private half is
 // a secret of the release, so the repository file must be an Ed25519
 // public key in SPKI PEM, as `openssl pkey -pubout` writes it.

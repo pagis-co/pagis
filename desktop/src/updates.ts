@@ -1,4 +1,4 @@
-import type { ProgressInfo, UpdateCheckResult, UpdateDownloadedEvent, UpdateInfo } from 'electron-updater'
+import type { AppUpdater, ProgressInfo, UpdateCheckResult, UpdateDownloadedEvent, UpdateInfo } from 'electron-updater'
 
 /** The time between two checks for an Update (ADR-0027). */
 export const CHECK_EVERY_MS = 24 * 60 * 60 * 1000
@@ -23,20 +23,32 @@ export type UpdateState =
 /** What "Check for Updates…" found. */
 export type CheckResult =
   | { kind: 'up-to-date' }
+  /** A connected Client App whose server runs no newer release. */
+  | { kind: 'up-to-date-with-server'; server: string }
   | { kind: 'found'; version: string }
   | { kind: 'ready'; version: string }
   | { kind: 'failed'; reason: string }
+
+/** The releases that electron-updater reads: a provider and its options. */
+export type Feed = Parameters<AppUpdater['setFeedURL']>[0]
+
+/** What a check reads (ADR-0027). */
+export type UpdateSource =
+  | { kind: 'feed'; feed: Feed }
+  /** A connected Client App whose server runs no newer release than the
+   *  client. There is no Update, and electron-updater reads nothing. */
+  | { kind: 'server-not-newer'; server: string }
 
 /** What the Client App uses of the `autoUpdater` of electron-updater. */
 export interface Updater {
   autoDownload: boolean
   autoInstallOnAppQuit: boolean
   allowPrerelease: boolean
+  setFeedURL(feed: Feed): void
   checkForUpdates(): Promise<UpdateCheckResult | null>
   quitAndInstall(): void
   /** Install the downloaded Update. Only the Linux updaters have it. */
   install?(isSilent: boolean, isForceRunAfter: boolean): boolean
-  on(event: 'checking-for-update', listener: () => void): unknown
   on(event: 'update-not-available', listener: (info: UpdateInfo) => void): unknown
   on(event: 'update-available', listener: (info: UpdateInfo) => void): unknown
   on(event: 'download-progress', listener: (progress: ProgressInfo) => void): unknown
@@ -81,13 +93,16 @@ export interface UpdatesOptions {
   /** Prepare the restart to the Update, before it is ready (ADR-0027). A
    *  failure does not stop the Update. */
   prepare(version: string): Promise<void>
+  /** What the next check reads. A rejection fails the check with its
+   *  reason. */
+  source(): Promise<UpdateSource>
 }
 
 /**
- * The Update of the Client App (ADR-0027). electron-updater checks the
- * GitHub releases of the app-update.yml in the package and downloads an
- * Update with no question. The installer checks the download, and the
- * Update is ready after that check.
+ * The Update of the Client App (ADR-0027). Each check reads the feed that
+ * the source gives, and electron-updater downloads an Update with no
+ * question. The installer checks the download, and the Update is ready
+ * after that check.
  *
  * A check starts only while no Update downloads or waits, as in VS Code:
  * the Person installs the ready Update, and the new Client App checks
@@ -112,7 +127,6 @@ export class Updates {
     // (`installAtQuit`).
     updater.autoInstallOnAppQuit = installer.kind === 'squirrel'
     updater.allowPrerelease = false
-    updater.on('checking-for-update', () => this.set({ kind: 'checking' }))
     updater.on('update-not-available', () => this.set({ kind: 'idle' }))
     updater.on('update-available', (info) => this.set({ kind: 'downloading', version: info.version, percent: 0 }))
     updater.on('download-progress', (progress) => {
@@ -143,6 +157,11 @@ export class Updates {
     return this.current
   }
 
+  /** Whether the schedule of checks runs. */
+  get running(): boolean {
+    return this.timer !== null
+  }
+
   /** Check now, then every 24 hours. A second start does nothing. */
   start(): void {
     if (this.timer !== null) return
@@ -163,8 +182,18 @@ export class Updates {
     if (state.kind === 'downloading' || state.kind === 'preparing') return { kind: 'found', version: state.version }
     if (state.kind === 'ready') return state
     this.lastCheck = Date.now()
+    // The source can ask a server before electron-updater reads a feed.
+    this.set({ kind: 'checking' })
     try {
+      const source = await this.options.source()
+      if (source.kind === 'server-not-newer') {
+        this.set({ kind: 'idle' })
+        return { kind: 'up-to-date-with-server', server: source.server }
+      }
+      this.options.updater.setFeedURL(source.feed)
       const result = await this.options.updater.checkForUpdates()
+      // An updater that is not active answers null and emits nothing.
+      if (result === null) this.set({ kind: 'idle' })
       if (!result?.isUpdateAvailable) return { kind: 'up-to-date' }
       // A failed download goes to the `error` listener.
       void result.downloadPromise?.catch(() => undefined)

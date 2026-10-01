@@ -270,8 +270,8 @@ states.
 
 ### A connected client holds a Compatibility Range
 
-A client that connects to a server downloads nothing and owns no version, so it
-holds a Compatibility Range: the SemVer range of its own release, its version
+A client that connects to a server downloads no server and owns no server
+version, so it holds a Compatibility Range: the SemVer range of its own release, its version
 and every later version that promises the same API. It reads the version from
 the health route at every start and refuses a server outside the range with a
 message that says which end to update. Trust rests on TLS and the sign-in.

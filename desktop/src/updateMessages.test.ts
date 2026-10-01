@@ -13,6 +13,17 @@ describe('the answer of Check for Updates', () => {
     })
   })
 
+  /** A connected Client App takes no Update past the release of its
+   *  server (ADR-0027). */
+  it('says that a connected client is up to date with its server, with both releases', () => {
+    expect(checkAnswer({ kind: 'up-to-date-with-server', server: '1.0.0' }, '1.0.0')).toMatchObject({
+      type: 'info',
+      message: 'Pagis is up to date with its server.',
+      detail: 'This app is Pagis 1.0.0, and its server runs Pagis 1.0.0. ' +
+        'A connected Pagis takes only the Update to the release of its server.',
+    })
+  })
+
   it('names the Update that downloads and what installs it', () => {
     expect(checkAnswer({ kind: 'found', version: '1.1.0' }, '1.0.0', 'darwin')).toMatchObject({
       type: 'info',
