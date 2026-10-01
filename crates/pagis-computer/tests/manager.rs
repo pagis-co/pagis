@@ -1,5 +1,6 @@
-//! Manager tests over the fake runtime: wake with lazy pull and
-//! progress events, version refusal, previews awake and asleep, the
+//! Manager tests over the fake runtime: the one pull of the Computer
+//! Image that every wake joins, with progress events, the removal of
+//! the old images, version refusal, previews awake and asleep, the
 //! idle-stop sweep, and volume survival.
 
 use std::sync::{Arc, Mutex};
@@ -9,9 +10,9 @@ use async_trait::async_trait;
 use pagis_computer::fake::ice_check;
 use pagis_computer::fake::{FakeComputerRuntime, FakeWorkspaces};
 use pagis_computer::{
-    AwakeCaps, AwakeCeiling, BindMount, ComputerError, ComputerManager, ComputerManagerDeps,
-    ComputerState, ExecOutcome, IMAGE_VERSION, IceCredentials, InputHolder, OutputCap,
-    PLUGIN_MOUNT_ROOT, SHELL_HOME, ShellCommand, TakeoverTiming,
+    AwakeCaps, AwakeCeiling, BindMount, ComputerError, ComputerImage, ComputerManager,
+    ComputerManagerDeps, ComputerState, ExecOutcome, IMAGE_VERSION, IceCredentials, InputHolder,
+    OutputCap, PLUGIN_MOUNT_ROOT, SHELL_HOME, ShellCommand, TakeoverTiming,
 };
 use tokio_util::sync::CancellationToken;
 
@@ -145,6 +146,7 @@ fn harness_with_relay(
     let ceiling = Arc::new(AwakeCeiling::new(caps));
     let manager = ComputerManager::new(ComputerManagerDeps {
         runtime: Arc::clone(&runtime) as _,
+        image: ComputerImage::new(Arc::clone(&runtime) as _),
         skills: Arc::clone(&skills) as _,
         workspaces: Arc::clone(&workspaces) as _,
         agents: Arc::new(pagis_computer::fake::FakeAgents::open()),
@@ -230,32 +232,141 @@ async fn concurrent_wakes_share_one_server_owned_image_pull() {
     assert_eq!(h.runtime.starts(), 2);
 }
 
+/// The message of the failed state that the Agent's Computer reaches.
+async fn wait_failed(h: &Harness) -> String {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        if let ComputerState::Failed { message } = h.manager.state(&h.agent_id).await {
+            return message;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "failure was not reported"
+        );
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+}
+
 #[tokio::test]
 async fn a_failed_pull_stays_visible_and_a_retry_can_finish() {
     let h = harness_with(FakeComputerRuntime::default(), Duration::from_secs(600));
     h.runtime.fail_pull("registry unavailable");
 
     h.manager.wake(&h.agent_id).await.unwrap();
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-    loop {
-        match h.manager.state(&h.agent_id).await {
-            ComputerState::Failed { message } => {
-                assert_eq!(message, "registry unavailable");
-                break;
-            }
-            _ => {
-                assert!(
-                    tokio::time::Instant::now() < deadline,
-                    "failure was not reported"
-                );
-                tokio::time::sleep(Duration::from_millis(5)).await;
-            }
-        }
-    }
+    assert_eq!(wait_failed(&h).await, "registry unavailable");
 
     h.manager.wake(&h.agent_id).await.unwrap();
     wait_awake(&h).await;
     assert_eq!(h.runtime.pulls(), 2);
+}
+
+/// The pulled image must carry the version label of the pin. An image
+/// that does not fails the wake, and the old images stay.
+#[tokio::test]
+async fn a_pulled_image_with_another_version_fails_the_wake_and_removes_nothing() {
+    let runtime = FakeComputerRuntime::default();
+    runtime.pull_installs("9.9.9");
+    runtime.add_old_image("sha256:old", false);
+    let h = harness_with(runtime, Duration::from_secs(600));
+
+    h.manager.wake(&h.agent_id).await.unwrap();
+    let message = wait_failed(&h).await;
+
+    assert!(message.contains("9.9.9"), "{message}");
+    assert!(h.runtime.removed_images().is_empty());
+    assert_eq!(h.runtime.starts(), 0);
+}
+
+/// A pull that a wake starts removes the old images of the repository
+/// when it finishes.
+#[tokio::test]
+async fn a_finished_pull_removes_the_unused_old_images() {
+    let runtime = FakeComputerRuntime::default();
+    runtime.add_old_image("sha256:old", false);
+    let h = harness_with(runtime, Duration::from_secs(600));
+
+    h.manager.wake(&h.agent_id).await.unwrap();
+    wait_awake(&h).await;
+
+    assert_eq!(h.runtime.removed_images(), vec!["sha256:old"]);
+}
+
+/// Wait until the runtime has started `count` pulls.
+async fn wait_pulls(runtime: &FakeComputerRuntime, count: u32) {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while runtime.pulls() < count {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the pull did not start"
+        );
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+}
+
+/// The daemon boots with the pinned image absent, and starts one pull
+/// for the whole installation. A wake in each of two Workspaces joins
+/// that pull, and neither starts a pull of its own.
+#[tokio::test]
+async fn wakes_in_two_workspaces_join_the_pull_that_the_boot_started() {
+    let runtime = Arc::new(FakeComputerRuntime::default());
+    runtime.hold_pulls();
+    let managers = daemon_managers(&runtime, Duration::from_secs(600), AwakeCaps::default());
+    let boot = tokio::spawn({
+        let managers = Arc::clone(&managers);
+        async move { managers.prepare_image().await }
+    });
+    wait_pulls(&runtime, 1).await;
+
+    let mut woken = Vec::new();
+    for _ in 0..2 {
+        let manager = managers.get(&WorkspaceId::generate());
+        let agent_id = AgentId::generate();
+        let state = manager.wake(&agent_id).await.unwrap();
+        assert_eq!(state, ComputerState::Pulling { percent: 0 });
+        woken.push((manager, agent_id));
+    }
+    runtime.release_pulls();
+    for (manager, agent_id) in &woken {
+        wait_awake_of_manager(manager, agent_id).await;
+    }
+    boot.await.unwrap();
+
+    assert_eq!(runtime.pulls(), 1);
+    assert_eq!(runtime.starts(), 2);
+}
+
+/// With the pinned image present at boot, the daemon pulls nothing and
+/// removes each other image of the repository that no container uses.
+/// An image that a container uses stays.
+#[tokio::test]
+async fn the_boot_removes_the_unused_old_images_and_keeps_an_image_in_use() {
+    let runtime = Arc::new(FakeComputerRuntime::with_image());
+    runtime.add_old_image("sha256:unused", false);
+    runtime.add_old_image("sha256:in-use", true);
+    let managers = daemon_managers(&runtime, Duration::from_secs(600), AwakeCaps::default());
+
+    managers.prepare_image().await;
+
+    assert_eq!(runtime.pulls(), 0);
+    assert_eq!(runtime.removed_images(), vec!["sha256:unused"]);
+    assert_eq!(runtime.old_images(), vec!["sha256:in-use"]);
+}
+
+/// Where Docker does not answer, the boot does nothing and logs nothing
+/// louder than debug, so a Local Installation without Docker starts
+/// with no warning.
+#[tokio::test]
+async fn the_boot_does_nothing_and_warns_of_nothing_when_docker_does_not_answer() {
+    let runtime = Arc::new(FakeComputerRuntime::default());
+    runtime.add_old_image("sha256:old", false);
+    runtime.set_docker_answers(false);
+    let managers = daemon_managers(&runtime, Duration::from_secs(600), AwakeCaps::default());
+
+    let ((), log) = crate::logs::logged(tracing::Level::INFO, managers.prepare_image()).await;
+
+    assert_eq!(runtime.pulls(), 0);
+    assert!(runtime.removed_images().is_empty());
+    assert!(log.is_empty(), "{log}");
 }
 
 #[tokio::test]
@@ -1682,6 +1793,7 @@ fn tenant_manager(
     let workspace_id = WorkspaceId::generate();
     ComputerManager::new(ComputerManagerDeps {
         runtime: Arc::clone(runtime) as _,
+        image: ComputerImage::new(Arc::clone(runtime) as _),
         skills: Arc::new(FakeSkills::default()),
         workspaces: Arc::new(FakeWorkspaces::with_timezone(&workspace_id, TEST_TIMEZONE)),
         agents: Arc::new(pagis_computer::fake::FakeAgents::open()),

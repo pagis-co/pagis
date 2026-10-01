@@ -42,9 +42,9 @@ RUN cargo install --locked --version "$CARGO_AUDITABLE_VERSION" cargo-auditable
 WORKDIR /src
 COPY . .
 COPY --from=ui /src/ui/dist ui/dist
-# The Computer image the daemon pulls when an Agent wakes. A release
-# passes the immutable digest it resolved; a plain build keeps the
-# pinned tag of `pagis-versions`.
+# The Computer Image the daemon pulls at boot and when an Agent wakes.
+# A release passes the immutable digest it resolved; a plain build keeps
+# the pinned tag of `pagis-versions`.
 ARG PAGIS_COMPUTER_IMAGE=""
 # The PostHog project a release build sends anonymous analytics to
 # (ADR-0026). A plain build has none, and its daemon sends nothing.

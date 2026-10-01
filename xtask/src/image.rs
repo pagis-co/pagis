@@ -1,8 +1,9 @@
 //! Publishing the agent computer image (`cargo xtask image`).
 //!
-//! The daemon pulls `pagis_versions::COMPUTER_IMAGE` from GHCR the
-//! first time an agent wakes, so an installation of Pagis works only
-//! while that exact tag is on the registry. This module plans the
+//! The daemon pulls `pagis_versions::COMPUTER_IMAGE` from GHCR when it
+//! starts or when an agent wakes, if the image is absent, so an
+//! installation of Pagis works only while that exact tag is on the
+//! registry. This module plans the
 //! commands that put it there, for both architectures Pagis runs on,
 //! and the release build reuses the same plan.
 //!

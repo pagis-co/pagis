@@ -68,5 +68,8 @@ upgrade into a new state directory and a new database. Pin
 `PAGIS_VERSION` in `.env` rather than a moving tag, so a restart never
 becomes an upgrade.
 
-The Computer image is upgraded with the daemon: the release pins it, and a
-daemon whose pin and image disagree boots no container.
+The Computer Image is upgraded with the daemon: the release pins it, and a
+daemon whose pin and image disagree boots no container. When the new daemon
+starts, it pulls the new image, and an Agent that wakes during the pull
+waits for it. Then the daemon removes each old Computer Image that no
+container uses, so the old images do not fill the disk.
