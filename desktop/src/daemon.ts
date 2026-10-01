@@ -27,6 +27,10 @@ export const RESTART_PAUSE_MS = 1000
 export const HEALTH_TIMEOUT_MS = 30000
 /** Log lines kept for the failure page. */
 const LOG_LINES = 200
+/** How long the daemon has to stop after SIGINT, before the client kills
+ *  it. The daemon stops each Computer with a 10-second `docker stop`, and
+ *  the Compose file of the Headless Server gives it 30 seconds too. */
+export const STOP_GRACE_MS = 30000
 
 export type DaemonState =
   | { kind: 'starting' }
@@ -354,10 +358,12 @@ export class DaemonSupervisor extends EventEmitter {
   }
 }
 
-async function stopOwnedChild(child: ChildProcess): Promise<void> {
+/** Stop a daemon this client started: SIGINT, then SIGKILL when it does
+ *  not stop in time. */
+export async function stopOwnedChild(child: ChildProcess): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null) return
   child.kill('SIGINT')
-  if (await closesWithin(child, 5000)) return
+  if (await closesWithin(child, STOP_GRACE_MS)) return
   child.kill('SIGKILL')
   await closesWithin(child, 1000)
 }

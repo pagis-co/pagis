@@ -17,23 +17,27 @@ impl PostgresOnboardingStore {
 
 #[async_trait]
 impl OnboardingStore for PostgresOnboardingStore {
-    async fn model_verification(
+    async fn model_verifications(
         &self,
         workspace_id: &WorkspaceId,
-    ) -> Result<Option<OnboardingModelVerification>, StoreError> {
-        let row = sqlx::query(
+    ) -> Result<Vec<OnboardingModelVerification>, StoreError> {
+        let rows = sqlx::query(
             "SELECT provider, available, proof \
-             FROM onboarding_model_verifications WHERE workspace_id = $1",
+             FROM onboarding_model_verifications WHERE workspace_id = $1 \
+             ORDER BY provider",
         )
         .bind(workspace_id.as_str())
-        .fetch_optional(&self.pool)
+        .fetch_all(&self.pool)
         .await
         .map_err(db_err)?;
-        Ok(row.map(|row| OnboardingModelVerification {
-            provider: row.get("provider"),
-            available: row.get("available"),
-            proof: row.get("proof"),
-        }))
+        Ok(rows
+            .into_iter()
+            .map(|row| OnboardingModelVerification {
+                provider: row.get("provider"),
+                available: row.get("available"),
+                proof: row.get("proof"),
+            })
+            .collect())
     }
 
     async fn set_model_verification(
@@ -44,7 +48,7 @@ impl OnboardingStore for PostgresOnboardingStore {
         sqlx::query(
             "INSERT INTO onboarding_model_verifications \
                  (workspace_id, provider, available, proof) VALUES ($1, $2, $3, $4) \
-             ON CONFLICT(workspace_id) DO UPDATE SET provider = excluded.provider, \
+             ON CONFLICT(workspace_id, provider) DO UPDATE SET \
                  available = excluded.available, proof = excluded.proof",
         )
         .bind(workspace_id.as_str())

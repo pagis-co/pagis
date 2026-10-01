@@ -4,9 +4,9 @@
 //! their own Tenant Network, their own containers and their own
 //! volumes, so each one needs its own [`ComputerManager`]: the manager
 //! is what names and labels every Docker object it asks for. This
-//! module holds the managers, makes one on first use, and holds the one
-//! thing they share — the ceiling on how many Computers are awake at
-//! once.
+//! module holds the managers, makes one on first use, and holds the two
+//! things they share: the ceiling on how many Computers are awake at
+//! once, and the one preparation of the Computer Image.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -16,7 +16,9 @@ use std::time::Duration;
 use pagis_core::{EventBus, Skills, WorkspaceId, WorkspaceStore};
 use tokio_util::sync::CancellationToken;
 
-use crate::{AwakeCaps, ComputerError, ComputerManager, ComputerManagerDeps, ComputerRuntime};
+use crate::{
+    AwakeCaps, ComputerError, ComputerImage, ComputerManager, ComputerManagerDeps, ComputerRuntime,
+};
 
 /// What kind of Computer takes a place under the caps.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -178,6 +180,9 @@ pub struct ComputerManagersDeps {
 pub struct ComputerManagers {
     deps: ComputerManagersDeps,
     ceiling: Arc<AwakeCeiling>,
+    /// The Computer Image of the installation: one pull for every
+    /// tenant.
+    image: Arc<ComputerImage>,
     managers: Mutex<HashMap<WorkspaceId, Arc<ComputerManager>>>,
 }
 
@@ -185,6 +190,7 @@ impl ComputerManagers {
     pub fn new(deps: ComputerManagersDeps) -> Arc<Self> {
         Arc::new(Self {
             ceiling: Arc::new(AwakeCeiling::new(deps.caps)),
+            image: ComputerImage::new(Arc::clone(&deps.runtime)),
             deps,
             managers: Mutex::new(HashMap::new()),
         })
@@ -199,6 +205,7 @@ impl ComputerManagers {
         }
         let manager = ComputerManager::new(ComputerManagerDeps {
             runtime: Arc::clone(&self.deps.runtime),
+            image: Arc::clone(&self.image),
             skills: Arc::clone(&self.deps.skills),
             workspaces: Arc::clone(&self.deps.workspaces),
             agents: Arc::clone(&self.deps.agents),
@@ -225,6 +232,23 @@ impl ComputerManagers {
         let managers: Vec<Arc<ComputerManager>> =
             tenants.iter().map(|tenant| self.get(tenant)).collect();
         futures::future::join_all(managers.iter().map(|manager| manager.adopt_all())).await;
+    }
+
+    /// Prepare the Computer Image of the installation (ADR-0027): pull
+    /// the pinned image when it is absent, then remove each other image
+    /// of its repository that no container uses. The daemon calls this
+    /// at boot after the adoption, which stops the Computers of an old
+    /// image, and it does not wait for it. A wake in any tenant joins the
+    /// pull. Where Docker does not answer, nothing happens.
+    pub async fn prepare_image(&self) {
+        self.image.prepare().await;
+    }
+
+    /// Pull `image`, the Computer Image of the next release by its
+    /// digest, for the Client App before it restarts to an Update
+    /// (ADR-0027). It returns when the pull ends.
+    pub async fn pull_image(&self, image: &str) -> Result<(), crate::ImagePullError> {
+        self.image.pull(image).await
     }
 
     /// Stop the Computers of every tenant: the daemon stops for good.

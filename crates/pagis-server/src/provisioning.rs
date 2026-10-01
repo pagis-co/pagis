@@ -32,20 +32,14 @@ const DEFAULT_ASSISTANT_PERSONALITY: &str =
     "Warm, plainspoken, and practical. Gets to the point, asks before assuming.";
 
 /// The one model the default alias names before anybody picks one: the
-/// fallback candidate of the first provider. The route is one model
+/// first model of its Model Preference. The route is one model
 /// (ADR-0025). Onboarding replaces it with the model the person picks
 /// from the Provider Model List, and a server replaces it with the
-/// preselection of the first provider with a key, at the setup and at
-/// each key change ([`crate::model_lists`]). The seed adds no candidate of another
-/// provider: a silent fallback changes the provider, the price and the
-/// tools under the person.
+/// default route of its keys, at the setup and at each key change
+/// ([`crate::model_lists`]).
 pub fn seed_default_model() -> &'static str {
-    crate::model_lists::fallback_candidate(pagis_core::PROVIDERS[0])
+    crate::model_preference::DEFAULT_PREFERENCE[0]
 }
-/// The buffered transcription model behind the `transcribe` alias. The
-/// live session picks its own model (ADR-0020).
-const TRANSCRIBE_MODEL: &str = "openai/gpt-4o-transcribe";
-const SPEAK_MODEL: &str = "openai/gpt-4o-mini-tts";
 
 /// The Report Schedule of the Chief of Staff (ADR-0022): once a day at
 /// 7:00 in the Workspace timezone.
@@ -62,25 +56,13 @@ a list of tool names. Name an Agent when its work is what changed. \
 When nothing needs the user, say so in one sentence and stop.";
 
 /// Every alias a Workspace needs before anything can think, speak or
-/// answer a call.
-pub fn well_known_aliases() -> [(&'static str, Vec<&'static str>); 6] {
-    [
-        (DEFAULT_MODEL_ALIAS, vec![seed_default_model()]),
-        (pagis_voice::TRANSCRIBE_ALIAS, vec![TRANSCRIBE_MODEL]),
-        (pagis_voice::SPEAK_ALIAS, vec![SPEAK_MODEL]),
-        (
-            pagis_telephony::PHONE_ALIAS,
-            pagis_telephony::PHONE_MODELS.to_vec(),
-        ),
-        (
-            pagis_telephony::GPT_LIVE_REASONING_ALIAS,
-            pagis_telephony::GPT_LIVE_REASONING_MODELS.to_vec(),
-        ),
-        (
-            pagis_telephony::PHONE_CLASSIFIER_ALIAS,
-            pagis_telephony::PHONE_CLASSIFIER_MODELS.to_vec(),
-        ),
-    ]
+/// answer a call, with its seed route: the preferred models of the first
+/// provider of its Model Preference.
+pub fn well_known_aliases() -> Vec<(&'static str, Vec<String>)> {
+    crate::model_preference::PREFERENCES
+        .iter()
+        .map(|(alias, _)| (*alias, crate::model_preference::seed_route(alias)))
+        .collect()
 }
 
 /// The stores the seed writes through. It names traits alone, so the
@@ -296,7 +278,7 @@ impl WorkspaceSeed<'_> {
                     id: ModelAliasId::generate(),
                     workspace_id: workspace_id.clone(),
                     alias: alias.to_string(),
-                    candidates: candidates.into_iter().map(str::to_string).collect(),
+                    candidates,
                     created_at: now,
                     updated_at: now,
                 })

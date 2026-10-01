@@ -189,6 +189,8 @@ async fn the_administration_port_lists_what_the_installation_sets_up_for_every_p
             "anthropic",
             "openai",
             "openrouter",
+            "deepgram",
+            "elevenlabs",
             "google",
             "telnyx",
             "twilio",
@@ -703,8 +705,8 @@ async fn default_route_of(daemon: &TestDaemon, cookie: &str) -> serde_json::Valu
 
 /// A server that gets its one key, an OpenAI key, in the Providers view
 /// after its setup answers the first message of every Person. Nobody on
-/// a server answers a model question, so the key itself gives each
-/// default route that reaches no provider the provider's newest model.
+/// a server answers a model question: each default route starts on the
+/// first preferred model, which the OpenAI key reaches.
 #[tokio::test]
 async fn a_server_with_only_an_openai_key_answers_the_first_message() {
     use wiremock::matchers::{header, method, path};
@@ -715,7 +717,7 @@ async fn a_server_with_only_an_openai_key_answers_the_first_message() {
         .and(path("/models"))
         .and(header("authorization", "Bearer sk-openai"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-            "data": [{ "id": "gpt-newest", "created": 2 }, { "id": "gpt-older", "created": 1 }],
+            "data": [{ "id": "gpt-newest", "created": 2 }, { "id": "gpt-6-luna", "created": 1 }],
             "has_more": false,
         })))
         .mount(&provider)
@@ -770,7 +772,7 @@ async fn a_server_with_only_an_openai_key_answers_the_first_message() {
     for cookie in [daemon.cookie(), lin.as_str()] {
         assert_eq!(
             default_route_of(&daemon, cookie).await,
-            serde_json::json!(["openai/gpt-newest"])
+            serde_json::json!(["openai/gpt-6-luna"])
         );
     }
     let (status, sent) = send(

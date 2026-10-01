@@ -45,7 +45,8 @@ close that gap, and both write the same rows:
 
 - **From the environment.** Set `PAGIS_ADMIN_EMAIL`, `PAGIS_ADMIN_PASSWORD`
   (at least 12 characters) and the provider key variables
-  (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`) before the
+  (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`,
+  `DEEPGRAM_API_KEY`, `ELEVENLABS_API_KEY`) before the
   first start. The daemon reads them at the first start that finds nobody
   who can sign in, and keeps the keys in its sealed secret file. The
   variables can stay in the configuration: a later start never overwrites a
@@ -80,10 +81,22 @@ waits, and it runs when an Administrator stores a key.
 
 Nobody on a server answers a model question. The `default` Model Alias of a
 new Person names the models of the Administrator's own route whose provider
-holds a key. A key that the Administrator stores or removes in **Providers**
-gives every `default` alias that names no provider with a key the newest
-listed model of the first provider that holds one, in the order Anthropic,
-OpenAI, OpenRouter. A route that still reaches a provider stays as it is.
+holds a key. Each well-known Model Alias has a Model Preference, the models
+Pagis selects for it, best first:
+
+| Alias | Model Preference |
+| --- | --- |
+| `default` | `openai/gpt-6-luna`, `openrouter/openai/gpt-6-luna`, `anthropic/claude-sonnet-5-5` |
+| `transcribe` | `deepgram/nova-3`, `elevenlabs/scribe_v2`, `openai/gpt-4o-transcribe`, `openrouter/openai/gpt-4o-transcribe` |
+| `speak` | `elevenlabs/eleven_flash_v2_5`, `deepgram/aura-2`, `openai/gpt-4o-mini-tts`, `openrouter/google/gemini-3.8-flash-tts` |
+| `phone` | `openai/gpt-live-1`, `openai/gpt-realtime-2.1` |
+
+A key that the Administrator stores or removes in **Providers**, and a key
+in the environment at a start, gives each alias that no provider with a key
+serves the preferred models of the first provider with a key that serves
+it. For `default`, that provider must also list the model; else the alias
+takes the newest model the provider lists. A route that still reaches a
+provider stays as it is.
 
 The Administrator also sets up the providers in the Administration
 Interface: the Google OAuth client, the carrier account and its SIP

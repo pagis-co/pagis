@@ -3,8 +3,8 @@
 use std::time::Duration;
 
 use llm_router::{
-    Candidate, Error, ProtocolKind, ProviderConfig, RealtimeMessage, RetryConfig, Router,
-    RouterConfig,
+    Candidate, Error, ProtocolKind, ProviderConfig, RealtimeMessage, RealtimeProtocol, RetryConfig,
+    Router, RouterConfig,
 };
 use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
 
@@ -140,7 +140,10 @@ async fn a_transcription_session_opens_with_the_transcription_intent() {
     let (base_url, server) = ws_server().await;
     let router = router_for(&base_url, ProtocolKind::OpenAiChat);
 
-    let mut connection = router.realtime_transcription_connect("m").await.unwrap();
+    let mut connection = router
+        .realtime_transcription_connect("m", 24_000)
+        .await
+        .unwrap();
     assert_eq!(connection.model, "gpt-realtime-2.1");
     let first = connection.next().await.unwrap().unwrap();
     assert_eq!(
@@ -157,4 +160,82 @@ async fn a_transcription_session_opens_with_the_transcription_intent() {
     let (path, auth) = server.await.unwrap();
     assert_eq!(path, "/v1/realtime?intent=transcription");
     assert_eq!(auth, "Bearer test-key");
+}
+
+/// ElevenLabs streams speech to text on Scribe's realtime socket: the
+/// live model of a Scribe generation is its `_realtime` model, the audio
+/// format and a manual commit go in the query, and the key goes in
+/// `xi-api-key`.
+// The handshake callback's Result type comes from tokio-tungstenite.
+#[allow(clippy::result_large_err)]
+#[tokio::test]
+async fn an_elevenlabs_transcription_socket_opens_scribe_realtime_with_a_manual_commit() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut seen = (String::new(), String::new());
+        let socket = tokio_tungstenite::accept_hdr_async(stream, |req: &Request, resp| {
+            seen.0 = req.uri().to_string();
+            seen.1 = req
+                .headers()
+                .get("xi-api-key")
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_default()
+                .to_owned();
+            Ok::<Response, tokio_tungstenite::tungstenite::handshake::server::ErrorResponse>(resp)
+        })
+        .await
+        .unwrap();
+        drop(socket);
+        seen
+    });
+    let router = router_for_model(
+        &format!("http://127.0.0.1:{}/v1", addr.port()),
+        ProtocolKind::ElevenLabs,
+        "scribe_v2",
+    );
+
+    let connection = router
+        .realtime_transcription_connect("m", 24_000)
+        .await
+        .unwrap();
+
+    assert_eq!(connection.protocol, RealtimeProtocol::ElevenLabsScribe);
+    let (path, key) = server.await.unwrap();
+    assert_eq!(
+        path,
+        "/v1/speech-to-text/realtime?model_id=scribe_v2_realtime&audio_format=pcm_24000\
+         &commit_strategy=manual"
+    );
+    assert_eq!(key, "test-key");
+}
+
+/// Deepgram streams speech to text on `/listen`: the model and the audio
+/// format go in the query, and the key goes as a `Token`.
+#[tokio::test]
+async fn a_deepgram_transcription_socket_opens_listen_with_the_audio_format() {
+    let (base_url, server) = ws_server().await;
+    let router = router_for_model(&base_url, ProtocolKind::Deepgram, "nova-3");
+
+    let mut connection = router
+        .realtime_transcription_connect("m", 24_000)
+        .await
+        .unwrap();
+    assert_eq!(connection.protocol, RealtimeProtocol::DeepgramListen);
+    connection.next().await.unwrap().unwrap();
+    connection
+        .send(RealtimeMessage::text("{\"type\":\"KeepAlive\"}"))
+        .await
+        .unwrap();
+    connection.next().await.unwrap().unwrap();
+    connection.close().await.unwrap();
+
+    let (path, auth) = server.await.unwrap();
+    assert_eq!(
+        path,
+        "/v1/listen?model=nova-3&encoding=linear16&sample_rate=24000&channels=1\
+         &interim_results=true&punctuate=true&smart_format=true"
+    );
+    assert_eq!(auth, "Token test-key");
 }

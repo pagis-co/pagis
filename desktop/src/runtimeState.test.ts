@@ -4,7 +4,7 @@ import * as path from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { RuntimeState } from './runtimeState'
+import { RuntimeState, startAction } from './runtimeState'
 
 const MAC = { platform: 'darwin', arch: 'arm64' }
 
@@ -99,5 +99,25 @@ describe('client runtime state', () => {
       .toEqual({ release: '0.2.0', platform: 'linux', arch: 'x64' })
     expect(() => new RuntimeState(root, { platform: 'linux', arch: 'arm64' }).active()).toThrow(/unsupported runtime/)
     expect(() => new RuntimeState(root, MAC).active()).toThrow(/unsupported runtime/)
+  })
+})
+
+/** A start reads the release that the Local Installation records, and
+ *  compares it with the release of the client (ADR-0027). */
+describe('what a start of the client does', () => {
+  it('starts the installed release of the client again', () => {
+    expect(startAction('0.2.0', '0.2.0')).toBe('resume')
+  })
+
+  it('upgrades an installation of an older release, with no setup question', () => {
+    expect(startAction('0.1.1', '0.2.0')).toBe('upgrade')
+    expect(startAction('0.2.0-rc.1', '0.2.0')).toBe('upgrade')
+  })
+
+  /** A client older than its installation refuses to start it when the
+   *  Person installs from the setup page. */
+  it('shows setup with no installation, and for an installation of a newer release', () => {
+    expect(startAction(null, '0.2.0')).toBe('setup')
+    expect(startAction('0.3.0', '0.2.0')).toBe('setup')
   })
 })

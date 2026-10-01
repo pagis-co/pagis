@@ -84,12 +84,41 @@ pub struct ListedModel {
     pub context_window: Option<u32>,
     pub max_output_tokens: Option<u32>,
     pub prices: Option<ModelPrices>,
+    /// What the model outputs: `text`, `speech`, `transcription`,
+    /// `image` and so on. OpenRouter names them.
+    #[serde(default)]
+    pub output_modalities: Option<Vec<String>>,
+    /// The voices a speech model takes. OpenRouter names them for each
+    /// speech model, Deepgram's voices are its speech models, and
+    /// ElevenLabs lists the voices of the account apart; a provider with
+    /// a fixed set names none.
+    #[serde(default)]
+    pub voices: Option<Vec<ListedVoice>>,
+}
+
+/// One voice a speech model takes.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ListedVoice {
+    /// The id to send in a speech request.
+    pub id: String,
+    /// The name a person reads, where the id is not one.
+    pub name: Option<String>,
+}
+
+impl ListedVoice {
+    /// A voice whose id is its name.
+    pub fn named_by_id(id: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            name: None,
+        }
+    }
 }
 
 /// Id fragments of the model families that do not take a chat turn:
 /// embeddings, speech, transcription, images, video, moderation and
-/// realtime audio. A provider's list mixes them with chat models and says
-/// nothing about the kind, so a default pick skips them by name.
+/// realtime audio. Most lists mix them with chat models and say nothing
+/// about the kind, so a default pick skips them by name.
 const NOT_CHAT: [&str; 13] = [
     "embed",
     "tts",
@@ -107,9 +136,14 @@ const NOT_CHAT: [&str; 13] = [
 ];
 
 impl ListedModel {
-    /// Whether the id names a chat model, as far as its name tells. An id
-    /// of a family that takes no chat turn answers `false`.
+    /// Whether the model takes a chat turn. A list that names the output
+    /// modalities decides: a chat model outputs text. Otherwise the name
+    /// decides, and an id of a family that takes no chat turn answers
+    /// `false`.
     pub fn looks_like_chat(&self) -> bool {
+        if let Some(outputs) = &self.output_modalities {
+            return outputs.iter().any(|output| output == "text");
+        }
         let id = self.id.to_ascii_lowercase();
         !NOT_CHAT.iter().any(|fragment| id.contains(fragment))
     }
@@ -121,6 +155,8 @@ impl ListedModel {
             context_window: None,
             max_output_tokens: None,
             prices: None,
+            output_modalities: None,
+            voices: None,
         }
     }
 }
@@ -352,6 +388,25 @@ mod tests {
         assert_eq!(model_metadata("gpt-6-luna", None).cost(&usage), Some(0.6));
     }
 
+    /// Claude Sonnet 5.5 and Opus 5.5: the limits and prices of
+    /// https://platform.claude.com/docs/en/about-claude/pricing. Opus 5.5
+    /// costs less than Opus 5, so the dash prefix `claude-opus-5` must not
+    /// price it.
+    #[test]
+    fn the_table_knows_claude_sonnet_and_opus_5_5() {
+        let usage = Usage {
+            input_tokens: 1_000_000,
+            output_tokens: 1_000_000,
+            ..Usage::default()
+        };
+        for (model, cost) in [("claude-sonnet-5-5", 12.0), ("claude-opus-5-5", 24.0)] {
+            let metadata = model_metadata(model, None);
+            assert_eq!(metadata.context_window, 1_000_000, "{model}");
+            assert_eq!(metadata.max_output_tokens, 128_000, "{model}");
+            assert_eq!(metadata.cost(&usage), Some(cost), "{model}");
+        }
+    }
+
     #[test]
     fn a_model_no_layer_knows_gets_the_default_limits_and_no_price() {
         let metadata = model_metadata("gpt-unlisted", Some(&ListedModel::new("gpt-unlisted")));
@@ -384,6 +439,23 @@ mod tests {
 #[cfg(test)]
 mod chat_name_tests {
     use super::ListedModel;
+
+    /// A list that names what a model outputs decides, whatever the name
+    /// says: a speech model with a plain name is no chat model.
+    #[test]
+    fn the_output_modalities_decide_when_the_list_names_them() {
+        let speech = ListedModel {
+            output_modalities: Some(vec!["speech".to_string()]),
+            ..ListedModel::new("fish-audio/s2-pro")
+        };
+        let text = ListedModel {
+            output_modalities: Some(vec!["text".to_string()]),
+            ..ListedModel::new("vendor/realtime-notes")
+        };
+
+        assert!(!speech.looks_like_chat());
+        assert!(text.looks_like_chat());
+    }
 
     #[test]
     fn a_chat_model_looks_like_chat_and_the_other_families_do_not() {

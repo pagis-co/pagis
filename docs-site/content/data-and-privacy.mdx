@@ -58,8 +58,9 @@ port, the Docker endpoint and the log level in its Settings view, and Pagis
 writes `config.toml` itself. Each Person sets their own timezone in the
 Settings of the Product App.
 
-A provider key in `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` or
-`OPENROUTER_API_KEY` wins over the sealed key.
+A provider key in `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
+`OPENROUTER_API_KEY`, `DEEPGRAM_API_KEY` or `ELEVENLABS_API_KEY` wins over
+the sealed key.
 
 ### The Installation Key
 
@@ -154,8 +155,9 @@ hold the Computer volumes. [Backup and restore](/server/backup) of the Headless 
 ### What the model provider receives
 
 Pagis runs no model. It sends each model request to a provider that holds a
-key of the installation: Anthropic, OpenAI or OpenRouter. The provider reads
-the content of each request:
+key of the installation: Anthropic, OpenAI, OpenRouter, Deepgram or
+ElevenLabs. The
+provider reads the content of each request:
 
 - **A Run** sends the system prompt, the conversation and the tool results
   at each Turn. The system prompt holds the name, the job and the
@@ -166,8 +168,9 @@ the content of each request:
   read, for example a memory page, a mail, a web page, the output of a
   command or a screenshot of the Computer. A file attachment goes as its
   name and its type only.
-- **Dictation** sends the audio clip. **Speaking** sends the text that it
-  reads aloud.
+- **Dictation** sends the audio clip to the provider of the `transcribe`
+  Model Alias. **Speaking** sends the text that it reads aloud to the
+  provider of the `speak` alias.
 - **A Call** sends the audio of the Call to the voice models of the Call.
 
 No tool returns a Credential secret, and the model gets no screenshot while

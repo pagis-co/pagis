@@ -94,6 +94,7 @@ impl Real {
         let screens = tempfile::tempdir().expect("screens dir");
         let manager = ComputerManager::new(ComputerManagerDeps {
             runtime: Arc::clone(&self.runtime) as _,
+            image: pagis_computer::ComputerImage::new(Arc::clone(&self.runtime) as _),
             skills,
             workspaces: Arc::new(FakeWorkspaces::with_timezone(&self.workspace_id, timezone)),
             agents: Arc::new(pagis_computer::fake::FakeAgents::open()),

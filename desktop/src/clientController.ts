@@ -11,6 +11,9 @@ export interface ClientSupervisor {
 }
 
 export interface ClientControllerDependencies {
+  /** Take a Backup of the Local Installation before an Upgrade. A
+   *  cancel aborts `signal`. */
+  backUp(signal: AbortSignal): Promise<void>
   install(options: InstallOptions): Promise<string>
   beginLaunch(): void
   activate(): void
@@ -40,6 +43,11 @@ export class ClientController {
 
   constructor(private readonly dependencies: ClientControllerDependencies) {
     this.setup = new SetupCoordinator({
+      backUp: () => {
+        const abort = new AbortController()
+        this.abort = abort
+        return this.dependencies.backUp(abort.signal)
+      },
       install: async () => {
         const abort = new AbortController()
         this.abort = abort
@@ -78,12 +86,15 @@ export class ClientController {
   /** Run the setup the setup page asked for. The request is not trusted. */
   run(request: unknown): Promise<void> {
     this.request = setupRequest(request) ?? this.request
-    const job = this.setup.run(request)
-    const operationAbort = this.abort
-    void job.finally(() => {
-      if (this.abort === operationAbort) this.abort = null
-    }).catch(() => undefined)
-    return job
+    return this.track(this.setup.run(request))
+  }
+
+  /** Upgrade the Local Installation of an older release, with a Backup
+   *  first unless `backup` is false. A port change after it starts the
+   *  installed release, as a start of the client does. */
+  upgrade(backup: boolean): Promise<void> {
+    this.request = RESUME
+    return this.track(this.setup.upgrade(backup))
   }
 
   cancel(): Promise<void> {
@@ -99,6 +110,14 @@ export class ClientController {
     await this.supervisor.usePort(port)
     if (intent !== this.intent) throw new Error('Pagis setup was cancelled')
     await this.run(this.request)
+  }
+
+  private track(job: Promise<void>): Promise<void> {
+    const operationAbort = this.abort
+    void job.finally(() => {
+      if (this.abort === operationAbort) this.abort = null
+    }).catch(() => undefined)
+    return job
   }
 
   private async startServer(binary: string): Promise<string> {

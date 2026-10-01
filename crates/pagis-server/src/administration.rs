@@ -22,13 +22,13 @@
 //!
 //! [`router`] builds the surface of the administration port: the roster,
 //! the spend, the live Sessions, the per-person resources, the
-//! installation settings, the Org's Plugins and the health of the
-//! daemon. Each of them answers on this port alone. The guard is a
-//! layer of the router and not a habit of each handler: every route
-//! behind it answers `401` without a Session and `403` to a Member,
-//! whatever extractor its handler takes. [`crate::routes`] holds the
-//! table of those routes, and the daemon's own tests drive every row of
-//! it.
+//! installation settings, the Org's Plugins, the health of the daemon and
+//! the pull of the Computer Image of an Update. Each of them answers on
+//! this port alone. The guard is a layer of the router and not a habit
+//! of each handler: every route behind it answers `401` without a
+//! Session and `403` to a Member, whatever extractor its handler takes.
+//! [`crate::routes`] holds the table of those routes, and the daemon's
+//! own tests drive every row of it.
 //!
 //! The documented exceptions sit outside the layer, and
 //! [`crate::routes::ADMINISTRATION_PUBLIC_ROUTES`] says why each one
@@ -44,6 +44,7 @@ use axum::middleware::Next;
 use axum::response::Response;
 use axum::routing::{delete, get, post, put};
 use axum::{Json, Router, middleware};
+use pagis_computer::ImagePullError;
 use pagis_core::{
     RunState, RunUsage, UsagePeriod, UsageTotal, User, UserId, UserRole, WorkspaceId,
     WorkspaceUsage,
@@ -375,6 +376,9 @@ pub async fn create_account(
     if !route.is_empty() {
         crate::model_lists::set_default_candidates(&state, &workspace.id, &route).await?;
     }
+    // The seed knows no key, so each voice and call alias takes a
+    // provider that the installation's keys serve.
+    crate::model_lists::route_unrouted_plumbing(&state).await?;
 
     Ok((
         StatusCode::CREATED,
@@ -973,6 +977,69 @@ pub async fn installation_health(
     }))
 }
 
+/// The Computer Image that the Client App asks the daemon to pull.
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct ComputerImagePullRequest {
+    /// `<repository>@sha256:<64 lowercase hexadecimal characters>`. The
+    /// repository is the repository of the pinned Computer Image.
+    pub image: String,
+}
+
+/// The Computer Image that the daemon pulled.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ComputerImageDto {
+    pub image: String,
+}
+
+/// Pull a Computer Image, and answer when the pull ends.
+///
+/// Before a restart to an Update, the Client App of a Local Installation
+/// asks for the Computer Image that the next release pins, so the new
+/// daemon finds it present (ADR-0027). The daemon pulls only an image of
+/// the repository of its own pinned image, and only by its digest. A
+/// second request for the same image joins the pull that runs, and a
+/// request that goes away does not stop the pull. A failed pull answers
+/// `502`, and `503` where Docker does not answer.
+#[utoipa::path(
+    post,
+    path = "/api/v1/administration/computer-image/pull",
+    request_body = ComputerImagePullRequest,
+    responses(
+        (status = 200, body = ComputerImageDto),
+        (status = 401, body = crate::error::ErrorBody),
+        (status = 403, body = crate::error::ErrorBody),
+        (status = 422, body = crate::error::ErrorBody),
+        (status = 502, body = crate::error::ErrorBody),
+        (status = 503, body = crate::error::ErrorBody),
+    )
+)]
+pub async fn pull_computer_image(
+    State(state): State<Arc<AppState>>,
+    _administrator: Administrator,
+    Json(request): Json<ComputerImagePullRequest>,
+) -> Result<Json<ComputerImageDto>, ApiError> {
+    state
+        .computers
+        .pull_image(&request.image)
+        .await
+        .map_err(|error| match error {
+            ImagePullError::Refused(message) => ApiError::validation(message),
+            ImagePullError::NoDocker(_) => ApiError {
+                status: StatusCode::SERVICE_UNAVAILABLE,
+                code: "docker_unavailable",
+                message: error.to_string(),
+            },
+            ImagePullError::Failed(_) => ApiError {
+                status: StatusCode::BAD_GATEWAY,
+                code: "image_pull_failed",
+                message: error.to_string(),
+            },
+        })?;
+    Ok(Json(ComputerImageDto {
+        image: request.image,
+    }))
+}
+
 /// Refuse anybody who is not an Administrator, before the handler runs.
 ///
 /// It reads the [`Tenant`] the session middleware left on the request,
@@ -1051,6 +1118,10 @@ pub fn router(state: Arc<AppState>) -> Router {
             get(installation_resources),
         )
         .route("/api/v1/administration/health", get(installation_health))
+        .route(
+            "/api/v1/administration/computer-image/pull",
+            post(pull_computer_image),
+        )
         // Who the page serves. A Member who reaches the port gets `403`
         // from the layer here too, so the page says what is wrong
         // instead of showing an empty administration.

@@ -11,7 +11,8 @@
 //! Nothing here stores audio. A clip is transcribed and dropped, and
 //! synthesized speech is handed to the caller and not kept.
 
-pub mod catalogue;
+mod deepgram;
+mod elevenlabs;
 pub mod fake;
 mod router;
 mod wav;
@@ -19,7 +20,6 @@ mod wav;
 use bytes::Bytes;
 use futures::stream::BoxStream;
 
-pub use catalogue::{VOICES, validate_voice};
 pub use router::RouterVoice;
 pub use wav::pcm16_wav;
 
@@ -87,8 +87,7 @@ pub struct Speech {
     pub audio: Bytes,
     /// The media type of `audio`, e.g. `audio/mpeg`.
     pub media_type: String,
-    /// The voice that spoke it: the Agent's, or the provider's default
-    /// when the Agent declares none.
+    /// The voice that spoke it.
     pub voice: String,
 }
 
@@ -116,12 +115,13 @@ pub trait VoiceProvider: Send + Sync {
         workspace_id: &pagis_core::WorkspaceId,
     ) -> Result<Option<DictationSession>, VoiceError>;
 
-    /// Speak one prose block. `voice` is the Agent's, or `None` for the
-    /// provider default.
+    /// Speak one prose block in `voice`, a voice of the model that the
+    /// `speak` alias serves on. The caller resolves it from the Provider
+    /// Voice List of that model.
     async fn speak(
         &self,
         workspace_id: &pagis_core::WorkspaceId,
         text: &str,
-        voice: Option<&str>,
+        voice: &str,
     ) -> Result<Speech, VoiceError>;
 }

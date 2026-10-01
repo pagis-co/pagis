@@ -13,10 +13,10 @@ use base64::Engine;
 use futures::stream::SplitSink;
 use futures::{SinkExt, StreamExt};
 use llm_router::{
-    AudioFormat, Candidate, Error, ProviderConfig, RealtimeConnection, RealtimeMessage, Router,
-    RouterConfig, SpeechRequest, TranscriptionRequest,
+    AudioFormat, Candidate, Error, ProviderConfig, RealtimeConnection, RealtimeMessage,
+    RealtimeProtocol, Router, RouterConfig, SpeechRequest, TranscriptionRequest,
 };
-use pagis_core::{ModelAliasStore, Provider, ProviderKeys, WorkspaceId};
+use pagis_core::{ModelAliasStore, Provider, ProviderKeys, ProviderUse, WorkspaceId};
 
 use crate::{
     Clip, DictationInput, DictationSession, SAMPLE_RATE, SPEAK_ALIAS, Speech, TRANSCRIBE_ALIAS,
@@ -28,10 +28,6 @@ use crate::{
 /// property of the dialect, because the live model is made for live use
 /// and the alias candidate serves the buffered path.
 pub const LIVE_TRANSCRIPTION_MODEL: &str = "gpt-live-transcribe";
-
-/// The voice an Agent with no voice speaks with: the provider's own
-/// default, named so the reply can say which voice was used.
-pub const DEFAULT_VOICE: &str = "alloy";
 
 /// The voice seam over the model router. One instance serves every
 /// tenant: the aliases a call resolves are the asking Workspace's own, so
@@ -63,12 +59,13 @@ impl RouterVoice {
     }
 
     /// The router for one alias: the alias's candidates on every
-    /// provider that has a key. Built per call; the HTTP client and
-    /// its pool are shared.
+    /// provider that has a key and serves `provider_use`. Built per
+    /// call; the HTTP client and its pool are shared.
     async fn router_for(
         &self,
         workspace_id: &WorkspaceId,
         alias: &str,
+        provider_use: ProviderUse,
     ) -> Result<Router, VoiceError> {
         let model_alias = self
             .aliases
@@ -85,13 +82,16 @@ impl RouterVoice {
             else {
                 continue;
             };
+            if !provider.serves(provider_use) {
+                continue;
+            }
             let mut provider_config = match provider {
                 Provider::OpenAi => ProviderConfig::openai(key),
-                Provider::Anthropic => ProviderConfig::anthropic(key),
-                // OpenRouter's Responses endpoint carries text agent turns.
-                // It does not carry Pagis's speech, transcription, or realtime
-                // voice paths, so voice aliases do not select it.
-                Provider::OpenRouter => continue,
+                Provider::OpenRouter => ProviderConfig::openrouter(key),
+                Provider::Deepgram => ProviderConfig::deepgram(key),
+                Provider::ElevenLabs => ProviderConfig::elevenlabs(key),
+                // `Provider::uses` gives it no voice use.
+                Provider::Anthropic => continue,
             };
             if let Some(base_url) = self.base_urls.get(&provider) {
                 provider_config.base_url = base_url.clone();
@@ -122,7 +122,9 @@ impl VoiceProvider for RouterVoice {
         workspace_id: &WorkspaceId,
         clip: Clip,
     ) -> Result<String, VoiceError> {
-        let router = self.router_for(workspace_id, TRANSCRIBE_ALIAS).await?;
+        let router = self
+            .router_for(workspace_id, TRANSCRIBE_ALIAS, ProviderUse::Dictation)
+            .await?;
         let request = TranscriptionRequest::new(
             TRANSCRIBE_ALIAS,
             pcm16_wav(&clip.pcm16, SAMPLE_RATE),
@@ -139,9 +141,11 @@ impl VoiceProvider for RouterVoice {
         &self,
         workspace_id: &WorkspaceId,
     ) -> Result<Option<DictationSession>, VoiceError> {
-        let router = self.router_for(workspace_id, TRANSCRIBE_ALIAS).await?;
+        let router = self
+            .router_for(workspace_id, TRANSCRIBE_ALIAS, ProviderUse::Dictation)
+            .await?;
         let connection = match router
-            .realtime_transcription_connect(TRANSCRIBE_ALIAS)
+            .realtime_transcription_connect(TRANSCRIBE_ALIAS, SAMPLE_RATE)
             .await
         {
             Ok(connection) => connection,
@@ -151,17 +155,29 @@ impl VoiceProvider for RouterVoice {
             }
             Err(error) => return Err(VoiceError::Provider(error.to_string())),
         };
-        Ok(Some(open_transcription_session(connection).await?))
+        match connection.protocol {
+            RealtimeProtocol::ElevenLabsScribe => {
+                Ok(Some(crate::elevenlabs::open_scribe_session(connection)))
+            }
+            RealtimeProtocol::DeepgramListen => {
+                Ok(Some(crate::deepgram::open_listen_session(connection)))
+            }
+            RealtimeProtocol::OpenAiRealtime | RealtimeProtocol::OpenAiLive => {
+                Ok(Some(open_transcription_session(connection).await?))
+            }
+        }
     }
 
     async fn speak(
         &self,
         workspace_id: &WorkspaceId,
         text: &str,
-        voice: Option<&str>,
+        voice: &str,
     ) -> Result<Speech, VoiceError> {
-        let router = self.router_for(workspace_id, SPEAK_ALIAS).await?;
-        let voice = voice.unwrap_or(DEFAULT_VOICE).to_string();
+        let router = self
+            .router_for(workspace_id, SPEAK_ALIAS, ProviderUse::SpokenReplies)
+            .await?;
+        let voice = voice.to_string();
         let mut request = SpeechRequest::new(SPEAK_ALIAS, text, voice.clone());
         request.format = Some(AudioFormat::Mp3);
         let response = router

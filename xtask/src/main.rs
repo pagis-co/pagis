@@ -118,9 +118,8 @@ fn run_runtime_lock(args: &[String]) -> Result<()> {
 /// `cargo xtask image`: build the pinned computer image for each
 /// architecture, scan its filesystem for secrets and for known
 /// vulnerabilities, push it by digest, and join both digests under the
-/// pinned tag on GHCR, which is where the daemon pulls
-/// it from the first time an agent wakes. The push needs a Docker login
-/// to GHCR with `write:packages`.
+/// pinned tag on GHCR, which is where the daemon pulls it from. The push
+/// needs a Docker login to GHCR with `write:packages`.
 fn run_image(root: &Path, dry_run: bool) -> Result<()> {
     let image = pagis_versions::COMPUTER_IMAGE;
     let dockerfile = std::fs::read_to_string(root.join("computer/Dockerfile"))?;
@@ -318,7 +317,8 @@ fn run_desktop(args: &[String]) -> Result<()> {
         // signed and notarized when they were prepared, and signs nothing.
         xtask::DesktopPlatform::Mac if publish_existing => Vec::new(),
         xtask::DesktopPlatform::Mac => desktop::missing_signing_inputs(&is_set),
-        // Linux signs only at publication, with the release key.
+        // Linux signs only at publication, with the release key and the
+        // Update Key.
         xtask::DesktopPlatform::Linux if publish_existing => {
             xtask::desktop_linux::missing_signing_inputs(&is_set)
         }

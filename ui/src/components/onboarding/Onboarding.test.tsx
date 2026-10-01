@@ -12,11 +12,13 @@ import { Onboarding } from './Onboarding'
 
 type Status = {
   completed: boolean
-  providers: { provider: string; configured: boolean; source: string | null }[]
-  model: { provider: string; available: number } | null
+  providers: { provider: string; configured: boolean; source: string | null; uses: string[] }[]
+  checks: { provider: string; available: number }[]
   docker: DockerReport
   docker_endpoint: string | null
 }
+
+const OPENAI_USES = ['thinking', 'spoken_replies', 'dictation', 'calls']
 
 type DockerReport = {
   endpoint: string | null
@@ -27,11 +29,11 @@ function freshStatus(): Status {
   return {
     completed: false,
     providers: [
-      { provider: 'anthropic', configured: false, source: null },
-      { provider: 'openai', configured: false, source: null },
-      { provider: 'openrouter', configured: false, source: null },
+      { provider: 'anthropic', configured: false, source: null, uses: ['thinking'] },
+      { provider: 'openai', configured: false, source: null, uses: OPENAI_USES },
+      { provider: 'openrouter', configured: false, source: null, uses: ['thinking'] },
     ],
-    model: null,
+    checks: [],
     docker: dockerReport(null),
     docker_endpoint: null,
   }
@@ -86,6 +88,12 @@ function stubApi(options: Options = {}) {
     error: null,
     holder: 'agent',
   }
+  // A stored or checked key: the daemon holds it from now on.
+  const hold = (provider: string) => {
+    status.providers = status.providers.map((entry) =>
+      entry.provider === provider ? { ...entry, configured: true, source: 'secret_file' } : entry,
+    )
+  }
   const api = {
     GET: vi.fn(async (path: string) => {
       if (path === '/api/v1/agents') return { data: { items: [SPRITE] } }
@@ -93,48 +101,56 @@ function stubApi(options: Options = {}) {
         return { data: { id: 'u1', name: null, email: null, role: options.role ?? 'administrator' } }
       if (path === '/api/v1/agents/{agent_id}/computer') return { data: computer }
       if (path === '/api/v1/settings/models') {
+        const listing = [
+          { provider: 'anthropic', ids: ['claude-opus-5', 'claude-sonnet-5-5'] },
+          { provider: 'openai', ids: ['gpt-6-sol', 'gpt-6-luna'] },
+        ].filter(({ provider }) => status.providers.some(
+          (entry) => entry.provider === provider && entry.configured,
+        ))
         return {
           data: {
-            providers: [
-              {
-                provider: 'anthropic',
-                error: null,
-                preselected: 'claude-opus-5',
-                models: ['claude-opus-5', 'claude-sonnet-4-6'].map((id) => ({
-                  candidate: `anthropic/${id}`,
-                  context_window: 1000000,
-                  max_output_tokens: 64000,
-                  input_cost: null,
-                  output_cost: null,
-                })),
-              },
-            ],
+            preselected: listing.some(({ provider }) => provider === 'openai')
+              ? 'openai/gpt-6-luna'
+              : listing.length > 0 ? 'anthropic/claude-sonnet-5-5' : null,
+            providers: listing.map(({ provider, ids }) => ({
+              provider,
+              error: null,
+              models: ids.map((id) => ({
+                candidate: `${provider}/${id}`,
+                context_window: 1000000,
+                max_output_tokens: 64000,
+                input_cost: null,
+                output_cost: null,
+              })),
+            })),
           },
         }
       }
-      return { data: status }
+      return { data: structuredClone(status) }
     }),
-    PUT: vi.fn(async () => {
+    PUT: vi.fn(async (_path: string, init?: { params?: { path?: { provider?: string } } }) => {
+      const provider = init?.params?.path?.provider
+      if (provider !== undefined) hold(provider)
       return {
-        data: { provider: 'anthropic', configured: true, source: 'secret_file' },
+        data: { provider, configured: true, source: 'secret_file', uses: [] },
         response: { ok: true },
       }
     }),
-    POST: vi.fn(async (path: string) => {
-      if (path === '/api/v1/settings/onboarding/providers/{provider}/key/check') {
+    POST: vi.fn(async (path: string, init?: { params?: { path?: { provider?: string } } }) => {
+      const provider = init?.params?.path?.provider ?? ''
+      if (
+        path === '/api/v1/settings/onboarding/providers/{provider}/key/check'
+        || path === '/api/v1/settings/providers/{provider}/check'
+      ) {
         if (options.checkFails !== undefined) {
           return { error: { error: { message: options.checkFails } } }
         }
-        status.providers[0] = { provider: 'anthropic', configured: true, source: 'secret_file' }
-        status.model = { provider: 'anthropic', available: 12 }
-        return { data: { provider: 'anthropic', available: 12 } }
-      }
-      if (path === '/api/v1/settings/providers/{provider}/check') {
-        if (options.checkFails !== undefined) {
-          return { error: { error: { message: options.checkFails } } }
-        }
-        status.model = { provider: 'anthropic', available: 12 }
-        return { data: { provider: 'anthropic', available: 12 } }
+        hold(provider)
+        status.checks = [
+          ...status.checks.filter((check) => check.provider !== provider),
+          { provider, available: 12 },
+        ]
+        return { data: { provider, available: 12 } }
       }
       if (path === '/api/v1/agents/{agent_id}/computer/wake') {
         return { data: { state: 'pulling', image: 'absent', percent: 0, error: null, holder: 'agent' } }
@@ -162,15 +178,26 @@ function mount(api: ReturnType<typeof stubApi>) {
 /** Walk from the first step to the model step. */
 async function reachModel() {
   fireEvent.click(await screen.findByText('Continue'))
-  await screen.findByRole('heading', { name: /Connect your model/ })
+  await screen.findByRole('heading', { name: 'Connect your providers' })
+}
+
+/** The part of the model step that holds one provider's key. */
+function providerRow(name: string) {
+  return screen.getByRole('group', { name })
+}
+
+function keyField(name: string) {
+  return within(providerRow(name)).getByLabelText(`${name} API key`) as HTMLInputElement
+}
+
+function typeKey(name: string, key: string) {
+  fireEvent.change(keyField(name), { target: { value: key } })
 }
 
 /** Walk from the first step to the computer step, with a key and no check. */
 async function reachComputer() {
   await reachModel()
-  fireEvent.change(screen.getByPlaceholderText('API key'), {
-    target: { value: 'sk-test' },
-  })
+  typeKey('Anthropic', 'sk-test')
   fireEvent.click(screen.getByText('Continue'))
   await screen.findByRole('heading', { name: 'Set up a computer' })
 }
@@ -232,12 +259,10 @@ describe('the first run page', () => {
 
     const { body, footer } = frame()
     expect(actions(footer)).toEqual({ names: ['Back', 'Continue'], primary: ['Continue'] })
-    expect(body.contains(screen.getByText('Test connection'))).toBe(true)
+    expect(body.contains(providerRow('Anthropic'))).toBe(true)
 
-    fireEvent.change(screen.getByPlaceholderText('API key'), {
-      target: { value: 'sk-test' },
-    })
-    fireEvent.click(screen.getByText('Test connection'))
+    typeKey('Anthropic', 'sk-test')
+    fireEvent.click(within(providerRow('Anthropic')).getByText('Test connection'))
     const result = await screen.findByText('The key works; 12 models available')
 
     // The result grows the middle, and the footer stays where it is.
@@ -273,8 +298,8 @@ describe('the first run page', () => {
 
     fireEvent.click(within(footer).getByText('Back'))
 
-    expect(await screen.findByRole('heading', { name: /Connect your model/ })).toBeTruthy()
-    expect(screen.getByRole('listitem', { current: 'step' }).textContent).toContain('Model')
+    expect(await screen.findByRole('heading', { name: 'Connect your providers' })).toBeTruthy()
+    expect(screen.getByRole('listitem', { current: 'step' }).textContent).toContain('Providers')
   })
 
   it('names the computer step action for a reachable Docker', async () => {
@@ -319,14 +344,26 @@ describe('the welcome step', () => {
 })
 
 describe('the model step', () => {
+  it('offers a key field for each provider with what its key does', async () => {
+    mount(stubApi())
+    await reachModel()
+
+    expect(within(providerRow('Anthropic')).getByText('Thinking')).toBeTruthy()
+    expect(within(providerRow('OpenRouter')).getByText('Thinking')).toBeTruthy()
+    expect(within(providerRow('OpenAI')).getByText('Thinking, spoken replies, dictation, calls'))
+      .toBeTruthy()
+  })
+
   it('uses the daemon proof after Back without checking the key again', async () => {
     const status = freshStatus()
-    status.model = { provider: 'openrouter', available: 300 }
+    status.providers[2] = { ...status.providers[2], configured: true, source: 'secret_file' }
+    status.checks = [{ provider: 'openrouter', available: 300 }]
     const api = stubApi({ status })
     mount(api)
     await reachModel()
 
-    expect(screen.getByText('The key works; 300 models available')).toBeTruthy()
+    expect(within(providerRow('OpenRouter')).getByText('The key works; 300 models available'))
+      .toBeTruthy()
     expect((screen.getByText('Continue') as HTMLButtonElement).disabled).toBe(false)
     expect(api.POST).not.toHaveBeenCalledWith(
       '/api/v1/settings/providers/{provider}/check',
@@ -334,7 +371,7 @@ describe('the model step', () => {
     )
   })
 
-  it('continues with a typed key and does not force a check', async () => {
+  it('stores the key of each provider typed and lets the daemon pick the model', async () => {
     const api = stubApi()
     mount(api)
     await reachModel()
@@ -342,23 +379,25 @@ describe('the model step', () => {
     const continues = screen.getByText('Continue') as HTMLButtonElement
     expect(continues.disabled).toBe(true)
 
-    fireEvent.change(screen.getByPlaceholderText('API key'), {
-      target: { value: 'sk-test' },
-    })
+    typeKey('Anthropic', 'sk-ant')
+    typeKey('OpenAI', 'sk-openai')
     expect(continues.disabled).toBe(false)
     fireEvent.click(continues)
 
     await screen.findByRole('heading', { name: 'Set up a computer' })
-    expect(api.PUT).toHaveBeenCalledWith(
+    for (const [provider, key] of [['anthropic', 'sk-ant'], ['openai', 'sk-openai']]) {
+      expect(api.PUT).toHaveBeenCalledWith(
+        '/api/v1/settings/onboarding/providers/{provider}/key',
+        { params: { path: { provider } }, body: { key } },
+      )
+    }
+    expect(api.PUT).not.toHaveBeenCalledWith(
       '/api/v1/settings/onboarding/providers/{provider}/key',
-      {
-        params: { path: { provider: 'anthropic' } },
-        body: { key: 'sk-test' },
-      },
+      { params: { path: { provider: 'openrouter' } }, body: expect.anything() },
     )
-    // With no list to pick from, the daemon takes its preselection.
+    // No pick: the daemon takes its preselection of the stored keys.
     expect(api.PUT).toHaveBeenCalledWith('/api/v1/settings/onboarding/default-model', {
-      body: { provider: 'anthropic', model: null },
+      body: { candidate: null },
     })
     expect(api.POST).not.toHaveBeenCalledWith(
       '/api/v1/settings/providers/{provider}/check',
@@ -366,28 +405,27 @@ describe('the model step', () => {
     )
   })
 
-  it('checks the connection when asked', async () => {
+  it('checks one provider key when asked', async () => {
     const api = stubApi()
     mount(api)
     await reachModel()
 
-    fireEvent.change(screen.getByPlaceholderText('API key'), {
-      target: { value: 'sk-test' },
-    })
-    fireEvent.click(screen.getByText('Test connection'))
+    typeKey('OpenAI', 'sk-test')
+    fireEvent.click(within(providerRow('OpenAI')).getByText('Test connection'))
 
     await waitFor(() =>
       expect(api.POST).toHaveBeenCalledWith(
         '/api/v1/settings/onboarding/providers/{provider}/key/check',
         {
-          params: { path: { provider: 'anthropic' } },
+          params: { path: { provider: 'openai' } },
           body: { key: 'sk-test' },
         },
       ),
     )
     expect(
-      await screen.findByText('The key works; 12 models available'),
+      await within(providerRow('OpenAI')).findByText('The key works; 12 models available'),
     ).toBeTruthy()
+    expect(within(providerRow('Anthropic')).queryByText(/The key works/)).toBeNull()
     // The check stored the key; nothing stores it a second time.
     expect(api.PUT).not.toHaveBeenCalledWith(
       '/api/v1/settings/onboarding/providers/{provider}/key',
@@ -397,12 +435,14 @@ describe('the model step', () => {
 
   it('checks the held key when nothing is typed', async () => {
     const status = freshStatus()
-    status.providers[0] = { provider: 'anthropic', configured: true, source: 'env' }
+    status.providers[0] = { ...status.providers[0], configured: true, source: 'env' }
     const api = stubApi({ status })
     mount(api)
     await reachModel()
 
-    fireEvent.click(screen.getByText('Test connection'))
+    expect(within(providerRow('Anthropic')).getByText(/already holds a key from the environment/))
+      .toBeTruthy()
+    fireEvent.click(within(providerRow('Anthropic')).getByText('Test connection'))
 
     await waitFor(() =>
       expect(api.POST).toHaveBeenCalledWith(
@@ -411,28 +451,52 @@ describe('the model step', () => {
       ),
     )
     expect(
-      await screen.findByText('The key works; 12 models available'),
+      await within(providerRow('Anthropic')).findByText('The key works; 12 models available'),
     ).toBeTruthy()
   })
 
-  it('offers the listed models, newest preselected, and saves the pick as the default route', async () => {
+  it('offers the models of every keyed provider with the daemon preselection, and saves a pick', async () => {
     const api = stubApi()
     mount(api)
     await reachModel()
 
-    fireEvent.change(screen.getByPlaceholderText('API key'), {
-      target: { value: 'sk-test' },
-    })
-    fireEvent.click(screen.getByText('Test connection'))
+    typeKey('Anthropic', 'sk-test')
+    fireEvent.click(within(providerRow('Anthropic')).getByText('Test connection'))
+    typeKey('OpenAI', 'sk-test')
+    fireEvent.click(within(providerRow('OpenAI')).getByText('Test connection'))
 
-    const picker = await screen.findByRole('combobox', { name: 'Model' })
-    expect(picker.textContent).toContain('claude-opus-5')
+    await waitFor(() =>
+      expect((screen.getByRole('combobox', { name: 'Model' }) as HTMLInputElement).value)
+        .toBe('openai/gpt-6-luna'),
+    )
+    fireEvent.change(screen.getByRole('combobox', { name: 'Model' }), {
+      target: { value: 'anthropic/claude-sonnet-5-5' },
+    })
     fireEvent.click(screen.getByText('Continue'))
 
     await screen.findByRole('heading', { name: 'Set up a computer' })
     expect(api.PUT).toHaveBeenCalledWith('/api/v1/settings/onboarding/default-model', {
-      body: { provider: 'anthropic', model: 'claude-opus-5' },
+      body: { candidate: 'anthropic/claude-sonnet-5-5' },
     })
+  })
+
+  it('says what the keys cover and which key each missing part needs', async () => {
+    mount(stubApi())
+    await reachModel()
+    const covered = () => screen.getByRole('list', { name: 'What your keys cover' })
+
+    typeKey('Anthropic', 'sk-test')
+    expect(within(covered()).getByText('Thinking').closest('li')?.textContent)
+      .toContain('Anthropic')
+    expect(within(covered()).getByText('Spoken replies').closest('li')?.textContent)
+      .toContain('Needs a key for OpenAI')
+    expect(within(covered()).getByText('Calls').closest('li')?.textContent)
+      .toContain('Needs a key for OpenAI')
+
+    typeKey('OpenAI', 'sk-test')
+    expect(within(covered()).getByText('Spoken replies').closest('li')?.textContent)
+      .toContain('OpenAI')
+    expect(within(covered()).queryByText(/Needs a key/)).toBeNull()
   })
 
   it('a failed check shows the provider words and never reads as ready', async () => {
@@ -440,27 +504,23 @@ describe('the model step', () => {
     mount(api)
     await reachModel()
 
-    fireEvent.change(screen.getByPlaceholderText('API key'), {
-      target: { value: 'sk-bad' },
-    })
-    fireEvent.click(screen.getByText('Test connection'))
+    typeKey('Anthropic', 'sk-bad')
+    fireEvent.click(within(providerRow('Anthropic')).getByText('Test connection'))
 
     expect(
-      await screen.findByText('401 Unauthorized: invalid x-api-key'),
+      await within(providerRow('Anthropic')).findByText('401 Unauthorized: invalid x-api-key'),
     ).toBeTruthy()
     expect(screen.queryByText(/The key works/)).toBeNull()
     // The refused key is not stored, so Pagis holds no key and the
     // step cannot go on with the key gone from the field.
     expect(api.PUT).not.toHaveBeenCalled()
     expect(screen.queryByText(/already holds a key/)).toBeNull()
-    expect((screen.getByPlaceholderText('API key') as HTMLInputElement).value).toBe('sk-bad')
+    expect(keyField('Anthropic').value).toBe('sk-bad')
     // Continue does not store the key the provider refused, and a new
     // key opens it again.
     const continues = screen.getByText('Continue') as HTMLButtonElement
     expect(continues.disabled).toBe(true)
-    fireEvent.change(screen.getByPlaceholderText('API key'), {
-      target: { value: 'sk-other' },
-    })
+    typeKey('Anthropic', 'sk-other')
     expect(continues.disabled).toBe(false)
   })
 
@@ -468,20 +528,21 @@ describe('the model step', () => {
     mount(stubApi())
     await reachModel()
 
-    const heading = screen.getByRole('heading', { name: /Connect your model/ })
-    expect(heading.textContent).toBe('Connect your model')
+    const heading = screen.getByRole('heading', { name: 'Connect your providers' })
+    expect(heading.textContent).toBe('Connect your providers')
     expect(screen.getByText(/Connect your Google account later/)).toBeTruthy()
     expect(screen.queryByText(/\bgog\b/)).toBeNull()
   })
 
-  it('keeps the key masked and out of browser storage', async () => {
+  it('keeps every key masked and out of browser storage', async () => {
     const api = stubApi()
     mount(api)
     await reachModel()
 
-    const field = screen.getByPlaceholderText('API key') as HTMLInputElement
-    expect(field.type).toBe('password')
-    fireEvent.change(field, { target: { value: 'sk-secret' } })
+    for (const name of ['Anthropic', 'OpenAI', 'OpenRouter']) {
+      expect(keyField(name).type).toBe('password')
+      typeKey(name, 'sk-secret')
+    }
 
     expect(localStorage.length).toBe(0)
     expect(sessionStorage.length).toBe(0)

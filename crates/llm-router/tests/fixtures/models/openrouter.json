@@ -17,6 +17,15 @@
       "context_length": 2000000,
       "pricing": {"prompt": "-1", "completion": "-1"},
       "top_provider": {"context_length": null, "max_completion_tokens": null, "is_moderated": false}
+    },
+    {
+      "id": "google/gemini-3.8-flash-tts",
+      "name": "Google: Gemini 3.8 Flash TTS",
+      "created": 1690000000,
+      "context_length": 32768,
+      "architecture": {"modality": "text->speech", "input_modalities": ["text"], "output_modalities": ["speech"]},
+      "pricing": {"prompt": "0.0000005", "completion": "0.000009"},
+      "supported_voices": ["Zephyr", "Puck", "Kore"]
     }
   ]
 }

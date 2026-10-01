@@ -813,6 +813,13 @@ async fn an_inbound_call_answers_under_the_standing_brief(pool: SqlitePool) {
     assert_eq!(brief.agent_name, "Robin");
     assert_eq!(brief.voice.as_deref(), Some("nova"));
     assert_eq!(brief.duration_cap, DEFAULT_DURATION_CAP);
+
+    // A call runs on OpenAI, so a voice of another provider's speech
+    // model is absent and the call takes the OpenAI default.
+    let mut agent = agent;
+    agent.voice = Some("Kore".to_string());
+    let brief = CallBrief::inbound(&agent, &number, REMOTE, TrustTier::Unknown, Vec::new());
+    assert_eq!(brief.voice, None);
 }
 
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]

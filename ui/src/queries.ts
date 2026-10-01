@@ -286,22 +286,23 @@ export function useCheckProviderModel(api: ApiClient) {
 }
 
 /** The Provider Model List of every provider that holds a key, newest
- *  first. The daemon keeps the lists and refreshes them. */
+ *  first, and the candidate a default pick takes. The daemon keeps the
+ *  lists and refreshes them. */
 export function useModelLists(api: ApiClient, enabled = true) {
   return useQuery({
     queryKey: modelListsKey,
-    queryFn: () =>
-      unwrap(api.GET("/api/v1/settings/models")).then((body) => body.providers),
+    queryFn: () => unwrap(api.GET("/api/v1/settings/models")),
     enabled,
   });
 }
 
-/** The model step's pick: the one model the default route names.
- *  `model: null` takes the daemon's preselection. */
+/** The model step's pick: the one `provider/model` candidate the
+ *  default route names. `candidate: null` takes the daemon's
+ *  preselection. */
 export function useSetOnboardingDefaultModel(api: ApiClient) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (body: { provider: string; model: string | null }) => {
+    mutationFn: async (body: { candidate: string | null }) => {
       const { error, response } = await api.PUT(
         "/api/v1/settings/onboarding/default-model",
         { body },
@@ -315,9 +316,6 @@ export function useSetOnboardingDefaultModel(api: ApiClient) {
   });
 }
 
-/** The model step's key (ADR-0025). The product port takes it while
- *  onboarding runs and refuses it afterwards: the Administration
- *  Interface changes the installation's keys from then on. */
 /** The model step's check of a typed key. The daemon stores the key
  *  only when the provider lists its models for it. */
 export function useCheckOnboardingProviderKey(api: ApiClient) {
@@ -337,6 +335,9 @@ export function useCheckOnboardingProviderKey(api: ApiClient) {
   });
 }
 
+/** The model step's key (ADR-0025). The product port takes it while
+ *  onboarding runs and refuses it afterwards: the Administration
+ *  Interface changes the installation's keys from then on. */
 export function useSetOnboardingProviderKey(api: ApiClient) {
   const queryClient = useQueryClient();
   return useMutation({
@@ -349,6 +350,8 @@ export function useSetOnboardingProviderKey(api: ApiClient) {
       ),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: onboardingKey });
+      void queryClient.invalidateQueries({ queryKey: modelListsKey });
+      void queryClient.invalidateQueries({ queryKey: modelAliasesKey });
     },
   });
 }
@@ -424,13 +427,13 @@ export function useCreateChannel(api: ApiClient) {
   });
 }
 
-/** The voice catalogue: the names an Agent Voice can take. */
+/** The Provider Voice List: the model that speaks for the Workspace
+ *  and its voices, the names an Agent Voice can take. It changes with
+ *  the keys and the `speak` alias, so each form reads it again. */
 export function useVoices(api: ApiClient) {
   return useQuery({
     queryKey: voicesKey,
-    queryFn: () =>
-      unwrap(api.GET("/api/v1/settings/voices")).then((page) => page.items),
-    staleTime: Infinity,
+    queryFn: () => unwrap(api.GET("/api/v1/settings/voices")),
   });
 }
 

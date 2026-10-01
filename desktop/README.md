@@ -42,9 +42,14 @@ confirms that it loaded, and quits without starting a server.
 ## Packaging
 
 ```bash
-npm run pack         # macOS arm64: the DMG
-npm run pack:linux   # Linux amd64 and arm64: the AppImage and the deb
+npm run pack         # macOS arm64: the DMG, and the ZIP with latest-mac.yml
+npm run pack:linux   # Linux amd64 and arm64: the AppImage and the deb, with latest-linux.yml and latest-linux-arm64.yml
 ```
+
+The GitHub publish configuration of `electron-builder.yml` puts
+`app-update.yml` in the app, which names the releases of `pagis-co/pagis`
+for electron-updater, and makes electron-builder write the Update feeds.
+Both scripts pass `--publish never`: the release uploads each file itself.
 
 `electron-builder.yml` puts the lock of each platform and architecture in
 the package as `runtime-lock.json`, from the repository root's `dist/`:
@@ -55,7 +60,9 @@ server.
 It includes no server binary. On macOS it turns on the hardened runtime with
 the audio-input and network entitlements, and notarizes when the Apple
 credentials are present. On Linux it signs nothing: the release signs the
-checksum list.
+checksum list, and the package embeds the public Update Key
+`docs/update-key.pem` as `update-key.pem`, which checks the list of an
+Update.
 
 CI runs the same steps through one command, and so can you. A macOS host
 runs the macOS plan and a Linux host the Linux plan; `--linux` names the

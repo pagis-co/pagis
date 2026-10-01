@@ -21,8 +21,8 @@ electron-updater installs an Update of a signed macOS application through
 Squirrel.Mac. Squirrel.Mac accepts only a bundle that satisfies the
 designated requirement of the running application, and that requirement
 names the team. On Linux, electron-updater replaces an AppImage file, or
-installs a deb with `pkexec dpkg -i`. Its feed holds a SHA-512 for each file
-and no signature.
+installs a deb with `dpkg -i` through the system's password prompt. Its feed
+holds a SHA-512 for each file and no signature.
 
 ## Decision
 
@@ -42,6 +42,14 @@ The Client App uses electron-updater. It checks at start and every 24 hours
 while it runs. "Check for Updates…" in the tray menu and in the application
 menu checks immediately and shows the result. The Client App downloads an
 Update when it finds one and asks no question.
+
+A Client App checks only after setup. On the setup page it could download
+the latest release, then connect to an older server, and install that Update
+at quit; the new Client App would then refuse the server. A fresh Client App
+from the Quickstart is the latest release. Each check sets its feed: the
+GitHub releases for a Local Installation, and the feed of one release for a
+connected Client App, because a Client App can change from one to the other
+while it runs.
 
 The Client App of a Local Installation then prepares the restart:
 
@@ -65,16 +73,25 @@ menu show "Restart to Update", and the Client App sends one notification.
 - **macOS.** The release publishes a ZIP of the signed, notarized and
   stapled application beside the DMG. Squirrel.Mac installs it only when the
   new bundle satisfies the designated requirement of the running bundle.
-- **Linux.** The Client App embeds the public release key
-  (`docs/release-key.asc`). It installs an Update only when
-  `Pagis-<release>-linux.SHA256SUMS.asc` verifies the checksum list with that
-  key, and the SHA-256 of the downloaded file is the value on its line in the
-  list. openpgp.js does the check. An AppImage replaces itself and asks for
-  nothing. A deb installs with `pkexec dpkg -i`, and the Person types their
+- **Linux.** The Client App embeds the public half of the Update Key
+  (`docs/update-key.pem`), an Ed25519 key that signs only Updates. It
+  installs an Update only when `Pagis-<release>-linux.SHA256SUMS.sig` is a
+  valid signature of the checksum list by that key, and the SHA-256 of the
+  downloaded file is the value on its line in the list. Node's own crypto
+  module does the check, so the Client App adds no dependency for it. An
+  AppImage replaces itself and asks for nothing. A deb installs with `dpkg -i` through the system's password
+  prompt (`pkexec` or a similar program), and the Person types their
   password.
 
 The feeds (`latest-mac.yml`, `latest-linux.yml`, `latest-linux-arm64.yml`)
 only name files. A feed is not a trust root.
+
+The OpenPGP release key of ADR-0025 stays, so a Person can check a download
+by hand with `gpg`. Products that check their own Updates sign them with
+Ed25519: Sparkle, the Tauri updater and Tailscale. OpenPGP is the trust of a
+distribution's package manager, which checks with the system `gpgv`. The
+research found no Electron application that bundles an OpenPGP library to
+check its Updates, and openpgp.js is LGPL-3.0, while the Client App is MIT.
 
 ### Restart to Update
 
@@ -84,9 +101,10 @@ only name files. A feed is not a trust root.
    every restart.
 3. The Update installs, and the new Client App starts.
 
-When the Person quits the Client App with a downloaded Update, the Update
-installs. A deb is the exception: a password prompt at quit or at logout
-stops the shutdown, so a deb installs only from "Restart to Update".
+When the Person quits the Client App with a downloaded and checked Update,
+the Update installs. An Update that is not checked does not install. A deb is
+the exception: a password prompt at quit or at logout stops the shutdown, so
+a deb installs only from "Restart to Update".
 
 ### The Upgrade at start
 
@@ -116,22 +134,31 @@ stops the Upgrade before the data changes, and the window offers Retry and
 At boot, when Docker answers and the pinned Computer Image is absent, the
 daemon starts one pull for the installation, and each wake joins it. When
 the pinned image is present, the daemon removes each other image of the
-Computer Image repository that no container uses. The Headless Server does
+Computer Image repository that no container uses, except an image whose
+version label is newer than the pin: that is the image of the next release,
+which the Client App had it pull before a restart. The Headless Server does
 this too.
 
 ### A connected Client App follows its server
 
 A connected Client App refuses a server older than itself (its Compatibility
 Range). So it takes only the Update to its server's release, and never an
-Update past it. It reads the feed of that release, not of the latest
-release. When the server's release is not newer than the Client App, there
-is no Update.
+Update past it. At each check it reads the server's release from the health
+route, and then the feed of that release, not of the latest release. When
+the server's release is not newer than the Client App, there is no Update,
+and "Check for Updates…" says that Pagis is up to date with its server. A
+connected Client App prepares no restart and asks no Runs question, because
+it supervises no server. Its checked Update installs at quit, as on a Local
+Installation.
 
 ### A release publishes the feeds
 
 A release publishes, in addition to the artifacts of ADR-0025, the ZIP of
-the macOS Client App with its blockmap, and the three feeds. The publication
-jobs upload them with the client packages.
+the macOS Client App with its blockmap, the three feeds, and the Update Key
+signature of the Linux checksum list. The publication jobs upload them with
+the client packages. The private half of the Update Key is a secret of the
+protected `release` environment, as the release key is, and the job checks
+the signature with `docs/update-key.pem` before it uploads.
 
 ## Consequences
 
@@ -145,7 +172,16 @@ jobs upload them with the client packages.
 ## Not built
 
 - Release channels, a beta, and a staged rollout.
+- A rotation of the Update Key. Each Client App on Linux trusts only the
+  key that it embeds, so a new key reaches only the Client Apps that a release
+  signed with the old key installs.
+- A rotation of the release key, which expires on 2028-09-29.
 - A setting that turns off the check or the download.
+- A way to drop a ready Update. When a Local Installation fails to start and
+  the Person then connects the Client App to an older server, an Update of
+  the latest release that is already ready still installs at quit, and the
+  new Client App refuses that server. Squirrel.Mac has no call that drops a
+  ready Update.
 - An Update notice on the Headless Server. An operator upgrades with Docker
   Compose.
 - A command that reverses an Upgrade. A Person restores the Backup with

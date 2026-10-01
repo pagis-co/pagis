@@ -157,6 +157,216 @@ async fn transcription_server() -> (
     (format!("http://127.0.0.1:{}/v1", addr.port()), handle)
 }
 
+/// A one-session Deepgram `/listen` server: it records the audio frames
+/// and the control messages, answers `CloseStream` with an interim and
+/// two final results and the closing metadata, and hands the record over.
+#[allow(clippy::result_large_err)]
+async fn listen_server() -> (
+    String,
+    tokio::task::JoinHandle<(String, String, Vec<Vec<u8>>, Vec<serde_json::Value>)>,
+) {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let handle = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut seen_path = String::new();
+        let mut seen_auth = String::new();
+        let mut socket = tokio_tungstenite::accept_hdr_async(
+            stream,
+            |req: &tokio_tungstenite::tungstenite::handshake::server::Request, resp| {
+                seen_path = req.uri().to_string();
+                seen_auth = req
+                    .headers()
+                    .get("authorization")
+                    .and_then(|value| value.to_str().ok())
+                    .unwrap_or_default()
+                    .to_string();
+                Ok(resp)
+            },
+        )
+        .await
+        .unwrap();
+        let mut audio = Vec::new();
+        let mut controls = Vec::new();
+        while let Some(Ok(frame)) = socket.next().await {
+            match frame {
+                Message::Binary(bytes) => audio.push(bytes.to_vec()),
+                Message::Text(text) => {
+                    let control: serde_json::Value = serde_json::from_str(&text).unwrap();
+                    let close = control["type"] == "CloseStream";
+                    controls.push(control);
+                    if close {
+                        for frame in [
+                            r#"{"type":"Results","is_final":true,"channel":{"alternatives":[{"transcript":"Book the"}]}}"#,
+                            r#"{"type":"Results","is_final":false,"channel":{"alternatives":[{"transcript":"room"}]}}"#,
+                            r#"{"type":"Results","is_final":true,"channel":{"alternatives":[{"transcript":"room."}]}}"#,
+                            r#"{"type":"Metadata","request_id":"r1"}"#,
+                        ] {
+                            socket.send(Message::text(frame)).await.unwrap();
+                        }
+                        socket.close(None).await.ok();
+                        break;
+                    }
+                }
+                _ => break,
+            }
+        }
+        (seen_path, seen_auth, audio, controls)
+    });
+    (format!("http://127.0.0.1:{}/v1", addr.port()), handle)
+}
+
+/// Deepgram streams PCM frames to `/listen` and finishes on
+/// `CloseStream`. Each final result adds to the draft; an interim one
+/// waits for its final, and the whole draft ends the session.
+#[tokio::test]
+async fn a_live_dictation_on_deepgram_streams_frames_and_ends_on_close_stream() {
+    let (base_url, server) = listen_server().await;
+    let voice = voice(Provider::Deepgram, &base_url, &["deepgram/nova-3"], &[]);
+
+    let mut session = voice
+        .dictate(&workspace())
+        .await
+        .unwrap()
+        .expect("Deepgram has a live socket");
+    session.input.append(&[1, 0, 2, 0]).await.unwrap();
+    session.input.commit().await.unwrap();
+
+    let mut heard = Vec::new();
+    while let Some(piece) = session.transcripts.next().await {
+        let piece = piece.unwrap();
+        let done = matches!(piece, Transcript::Final(_));
+        heard.push(piece);
+        if done {
+            break;
+        }
+    }
+    assert_eq!(
+        heard,
+        vec![
+            Transcript::Delta("Book the".to_string()),
+            Transcript::Delta(" room.".to_string()),
+            Transcript::Final("Book the room.".to_string()),
+        ]
+    );
+    drop(session);
+
+    let (path, auth, audio, controls) = server.await.unwrap();
+    assert!(
+        path.starts_with("/v1/listen?model=nova-3&encoding=linear16&sample_rate=24000"),
+        "{path}"
+    );
+    assert_eq!(auth, "Token test-key");
+    assert_eq!(audio, vec![vec![1, 0, 2, 0]]);
+    assert_eq!(controls, vec![serde_json::json!({ "type": "CloseStream" })]);
+}
+
+/// A one-session Scribe realtime server: it records each audio chunk and
+/// answers the chunk that commits with a partial and a committed
+/// transcript, then closes.
+#[allow(clippy::result_large_err)]
+async fn scribe_server() -> (
+    String,
+    tokio::task::JoinHandle<(String, Vec<serde_json::Value>)>,
+) {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let handle = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut seen_path = String::new();
+        let mut socket = tokio_tungstenite::accept_hdr_async(
+            stream,
+            |req: &tokio_tungstenite::tungstenite::handshake::server::Request, resp| {
+                seen_path = req.uri().to_string();
+                Ok(resp)
+            },
+        )
+        .await
+        .unwrap();
+        socket
+            .send(Message::text(
+                r#"{"message_type":"session_started","session_id":"s1"}"#,
+            ))
+            .await
+            .unwrap();
+        let mut chunks = Vec::new();
+        while let Some(Ok(Message::Text(text))) = socket.next().await {
+            let chunk: serde_json::Value = serde_json::from_str(&text).unwrap();
+            let commit = chunk["commit"] == true;
+            chunks.push(chunk);
+            if commit {
+                for frame in [
+                    r#"{"message_type":"partial_transcript","text":"Book the"}"#,
+                    r#"{"message_type":"committed_transcript","text":"Book the room."}"#,
+                ] {
+                    socket.send(Message::text(frame)).await.unwrap();
+                }
+                socket.close(None).await.ok();
+                break;
+            }
+        }
+        (seen_path, chunks)
+    });
+    (format!("http://127.0.0.1:{}/v1", addr.port()), handle)
+}
+
+/// Scribe takes base64 audio chunks and one chunk that commits on
+/// release. The committed transcript is the draft; a partial one is a
+/// guess that the commit replaces.
+#[tokio::test]
+async fn a_live_dictation_on_elevenlabs_sends_chunks_and_commits_on_release() {
+    let (base_url, server) = scribe_server().await;
+    let voice = voice(
+        Provider::ElevenLabs,
+        &base_url,
+        &["elevenlabs/scribe_v2"],
+        &[],
+    );
+
+    let mut session = voice
+        .dictate(&workspace())
+        .await
+        .unwrap()
+        .expect("ElevenLabs has a live socket");
+    session.input.append(&[1, 0, 2, 0]).await.unwrap();
+    session.input.commit().await.unwrap();
+
+    let mut heard = Vec::new();
+    while let Some(piece) = session.transcripts.next().await {
+        let piece = piece.unwrap();
+        let done = matches!(piece, Transcript::Final(_));
+        heard.push(piece);
+        if done {
+            break;
+        }
+    }
+    assert_eq!(heard, vec![Transcript::Final("Book the room.".to_string())]);
+    drop(session);
+
+    let (path, chunks) = server.await.unwrap();
+    assert!(
+        path.starts_with("/v1/speech-to-text/realtime?model_id=scribe_v2_realtime"),
+        "{path}"
+    );
+    assert_eq!(
+        chunks,
+        vec![
+            serde_json::json!({
+                "message_type": "input_audio_chunk",
+                "audio_base_64": "AQACAA==",
+                "commit": false,
+                "sample_rate": SAMPLE_RATE,
+            }),
+            serde_json::json!({
+                "message_type": "input_audio_chunk",
+                "audio_base_64": "",
+                "commit": true,
+                "sample_rate": SAMPLE_RATE,
+            }),
+        ]
+    );
+}
+
 #[tokio::test]
 async fn a_live_dictation_runs_a_transcription_only_session_ended_by_the_commit() {
     let (base_url, server) = transcription_server().await;
@@ -220,27 +430,15 @@ async fn a_live_dictation_runs_a_transcription_only_session_ended_by_the_commit(
     );
 }
 
+/// A provider that `Provider::uses` gives no voice use is not selected,
+/// even with a key and a candidate in the alias.
 #[tokio::test]
-async fn a_provider_without_a_realtime_socket_declares_dictation_absent() {
-    // Anthropic has no realtime socket; the router says Unsupported and
-    // the seam says None, never an error.
+async fn a_provider_without_a_voice_use_is_not_selected() {
     let voice = voice(
         Provider::Anthropic,
         "http://127.0.0.1:9/v1",
-        &["anthropic/claude-sonnet-4-6"],
-        &[],
-    );
-
-    assert!(voice.dictate(&workspace()).await.unwrap().is_none());
-}
-
-#[tokio::test]
-async fn openrouter_is_not_selected_for_voice_aliases() {
-    let voice = voice(
-        Provider::OpenRouter,
-        "http://127.0.0.1:9/v1",
-        &["openrouter/openai/gpt-4o-transcribe"],
-        &["openrouter/openai/gpt-4o-mini-tts"],
+        &["anthropic/claude-sonnet-5-5"],
+        &["anthropic/claude-sonnet-5-5"],
     );
 
     let error = voice
@@ -253,9 +451,52 @@ async fn openrouter_is_not_selected_for_voice_aliases() {
         .await
         .unwrap_err();
     assert!(matches!(error, VoiceError::NoProvider(alias) if alias == "transcribe"));
-
-    let error = voice.speak(&workspace(), "x", None).await.unwrap_err();
+    let error = voice
+        .dictate(&workspace())
+        .await
+        .err()
+        .expect("no dictation");
+    assert!(matches!(error, VoiceError::NoProvider(alias) if alias == "transcribe"));
+    let error = voice.speak(&workspace(), "x", "alloy").await.unwrap_err();
     assert!(matches!(error, VoiceError::NoProvider(alias) if alias == "speak"));
+}
+
+/// OpenRouter transcribes a held clip on its `/audio/transcriptions`
+/// route. It has no realtime socket, so live dictation is absent, not
+/// failed, and the clip is transcribed on release.
+#[tokio::test]
+async fn openrouter_transcribes_a_held_clip_and_declares_live_dictation_absent() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/v1/audio/transcriptions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "text": "Book the room."
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let voice = voice(
+        Provider::OpenRouter,
+        &format!("{}/api/v1", server.uri()),
+        &["openrouter/openai/gpt-4o-transcribe"],
+        &[],
+    );
+
+    assert!(voice.dictate(&workspace()).await.unwrap().is_none());
+    let text = voice
+        .transcribe(
+            &workspace(),
+            Clip {
+                pcm16: vec![1, 0, 2, 0].into(),
+            },
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(text, "Book the room.");
+    let body =
+        String::from_utf8_lossy(&server.received_requests().await.unwrap()[0].body).into_owned();
+    assert!(body.contains("openai/gpt-4o-transcribe"), "{body}");
 }
 
 #[tokio::test]
@@ -295,7 +536,7 @@ async fn a_buffered_clip_posts_as_a_wav_file_to_the_transcribe_alias() {
 }
 
 #[tokio::test]
-async fn speaking_uses_the_agent_voice_and_names_the_default_when_absent() {
+async fn speaking_sends_the_voice_it_is_given() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/v1/audio/speech"))
@@ -304,7 +545,7 @@ async fn speaking_uses_the_agent_voice_and_names_the_default_when_absent() {
                 .insert_header("content-type", "audio/mpeg")
                 .set_body_bytes(b"mp3".to_vec()),
         )
-        .expect(2)
+        .expect(1)
         .mount(&server)
         .await;
     let voice = voice(
@@ -315,27 +556,55 @@ async fn speaking_uses_the_agent_voice_and_names_the_default_when_absent() {
     );
 
     let spoken = voice
-        .speak(&workspace(), "Hello there.", Some("nova"))
+        .speak(&workspace(), "Hello there.", "nova")
         .await
         .unwrap();
+
     assert_eq!(spoken.audio.as_ref(), b"mp3");
     assert_eq!(spoken.media_type, "audio/mpeg");
     assert_eq!(spoken.voice, "nova");
+    let requests = server.received_requests().await.unwrap();
+    let sent: serde_json::Value = requests[0].body_json().unwrap();
+    assert_eq!(sent["model"], "gpt-4o-mini-tts");
+    assert_eq!(sent["voice"], "nova");
+    assert_eq!(sent["input"], "Hello there.");
+    assert_eq!(sent["response_format"], "mp3");
+}
+
+/// OpenRouter speaks on its `/audio/speech` route, with the model's own
+/// voice: Gemini TTS takes Gemini voices.
+#[tokio::test]
+async fn openrouter_speaks_with_a_gemini_voice() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/v1/audio/speech"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "audio/mpeg")
+                .set_body_bytes(b"mp3".to_vec()),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let voice = voice(
+        Provider::OpenRouter,
+        &format!("{}/api/v1", server.uri()),
+        &[],
+        &["openrouter/google/gemini-3.8-flash-tts"],
+    );
 
     let spoken = voice
-        .speak(&workspace(), "Hello there.", None)
+        .speak(&workspace(), "Hello there.", "Kore")
         .await
         .unwrap();
-    assert_eq!(spoken.voice, "alloy");
 
-    let requests = server.received_requests().await.unwrap();
-    let first: serde_json::Value = requests[0].body_json().unwrap();
-    assert_eq!(first["model"], "gpt-4o-mini-tts");
-    assert_eq!(first["voice"], "nova");
-    assert_eq!(first["input"], "Hello there.");
-    assert_eq!(first["response_format"], "mp3");
-    let second: serde_json::Value = requests[1].body_json().unwrap();
-    assert_eq!(second["voice"], "alloy");
+    assert_eq!(spoken.voice, "Kore");
+    let sent: serde_json::Value = server.received_requests().await.unwrap()[0]
+        .body_json()
+        .unwrap();
+    assert_eq!(sent["model"], "google/gemini-3.8-flash-tts");
+    assert_eq!(sent["voice"], "Kore");
+    assert_eq!(sent["response_format"], "mp3");
 }
 
 #[tokio::test]
@@ -358,6 +627,6 @@ async fn an_alias_with_no_keyed_provider_is_a_clear_error() {
         .unwrap_err();
     assert!(matches!(error, VoiceError::NoProvider(alias) if alias == "transcribe"));
 
-    let error = voice.speak(&workspace(), "x", None).await.unwrap_err();
+    let error = voice.speak(&workspace(), "x", "alloy").await.unwrap_err();
     assert!(matches!(error, VoiceError::NoProvider(alias) if alias == "speak"));
 }

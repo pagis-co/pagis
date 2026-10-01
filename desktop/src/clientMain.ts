@@ -3,7 +3,21 @@ import * as path from 'node:path'
 import * as os from 'node:os'
 import { pathToFileURL } from 'node:url'
 
-import { BrowserWindow, Menu, type Tray, app, dialog, ipcMain, session, shell } from 'electron'
+import {
+  BrowserWindow,
+  Menu,
+  type MessageBoxOptions,
+  type MessageBoxReturnValue,
+  Notification,
+  type Tray,
+  app,
+  autoUpdater as squirrel,
+  dialog,
+  ipcMain,
+  session,
+  shell,
+} from 'electron'
+import { AppImageUpdater, DebUpdater, type UpdateDownloadedEvent, autoUpdater } from 'electron-updater'
 
 import { ClientController } from './clientController'
 import { DaemonSupervisor, redact, type DaemonState } from './daemon'
@@ -33,18 +47,24 @@ import {
   thisPlatform,
   type RuntimeLock,
 } from './runtimeLock'
-import { RuntimeState } from './runtimeState'
+import { RuntimeState, startAction } from './runtimeState'
 import { probeRuntimeIdentity } from './runtimeIdentity'
 import { recoveryView, sameProductOrigin } from './recoveryView'
 import { SetupProgress } from './setupProgress'
-import { type SetupState, setupFailureState } from './setupState'
+import { type SetupState, type Upgrade, setupFailureState } from './setupState'
 import { isTrustedSetupRequest } from './setupTrust'
 import { isServerRequest } from './setupCoordinator'
 import { assertServerIsReady, connectToServer } from './serverOnboarding'
 import { watchServerSignIn } from './serverSignIn'
 import { ServerConnections, type ServerConnection } from './serverConnection'
 import { reportUncaughtExceptions } from './uncaughtFailure'
-import { type NewVersion, checkForNewVersion } from './updateCheck'
+import { checkSignedChecksum } from './signedChecksums'
+import { checkAnswer, readyNotification, restartQuestion } from './updateMessages'
+import { type Installer, type UpdateSource, type UpdateState, Updates } from './updates'
+import { LATEST_RELEASE, serverSource } from './updateSource'
+import { prepareUpdate, pullComputerImage, releaseLock } from './updatePreparation'
+import { unfinishedRuns } from './unfinishedRuns'
+import { BackupFailure, keepNewestBackup, takeUpgradeBackup } from './upgradeBackup'
 import { installBluetoothRefusal, installPermissionHandlers, type ProductWindow } from './webPermissions'
 import {
   applyProductWebRtcPolicy,
@@ -80,8 +100,19 @@ class Shell {
   private setupWindow: BrowserWindow | null = null
   private statusWindow: BrowserWindow | null = null
   private tray: Tray | null = null
-  private update: NewVersion | null = null
+  // The Update of the Client App (ADR-0027). electron-updater works only
+  // in the packaged app.
+  private readonly updates = clientUpdates(
+    (state) => this.onUpdateState(state),
+    (version) => this.prepareUpdate(version),
+    () => this.updateSource(),
+  )
+  // True from "Restart to Update" until the process ends.
+  private installingUpdate = false
   private setupState: SetupState = { kind: 'ready' }
+  // The Upgrade that the setup window shows, until the new release is
+  // active. It lives only as long as this process.
+  private upgrading: Upgrade | null = null
   private lock: RuntimeLock | null = null
   private readonly installer = new RuntimeInstaller(this.runtimeRoot)
   // This machine as a Host. A host action runs here, through the
@@ -89,8 +120,9 @@ class Shell {
   private hostLink: HostLink | null = null
   private quitting = false
   private readonly controller = new ClientController({
+    backUp: (signal) => this.backUpForUpgrade(signal),
     install: async (options) => {
-      const progress = new SetupProgress((state) => this.setSetupState(state))
+      const progress = new SetupProgress((state) => this.setSetupState(state), this.upgrading)
       const binary = await this.installer.install(this.runtimeLock(), {
         ...options,
         onProgress: (step) => progress.report(step),
@@ -121,6 +153,11 @@ class Shell {
     if (!SMOKE) {
       Menu.setApplicationMenu(applicationMenu(this.menuActions()))
       this.tray = createTray(this.menuActions())
+      // An Update gives the AppImage file the name of the new release.
+      refreshAutostart()
+    }
+    if (this.updates && process.platform === 'linux') {
+      autoUpdater.on('appimage-filename-updated', (file) => refreshAutostart(file))
     }
     let connection: ServerConnection | null
     try {
@@ -128,12 +165,12 @@ class Shell {
     } catch (error) {
       await this.openSetup()
       this.setSetupState(this.failureState(error))
-      if (!SMOKE) void this.checkVersion()
+      this.followConnection()
       return
     }
     if (connection) {
       await this.openConnected(connection)
-      if (!SMOKE) void this.checkVersion()
+      this.followConnection()
       return
     }
     let release: string | null
@@ -142,10 +179,11 @@ class Shell {
     } catch (error) {
       await this.openSetup()
       this.setSetupState(this.failureState(error))
-      if (!SMOKE) void this.checkVersion()
+      this.followConnection()
       return
     }
-    if (release === app.getVersion()) {
+    const action = startAction(release, app.getVersion())
+    if (action === 'resume') {
       try {
         await this.controller.resume()
       } catch (error) {
@@ -154,6 +192,8 @@ class Shell {
           this.setSetupState(this.failureState(error))
         }
       }
+    } else if (action === 'upgrade') {
+      await this.upgradeInstallation(true)
     } else {
       await this.openSetup()
     }
@@ -163,7 +203,7 @@ class Shell {
       app.exit(0)
       return
     }
-    void this.checkVersion()
+    this.followConnection()
   }
 
   /** Stop the work of the client before the process ends (`endOnQuit`). */
@@ -176,6 +216,9 @@ class Shell {
     this.hostLink?.stop()
     this.hostLink = null
     await this.controller.cancel()
+    // The server stopped, so a ready AppImage Update can replace the file.
+    // The Update of a connected client is the release of its server.
+    this.updates?.installAtQuit()
   }
 
   /** Quit from the setup page, the app menu or the tray. It asks first
@@ -260,6 +303,56 @@ class Shell {
     return this.lock
   }
 
+  /**
+   * Upgrade the Local Installation of an older release to the release of
+   * this client (ADR-0027). The setup window shows each step and asks no
+   * setup question. A failure stays on the setup page: a failed Backup
+   * offers Retry and "Continue without a Backup", and each other failure
+   * offers what a failed start offers.
+   */
+  private async upgradeInstallation(backup: boolean): Promise<void> {
+    this.upgrading = { release: app.getVersion(), backup }
+    new SetupProgress((state) => this.setSetupState(state), this.upgrading).begin()
+    await this.openSetup()
+    try {
+      await this.controller.upgrade(backup)
+    } catch (error) {
+      this.setSetupState(this.failureState(error))
+    }
+  }
+
+  /**
+   * The Backup of an Upgrade, taken with the server program of the
+   * release that the installation records, on the State Directory that
+   * the daemon gets. Once the new release started on the data, no
+   * Upgrade is due, so there is no Backup to take.
+   */
+  private async backUpForUpgrade(signal: AbortSignal): Promise<void> {
+    const lock = this.runtimeLock()
+    const old = this.runtimeState.releaseToStart()
+    if (old === null || startAction(old, lock.release) !== 'upgrade') return
+    await takeUpgradeBackup({
+      program: path.join(this.runtimeRoot, 'releases', old, `${lock.platform}-${lock.arch}`, 'pagis'),
+      home: this.home,
+      release: old,
+      signal,
+    })
+  }
+
+  /**
+   * Keep one Backup, and the package and the download of the active
+   * release alone. The product opens while this runs, and a failure
+   * does not stop it: the next activation tries again.
+   */
+  private async removeOldFiles(): Promise<void> {
+    try {
+      await keepNewestBackup(this.home)
+      await this.installer.removeOtherReleases(this.runtimeLock())
+    } catch (error) {
+      console.error(`pagis: the client did not remove the old Backups and releases: ${this.failure(error)}`)
+    }
+  }
+
   private createSupervisor(binary: string, beforeSpawn: () => void): DaemonSupervisor {
     const lock = this.runtimeLock()
     if (!fs.statSync(binary).isFile()) throw new Error('the installed Pagis server is missing')
@@ -311,6 +404,7 @@ class Shell {
     this.setSetupState({ kind: 'installing', detail: 'Connecting to the Pagis server…' })
     const origin = await connectToServer(url, app.getVersion(), fetch, signal)
     this.connection = this.connections.write(origin)
+    this.followConnection()
     return origin
   }
 
@@ -336,10 +430,13 @@ class Shell {
    *  of its own server and of nobody else's. */
   private activateOwnRuntime(): void {
     this.runtimeState.activate(this.runtimeLock().release)
+    this.upgrading = null
+    void this.removeOldFiles()
     this.connections.forget()
     this.connection = null
     this.signInWatch?.()
     this.signInWatch = null
+    this.followConnection()
   }
 
   /** The Client Credential the daemon wrote on its first run. */
@@ -564,6 +661,10 @@ class Shell {
         throw isServerRequest(request) ? this.serverCheckFailure(error) : this.setupFailure(error)
       })
     })
+    ipcMain.handle('pagis:upgrade', (event, backup: unknown) => {
+      if (!this.trustedSetup(event) || typeof backup !== 'boolean') throw new Error('invalid upgrade request')
+      return this.upgradeInstallation(backup)
+    })
     ipcMain.handle('pagis:cancel-setup', async (event) => {
       if (!this.trustedSetup(event)) throw new Error('untrusted setup request')
       await this.controller.cancel()
@@ -615,9 +716,111 @@ class Shell {
     return isTrustedSetupRequest(event, this.statusWindow.webContents, pathToFileURL(path.join(__dirname, '..', 'static', 'status.html')).toString())
   }
 
-  private async checkVersion(): Promise<void> {
-    this.update = await checkForNewVersion(app.getVersion())
-    if (this.update && this.tray) renderTray(this.tray, this.menuActions())
+  /**
+   * Run the updater after setup, and not before (ADR-0027). A client on the
+   * setup page could download the latest release, then connect to an older
+   * server and install that Update at quit, and the new client would refuse
+   * the server. Each check reads the source of the setup that the client
+   * has at that time (`updateSource`).
+   */
+  private followConnection(): void {
+    if (!this.updates) return
+    if (this.connection || this.installedHere()) this.updates.start()
+    else this.updates.stop()
+    this.renderMenus()
+  }
+
+  /** The Update as the menus show it, or null where the updater does not run. */
+  private updateState(): UpdateState | null {
+    return this.updates?.running ? this.updates.state : null
+  }
+
+  /** What a check reads: the latest release for a Local Installation, and
+   *  the release of the server for a connected client. */
+  private updateSource(): Promise<UpdateSource> {
+    if (this.connection) return serverSource(this.connection.origin, app.getVersion())
+    return Promise.resolve(LATEST_RELEASE)
+  }
+
+  private onUpdateState(state: UpdateState): void {
+    this.renderMenus()
+    // The install failed after the server stopped and the windows closed:
+    // Squirrel.Mac refused the Update, the AppImage file could not be
+    // replaced, or the Person cancelled the password prompt of the deb.
+    // The Person starts Pagis again, on the old release.
+    if (this.installingUpdate && state.kind === 'failed') {
+      dialog.showErrorBox('Pagis could not install the Update', state.reason)
+      app.quit()
+    }
+  }
+
+  private renderMenus(): void {
+    if (SMOKE) return
+    Menu.setApplicationMenu(applicationMenu(this.menuActions()))
+    if (this.tray) renderTray(this.tray, this.menuActions())
+  }
+
+  /** "Check for Updates…": check now and show what the check found. */
+  private async checkForUpdates(): Promise<void> {
+    if (!this.updates) return
+    await this.messageBox(checkAnswer(await this.updates.check(), app.getVersion()))
+  }
+
+  /**
+   * "Restart to Update" (ADR-0027): ask first when Runs are in progress,
+   * stop the server, and let the installer install the Update and start
+   * the new Client App. Each Run in progress fails, as at every restart.
+   */
+  private async restartToUpdate(): Promise<void> {
+    if (!this.updates) return
+    const question = restartQuestion(await this.unfinishedRuns())
+    if (question !== null && (await this.messageBox(question)).response !== 0) return
+    // The Update can fail while the question waits.
+    if (this.updates.state.kind !== 'ready') throw new Error('the Update is not ready to install')
+    await this.controller.cancel()
+    // The windows close for the install, so they must not hide.
+    this.quitting = true
+    this.installingUpdate = true
+    this.updates.install()
+  }
+
+  /**
+   * Prepare the restart to an Update (ADR-0027): the Server Package of
+   * the Update goes into the download cache, and the daemon pulls its
+   * Computer Image. Only a Local Installation has a cache and a daemon.
+   */
+  private prepareUpdate(version: string): Promise<void> {
+    if (this.connection || !this.installedHere()) return Promise.resolve()
+    return prepareUpdate(version, {
+      readLock: (release) => releaseLock(release),
+      download: (lock) => this.installer.download(lock),
+      pull: (image) => pullComputerImage(image, {
+        administrationUrl: administrationUrl(readAdministrationPort(this.home)),
+        productUrl: daemonUrl(readPort(this.home)),
+        credential: readClientCredential(this.home),
+        jar: session.defaultSession.cookies,
+      }),
+    })
+  }
+
+  /** The Runs that a restart fails. A client with no running server has
+   *  none: a connected client supervises no server, and the Runs belong to
+   *  its server. Null means that the server did not say. */
+  private async unfinishedRuns(): Promise<number | null> {
+    if (this.controller.state?.kind !== 'running') return 0
+    return unfinishedRuns(
+      administrationUrl(readAdministrationPort(this.home)),
+      daemonUrl(readPort(this.home)),
+      readClientCredential(this.home),
+      session.defaultSession.cookies,
+    )
+  }
+
+  /** A message box on the visible window, or on its own when no window is
+   *  visible. */
+  private messageBox(options: MessageBoxOptions): Promise<MessageBoxReturnValue> {
+    const window = [this.setupWindow, this.statusWindow, this.mainWindow].find((each) => each?.isVisible()) ?? null
+    return window === null ? dialog.showMessageBox(options) : dialog.showMessageBox(window, options)
   }
 
   /** A handoff that no setup job awaits still has to reach the person. */
@@ -647,9 +850,14 @@ class Shell {
    * A failure of this computer's installation as the setup page shows
    * it: the taken-port page when the server found its port taken, else
    * the reason. Repair is offered only where this computer holds an
-   * installation, and never on a client with no Runtime Lock.
+   * installation, and never on a client with no Runtime Lock. A failed
+   * Backup stopped an Upgrade before the data changed, so it offers the
+   * Upgrade again, with a Backup or without one.
    */
   private failureState(error: unknown): SetupState {
+    if (error instanceof BackupFailure) {
+      return { kind: 'backup-failed', release: app.getVersion(), reason: this.failure(error) }
+    }
     const repair = this.installedHere() && !(error instanceof NoRuntimeLockError)
     return setupFailureState(this.failure(error), this.controller.state, repair)
   }
@@ -674,7 +882,13 @@ class Shell {
       quit: () => void this.requestQuit(),
       openAtLogin: (open: boolean) => loginItem.setOpenAtLogin(open),
       isOpenAtLogin: () => loginItem.isOpenAtLogin(),
-      newVersion: () => this.update,
+      update: () => this.updateState(),
+      checkForUpdates: () => void this.checkForUpdates().catch((error: unknown) => {
+        dialog.showErrorBox('Pagis could not check for updates', this.failure(error))
+      }),
+      restartToUpdate: () => void this.restartToUpdate().catch((error: unknown) => {
+        dialog.showErrorBox('Pagis could not install the Update', this.failure(error))
+      }),
     }
   }
 }
@@ -686,12 +900,77 @@ function openInBrowser(url: string): void {
 }
 
 /** macOS keeps login items itself; Linux reads an XDG autostart entry. */
-const loginItem: LoginItem = process.platform === 'linux'
-  ? new AutostartEntry()
-  : {
-      isOpenAtLogin: () => app.getLoginItemSettings().openAtLogin,
-      setOpenAtLogin: (open) => app.setLoginItemSettings({ openAtLogin: open }),
+const autostart = process.platform === 'linux' ? new AutostartEntry() : null
+const loginItem: LoginItem = autostart ?? {
+  isOpenAtLogin: () => app.getLoginItemSettings().openAtLogin,
+  setOpenAtLogin: (open) => app.setLoginItemSettings({ openAtLogin: open }),
+}
+
+/** Write the autostart entry again when it is on, for the executable of
+ *  this start or for the AppImage file that an Update wrote. A failure
+ *  does not stop the client. */
+function refreshAutostart(executable?: string): void {
+  try {
+    autostart?.refresh(executable)
+  } catch (error) {
+    console.error(`pagis: the client did not write the autostart entry again: ${String(error)}`)
+  }
+}
+
+/**
+ * The Update of the Client App (ADR-0027), or null where electron-updater
+ * installs none: from source, in the smoke test, and on Linux outside an
+ * AppImage and a deb.
+ */
+function clientUpdates(
+  onState: (state: UpdateState) => void,
+  prepare: (version: string) => Promise<void>,
+  source: () => Promise<UpdateSource>,
+): Updates | null {
+  if (!app.isPackaged || SMOKE) return null
+  const installer = updateInstaller()
+  if (installer === null) return null
+  return new Updates({
+    updater: autoUpdater,
+    installer,
+    onState,
+    notify: (version) => new Notification(readyNotification(version)).show(),
+    prepare,
+    source,
+  })
+}
+
+/**
+ * Squirrel.Mac on macOS. On Linux electron-updater chooses its updater by
+ * the package: a deb holds `resources/package-type`, and an AppImage runs
+ * with APPIMAGE set. Each checks the download against the signed checksum
+ * list, with the public Update Key that the package embeds.
+ */
+function updateInstaller(): Installer | null {
+  if (process.platform === 'darwin') return { kind: 'squirrel', squirrel }
+  if (!autoUpdater.isUpdaterActive()) return null
+  const verify = (update: UpdateDownloadedEvent) => checkSignedChecksum(
+    update.downloadedFile,
+    update.version,
+    fs.readFileSync(path.join(process.resourcesPath, 'update-key.pem'), 'utf8'),
+  )
+  if (autoUpdater instanceof DebUpdater) return { kind: 'deb', verify }
+  const appImage = process.env.APPIMAGE
+  if (autoUpdater instanceof AppImageUpdater && appImage) {
+    return {
+      kind: 'appimage',
+      verify,
+      file: appImage,
+      // Electron starts the new file after this process ended, so the new
+      // process gets the single-instance lock.
+      restart: (file) => {
+        app.relaunch({ execPath: file, args: [] })
+        app.quit()
+      },
     }
+  }
+  return null
+}
 
 function run(): void {
   if (SMOKE) {

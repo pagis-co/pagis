@@ -4,6 +4,32 @@
  */
 
 export interface paths {
+    "/api/v1/administration/computer-image/pull": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Pull a Computer Image, and answer when the pull ends.
+         * @description Before a restart to an Update, the Client App of a Local Installation
+         *     asks for the Computer Image that the next release pins, so the new
+         *     daemon finds it present (ADR-0027). The daemon pulls only an image of
+         *     the repository of its own pinned image, and only by its digest. A
+         *     second request for the same image joins the pull that runs, and a
+         *     request that goes away does not stop the pull. A failed pull answers
+         *     `502`, and `503` where Docker does not answer.
+         */
+        post: operations["pull_computer_image"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/administration/health": {
         parameters: {
             query?: never;
@@ -3141,6 +3167,18 @@ export interface components {
             /** @description `off`, `pulling`, `starting`, `awake`, or `failed`. */
             state: string;
         };
+        /** @description The Computer Image that the daemon pulled. */
+        ComputerImageDto: {
+            image: string;
+        };
+        /** @description The Computer Image that the Client App asks the daemon to pull. */
+        ComputerImagePullRequest: {
+            /**
+             * @description `<repository>@sha256:<64 lowercase hexadecimal characters>`. The
+             *     repository is the repository of the pinned Computer Image.
+             */
+            image: string;
+        };
         Condition: {
             operator: components["schemas"]["Operator"];
             signal: string;
@@ -4343,6 +4381,11 @@ export interface components {
         ModelAliasDto: {
             alias: string;
             candidates: string[];
+            /**
+             * @description Whether a candidate names a provider that holds a key and serves
+             *     the alias's use. An alias that is not reachable fails each call.
+             */
+            reachable: boolean;
             settings: components["schemas"]["ModelAliasSettingDto"][];
             /** Format: int64 */
             updated_at: number;
@@ -4371,6 +4414,11 @@ export interface components {
         };
         /** @description The lists of every provider that holds a key. */
         ModelListsDto: {
+            /**
+             * @description The candidate a default pick takes: the default route of these
+             *     keys and lists. `null` when no provider holds a key.
+             */
+            preselected?: string | null;
             providers: components["schemas"]["ProviderModelsDto"][];
         };
         /** @description The multi-user mode as the Settings view shows it (ADR-0024). */
@@ -4436,6 +4484,11 @@ export interface components {
         };
         /** @description Everything the onboarding wizard needs in one read. */
         OnboardingDto: {
+            /**
+             * @description The server-owned key check of each provider that passed one. A
+             *     check whose credential has changed since is left out.
+             */
+            checks: components["schemas"]["ModelCheckDto"][];
             completed: boolean;
             /**
              * @description Docker discovery. A Member reads the endpoint in use and no
@@ -4448,7 +4501,6 @@ export interface components {
              *     discovery. It is `null` for a Member.
              */
             docker_endpoint?: string | null;
-            model?: null | components["schemas"]["ModelCheckDto"];
             providers: components["schemas"]["ProviderKeyDto"][];
         };
         /** @enum {string} */
@@ -4819,6 +4871,11 @@ export interface components {
             configured: boolean;
             provider: string;
             source?: string | null;
+            /**
+             * @description What the key does in Pagis: `thinking`, `spoken_replies`,
+             *     `dictation` and `calls`.
+             */
+            uses: string[];
         };
         /** @description One provider's list, or why it is missing. */
         ProviderModelsDto: {
@@ -4829,11 +4886,6 @@ export interface components {
              *     when `error` is set.
              */
             models: components["schemas"]["ListedModelDto"][];
-            /**
-             * @description The model id a default pick takes: the newest listed model whose
-             *     name reads as a chat model. `None` when the list has none.
-             */
-            preselected?: string | null;
             provider: string;
         };
         ProviderPage: {
@@ -5301,13 +5353,10 @@ export interface components {
         };
         SetOnboardingDefaultModelRequest: {
             /**
-             * @description The model id as the provider lists it, without the provider
-             *     prefix. `null` takes the preselection: the newest listed chat model,
-             *     or the provider's fallback candidate when its list is not available.
+             * @description The `provider/model` candidate, e.g. `anthropic/claude-sonnet-5-5`.
+             *     `null` takes the preselection.
              */
-            model?: string | null;
-            /** @description `anthropic`, `openai`, or `openrouter`. */
-            provider: string;
+            candidate?: string | null;
         };
         SetOnboardingDockerEndpointRequest: {
             /**
@@ -5925,9 +5974,27 @@ export interface components {
         };
         /** @enum {string} */
         Verdict: "reflect" | "skip";
-        /** @description The voice catalogue (ADR-0020): the names an Agent Voice can take. */
+        /** @description One voice of the model that speaks. */
+        VoiceDto: {
+            /** @description What an Agent Voice holds. */
+            id: string;
+            /** @description The name a person reads, or `null` when the id is the name. */
+            name?: string | null;
+        };
+        /**
+         * @description The Provider Voice List (ADR-0020): the names an Agent Voice can take,
+         *     which are the voices of the model that speaks for the Workspace.
+         */
         VoicePage: {
-            items: string[];
+            /** @description Its voices; the first is the default. */
+            items: components["schemas"]["VoiceDto"][];
+            /** @description The model that speaks, as its provider names it. */
+            model?: string | null;
+            /**
+             * @description The provider of the model that speaks, or `null` when no key
+             *     serves spoken replies.
+             */
+            provider?: string | null;
         };
         WakeupDto: {
             agent_id: string;
@@ -5994,6 +6061,69 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    pull_computer_image: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ComputerImagePullRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComputerImageDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     installation_health: {
         parameters: {
             query?: never;

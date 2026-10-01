@@ -6,6 +6,7 @@ import * as zlib from 'node:zlib'
 import { describe, expect, it, vi } from 'vitest'
 
 import { applicationMenu, renderTray, trayIcon } from './menus'
+import type { UpdateState } from './updates'
 
 // The menus are built from Electron's own template shape, so the test
 // takes the template back out of `buildFromTemplate` and reads it.
@@ -16,20 +17,45 @@ vi.mock('electron', () => ({
     setContextMenu(): void {}
   },
   app: { name: 'Pagis' },
-  shell: { openExternal: vi.fn() },
 }))
 
-type Item = { label?: string; role?: string; accelerator?: string; click?: () => void; submenu?: Item[] }
+type Item = {
+  label?: string
+  role?: string
+  type?: string
+  enabled?: boolean
+  accelerator?: string
+  click?: () => void
+  submenu?: Item[]
+}
 
-function actions(openAdministration: () => void) {
+function actions(openAdministration: () => void, update: UpdateState | null = null) {
   return {
     open: vi.fn(),
     openAdministration,
     quit: vi.fn(),
     openAtLogin: vi.fn(),
     isOpenAtLogin: () => false,
-    newVersion: () => null,
+    update: () => update,
+    checkForUpdates: vi.fn(),
+    restartToUpdate: vi.fn(),
   }
+}
+
+/** The tray menu that `renderTray` builds. */
+function trayMenu(menuActions: ReturnType<typeof actions>): Item[] {
+  let menu: Item[] = []
+  renderTray({ setContextMenu: (built: unknown) => { menu = built as Item[] } } as never, menuActions)
+  return menu
+}
+
+/** The macOS application menu, the Linux application menu and the tray menu. */
+function menus(menuActions: ReturnType<typeof actions>): Item[][] {
+  return [
+    applicationMenu(menuActions, 'darwin') as unknown as Item[],
+    applicationMenu(menuActions, 'linux') as unknown as Item[],
+    trayMenu(menuActions),
+  ]
 }
 
 /** The item of a menu, by label, at any depth. */
@@ -79,6 +105,72 @@ describe('the menus', () => {
     expect(linux[0].submenu?.map((entry) => entry.role)).not.toContain('hideOthers')
     const quit = item(linux, 'Quit Pagis')
     expect(quit?.accelerator).toBe('CmdOrCtrl+Q')
+  })
+
+  it('puts Check for Updates… after About in the macOS menu and in the tray', () => {
+    const menuActions = actions(vi.fn(), { kind: 'idle' })
+
+    const mac = applicationMenu(menuActions, 'darwin') as unknown as Item[]
+    expect(mac[0].submenu?.[0].role).toBe('about')
+    expect(mac[0].submenu?.[1].label).toBe('Check for Updates…')
+    mac[0].submenu?.[1].click?.()
+    item(trayMenu(menuActions), 'Check for Updates…')?.click?.()
+
+    expect(menuActions.checkForUpdates).toHaveBeenCalledTimes(2)
+  })
+
+  /** A Linux desktop with no status area shows no tray item, so the File
+   *  menu of the window carries the Update item too. */
+  it('puts the Update item before Quit in the Linux File menu', () => {
+    const menuActions = actions(vi.fn(), { kind: 'idle' })
+
+    const file = (applicationMenu(menuActions, 'linux') as unknown as Item[])[0]
+    expect(file.label).toBe('File')
+    expect(file.submenu?.map((entry) => entry.label ?? entry.type)).toEqual(['Check for Updates…', 'separator', 'Quit Pagis'])
+    file.submenu?.[0].click?.()
+
+    expect(menuActions.checkForUpdates).toHaveBeenCalledTimes(1)
+  })
+
+  it('offers a check again after a failed one', () => {
+    const menuActions = actions(vi.fn(), { kind: 'failed', reason: 'offline' })
+
+    for (const menu of menus(menuActions)) expect(item(menu, 'Check for Updates…')).toBeDefined()
+  })
+
+  it('shows a check, a download and a preparation in progress as disabled items', () => {
+    for (const [state, label] of [
+      [{ kind: 'checking' }, 'Checking for Updates…'],
+      [{ kind: 'downloading', version: '1.1.0', percent: 40 }, 'Downloading Pagis 1.1.0… 40%'],
+      [{ kind: 'preparing', version: '1.1.0' }, 'Preparing Pagis 1.1.0…'],
+    ] as const) {
+      for (const menu of menus(actions(vi.fn(), state))) {
+        expect(item(menu, label)?.enabled).toBe(false)
+        expect(item(menu, 'Check for Updates…')).toBeUndefined()
+      }
+    }
+  })
+
+  it('shows Restart to Update when the Update is ready', () => {
+    const menuActions = actions(vi.fn(), { kind: 'ready', version: '1.1.0' })
+
+    for (const menu of menus(menuActions)) item(menu, 'Restart to Update')?.click?.()
+
+    expect(menuActions.restartToUpdate).toHaveBeenCalledTimes(3)
+  })
+
+  /** Only the Client App of a Local Installation, or with no setup yet,
+   *  runs the updater. */
+  it('shows no update item where the updater does not run', () => {
+    const menuActions = actions(vi.fn(), null)
+
+    for (const menu of [
+      applicationMenu(menuActions, 'darwin') as unknown as Item[],
+      applicationMenu(menuActions, 'linux') as unknown as Item[],
+      trayMenu(menuActions),
+    ]) {
+      expect(item(menu, 'Check for Updates…')).toBeUndefined()
+    }
   })
 
   it('gives macOS a template icon and Linux a drawn one', () => {

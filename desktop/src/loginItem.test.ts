@@ -48,6 +48,31 @@ describe('Open at login on Linux', () => {
     expect(text).toContain('Exec="/home/me/Apps/Pagis-1.0.0-x86_64.AppImage"')
   })
 
+  /** An Update gives the AppImage file the name of the new release, and
+   *  removes the old file. */
+  it('writes the entry again for the AppImage file of this start, and only when it is on', () => {
+    const root = home()
+    const file = path.join(root, '.config', 'autostart', 'pagis-client.desktop')
+    new AutostartEntry('/tmp/.mount_PagisAbc/pagis-client', {
+      HOME: root,
+      APPIMAGE: '/home/me/Apps/Pagis-1.0.0-x86_64.AppImage',
+    }).setOpenAtLogin(true)
+    const updated = new AutostartEntry('/tmp/.mount_PagisDef/pagis-client', {
+      HOME: root,
+      APPIMAGE: '/home/me/Apps/Pagis-1.1.0-x86_64.AppImage',
+    })
+
+    updated.refresh()
+    expect(fs.readFileSync(file, 'utf8')).toContain('Exec="/home/me/Apps/Pagis-1.1.0-x86_64.AppImage"\n')
+
+    updated.refresh('/home/me/Apps/Pagis-1.2.0-x86_64.AppImage')
+    expect(fs.readFileSync(file, 'utf8')).toContain('Exec="/home/me/Apps/Pagis-1.2.0-x86_64.AppImage"\n')
+
+    updated.setOpenAtLogin(false)
+    updated.refresh()
+    expect(fs.existsSync(file)).toBe(false)
+  })
+
   it('quotes an executable path as the Desktop Entry Specification says', () => {
     expect(autostartEntry('/home/me/My $Apps/"Pagis"%.AppImage'))
       .toContain('Exec="/home/me/My \\$Apps/\\"Pagis\\"%%.AppImage"')

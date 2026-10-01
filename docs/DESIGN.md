@@ -130,7 +130,9 @@ body, and maps a byte stream to a `StreamEvent` stream. The router owns the shar
   falls through. A tool-type version string is caller data; the router
   hardcodes none.
 - **The other modalities.** Audio in chat, speech synthesis and
-  transcription through the `elevenlabs` and `deepgram` codecs, image
+  transcription through the `elevenlabs` and `deepgram` codecs and the
+  OpenAI audio routes (`/audio/speech`, `/audio/transcriptions`), which
+  the `openai-chat` and `openai-responses` codecs both send, image
   generation with edits and reference inputs, video generation jobs
   through the `veo` codec, and realtime WebSocket endpoint routing.
   `docs/MODALITIES.md` states the rules these follow.
