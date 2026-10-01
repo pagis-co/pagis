@@ -200,7 +200,7 @@ describe('the inventory of the packaged app', () => {
     return [app, ...packages]
   }
 
-  it('accepts an app whose app-update.yml names the GitHub releases of pagis-co/pagis', async () => {
+  it('accepts an app with its app-update.yml', async () => {
     const config = 'owner: pagis-co\nrepo: pagis\nprovider: github\nupdaterCacheDirName: pagis-desktop-updater\n'
 
     expect(check('check-package.mjs', await packagedApp(config))).toBeNull()
@@ -236,14 +236,8 @@ describe('the inventory of the packaged app', () => {
     }
   })
 
-  it('refuses an app with no app-update.yml, or one that names another feed', async () => {
-    expect(check('check-package.mjs', await packagedApp(null))).toContain('app-update.yml')
-    for (const config of [
-      'owner: someone\nrepo: pagis\nprovider: github\n',
-      'owner: pagis-co\nrepo: other\nprovider: github\n',
-      'provider: generic\nurl: https://example.test/\n',
-    ]) {
-      expect(check('check-package.mjs', await packagedApp(config)), config).toContain('app-update.yml')
-    }
+  /** electron-updater reads the name of its download cache from it. */
+  it('refuses an app with no app-update.yml', async () => {
+    expect(check('check-package.mjs', await packagedApp(null))).toContain('the client package has no app-update.yml')
   })
 })

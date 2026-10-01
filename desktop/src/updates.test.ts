@@ -8,7 +8,9 @@ import { EventEmitter } from 'node:events'
 import type { UpdateCheckResult, UpdateDownloadedEvent } from 'electron-updater'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { CHECK_EVERY_MS, type Installer, Updates, type UpdateState } from './updates'
+import { CHECK_EVERY_MS, type Feed, type Installer, type UpdateSource, Updates, type UpdateState } from './updates'
+
+const LATEST: Feed = { provider: 'github', owner: 'pagis-co', repo: 'pagis' }
 
 /** electron-updater, as the Client App uses it. Each check answers with
  *  the next result in `answers`, and emits the events of electron-updater
@@ -27,8 +29,18 @@ class FakeUpdater extends EventEmitter {
   /** Whether `install` fails. electron-updater then emits `error`. */
   installFails = false
   answers: (string | null | Error)[] = []
+  /** The feed of each `setFeedURL`. */
+  feeds: Feed[] = []
+  /** Whether electron-updater is active. When it is not, a check answers
+   *  null and emits nothing. */
+  active = true
+
+  setFeedURL(feed: Feed): void {
+    this.feeds.push(feed)
+  }
 
   async checkForUpdates(): Promise<UpdateCheckResult | null> {
+    if (!this.active) return null
     this.checks += 1
     const answer = this.answers.shift() ?? null
     this.emit('checking-for-update')
@@ -74,11 +86,13 @@ class FakeUpdater extends EventEmitter {
 interface NewUpdatesOptions {
   installer?: (squirrel: EventEmitter) => Installer
   prepare?: (version: string) => Promise<void>
+  source?: () => Promise<UpdateSource>
 }
 
 function newUpdates({
   installer = (squirrel) => ({ kind: 'squirrel', squirrel }),
   prepare = async () => {},
+  source = async () => ({ kind: 'feed', feed: LATEST }),
 }: NewUpdatesOptions = {}) {
   const updater = new FakeUpdater()
   const squirrel = new EventEmitter()
@@ -91,6 +105,7 @@ function newUpdates({
     onState: (state) => states.push(state),
     notify,
     prepare: preparations,
+    source,
   })
   return { updater, squirrel, states, notify, preparations, updates }
 }
@@ -182,6 +197,14 @@ describe('the Update of the Client App', () => {
     const result = await updates.check()
 
     expect(result).toEqual({ kind: 'up-to-date' })
+    expect(states).toEqual([{ kind: 'checking' }, { kind: 'idle' }])
+  })
+
+  it('ends the check when electron-updater is not active', async () => {
+    const { updates, updater, states } = newUpdates()
+    updater.active = false
+
+    expect(await updates.check()).toEqual({ kind: 'up-to-date' })
     expect(states).toEqual([{ kind: 'checking' }, { kind: 'idle' }])
   })
 
@@ -303,6 +326,44 @@ describe('the Update of the Client App', () => {
     expect(updates.state).toEqual({ kind: 'failed', reason: 'net::ERR_INTERNET_DISCONNECTED' })
   })
 
+  /** The source of a connected Client App is the release of its server,
+   *  which can change between two checks. */
+  it('reads the feed that its source gives at each check', async () => {
+    const release: Feed = { provider: 'generic', url: 'https://github.com/pagis-co/pagis/releases/download/v1.1.0' }
+    const sources: UpdateSource[] = [{ kind: 'feed', feed: LATEST }, { kind: 'feed', feed: release }]
+    const { updates, updater } = newUpdates({ source: async () => sources.shift()! })
+
+    await updates.check()
+    await updates.check()
+
+    expect(updater.feeds).toEqual([LATEST, release])
+    expect(updater.checks).toBe(2)
+  })
+
+  it('has no Update when its server runs no newer release, and reads no feed', async () => {
+    const { updates, updater, states } = newUpdates({ source: async () => ({ kind: 'server-not-newer', server: '1.0.0' }) })
+
+    const result = await updates.check()
+
+    expect(result).toEqual({ kind: 'up-to-date-with-server', server: '1.0.0' })
+    expect(states).toEqual([{ kind: 'checking' }, { kind: 'idle' }])
+    expect(updater.feeds).toEqual([])
+    expect(updater.checks).toBe(0)
+  })
+
+  it('answers the reason when its source fails, and reads no feed', async () => {
+    const { updates, updater } = newUpdates({
+      source: async () => { throw new Error('No Pagis server answered at https://pagis.example.com/') },
+    })
+
+    const result = await updates.check()
+
+    expect(result).toEqual({ kind: 'failed', reason: 'No Pagis server answered at https://pagis.example.com/' })
+    expect(updates.state).toEqual(result)
+    expect(updater.feeds).toEqual([])
+    expect(updater.checks).toBe(0)
+  })
+
   it('does not check again while an Update downloads, prepares or is ready', async () => {
     const preparation = deferred()
     const { updates, updater, squirrel } = newUpdates({ prepare: () => preparation.promise })
@@ -348,15 +409,18 @@ describe('the Update of the Client App', () => {
 
   it('starts one schedule, and stops it', async () => {
     const { updates, updater } = newUpdates()
+    expect(updates.running).toBe(false)
 
     updates.start()
     updates.start()
     await vi.advanceTimersByTimeAsync(0)
     expect(updater.checks).toBe(1)
+    expect(updates.running).toBe(true)
 
     updates.stop()
     await vi.advanceTimersByTimeAsync(2 * CHECK_EVERY_MS)
     expect(updater.checks).toBe(1)
+    expect(updates.running).toBe(false)
   })
 
   it('installs only a ready Update', async () => {

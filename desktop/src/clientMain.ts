@@ -60,7 +60,8 @@ import { ServerConnections, type ServerConnection } from './serverConnection'
 import { reportUncaughtExceptions } from './uncaughtFailure'
 import { checkSignedChecksum } from './signedChecksums'
 import { checkAnswer, readyNotification, restartQuestion } from './updateMessages'
-import { type Installer, type UpdateState, Updates } from './updates'
+import { type Installer, type UpdateSource, type UpdateState, Updates } from './updates'
+import { LATEST_RELEASE, serverSource } from './updateSource'
 import { prepareUpdate, pullComputerImage, releaseLock } from './updatePreparation'
 import { unfinishedRuns } from './unfinishedRuns'
 import { BackupFailure, keepNewestBackup, takeUpgradeBackup } from './upgradeBackup'
@@ -104,6 +105,7 @@ class Shell {
   private readonly updates = clientUpdates(
     (state) => this.onUpdateState(state),
     (version) => this.prepareUpdate(version),
+    () => this.updateSource(),
   )
   // True from "Restart to Update" until the process ends.
   private installingUpdate = false
@@ -215,8 +217,8 @@ class Shell {
     this.hostLink = null
     await this.controller.cancel()
     // The server stopped, so a ready AppImage Update can replace the file.
-    // A connected client takes no Update of its own.
-    if (!this.connection) this.updates?.installAtQuit()
+    // The Update of a connected client is the release of its server.
+    this.updates?.installAtQuit()
   }
 
   /** Quit from the setup page, the app menu or the tray. It asks first
@@ -715,20 +717,29 @@ class Shell {
   }
 
   /**
-   * Run the updater while this client has a Local Installation or no setup
-   * yet, and stop it while it is connected to a server: a connected client
-   * takes no Update of its own (ADR-0027).
+   * Run the updater after setup, and not before (ADR-0027). A client on the
+   * setup page could download the latest release, then connect to an older
+   * server and install that Update at quit, and the new client would refuse
+   * the server. Each check reads the source of the setup that the client
+   * has at that time (`updateSource`).
    */
   private followConnection(): void {
     if (!this.updates) return
-    if (this.connection) this.updates.stop()
-    else this.updates.start()
+    if (this.connection || this.installedHere()) this.updates.start()
+    else this.updates.stop()
     this.renderMenus()
   }
 
   /** The Update as the menus show it, or null where the updater does not run. */
   private updateState(): UpdateState | null {
-    return this.updates && !this.connection ? this.updates.state : null
+    return this.updates?.running ? this.updates.state : null
+  }
+
+  /** What a check reads: the latest release for a Local Installation, and
+   *  the release of the server for a connected client. */
+  private updateSource(): Promise<UpdateSource> {
+    if (this.connection) return serverSource(this.connection.origin, app.getVersion())
+    return Promise.resolve(LATEST_RELEASE)
   }
 
   private onUpdateState(state: UpdateState): void {
@@ -793,7 +804,8 @@ class Shell {
   }
 
   /** The Runs that a restart fails. A client with no running server has
-   *  none, and null means that the server did not say. */
+   *  none: a connected client supervises no server, and the Runs belong to
+   *  its server. Null means that the server did not say. */
   private async unfinishedRuns(): Promise<number | null> {
     if (this.controller.state?.kind !== 'running') return 0
     return unfinishedRuns(
@@ -913,6 +925,7 @@ function refreshAutostart(executable?: string): void {
 function clientUpdates(
   onState: (state: UpdateState) => void,
   prepare: (version: string) => Promise<void>,
+  source: () => Promise<UpdateSource>,
 ): Updates | null {
   if (!app.isPackaged || SMOKE) return null
   const installer = updateInstaller()
@@ -923,6 +936,7 @@ function clientUpdates(
     onState,
     notify: (version) => new Notification(readyNotification(version)).show(),
     prepare,
+    source,
   })
 }
 

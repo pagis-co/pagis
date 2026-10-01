@@ -13,6 +13,13 @@ export function checkAnswer(result: CheckResult, release: string, platform: stri
   switch (result.kind) {
     case 'up-to-date':
       return { type: 'info', message: 'Pagis is up to date.', detail: `Pagis ${release} is the newest release.` }
+    case 'up-to-date-with-server':
+      return {
+        type: 'info',
+        message: 'Pagis is up to date with its server.',
+        detail: `This app is Pagis ${release}, and its server runs Pagis ${result.server}. ` +
+          'A connected Pagis takes only the Update to the release of its server.',
+      }
     case 'found':
       return {
         type: 'info',

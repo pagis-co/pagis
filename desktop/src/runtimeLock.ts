@@ -79,9 +79,14 @@ export function runtimeLockFile(target: ClientPlatform): string {
   return `runtime-lock-${target.platform}-${target.arch}.json`
 }
 
+/** The URL below which the GitHub release `release` serves its assets. */
+export function releaseUrl(release: string): string {
+  return `${RELEASES}/v${release}`
+}
+
 /** The URL of the asset `name` of the GitHub release `release`. */
 export function releaseAssetUrl(release: string, name: string): string {
-  return `${RELEASES}/v${release}/${name}`
+  return `${releaseUrl(release)}/${name}`
 }
 
 /** The client carries no Runtime Lock it can use: a build from source
