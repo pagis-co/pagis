@@ -27,9 +27,13 @@ icon: Terminal
 - **Verify a download.** The release lists the SHA-256 of the four Linux
   packages in `Pagis-<release>-linux.SHA256SUMS`, signed by the Pagis release
   key in `Pagis-<release>-linux.SHA256SUMS.asc`. The public key is
-  [`release-key.asc`](https://github.com/pagis-co/pagis/blob/main/docs/release-key.asc):
+  [`release-key.asc`](https://github.com/pagis-co/pagis/blob/main/docs/release-key.asc).
+  Download the list and its signature from the same release as the package,
+  for example release `0.1.0`:
 
   ```bash
+  curl -fsSLO https://github.com/pagis-co/pagis/releases/download/v0.1.0/Pagis-0.1.0-linux.SHA256SUMS
+  curl -fsSLO https://github.com/pagis-co/pagis/releases/download/v0.1.0/Pagis-0.1.0-linux.SHA256SUMS.asc
   curl -fsSLO https://raw.githubusercontent.com/pagis-co/pagis/main/docs/release-key.asc
   gpg --import release-key.asc
   gpg --verify Pagis-0.1.0-linux.SHA256SUMS.asc Pagis-0.1.0-linux.SHA256SUMS
