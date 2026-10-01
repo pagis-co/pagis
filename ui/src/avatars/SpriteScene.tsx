@@ -85,6 +85,10 @@ export default function SpriteScene(props: Props) {
         )
       }
       className="sprite-canvas"
+      // A disc frames the figure with a CSS scale. The layout size
+      // ignores that scale, so the scene draws at the size of the disc
+      // and the scale frames it once, as it frames the still image.
+      resize={{ offsetSize: true }}
       dpr={[1, 1.5]}
       gl={{ alpha: true, antialias: true, powerPreference: 'low-power' }}
     >

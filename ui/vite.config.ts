@@ -57,5 +57,11 @@ export default defineConfig({
     // own one-second limit, so a real regression still fails fast; this
     // only stops a loaded runner from reading as a failure.
     testTimeout: 20_000,
+    // jsdom has no WebGL, so a test of a live sprite scene mocks the
+    // `three` renderer. The CommonJS build of the scene library loads
+    // `three` past the mock, and its module build does not.
+    alias: {
+      '@react-three/fiber': '@react-three/fiber/dist/react-three-fiber.esm.js',
+    },
   },
 })
