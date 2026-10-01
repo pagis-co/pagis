@@ -2,6 +2,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { createRequire } from 'node:module'
+import { fileURLToPath } from 'node:url'
 
 const require = createRequire(import.meta.url)
 const asar = require('@electron/asar')
@@ -14,8 +15,11 @@ const app = process.argv[2]
 const packages = process.argv.slice(3)
 if (!app || packages.length === 0) throw new Error('usage: node scripts/check-package.mjs <app> <package>...')
 
-const resources = app.endsWith('.app') ? path.join(app, 'Contents', 'Resources') : path.join(app, 'resources')
-const required = ['app.asar', 'runtime-lock.json', 'app-update.yml']
+const mac = app.endsWith('.app')
+const resources = mac ? path.join(app, 'Contents', 'Resources') : path.join(app, 'resources')
+// On Linux the public release key checks the signed checksum list of an
+// Update (ADR-0027).
+const required = ['app.asar', 'runtime-lock.json', 'app-update.yml', ...(mac ? [] : ['release-key.asc'])]
 for (const name of required) {
   if (!fs.statSync(path.join(resources, name), { throwIfNoEntry: false })?.isFile()) {
     throw new Error(`the client package has no ${name}`)
@@ -25,6 +29,13 @@ for (const name of required) {
 const feed = yaml.load(fs.readFileSync(path.join(resources, 'app-update.yml'), 'utf8'))
 if (feed?.provider !== 'github' || feed.owner !== 'pagis-co' || feed.repo !== 'pagis') {
   throw new Error('the app-update.yml of the client package does not name the GitHub releases of pagis-co/pagis')
+}
+
+if (!mac) {
+  const releaseKey = fileURLToPath(new URL('../../docs/release-key.asc', import.meta.url))
+  if (!fs.readFileSync(path.join(resources, 'release-key.asc')).equals(fs.readFileSync(releaseKey))) {
+    throw new Error('the release-key.asc of the client package is not docs/release-key.asc')
+  }
 }
 
 const forbiddenNames = new Set(['pagis', 'gog', 'secrets.enc'])
@@ -38,7 +49,7 @@ for (const file of walk(resources)) {
 // The tray draws these files. macOS loads the @2x file beside the
 // template image for a Retina screen.
 const archived = new Set(asar.listPackage(path.join(resources, 'app.asar')))
-const trayIcons = app.endsWith('.app') ? ['trayTemplate.png', 'trayTemplate@2x.png'] : ['tray.png']
+const trayIcons = mac ? ['trayTemplate.png', 'trayTemplate@2x.png'] : ['tray.png']
 for (const name of trayIcons) {
   if (!archived.has(`/static/${name}`)) throw new Error(`the client app archive has no static/${name}`)
 }

@@ -585,6 +585,8 @@ jobs:
             desktop/release/Pagis-*.AppImage
             desktop/release/Pagis-*.deb
 
+      # The feed of each architecture names its AppImage and its deb for
+      # electron-updater (ADR-0027).
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: client-linux
@@ -592,6 +594,8 @@ jobs:
             desktop/release/Pagis-*.AppImage
             desktop/release/Pagis-*.deb
             desktop/release/Pagis-*-linux.SHA256SUMS
+            desktop/release/latest-linux.yml
+            desktop/release/latest-linux-arm64.yml
 
   # The publication. Each job waits in the `release` environment until a
   # maintainer approves it.

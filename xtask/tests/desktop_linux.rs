@@ -6,7 +6,7 @@ use std::process::Command;
 
 use xtask::desktop::{DesktopContext, DesktopPlatform, desktop_plan};
 use xtask::desktop_linux::{
-    RELEASE_KEY, appimage_name, checksums_name, deb_name, missing_signing_inputs,
+    RELEASE_KEY, appimage_name, checksums_name, deb_name, feed_name, missing_signing_inputs,
 };
 use xtask::release::ClientPlatform;
 use xtask::{Action, Cmd, Step};
@@ -144,6 +144,53 @@ fn the_inventory_checks_each_architecture_and_the_exact_deb() {
     assert!(inventory.contains("apparmor-profile"), "{inventory}");
 }
 
+/// Each feed names the AppImage and the deb of its architecture with their
+/// true SHA-512 and size, and the deb carries the release key and the
+/// `package-type` file from which electron-updater knows a deb (ADR-0027).
+#[test]
+fn the_inventory_checks_the_update_feeds_the_release_key_and_the_deb_type() {
+    let steps = desktop_plan(Path::new("/repo"), &context(None));
+    let inventory = joined(step(&steps, "inventory"));
+    for (feed, appimage, deb) in [
+        (
+            "latest-linux.yml",
+            "Pagis-1.2.3-x86_64.AppImage",
+            "Pagis-1.2.3-amd64.deb",
+        ),
+        (
+            "latest-linux-arm64.yml",
+            "Pagis-1.2.3-arm64.AppImage",
+            "Pagis-1.2.3-arm64.deb",
+        ),
+    ] {
+        assert!(
+            inventory.contains(&format!(
+                "node scripts/check-update-feed.mjs release/{feed} 1.2.3 release/{appimage} release/{deb}"
+            )),
+            "{inventory}"
+        );
+    }
+    assert!(
+        inventory.contains(
+            "cmp ../docs/release-key.asc \"$extracted/opt/Pagis/resources/release-key.asc\""
+        ),
+        "{inventory}"
+    );
+    assert!(
+        inventory.contains("[ \"$(cat \"$extracted/opt/Pagis/resources/package-type\")\" = deb ]"),
+        "{inventory}"
+    );
+}
+
+#[test]
+fn each_architecture_has_its_update_feed() {
+    assert_eq!(feed_name(ClientPlatform::LinuxX64), "latest-linux.yml");
+    assert_eq!(
+        feed_name(ClientPlatform::LinuxArm64),
+        "latest-linux-arm64.yml"
+    );
+}
+
 #[test]
 fn the_smoke_runs_the_client_of_the_host_architecture_on_a_display() {
     let steps = desktop_plan(Path::new("/repo"), &context(None));
@@ -221,6 +268,13 @@ fn publication_reuses_the_prepared_bytes_and_signs_their_checksums() {
         upload.contains("Pagis-1.2.3-linux.SHA256SUMS.asc"),
         "{upload}"
     );
+    for feed in ["latest-linux.yml", "latest-linux-arm64.yml"] {
+        assert!(
+            upload.contains(&format!("desktop/release/{feed}")),
+            "{upload}"
+        );
+    }
+    assert!(!upload.contains("--clobber"), "{upload}");
 }
 
 #[test]
@@ -296,6 +350,10 @@ fn electron_builder_packs_linux_with_the_lock_of_each_architecture() {
         "{linux}"
     );
     assert!(linux.contains("executableName: pagis-client"), "{linux}");
+    assert!(
+        linux.contains("    - from: ../docs/release-key.asc\n      to: release-key.asc\n"),
+        "{linux}"
+    );
     for section in ["appImage", "deb"] {
         let body = config
             .split(&format!("\n{section}:\n"))

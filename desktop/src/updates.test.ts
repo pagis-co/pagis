@@ -1,13 +1,13 @@
-// The Update of the Client App on macOS (ADR-0027): electron-updater
-// checks and downloads, Squirrel.Mac checks the new bundle, and the menus
-// read the state.
+// The Update of the Client App (ADR-0027): electron-updater checks and
+// downloads, Squirrel.Mac on macOS or the signed checksum list on Linux
+// checks the download, and the menus read the state.
 
 import { EventEmitter } from 'node:events'
 
-import type { UpdateCheckResult } from 'electron-updater'
+import type { UpdateCheckResult, UpdateDownloadedEvent } from 'electron-updater'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { CHECK_EVERY_MS, Updates, type UpdateState } from './updates'
+import { CHECK_EVERY_MS, type Installer, Updates, type UpdateState } from './updates'
 
 /** electron-updater, as the Client App uses it. Each check answers with
  *  the next result in `answers`, and emits the events of electron-updater
@@ -18,6 +18,8 @@ class FakeUpdater extends EventEmitter {
   allowPrerelease = true
   checks = 0
   installs = 0
+  /** The arguments of each `install` at quit. */
+  quitInstalls: [boolean, boolean][] = []
   answers: (string | null | Error)[] = []
 
   async checkForUpdates(): Promise<UpdateCheckResult | null> {
@@ -44,27 +46,48 @@ class FakeUpdater extends EventEmitter {
     this.installs += 1
   }
 
+  install(isSilent: boolean, isForceRunAfter: boolean): boolean {
+    this.quitInstalls.push([isSilent, isForceRunAfter])
+    return true
+  }
+
   progress(percent: number): void {
     this.emit('download-progress', { percent, total: 100, transferred: percent, delta: 1, bytesPerSecond: 1 })
   }
 
-  downloaded(version: string): void {
-    this.emit('update-downloaded', { version, downloadedFile: '/tmp/update.zip' })
+  downloaded(version: string, downloadedFile = '/tmp/update.zip'): void {
+    this.emit('update-downloaded', { version, downloadedFile })
   }
 }
 
-function newUpdates() {
+function newUpdates(installer: (squirrel: EventEmitter) => Installer = (squirrel) => ({ kind: 'squirrel', squirrel })) {
   const updater = new FakeUpdater()
   const squirrel = new EventEmitter()
   const states: UpdateState[] = []
   const notify = vi.fn()
   const updates = new Updates({
     updater,
-    installer: squirrel,
+    installer: installer(squirrel),
     onState: (state) => states.push(state),
     notify,
   })
   return { updater, squirrel, states, notify, updates }
+}
+
+/** The check of a Linux download, which the test settles. */
+function verification() {
+  const checked: UpdateDownloadedEvent[] = []
+  let settle: { resolve(): void; reject(error: Error): void } | null = null
+  const verify = (update: UpdateDownloadedEvent) => {
+    checked.push(update)
+    return new Promise<void>((resolve, reject) => { settle = { resolve, reject } })
+  }
+  return {
+    checked,
+    verify,
+    pass: async () => { settle?.resolve(); await vi.advanceTimersByTimeAsync(0) },
+    fail: async (error: Error) => { settle?.reject(error); await vi.advanceTimersByTimeAsync(0) },
+  }
 }
 
 describe('the Update of the Client App', () => {
@@ -82,6 +105,18 @@ describe('the Update of the Client App', () => {
     expect(updater.autoDownload).toBe(true)
     expect(updater.autoInstallOnAppQuit).toBe(true)
     expect(updater.allowPrerelease).toBe(false)
+  })
+
+  /** electron-updater would install each Linux download at quit, before
+   *  the check of the signed checksum list. */
+  it('does not let electron-updater install a download at quit on Linux', () => {
+    for (const kind of ['appimage', 'deb'] as const) {
+      const { updater } = newUpdates(() => ({ kind, verify: async () => undefined }))
+
+      expect(updater.autoDownload).toBe(true)
+      expect(updater.autoInstallOnAppQuit).toBe(false)
+      expect(updater.allowPrerelease).toBe(false)
+    }
   })
 
   it('says that the client is up to date when no Update is out', async () => {
@@ -214,5 +249,119 @@ describe('the Update of the Client App', () => {
     updates.install()
 
     expect(updater.installs).toBe(1)
+  })
+
+  it('is ready on Linux only when the download passed the signed checksum list, and notifies one time', async () => {
+    const check = verification()
+    const { updates, updater, notify } = newUpdates(() => ({ kind: 'appimage', verify: check.verify }))
+    updater.answers = ['1.1.0']
+    await updates.check()
+
+    updater.downloaded('1.1.0', '/cache/pending/Pagis-1.1.0-x86_64.AppImage')
+    expect(check.checked).toEqual([{ version: '1.1.0', downloadedFile: '/cache/pending/Pagis-1.1.0-x86_64.AppImage' }])
+    expect(updates.state).toEqual({ kind: 'downloading', version: '1.1.0', percent: 100 })
+    expect(() => updates.install()).toThrow(/no Update is ready/)
+
+    await check.pass()
+
+    expect(updates.state).toEqual({ kind: 'ready', version: '1.1.0' })
+    expect(notify).toHaveBeenCalledTimes(1)
+    expect(notify).toHaveBeenCalledWith('1.1.0')
+  })
+
+  it('fails on Linux with the reason when the download does not pass, and installs nothing', async () => {
+    const check = verification()
+    const { updates, updater, notify } = newUpdates(() => ({ kind: 'appimage', verify: check.verify }))
+    updater.answers = ['1.1.0']
+    await updates.check()
+    updater.downloaded('1.1.0')
+
+    await check.fail(new Error('Pagis-1.1.0-linux.SHA256SUMS does not verify with the Pagis release key'))
+
+    expect(updates.state).toEqual({
+      kind: 'failed',
+      reason: 'Pagis-1.1.0-linux.SHA256SUMS does not verify with the Pagis release key',
+    })
+    expect(notify).not.toHaveBeenCalled()
+    updates.installAtQuit()
+    expect(updater.quitInstalls).toEqual([])
+    expect(() => updates.install()).toThrow(/no Update is ready/)
+  })
+
+  it('keeps a failure that comes while the check runs', async () => {
+    const check = verification()
+    const { updates, updater, notify } = newUpdates(() => ({ kind: 'appimage', verify: check.verify }))
+    updater.answers = ['1.1.0']
+    await updates.check()
+    updater.downloaded('1.1.0')
+
+    updater.emit('error', new Error('net::ERR_CONNECTION_RESET'))
+    await check.pass()
+
+    expect(updates.state).toEqual({ kind: 'failed', reason: 'net::ERR_CONNECTION_RESET' })
+    expect(notify).not.toHaveBeenCalled()
+  })
+
+  /** At quit, the Client App makes the call that electron-updater makes
+   *  when autoInstallOnAppQuit is on: a silent install, and no start. */
+  it('installs a ready AppImage Update at quit, and only a ready one', async () => {
+    const check = verification()
+    const { updates, updater } = newUpdates(() => ({ kind: 'appimage', verify: check.verify }))
+
+    updates.installAtQuit()
+    updater.answers = ['1.1.0']
+    await updates.check()
+    updater.downloaded('1.1.0')
+    updates.installAtQuit()
+    expect(updater.quitInstalls).toEqual([])
+
+    await check.pass()
+    updates.installAtQuit()
+
+    expect(updater.quitInstalls).toEqual([[true, false]])
+  })
+
+  it('does not install again at quit after Restart to Update', async () => {
+    const check = verification()
+    const { updates, updater } = newUpdates(() => ({ kind: 'appimage', verify: check.verify }))
+    updater.answers = ['1.1.0']
+    await updates.check()
+    updater.downloaded('1.1.0')
+    await check.pass()
+
+    updates.install()
+    updates.installAtQuit()
+
+    expect(updater.installs).toBe(1)
+    expect(updater.quitInstalls).toEqual([])
+  })
+
+  /** A password prompt at quit or at logout stops the shutdown. */
+  it('installs a deb only from Restart to Update, never at quit', async () => {
+    const check = verification()
+    const { updates, updater } = newUpdates(() => ({ kind: 'deb', verify: check.verify }))
+    updater.answers = ['1.1.0']
+    await updates.check()
+    updater.downloaded('1.1.0', '/cache/pending/Pagis-1.1.0-amd64.deb')
+    await check.pass()
+
+    updates.installAtQuit()
+    expect(updater.quitInstalls).toEqual([])
+
+    updates.install()
+    expect(updater.installs).toBe(1)
+  })
+
+  /** Squirrel.Mac installs the Update that it accepted when the app quits. */
+  it('leaves the install at quit to Squirrel.Mac on macOS', async () => {
+    const { updates, updater, squirrel } = newUpdates()
+    updater.answers = ['1.1.0']
+    await updates.check()
+    updater.downloaded('1.1.0')
+    squirrel.emit('update-downloaded')
+
+    updates.installAtQuit()
+
+    expect(updater.quitInstalls).toEqual([])
   })
 })

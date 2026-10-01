@@ -1245,6 +1245,14 @@ fn the_tag_workflow_runs_every_stage_after_the_gate() {
         "{linux}"
     );
     assert!(job("draft").contains("pattern: server-*"));
+    // The prepared Linux packages travel with the Update feed of each
+    // architecture, which the publication uploads (ADR-0027).
+    for feed in ["latest-linux.yml", "latest-linux-arm64.yml"] {
+        assert!(
+            job("client-linux").contains(&format!("            desktop/release/{feed}\n")),
+            "{feed}"
+        );
+    }
 }
 
 /// Each release job that compiles saves its Rust cache, also after a

@@ -17,7 +17,7 @@ import {
   session,
   shell,
 } from 'electron'
-import { autoUpdater } from 'electron-updater'
+import { AppImageUpdater, DebUpdater, type UpdateDownloadedEvent, autoUpdater } from 'electron-updater'
 
 import { ClientController } from './clientController'
 import { DaemonSupervisor, redact, type DaemonState } from './daemon'
@@ -58,9 +58,9 @@ import { assertServerIsReady, connectToServer } from './serverOnboarding'
 import { watchServerSignIn } from './serverSignIn'
 import { ServerConnections, type ServerConnection } from './serverConnection'
 import { reportUncaughtExceptions } from './uncaughtFailure'
-import { type NewVersion, checkForNewVersion } from './updateCheck'
+import { checkSignedChecksum } from './signedChecksums'
 import { checkAnswer, readyNotification, restartQuestion } from './updateMessages'
-import { type UpdateState, Updates } from './updates'
+import { type Installer, type UpdateState, Updates } from './updates'
 import { unfinishedRuns } from './unfinishedRuns'
 import { BackupFailure, keepNewestBackup, takeUpgradeBackup } from './upgradeBackup'
 import { installBluetoothRefusal, installPermissionHandlers, type ProductWindow } from './webPermissions'
@@ -98,18 +98,9 @@ class Shell {
   private setupWindow: BrowserWindow | null = null
   private statusWindow: BrowserWindow | null = null
   private tray: Tray | null = null
-  // The release that the check on Linux found.
-  private update: NewVersion | null = null
-  // The Update of the Client App on macOS (ADR-0027). electron-updater
-  // works only in the packaged app.
-  private readonly updates = process.platform === 'darwin' && app.isPackaged && !SMOKE
-    ? new Updates({
-        updater: autoUpdater,
-        installer: squirrel,
-        onState: (state) => this.onUpdateState(state),
-        notify: (version) => new Notification(readyNotification(version)).show(),
-      })
-    : null
+  // The Update of the Client App (ADR-0027). electron-updater works only
+  // in the packaged app.
+  private readonly updates = clientUpdates((state) => this.onUpdateState(state))
   // True from "Restart to Update" until the process ends.
   private installingUpdate = false
   private setupState: SetupState = { kind: 'ready' }
@@ -156,6 +147,11 @@ class Shell {
     if (!SMOKE) {
       Menu.setApplicationMenu(applicationMenu(this.menuActions()))
       this.tray = createTray(this.menuActions())
+      // An Update gives the AppImage file the name of the new release.
+      refreshAutostart()
+    }
+    if (this.updates && process.platform === 'linux') {
+      autoUpdater.on('appimage-filename-updated', (file) => refreshAutostart(file))
     }
     let connection: ServerConnection | null
     try {
@@ -163,12 +159,12 @@ class Shell {
     } catch (error) {
       await this.openSetup()
       this.setSetupState(this.failureState(error))
-      if (!SMOKE) this.watchForUpdates()
+      this.followConnection()
       return
     }
     if (connection) {
       await this.openConnected(connection)
-      if (!SMOKE) this.watchForUpdates()
+      this.followConnection()
       return
     }
     let release: string | null
@@ -177,7 +173,7 @@ class Shell {
     } catch (error) {
       await this.openSetup()
       this.setSetupState(this.failureState(error))
-      if (!SMOKE) this.watchForUpdates()
+      this.followConnection()
       return
     }
     const action = startAction(release, app.getVersion())
@@ -201,7 +197,7 @@ class Shell {
       app.exit(0)
       return
     }
-    this.watchForUpdates()
+    this.followConnection()
   }
 
   /** Stop the work of the client before the process ends (`endOnQuit`). */
@@ -214,6 +210,9 @@ class Shell {
     this.hostLink?.stop()
     this.hostLink = null
     await this.controller.cancel()
+    // The server stopped, so a ready AppImage Update can replace the file.
+    // A connected client takes no Update of its own.
+    if (!this.connection) this.updates?.installAtQuit()
   }
 
   /** Quit from the setup page, the app menu or the tray. It asks first
@@ -711,18 +710,6 @@ class Shell {
     return isTrustedSetupRequest(event, this.statusWindow.webContents, pathToFileURL(path.join(__dirname, '..', 'static', 'status.html')).toString())
   }
 
-  /** Look for a newer release: the updater on macOS, the new-version line
-   *  on Linux. */
-  private watchForUpdates(): void {
-    if (process.platform === 'linux') void this.checkVersion()
-    else this.followConnection()
-  }
-
-  private async checkVersion(): Promise<void> {
-    this.update = await checkForNewVersion(app.getVersion())
-    if (this.update && this.tray) renderTray(this.tray, this.menuActions())
-  }
-
   /**
    * Run the updater while this client has a Local Installation or no setup
    * yet, and stop it while it is connected to a server: a connected client
@@ -742,8 +729,10 @@ class Shell {
 
   private onUpdateState(state: UpdateState): void {
     this.renderMenus()
-    // Squirrel.Mac refused the Update after the server stopped and the
-    // windows closed. The Person starts Pagis again, on the old release.
+    // The install failed after the server stopped and the windows closed:
+    // Squirrel.Mac refused the Update, the AppImage file could not be
+    // replaced, or the Person cancelled the password prompt of the deb.
+    // The Person starts Pagis again, on the old release.
     if (this.installingUpdate && state.kind === 'failed') {
       dialog.showErrorBox('Pagis could not install the Update', state.reason)
       app.quit()
@@ -764,14 +753,14 @@ class Shell {
 
   /**
    * "Restart to Update" (ADR-0027): ask first when Runs are in progress,
-   * stop the server, and let Squirrel.Mac install the Update and start the
-   * new Client App. Each Run in progress fails, as at every restart.
+   * stop the server, and let the installer install the Update and start
+   * the new Client App. Each Run in progress fails, as at every restart.
    */
   private async restartToUpdate(): Promise<void> {
     if (!this.updates) return
     const question = restartQuestion(await this.unfinishedRuns())
     if (question !== null && (await this.messageBox(question)).response !== 0) return
-    // Squirrel.Mac can refuse the Update while the question waits.
+    // The Update can fail while the question waits.
     if (this.updates.state.kind !== 'ready') throw new Error('the Update is not ready to install')
     await this.controller.cancel()
     // The windows close for the install, so they must not hide.
@@ -858,7 +847,6 @@ class Shell {
       quit: () => void this.requestQuit(),
       openAtLogin: (open: boolean) => loginItem.setOpenAtLogin(open),
       isOpenAtLogin: () => loginItem.isOpenAtLogin(),
-      newVersion: () => this.update,
       update: () => this.updateState(),
       checkForUpdates: () => void this.checkForUpdates().catch((error: unknown) => {
         dialog.showErrorBox('Pagis could not check for updates', this.failure(error))
@@ -877,12 +865,58 @@ function openInBrowser(url: string): void {
 }
 
 /** macOS keeps login items itself; Linux reads an XDG autostart entry. */
-const loginItem: LoginItem = process.platform === 'linux'
-  ? new AutostartEntry()
-  : {
-      isOpenAtLogin: () => app.getLoginItemSettings().openAtLogin,
-      setOpenAtLogin: (open) => app.setLoginItemSettings({ openAtLogin: open }),
-    }
+const autostart = process.platform === 'linux' ? new AutostartEntry() : null
+const loginItem: LoginItem = autostart ?? {
+  isOpenAtLogin: () => app.getLoginItemSettings().openAtLogin,
+  setOpenAtLogin: (open) => app.setLoginItemSettings({ openAtLogin: open }),
+}
+
+/** Write the autostart entry again when it is on, for the executable of
+ *  this start or for the AppImage file that an Update wrote. A failure
+ *  does not stop the client. */
+function refreshAutostart(executable?: string): void {
+  try {
+    autostart?.refresh(executable)
+  } catch (error) {
+    console.error(`pagis: the client did not write the autostart entry again: ${String(error)}`)
+  }
+}
+
+/**
+ * The Update of the Client App (ADR-0027), or null where electron-updater
+ * installs none: from source, in the smoke test, and on Linux outside an
+ * AppImage and a deb.
+ */
+function clientUpdates(onState: (state: UpdateState) => void): Updates | null {
+  if (!app.isPackaged || SMOKE) return null
+  const installer = updateInstaller()
+  if (installer === null) return null
+  return new Updates({
+    updater: autoUpdater,
+    installer,
+    onState,
+    notify: (version) => new Notification(readyNotification(version)).show(),
+  })
+}
+
+/**
+ * Squirrel.Mac on macOS. On Linux electron-updater chooses its updater by
+ * the package: a deb holds `resources/package-type`, and an AppImage runs
+ * with APPIMAGE set. Each checks the download against the signed checksum
+ * list, with the public release key that the package embeds.
+ */
+function updateInstaller(): Installer | null {
+  if (process.platform === 'darwin') return { kind: 'squirrel', squirrel }
+  if (!autoUpdater.isUpdaterActive()) return null
+  const verify = (update: UpdateDownloadedEvent) => checkSignedChecksum(
+    update.downloadedFile,
+    update.version,
+    fs.readFileSync(path.join(process.resourcesPath, 'release-key.asc'), 'utf8'),
+  )
+  if (autoUpdater instanceof DebUpdater) return { kind: 'deb', verify }
+  if (autoUpdater instanceof AppImageUpdater) return { kind: 'appimage', verify }
+  return null
+}
 
 function run(): void {
   if (SMOKE) {

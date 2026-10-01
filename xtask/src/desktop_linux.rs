@@ -7,7 +7,9 @@
 //! packages, and after a maintainer approves the release it publishes
 //! those bytes with a checksum list that the Pagis release key signs
 //! (ADR-0025). The key never enters the plan: `gpg` reads it from the
-//! keyring of the publication job.
+//! keyring of the publication job. Each package embeds the public key,
+//! and the Update feed of each architecture names its two packages
+//! (ADR-0027).
 
 use std::path::Path;
 
@@ -39,6 +41,16 @@ pub fn deb_name(version: &str, platform: ClientPlatform) -> String {
         _ => "arm64",
     };
     format!("Pagis-{version}-{arch}.deb")
+}
+
+/// The Update feed that electron-updater reads for one architecture. It
+/// names the AppImage and the deb, and electron-updater takes the file of
+/// its own package.
+pub fn feed_name(platform: ClientPlatform) -> &'static str {
+    match platform {
+        ClientPlatform::LinuxX64 => "latest-linux.yml",
+        _ => "latest-linux-arm64.yml",
+    }
 }
 
 /// The checksum list of the four Linux packages. Its detached signature
@@ -158,23 +170,30 @@ pub fn linux_plan(root: &Path, cx: &DesktopContext) -> Vec<Step> {
     ]
 }
 
-/// Check both architectures: the unpacked tree carries the client alone
-/// and the lock of its architecture, and the finished deb carries the
-/// same lock. The deb is checked from its exact bytes, which `dpkg-deb`
-/// can read on any architecture.
+/// Check both architectures: the unpacked tree carries the client alone,
+/// the lock of its architecture and the public release key, and the
+/// finished deb carries the same lock and key. The deb is checked from its
+/// exact bytes, which `dpkg-deb` can read on any architecture. It must
+/// hold the `package-type` file from which electron-updater knows a deb.
+/// The feed must name both packages with their true SHA-512 and size.
 fn inventory_script(version: &str) -> String {
     let mut script = "set -eu\n".to_string();
     for platform in ClientPlatform::LINUX {
         let unpacked = unpacked_dir(platform);
         let lock = format!("../dist/{}", platform.lock_file());
+        let key = format!("../{RELEASE_KEY}");
         let appimage = format!("release/{}", appimage_name(version, platform));
         let deb = format!("release/{}", deb_name(version, platform));
+        let feed = format!("release/{}", feed_name(platform));
         script.push_str(&format!(
             "cmp {lock} {unpacked}/resources/runtime-lock.json\n\
              node scripts/check-package.mjs {unpacked} {appimage} {deb}\n\
+             node scripts/check-update-feed.mjs {feed} {version} {appimage} {deb}\n\
              extracted=$(mktemp -d)\n\
              dpkg-deb -x {deb} \"$extracted\"\n\
              cmp {lock} \"$extracted/opt/Pagis/resources/runtime-lock.json\"\n\
+             cmp {key} \"$extracted/opt/Pagis/resources/release-key.asc\"\n\
+             [ \"$(cat \"$extracted/opt/Pagis/resources/package-type\")\" = deb ] || {{ echo '{deb} has no package-type file that names a deb' >&2; exit 1; }}\n\
              test -x \"$extracted/opt/Pagis/{EXECUTABLE}\"\n\
              test -f \"$extracted/opt/Pagis/resources/apparmor-profile\"\n\
              rm -rf \"$extracted\"\n",
@@ -286,6 +305,9 @@ fn sign_action(root: &Path, cx: &DesktopContext) -> Action {
     Action::Run(vec![Cmd::new("sh", &["-c", &script]).in_dir(root)])
 }
 
+/// Attach the four packages, the signed checksum list and the two Update
+/// feeds to the draft release of the tag. `gh release upload` without
+/// `--clobber` refuses a file that the draft holds.
 fn publish_action(root: &Path, cx: &DesktopContext) -> Action {
     let Some(tag) = &cx.tag else {
         return Action::Skip("no release tag: the packages are built and smoke tested only".into());
@@ -316,6 +338,9 @@ fn publish_action(root: &Path, cx: &DesktopContext) -> Action {
     let sums = format!("desktop/release/{}", checksums_name(&cx.version));
     files.push(sums.clone());
     files.push(format!("{sums}.asc"));
+    for platform in ClientPlatform::LINUX {
+        files.push(format!("desktop/release/{}", feed_name(platform)));
+    }
     let mut args = vec!["release", "upload", tag.as_str()];
     args.extend(files.iter().map(String::as_str));
     args.extend(["--repo", REPO]);

@@ -4,25 +4,36 @@ description: How the Client App finds, downloads and installs an Update, and the
 icon: Download
 ---
 
-An Update is a newer release of the Client App. On macOS the Client App
-finds, downloads and installs each Update itself
-([ADR-0027](https://github.com/pagis-co/pagis/blob/main/docs/adr/0027-the-client-app-installs-updates-and-upgrades-its-installation.md)).
+An Update is a newer release of the Client App. The Client App finds,
+downloads and installs each Update itself
+([ADR-0027](https://github.com/pagis-co/pagis/blob/main/docs/adr/0027-the-client-app-installs-updates-and-upgrades-its-installation.md)),
+on macOS and from the AppImage and the deb on Linux.
 
 ## Check and download
 
 - **When it checks.** The Client App reads the releases of Pagis on GitHub
   when it starts, and every 24 hours while it runs. It does not take a
   prerelease.
-- **Check for Updates…** in the tray menu and in the Pagis menu checks
-  immediately. A message box shows the result: Pagis is up to date, an
-  Update downloads, or the reason why the check failed.
+- **Check for Updates…** in the tray menu checks immediately. It is also in
+  the Pagis menu on macOS, and in the File menu of the window on Linux. A
+  message box shows the result: Pagis is up to date, an Update downloads,
+  or the reason why the check failed.
 - **The download.** When the Client App finds an Update, it downloads it
   and asks no question. The menus show the progress, for example
   "Downloading Pagis 0.2.0… 40%".
 - **The checks.** The download must have the SHA-512 and the size that the
-  feed of the release gives. Then macOS checks that the new app has the
-  signature of the Pagis team. After these checks, the menus show "Restart
-  to Update", and the Client App sends one notification.
+  feed of the release gives. Then the Client App checks the new release:
+  - On macOS, macOS checks that the new app has the signature of the Pagis
+    team.
+  - On Linux, the Client App downloads `Pagis-<release>-linux.SHA256SUMS`
+    and its signature `Pagis-<release>-linux.SHA256SUMS.asc` from the
+    release. The signature must verify with the Pagis release key in the
+    package, and the SHA-256 of the download must be the value on its line
+    of the list.
+
+  After these checks, the menus show "Restart to Update", and the Client
+  App sends one notification. When a check fails, the menus show "Check
+  for Updates…" again, and nothing installs.
 
 Only a Client App that installed Pagis on this computer, or that has no
 setup yet, checks for Updates. A Client App that is connected to a server
@@ -36,6 +47,12 @@ does not check.
   many, and asks before it continues.
 - **Quit Pagis** also installs a downloaded Update. The next start opens
   the new Client App.
+- **The AppImage** replaces its own file, and the new file has the name of
+  the new release. The Client App writes the "Open at login" entry again
+  for the new file.
+- **The deb** installs with `pkexec dpkg -i`, and you type your password.
+  It installs only from Restart to Update, and not at quit, because a
+  password prompt at quit or at logout stops the shutdown.
 
 ## The Upgrade at the next start
 
@@ -54,13 +71,6 @@ window offers Retry and "Continue without a Backup". After the new server
 starts, the old release does not start again.
 [Back up and restore](/client-app/backup#the-backup-of-an-upgrade) tells how
 to restore the Backup.
-
-## On Linux
-
-The Client App on Linux does not install Updates. When a newer release is
-out, the tray menu shows a line such as "Pagis 0.2.0 is out", which opens
-the page of that release. Download the new package from that page and
-install it.
 
 Pagis has no setting that turns off the check or the download, and no beta
 or other release channel.

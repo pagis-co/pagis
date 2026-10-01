@@ -12,7 +12,8 @@ export type UpdateState =
   | { kind: 'idle' }
   | { kind: 'checking' }
   | { kind: 'downloading'; version: string; percent: number }
-  /** Squirrel.Mac holds the Update and accepted its code signature. */
+  /** The Update passed its check: Squirrel.Mac accepted its code
+   *  signature, or it is on the signed checksum list of its release. */
   | { kind: 'ready'; version: string }
   | { kind: 'failed'; reason: string }
 
@@ -30,6 +31,8 @@ export interface Updater {
   allowPrerelease: boolean
   checkForUpdates(): Promise<UpdateCheckResult | null>
   quitAndInstall(): void
+  /** Install the downloaded Update. Only the Linux updaters have it. */
+  install?(isSilent: boolean, isForceRunAfter: boolean): boolean
   on(event: 'checking-for-update', listener: () => void): unknown
   on(event: 'update-not-available', listener: (info: UpdateInfo) => void): unknown
   on(event: 'update-available', listener: (info: UpdateInfo) => void): unknown
@@ -39,14 +42,22 @@ export interface Updater {
 }
 
 /**
- * Squirrel.Mac, the `autoUpdater` of Electron. electron-updater gives it
- * each downloaded ZIP. It reports `update-downloaded` only when the new
- * bundle satisfies the designated requirement of the running one, and it
- * installs the Update when the app quits.
+ * What checks a downloaded Update and installs it (ADR-0027).
+ *
+ * - `squirrel`: Squirrel.Mac, the `autoUpdater` of Electron. electron-updater
+ *   gives it each downloaded ZIP while `autoInstallOnAppQuit` is on. It
+ *   reports `update-downloaded` only when the new bundle satisfies the
+ *   designated requirement of the running one, and it installs the Update
+ *   when the app quits.
+ * - `appimage` and `deb`: electron-updater on Linux. `verify` checks the
+ *   download against the signed checksum list of its release. An AppImage
+ *   replaces itself at "Restart to Update" and at quit. A deb installs with
+ *   `pkexec dpkg -i` only at "Restart to Update", because a password prompt
+ *   at quit or at logout stops the shutdown.
  */
-export interface Installer {
-  on(event: 'update-downloaded', listener: () => void): unknown
-}
+export type Installer =
+  | { kind: 'squirrel'; squirrel: { on(event: 'update-downloaded', listener: () => void): unknown } }
+  | { kind: 'appimage' | 'deb'; verify(update: UpdateDownloadedEvent): Promise<void> }
 
 export interface UpdatesOptions {
   updater: Updater
@@ -58,10 +69,10 @@ export interface UpdatesOptions {
 }
 
 /**
- * The Update of the Client App on macOS (ADR-0027). electron-updater
- * checks the GitHub releases of the app-update.yml in the package,
- * downloads an Update with no question, and Squirrel.Mac installs it at
- * quit or at "Restart to Update".
+ * The Update of the Client App (ADR-0027). electron-updater checks the
+ * GitHub releases of the app-update.yml in the package and downloads an
+ * Update with no question. The installer checks the download, and the
+ * Update is ready after that check.
  *
  * A check starts only while no Update downloads or waits, as in VS Code:
  * the Person installs the ready Update, and the new Client App checks
@@ -71,13 +82,18 @@ export class Updates {
   private current: UpdateState = { kind: 'idle' }
   private downloaded: string | null = null
   private notified: string | null = null
+  private installing = false
   private timer: ReturnType<typeof setInterval> | null = null
   private lastCheck = 0
 
   constructor(private readonly options: UpdatesOptions) {
     const { updater, installer } = options
     updater.autoDownload = true
-    updater.autoInstallOnAppQuit = true
+    // electron-updater gives a download to Squirrel.Mac only while this is
+    // on. On Linux it would install each download at quit, also one that
+    // did not pass the check, so the Client App installs at quit itself
+    // (`installAtQuit`).
+    updater.autoInstallOnAppQuit = installer.kind === 'squirrel'
     updater.allowPrerelease = false
     updater.on('checking-for-update', () => this.set({ kind: 'checking' }))
     updater.on('update-not-available', () => this.set({ kind: 'idle' }))
@@ -87,13 +103,18 @@ export class Updates {
       const percent = Math.floor(progress.percent)
       if (state.kind === 'downloading' && percent !== state.percent) this.set({ ...state, percent })
     })
-    // electron-updater checked the SHA-512 of the feed. Squirrel.Mac now
-    // checks the code signature, and the Update is ready after that.
+    // electron-updater checked the SHA-512 of the feed. The installer now
+    // checks the download, and the Update is ready after that.
     updater.on('update-downloaded', (event) => {
-      this.downloaded = event.version
       this.set({ kind: 'downloading', version: event.version, percent: 100 })
+      if (installer.kind === 'squirrel') this.downloaded = event.version
+      else void this.checkDownload(installer.verify, event)
     })
-    installer.on('update-downloaded', () => this.ready())
+    if (installer.kind === 'squirrel') {
+      installer.squirrel.on('update-downloaded', () => {
+        if (this.downloaded !== null) this.ready(this.downloaded)
+      })
+    }
     updater.on('error', (error) => this.set({ kind: 'failed', reason: reasonOf(error) }))
   }
 
@@ -137,12 +158,39 @@ export class Updates {
   /** Quit, install the ready Update, and start the new Client App. */
   install(): void {
     if (this.current.kind !== 'ready') throw new Error('no Update is ready to install')
+    this.installing = true
     this.options.updater.quitAndInstall()
   }
 
-  private ready(): void {
-    const version = this.downloaded
-    if (version === null) return
+  /**
+   * Install a ready AppImage Update while the Client App quits, with the
+   * call that electron-updater makes at quit: a silent install that starts
+   * nothing. Squirrel.Mac installs at quit by itself, and a deb installs
+   * only at "Restart to Update".
+   */
+  installAtQuit(): void {
+    if (this.options.installer.kind !== 'appimage' || this.current.kind !== 'ready' || this.installing) return
+    this.installing = true
+    this.options.updater.install?.(true, false)
+  }
+
+  /** Check a Linux download. A result that comes after another state,
+   *  such as an error of electron-updater, changes nothing. */
+  private async checkDownload(
+    verify: (update: UpdateDownloadedEvent) => Promise<void>,
+    update: UpdateDownloadedEvent,
+  ): Promise<void> {
+    const current = () => this.current.kind === 'downloading' && this.current.version === update.version
+    try {
+      await verify(update)
+    } catch (error) {
+      if (current()) this.set({ kind: 'failed', reason: reasonOf(error) })
+      return
+    }
+    if (current()) this.ready(update.version)
+  }
+
+  private ready(version: string): void {
     this.set({ kind: 'ready', version })
     if (this.notified === version) return
     this.notified = version

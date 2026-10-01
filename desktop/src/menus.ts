@@ -1,8 +1,7 @@
 import * as path from 'node:path'
 
-import { Menu, type MenuItemConstructorOptions, Tray, app, shell } from 'electron'
+import { Menu, type MenuItemConstructorOptions, Tray, app } from 'electron'
 
-import type { NewVersion } from './updateCheck'
 import type { UpdateState } from './updates'
 
 export interface MenuActions {
@@ -12,8 +11,6 @@ export interface MenuActions {
   quit(): void
   openAtLogin(open: boolean): void
   isOpenAtLogin(): boolean
-  /** The release that the Linux check found. */
-  newVersion(): NewVersion | null
   /** The state of the Update, or null where the updater does not run. */
   update(): UpdateState | null
   checkForUpdates(): void
@@ -34,7 +31,7 @@ export function trayIcon(platform: string = process.platform): string {
 /**
  * The tray item (ADR-0025), in the macOS menu bar and in the Linux
  * status area: open the window again after a close, hold "Open at
- * login", carry the Update item or the new-version line, and quit.
+ * login", carry the Update item, and quit.
  *
  * A Linux status area shows the item through StatusNotifierItem, and
  * there a click opens the menu and sends no click event, so every action
@@ -50,7 +47,6 @@ export function createTray(actions: MenuActions): Tray {
 }
 
 export function renderTray(tray: Tray, actions: MenuActions): void {
-  const found = actions.newVersion()
   const update = updateItem(actions)
   const items: MenuItemConstructorOptions[] = [
     { label: 'Open Pagis', click: () => actions.open() },
@@ -64,15 +60,6 @@ export function renderTray(tray: Tray, actions: MenuActions): void {
     },
   ]
   if (update) items.push({ type: 'separator' }, update)
-  if (found) {
-    items.push(
-      { type: 'separator' },
-      {
-        label: `Pagis ${found.version} is out`,
-        click: () => void shell.openExternal(found.url),
-      },
-    )
-  }
   items.push(
     { type: 'separator' },
     { label: 'Quit Pagis', click: () => actions.quit() },
@@ -83,7 +70,9 @@ export function renderTray(tray: Tray, actions: MenuActions): void {
 /**
  * The native menu. The product's own menus live in the SPA. macOS has
  * an application menu with its own roles; Linux shows the menu in each
- * window, where a File menu holds Quit.
+ * window, where a File menu holds the Update item and Quit. A Linux
+ * desktop with no status area shows no tray item, and there the File menu
+ * is the only place of the Update item.
  */
 export function applicationMenu(actions: MenuActions, platform: string = process.platform): Menu {
   const quit: MenuItemConstructorOptions = {
@@ -106,7 +95,7 @@ export function applicationMenu(actions: MenuActions, platform: string = process
           quit,
         ],
       }
-    : { label: 'File', submenu: [quit] }
+    : { label: 'File', submenu: [...(update ? [update, { type: 'separator' } as const] : []), quit] }
   return Menu.buildFromTemplate([
     first,
     { role: 'editMenu' },

@@ -43,7 +43,7 @@ confirms that it loaded, and quits without starting a server.
 
 ```bash
 npm run pack         # macOS arm64: the DMG, and the ZIP with latest-mac.yml
-npm run pack:linux   # Linux amd64 and arm64: the AppImage and the deb
+npm run pack:linux   # Linux amd64 and arm64: the AppImage and the deb, with latest-linux.yml and latest-linux-arm64.yml
 ```
 
 The GitHub publish configuration of `electron-builder.yml` puts
@@ -60,7 +60,9 @@ server.
 It includes no server binary. On macOS it turns on the hardened runtime with
 the audio-input and network entitlements, and notarizes when the Apple
 credentials are present. On Linux it signs nothing: the release signs the
-checksum list.
+checksum list, and the package embeds the public release key
+`docs/release-key.asc` as `release-key.asc`, which checks the list of an
+Update.
 
 CI runs the same steps through one command, and so can you. A macOS host
 runs the macOS plan and a Linux host the Linux plan; `--linux` names the

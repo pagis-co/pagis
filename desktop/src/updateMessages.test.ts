@@ -14,15 +14,27 @@ describe('the answer of Check for Updates', () => {
   })
 
   it('names the Update that downloads and what installs it', () => {
-    expect(checkAnswer({ kind: 'found', version: '1.1.0' }, '1.0.0')).toMatchObject({
+    expect(checkAnswer({ kind: 'found', version: '1.1.0' }, '1.0.0', 'darwin')).toMatchObject({
       type: 'info',
       message: 'Pagis 1.1.0 is available.',
       detail: 'Pagis downloads it now. When the download is complete, select Restart to Update in the Pagis menu.',
     })
-    expect(checkAnswer({ kind: 'ready', version: '1.1.0' }, '1.0.0')).toMatchObject({
+    expect(checkAnswer({ kind: 'ready', version: '1.1.0' }, '1.0.0', 'darwin')).toMatchObject({
       message: 'Pagis 1.1.0 is ready to install.',
       detail: 'Select Restart to Update in the Pagis menu.',
     })
+  })
+
+  /** On Linux the Update item is in the tray menu and in the File menu of
+   *  the window. */
+  it('names the menus of the Update item on Linux', () => {
+    expect(checkAnswer({ kind: 'found', version: '1.1.0' }, '1.0.0', 'linux').detail).toBe(
+      'Pagis downloads it now. When the download is complete, select Restart to Update in the tray menu or in the File menu.',
+    )
+    expect(checkAnswer({ kind: 'ready', version: '1.1.0' }, '1.0.0', 'linux').detail).toBe(
+      'Select Restart to Update in the tray menu or in the File menu.',
+    )
+    expect(readyNotification('1.1.0', 'linux').body).toBe('Select Restart to Update in the tray menu or in the File menu.')
   })
 
   it('gives the reason of a failed check', () => {
@@ -62,7 +74,7 @@ describe('the question that Restart to Update asks', () => {
 
 describe('the notification of a ready Update', () => {
   it('names the release and what installs it', () => {
-    expect(readyNotification('1.1.0')).toEqual({
+    expect(readyNotification('1.1.0', 'darwin')).toEqual({
       title: 'Pagis 1.1.0 is ready to install',
       body: 'Select Restart to Update in the Pagis menu.',
     })

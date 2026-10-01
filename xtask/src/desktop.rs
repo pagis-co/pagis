@@ -286,7 +286,7 @@ node desktop/scripts/check-packaged-runtime.mjs "$app"
 [ -d "$unzipped/Pagis.app" ] || {{ echo 'the exact ZIP has no Pagis.app' >&2; exit 1; }}
 check_app "$unzipped/Pagis.app" "$zip"
 [ -f "$zip.blockmap" ] || {{ echo 'the ZIP has no blockmap' >&2; exit 1; }}
-node desktop/scripts/check-update-feed.mjs desktop/release/{MAC_FEED} "$zip" {version}
+node desktop/scripts/check-update-feed.mjs desktop/release/{MAC_FEED} {version} "$zip"
 "#
     );
     Action::Run(vec![Cmd::new("sh", &["-c", &script]).in_dir(root)])
@@ -319,7 +319,7 @@ const PACKAGE_INVENTORY_SCRIPT: &str = concat!(
     "dmg=\"release/Pagis-$version-arm64.dmg\"\n",
     "zip=\"release/Pagis-$version-arm64.zip\"\n",
     "node scripts/check-package.mjs \"$app\" \"$dmg\" \"$zip\"\n",
-    "node scripts/check-update-feed.mjs release/latest-mac.yml \"$zip\" \"$version\"\n",
+    "node scripts/check-update-feed.mjs release/latest-mac.yml \"$version\" \"$zip\"\n",
 );
 
 const PACKAGED_RUNTIME_SCRIPT: &str = concat!(

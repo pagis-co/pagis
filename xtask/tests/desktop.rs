@@ -152,7 +152,7 @@ fn routine_packaging_checks_the_client_inventory_and_compiled_runtime_boundary()
         "command: {inventory}"
     );
     assert!(
-        inventory.contains("check-update-feed.mjs release/latest-mac.yml \"$zip\""),
+        inventory.contains("check-update-feed.mjs release/latest-mac.yml \"$version\" \"$zip\""),
         "command: {inventory}"
     );
     let runtime = joined(step(&steps, "packaged-runtime"));
@@ -258,7 +258,7 @@ fn a_tag_checks_the_app_in_the_zip_and_the_update_feed() {
         "/usr/bin/ditto -x -k \"$zip\" \"$unzipped\"",
         "check_app \"$unzipped/Pagis.app\" \"$zip\"",
         "\"$zip.blockmap\"",
-        "node desktop/scripts/check-update-feed.mjs desktop/release/latest-mac.yml \"$zip\" 1.2.3",
+        "node desktop/scripts/check-update-feed.mjs desktop/release/latest-mac.yml 1.2.3 \"$zip\"",
     ] {
         assert!(signed.contains(expected), "no {expected}: {signed}");
     }
