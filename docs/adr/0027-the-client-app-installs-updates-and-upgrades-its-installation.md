@@ -96,17 +96,19 @@ Installation upgrades the installation, and does not show setup:
 1. It takes a Backup with the server program of the old release. It writes
    the Backup beside the State Directory, then moves it to
    `<State Directory>/backups/<old release>`. A Backup leaves out the
-   `backups` directory. A successful Upgrade removes the Backup of the
-   Upgrade before it, so the installation keeps one.
+   `backups` directory. After each start of a new release, the Client App
+   keeps only the Backup of the highest release, so the installation keeps
+   one. After "Continue without a Backup", the Backup of the Upgrade before
+   stays.
 2. It installs the Server Package of its own release from the cache or from
    a download, and starts the server. The server writes the Release Marker
    and migrates the data.
 3. It activates the release, removes the package directories and the
    downloads of all other releases, and opens the Product App.
 
-The status window shows each step. A failed Backup stops the Upgrade before
-the data changes, and the window offers Retry and "Continue without a
-Backup". After the new server starts, the old release does not start again
+The setup window shows each step and asks no setup question. A failed Backup
+stops the Upgrade before the data changes, and the window offers Retry and
+"Continue without a Backup". After the new server starts, the old release does not start again
 (ADR-0025), and the Client App offers Retry and Repair.
 
 ### The daemon prepares its Computer Image
