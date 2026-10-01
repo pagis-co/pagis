@@ -51,7 +51,7 @@ function RosterRow({
         </span>
         <span className="sprite-row-chips">
           <Badge tone={activityTone(presence)}>{activityWord(presence)}</Badge>
-          {chief && <Badge tone="neutral">Chief of Staff</Badge>}
+          {chief && <Badge tone="neutral">Main sprite</Badge>}
           {phone !== null && <Badge tone="neutral">{formatE164(phone)}</Badge>}
           {agent.email_address != null && (
             <Badge tone="neutral">{agent.email_address}</Badge>

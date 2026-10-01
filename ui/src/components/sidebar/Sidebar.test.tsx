@@ -247,7 +247,7 @@ describe('Sidebar', () => {
   })
 
   // The Chief of Staff is a designation, not a job: the row names the
-  // job the Agent's greeting names, and the Activity word.
+  // job the user wrote, as every other row does.
   it('names the job of the Chief of Staff and its Activity', async () => {
     mount({ pathname: '/', selectedId: null })
 

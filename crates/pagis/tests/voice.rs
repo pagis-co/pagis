@@ -215,7 +215,7 @@ async fn a_provider_without_a_realtime_socket_transcribes_the_clip_on_release() 
     assert!(items[0]["run_id"].is_null());
     assert_eq!(
         items[0]["text_content"],
-        "Hi, I'm Pixie, your general assistant."
+        "Hi, I'm Pixie, your Chief of Staff."
     );
 }
 
