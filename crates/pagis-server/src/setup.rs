@@ -274,7 +274,7 @@ pub async fn complete_setup(
     crate::provisioning::onboard_for_a_server(state.workspaces.as_ref(), &person.id, now).await?;
     crate::workspace::take_first_timezone(&state, &person.id, request.timezone.as_deref()).await?;
     // The Administrator answered no model question, so their default
-    // route takes the preselection of the first provider with a key.
+    // route takes the default route of the keys they typed.
     if let Some(route) = crate::model_lists::default_route(&state.keys, &state.models).await?
         && let Some(workspace) = state.workspaces.for_user(&person.id).await?
     {
@@ -385,12 +385,11 @@ pub async fn from_environment(
         return Ok(false);
     };
     // The Administrator answers no model question, so their default
-    // route names the first provider the environment gives a key. The
-    // boot runs before any model list exists, so it names that
-    // provider's fallback model; the Models settings offer the list.
-    let first_provider = crate::model_lists::first_provider(
-        setup.provider_keys.iter().map(|(provider, _)| *provider),
-    );
+    // route names the first preferred model whose provider the
+    // environment gives a key. The boot runs before any model list
+    // exists, so no list confirms it; the Models settings offer the list.
+    let preferred =
+        crate::model_lists::preferred_of(setup.provider_keys.iter().map(|(provider, _)| *provider));
     // A key that is not kept means an installation with an administrator
     // and no model route, which reads as a broken product rather than as
     // a deployment to fix. The boot stops here and names the key.
@@ -413,7 +412,7 @@ pub async fn from_environment(
     // The deployment named an administrator, so this installation is a
     // server and the local wizard has nothing to ask.
     crate::provisioning::onboard_for_a_server(stores.workspaces.as_ref(), &person.id, now).await?;
-    if let Some(provider) = first_provider
+    if let Some(candidate) = preferred
         && let Some(workspace) = stores.workspaces.for_user(&person.id).await?
     {
         stores
@@ -421,7 +420,7 @@ pub async fn from_environment(
             .update_candidates(
                 &workspace.id,
                 pagis_core::DEFAULT_MODEL_ALIAS,
-                &[crate::model_lists::fallback_candidate(provider).to_string()],
+                &[candidate.to_string()],
                 now,
             )
             .await?;

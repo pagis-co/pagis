@@ -352,6 +352,25 @@ mod tests {
         assert_eq!(model_metadata("gpt-6-luna", None).cost(&usage), Some(0.6));
     }
 
+    /// Claude Sonnet 5.5 and Opus 5.5: the limits and prices of
+    /// https://platform.claude.com/docs/en/about-claude/pricing. Opus 5.5
+    /// costs less than Opus 5, so the dash prefix `claude-opus-5` must not
+    /// price it.
+    #[test]
+    fn the_table_knows_claude_sonnet_and_opus_5_5() {
+        let usage = Usage {
+            input_tokens: 1_000_000,
+            output_tokens: 1_000_000,
+            ..Usage::default()
+        };
+        for (model, cost) in [("claude-sonnet-5-5", 12.0), ("claude-opus-5-5", 24.0)] {
+            let metadata = model_metadata(model, None);
+            assert_eq!(metadata.context_window, 1_000_000, "{model}");
+            assert_eq!(metadata.max_output_tokens, 128_000, "{model}");
+            assert_eq!(metadata.cost(&usage), Some(cost), "{model}");
+        }
+    }
+
     #[test]
     fn a_model_no_layer_knows_gets_the_default_limits_and_no_price() {
         let metadata = model_metadata("gpt-unlisted", Some(&ListedModel::new("gpt-unlisted")));

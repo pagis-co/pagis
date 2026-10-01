@@ -4,8 +4,9 @@
 // model list with the key, which generates nothing and costs nothing,
 // and only a check that passed reads as ready. The daemon stores a
 // checked key only when the provider answers, so a refused key never
-// reads as held. The picker offers the
-// provider's list, newest first, with the newest preselected. The key is
+// reads as held. The picker offers the provider's list, newest first,
+// with the daemon's preselection: the provider's preferred model when
+// the list names it, else the newest chat model. The key is
 // held in this component while it is typed and never written to browser
 // storage.
 
@@ -82,7 +83,8 @@ export function ModelStep({
   const prefix = `${provider}/`
   const listed = (lists.data ?? []).find((entry) => entry.provider === provider)
   const choices = listed?.models.map((model) => model.candidate.slice(prefix.length)) ?? []
-  // The daemon names the preselection: the newest listed chat model.
+  // The daemon names the preselection: the preferred model when the
+  // list names it, else the newest listed chat model.
   const model = picked ?? listed?.preselected ?? choices[0] ?? null
 
   const pickProvider = (next: string) => {
