@@ -9,6 +9,7 @@ import { pipeline } from 'node:stream/promises'
 import { promisify } from 'node:util'
 
 import type { LockedEntry, RuntimeLock } from './runtimeLock'
+import { executableInUse } from './runtimeUse'
 
 const exec = promisify(execFile)
 
@@ -86,6 +87,28 @@ export class RuntimeInstaller {
   install(lock: RuntimeLock, options: InstallOptions = {}): Promise<string> {
     return serialized(this.root, () => this.installLocked(lock, options)).catch((error: unknown) => {
       throw installationError(error)
+    })
+  }
+
+  /**
+   * Remove the package directory and the download of each release but
+   * the release of `lock`, once that release is active (ADR-0027). A
+   * package directory stays while a process uses one of its files
+   * (ADR-0025). The data of the installation is not in this directory.
+   */
+  removeOtherReleases(lock: RuntimeLock, inUse: (file: string) => Promise<boolean> = executableInUse): Promise<void> {
+    return serialized(this.root, async () => {
+      const releases = path.join(this.root, 'releases')
+      for (const release of ownedEntries(this.root, releases)) {
+        if (release === lock.release) continue
+        const directory = path.join(releases, release)
+        if (await filesInUse(directory, inUse)) continue
+        fs.rmSync(directory, { recursive: true, force: true })
+      }
+      const downloads = path.join(this.root, 'downloads')
+      for (const name of ownedEntries(this.root, downloads)) {
+        if (name !== `${lock.asset.sha256}.part`) fs.rmSync(path.join(downloads, name), { recursive: true, force: true })
+      }
     })
   }
 
@@ -561,6 +584,23 @@ function requireSafePath(root: string, target: string): void {
     if (metadata.isSymbolicLink()) throw new Error(`${current} is not a safe runtime path`)
     if (current !== resolvedTarget && !metadata.isDirectory()) throw new Error(`${current} is not a safe runtime directory`)
   }
+}
+
+/** The names in a directory of the runtime directory, or none when the
+ *  directory is absent. */
+function ownedEntries(root: string, directory: string): string[] {
+  requireSafePath(root, directory)
+  if (!fs.existsSync(directory)) return []
+  if (!fs.lstatSync(directory).isDirectory()) throw new Error(`${directory} is not a safe runtime directory`)
+  return fs.readdirSync(directory)
+}
+
+/** Whether a process uses a regular file in the tree of `directory`. */
+async function filesInUse(directory: string, inUse: (file: string) => Promise<boolean>): Promise<boolean> {
+  for (const entry of fs.readdirSync(directory, { recursive: true, withFileTypes: true })) {
+    if (entry.isFile() && await inUse(path.join(entry.parentPath, entry.name))) return true
+  }
+  return false
 }
 
 function removeOwnedFile(file: string): void {

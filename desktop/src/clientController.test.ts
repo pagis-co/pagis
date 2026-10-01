@@ -28,6 +28,7 @@ describe('client setup and recovery controller', () => {
     let rejectInstall!: (error: Error) => void
     let created = 0
     const controller = new ClientController({
+      backUp: async () => {},
       install: ({ signal }) => new Promise((_resolve, reject) => {
         rejectInstall = reject
         signal?.addEventListener('abort', () => reject(new DOMException('cancelled', 'AbortError')))
@@ -51,6 +52,7 @@ describe('client setup and recovery controller', () => {
     let creates = 0
     let opens = 0
     const controller = new ClientController({
+      backUp: async () => {},
       install: async () => '/installed/pagis', beginLaunch: () => {},
       connect: async () => '',
       activate: () => {},
@@ -80,6 +82,7 @@ describe('client setup and recovery controller', () => {
     }
     let opened = ''
     const controller = new ClientController({
+      backUp: async () => {},
       install: async () => '/installed/pagis', beginLaunch: () => {},
       connect: async () => '',
       activate: () => {}, openProduct: async (url) => { opened = url },
@@ -103,6 +106,7 @@ describe('client setup and recovery controller', () => {
     const states: string[] = []
     let opened = false
     const controller = new ClientController({
+      backUp: async () => {},
       install: async () => '/installed/pagis', beginLaunch: () => {}, connect: async () => '',
       activate: () => {}, openProduct: async () => { opened = true },
       createSupervisor: () => supervisor, assertNoExternalRuntime: async () => {},
@@ -128,6 +132,7 @@ describe('client setup and recovery controller', () => {
     }
     const calls: string[] = []
     const controller = new ClientController({
+      backUp: async () => {},
       install: async () => '/installed/pagis', beginLaunch: () => {},
       connect: async () => '',
       activate: () => {}, openProduct: async (url) => { calls.push(`open-product:${url}`) },
@@ -144,6 +149,7 @@ describe('client setup and recovery controller', () => {
   it('opens the product alone when an installed client starts', async () => {
     const calls: string[] = []
     const controller = new ClientController({
+      backUp: async () => {},
       install: async () => '/installed/pagis', beginLaunch: () => {},
       connect: async () => '',
       activate: () => {}, openProduct: async () => { calls.push('open-product') },
@@ -156,11 +162,58 @@ describe('client setup and recovery controller', () => {
     expect(calls).toEqual(['open-product'])
   })
 
+  it('upgrades with a Backup first, then starts the new release and opens the product', async () => {
+    const calls: string[] = []
+    const controller = new ClientController({
+      backUp: async () => { calls.push('back-up') },
+      install: async () => { calls.push('install'); return '/installed/pagis' },
+      beginLaunch: () => calls.push('begin-launch'),
+      connect: async () => '',
+      activate: () => calls.push('activate'), openProduct: async () => { calls.push('open-product') },
+      createSupervisor: (_binary, beforeSpawn) => {
+        const supervisor = new FakeSupervisor()
+        const start = supervisor.start.bind(supervisor)
+        supervisor.start = async () => { beforeSpawn(); await start() }
+        return supervisor
+      },
+      assertNoExternalRuntime: async () => {}, onDaemonState: () => {},
+      openMultiUserSwitch: async () => { calls.push('open-multi-user-switch') },
+    })
+
+    await controller.upgrade(true)
+
+    expect(calls).toEqual(['back-up', 'install', 'begin-launch', 'activate', 'open-product'])
+  })
+
+  /** Quit cancels the setup job, and the cancel stops the program that
+   *  takes the Backup. */
+  it('stops the Backup of an Upgrade on a cancel, and starts nothing', async () => {
+    let created = 0
+    const controller = new ClientController({
+      backUp: (signal) => new Promise((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(new DOMException('cancelled', 'AbortError')))
+      }),
+      install: async () => '/installed/pagis', beginLaunch: () => {}, connect: async () => '',
+      activate: () => {}, openProduct: async () => {},
+      createSupervisor: () => { created += 1; return new FakeSupervisor() },
+      assertNoExternalRuntime: async () => {}, onDaemonState: () => {},
+      openMultiUserSwitch: async () => {},
+    })
+    const upgrade = controller.upgrade(true)
+    expect(controller.inProgress).toBe(true)
+
+    await controller.cancel()
+
+    await expect(upgrade).rejects.toThrow(/cancelled/)
+    expect(created).toBe(0)
+  })
+
   /** The connect-only path installs nothing and supervises nothing:
    *  no package, no supervisor and no release marker. */
   it('connects to a server without installing or supervising one', async () => {
     const calls: string[] = []
     const controller = new ClientController({
+      backUp: async () => {},
       install: async () => { calls.push('install'); return '/installed/pagis' },
       beginLaunch: () => calls.push('begin-launch'),
       connect: async (url) => { calls.push(`connect:${url}`); return 'https://pagis.example.com/' },
@@ -186,6 +239,7 @@ describe('client setup and recovery controller', () => {
     supervisor.usePort = async () => new Promise<void>((resolve) => { finishPort = resolve })
     let installs = 0
     const controller = new ClientController({
+      backUp: async () => {},
       install: async () => { installs += 1; return '/installed/pagis' },
       beginLaunch: () => {}, connect: async () => '', activate: () => {}, openProduct: async () => {},
       createSupervisor: () => supervisor, assertNoExternalRuntime: async () => {}, onDaemonState: () => {},
@@ -211,6 +265,7 @@ describe('client setup and recovery controller', () => {
     let finishInstall!: () => void
     let finishConnect!: () => void
     const controller = new ClientController({
+      backUp: async () => {},
       install: () => new Promise((resolve) => { finishInstall = () => resolve('/installed/pagis') }),
       beginLaunch: () => {},
       connect: () => new Promise((resolve) => { finishConnect = () => resolve('https://pagis.example.com/') }),

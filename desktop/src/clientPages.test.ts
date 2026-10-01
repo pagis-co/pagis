@@ -65,7 +65,7 @@ function openPage<State>(file: string, bridge: string, methods: string[]): Page<
 }
 
 function openSetup(): Page<SetupState> {
-  return openPage('setup.html', 'pagisSetup', ['installHere', 'connectToServer', 'cancel', 'usePort', 'retryServer', 'quit'])
+  return openPage('setup.html', 'pagisSetup', ['installHere', 'connectToServer', 'upgrade', 'cancel', 'usePort', 'retryServer', 'quit'])
 }
 
 function openStatus(): Page<DaemonState> {
@@ -326,7 +326,7 @@ describe('the second screen of the setup page', () => {
     page.button('Continue')!.click()
     page.button('Install')!.click()
 
-    page.show({ kind: 'setting-up', step: 'download', download: { fraction: 0.25, detail: '18 of 72 MB · About 20 seconds left' } })
+    page.show({ kind: 'setting-up', step: 'download', download: { fraction: 0.25, detail: '18 of 72 MB · About 20 seconds left' }, upgrade: null })
 
     expect(page.visibleText()).toContain('18 of 72 MB · About 20 seconds left')
     expect(footer(page)).toEqual(['Quit', 'Cancel'])
@@ -416,9 +416,28 @@ describe('the states of the setup page', () => {
     expect(page.button('Continue')).toBeDefined()
   })
 
+  /** A failed Backup stops the Upgrade before the data changes. The
+   *  Person tries the Backup again, or continues without one. */
+  it('offers Retry and "Continue without a Backup" after a failed Backup, and no other setup', () => {
+    const page = openSetup()
+    const reason = 'The Backup of Pagis 0.1.1 did not complete: pagis is running against /Users/ada/.pagis — stop the daemon first'
+
+    page.show({ kind: 'backup-failed', release: '0.2.0', reason })
+
+    expect(page.visibleText().split('\n').slice(1, 4)).toEqual([
+      'Pagis could not make a Backup',
+      'Pagis stopped the Upgrade to 0.2.0 before it changed your data. Select Retry, or continue without a Backup.',
+      reason,
+    ])
+    expect(footer(page)).toEqual(['Quit', 'Continue without a Backup', 'Retry'])
+    page.button('Retry')!.click()
+    page.button('Continue without a Backup')!.click()
+    expect(page.calls).toEqual(['upgrade:true', 'upgrade:false'])
+  })
+
   it('gives each state a title of its own, under the name of the product', () => {
     for (const [state, title] of [
-      [{ kind: 'setting-up', step: 'check', download: null }, 'Setting up Pagis'],
+      [{ kind: 'setting-up', step: 'check', download: null, upgrade: null }, 'Setting up Pagis'],
       [{ kind: 'installing', detail: 'Connecting to the Pagis server…' }, 'Setting up Pagis'],
       [{ kind: 'taken-port', port: 4410, holder: 'Python (pid 82674)', suggested: 4411 }, 'Port 4410 is taken'],
       [{ kind: 'failed', reason: 'The daemon stopped.', repair: true, log: '' }, 'Pagis could not start'],
@@ -439,13 +458,14 @@ describe('the states of the setup page', () => {
 describe('the steps of a local setup', () => {
   const steps = (page: Page<SetupState>): string[] =>
     [...page.document.querySelectorAll<HTMLElement>('#steps li')]
+      .filter((step) => !step.hidden)
       .map((step) => `${step.dataset.state}:${step.textContent?.trim()}`)
   const bar = (page: Page<SetupState>): HTMLElement => page.document.getElementById('setup-bar')!
 
   it('lists the four steps, with the finished ones done and the current one marked', () => {
     const page = openSetup()
 
-    page.show({ kind: 'setting-up', step: 'install', download: null })
+    page.show({ kind: 'setting-up', step: 'install', download: null, upgrade: null })
 
     expect(steps(page)).toEqual([
       'done:Download the server',
@@ -458,7 +478,7 @@ describe('the steps of a local setup', () => {
   it('fills the bar with the share of the download', () => {
     const page = openSetup()
 
-    page.show({ kind: 'setting-up', step: 'download', download: { fraction: 0.25, detail: '18 of 72 MB' } })
+    page.show({ kind: 'setting-up', step: 'download', download: { fraction: 0.25, detail: '18 of 72 MB' }, upgrade: null })
 
     expect(bar(page).getAttribute('aria-valuenow')).toBe('25')
     expect((bar(page).firstElementChild as HTMLElement).style.width).toBe('25%')
@@ -467,13 +487,54 @@ describe('the steps of a local setup', () => {
 
   it('shows a busy bar and no detail while a step has no share', () => {
     const page = openSetup()
-    page.show({ kind: 'setting-up', step: 'download', download: { fraction: 0.25, detail: '18 of 72 MB' } })
+    page.show({ kind: 'setting-up', step: 'download', download: { fraction: 0.25, detail: '18 of 72 MB' }, upgrade: null })
 
-    page.show({ kind: 'setting-up', step: 'start', download: null })
+    page.show({ kind: 'setting-up', step: 'start', download: null, upgrade: null })
 
     expect(bar(page).hasAttribute('aria-valuenow')).toBe(false)
     expect(bar(page).firstElementChild!.classList.contains('progress-busy')).toBe(true)
     expect(page.visibleText()).not.toContain('18 of 72 MB')
+  })
+
+  /** An Upgrade asks no setup question. Its heading names the new
+   *  release, and its Backup comes before the other steps (ADR-0027). */
+  it('names the Upgrade to the new release, and lists its Backup first', () => {
+    const page = openSetup()
+
+    page.show({ kind: 'setting-up', step: 'download', download: null, upgrade: { release: '0.2.0', backup: true } })
+
+    expect(page.visibleText().split('\n').slice(0, 2)).toEqual(['Pagis', 'Upgrading Pagis to 0.2.0'])
+    expect(steps(page)).toEqual([
+      'done:Make a Backup of your data',
+      'current:Download the server',
+      'pending:Check the server',
+      'pending:Install the server files',
+      'pending:Start the server',
+    ])
+    expect(page.visibleText()).not.toMatch(/Who uses Pagis|How do you want/)
+  })
+
+  it('lists no Backup in an Upgrade that continues without one', () => {
+    const page = openSetup()
+
+    page.show({ kind: 'setting-up', step: 'check', download: null, upgrade: { release: '0.2.0', backup: false } })
+
+    expect(steps(page)).toEqual([
+      'done:Download the server',
+      'current:Check the server',
+      'pending:Install the server files',
+      'pending:Start the server',
+    ])
+  })
+
+  /** Cancel goes back to the setup question, and an Upgrade has none.
+   *  Quit stops it. */
+  it('offers no Cancel during an Upgrade', () => {
+    const page = openSetup()
+
+    page.show({ kind: 'setting-up', step: 'backup', download: null, upgrade: { release: '0.2.0', backup: true } })
+
+    expect(footer(page)).toEqual(['Quit'])
   })
 
   it('shows the steps of a local setup only', () => {
@@ -495,6 +556,8 @@ describe('Quit on the setup page', () => {
       ['the progress', (page) => page.show({ kind: 'installing', detail: 'Starting the Pagis server…' })],
       ['a failure', (page) => page.show({ kind: 'failed', reason: 'x', repair: true, log: '' })],
       ['a taken port', (page) => page.show({ kind: 'taken-port', port: 4410, holder: 'Python', suggested: 4411 })],
+      ['an Upgrade', (page) => page.show({ kind: 'setting-up', step: 'backup', download: null, upgrade: { release: '0.2.0', backup: true } })],
+      ['a failed Backup', (page) => page.show({ kind: 'backup-failed', release: '0.2.0', reason: 'x' })],
     ]
     for (const [name, open] of screens) {
       const page = openSetup()

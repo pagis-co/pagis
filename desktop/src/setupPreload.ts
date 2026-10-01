@@ -13,6 +13,9 @@ const api = {
   /** Connect to a server this client did not start. The Person signs in
    *  on that server's own page, so the page sends the address alone. */
   connectToServer: (url: string): Promise<void> => ipcRenderer.invoke('pagis:install', { kind: 'server', url }),
+  /** Upgrade the installation of an older release again, with a Backup
+   *  first or without one. */
+  upgrade: (backup: boolean): Promise<void> => ipcRenderer.invoke('pagis:upgrade', backup),
   cancel: (): Promise<void> => ipcRenderer.invoke('pagis:cancel-setup'),
   usePort: (port: number): Promise<void> => ipcRenderer.invoke('pagis:setup-use-port', port),
   /** Try again the server that this client is connected to. */

@@ -54,6 +54,19 @@ icon: HardDrive
   client on this machine still opens signed in. The daemon accepts the trade
   only from this machine and never through a proxy, even a proxy on this
   machine ([ADR-0025](https://github.com/pagis-co/pagis/blob/main/docs/adr/0025-the-client-app-installs-one-exact-server-or-connects-to-one.md)).
+- **Upgrades the installation at start.** A Client App of a newer release
+  upgrades the installation of an older release when it starts, and asks no
+  setup question. The window shows each step. First, the `pagis` command of
+  the old release makes a Backup, which the client keeps at
+  `~/.pagis/backups/<old release>`. Then the client installs and starts the
+  server of its own release, and that server migrates the data. When the new
+  release is active, the client removes the Backup of the Upgrade before it,
+  and the package directories and the downloads of the other releases. When
+  the Backup fails, the Upgrade stops before the data changes, and the
+  window offers Retry and "Continue without a Backup". After the new server
+  starts, the client does not start the old release again.
+  [Back up and restore](/client-app/backup#the-backup-of-an-upgrade) tells
+  how to restore the Backup.
 - **Recovers safely.** Install phases survive a crash. Retry, cancel and
   repair change only files the client owns. A repair waits until no other
   process uses the installed runtime. The setup page offers Repair only
