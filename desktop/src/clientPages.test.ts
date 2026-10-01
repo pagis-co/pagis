@@ -351,7 +351,7 @@ describe('the states of the setup page', () => {
   it('repairs an installation without asking who uses Pagis', () => {
     const page = openSetup()
 
-    page.show({ kind: 'failed', reason: 'The daemon stopped 4 times with code 1.', repair: true })
+    page.show({ kind: 'failed', reason: 'The daemon stopped 4 times with code 1.', repair: true, log: '' })
 
     expect(page.visibleText()).toContain('The daemon stopped 4 times with code 1.')
     expect(footer(page)).toEqual(['Quit', 'Choose another setup', 'Repair'])
@@ -360,9 +360,27 @@ describe('the states of the setup page', () => {
     expect(page.visibleText()).not.toContain('Who uses Pagis')
   })
 
+  it('shows what the stopped server printed under the reason', () => {
+    const page = openSetup()
+    const log = 'Error: migration 2 was previously applied but is missing in the resolved migrations'
+
+    page.show({ kind: 'failed', reason: 'The daemon stopped 4 times with code 1.', repair: true, log })
+
+    expect(page.visibleText().split('\n').slice(1, 4))
+      .toEqual(['Pagis could not start', 'The daemon stopped 4 times with code 1.', log])
+  })
+
+  it('shows no log for a failure without one', () => {
+    const page = openSetup()
+
+    page.show({ kind: 'failed', reason: 'server download failed with HTTP 404', repair: false, log: '' })
+
+    expect(page.document.getElementById('log')!.hidden).toBe(true)
+  })
+
   it('offers the other setups after a failure on request', () => {
     const page = openSetup()
-    page.show({ kind: 'failed', reason: 'The daemon stopped 4 times with code 1.', repair: true })
+    page.show({ kind: 'failed', reason: 'The daemon stopped 4 times with code 1.', repair: true, log: '' })
 
     page.button('Choose another setup')!.click()
 
@@ -373,7 +391,7 @@ describe('the states of the setup page', () => {
   it('offers the setups again after a failure of a new setup, and no Repair', () => {
     const page = openSetup()
 
-    page.show({ kind: 'failed', reason: 'server download failed with HTTP 404', repair: false })
+    page.show({ kind: 'failed', reason: 'server download failed with HTTP 404', repair: false, log: '' })
 
     expect(page.visibleText()).toContain('server download failed with HTTP 404')
     expect(page.button('Repair')).toBeUndefined()
@@ -403,8 +421,8 @@ describe('the states of the setup page', () => {
       [{ kind: 'setting-up', step: 'check', download: null }, 'Setting up Pagis'],
       [{ kind: 'installing', detail: 'Connecting to the Pagis server…' }, 'Setting up Pagis'],
       [{ kind: 'taken-port', port: 4410, holder: 'Python (pid 82674)', suggested: 4411 }, 'Port 4410 is taken'],
-      [{ kind: 'failed', reason: 'The daemon stopped.', repair: true }, 'Pagis could not start'],
-      [{ kind: 'failed', reason: 'The download stopped.', repair: false }, 'Setup did not complete'],
+      [{ kind: 'failed', reason: 'The daemon stopped.', repair: true, log: '' }, 'Pagis could not start'],
+      [{ kind: 'failed', reason: 'The download stopped.', repair: false, log: '' }, 'Setup did not complete'],
       [{ kind: 'connection-failed', origin: 'http://127.0.0.1:4700', reason: 'No answer.' }, 'Pagis cannot open http://127.0.0.1:4700'],
     ] as const) {
       const page = openSetup()
@@ -475,7 +493,7 @@ describe('Quit on the setup page', () => {
       ['the first screen', (page) => page.show({ kind: 'ready' })],
       ['the second screen', (page) => { page.show({ kind: 'ready' }); page.button('Continue')!.click() }],
       ['the progress', (page) => page.show({ kind: 'installing', detail: 'Starting the Pagis server…' })],
-      ['a failure', (page) => page.show({ kind: 'failed', reason: 'x', repair: true })],
+      ['a failure', (page) => page.show({ kind: 'failed', reason: 'x', repair: true, log: '' })],
       ['a taken port', (page) => page.show({ kind: 'taken-port', port: 4410, holder: 'Python', suggested: 4411 })],
     ]
     for (const [name, open] of screens) {

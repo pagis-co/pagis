@@ -135,8 +135,9 @@ impl RestartSwitch {
 /// One candidate endpoint and what it answered.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct DockerCandidateDto {
-    /// `override`, `environment`, `context`, `docker_run`, `colima`,
-    /// or `system_socket`.
+    /// `override`, `environment`, `context`, `docker_desktop`,
+    /// `orbstack`, `colima`, `rancher_desktop`, `lima`,
+    /// `rootless_docker`, `system_socket`, or `podman`.
     pub source: String,
     pub endpoint: String,
     pub reachable: bool,

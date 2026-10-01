@@ -75,10 +75,13 @@ from the Key File that its deployment mounts.
 
 Docker is optional. Without it the daemon runs, but the Agents have no
 Computers: no browser, no terminal and no screen. Pagis finds Docker
-itself. It tries `DOCKER_HOST`, the current docker context, the socket of
-Docker Desktop, each Colima socket, then `/var/run/docker.sock`. The
-Settings view of the Administration Interface shows what it tried and
-takes an endpoint of your own.
+itself. It tries `DOCKER_HOST` and the current docker context first. Then
+it tries the sockets of Docker Desktop, OrbStack, each Colima profile,
+Rancher Desktop, each Lima instance and rootless Docker, then
+`/var/run/docker.sock`, and the Podman sockets last. It uses the first
+endpoint that answers. containerd has no Docker API, so Pagis cannot use
+it. The Settings view of the Administration Interface shows what it tried
+and takes an endpoint of your own.
 
 ## What a Computer reaches
 

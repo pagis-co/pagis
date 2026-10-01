@@ -33,17 +33,17 @@ const settings = {
   data_directory: '/Users/ada/.pagis',
   version: '0.14.2',
   docker: {
-    endpoint: 'unix:///Users/ada/.colima/default/docker.sock',
+    endpoint: 'unix:///Users/ada/.orbstack/run/docker.sock',
     candidates: [
       {
-        source: 'docker_run',
+        source: 'docker_desktop',
         endpoint: 'unix:///Users/ada/.docker/run/docker.sock',
         reachable: false,
         error: 'connection refused',
       },
       {
-        source: 'colima',
-        endpoint: 'unix:///Users/ada/.colima/default/docker.sock',
+        source: 'orbstack',
+        endpoint: 'unix:///Users/ada/.orbstack/run/docker.sock',
         reachable: true,
         error: null,
       },
@@ -161,7 +161,7 @@ describe('SystemSection', () => {
 
     expect(await screen.findByText('Reachable')).toBeTruthy()
     expect(
-      screen.getByText('Colima · unix:///Users/ada/.colima/default/docker.sock'),
+      screen.getByText('OrbStack · unix:///Users/ada/.orbstack/run/docker.sock'),
     ).toBeTruthy()
   })
 

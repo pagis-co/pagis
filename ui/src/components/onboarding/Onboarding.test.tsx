@@ -42,8 +42,8 @@ function dockerReport(endpoint: string | null): DockerReport {
     endpoint,
     candidates: [
         {
-          source: 'docker_run',
-          endpoint: 'unix:///home/ada/.docker/run/docker.sock',
+          source: 'podman',
+          endpoint: 'unix:///run/user/1000/podman/podman.sock',
           reachable: false,
           error: 'no such file or directory',
         },
@@ -532,8 +532,8 @@ describe('the computer step', () => {
       ...document.querySelectorAll('.onboarding-candidate-endpoint'),
     ].map((node) => node.textContent)
     expect(candidates).toHaveLength(2)
-    expect(candidates[0]).toContain('unix:///home/ada/.docker/run/docker.sock')
-    expect(candidates[1]).toContain('unix:///var/run/docker.sock')
+    expect(candidates[0]).toBe('Podman · unix:///run/user/1000/podman/podman.sock')
+    expect(candidates[1]).toBe('System socket · unix:///var/run/docker.sock')
     expect(screen.getByText('no such file or directory')).toBeTruthy()
     expect(screen.getByText('permission denied')).toBeTruthy()
   })
@@ -588,6 +588,15 @@ describe('the computer step', () => {
         body: { docker_endpoint: 'tcp://10.0.0.2:2375' },
       }),
     )
+  })
+
+  it('offers one check again with the connection details open', async () => {
+    mount(stubApi())
+    await reachComputer()
+
+    fireEvent.click(screen.getByText('Connection details'))
+
+    expect(screen.getAllByText('Check again')).toHaveLength(1)
   })
 
   it('offers a member no endpoint to set', async () => {

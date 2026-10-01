@@ -3469,8 +3469,9 @@ export interface components {
             error?: string | null;
             reachable: boolean;
             /**
-             * @description `override`, `environment`, `context`, `docker_run`, `colima`,
-             *     or `system_socket`.
+             * @description `override`, `environment`, `context`, `docker_desktop`,
+             *     `orbstack`, `colima`, `rancher_desktop`, `lima`,
+             *     `rootless_docker`, `system_socket`, or `podman`.
              */
             source: string;
         };

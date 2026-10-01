@@ -46,8 +46,10 @@ pub fn empty_docker_search() -> pagis_computer::DockerSearch {
         docker_host: None,
         docker_context: None,
         docker_config_dir: nowhere.join(".docker"),
-        home: nowhere.clone(),
-        system_socket: nowhere.join("docker.sock"),
+        home: nowhere.join("home"),
+        runtime_dir: None,
+        temp_dir: nowhere.join("tmp"),
+        root: nowhere,
     }
 }
 

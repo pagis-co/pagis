@@ -16,6 +16,7 @@ import {
   useSystemSettings,
   useSaveSystemSettings,
 } from '../../queries'
+import { dockerSourceName } from '../dockerSource'
 import { Analytics } from './Analytics'
 import { MultiUser } from './MultiUser'
 import { restartMessage, useDaemonRestart } from './restart'
@@ -23,16 +24,6 @@ import { restartMessage, useDaemonRestart } from './restart'
 import './SystemSection.css'
 
 const LOG_LEVELS = ['trace', 'debug', 'info', 'warn', 'error']
-
-/** Where one candidate endpoint came from (ADR-0024). */
-const SOURCE_NAMES: Record<string, string> = {
-  override: 'Your endpoint',
-  environment: 'DOCKER_HOST',
-  context: 'Docker context',
-  docker_run: 'Docker Desktop',
-  colima: 'Colima',
-  system_socket: 'System socket',
-}
 
 function DockerRow({ docker, api }: { docker: DockerReportDto; api: ApiClient }) {
   const probe = useProbeDocker(api)
@@ -43,7 +34,7 @@ function DockerRow({ docker, api }: { docker: DockerReportDto; api: ApiClient })
         <>
           <Badge tone="working">Reachable</Badge>
           <span className="system-docker-endpoint">
-            {inUse ? `${SOURCE_NAMES[inUse.source] ?? inUse.source} · ` : ''}
+            {inUse ? `${dockerSourceName(inUse.source)} · ` : ''}
             {docker.endpoint}
           </span>
         </>
