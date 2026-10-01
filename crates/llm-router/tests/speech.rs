@@ -128,6 +128,61 @@ async fn speech_round_trips_on_deepgram_protocol_with_the_voice_as_the_model() {
     assert_eq!(sent, json!({ "text": "Hello there" }));
 }
 
+/// ElevenLabs transcribes a held clip with Scribe: a multipart upload of
+/// the file and the model, and the words with their times back.
+#[tokio::test]
+async fn transcription_round_trips_on_elevenlabs_protocol() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/speech-to-text"))
+        .and(header("xi-api-key", "test-key"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "language_code": "en",
+            "text": "Book the room.",
+            "words": [
+                {"text": "Book", "start": 0.0, "end": 0.4, "type": "word"},
+                {"text": " ", "start": 0.4, "end": 0.5, "type": "spacing"},
+                {"text": "the", "start": 0.5, "end": 0.7, "type": "word"}
+            ]
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let router = single_provider_router(ProtocolKind::ElevenLabs, &server.uri());
+
+    let response = router
+        .transcribe(&TranscriptionRequest::new(
+            "m",
+            b"wav-bytes".to_vec(),
+            "audio/wav",
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(response.text, "Book the room.");
+    assert_eq!(response.language.as_deref(), Some("en"));
+    assert_eq!(
+        response.words,
+        vec![
+            TranscriptWord {
+                start_s: 0.0,
+                end_s: 0.4,
+                word: "Book".into()
+            },
+            TranscriptWord {
+                start_s: 0.5,
+                end_s: 0.7,
+                word: "the".into()
+            },
+        ]
+    );
+    let request = &server.received_requests().await.unwrap()[0];
+    let body = String::from_utf8_lossy(&request.body);
+    assert!(body.contains("name=\"model_id\""), "{body}");
+    assert!(body.contains("concrete-model"), "{body}");
+    assert!(body.contains("name=\"file\""), "{body}");
+}
+
 #[tokio::test]
 async fn transcription_round_trips_on_openai_protocol() {
     let server = MockServer::start().await;

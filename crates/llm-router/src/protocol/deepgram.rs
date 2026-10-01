@@ -20,7 +20,7 @@ use serde_json::{Value, json};
 use crate::config::ProviderConfig;
 use crate::error::{Error, ErrorKind};
 use crate::protocol::{ModelPage, Protocol};
-use crate::registry::ListedModel;
+use crate::registry::{ListedModel, ListedVoice};
 use crate::types::{
     AudioFormat, SpeechRequest, TranscriptWord, TranscriptionRequest, TranscriptionResponse,
 };
@@ -69,9 +69,15 @@ fn generations(rows: &[Value], output: &str, voices: bool) -> Vec<ListedModel> {
         if let (Some(voices), Some(voice)) = (
             models[index].voices.as_mut(),
             row.get("canonical_name").and_then(Value::as_str),
-        ) && !voices.iter().any(|known| known == voice)
+        ) && !voices.iter().any(|known| known.id == voice)
         {
-            voices.push(voice.to_owned());
+            voices.push(ListedVoice {
+                id: voice.to_owned(),
+                name: row
+                    .pointer("/metadata/display_name")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
+            });
         }
     }
     models

@@ -227,7 +227,9 @@ provider: it transcribes a clip on `/audio/transcriptions` and has no
 realtime socket. Deepgram streams on its own `/listen` socket: the daemon
 sends the PCM frames as they come, each final result adds to the draft, and
 the release sends `CloseStream`, after which Deepgram sends its last results
-and closes.
+and closes. ElevenLabs streams on Scribe's realtime socket with a manual
+commit: the daemon sends each PCM frame as a base64 chunk, the release
+sends a commit, and the committed transcript is the final draft.
 
 The transcript is a draft in the composer, never a sent message, because
 speech-to-text mishears names and numbers and the message goes to an Agent
@@ -245,8 +247,11 @@ record carries one voice from the Provider Voice List: the voices of the model
 that speaks, which is the first candidate of the `speak` alias whose provider
 holds a key and serves spoken replies. The daemon reads the list from that
 provider, as it reads the Provider Model List: OpenRouter names the voices of
-each speech model in its model list, and OpenAI lists no voices, so its fixed
-set is the list. The daemon validates a new voice against the list. The voice
+each speech model in its model list, Deepgram lists each Aura voice as a
+model, ElevenLabs lists the voices of the account, and OpenAI lists no
+voices, so its fixed set is the list. A voice has an id, which the Agent
+holds, and a name where the id is not one, which a person reads. The daemon
+validates a new voice against the list. The voice
 is the voice of spoken replies and of Calls. Where the model that speaks lacks
 it, because the `speak` alias changed provider, the reply takes the model's
 first voice and says which voice spoke. A Call runs on OpenAI, so a voice that

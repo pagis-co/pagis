@@ -89,9 +89,30 @@ pub struct ListedModel {
     #[serde(default)]
     pub output_modalities: Option<Vec<String>>,
     /// The voices a speech model takes. OpenRouter names them for each
-    /// speech model; a provider with a fixed set names none.
+    /// speech model, Deepgram's voices are its speech models, and
+    /// ElevenLabs lists the voices of the account apart; a provider with
+    /// a fixed set names none.
     #[serde(default)]
-    pub voices: Option<Vec<String>>,
+    pub voices: Option<Vec<ListedVoice>>,
+}
+
+/// One voice a speech model takes.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ListedVoice {
+    /// The id to send in a speech request.
+    pub id: String,
+    /// The name a person reads, where the id is not one.
+    pub name: Option<String>,
+}
+
+impl ListedVoice {
+    /// A voice whose id is its name.
+    pub fn named_by_id(id: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            name: None,
+        }
+    }
 }
 
 /// Id fragments of the model families that do not take a chat turn:

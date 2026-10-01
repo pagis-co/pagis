@@ -366,8 +366,10 @@ pub(crate) fn provider_config(
         // carries it.
         Provider::OpenAi => ProviderConfig::openai_responses(key),
         Provider::OpenRouter => ProviderConfig::openrouter(key),
-        // No Run thinks on Deepgram; its entry serves the model list.
+        // No Run thinks on Deepgram or ElevenLabs; their entries serve
+        // the model list.
         Provider::Deepgram => ProviderConfig::deepgram(key),
+        Provider::ElevenLabs => ProviderConfig::elevenlabs(key),
     };
     if let Some(base_url) = base_url {
         config.base_url = base_url.clone();
@@ -503,7 +505,9 @@ fn computer_tool(provider: Provider, native: bool) -> Tool {
         Provider::OpenAi | Provider::OpenRouter if native => {
             Tool::provider_defined("computer", "computer", serde_json::Map::new())
         }
-        Provider::OpenAi | Provider::OpenRouter | Provider::Deepgram => portable_computer_tool(),
+        Provider::OpenAi | Provider::OpenRouter | Provider::Deepgram | Provider::ElevenLabs => {
+            portable_computer_tool()
+        }
     }
 }
 
@@ -513,7 +517,7 @@ fn openai_model(provider: Provider, model: &str) -> bool {
     match provider {
         Provider::OpenAi => true,
         Provider::OpenRouter => model.starts_with("openai/"),
-        Provider::Anthropic | Provider::Deepgram => false,
+        Provider::Anthropic | Provider::Deepgram | Provider::ElevenLabs => false,
     }
 }
 

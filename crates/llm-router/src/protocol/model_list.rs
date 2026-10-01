@@ -23,7 +23,7 @@ use serde_json::Value;
 
 use crate::error::Error;
 use crate::protocol::ModelPage;
-use crate::registry::{ListedModel, ModelPrices};
+use crate::registry::{ListedModel, ListedVoice, ModelPrices};
 
 /// Decode an OpenAI-shaped list: one page, newest first when the server
 /// reports `created`, otherwise in the server's order.
@@ -57,7 +57,9 @@ pub(super) fn parse_openai(provider_key: &str, body: &[u8]) -> Result<ModelPage,
                     output_modalities: model
                         .architecture
                         .and_then(|architecture| architecture.output_modalities),
-                    voices: model.supported_voices,
+                    voices: model
+                        .supported_voices
+                        .map(|voices| voices.into_iter().map(ListedVoice::named_by_id).collect()),
                 },
             )
         })

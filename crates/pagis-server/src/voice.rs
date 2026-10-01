@@ -441,7 +441,16 @@ pub struct VoicePage {
     /// The model that speaks, as its provider names it.
     pub model: Option<String>,
     /// Its voices; the first is the default.
-    pub items: Vec<String>,
+    pub items: Vec<VoiceDto>,
+}
+
+/// One voice of the model that speaks.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct VoiceDto {
+    /// What an Agent Voice holds.
+    pub id: String,
+    /// The name a person reads, or `null` when the id is the name.
+    pub name: Option<String>,
 }
 
 #[utoipa::path(
@@ -461,7 +470,14 @@ pub async fn list_voices(
         Some(list) => VoicePage {
             provider: Some(list.provider.id().to_string()),
             model: Some(list.model),
-            items: list.voices,
+            items: list
+                .voices
+                .into_iter()
+                .map(|voice| VoiceDto {
+                    id: voice.id,
+                    name: voice.name,
+                })
+                .collect(),
         },
         None => VoicePage {
             provider: None,

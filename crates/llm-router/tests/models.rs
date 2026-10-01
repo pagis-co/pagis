@@ -20,6 +20,15 @@ fn ids(models: &[ListedModel]) -> Vec<&str> {
     models.iter().map(|model| model.id.as_str()).collect()
 }
 
+fn voice_ids(model: &ListedModel) -> Vec<&str> {
+    model
+        .voices
+        .iter()
+        .flatten()
+        .map(|voice| voice.id.as_str())
+        .collect()
+}
+
 #[tokio::test]
 async fn openai_lists_ids_newest_first_with_no_metadata() {
     let server = MockServer::start().await;
@@ -105,8 +114,15 @@ async fn openrouter_lists_speech_models_with_their_voices() {
         .find(|model| model.id == "google/gemini-3.8-flash-tts")
         .unwrap();
     assert_eq!(
-        tts.voices.as_deref(),
-        Some(&["Zephyr".to_string(), "Puck".to_string(), "Kore".to_string()][..])
+        voice_ids(tts),
+        ["Zephyr", "Puck", "Kore"],
+        "a Gemini voice id is its name"
+    );
+    assert!(
+        tts.voices
+            .iter()
+            .flatten()
+            .all(|voice| voice.name.is_none())
     );
     assert_eq!(
         tts.output_modalities.as_deref(),
@@ -153,15 +169,72 @@ async fn deepgram_lists_the_models_of_the_project_of_the_key() {
         Some(&["transcription".to_string()][..])
     );
     assert_eq!(
-        models[2].voices.as_deref(),
-        Some(
-            &[
-                "aura-2-thalia-en".to_string(),
-                "aura-2-andromeda-en".to_string()
-            ][..]
-        )
+        voice_ids(&models[2]),
+        ["aura-2-thalia-en", "aura-2-andromeda-en"]
+    );
+    assert_eq!(
+        models[2].voices.as_ref().unwrap()[0].name.as_deref(),
+        Some("Thalia")
     );
     assert!(models.iter().all(|model| !model.looks_like_chat()));
+}
+
+/// ElevenLabs lists its models for the key, and the voices of the
+/// account apart from them, a page at a time. Each speech model takes
+/// every voice of the account, and a voice id is opaque, so each voice
+/// carries its name.
+#[tokio::test]
+async fn elevenlabs_lists_its_speech_models_with_the_voices_of_the_account() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .and(header("xi-api-key", "el-key"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([
+            { "model_id": "eleven_flash_v2_5", "name": "Eleven Flash v2.5", "can_do_text_to_speech": true },
+            { "model_id": "eleven_multilingual_sts_v2", "name": "Eleven Multilingual v2 STS", "can_do_text_to_speech": false }
+        ])))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/v2/voices"))
+        .and(query_param_is_missing("next_page_token"))
+        .and(header("xi-api-key", "el-key"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "voices": [{ "voice_id": "21m00Tcm4TlvDq8ikWAM", "name": "Rachel" }],
+            "has_more": true,
+            "next_page_token": "t1"
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/v2/voices"))
+        .and(query_param("next_page_token", "t1"))
+        .and(header("xi-api-key", "el-key"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "voices": [{ "voice_id": "AZnzlk1XvdvUeBnXmlld", "name": "Domi" }],
+            "has_more": false
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let mut provider = ProviderConfig::elevenlabs("el-key");
+    provider.base_url = format!("{}/v1", server.uri());
+    let router = Router::new(RouterConfig::new().provider("elevenlabs", provider)).unwrap();
+
+    let models = router.list_models("elevenlabs").await.unwrap();
+
+    assert_eq!(ids(&models), ["eleven_flash_v2_5"]);
+    assert_eq!(
+        voice_ids(&models[0]),
+        ["21m00Tcm4TlvDq8ikWAM", "AZnzlk1XvdvUeBnXmlld"]
+    );
+    assert_eq!(
+        models[0].voices.as_ref().unwrap()[1].name.as_deref(),
+        Some("Domi")
+    );
+    assert!(!models[0].looks_like_chat());
 }
 
 #[tokio::test]

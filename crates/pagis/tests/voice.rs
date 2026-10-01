@@ -522,7 +522,11 @@ async fn the_voice_list_is_the_voices_of_the_model_that_speaks() {
     assert_eq!(voices["model"], "google/gemini-3.8-flash-tts");
     assert_eq!(
         voices["items"],
-        serde_json::json!(["Zephyr", "Puck", "Kore"])
+        serde_json::json!([
+            { "id": "Zephyr", "name": null },
+            { "id": "Puck", "name": null },
+            { "id": "Kore", "name": null }
+        ])
     );
     let (status, kore) = desk
         .post_json(
@@ -626,7 +630,7 @@ async fn the_agent_voice_is_validated_against_the_voices_of_the_model_that_speak
         .as_array()
         .unwrap()
         .iter()
-        .map(|v| v.as_str().unwrap())
+        .map(|v| v["id"].as_str().unwrap())
         .collect();
     assert_eq!(voices["provider"], "openai");
     assert!(names.contains(&"alloy"), "{names:?}");

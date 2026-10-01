@@ -46,7 +46,7 @@ close that gap, and both write the same rows:
 - **From the environment.** Set `PAGIS_ADMIN_EMAIL`, `PAGIS_ADMIN_PASSWORD`
   (at least 12 characters) and the provider key variables
   (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`,
-  `DEEPGRAM_API_KEY`) before the
+  `DEEPGRAM_API_KEY`, `ELEVENLABS_API_KEY`) before the
   first start. The daemon reads them at the first start that finds nobody
   who can sign in, and keeps the keys in its sealed secret file. The
   variables can stay in the configuration: a later start never overwrites a
@@ -87,8 +87,8 @@ Pagis selects for it, best first:
 | Alias | Model Preference |
 | --- | --- |
 | `default` | `openai/gpt-6-luna`, `openrouter/openai/gpt-6-luna`, `anthropic/claude-sonnet-5-5` |
-| `transcribe` | `deepgram/nova-3`, `openai/gpt-4o-transcribe`, `openrouter/openai/gpt-4o-transcribe` |
-| `speak` | `deepgram/aura-2`, `openai/gpt-4o-mini-tts`, `openrouter/google/gemini-3.8-flash-tts` |
+| `transcribe` | `deepgram/nova-3`, `elevenlabs/scribe_v2`, `openai/gpt-4o-transcribe`, `openrouter/openai/gpt-4o-transcribe` |
+| `speak` | `elevenlabs/eleven_flash_v2_5`, `deepgram/aura-2`, `openai/gpt-4o-mini-tts`, `openrouter/google/gemini-3.8-flash-tts` |
 | `phone` | `openai/gpt-live-1`, `openai/gpt-realtime-2.1` |
 
 A key that the Administrator stores or removes in **Providers**, and a key

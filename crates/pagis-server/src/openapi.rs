@@ -442,6 +442,7 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         software::ContributionSummaryDto,
         software::ContributionDto,
         voice::VoicePage,
+        voice::VoiceDto,
         voice::DictateClientFrame,
         voice::DictateServerFrame,
         ClientFrame,

@@ -12,6 +12,7 @@
 //! synthesized speech is handed to the caller and not kept.
 
 mod deepgram;
+mod elevenlabs;
 pub mod fake;
 mod router;
 mod wav;

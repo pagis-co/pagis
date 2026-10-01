@@ -10,12 +10,25 @@ import { describe, expect, it, vi } from 'vitest'
 import type { ApiClient } from '../../api/client'
 import { VoicePicker } from './VoicePicker'
 
-type Page = { provider: string | null; model: string | null; items: string[] }
+type Voice = { id: string; name: string | null }
+type Page = { provider: string | null; model: string | null; items: Voice[] }
 
 const GEMINI: Page = {
   provider: 'openrouter',
   model: 'google/gemini-3.8-flash-tts',
-  items: ['Zephyr', 'Kore'],
+  items: [
+    { id: 'Zephyr', name: null },
+    { id: 'Kore', name: null },
+  ],
+}
+
+const ELEVENLABS: Page = {
+  provider: 'elevenlabs',
+  model: 'eleven_flash_v2_5',
+  items: [
+    { id: '21m00Tcm4TlvDq8ikWAM', name: 'Rachel' },
+    { id: 'EXAVITQu4vr4xnSDxMaL', name: 'Sarah' },
+  ],
 }
 
 function Harness({ page, held }: { page: Page; held: string }) {
@@ -44,6 +57,17 @@ describe('VoicePicker', () => {
     await user.click(await screen.findByRole('option', { name: 'Kore' }))
 
     expect(screen.getByLabelText('Chosen voice').textContent).toBe('Kore')
+  })
+
+  it('shows the name of a voice and holds its id', async () => {
+    const user = userEvent.setup()
+    render(<Harness page={ELEVENLABS} held="" />)
+
+    expect(await screen.findByText('Default voice (Rachel)')).toBeTruthy()
+    await user.click(picker())
+    await user.click(await screen.findByRole('option', { name: 'Sarah' }))
+
+    expect(screen.getByLabelText('Chosen voice').textContent).toBe('EXAVITQu4vr4xnSDxMaL')
   })
 
   it('keeps a held voice the model does not offer and says so', async () => {

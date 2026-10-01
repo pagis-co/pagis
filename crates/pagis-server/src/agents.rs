@@ -153,7 +153,7 @@ async fn validate_voice(
             "`{voice}` is not a voice of {}/{}; choose one of {}",
             list.provider.id(),
             list.model,
-            list.voices.join(", ")
+            list.names()
         )));
     }
     Ok(Some(voice))

@@ -21,15 +21,18 @@ export function VoicePicker({
 }) {
   const voices = useVoices(api)
   const page = voices.data
-  const offered = page?.items ?? []
+  const offered = (page?.items ?? []).map((voice) => ({
+    value: voice.id,
+    label: voice.name ?? voice.id,
+  }))
   const speaks = page?.provider != null
   const defaultLabel = !speaks
     ? 'No key serves spoken replies'
     : offered.length > 0
-      ? `Default voice (${offered[0]})`
+      ? `Default voice (${offered[0].label})`
       : 'Default voice'
   const held =
-    value !== '' && !offered.includes(value)
+    value !== '' && !offered.some((voice) => voice.value === value)
       ? [{ value, label: `${value} (not a voice of ${page?.model ?? 'the model that speaks'})` }]
       : []
 
@@ -41,7 +44,7 @@ export function VoicePicker({
       disabled={!speaks}
       items={[
         { value: DEFAULT_VOICE, label: defaultLabel },
-        ...offered.map((name) => ({ value: name, label: name })),
+        ...offered,
         ...held,
       ]}
     />
