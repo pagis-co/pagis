@@ -483,6 +483,7 @@ async fn serve_list(server: &MockServer, provider: Provider, models: &[(&str, u6
         Provider::OpenAi => ("/models", "authorization", "Bearer sk-test"),
         Provider::OpenRouter => ("/models/user", "authorization", "Bearer sk-test"),
         Provider::Deepgram => panic!("Deepgram lists its projects first: use serve_deepgram"),
+        Provider::ElevenLabs => panic!("ElevenLabs lists its voices apart: use serve_elevenlabs"),
     };
     let data: Vec<serde_json::Value> = models
         .iter()
@@ -519,6 +520,31 @@ async fn serve_deepgram(server: &MockServer) {
                 { "canonical_name": "aura-2-thalia-en", "architecture": "aura-2" },
                 { "canonical_name": "aura-2-andromeda-en", "architecture": "aura-2" }
             ]
+        })))
+        .mount(server)
+        .await;
+}
+
+/// Serve ElevenLabs' list for the key `sk-test`: one speech model and
+/// the two voices of the account, Rachel and Domi.
+async fn serve_elevenlabs(server: &MockServer) {
+    Mock::given(method("GET"))
+        .and(path("/models"))
+        .and(header("xi-api-key", "sk-test"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([
+            { "model_id": "eleven_flash_v2_5", "can_do_text_to_speech": true }
+        ])))
+        .mount(server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/v2/voices"))
+        .and(header("xi-api-key", "sk-test"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "voices": [
+                { "voice_id": "21m00Tcm4TlvDq8ikWAM", "name": "Rachel" },
+                { "voice_id": "AZnzlk1XvdvUeBnXmlld", "name": "Domi" }
+            ],
+            "has_more": false
         })))
         .mount(server)
         .await;
@@ -1285,12 +1311,52 @@ async fn a_deepgram_key_serves_dictation_and_spoken_replies_with_its_voices() {
     assert_eq!(voices["model"], "aura-2");
     assert_eq!(
         voices["items"],
-        serde_json::json!(["aura-2-thalia-en", "aura-2-andromeda-en"])
+        serde_json::json!([
+            { "id": "aura-2-thalia-en", "name": null },
+            { "id": "aura-2-andromeda-en", "name": null }
+        ])
     );
     let status = status(&daemon).await;
     assert_eq!(
         provider(&status, "deepgram")["uses"],
         serde_json::json!(["spoken_replies", "dictation"])
+    );
+}
+
+/// An ElevenLabs key speaks and transcribes. Spoken replies prefer it,
+/// and its voices are the voices of the account, each with its name.
+#[tokio::test]
+async fn an_elevenlabs_key_speaks_with_the_named_voices_of_the_account() {
+    let server = MockServer::start().await;
+    serve_elevenlabs(&server).await;
+    let daemon = daemon_listing(&server).await;
+
+    store_key(&daemon, "elevenlabs").await;
+
+    assert_eq!(
+        model_alias(&daemon, "speak").await["candidates"],
+        serde_json::json!(["elevenlabs/eleven_flash_v2_5"])
+    );
+    assert_eq!(
+        model_alias(&daemon, "transcribe").await["candidates"],
+        serde_json::json!(["elevenlabs/scribe_v2"])
+    );
+    let voices: serde_json::Value = client()
+        .get(format!("{}/api/v1/settings/voices", daemon.base_url))
+        .header("cookie", daemon.cookie())
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(voices["provider"], "elevenlabs");
+    assert_eq!(
+        voices["items"],
+        serde_json::json!([
+            { "id": "21m00Tcm4TlvDq8ikWAM", "name": "Rachel" },
+            { "id": "AZnzlk1XvdvUeBnXmlld", "name": "Domi" }
+        ])
     );
 }
 

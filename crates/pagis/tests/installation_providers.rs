@@ -190,6 +190,7 @@ async fn the_administration_port_lists_what_the_installation_sets_up_for_every_p
             "openai",
             "openrouter",
             "deepgram",
+            "elevenlabs",
             "google",
             "telnyx",
             "twilio",

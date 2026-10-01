@@ -421,7 +421,8 @@ _Avoid_: model catalogue, allowed models
 One thing a provider's key does in Pagis: thinking, spoken replies,
 dictation or calls. A provider serves a Model Alias only for a use it has.
 OpenAI has all four; OpenRouter has thinking, spoken replies and
-dictation; Deepgram has spoken replies and dictation; Anthropic has
+dictation; Deepgram and ElevenLabs have spoken replies and dictation;
+Anthropic has
 thinking. Onboarding shows the uses of each provider and what a set of
 keys covers (ADR-0025).
 _Avoid_: capability (a Grant word), feature
@@ -430,8 +431,9 @@ _Avoid_: capability (a Grant word), feature
 The voices of the model that speaks for a Workspace: the first candidate of
 the `speak` alias whose provider holds a key and serves spoken replies. The
 daemon reads it from the provider with the Provider Model List; a provider
-that lists no voices, such as OpenAI, has a fixed set. Each Agent Voice is
-one of its names, and the first is the default (ADR-0020).
+that lists no voices, such as OpenAI, has a fixed set. ElevenLabs lists
+the voices of the account. Each Agent Voice holds the id of one of its
+voices, and the first is the default (ADR-0020).
 _Avoid_: voice catalogue
 
 ### Roster

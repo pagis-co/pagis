@@ -59,7 +59,8 @@ writes `config.toml` itself. Each Person sets their own timezone in the
 Settings of the Product App.
 
 A provider key in `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
-`OPENROUTER_API_KEY` or `DEEPGRAM_API_KEY` wins over the sealed key.
+`OPENROUTER_API_KEY`, `DEEPGRAM_API_KEY` or `ELEVENLABS_API_KEY` wins over
+the sealed key.
 
 ### The Installation Key
 
@@ -154,7 +155,8 @@ hold the Computer volumes. [Backup and restore](/server/backup) of the Headless 
 ### What the model provider receives
 
 Pagis runs no model. It sends each model request to a provider that holds a
-key of the installation: Anthropic, OpenAI, OpenRouter or Deepgram. The
+key of the installation: Anthropic, OpenAI, OpenRouter, Deepgram or
+ElevenLabs. The
 provider reads the content of each request:
 
 - **A Run** sends the system prompt, the conversation and the tool results

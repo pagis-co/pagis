@@ -91,7 +91,12 @@ a transcription-only session is the same dialect, so live speech to text
 needs no translation layer. Deepgram's live speech to text is its own
 dialect on `/listen`: the router opens it with the model and the audio
 format in the query and names it `DeepgramListen`, and the application
-reads its `Results` with an adapter of its own.
+reads its `Results` with an adapter of its own. ElevenLabs streams speech
+to text on Scribe's realtime socket: the router opens the `_realtime`
+model of the Scribe generation with the audio format and a manual commit
+in the query and names it `ElevenLabsScribe`, and the application sends
+base64 audio chunks and reads the committed transcript with its own
+adapter.
 
 A provider whose wire events differ needs a session adapter that
 translates them, with its own declared capabilities: turn detection, user

@@ -12,6 +12,7 @@
 //! speaks does not have is absent: a reply takes the model's first voice
 //! and says which voice spoke.
 
+use llm_router::ListedVoice;
 use pagis_core::{Provider, ProviderUse, WorkspaceId};
 
 use crate::AppState;
@@ -23,22 +24,38 @@ pub struct VoiceList {
     pub provider: Provider,
     /// The model id as the provider names it.
     pub model: String,
-    /// The voices in the provider's order. The first is the default.
-    pub voices: Vec<String>,
+    /// The voices in the provider's order. The first is the default. A
+    /// voice's id is what an Agent Voice holds; its name, where the id
+    /// is not one, is what a person reads.
+    pub voices: Vec<ListedVoice>,
 }
 
 impl VoiceList {
-    /// The voice a reply speaks in: `wanted` when the model has it, else
-    /// the model's first voice. `None` when the model names no voice.
+    /// The id of the voice a reply speaks in: `wanted` when the model has
+    /// it, else the model's first voice. `None` when the model names no
+    /// voice.
     pub fn voice_for(&self, wanted: Option<&str>) -> Option<&str> {
         wanted
-            .and_then(|wanted| self.voices.iter().find(|voice| *voice == wanted))
+            .and_then(|wanted| self.voices.iter().find(|voice| voice.id == wanted))
             .or_else(|| self.voices.first())
-            .map(String::as_str)
+            .map(|voice| voice.id.as_str())
     }
 
     pub fn has(&self, voice: &str) -> bool {
-        self.voices.iter().any(|known| known == voice)
+        self.voices.iter().any(|known| known.id == voice)
+    }
+
+    /// The voices as a person reads them: "Rachel (21m00…)". A voice whose
+    /// id is its name reads as the id.
+    pub fn names(&self) -> String {
+        self.voices
+            .iter()
+            .map(|voice| match &voice.name {
+                Some(name) => format!("{name} ({})", voice.id),
+                None => voice.id.clone(),
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
     }
 }
 
@@ -74,9 +91,9 @@ pub async fn speaking_voices(
     let voices = match provider {
         Provider::OpenAi => llm_router::OPENAI_VOICES
             .iter()
-            .map(|voice| voice.to_string())
+            .map(|voice| ListedVoice::named_by_id(*voice))
             .collect(),
-        Provider::Anthropic | Provider::OpenRouter | Provider::Deepgram => {
+        Provider::Anthropic | Provider::OpenRouter | Provider::Deepgram | Provider::ElevenLabs => {
             match state.models.models(provider).await {
                 Ok(listed) => listed
                     .iter()
@@ -98,7 +115,7 @@ pub async fn speaking_voices(
 }
 
 /// The providers that would speak a reply, for a message that names the
-/// key a person lacks: "Deepgram, OpenAI or OpenRouter".
+/// key a person lacks: "ElevenLabs, Deepgram, OpenAI or OpenRouter".
 pub fn speaking_providers() -> String {
     let names: Vec<&str> = crate::model_preference::preferred_providers(pagis_voice::SPEAK_ALIAS)
         .into_iter()
@@ -112,6 +129,7 @@ pub fn speaking_providers() -> String {
 
 #[cfg(test)]
 mod tests {
+    use llm_router::ListedVoice;
     use pagis_core::Provider;
 
     use super::{VoiceList, speaking_providers};
@@ -120,8 +138,27 @@ mod tests {
         VoiceList {
             provider: Provider::OpenRouter,
             model: "google/gemini-3.8-flash-tts".to_string(),
-            voices: vec!["Zephyr".to_string(), "Kore".to_string()],
+            voices: vec![
+                ListedVoice::named_by_id("Zephyr"),
+                ListedVoice::named_by_id("Kore"),
+            ],
         }
+    }
+
+    /// A voice id that is no name reads with the voice's name.
+    #[test]
+    fn the_names_read_as_a_person_reads_them() {
+        let elevenlabs = VoiceList {
+            provider: Provider::ElevenLabs,
+            model: "eleven_flash_v2_5".to_string(),
+            voices: vec![ListedVoice {
+                id: "21m00Tcm4TlvDq8ikWAM".to_string(),
+                name: Some("Rachel".to_string()),
+            }],
+        };
+
+        assert_eq!(list().names(), "Zephyr, Kore");
+        assert_eq!(elevenlabs.names(), "Rachel (21m00Tcm4TlvDq8ikWAM)");
     }
 
     #[test]
@@ -138,6 +175,9 @@ mod tests {
 
     #[test]
     fn the_message_names_each_provider_that_would_speak() {
-        assert_eq!(speaking_providers(), "Deepgram, OpenAI or OpenRouter");
+        assert_eq!(
+            speaking_providers(),
+            "ElevenLabs, Deepgram, OpenAI or OpenRouter"
+        );
     }
 }

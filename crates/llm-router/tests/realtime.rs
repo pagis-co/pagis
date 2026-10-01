@@ -162,6 +162,55 @@ async fn a_transcription_session_opens_with_the_transcription_intent() {
     assert_eq!(auth, "Bearer test-key");
 }
 
+/// ElevenLabs streams speech to text on Scribe's realtime socket: the
+/// live model of a Scribe generation is its `_realtime` model, the audio
+/// format and a manual commit go in the query, and the key goes in
+/// `xi-api-key`.
+// The handshake callback's Result type comes from tokio-tungstenite.
+#[allow(clippy::result_large_err)]
+#[tokio::test]
+async fn an_elevenlabs_transcription_socket_opens_scribe_realtime_with_a_manual_commit() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut seen = (String::new(), String::new());
+        let socket = tokio_tungstenite::accept_hdr_async(stream, |req: &Request, resp| {
+            seen.0 = req.uri().to_string();
+            seen.1 = req
+                .headers()
+                .get("xi-api-key")
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_default()
+                .to_owned();
+            Ok::<Response, tokio_tungstenite::tungstenite::handshake::server::ErrorResponse>(resp)
+        })
+        .await
+        .unwrap();
+        drop(socket);
+        seen
+    });
+    let router = router_for_model(
+        &format!("http://127.0.0.1:{}/v1", addr.port()),
+        ProtocolKind::ElevenLabs,
+        "scribe_v2",
+    );
+
+    let connection = router
+        .realtime_transcription_connect("m", 24_000)
+        .await
+        .unwrap();
+
+    assert_eq!(connection.protocol, RealtimeProtocol::ElevenLabsScribe);
+    let (path, key) = server.await.unwrap();
+    assert_eq!(
+        path,
+        "/v1/speech-to-text/realtime?model_id=scribe_v2_realtime&audio_format=pcm_24000\
+         &commit_strategy=manual"
+    );
+    assert_eq!(key, "test-key");
+}
+
 /// Deepgram streams speech to text on `/listen`: the model and the audio
 /// format go in the query, and the key goes as a `Token`.
 #[tokio::test]

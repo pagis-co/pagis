@@ -5974,13 +5974,20 @@ export interface components {
         };
         /** @enum {string} */
         Verdict: "reflect" | "skip";
+        /** @description One voice of the model that speaks. */
+        VoiceDto: {
+            /** @description What an Agent Voice holds. */
+            id: string;
+            /** @description The name a person reads, or `null` when the id is the name. */
+            name?: string | null;
+        };
         /**
          * @description The Provider Voice List (ADR-0020): the names an Agent Voice can take,
          *     which are the voices of the model that speaks for the Workspace.
          */
         VoicePage: {
             /** @description Its voices; the first is the default. */
-            items: string[];
+            items: components["schemas"]["VoiceDto"][];
             /** @description The model that speaks, as its provider names it. */
             model?: string | null;
             /**

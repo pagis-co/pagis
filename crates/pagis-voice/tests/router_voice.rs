@@ -261,6 +261,112 @@ async fn a_live_dictation_on_deepgram_streams_frames_and_ends_on_close_stream() 
     assert_eq!(controls, vec![serde_json::json!({ "type": "CloseStream" })]);
 }
 
+/// A one-session Scribe realtime server: it records each audio chunk and
+/// answers the chunk that commits with a partial and a committed
+/// transcript, then closes.
+#[allow(clippy::result_large_err)]
+async fn scribe_server() -> (
+    String,
+    tokio::task::JoinHandle<(String, Vec<serde_json::Value>)>,
+) {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let handle = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut seen_path = String::new();
+        let mut socket = tokio_tungstenite::accept_hdr_async(
+            stream,
+            |req: &tokio_tungstenite::tungstenite::handshake::server::Request, resp| {
+                seen_path = req.uri().to_string();
+                Ok(resp)
+            },
+        )
+        .await
+        .unwrap();
+        socket
+            .send(Message::text(
+                r#"{"message_type":"session_started","session_id":"s1"}"#,
+            ))
+            .await
+            .unwrap();
+        let mut chunks = Vec::new();
+        while let Some(Ok(Message::Text(text))) = socket.next().await {
+            let chunk: serde_json::Value = serde_json::from_str(&text).unwrap();
+            let commit = chunk["commit"] == true;
+            chunks.push(chunk);
+            if commit {
+                for frame in [
+                    r#"{"message_type":"partial_transcript","text":"Book the"}"#,
+                    r#"{"message_type":"committed_transcript","text":"Book the room."}"#,
+                ] {
+                    socket.send(Message::text(frame)).await.unwrap();
+                }
+                socket.close(None).await.ok();
+                break;
+            }
+        }
+        (seen_path, chunks)
+    });
+    (format!("http://127.0.0.1:{}/v1", addr.port()), handle)
+}
+
+/// Scribe takes base64 audio chunks and one chunk that commits on
+/// release. The committed transcript is the draft; a partial one is a
+/// guess that the commit replaces.
+#[tokio::test]
+async fn a_live_dictation_on_elevenlabs_sends_chunks_and_commits_on_release() {
+    let (base_url, server) = scribe_server().await;
+    let voice = voice(
+        Provider::ElevenLabs,
+        &base_url,
+        &["elevenlabs/scribe_v2"],
+        &[],
+    );
+
+    let mut session = voice
+        .dictate(&workspace())
+        .await
+        .unwrap()
+        .expect("ElevenLabs has a live socket");
+    session.input.append(&[1, 0, 2, 0]).await.unwrap();
+    session.input.commit().await.unwrap();
+
+    let mut heard = Vec::new();
+    while let Some(piece) = session.transcripts.next().await {
+        let piece = piece.unwrap();
+        let done = matches!(piece, Transcript::Final(_));
+        heard.push(piece);
+        if done {
+            break;
+        }
+    }
+    assert_eq!(heard, vec![Transcript::Final("Book the room.".to_string())]);
+    drop(session);
+
+    let (path, chunks) = server.await.unwrap();
+    assert!(
+        path.starts_with("/v1/speech-to-text/realtime?model_id=scribe_v2_realtime"),
+        "{path}"
+    );
+    assert_eq!(
+        chunks,
+        vec![
+            serde_json::json!({
+                "message_type": "input_audio_chunk",
+                "audio_base_64": "AQACAA==",
+                "commit": false,
+                "sample_rate": SAMPLE_RATE,
+            }),
+            serde_json::json!({
+                "message_type": "input_audio_chunk",
+                "audio_base_64": "",
+                "commit": true,
+                "sample_rate": SAMPLE_RATE,
+            }),
+        ]
+    );
+}
+
 #[tokio::test]
 async fn a_live_dictation_runs_a_transcription_only_session_ended_by_the_commit() {
     let (base_url, server) = transcription_server().await;

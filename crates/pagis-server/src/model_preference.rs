@@ -30,6 +30,7 @@ pub const PREFERENCES: [(&str, &[&str]); 6] = [
         pagis_voice::TRANSCRIBE_ALIAS,
         &[
             "deepgram/nova-3",
+            "elevenlabs/scribe_v2",
             "openai/gpt-4o-transcribe",
             "openrouter/openai/gpt-4o-transcribe",
         ],
@@ -37,6 +38,7 @@ pub const PREFERENCES: [(&str, &[&str]); 6] = [
     (
         pagis_voice::SPEAK_ALIAS,
         &[
+            "elevenlabs/eleven_flash_v2_5",
             "deepgram/aura-2",
             "openai/gpt-4o-mini-tts",
             "openrouter/google/gemini-3.8-flash-tts",

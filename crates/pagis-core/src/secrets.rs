@@ -32,25 +32,28 @@ pub enum Provider {
     OpenAi,
     OpenRouter,
     Deepgram,
+    ElevenLabs,
 }
 
 /// Every known provider, in display order.
-pub const PROVIDERS: [Provider; 4] = [
+pub const PROVIDERS: [Provider; 5] = [
     Provider::Anthropic,
     Provider::OpenAi,
     Provider::OpenRouter,
     Provider::Deepgram,
+    Provider::ElevenLabs,
 ];
 
 impl Provider {
-    /// The stable API identifier: `anthropic`, `openai`, `openrouter` or
-    /// `deepgram`.
+    /// The stable API identifier: `anthropic`, `openai`, `openrouter`,
+    /// `deepgram` or `elevenlabs`.
     pub fn id(self) -> &'static str {
         match self {
             Provider::Anthropic => "anthropic",
             Provider::OpenAi => "openai",
             Provider::OpenRouter => "openrouter",
             Provider::Deepgram => "deepgram",
+            Provider::ElevenLabs => "elevenlabs",
         }
     }
 
@@ -61,6 +64,7 @@ impl Provider {
             Provider::OpenAi => "OpenAI",
             Provider::OpenRouter => "OpenRouter",
             Provider::Deepgram => "Deepgram",
+            Provider::ElevenLabs => "ElevenLabs",
         }
     }
 
@@ -71,6 +75,7 @@ impl Provider {
             Provider::OpenAi => "OPENAI_API_KEY",
             Provider::OpenRouter => "OPENROUTER_API_KEY",
             Provider::Deepgram => "DEEPGRAM_API_KEY",
+            Provider::ElevenLabs => "ELEVENLABS_API_KEY",
         }
     }
 
@@ -85,6 +90,7 @@ impl Provider {
             Provider::OpenAi => "openai_api_key",
             Provider::OpenRouter => "openrouter_api_key",
             Provider::Deepgram => "deepgram_api_key",
+            Provider::ElevenLabs => "elevenlabs_api_key",
         }
     }
 
@@ -113,6 +119,9 @@ impl Provider {
             // Deepgram speaks with Aura and transcribes with Nova, live
             // over `/listen` and buffered.
             Provider::Deepgram => &[ProviderUse::SpokenReplies, ProviderUse::Dictation],
+            // ElevenLabs speaks, and transcribes with Scribe, live over its
+            // realtime socket and buffered.
+            Provider::ElevenLabs => &[ProviderUse::SpokenReplies, ProviderUse::Dictation],
         }
     }
 
@@ -453,6 +462,10 @@ mod tests {
                 },
                 ProviderKeyStatus {
                     provider: Provider::Deepgram,
+                    source: None,
+                },
+                ProviderKeyStatus {
+                    provider: Provider::ElevenLabs,
                     source: None,
                 },
             ]

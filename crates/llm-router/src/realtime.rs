@@ -98,6 +98,10 @@ pub enum RealtimeProtocol {
     /// Deepgram's streaming speech to text: binary PCM frames in, JSON
     /// `Results` out, and `CloseStream` to finish.
     DeepgramListen,
+    /// ElevenLabs Scribe's realtime speech to text: base64 audio chunks
+    /// in, partial and committed transcripts out, and a chunk with
+    /// `commit` to finish.
+    ElevenLabsScribe,
 }
 
 /// Open the provider's realtime WebSocket for `model`, authenticated with
@@ -135,15 +139,22 @@ pub(crate) async fn connect(
         headers.insert(name, value);
     }
     if !provider.api_key.is_empty() {
-        let scheme = match protocol {
-            RealtimeProtocol::DeepgramListen => "Token",
-            RealtimeProtocol::OpenAiRealtime | RealtimeProtocol::OpenAiLive => "Bearer",
+        let (name, value) = match protocol {
+            RealtimeProtocol::ElevenLabsScribe => (
+                reqwest::header::HeaderName::from_static("xi-api-key"),
+                provider.api_key.clone(),
+            ),
+            RealtimeProtocol::DeepgramListen => (
+                reqwest::header::AUTHORIZATION,
+                format!("Token {}", provider.api_key),
+            ),
+            RealtimeProtocol::OpenAiRealtime | RealtimeProtocol::OpenAiLive => (
+                reqwest::header::AUTHORIZATION,
+                format!("Bearer {}", provider.api_key),
+            ),
         };
-        let value = crate::protocol::sensitive_header(
-            provider_key,
-            &format!("{scheme} {}", provider.api_key),
-        )?;
-        headers.insert(reqwest::header::AUTHORIZATION, value);
+        let value = crate::protocol::sensitive_header(provider_key, &value)?;
+        headers.insert(name, value);
     }
 
     let (socket, _response) = tokio::time::timeout(timeout, connect_async(request))
@@ -203,7 +214,27 @@ fn realtime_url(
                 .append_pair("smart_format", "true");
             RealtimeProtocol::DeepgramListen
         }
-        (ProtocolKind::Deepgram, RealtimeIntent::Conversation) => {
+        // The live model of a Scribe generation is its `_realtime` model,
+        // so the alias names the generation for both the held clip and
+        // the live session.
+        (ProtocolKind::ElevenLabs, RealtimeIntent::Transcription { sample_rate }) => {
+            let path = format!(
+                "{}/speech-to-text/realtime",
+                url.path().trim_end_matches('/')
+            );
+            url.set_path(&path);
+            let live_model = if model.ends_with("_realtime") {
+                model.to_owned()
+            } else {
+                format!("{model}_realtime")
+            };
+            url.query_pairs_mut()
+                .append_pair("model_id", &live_model)
+                .append_pair("audio_format", &format!("pcm_{sample_rate}"))
+                .append_pair("commit_strategy", "manual");
+            RealtimeProtocol::ElevenLabsScribe
+        }
+        (ProtocolKind::Deepgram | ProtocolKind::ElevenLabs, RealtimeIntent::Conversation) => {
             return Err(Error::Unsupported {
                 provider: provider_key.to_owned(),
                 feature: "realtime conversation",

@@ -89,6 +89,7 @@ impl RouterVoice {
                 Provider::OpenAi => ProviderConfig::openai(key),
                 Provider::OpenRouter => ProviderConfig::openrouter(key),
                 Provider::Deepgram => ProviderConfig::deepgram(key),
+                Provider::ElevenLabs => ProviderConfig::elevenlabs(key),
                 // `Provider::uses` gives it no voice use.
                 Provider::Anthropic => continue,
             };
@@ -155,6 +156,9 @@ impl VoiceProvider for RouterVoice {
             Err(error) => return Err(VoiceError::Provider(error.to_string())),
         };
         match connection.protocol {
+            RealtimeProtocol::ElevenLabsScribe => {
+                Ok(Some(crate::elevenlabs::open_scribe_session(connection)))
+            }
             RealtimeProtocol::DeepgramListen => {
                 Ok(Some(crate::deepgram::open_listen_session(connection)))
             }

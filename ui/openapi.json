@@ -18332,6 +18332,26 @@
           "skip"
         ]
       },
+      "VoiceDto": {
+        "type": "object",
+        "description": "One voice of the model that speaks.",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "What an Agent Voice holds."
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The name a person reads, or `null` when the id is the name."
+          }
+        }
+      },
       "VoicePage": {
         "type": "object",
         "description": "The Provider Voice List (ADR-0020): the names an Agent Voice can take,\nwhich are the voices of the model that speaks for the Workspace.",
@@ -18342,7 +18362,7 @@
           "items": {
             "type": "array",
             "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/VoiceDto"
             },
             "description": "Its voices; the first is the default."
           },
