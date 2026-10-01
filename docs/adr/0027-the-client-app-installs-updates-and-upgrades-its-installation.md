@@ -21,8 +21,8 @@ electron-updater installs an Update of a signed macOS application through
 Squirrel.Mac. Squirrel.Mac accepts only a bundle that satisfies the
 designated requirement of the running application, and that requirement
 names the team. On Linux, electron-updater replaces an AppImage file, or
-installs a deb with `pkexec dpkg -i`. Its feed holds a SHA-512 for each file
-and no signature.
+installs a deb with `dpkg -i` through the system's password prompt. Its feed
+holds a SHA-512 for each file and no signature.
 
 ## Decision
 
@@ -70,7 +70,8 @@ menu show "Restart to Update", and the Client App sends one notification.
   `Pagis-<release>-linux.SHA256SUMS.asc` verifies the checksum list with that
   key, and the SHA-256 of the downloaded file is the value on its line in the
   list. openpgp.js does the check. An AppImage replaces itself and asks for
-  nothing. A deb installs with `pkexec dpkg -i`, and the Person types their
+  nothing. A deb installs with `dpkg -i` through the system's password
+  prompt (`pkexec` or a similar program), and the Person types their
   password.
 
 The feeds (`latest-mac.yml`, `latest-linux.yml`, `latest-linux-arm64.yml`)
@@ -84,9 +85,10 @@ only name files. A feed is not a trust root.
    every restart.
 3. The Update installs, and the new Client App starts.
 
-When the Person quits the Client App with a downloaded Update, the Update
-installs. A deb is the exception: a password prompt at quit or at logout
-stops the shutdown, so a deb installs only from "Restart to Update".
+When the Person quits the Client App with a downloaded and checked Update,
+the Update installs. An Update that is not checked does not install. A deb is
+the exception: a password prompt at quit or at logout stops the shutdown, so
+a deb installs only from "Restart to Update".
 
 ### The Upgrade at start
 
@@ -145,6 +147,9 @@ jobs upload them with the client packages.
 ## Not built
 
 - Release channels, a beta, and a staged rollout.
+- A rotation of the release key. The key expires on 2028-09-29. Each Client
+  App on Linux trusts only the key that it embeds, so a new key reaches only
+  the Client Apps that a release with that key installs.
 - A setting that turns off the check or the download.
 - An Update notice on the Headless Server. An operator upgrades with Docker
   Compose.
