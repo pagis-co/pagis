@@ -4,6 +4,7 @@
 mod bollard_adapter;
 mod docker_real;
 mod egress;
+mod logs;
 mod manager;
 mod media_relay;
 mod output_cap;
