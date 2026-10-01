@@ -224,39 +224,69 @@ async fn a_live_dictation_runs_a_transcription_only_session_ended_by_the_commit(
 /// even with a key and a candidate in the alias.
 #[tokio::test]
 async fn a_provider_without_a_voice_use_is_not_selected() {
-    for (provider, transcribe, speak) in [
-        (
-            Provider::Anthropic,
-            "anthropic/claude-sonnet-5-5",
-            "anthropic/claude-sonnet-5-5",
-        ),
-        (
-            Provider::OpenRouter,
-            "openrouter/openai/gpt-4o-transcribe",
-            "openrouter/openai/gpt-4o-mini-tts",
-        ),
-    ] {
-        let voice = voice(provider, "http://127.0.0.1:9/v1", &[transcribe], &[speak]);
+    let voice = voice(
+        Provider::Anthropic,
+        "http://127.0.0.1:9/v1",
+        &["anthropic/claude-sonnet-5-5"],
+        &["anthropic/claude-sonnet-5-5"],
+    );
 
-        let error = voice
-            .transcribe(
-                &workspace(),
-                Clip {
-                    pcm16: vec![0, 0].into(),
-                },
-            )
-            .await
-            .unwrap_err();
-        assert!(matches!(error, VoiceError::NoProvider(alias) if alias == "transcribe"));
-        let error = voice
-            .dictate(&workspace())
-            .await
-            .err()
-            .expect("no dictation");
-        assert!(matches!(error, VoiceError::NoProvider(alias) if alias == "transcribe"));
-        let error = voice.speak(&workspace(), "x", None).await.unwrap_err();
-        assert!(matches!(error, VoiceError::NoProvider(alias) if alias == "speak"));
-    }
+    let error = voice
+        .transcribe(
+            &workspace(),
+            Clip {
+                pcm16: vec![0, 0].into(),
+            },
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(error, VoiceError::NoProvider(alias) if alias == "transcribe"));
+    let error = voice
+        .dictate(&workspace())
+        .await
+        .err()
+        .expect("no dictation");
+    assert!(matches!(error, VoiceError::NoProvider(alias) if alias == "transcribe"));
+    let error = voice.speak(&workspace(), "x", None).await.unwrap_err();
+    assert!(matches!(error, VoiceError::NoProvider(alias) if alias == "speak"));
+}
+
+/// OpenRouter transcribes a held clip on its `/audio/transcriptions`
+/// route. It has no realtime socket, so live dictation is absent, not
+/// failed, and the clip is transcribed on release.
+#[tokio::test]
+async fn openrouter_transcribes_a_held_clip_and_declares_live_dictation_absent() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/v1/audio/transcriptions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "text": "Book the room."
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let voice = voice(
+        Provider::OpenRouter,
+        &format!("{}/api/v1", server.uri()),
+        &["openrouter/openai/gpt-4o-transcribe"],
+        &[],
+    );
+
+    assert!(voice.dictate(&workspace()).await.unwrap().is_none());
+    let text = voice
+        .transcribe(
+            &workspace(),
+            Clip {
+                pcm16: vec![1, 0, 2, 0].into(),
+            },
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(text, "Book the room.");
+    let body =
+        String::from_utf8_lossy(&server.received_requests().await.unwrap()[0].body).into_owned();
+    assert!(body.contains("openai/gpt-4o-transcribe"), "{body}");
 }
 
 #[tokio::test]

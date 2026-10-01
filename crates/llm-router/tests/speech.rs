@@ -45,6 +45,57 @@ async fn speech_round_trips_on_openai_protocol() {
     assert_eq!(sent["speed"], 1.5);
 }
 
+/// The Responses protocol carries OpenRouter, whose `/audio/speech` and
+/// `/audio/transcriptions` take the OpenAI request shape. A buffered
+/// clip and a spoken reply go there, not to `/responses`.
+#[tokio::test]
+async fn speech_and_transcription_take_the_openai_audio_routes_on_the_responses_protocol() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/audio/speech"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "audio/mpeg")
+                .set_body_bytes(b"mp3-bytes".to_vec()),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/audio/transcriptions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "text": "Hello world.",
+            "usage": {"seconds": 1.5, "cost": 0.0001}
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let router = single_provider_router(ProtocolKind::OpenAiResponses, &server.uri());
+
+    let mut speech = SpeechRequest::new("m", "Hello there", "Kore");
+    speech.format = Some(AudioFormat::Mp3);
+    let spoken = router.speech(&speech).await.unwrap();
+    let transcribed = router
+        .transcribe(&TranscriptionRequest::new(
+            "m",
+            b"wav-bytes".to_vec(),
+            "audio/wav",
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(spoken.audio.as_ref(), b"mp3-bytes");
+    assert_eq!(transcribed.text, "Hello world.");
+    let requests = server.received_requests().await.unwrap();
+    let sent: Value = requests[0].body_json().unwrap();
+    assert_eq!(sent["voice"], "Kore");
+    assert_eq!(sent["response_format"], "mp3");
+    let body = String::from_utf8_lossy(&requests[1].body);
+    assert!(body.contains("concrete-model"));
+    assert!(body.contains("name=\"response_format\""));
+    assert!(!body.contains("verbose_json"));
+}
+
 #[tokio::test]
 async fn transcription_round_trips_on_openai_protocol() {
     let server = MockServer::start().await;

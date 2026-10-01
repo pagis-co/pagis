@@ -81,12 +81,41 @@ async fn each_provider_names_its_uses() {
         provider(&status, "openai")["uses"],
         serde_json::json!(["thinking", "spoken_replies", "dictation", "calls"])
     );
-    for id in ["anthropic", "openrouter"] {
-        assert_eq!(
-            provider(&status, id)["uses"],
-            serde_json::json!(["thinking"])
-        );
-    }
+    assert_eq!(
+        provider(&status, "openrouter")["uses"],
+        serde_json::json!(["thinking", "dictation"])
+    );
+    assert_eq!(
+        provider(&status, "anthropic")["uses"],
+        serde_json::json!(["thinking"])
+    );
+}
+
+/// A key stored at onboarding gives each alias that no keyed provider
+/// serves the preferred models of a provider that serves it. A route that
+/// a keyed provider serves stays.
+#[tokio::test]
+async fn a_stored_key_routes_each_alias_no_keyed_provider_serves() {
+    let daemon = TestDaemon::start().await;
+
+    store_key(&daemon, "openrouter").await;
+
+    let transcribe = model_alias(&daemon, "transcribe").await;
+    assert_eq!(
+        transcribe["candidates"],
+        serde_json::json!(["openrouter/openai/gpt-4o-transcribe"])
+    );
+    assert_eq!(transcribe["reachable"], true);
+    assert_eq!(model_alias(&daemon, "speak").await["reachable"], false);
+    assert_eq!(model_alias(&daemon, "default").await["reachable"], true);
+
+    store_key(&daemon, "openai").await;
+
+    assert_eq!(
+        model_alias(&daemon, "transcribe").await["candidates"],
+        serde_json::json!(["openrouter/openai/gpt-4o-transcribe"])
+    );
+    assert_eq!(model_alias(&daemon, "speak").await["reachable"], true);
 }
 
 /// A home with one Colima socket, which a ping never opens.

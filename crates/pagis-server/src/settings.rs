@@ -1147,7 +1147,7 @@ fn alias_dto(
 ) -> Result<ModelAliasDto, ApiError> {
     let reachable = !crate::model_lists::reachable_candidates(
         keys,
-        crate::provisioning::alias_use(&model_alias.alias),
+        crate::model_preference::alias_use(&model_alias.alias),
         model_alias.candidates.clone(),
     )?
     .is_empty();
@@ -1350,7 +1350,7 @@ pub async fn update_model_alias(
         .await?;
     let reachable = !crate::model_lists::reachable_candidates(
         &state.keys,
-        crate::provisioning::alias_use(&alias),
+        crate::model_preference::alias_use(&alias),
         request.candidates.clone(),
     )?
     .is_empty();
@@ -1497,7 +1497,9 @@ pub async fn set_onboarding_provider_key(
     Json(request): Json<SetProviderKeyRequest>,
 ) -> Result<Json<ProviderKeyDto>, ApiError> {
     refuse_after_onboarding(&state, &tenant).await?;
-    store_provider_key(&state, &provider, &request.key).map(Json)
+    let stored = store_provider_key(&state, &provider, &request.key)?;
+    crate::model_lists::route_unrouted_aliases(&state).await?;
+    Ok(Json(stored))
 }
 
 #[utoipa::path(
@@ -1657,6 +1659,7 @@ pub async fn check_onboarding_provider_key(
     // The list is cached for this key, so the key goes in with no
     // second list call.
     state.keys.set(provider, key).map_err(secret_error)?;
+    crate::model_lists::route_unrouted_aliases(&state).await?;
     let proof = model_proof(provider, pagis_core::KeySource::SecretFile, key);
     record_model_check(&state, &tenant, provider, &proof, listed.len())
         .await
