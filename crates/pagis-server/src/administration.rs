@@ -23,12 +23,12 @@
 //! [`router`] builds the surface of the administration port: the roster,
 //! the spend, the live Sessions, the per-person resources, the
 //! installation settings, the Org's Plugins, the health of the daemon and
-//! the pull of the Computer Image of an Update. Each of them answers on this port alone. The guard is a
-//! layer of the router and not a habit of each handler: every route
-//! behind it answers `401` without a Session and `403` to a Member,
-//! whatever extractor its handler takes. [`crate::routes`] holds the
-//! table of those routes, and the daemon's own tests drive every row of
-//! it.
+//! the pull of the Computer Image of an Update. Each of them answers on
+//! this port alone. The guard is a layer of the router and not a habit
+//! of each handler: every route behind it answers `401` without a
+//! Session and `403` to a Member, whatever extractor its handler takes.
+//! [`crate::routes`] holds the table of those routes, and the daemon's
+//! own tests drive every row of it.
 //!
 //! The documented exceptions sit outside the layer, and
 //! [`crate::routes::ADMINISTRATION_PUBLIC_ROUTES`] says why each one
