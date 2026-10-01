@@ -200,6 +200,25 @@ fn the_image_builds_pagis_with_the_pinned_cargo_auditable() {
     assert!(!dockerfile.contains("cargo build"), "{dockerfile}");
 }
 
+/// A fix that Debian ships reaches the image at its next build, also
+/// before Docker publishes a base image that holds it, so the
+/// vulnerability scan of a release does not stop on a fixed package of
+/// the base.
+#[test]
+fn the_runtime_stage_takes_the_debian_fixes_of_its_base() {
+    let dockerfile = dockerfile();
+    let runtime = &dockerfile[dockerfile.rfind("\nFROM ").expect("a final stage")..];
+    let update = runtime.find("apt-get update").expect("an apt-get update");
+    let upgrade = runtime
+        .find("apt-get upgrade -y")
+        .expect("an apt-get upgrade");
+    let clean = runtime
+        .find("rm -rf /var/lib/apt/lists/*")
+        .expect("the package lists removed");
+
+    assert!(update < upgrade && upgrade < clean, "{runtime}");
+}
+
 // --- the release number ---
 
 #[test]
