@@ -44,3 +44,5 @@ records that touch an area before you change it.
 - [0025](0025-the-client-app-installs-one-exact-server-or-connects-to-one.md): The Client App installs one exact server or connects to one
 - [0026](0026-the-daemon-sends-anonymous-analytics-from-a-release-build.md): The daemon sends anonymous analytics, and only a release build can
 - [0027](0027-the-client-app-installs-updates-and-upgrades-its-installation.md): The Client App installs Updates, and its Local Installation upgrades with it
+- [0028](0028-remote-access-runs-through-the-owners-tailscale.md): Remote Access runs through the owner's Tailscale, and a client signs in with a Sign-In Link
+- [0029](0029-a-computer-can-exit-through-its-persons-host.md): A Computer on a server can exit to the internet through its Person's Host

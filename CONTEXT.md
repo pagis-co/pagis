@@ -114,6 +114,8 @@ switches it in the Administration Interface, which writes the Public Origin
 and the Trusted Proxy and keeps the Bind Address on loopback. The owner's
 Client App stays signed in. With the mode off, a Local Installation answers
 only a program on its own machine. A Server is always in it (ADR-0024).
+Not built: Remote Access takes its place on a Local Installation
+(ADR-0028).
 
 ### Onboarding
 The first steps the Product App shows a new Local Installation: welcome,
@@ -149,6 +151,14 @@ commit. A mismatch is refused where it happens: the Runtime Lock on a
 download, the Compatibility Range on a connection, the image version label
 on a Computer, and the Release Marker on the data (ADR-0025).
 _Avoid_: build matrix, artifact list
+
+### Remote Access
+How an installation at home serves the owner's other machines and the
+other People of the installation: a public name that the owner's
+Tailscale Funnel answers on, where a client signs in with a Sign-In Link
+and never with a password. A Server behind its own proxy is not in it.
+Not built (ADR-0028).
+_Avoid_: tunnel mode, remote mode, pairing
 
 ### Runtime Lock
 The Client App's signed statement of the one Server Runtime release it
@@ -291,7 +301,8 @@ What a client holds after a Person signs in: an HTTP-only, host-only,
 `SameSite=Strict` cookie that names the Person and the kind of client. It
 ends at sign-out and expires after 30 days. A password sign-in, the trade
 of a Client Credential and a Sign-In Link hand one out. It grants nothing
-on its own (ADR-0023).
+on its own (ADR-0023). Not built: a Session that ends 30 days after its
+last use, and the Person's list of their own Sessions (ADR-0028).
 _Avoid_: bearer, login token
 
 ### Sign-In Link
@@ -299,6 +310,11 @@ A one-time URL that the `pagis` binary prints on a Local Installation,
 good for one minute and one use. It is the one URL of the daemon that
 carries a secret. The daemon accepts it from the same machine alone, and
 an installation that holds no Client Credential refuses it (ADR-0025).
+Not built: in Remote Access, a one-use link of the Public Origin, shown as
+a QR code, that a signed-in Person makes for one more client of their own,
+that an Administrator makes to invite a Person, or that `pagis pair`
+prints (ADR-0028).
+_Avoid_: pairing code, magic link, invite token
 
 ### Spend Cap
 What one Person may spend on model calls in a calendar month of their own
@@ -878,6 +894,21 @@ could not start **Needs attention**. These words say nothing about the
 Agent's work, which is its Activity. It stops when it sits idle and when
 the daemon stops for good, and its disk stays. A restart of the daemon
 keeps it running (ADR-0014).
+
+### Exit Proxy
+The proxy inside every Computer that its browser and its terminal send each
+connection to. It dials the connection from the Computer, or, while the
+Person's Home Exit is on, sends it to the daemon, which carries it through
+the Home Exit. The daemon switches it with no restart. Not built
+(ADR-0029).
+_Avoid_: egress proxy, outbound proxy
+
+### Home Exit
+The one Host of a Person through which that Person's Computers on a Server
+reach the internet, so that sites see the Person's own connection and not
+a data-center address. The Person chooses it, and an Administrator can turn
+it off for the installation. Not built (ADR-0029).
+_Avoid_: residential proxy, exit node
 
 ### Host
 One machine of one Person that their Agents can act on: the Client App
