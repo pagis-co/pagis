@@ -222,7 +222,9 @@ browser opens a dictate socket for the Channel and sends PCM; the daemon relays
 it to a transcription-only provider session with manual commit and returns
 deltas and a final transcript. Audio stays off the domain-event socket, and the
 provider credential stays in the daemon. Where live transcription is absent,
-the daemon transcribes the held clip on release.
+the daemon transcribes the held clip on release. OpenRouter is such a
+provider: it transcribes a clip on `/audio/transcriptions` and has no
+realtime socket.
 
 The transcript is a draft in the composer, never a sent message, because
 speech-to-text mishears names and numbers and the message goes to an Agent

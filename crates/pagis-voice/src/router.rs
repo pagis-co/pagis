@@ -91,8 +91,9 @@ impl RouterVoice {
             }
             let mut provider_config = match provider {
                 Provider::OpenAi => ProviderConfig::openai(key),
-                // `Provider::uses` gives them no voice use.
-                Provider::Anthropic | Provider::OpenRouter => continue,
+                Provider::OpenRouter => ProviderConfig::openrouter(key),
+                // `Provider::uses` gives it no voice use.
+                Provider::Anthropic => continue,
             };
             if let Some(base_url) = self.base_urls.get(&provider) {
                 provider_config.base_url = base_url.clone();

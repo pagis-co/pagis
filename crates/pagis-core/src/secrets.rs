@@ -76,7 +76,10 @@ impl Provider {
     /// Model Alias only for a use it lists here.
     pub fn uses(self) -> &'static [ProviderUse] {
         match self {
-            Provider::Anthropic | Provider::OpenRouter => &[ProviderUse::Thinking],
+            Provider::Anthropic => &[ProviderUse::Thinking],
+            // OpenRouter transcribes a held clip and has no realtime
+            // socket, so dictation is transcribed on release.
+            Provider::OpenRouter => &[ProviderUse::Thinking, ProviderUse::Dictation],
             Provider::OpenAi => &[
                 ProviderUse::Thinking,
                 ProviderUse::SpokenReplies,

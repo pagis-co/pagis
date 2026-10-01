@@ -8,11 +8,12 @@
 //!
 //! The default route is one model (ADR-0025). The person picks it at
 //! onboarding from the lists of the providers they gave keys. The
-//! preselection follows the [`DEFAULT_PREFERENCE`]: the first preferred
-//! model that a keyed provider lists, else the newest listed chat model.
-//! A provider whose list is not available takes its
-//! [`preferred_candidate`]. Fallback candidates are the person's own
-//! addition in the Models settings, never the seed's.
+//! preselection follows the Model Preference of the `default` alias
+//! ([`crate::model_preference`]): the first preferred model that a keyed
+//! provider lists, else the newest listed chat model. A provider whose
+//! list is not available takes its preferred model. Fallback candidates
+//! are the person's own addition in the Models settings, never the
+//! seed's.
 
 use std::sync::Arc;
 
@@ -30,6 +31,7 @@ use utoipa::ToSchema;
 use crate::AppState;
 use crate::auth::Tenant;
 use crate::error::ApiError;
+use crate::model_preference;
 
 /// One model a provider lists, in candidate form.
 #[derive(Debug, Serialize, ToSchema)]
@@ -74,46 +76,12 @@ pub struct SetOnboardingDefaultModelRequest {
     pub candidate: Option<String>,
 }
 
-/// The Model Preference of the `default` alias: the models the product
-/// selects for a Workspace, best first. Each provider names one. The
-/// provider's own list stays the choice: a preferred model is selected
-/// only where its provider holds a key and, when the list answers,
-/// lists it.
-pub const DEFAULT_PREFERENCE: [&str; 3] = [
-    "openai/gpt-6-luna",
-    "openrouter/openai/gpt-6-luna",
-    "anthropic/claude-sonnet-5-5",
-];
-
-/// The provider's model in the [`DEFAULT_PREFERENCE`], as a candidate.
-pub fn preferred_candidate(provider: Provider) -> &'static str {
-    let prefix = format!("{}/", provider.id());
-    DEFAULT_PREFERENCE
+/// The provider's model in the Model Preference of the `default` alias,
+/// as a candidate. The preference names one model for each provider.
+fn preferred_candidate(provider: Provider) -> Option<String> {
+    model_preference::route_for(DEFAULT_MODEL_ALIAS, &[provider])?
         .into_iter()
-        .find(|candidate| candidate.starts_with(&prefix))
-        .expect("each provider names one preferred model")
-}
-
-/// The preferred model of `providers`, as a candidate: the first one in
-/// the [`DEFAULT_PREFERENCE`] whose provider is among them.
-pub fn preferred_of(providers: impl IntoIterator<Item = Provider>) -> Option<&'static str> {
-    let providers: Vec<Provider> = providers.into_iter().collect();
-    DEFAULT_PREFERENCE
-        .into_iter()
-        .find(|candidate| providers.contains(&provider_of(candidate)))
-}
-
-fn provider_of(candidate: &str) -> Provider {
-    candidate
-        .split_once('/')
-        .and_then(|(provider, _)| Provider::from_id(provider))
-        .expect("a preferred candidate names a known provider")
-}
-
-/// The provider's preferred model as its list names it: the candidate
-/// without the provider prefix.
-fn preferred_model(provider: Provider) -> &'static str {
-    &preferred_candidate(provider)[provider.id().len() + 1..]
+        .next()
 }
 
 /// The list of each provider that holds a key, or `None` where the list
@@ -124,36 +92,31 @@ type KeyedLists = Vec<(Provider, Option<Arc<[ListedModel]>>)>;
 /// model whose provider lists it, else the newest listed chat model of
 /// the first provider whose list answers, else the preferred model of
 /// the first provider, or `None` when no provider holds a key. Providers
-/// go in the order of the [`DEFAULT_PREFERENCE`].
+/// go in the order of the Model Preference of the `default` alias.
 fn route_of_lists(lists: &KeyedLists) -> Option<String> {
-    let keyed: Vec<_> = DEFAULT_PREFERENCE
+    let keyed: Vec<_> = model_preference::preferred_providers(DEFAULT_MODEL_ALIAS)
         .into_iter()
-        .filter_map(|candidate| {
-            let provider = provider_of(candidate);
-            lists
-                .iter()
-                .find(|(listed, _)| *listed == provider)
-                .map(|(_, list)| (provider, list.as_deref()))
+        .filter_map(|provider| {
+            let (_, list) = lists.iter().find(|(listed, _)| *listed == provider)?;
+            Some((provider, preferred_candidate(provider)?, list.as_deref()))
         })
         .collect();
-    let preferred_listed = keyed.iter().find_map(|(provider, list)| {
-        let model = preferred_model(*provider);
+    let preferred_listed = keyed.iter().find_map(|(provider, preferred, list)| {
+        let model = &preferred[provider.id().len() + 1..];
         (*list)?
             .iter()
             .any(|listed| listed.id == model)
-            .then(|| preferred_candidate(*provider).to_string())
+            .then(|| preferred.clone())
     });
     let newest_listed = || {
-        keyed.iter().find_map(|(provider, list)| {
+        keyed.iter().find_map(|(provider, _, list)| {
             let model = (*list)?.iter().find(|model| model.looks_like_chat())?;
             Some(format!("{}/{}", provider.id(), model.id))
         })
     };
-    preferred_listed.or_else(newest_listed).or_else(|| {
-        keyed
-            .first()
-            .map(|(provider, _)| preferred_candidate(*provider).to_string())
-    })
+    preferred_listed
+        .or_else(newest_listed)
+        .or_else(|| keyed.first().map(|(_, preferred, _)| preferred.clone()))
 }
 
 /// The list of each provider that holds a key and serves thinking.
@@ -239,38 +202,63 @@ pub(crate) fn reachable_candidates(
     Ok(reachable)
 }
 
-/// Give [`default_route`] to every Workspace whose default route names
-/// no provider that holds a key.
+/// Give each well-known alias of every Workspace that no keyed provider
+/// serves the route of the keys: [`default_route`] for the `default`
+/// alias, and the preferred models of the first keyed provider that
+/// serves the use for the others ([`model_preference::route_for`]).
 ///
 /// A key that the setup page, the Providers view or the onboarding
 /// stores or removes changes which providers answer. A route that names
-/// none of them fails every message, and on a server nobody answers a
-/// model question that would change it. A route that still reaches a
-/// provider stays as it is, because a Person or an Administrator chose it.
-pub async fn route_unrouted_workspaces(state: &AppState) -> Result<(), ApiError> {
-    let mut route: Option<Option<String>> = None;
-    for workspace in state.workspaces.list().await? {
-        let Some(alias) = state
-            .model_aliases
-            .get_by_alias(&workspace.id, DEFAULT_MODEL_ALIAS)
-            .await?
-        else {
-            continue;
-        };
-        if !reachable_candidates(&state.keys, ProviderUse::Thinking, alias.candidates)?.is_empty() {
-            continue;
+/// none of them fails each call, and on a server nobody answers a model
+/// question that would change it. A route that a keyed provider still
+/// serves stays as it is, because a Person or an Administrator chose it.
+pub async fn route_unrouted_aliases(state: &AppState) -> Result<(), ApiError> {
+    let mut keyed = Vec::new();
+    for provider in PROVIDERS {
+        if state
+            .keys
+            .resolve(provider)
+            .map_err(crate::settings::secret_error)?
+            .is_some()
+        {
+            keyed.push(provider);
         }
-        let candidate = match &route {
-            Some(route) => route.clone(),
-            None => route
-                .insert(default_route(&state.keys, &state.models).await?)
-                .clone(),
-        };
+    }
+    if keyed.is_empty() {
         // No provider holds a key, so no route can reach one.
-        let Some(candidate) = candidate else {
-            return Ok(());
-        };
-        set_default_route(state, &workspace.id, candidate).await?;
+        return Ok(());
+    }
+    let mut default: Option<Option<String>> = None;
+    for workspace in state.workspaces.list().await? {
+        for (name, _) in model_preference::PREFERENCES {
+            let Some(alias) = state
+                .model_aliases
+                .get_by_alias(&workspace.id, name)
+                .await?
+            else {
+                continue;
+            };
+            let provider_use = model_preference::alias_use(name);
+            if !reachable_candidates(&state.keys, provider_use, alias.candidates)?.is_empty() {
+                continue;
+            }
+            let route = if name == DEFAULT_MODEL_ALIAS {
+                let route = match &default {
+                    Some(route) => route.clone(),
+                    None => default
+                        .insert(default_route(&state.keys, &state.models).await?)
+                        .clone(),
+                };
+                route.map(|candidate| vec![candidate])
+            } else {
+                model_preference::route_for(name, &keyed)
+            };
+            let Some(route) = route else { continue };
+            state
+                .model_aliases
+                .update_candidates(&workspace.id, name, &route, pagis_core::now_ms())
+                .await?;
+        }
     }
     Ok(())
 }
@@ -443,24 +431,9 @@ pub async fn set_onboarding_default_model(
 #[cfg(test)]
 mod preselection_tests {
     use llm_router::ListedModel;
-    use pagis_core::{PROVIDERS, Provider};
+    use pagis_core::Provider;
 
-    use super::{DEFAULT_PREFERENCE, preferred_candidate, route_of_lists};
-
-    /// Each provider names exactly one model in the Model Preference, so
-    /// a provider with a key always has a model to preselect.
-    #[test]
-    fn each_provider_names_one_preferred_default_model() {
-        for provider in PROVIDERS {
-            let prefix = format!("{}/", provider.id());
-            let named = DEFAULT_PREFERENCE
-                .iter()
-                .filter(|candidate| candidate.starts_with(&prefix))
-                .count();
-            assert_eq!(named, 1, "{} names {named} models", provider.id());
-            assert!(preferred_candidate(provider).starts_with(&prefix));
-        }
-    }
+    use super::route_of_lists;
 
     fn listed(ids: &[&str]) -> Option<std::sync::Arc<[ListedModel]>> {
         Some(ids.iter().map(|id| ListedModel::new(*id)).collect())

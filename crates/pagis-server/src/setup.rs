@@ -384,12 +384,16 @@ pub async fn from_environment(
     else {
         return Ok(false);
     };
-    // The Administrator answers no model question, so their default
-    // route names the first preferred model whose provider the
-    // environment gives a key. The boot runs before any model list
-    // exists, so no list confirms it; the Models settings offer the list.
-    let preferred =
-        crate::model_lists::preferred_of(setup.provider_keys.iter().map(|(provider, _)| *provider));
+    // The Administrator answers no model question, so each well-known
+    // alias names the preferred models of the first provider the
+    // environment gives a key that serves it. The boot runs before any
+    // model list exists, so no list confirms the default model; the
+    // Models settings offer the list.
+    let keyed: Vec<Provider> = setup
+        .provider_keys
+        .iter()
+        .map(|(provider, _)| *provider)
+        .collect();
     // A key that is not kept means an installation with an administrator
     // and no model route, which reads as a broken product rather than as
     // a deployment to fix. The boot stops here and names the key.
@@ -412,18 +416,16 @@ pub async fn from_environment(
     // The deployment named an administrator, so this installation is a
     // server and the local wizard has nothing to ask.
     crate::provisioning::onboard_for_a_server(stores.workspaces.as_ref(), &person.id, now).await?;
-    if let Some(candidate) = preferred
-        && let Some(workspace) = stores.workspaces.for_user(&person.id).await?
-    {
-        stores
-            .model_aliases
-            .update_candidates(
-                &workspace.id,
-                pagis_core::DEFAULT_MODEL_ALIAS,
-                &[candidate.to_string()],
-                now,
-            )
-            .await?;
+    if let Some(workspace) = stores.workspaces.for_user(&person.id).await? {
+        for (alias, _) in crate::model_preference::PREFERENCES {
+            let Some(route) = crate::model_preference::route_for(alias, &keyed) else {
+                continue;
+            };
+            stores
+                .model_aliases
+                .update_candidates(&workspace.id, alias, &route, now)
+                .await?;
+        }
     }
     tracing::info!(
         person = %person.id,

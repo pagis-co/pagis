@@ -22,9 +22,13 @@
 //!   replays verbatim. Request `encrypted_content` with
 //!   `extra["include"] = ["reasoning.encrypted_content"]`.
 //!
-//! Not on this protocol: audio, stop sequences (both report as errors),
-//! embeddings and the media modalities (use an openai-chat provider on the
-//! same base URL).
+//! Speech synthesis and transcription take the OpenAI audio routes,
+//! `/audio/speech` and `/audio/transcriptions`, which OpenAI and OpenRouter
+//! both serve beside `/responses`.
+//!
+//! Not on this protocol: audio in a chat turn, stop sequences (both report
+//! as errors), realtime sessions, embeddings and the other media
+//! modalities (use an openai-chat provider on the same base URL).
 
 use async_stream::stream;
 use eventsource_stream::Eventsource;
@@ -34,11 +38,11 @@ use serde_json::{Value, json};
 
 use crate::config::ProviderConfig;
 use crate::error::{Error, ErrorKind};
-use crate::protocol::openai::{classify, extract_error_fields, get, post};
+use crate::protocol::openai::{OpenAiChat, classify, extract_error_fields, get, post};
 use crate::protocol::{ByteStream, EventStream, ModelPage, Protocol, model_list};
 use crate::types::{
-    ChatRequest, ChatResponse, ContentPart, FinishReason, Message, Modality, Role, StreamEvent,
-    ToolCall, ToolChoice, Usage,
+    ChatRequest, ChatResponse, ContentPart, FinishReason, Message, Modality, Role, SpeechRequest,
+    StreamEvent, ToolCall, ToolChoice, TranscriptionRequest, TranscriptionResponse, Usage,
 };
 
 pub struct OpenAiResponses;
@@ -57,6 +61,37 @@ impl Protocol for OpenAiResponses {
 
     fn parse_list_models(&self, provider_key: &str, body: &[u8]) -> Result<ModelPage, Error> {
         model_list::parse_openai(provider_key, body)
+    }
+
+    fn build_speech_request(
+        &self,
+        http: &reqwest::Client,
+        provider_key: &str,
+        provider: &ProviderConfig,
+        model: &str,
+        req: &SpeechRequest,
+    ) -> Result<reqwest::RequestBuilder, Error> {
+        OpenAiChat.build_speech_request(http, provider_key, provider, model, req)
+    }
+
+    fn build_transcription_request(
+        &self,
+        http: &reqwest::Client,
+        provider_key: &str,
+        provider: &ProviderConfig,
+        model: &str,
+        req: &TranscriptionRequest,
+    ) -> Result<reqwest::RequestBuilder, Error> {
+        OpenAiChat.build_transcription_request(http, provider_key, provider, model, req)
+    }
+
+    fn parse_transcription_response(
+        &self,
+        provider_key: &str,
+        model: &str,
+        body: &[u8],
+    ) -> Result<TranscriptionResponse, Error> {
+        OpenAiChat.parse_transcription_response(provider_key, model, body)
     }
 
     fn build_request(

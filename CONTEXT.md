@@ -389,7 +389,9 @@ _Avoid_: model group, route list
 
 ### Model Preference
 The models the product prefers for a well-known Model Alias, best first,
-one for each provider. It selects a model from the Provider Model List and
+grouped by provider. A route takes the preferred models of the first
+provider that holds a key and serves the alias's Provider Use. For the
+`default` alias it selects one model from the Provider Model List and
 never replaces the list: the daemon takes the first preferred model whose
 provider holds a key and lists it (ADR-0025).
 _Avoid_: model profile, recommended models
@@ -417,8 +419,9 @@ _Avoid_: model catalogue, allowed models
 ### Provider Use
 One thing a provider's key does in Pagis: thinking, spoken replies,
 dictation or calls. A provider serves a Model Alias only for a use it has.
-OpenAI has all four; Anthropic and OpenRouter have thinking. Onboarding
-shows the uses of each provider and what a set of keys covers (ADR-0025).
+OpenAI has all four, OpenRouter has thinking and dictation, and Anthropic
+has thinking. Onboarding shows the uses of each provider and what a set of
+keys covers (ADR-0025).
 _Avoid_: capability (a Grant word), feature
 
 ### Roster

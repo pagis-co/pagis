@@ -21,6 +21,7 @@ mod mail;
 mod mailboxes;
 mod memory;
 pub mod model_lists;
+pub mod model_preference;
 mod openapi;
 mod phone_numbers;
 mod plugins;

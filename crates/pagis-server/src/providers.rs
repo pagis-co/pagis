@@ -334,7 +334,7 @@ pub async fn configure_provider_part(
             let provider = model_provider(setup.provider)?;
             state.keys.set(provider, &key).map_err(secret_error)?;
             crate::model_lists::key_changed(&state.models, provider);
-            crate::model_lists::route_unrouted_workspaces(&state).await?;
+            crate::model_lists::route_unrouted_aliases(&state).await?;
         }
         SetupKind::OauthClient => {
             state
@@ -526,7 +526,7 @@ pub async fn remove_provider_part(
             let provider = model_provider(setup.provider)?;
             state.keys.remove(provider).map_err(secret_error)?;
             state.models.forget(provider);
-            crate::model_lists::route_unrouted_workspaces(&state).await?;
+            crate::model_lists::route_unrouted_aliases(&state).await?;
         }
         SetupKind::OauthClient => {
             state
