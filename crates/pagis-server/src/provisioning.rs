@@ -32,15 +32,15 @@ const DEFAULT_ASSISTANT_PERSONALITY: &str =
     "Warm, plainspoken, and practical. Gets to the point, asks before assuming.";
 
 /// The one model the default alias names before anybody picks one: the
-/// fallback candidate of the first provider. The route is one model
+/// first model of the Model Preference. The route is one model
 /// (ADR-0025). Onboarding replaces it with the model the person picks
 /// from the Provider Model List, and a server replaces it with the
-/// preselection of the first provider with a key, at the setup and at
-/// each key change ([`crate::model_lists`]). The seed adds no candidate of another
+/// default route of its keys, at the setup and at each key change
+/// ([`crate::model_lists`]). The seed adds no candidate of another
 /// provider: a silent fallback changes the provider, the price and the
 /// tools under the person.
 pub fn seed_default_model() -> &'static str {
-    crate::model_lists::fallback_candidate(pagis_core::PROVIDERS[0])
+    crate::model_lists::DEFAULT_PREFERENCE[0]
 }
 /// The buffered transcription model behind the `transcribe` alias. The
 /// live session picks its own model (ADR-0020).

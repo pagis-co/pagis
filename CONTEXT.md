@@ -386,6 +386,13 @@ belongs to the Org. The `default` alias starts as the one model the Person
 picks at Onboarding from the Provider Model List (ADR-0023, ADR-0025).
 _Avoid_: model group, route list
 
+### Model Preference
+The models the product prefers for a well-known Model Alias, best first,
+one for each provider. It selects a model from the Provider Model List and
+never replaces the list: the daemon takes the first preferred model whose
+provider holds a key and lists it (ADR-0025).
+_Avoid_: model profile, recommended models
+
 ### Origin
 The conversation a delegation chain owes an answer to: the Agent that owes
 it, and the Channel and Thread it owes it in. The Run that answers replies

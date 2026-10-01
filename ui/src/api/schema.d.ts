@@ -4868,8 +4868,9 @@ export interface components {
              */
             models: components["schemas"]["ListedModelDto"][];
             /**
-             * @description The model id a default pick takes: the newest listed model whose
-             *     name reads as a chat model. `None` when the list has none.
+             * @description The model id a default pick takes: the provider's preferred model
+             *     when the list names it, else the newest listed model whose name
+             *     reads as a chat model. `None` when the list has neither.
              */
             preselected?: string | null;
             provider: string;
@@ -5340,8 +5341,8 @@ export interface components {
         SetOnboardingDefaultModelRequest: {
             /**
              * @description The model id as the provider lists it, without the provider
-             *     prefix. `null` takes the preselection: the newest listed chat model,
-             *     or the provider's fallback candidate when its list is not available.
+             *     prefix. `null` takes the preselection of the provider's list, or
+             *     the provider's preferred model when its list is not available.
              */
             model?: string | null;
             /** @description `anthropic`, `openai`, or `openrouter`. */

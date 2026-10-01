@@ -411,6 +411,29 @@ async fn listing_provider() -> MockServer {
     provider
 }
 
+/// Serve one provider's model list for the key `sk-test`. `models` are
+/// ids with their release order, newest first.
+async fn serve_list(server: &MockServer, provider: Provider, models: &[(&str, u64)]) {
+    let (list_path, auth, value) = match provider {
+        Provider::Anthropic => ("/models", "x-api-key", "sk-test"),
+        Provider::OpenAi => ("/models", "authorization", "Bearer sk-test"),
+        Provider::OpenRouter => ("/models/user", "authorization", "Bearer sk-test"),
+    };
+    let data: Vec<serde_json::Value> = models
+        .iter()
+        .map(|(id, created)| serde_json::json!({ "id": id, "created": created }))
+        .collect();
+    Mock::given(method("GET"))
+        .and(path(list_path))
+        .and(header(auth, value))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(serde_json::json!({ "data": data, "has_more": false })),
+        )
+        .mount(server)
+        .await;
+}
+
 async fn daemon_listing(provider: &MockServer) -> TestDaemon {
     TestDaemon::start_with(TestDaemonOptions {
         model_list_base_url: Some(provider.uri()),
@@ -837,15 +860,15 @@ async fn a_failed_list_names_the_providers_words() {
     );
 }
 
-/// Before anybody picks, the seed names one model and no fallback on
-/// another provider.
+/// Before anybody picks, the seed names the first preferred model and
+/// no fallback on another provider.
 #[tokio::test]
 async fn the_seeded_default_route_is_one_model() {
     let daemon = TestDaemon::start().await;
 
     assert_eq!(
         default_route(&daemon).await,
-        serde_json::json!(["anthropic/claude-sonnet-4-6"])
+        serde_json::json!(["openai/gpt-6-luna"])
     );
 }
 
@@ -865,8 +888,9 @@ async fn the_picked_model_is_the_whole_default_route() {
     );
 }
 
-/// With no pick, the default route takes the preselection: the first
-/// model the provider lists, which is its newest.
+/// With no pick, the default route takes the preselection: a list that
+/// does not name the preferred model gives its first model, which is
+/// its newest.
 #[tokio::test]
 async fn no_pick_takes_the_newest_listed_model() {
     let provider = listing_provider().await;
@@ -882,10 +906,32 @@ async fn no_pick_takes_the_newest_listed_model() {
     );
 }
 
-/// A provider whose list is not available falls back to its fallback
-/// candidate, the one place a model name of Pagis decides.
+/// With no pick, a list that names the preferred model gives it, even
+/// when the provider lists a newer model.
 #[tokio::test]
-async fn no_list_takes_the_fallback_model() {
+async fn no_pick_takes_the_preferred_model_the_provider_lists() {
+    let provider = MockServer::start().await;
+    serve_list(
+        &provider,
+        Provider::OpenAi,
+        &[("vendor-new-model", 2), ("gpt-6-luna", 1)],
+    )
+    .await;
+    let daemon = daemon_listing(&provider).await;
+    store_key(&daemon, "openai").await;
+
+    let response = pick_default_model(&daemon, "openai", None).await;
+
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    assert_eq!(
+        default_route(&daemon).await,
+        serde_json::json!(["openai/gpt-6-luna"])
+    );
+}
+
+/// A provider whose list is not available takes its preferred model.
+#[tokio::test]
+async fn no_list_takes_the_preferred_model() {
     let daemon = TestDaemon::start().await;
     store_key(&daemon, "openrouter").await;
 
@@ -894,7 +940,48 @@ async fn no_list_takes_the_fallback_model() {
     assert_eq!(response.status(), StatusCode::NO_CONTENT);
     assert_eq!(
         default_route(&daemon).await,
-        serde_json::json!(["openrouter/anthropic/claude-sonnet-4.6"])
+        serde_json::json!(["openrouter/openai/gpt-6-luna"])
+    );
+}
+
+/// A key that leaves the default route on no keyed provider routes it
+/// to the first preferred model that a keyed provider lists. A later
+/// provider's preferred model wins over an earlier provider's newest
+/// model.
+#[tokio::test]
+async fn a_new_key_routes_to_the_first_preferred_model_a_provider_lists() {
+    let provider = MockServer::start().await;
+    serve_list(
+        &provider,
+        Provider::OpenRouter,
+        &[("qwen/qwen3.8-27b:free", 1)],
+    )
+    .await;
+    serve_list(
+        &provider,
+        Provider::Anthropic,
+        &[("vendor-new-model", 2), ("claude-sonnet-5-5", 1)],
+    )
+    .await;
+    let daemon = TestDaemon::start_with(TestDaemonOptions {
+        keys: test_provider_keys(vec![("OPENROUTER_API_KEY", "sk-test")]),
+        model_list_base_url: Some(provider.uri()),
+        ..TestDaemonOptions::default()
+    })
+    .await;
+
+    let (status, setup) = daemon
+        .set_up_provider(
+            "anthropic",
+            "key",
+            serde_json::json!({ "api_key": "sk-test" }),
+        )
+        .await;
+
+    assert_eq!(status, 200, "{setup}");
+    assert_eq!(
+        default_route(&daemon).await,
+        serde_json::json!(["anthropic/claude-sonnet-5-5"])
     );
 }
 
@@ -907,13 +994,14 @@ async fn a_provider_without_a_key_cannot_be_picked() {
     assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
 }
 
-/// A person an Administrator creates answers no model question: their
-/// default route is the preselection of the first provider with a key.
+/// A person an Administrator creates answers no model question. When
+/// no keyed provider serves the Administrator's route, their default
+/// route is the preselection of the first provider with a key.
 #[tokio::test]
 async fn a_created_person_starts_on_the_newest_listed_model() {
     let provider = listing_provider().await;
     let daemon = daemon_listing(&provider).await;
-    store_key(&daemon, "openai").await;
+    store_key(&daemon, "anthropic").await;
 
     let created: serde_json::Value = client()
         .post(format!(
@@ -946,7 +1034,7 @@ async fn a_created_person_starts_on_the_newest_listed_model() {
         .await
         .unwrap()
         .expect("the default alias");
-    assert_eq!(alias.candidates, vec!["openai/vendor-new-model"]);
+    assert_eq!(alias.candidates, vec!["anthropic/vendor-new-model"]);
 }
 
 /// A model that the provider lists and no built-in table knows runs end

@@ -248,19 +248,29 @@ fails with the provider's words, is not stored, and does not replace the
 installation's key. Only a passed check reads as ready: "the key works; N
 models available".
 
-The model step offers the provider's list with the first, newest, model
-selected: Anthropic lists newest first, and the daemon orders an OpenAI-shaped
-list by `created`, as Open WebUI, LibreChat and Continue do. The picked model is
-the whole `default` alias. Without a list the daemon names the provider's
-fallback model. A Person an Administrator creates takes the Administrator's
-route less every candidate whose provider has no key. A Workspace nobody picks
-for takes the first listed model of the first provider whose key lists models,
-else the first keyed provider's fallback; the environment setup takes that
-fallback. A key refused at a Run gives a conversation message that an
-Administrator sets up providers under Providers in the Administration
-Interface. The seed never adds a candidate on another provider, because a
-silent fallback changes the provider, the price and the tools; fallback
-candidates are the person's choice in Settings under Models.
+The model step offers the provider's list, newest first: Anthropic lists newest
+first, and the daemon orders an OpenAI-shaped list by `created`, as Open WebUI,
+LibreChat and Continue do. The selection follows the Model Preference of the
+`default` alias, which names one model for each provider, best first:
+`openai/gpt-6-luna`, `openrouter/openai/gpt-6-luna`, then
+`anthropic/claude-sonnet-5-5`. The step selects the provider's preferred model
+when its list names it, else the newest listed chat model. The newest model of
+a list is not a good default by itself: OpenRouter lists small free models
+first. Cline works the same way: its OpenRouter picker offers the live list
+and starts on one default model that the program names for each provider. The
+picked model is the whole `default` alias. Without a list the daemon names the
+provider's preferred model. A Person an Administrator creates takes the
+Administrator's route less every candidate whose provider has no key. A
+Workspace nobody picks for takes the first preferred model whose provider has
+a key and lists it. Else it takes the newest listed chat model of the first
+keyed provider, in the order of the preference, and else that provider's
+preferred model. The environment setup runs before any list exists, so it
+takes the first preferred model whose provider the environment gives a key.
+The seed names the first preferred model. A key refused at a Run gives a
+conversation message that an Administrator sets up providers under Providers
+in the Administration Interface. The seed never adds a candidate on another
+provider, because a silent fallback changes the provider, the price and the
+tools; fallback candidates are the person's choice in Settings under Models.
 
 The computer step pings every known container endpoint and reports each
 answer. Once the person asks for a Computer, the daemon owns the pull through

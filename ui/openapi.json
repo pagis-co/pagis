@@ -15202,7 +15202,7 @@
               "string",
               "null"
             ],
-            "description": "The model id a default pick takes: the newest listed model whose\nname reads as a chat model. `None` when the list has none."
+            "description": "The model id a default pick takes: the provider's preferred model\nwhen the list names it, else the newest listed model whose name\nreads as a chat model. `None` when the list has neither."
           },
           "provider": {
             "type": "string"
@@ -16567,7 +16567,7 @@
               "string",
               "null"
             ],
-            "description": "The model id as the provider lists it, without the provider\nprefix. `null` takes the preselection: the newest listed chat model,\nor the provider's fallback candidate when its list is not available."
+            "description": "The model id as the provider lists it, without the provider\nprefix. `null` takes the preselection of the provider's list, or\nthe provider's preferred model when its list is not available."
           },
           "provider": {
             "type": "string",
