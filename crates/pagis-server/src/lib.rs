@@ -8,6 +8,7 @@ mod artifacts;
 mod auth;
 mod calls;
 mod channels;
+mod client_name;
 mod cors;
 mod cross_origin;
 pub mod error;
@@ -37,6 +38,7 @@ mod served_file;
 mod sessions;
 mod settings;
 pub mod setup;
+mod sign_in_links;
 mod software;
 mod subscriptions;
 pub mod system;
@@ -71,8 +73,9 @@ pub use routes::{
     ADMINISTRATION_PUBLIC_ROUTES, ADMINISTRATION_ROUTES, PUBLIC_ROUTES, ROUTES, Route,
     SHARED_ROUTES,
 };
-pub use sessions::{
-    PasswordVerifier, SignInLimits, hash_password, mint_sign_in_link, random_secret,
+pub use sessions::{PasswordVerifier, SignInLimits, hash_password, random_secret};
+pub use sign_in_links::{
+    MintedLink, SIGN_IN_PAGE, mint_public_origin_link, mint_start_link, qr_svg, qr_text,
 };
 pub use system::{
     MediaRelayKind, MultiUserMode, RESTART_EXIT_CODE, RestartSwitch, ScreenRelay, SystemConfig,
@@ -216,7 +219,8 @@ pub struct AppState {
     /// fire it, and so does the expiry of the Session, and every socket
     /// and Media Relay path of that Session closes.
     pub live_connections: Arc<LiveConnections>,
-    /// The one-time sign-in links the `pagis` binary prints.
+    /// The Sign-In Links: the start link the `pagis` binary prints, and
+    /// the links of the Public Origin.
     pub sign_in_links: Arc<dyn SignInLinkStore>,
     /// The sign-in attempts and the sign-ins, per account and per source
     /// address.
@@ -699,6 +703,17 @@ fn product_router(state: Arc<AppState>) -> Router {
         // nothing else of the installation's accounting.
         .route("/api/v1/usage", get(administration::my_usage))
         .route("/api/v1/sessions/current", delete(sessions::sign_out))
+        // The Person's own Sessions, and a Sign-In Link for one more
+        // client of their own (ADR-0028).
+        .route("/api/v1/settings/sessions", get(sessions::list_my_sessions))
+        .route(
+            "/api/v1/settings/sessions/{session_id}",
+            delete(sessions::end_my_session),
+        )
+        .route(
+            "/api/v1/settings/sign-in-links",
+            post(sign_in_links::make_client_link),
+        )
         // The sockets read the same session cookie as every other
         // route, so they sit behind the same middleware. Their
         // first frame carries no credential. The origin check that
@@ -759,9 +774,10 @@ fn product_router(state: Arc<AppState>) -> Router {
             "/api/v1/sessions/client",
             post(sessions::sign_in_with_client_credential),
         )
+        .route("/api/v1/sessions/link", post(sessions::sign_in_with_link))
         .route(
             "/api/v1/sessions/link/{code}",
-            get(sessions::sign_in_with_link),
+            get(sessions::sign_in_with_start_link),
         )
         .merge(authed)
         // One origin may make a credentialed cross-origin call: the one

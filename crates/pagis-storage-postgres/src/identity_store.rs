@@ -3,7 +3,7 @@
 
 use async_trait::async_trait;
 use pagis_core::{
-    ClientKind, Org, OrgId, OrgStore, Session, SessionId, SessionStore, SignInLink,
+    ClientKind, Org, OrgId, OrgStore, Session, SessionId, SessionStore, SignInLink, SignInLinkKind,
     SignInLinkStore, StoreError, UnixMillis, User, UserId, UserRole, UserStore, WorkspaceId,
 };
 use sqlx::{PgPool, Row};
@@ -415,14 +415,37 @@ impl SessionStore for PostgresSessionStore {
         rows.iter().map(row_to_session).collect()
     }
 
-    async fn touch(&self, id: &SessionId, at: UnixMillis) -> Result<(), StoreError> {
-        sqlx::query("UPDATE sessions SET last_used_at = $1 WHERE id = $2")
+    async fn touch(
+        &self,
+        id: &SessionId,
+        at: UnixMillis,
+        expires_at: UnixMillis,
+    ) -> Result<(), StoreError> {
+        sqlx::query("UPDATE sessions SET last_used_at = $1, expires_at = $2 WHERE id = $3")
             .bind(at)
+            .bind(expires_at)
             .bind(id.as_str())
             .execute(&self.pool)
             .await
             .map_err(db_err)?;
         Ok(())
+    }
+
+    async fn list_live_for_user(
+        &self,
+        user_id: &UserId,
+        now: UnixMillis,
+    ) -> Result<Vec<Session>, StoreError> {
+        let rows = sqlx::query(&format!(
+            "SELECT {SESSION_COLUMNS} FROM sessions WHERE user_id = $1 AND expires_at > $2 \
+             ORDER BY created_at DESC, id DESC"
+        ))
+        .bind(user_id.as_str())
+        .bind(now)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(db_err)?;
+        rows.iter().map(row_to_session).collect()
     }
 
     async fn delete(&self, id: &SessionId) -> Result<bool, StoreError> {
@@ -468,12 +491,14 @@ impl PostgresSignInLinkStore {
 impl SignInLinkStore for PostgresSignInLinkStore {
     async fn create(&self, link: &SignInLink) -> Result<(), StoreError> {
         sqlx::query(
-            "INSERT INTO sign_in_links (id, user_id, token_hash, created_at, expires_at, used_at) \
-             VALUES ($1, $2, $3, $4, $5, $6)",
+            "INSERT INTO sign_in_links \
+             (id, user_id, token_hash, kind, created_at, expires_at, used_at) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7)",
         )
         .bind(link.id.as_str())
         .bind(link.user_id.as_str())
         .bind(&link.token_hash)
+        .bind(link.kind.as_str())
         .bind(link.created_at)
         .bind(link.expires_at)
         .bind(link.used_at)
@@ -486,16 +511,19 @@ impl SignInLinkStore for PostgresSignInLinkStore {
     async fn consume(
         &self,
         token_hash: &str,
+        kind: SignInLinkKind,
         now: UnixMillis,
     ) -> Result<Option<UserId>, StoreError> {
         // The UPDATE is the guard: one row moves from unused to used, so
-        // two requests with the same link cannot both sign in.
+        // two requests with the same link cannot both sign in. A link of
+        // another kind matches no row, so it stays unspent.
         let spent = sqlx::query(
             "UPDATE sign_in_links SET used_at = $1 \
-             WHERE token_hash = $2 AND used_at IS NULL AND expires_at > $3",
+             WHERE token_hash = $2 AND kind = $3 AND used_at IS NULL AND expires_at > $4",
         )
         .bind(now)
         .bind(token_hash)
+        .bind(kind.as_str())
         .bind(now)
         .execute(&self.pool)
         .await

@@ -4,13 +4,59 @@ description: How People sign in to a server from a browser or a Client App, and 
 icon: LogIn
 ---
 
-A Person signs in at `https://<the domain>/` with an address and a password.
-The answer is an HTTP-only, host-only, `SameSite=Strict` Session cookie, and
+A Person signs in at `https://<the domain>/` with an address and a password,
+or with a [Sign-In Link](#sign-in-links). The answer is an HTTP-only, host-only, `SameSite=Strict` Session cookie, and
 it carries `Secure` where the proxy reported TLS. No token appears in a URL.
 The CORS answer names the Public Origin and no other origin, so a page
 elsewhere cannot read the API with a Person's cookie. Each port also refuses a
 socket upgrade or a write from a browser page at another origin, so the Public
 Origin must be the exact address that people open.
+
+## Sign-In Links
+
+A Sign-In Link is a one-use address of the Public Origin,
+`https://<the domain>/sign-in#<secret>`, with a QR code that a phone camera
+opens. The secret is in the part after `#`, which a browser sends to no
+server, so no proxy log and no `Referer` holds it. The page at `/sign-in`
+posts the secret to the daemon, so a message app that opens the link to
+make a preview does not spend it. A refused link counts against the source
+address, as a refused password does
+([ADR-0028](https://github.com/pagis-co/pagis/blob/main/docs/adr/0028-remote-access-runs-through-the-owners-tailscale.md)).
+
+Three things make a link:
+
+- **An invite from an Administrator.** When an Administrator creates a
+  Person under **People** in the Administration Interface, the answer shows
+  that Person's invite. It is good for seven days and one use. A first
+  password is optional. **New invite** on the roster makes another one, for
+  example when the first one expired. A disabled account gets no invite.
+- **Another browser or app of the same Person.** Under **Settings →
+  Sessions**, a signed-in Person selects **Sign in another browser or app**.
+  The link is good for five minutes and one use, and it signs the other
+  browser or phone in as the same Person.
+- **`pagis pair` on the machine of the installation.** It prints the link
+  and its QR code in the terminal. The link is good for five minutes and one
+  use. It is the way back in for a Person who has no Session left.
+
+On a server, run `pagis pair` in the container:
+
+```bash
+docker compose exec pagis pagis pair --email grace@example.com
+```
+
+Without `--email`, the link signs in the first Administrator. The command
+writes the link into the records of the installation directly, so it works
+while the daemon runs and while it is stopped. Whoever can run it on the
+machine can already read those records. It refuses a disabled account.
+
+## Sessions
+
+**Settings → Sessions** lists each browser and app that is signed in as the
+Person: the browser and its system, such as "Safari on macOS", when it
+signed in, and when it was last used. **Remove** signs that browser or app
+out at once. A Session ends 30 days after its last use, so a client in daily
+use stays signed in. **Sign out** ends the Session of the browser that is
+open.
 
 ## A Client App connected to this server
 

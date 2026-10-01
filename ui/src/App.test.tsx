@@ -193,3 +193,16 @@ describe('missed calls', () => {
     expect(screen.getByRole('button', { name: 'Call back' })).toBeTruthy()
   })
 })
+
+describe('sign-in link', () => {
+  // The link opens its own page, also in a browser that holds a Session
+  // already: the link signs it in as the person it was made for.
+  it('opens the sign-in link page at its path, signed in or not', async () => {
+    api.POST.mockClear()
+    mount('/sign-in')
+
+    expect(await screen.findByText(/holds no sign-in link/)).toBeTruthy()
+    expect(screen.queryByTestId('desk-panel')).toBeNull()
+    expect(api.POST).not.toHaveBeenCalled()
+  })
+})

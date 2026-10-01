@@ -178,6 +178,7 @@ pub mod knowledge_events;
 pub mod mailboxes;
 pub mod memory_pages;
 pub mod pending_reviews;
+pub mod sign_in;
 pub mod stores;
 pub mod text_records;
 pub mod workspaces;
@@ -205,6 +206,7 @@ macro_rules! store_suite {
         $crate::store_suite_mailboxes!($crate::__store_suite_emit);
         $crate::store_suite_memory_pages!($crate::__store_suite_emit);
         $crate::store_suite_pending_reviews!($crate::__store_suite_emit);
+        $crate::store_suite_sign_in!($crate::__store_suite_emit);
         $crate::store_suite_stores!($crate::__store_suite_emit);
         $crate::store_suite_text_records!($crate::__store_suite_emit);
         $crate::store_suite_workspaces!($crate::__store_suite_emit);
@@ -295,6 +297,11 @@ const MODULES: &[(&str, &str, &str)] = &[
         "pending_reviews",
         include_str!("store_suite/pending_reviews.rs"),
         "macro_rules! store_suite_pending_reviews",
+    ),
+    (
+        "sign_in",
+        include_str!("store_suite/sign_in.rs"),
+        "macro_rules! store_suite_sign_in",
     ),
     (
         "stores",

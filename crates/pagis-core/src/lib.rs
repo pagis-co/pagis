@@ -71,9 +71,9 @@ pub use id::{
     WorkspaceId,
 };
 pub use identity::{
-    ClientKind, GOOGLE_WEB_CLIENT_SECRET, Org, OrgStore, SESSION_LIFETIME_MS,
-    SIGN_IN_LINK_LIFETIME_MS, Session, SessionStore, SignInLink, SignInLinkStore, User, UserRole,
-    UserStore,
+    CLIENT_LINK_LIFETIME_MS, ClientKind, GOOGLE_WEB_CLIENT_SECRET, INVITE_LINK_LIFETIME_MS, Org,
+    OrgStore, SESSION_LIFETIME_MS, START_LINK_LIFETIME_MS, Session, SessionStore, SignInLink,
+    SignInLinkKind, SignInLinkStore, User, UserRole, UserStore,
 };
 pub use keypad::{KeypadFailureStore, KeypadFailures};
 pub use memory::{

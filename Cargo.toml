@@ -146,6 +146,10 @@ tempfile = "3"
 thiserror = "2"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "fs", "signal"] }
 tokio-util = { version = "0.7", features = ["io"] }
+# The QR code of a Sign-In Link (ADR-0028): an SVG beside the URL for
+# the Product App and the Administration Interface, and text for the
+# terminal of `pagis pair`.
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 # The CORS answer of the one Public Origin. Nothing else in the
 # tree needs a tower layer.
 tower-http = { version = "0.6", features = ["cors", "set-header"] }

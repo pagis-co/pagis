@@ -298,22 +298,26 @@ _Avoid_: user record, account (for a Person; an account is at an external provid
 
 ### Session
 What a client holds after a Person signs in: an HTTP-only, host-only,
-`SameSite=Strict` cookie that names the Person and the kind of client. It
-ends at sign-out and expires after 30 days. A password sign-in, the trade
-of a Client Credential and a Sign-In Link hand one out. It grants nothing
-on its own (ADR-0023). Not built: a Session that ends 30 days after its
-last use, and the Person's list of their own Sessions (ADR-0028).
+`SameSite=Strict` cookie that names the Person and the kind of client. A
+browser's Session also carries the name of the browser and its system, such
+as "Safari on macOS". It ends at sign-out, when the Person removes it from
+their Sessions list, and 30 days after its last use. A password sign-in, the
+trade of a Client Credential and a Sign-In Link hand one out. It grants
+nothing on its own (ADR-0023, ADR-0028).
 _Avoid_: bearer, login token
 
 ### Sign-In Link
-A one-time URL that the `pagis` binary prints on a Local Installation,
-good for one minute and one use. It is the one URL of the daemon that
-carries a secret. The daemon accepts it from the same machine alone, and
-an installation that holds no Client Credential refuses it (ADR-0025).
-Not built: in Remote Access, a one-use link of the Public Origin, shown as
-a QR code, that a signed-in Person makes for one more client of their own,
-that an Administrator makes to invite a Person, or that `pagis pair`
-prints (ADR-0028).
+A one-use URL whose secret trades for a Session. There are two kinds. The
+start link is the one that the `pagis` binary prints at start on a Local
+Installation, good for one minute. It is the one URL of the daemon that
+carries a secret in its path. The daemon accepts it from the same machine
+alone, and an installation that holds no Client Credential refuses it
+(ADR-0025). A link of the Public Origin, `<public origin>/sign-in#<secret>`,
+goes with a QR code. A signed-in Person makes one for one more client of
+their own, good for five minutes. An Administrator gets one as the invite of
+a Person, good for seven days. `pagis pair` prints one on the machine of the
+installation, good for five minutes. Its page posts the secret, so opening
+the link spends nothing (ADR-0028).
 _Avoid_: pairing code, magic link, invite token
 
 ### Spend Cap

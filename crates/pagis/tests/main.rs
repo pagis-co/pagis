@@ -71,6 +71,7 @@ mod screen_relay;
 mod server_setup;
 mod sessions;
 mod shutdown;
+mod sign_in_links;
 mod software;
 mod spend;
 mod system_settings;

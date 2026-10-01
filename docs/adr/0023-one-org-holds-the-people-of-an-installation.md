@@ -106,8 +106,8 @@ the conversation says so in one sentence.
 
 A Person signs in before any client reads or writes their data. A Session
 names the Person and the client kind (`browser` or `desktop`), records when it
-was made and last used, ends at sign-out, and expires after 30 days. It grants
-nothing by itself; the role and the Workspace decide.
+was made and last used, ends at sign-out, and expires 30 days after its last
+use (ADR-0028). It grants nothing by itself; the role and the Workspace decide.
 
 The Session travels in an HTTP-only cookie with no `Domain` (host-only) and
 `SameSite=Strict`, so the page cannot read it and it never appears in an
@@ -116,9 +116,11 @@ cookie, and their first frame carries no credential. A listener refuses a
 socket upgrade from an origin it does not serve (ADR-0024), because
 `SameSite=Strict` still sends the cookie from a same-site sibling.
 
-A password sign-in, the trade of a Client Credential, and a one-time sign-in
-link (ADR-0025) hand out a Session. A refused password counts against the
-account and against the source address.
+A password sign-in, the trade of a Client Credential, and a Sign-In Link
+(ADR-0025, ADR-0028) hand out a Session. A refused password counts against the
+account and against the source address. Another browser or app of a
+Person signs in with a Sign-In Link that a signed-in client or `pagis pair`
+makes.
 
 ## Consequences
 
@@ -127,8 +129,3 @@ account and against the source address.
   secret read across the tenant line stays ciphertext.
 - An Installation Connection is one record and one secret, so a key rotation is
   one write.
-
-## Not built
-
-Pairing a second device to a running installation. A second device signs in
-with a password.

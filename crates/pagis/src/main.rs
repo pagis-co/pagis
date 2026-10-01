@@ -31,6 +31,14 @@ enum Command {
         /// The directory that `pagis backup` wrote.
         directory: PathBuf,
     },
+    /// Print a Sign-In Link and its QR code that sign one more browser or
+    /// app in. The link is good for five minutes and one use.
+    Pair {
+        /// The address of the Person to sign in. Without it, the first
+        /// Administrator.
+        #[arg(long, value_name = "ADDRESS")]
+        email: Option<String>,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -40,6 +48,7 @@ fn main() -> anyhow::Result<()> {
         Some(Command::PackageCheck) => package_check(),
         Some(Command::Backup { directory }) => backup_cmd(&directory),
         Some(Command::Restore { directory }) => restore_cmd(&directory),
+        Some(Command::Pair { email }) => pair_cmd(email.as_deref()),
         None => {
             let code = tokio::runtime::Runtime::new()?.block_on(run(cli.run))?;
             if code != 0 {
@@ -108,6 +117,28 @@ fn restore_cmd(archive: &Path) -> anyhow::Result<()> {
         home.display(),
         manifest.release
     );
+    Ok(())
+}
+
+/// `pagis pair`: write a Sign-In Link of the Public Origin into the
+/// records of this installation, and print it with its QR code. It needs
+/// no running daemon.
+fn pair_cmd(email: Option<&str>) -> anyhow::Result<()> {
+    let home = pagis_home()?;
+    let pairing = tokio::runtime::Runtime::new()?.block_on(pagis::pair(
+        &home,
+        email,
+        pagis_core::now_ms(),
+    ))?;
+    let who = pairing
+        .person
+        .email
+        .as_deref()
+        .or(pairing.person.name.as_deref())
+        .unwrap_or("the Administrator");
+    println!("{}", pagis_server::qr_text(&pairing.url)?);
+    println!("sign in as {who} within five minutes; the link works once:");
+    println!("{}", pairing.url);
     Ok(())
 }
 
@@ -198,7 +229,7 @@ async fn run(flags: RunFlags) -> anyhow::Result<i32> {
     // one record decides this too. The link starts at the local origin,
     // because the daemon accepts it from this machine alone (ADR-0025).
     let url = match booted.client_credential.is_some() {
-        true => Some(pagis::sign_in_link(&booted.stores, &booted.config.local_origin(port)).await?),
+        true => Some(pagis::start_link(&booted.stores, &booted.config.local_origin(port)).await?),
         false => None,
     };
     let way_in = match &url {
@@ -487,6 +518,7 @@ mod tests {
             ("package-check", "server package"),
             ("backup", "Backup"),
             ("restore", "Restore"),
+            ("pair", "Sign-In Link"),
         ] {
             let line = help
                 .lines()
@@ -522,6 +554,14 @@ mod tests {
         assert!(matches!(
             parse(&["package-check"]).unwrap().command,
             Some(Command::PackageCheck)
+        ));
+        assert!(matches!(
+            parse(&["pair"]).unwrap().command,
+            Some(Command::Pair { email: None })
+        ));
+        assert!(matches!(
+            parse(&["pair", "--email", "grace@example.com"]).unwrap().command,
+            Some(Command::Pair { email: Some(email) }) if email == "grace@example.com"
         ));
         // A flag of the daemon run does not go with a command.
         assert!(parse(&["--local", "backup", "/tmp/b"]).is_err());

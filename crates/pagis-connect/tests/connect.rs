@@ -269,8 +269,28 @@ impl SessionStore for MemorySessions {
             .cloned())
     }
 
-    async fn touch(&self, _id: &SessionId, _at: UnixMillis) -> Result<(), StoreError> {
+    async fn touch(
+        &self,
+        _id: &SessionId,
+        _at: UnixMillis,
+        _expires_at: UnixMillis,
+    ) -> Result<(), StoreError> {
         Ok(())
+    }
+
+    async fn list_live_for_user(
+        &self,
+        user_id: &UserId,
+        now: UnixMillis,
+    ) -> Result<Vec<Session>, StoreError> {
+        Ok(self
+            .rows
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|session| &session.user_id == user_id && session.expires_at > now)
+            .cloned()
+            .collect())
     }
 
     async fn list_live(&self, now: UnixMillis) -> Result<Vec<Session>, StoreError> {

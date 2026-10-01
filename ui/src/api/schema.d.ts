@@ -82,7 +82,8 @@ export interface paths {
         get: operations["list_people"];
         put?: never;
         /**
-         * Create an account and the person's Workspace.
+         * Create an account and the person's Workspace, and answer the
+         *     Person's invite.
          * @description The Workspace comes from the same seed a local first run uses, so the
          *     person signs in to a sprite that can already think: the Org's
          *     provider keys serve them and they hold none of their own.
@@ -175,6 +176,28 @@ export interface paths {
          */
         put: operations["set_sign_in"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/administration/people/{user_id}/sign-in-links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Make a new invite for a Person: a link for their next Session, good
+         *     for seven days and one use. An Administrator asks for one when the
+         *     invite of the account expired, or when the Person has no Session
+         *     left.
+         */
+        post: operations["make_invite_link"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1768,6 +1791,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sessions/link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Trade the secret of a Sign-In Link of the Public Origin for a
+         *     Session, from any machine.
+         * @description The page at `/sign-in` posts the secret, so opening the link spends
+         *     nothing. Each refusal counts against the source address with the
+         *     limits of a password sign-in, and every refusal answers the same way.
+         */
+        post: operations["sign_in_with_link"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sessions/link/{code}": {
         parameters: {
             query?: never;
@@ -1775,7 +1821,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["sign_in_with_link"];
+        get: operations["sign_in_with_start_link"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2344,6 +2390,66 @@ export interface paths {
         get?: never;
         put: operations["set_retention_policy"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The live Sessions of the signed-in Person, newest first. */
+        get: operations["list_my_sessions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/sessions/{session_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * End one Session of the signed-in Person: a lost phone, or a browser
+         *     they no longer use. Each socket of that Session closes. A Session of
+         *     another Person reads as absent. Ending the Session that asks is a
+         *     sign-out, and its answer clears the cookie.
+         */
+        delete: operations["end_my_session"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/sign-in-links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Make a link for one more client of the signed-in Person: another
+         *     browser, or an app on a phone. It is good for five minutes and one
+         *     use, and it signs that client in as the same Person.
+         */
+        post: operations["make_client_link"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3330,10 +3436,10 @@ export interface components {
             /** @description What the agents call the person. */
             name: string;
             /**
-             * @description The first password. The person changes it later; the daemon keeps
-             *     only its argon2id hash.
+             * @description A first password, or `null` for none: the person then signs in
+             *     with the invite alone. The daemon keeps only its argon2id hash.
              */
-            password: string;
+            password?: string | null;
         };
         CreateAgentRequest: {
             avatar?: components["schemas"]["AvatarAppearance"];
@@ -3947,6 +4053,18 @@ export interface components {
             /** @enum {string} */
             type: "mail";
         };
+        LinkSignInRequest: {
+            /**
+             * @description The secret of a Sign-In Link of the Public Origin: the fragment of
+             *     `<public origin>/sign-in#<secret>`.
+             */
+            secret: string;
+            /**
+             * @description The IANA timezone of the browser. At the Person's first sign-in it
+             *     becomes their timezone, as with a password.
+             */
+            timezone?: string | null;
+        };
         ListContactRequest: {
             /**
              * @description The Agent whose list this row joins, or absent for the
@@ -4439,6 +4557,35 @@ export interface components {
             /** @description The address whose forwarded headers the daemon believes, or null. */
             trusted_proxy?: string | null;
         };
+        /** @description One Session of the signed-in Person, for their Sessions list. */
+        MySessionDto: {
+            /** @description `browser` or `desktop`. */
+            client_kind: string;
+            /**
+             * @description The machine name of a Client App, or the browser and the system
+             *     of a browser, such as "Safari on macOS". `null` where the client
+             *     said neither.
+             */
+            client_name?: string | null;
+            /** Format: int64 */
+            created_at: number;
+            /**
+             * @description True for the Session that asks, so the list says which client is
+             *     this one.
+             */
+            current: boolean;
+            /**
+             * Format: int64
+             * @description Thirty days after the last use.
+             */
+            expires_at: number;
+            id: string;
+            /** Format: int64 */
+            last_used_at: number;
+        };
+        MySessionsDto: {
+            items: components["schemas"]["MySessionDto"][];
+        };
         /** @description What the signed-in person spent, and the cap they are under. */
         MyUsageDto: {
             /** Format: int64 */
@@ -4481,6 +4628,18 @@ export interface components {
              *     with an API mints its own and refuses this.
              */
             password?: string | null;
+        };
+        /**
+         * @description A new account, and the invite that signs the Person in for the first
+         *     time.
+         */
+        NewPersonDto: {
+            /**
+             * @description A Sign-In Link of the Public Origin for the Person's first
+             *     Session, good for seven days and one use.
+             */
+            invite: components["schemas"]["SignInLinkDto"];
+            person: components["schemas"]["PersonDto"];
         };
         /** @description Everything the onboarding wizard needs in one read. */
         OnboardingDto: {
@@ -5445,6 +5604,18 @@ export interface components {
             /** @description The provider ids the flow may take a key for. */
             providers: string[];
         };
+        /** @description A link of the Public Origin, as a route that makes one answers it. */
+        SignInLinkDto: {
+            /**
+             * Format: int64
+             * @description When the link stops working, in Unix milliseconds.
+             */
+            expires_at: number;
+            /** @description A QR code of the URL, as an SVG document. */
+            qr_svg: string;
+            /** @description `<public origin>/sign-in#<secret>`. It is good for one use. */
+            url: string;
+        };
         /** @description One fact the filter editor offers for one resource. */
         Signal: {
             id: string;
@@ -6247,7 +6418,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PersonDto"];
+                    "application/json": components["schemas"]["NewPersonDto"];
                 };
             };
             401: {
@@ -6498,6 +6669,61 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    make_invite_link: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The person */
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignInLinkDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The account is disabled */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -10730,6 +10956,47 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LinkSignInRequest"];
+            };
+        };
+        responses: {
+            /** @description Signed in; the session is in an HTTP-only cookie */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserDto"];
+                };
+            };
+            /** @description The link is spent, expired or not a link of the Public Origin */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    sign_in_with_start_link: {
+        parameters: {
+            query?: never;
+            header?: never;
             path: {
                 /** @description The one-time code the `pagis` binary printed */
                 code: string;
@@ -12187,6 +12454,97 @@ export interface operations {
                 };
             };
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_my_sessions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MySessionsDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    end_my_session: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description One Session of the signed-in Person */
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The Session ended */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    make_client_link: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignInLinkDto"];
+                };
+            };
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -243,21 +243,17 @@ async fn wait_for_instance_lock(lock: &std::fs::File, home: &Path) -> anyhow::Re
     }
 }
 
-/// Mint a one-time sign-in link for the administrator of the
-/// installation. The link starts at `origin`, which is the local origin
-/// of the daemon: it answers a browser on this machine alone
-/// (ADR-0025).
-pub async fn sign_in_link(
-    stores: &pagis_core::Stores,
-    public_origin: &str,
-) -> anyhow::Result<String> {
+/// Mint the start link for the administrator of the installation. The
+/// link starts at `local_origin`, which is the local origin of the
+/// daemon: it answers a browser on this machine alone (ADR-0025).
+pub async fn start_link(stores: &pagis_core::Stores, local_origin: &str) -> anyhow::Result<String> {
     let user = administrator(stores)
         .await?
         .ok_or_else(|| anyhow::anyhow!("the installation has no administrator"))?;
-    Ok(pagis_server::mint_sign_in_link(
+    Ok(pagis_server::mint_start_link(
         stores.sign_in_links.as_ref(),
         &user.id,
-        public_origin,
+        local_origin,
         now_ms(),
     )
     .await?)

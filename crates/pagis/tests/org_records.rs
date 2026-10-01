@@ -175,7 +175,7 @@ impl Installation {
         )
         .await;
         assert_eq!(status, 201, "{person}");
-        assert_eq!(person["role"], "member");
+        assert_eq!(person["person"]["role"], "member");
         let response = reqwest::Client::new()
             .post(format!("{}/api/v1/sessions", self.daemon.base_url))
             .json(&serde_json::json!({ "email": "grace@example.com", "password": PASSWORD }))

@@ -1,25 +1,34 @@
 // The People section: the roster of the installation, the form
-// that makes an account, and per person a monthly spend cap, a password
-// reset and a disable switch.
+// that makes an account, and per person an invite, a monthly spend cap,
+// a password reset and a disable switch.
 //
-// Accounts are administrator-created with a password: there is no
-// self-signup. It is a view of the Administration Interface, and the
-// routes behind it answer on the administration port alone.
+// An Administrator creates every account: there is no self-signup. The
+// answer holds the person's invite, a Sign-In Link good for seven days
+// and one use (ADR-0028), and a first password is optional. It is a view
+// of the Administration Interface, and the routes behind it answer on
+// the administration port alone.
 
 import { useState } from 'react'
 
-import type { ApiClient, PersonDto, PersonUsageDto } from '../../api/client'
-import { Badge, Button, Frame, Input, Row, SectionLabel } from '../../primitives'
+import type {
+  ApiClient,
+  PersonDto,
+  PersonUsageDto,
+  SignInLinkDto,
+} from '../../api/client'
+import { Badge, Button, Dialog, Frame, Input, Row, SectionLabel } from '../../primitives'
 import {
   errorMessage,
   useCreateAccount,
   useInstallationUsage,
+  useMakeInvite,
   usePeople,
   useResetAccountPassword,
   useSetAccountEnabled,
   useSetSignIn,
   useSetSpendCap,
 } from '../../queries'
+import { SignInLinkCard } from './SignInLinkCard'
 
 import './People.css'
 
@@ -37,6 +46,32 @@ export function personLabel(person: PersonDto): string {
   return person.name ?? person.email ?? 'This person'
 }
 
+/** The invite of a person: the link that signs them in once, within
+ *  seven days. The Administrator sends it to them. */
+function InviteDialog({
+  person,
+  invite,
+  onClose,
+}: {
+  person: PersonDto
+  invite: SignInLinkDto
+  onClose: () => void
+}) {
+  const label = personLabel(person)
+  return (
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose()
+      }}
+      title={`Invite ${label}`}
+      description={`Send this link to ${label}. It signs them in on their phone or in their browser, once.`}
+    >
+      <SignInLinkCard link={invite} />
+    </Dialog>
+  )
+}
+
 /** The form that makes an account. The daemon writes the person's
  *  Workspace with the same seed a first run uses, so they sign in to a
  *  sprite that can already think on the installation's keys. */
@@ -45,12 +80,15 @@ function NewAccount({ api }: { api: ApiClient }) {
   const [email, setEmail] = useState('')
   const [name, setName] = useState('')
   const [password, setPassword] = useState('')
-  const complete =
-    email.includes('@') && name.trim() !== '' && password.length >= MIN_PASSWORD_LENGTH
+  const [invited, setInvited] = useState<{ person: PersonDto; invite: SignInLinkDto } | null>(
+    null,
+  )
+  const passwordValid = password === '' || password.length >= MIN_PASSWORD_LENGTH
+  const complete = email.includes('@') && name.trim() !== '' && passwordValid
 
   return (
     <Frame
-      hint={`The person signs in with this address and password. A password is at least ${MIN_PASSWORD_LENGTH} characters, and they can change it later.`}
+      hint={`The account comes with an invite: a link that signs the person in once, within seven days. A first password is optional, at least ${MIN_PASSWORD_LENGTH} characters, and the person can change it later.`}
     >
       <Row className="people-new">
         <Input
@@ -68,7 +106,7 @@ function NewAccount({ api }: { api: ApiClient }) {
         <Input
           type="password"
           aria-label="First password"
-          placeholder="First password"
+          placeholder="First password (optional)"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
         />
@@ -77,12 +115,17 @@ function NewAccount({ api }: { api: ApiClient }) {
           disabled={!complete || create.isPending}
           onClick={() =>
             create.mutate(
-              { email: email.trim(), name: name.trim(), password },
               {
-                onSuccess: () => {
+                email: email.trim(),
+                name: name.trim(),
+                ...(password === '' ? {} : { password }),
+              },
+              {
+                onSuccess: (created) => {
                   setEmail('')
                   setName('')
                   setPassword('')
+                  setInvited(created)
                 },
               },
             )
@@ -95,6 +138,13 @@ function NewAccount({ api }: { api: ApiClient }) {
         <span className="settings-error" role="alert">
           {errorMessage(create.error, 'That account could not be created.')}
         </span>
+      )}
+      {invited !== null && (
+        <InviteDialog
+          person={invited.person}
+          invite={invited.invite}
+          onClose={() => setInvited(null)}
+        />
       )}
     </Frame>
   )
@@ -167,6 +217,8 @@ function PersonRow({
   const setEnabled = useSetAccountEnabled(api)
   const reset = useResetAccountPassword(api)
   const setCap = useSetSpendCap(api)
+  const makeInvite = useMakeInvite(api)
+  const [invite, setInvite] = useState<SignInLinkDto | null>(null)
   const [cap, setCap_] = useState(
     person.monthly_spend_cap_usd == null ? '' : String(person.monthly_spend_cap_usd),
   )
@@ -190,6 +242,15 @@ function PersonRow({
         <Button
           size="sm"
           className="people-trailing"
+          aria-label={`New invite for ${label}`}
+          // A disabled account signs in to nothing, so it gets no link.
+          disabled={person.disabled || makeInvite.isPending}
+          onClick={() => makeInvite.mutate(person.id, { onSuccess: setInvite })}
+        >
+          New invite
+        </Button>
+        <Button
+          size="sm"
           aria-label={
             person.disabled ? `Enable the account of ${label}` : `Disable the account of ${label}`
           }
@@ -244,13 +305,16 @@ function PersonRow({
         </Button>
       </Row>
       {person.email === null && <SetSignIn api={api} person={person} />}
-      {(setEnabled.isError || reset.isError || setCap.isError) && (
+      {(setEnabled.isError || reset.isError || setCap.isError || makeInvite.isError) && (
         <span className="settings-error" role="alert">
           {errorMessage(
-            setEnabled.error ?? reset.error ?? setCap.error,
+            setEnabled.error ?? reset.error ?? setCap.error ?? makeInvite.error,
             'That change could not be saved.',
           )}
         </span>
+      )}
+      {invite !== null && (
+        <InviteDialog person={person} invite={invite} onClose={() => setInvite(null)} />
       )}
     </div>
   )

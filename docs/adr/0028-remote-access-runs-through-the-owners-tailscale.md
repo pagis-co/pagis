@@ -154,15 +154,15 @@ tailnet, keeps the direct UDP path, and ICE picks it first.
 
 ## Not built
 
-None of this record is built. The Multi-User Mode of ADR-0024 is what runs.
-The parts:
+The Multi-User Mode of ADR-0024 is what runs. The Sign-In Link of the
+Public Origin, its three sources, the Sessions list in Settings,
+`pagis pair` and the Session that ends 30 days after its last use are built,
+and they work in the Multi-User Mode and on a Server. These parts are not
+built:
 
 - The Remote Access switch, the Tailscale driver in the daemon, and the
   `PAGIS_REMOTE_ACCESS` setting.
 - The refusal of a password from another machine in Remote Access.
-- The Sign-In Link of the Public Origin, its three sources, the Sessions
-  list in Settings, `pagis pair`, and the Session that ends 30 days after
-  its last use.
 - The Sign-In Link in "Connect to a Pagis server".
 - The TURN server in the daemon and its Funnel port.
 - The `tailscale` service of `deploy/compose.yaml`.

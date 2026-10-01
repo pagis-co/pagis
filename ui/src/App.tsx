@@ -6,6 +6,7 @@ import type { ApiClient } from './api/client'
 import { useSetupState, useUser } from './queries'
 import { createAppRouter } from './routes'
 import { SignIn } from './SignIn'
+import { SIGN_IN_LINK_PATH, SignInLinkPage } from './SignInLinkPage'
 
 /** The app is its router: every view has a URL. The session is
  *  an HTTP-only cookie, so the app asks the daemon who is
@@ -30,6 +31,11 @@ export function App({ history }: { history?: RouterHistory }) {
       void router.navigate({ to: '/', replace: true })
     }
   }, [signedIn, router])
+  // A Sign-In Link opens its own page, also in a browser that is signed
+  // in already: the link signs it in as the person it was made for.
+  if (router.history.location.pathname === SIGN_IN_LINK_PATH) {
+    return <SignInLinkPage api={api} />
+  }
   if (user.isPending) return null
   if (user.data === undefined) return <ProductSignIn api={api} />
   return <RouterProvider router={router} />
