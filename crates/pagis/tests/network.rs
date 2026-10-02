@@ -666,46 +666,103 @@ struct TlsProxy {
     root: Vec<u8>,
 }
 
-impl TlsProxy {
-    /// Start Caddy in front of `daemon_port` on this machine.
-    ///
-    /// The container writes its own configuration and then runs: a bind
-    /// mount of a file is not portable across Docker runtimes, and the
-    /// configuration is four lines.
+/// The container of a [`TlsProxy`], started before Caddy runs in it.
+///
+/// On Linux, a container reaches this machine from its own address on the
+/// Docker bridge, and that address belongs to the container for its life.
+/// So the container that runs Caddy makes the probe itself: an address
+/// probed from another container is a different address whenever a
+/// container of a parallel test takes the next free one first.
+struct ProxyContainer {
+    name: String,
+}
+
+impl ProxyContainer {
+    /// Start the container idle, with the TLS endpoint published.
     ///
     /// Docker chooses the host port of the TLS endpoint, and the test
     /// reads it back. A port that the test takes from the system first
     /// is free only until the test lets it go, so another process can
     /// bind it before Docker does.
-    async fn start(daemon_port: u16) -> Self {
-        let container = format!("pagis-tls-{}", std::process::id());
-        let write_and_run = format!(
-            "printf '%s\\n' '{{' 'admin off' '}}' '{TLS_HOST} {{' 'tls internal' \
-             'reverse_proxy host.docker.internal:{daemon_port}' '}}' > /etc/caddy/Caddyfile && \
-             exec caddy run --config /etc/caddy/Caddyfile"
-        );
+    fn start() -> Self {
+        let name = format!("pagis-tls-{}", std::process::id());
         let status = std::process::Command::new("docker")
             .args([
                 "run",
                 "-d",
                 "--rm",
                 "--name",
-                &container,
+                &name,
                 "--add-host=host.docker.internal:host-gateway",
                 "-p",
                 "127.0.0.1::443",
                 CADDY_IMAGE,
-                "sh",
-                "-c",
-                &write_and_run,
+                "tail",
+                "-f",
+                "/dev/null",
             ])
             .status()
-            .expect("docker run caddy");
-        assert!(status.success(), "caddy did not start");
-        let port = published_port(&container);
-        let root = read_caddy_root(&container).await;
-        let proxy = Self {
-            container,
+            .expect("docker run the caddy container");
+        assert!(status.success(), "the caddy container did not start");
+        Self { name }
+    }
+
+    /// The address this container's requests arrive at this machine from,
+    /// which is the address the daemon must trust the forwarded headers
+    /// of. It is not guessed: the container connects to a listener of
+    /// this test, and the peer address is the answer.
+    async fn source_address(&self) -> IpAddr {
+        let listener = tokio::net::TcpListener::bind("0.0.0.0:0")
+            .await
+            .expect("bind a probe listener");
+        let port = listener.local_addr().expect("the probe address").port();
+        let name = self.name.clone();
+        let probe = tokio::task::spawn_blocking(move || {
+            std::process::Command::new("docker")
+                .args([
+                    "exec",
+                    &name,
+                    "sh",
+                    "-c",
+                    &format!("nc -z host.docker.internal {port} || true"),
+                ])
+                .status()
+        });
+        let accepted =
+            tokio::time::timeout(std::time::Duration::from_secs(60), listener.accept()).await;
+        let _ = probe.await;
+        match accepted {
+            Ok(Ok((_, peer))) => peer.ip(),
+            other => {
+                self.remove();
+                panic!("the caddy container did not reach this machine: {other:?}");
+            }
+        }
+    }
+
+    /// Run Caddy in front of `daemon_port` on this machine.
+    ///
+    /// The container writes its own configuration and then runs: a bind
+    /// mount of a file is not portable across Docker runtimes, and the
+    /// configuration is four lines.
+    async fn serve(self, daemon_port: u16) -> TlsProxy {
+        let write_and_run = format!(
+            "printf '%s\\n' '{{' 'admin off' '}}' '{TLS_HOST} {{' 'tls internal' \
+             'reverse_proxy host.docker.internal:{daemon_port}' '}}' > /etc/caddy/Caddyfile && \
+             exec caddy run --config /etc/caddy/Caddyfile"
+        );
+        let status = std::process::Command::new("docker")
+            .args(["exec", "-d", &self.name, "sh", "-c", &write_and_run])
+            .status()
+            .expect("docker exec caddy");
+        if !status.success() {
+            self.remove();
+            panic!("caddy did not start");
+        }
+        let port = published_port(&self.name);
+        let root = read_caddy_root(&self.name).await;
+        let proxy = TlsProxy {
+            container: self.name,
             port,
             root,
         };
@@ -713,6 +770,14 @@ impl TlsProxy {
         proxy
     }
 
+    fn remove(&self) {
+        let _ = std::process::Command::new("docker")
+            .args(["rm", "-f", &self.name])
+            .status();
+    }
+}
+
+impl TlsProxy {
     /// Wait until the TLS endpoint answers. The local authority's root is
     /// written before the leaf certificate of the site is, so a client
     /// that reaches the port too early gets a handshake that ends.
@@ -812,38 +877,6 @@ fn published_port(container: &str) -> u16 {
     })
 }
 
-/// The address a container's request arrives at this machine from, which
-/// is the address the daemon must trust the forwarded headers of. It is
-/// not guessed: a container connects to a listener of this test, and the
-/// peer address is the answer.
-async fn container_source_address() -> IpAddr {
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:0")
-        .await
-        .expect("bind a probe listener");
-    let port = listener.local_addr().expect("the probe address").port();
-    let probe = tokio::task::spawn_blocking(move || {
-        std::process::Command::new("docker")
-            .args([
-                "run",
-                "--rm",
-                "--add-host=host.docker.internal:host-gateway",
-                CADDY_IMAGE,
-                "sh",
-                "-c",
-                &format!("nc -z host.docker.internal {port} || true"),
-            ])
-            .status()
-    });
-    let accepted =
-        tokio::time::timeout(std::time::Duration::from_secs(60), listener.accept()).await;
-    let _ = probe.await;
-    accepted
-        .expect("a container reached this machine")
-        .expect("accept the probe")
-        .1
-        .ip()
-}
-
 fn require_docker() {
     let reachable = std::process::Command::new("docker")
         .args(["version"])
@@ -869,23 +902,27 @@ fn require_docker() {
 #[ignore = "needs Docker; run via cargo test -- --ignored"]
 async fn a_browser_signs_in_over_real_tls_through_caddy() {
     require_docker();
-    // Caddy reaches the daemon from a NAT address of the Docker host, and
-    // that is the one address whose forwarded headers the daemon believes.
-    let proxy_address = container_source_address().await;
-    let daemon = TestDaemon::start_on_postgres_with(TestDaemonOptions {
+    // The daemon believes the forwarded headers of one address only: the
+    // address that Caddy's container reaches this machine from.
+    let container = ProxyContainer::start();
+    let proxy_address = container.source_address().await;
+    let started = TestDaemon::start_on_postgres_with(TestDaemonOptions {
         bind: std::net::Ipv4Addr::UNSPECIFIED.into(),
         public_origin: format!("https://{TLS_HOST}"),
         trusted_proxy: Some(proxy_address),
         ..TestDaemonOptions::default()
     })
-    .await
-    .expect("a server runs on Postgres, and this test needs Docker");
+    .await;
+    let daemon = started.unwrap_or_else(|| {
+        container.remove();
+        panic!("a server runs on Postgres, and this test needs Docker")
+    });
     assert_eq!(
         daemon.booted.client_credential, None,
         "a server holds no Client Credential (ADR-0025)"
     );
     let person = person(&daemon, "grace@example.com", "a good password").await;
-    let proxy = TlsProxy::start(daemon.addr.port()).await;
+    let proxy = container.serve(daemon.addr.port()).await;
 
     let client = proxy.client();
     let response = client
