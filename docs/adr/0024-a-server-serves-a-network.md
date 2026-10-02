@@ -85,12 +85,13 @@ Administration Interface. `GET /api/v1/settings/system/remote-access` reads
 the Tailscale of the machine, `PUT` turns the Funnel on, and `DELETE` turns it
 off. Turning on writes `[remote_access] enabled`, the Public Origin
 `https://<machine>.<tailnet>.ts.net` and the Trusted Proxy `127.0.0.1`.
-Turning off removes the Funnel of the product port and clears all three. Both
-write `config.toml` through the System Settings seam and bind loopback, and
-the page then asks for the reserved restart. Binding loopback keeps the
-plain-HTTP port off the network, so nobody reaches the daemon around the TLS
-of the Funnel. `PAGIS_REMOTE_ACCESS` sets Remote Access for one run, on a
-local installation and on a server.
+Turning off removes the Funnel of the product port and of the TURN server of
+the live screen (ADR-0028), and clears all three. Both write `config.toml`
+through the System Settings seam and bind loopback, and the page then asks
+for the reserved restart. Binding loopback keeps the plain-HTTP port off the
+network, so nobody reaches the daemon around the TLS of the Funnel.
+`PAGIS_REMOTE_ACCESS` sets Remote Access for one run, on a local
+installation and on a server.
 
 With Remote Access off, a local installation refuses on both ports every
 request that is not from a program on its own machine, by the rule of the

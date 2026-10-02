@@ -5,11 +5,12 @@
 //! On a Local Installation the daemon drives the `tailscale` command of
 //! its machine through the [`Tailscale`] seam. One switch in the
 //! Administration Interface turns Remote Access on: the daemon turns on
-//! Funnel on port 443 to the product port on loopback, writes the Public
+//! Funnel on port 443 to the product port on loopback and on port 8443 to
+//! the TURN server of the live screen on loopback, writes the Public
 //! Origin `https://<machine>.<tailnet>.ts.net` and the Trusted Proxy
 //! `127.0.0.1`, keeps the Bind Address on loopback, and the page asks for
-//! the reserved restart. Turning it off removes the Funnel and clears the
-//! three settings.
+//! the reserved restart. Turning it off removes both Funnel ports and
+//! clears the three settings.
 //!
 //! `tailscale funnel` can wait for the owner: where the tailnet has HTTPS
 //! or Funnel off, it names a page that turns them on and waits for the
@@ -18,7 +19,9 @@
 //!
 //! A Local Installation serves other machines only while Remote Access is
 //! on ([`serves_this_machine_only`]). With Remote Access on, another
-//! machine signs in with a Sign-In Link and never with a password.
+//! machine signs in with a Sign-In Link and never with a password, and its
+//! browser reaches the live screen through the TURN server
+//! ([`turn_ice_server`]).
 //!
 //! A Server is not switched here: its deployment sets
 //! `PAGIS_REMOTE_ACCESS`, and the routes answer `409`.
@@ -41,24 +44,40 @@ use crate::system::{SystemConfigFile, is_local};
 /// Remote Access writes as the Trusted Proxy.
 pub const FUNNEL_PROXY: &str = "127.0.0.1";
 
+/// The Funnel port that publishes the TURN server of Remote Access
+/// (ADR-0028). `tailscaled` ends TLS there and forwards plain TCP to the
+/// server on loopback.
+pub const FUNNEL_TURN_PORT: u16 = 8443;
+
 /// Why a turn-on fails where `tailscale funnel` ends with no error and
 /// Funnel still does not serve Pagis: Tailscale does that where the
 /// tailnet does not let this owner turn Funnel on from its page.
 const FUNNEL_DOES_NOT_SERVE: &str = "`tailscale funnel` ended, but Funnel does not serve Pagis \
-     on port 443; an Admin of the tailnet may need to turn on HTTPS and Funnel in the \
-     Tailscale admin console";
+     on ports 443 and 8443; an Admin of the tailnet may need to turn on HTTPS and Funnel in \
+     the Tailscale admin console";
 
-/// What port 443 of the Funnel of this machine serves.
+/// The two loopback ports that the Funnel of Remote Access publishes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FunnelTargets {
+    /// The product port, which Funnel publishes on port 443.
+    pub product: u16,
+    /// The TURN server of the live screen, which Funnel publishes on port
+    /// 8443 ([`FUNNEL_TURN_PORT`]).
+    pub turn: u16,
+}
+
+/// What one port of the Funnel of this machine serves.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
 #[serde(tag = "serves", rename_all = "snake_case")]
-pub enum Port443 {
-    /// Funnel publishes nothing on port 443.
+pub enum FunnelPort {
+    /// Funnel publishes nothing on the port.
     Nothing,
-    /// Funnel publishes the product port of this Pagis on port 443.
+    /// Funnel publishes the port of this Pagis: the product port on port
+    /// 443, the TURN server on port 8443.
     Pagis,
-    /// Port 443 serves something else, which Pagis does not replace.
+    /// The port serves something else, which Pagis does not replace.
     Other {
-        /// What port 443 forwards to, as Tailscale names it.
+        /// What the port forwards to, as Tailscale names it.
         target: String,
     },
 }
@@ -80,22 +99,37 @@ pub enum TailscaleState {
     },
     /// The tailnet has HTTPS or Funnel off. A turn-on shows the page that
     /// Tailscale names to turn them on.
-    FunnelOff { port_443: Port443 },
+    FunnelOff {
+        port_443: FunnelPort,
+        port_8443: FunnelPort,
+    },
     /// Tailscale runs and the tailnet allows Funnel.
     Ready {
         /// The name of this machine on the tailnet, with no trailing dot.
         dns_name: String,
-        port_443: Port443,
+        /// The product port, where Funnel serves Pagis.
+        port_443: FunnelPort,
+        /// The TURN server of the live screen, where Funnel serves Pagis.
+        port_8443: FunnelPort,
     },
 }
 
 impl TailscaleState {
     /// What port 443 serves, where Tailscale runs.
-    pub fn port_443(&self) -> Option<&Port443> {
+    pub fn port_443(&self) -> Option<&FunnelPort> {
         match self {
-            TailscaleState::FunnelOff { port_443 } | TailscaleState::Ready { port_443, .. } => {
+            TailscaleState::FunnelOff { port_443, .. } | TailscaleState::Ready { port_443, .. } => {
                 Some(port_443)
             }
+            TailscaleState::NotInstalled { .. } | TailscaleState::NotRunning { .. } => None,
+        }
+    }
+
+    /// What port 8443 serves, where Tailscale runs.
+    pub fn port_8443(&self) -> Option<&FunnelPort> {
+        match self {
+            TailscaleState::FunnelOff { port_8443, .. }
+            | TailscaleState::Ready { port_8443, .. } => Some(port_8443),
             TailscaleState::NotInstalled { .. } | TailscaleState::NotRunning { .. } => None,
         }
     }
@@ -106,23 +140,24 @@ impl TailscaleState {
 /// tailnet.
 #[async_trait::async_trait]
 pub trait Tailscale: Send + Sync {
-    /// Read the state of Tailscale, and what port 443 of its Funnel
-    /// serves, against the product port `port` on loopback.
-    async fn state(&self, port: u16) -> TailscaleState;
+    /// Read the state of Tailscale, and what ports 443 and 8443 of its
+    /// Funnel serve, against the loopback ports `targets`.
+    async fn state(&self, targets: FunnelTargets) -> TailscaleState;
 
-    /// Turn on Funnel on port 443 to the product port `port` on loopback.
-    /// Where the tailnet has HTTPS or Funnel off, Tailscale names a page
-    /// that turns them on: the call gives each such page to `enable_url`
-    /// and waits until the owner approves.
+    /// Turn on Funnel on port 443 to the product port and on port 8443 to
+    /// the TURN server, both on loopback. Where the tailnet has HTTPS or
+    /// Funnel off, Tailscale names a page that turns them on: the call
+    /// gives each such page to `enable_url` and waits until the owner
+    /// approves.
     async fn funnel_on(
         &self,
-        port: u16,
+        targets: FunnelTargets,
         enable_url: &(dyn Fn(String) + Send + Sync),
     ) -> Result<(), String>;
 
-    /// Remove the Funnel on port 443 where it serves the product port
-    /// `port`. Anything else that port 443 serves stays.
-    async fn funnel_off(&self, port: u16) -> Result<(), String>;
+    /// Remove the Funnel on port 443 and on port 8443 where each serves
+    /// its target of `targets`. Anything else that a port serves stays.
+    async fn funnel_off(&self, targets: FunnelTargets) -> Result<(), String>;
 }
 
 /// The turn-on that runs now, or how the last one ended.
@@ -148,17 +183,30 @@ struct Slot {
 }
 
 /// The Remote Access switch of a Local Installation: the Tailscale of
-/// this machine, and the turn-on that waits for it.
+/// this machine, the loopback port of the TURN server that Funnel
+/// publishes, and the turn-on that waits for Tailscale.
 pub struct RemoteAccessSwitch {
     tailscale: Arc<dyn Tailscale>,
+    turn_port: u16,
     slot: Arc<Mutex<Slot>>,
 }
 
 impl RemoteAccessSwitch {
-    pub fn new(tailscale: Arc<dyn Tailscale>) -> Self {
+    /// The switch over `tailscale`, which publishes the TURN server of the
+    /// live screen at `turn_port` on loopback.
+    pub fn new(tailscale: Arc<dyn Tailscale>, turn_port: u16) -> Self {
         Self {
             tailscale,
+            turn_port,
             slot: Arc::default(),
+        }
+    }
+
+    /// What Funnel publishes for the product port `product`.
+    fn targets(&self, product: u16) -> FunnelTargets {
+        FunnelTargets {
+            product,
+            turn: self.turn_port,
         }
     }
 
@@ -169,7 +217,7 @@ impl RemoteAccessSwitch {
     }
 
     /// Start a turn-on in the background, unless one waits already.
-    fn start(&self, system: Arc<dyn SystemConfigFile>, port: u16) {
+    fn start(&self, system: Arc<dyn SystemConfigFile>, targets: FunnelTargets) {
         let mut slot = self.slot();
         if matches!(slot.turn_on, TurnOn::Waiting { .. }) {
             return;
@@ -179,7 +227,7 @@ impl RemoteAccessSwitch {
         let task = tokio::spawn(turn_on(
             Arc::clone(&self.tailscale),
             system,
-            port,
+            targets,
             Arc::clone(&self.slot),
             generation,
         ));
@@ -238,7 +286,7 @@ struct SwitchSnapshot {
 async fn turn_on(
     tailscale: Arc<dyn Tailscale>,
     system: Arc<dyn SystemConfigFile>,
-    port: u16,
+    targets: FunnelTargets,
     slot: Arc<Mutex<Slot>>,
     generation: u64,
 ) {
@@ -253,11 +301,12 @@ async fn turn_on(
             *enable_url = Some(url);
         }
     };
-    let funnel = match tailscale.funnel_on(port, &show).await {
-        Ok(()) => match tailscale.state(port).await {
+    let funnel = match tailscale.funnel_on(targets, &show).await {
+        Ok(()) => match tailscale.state(targets).await {
             TailscaleState::Ready {
                 dns_name,
-                port_443: Port443::Pagis,
+                port_443: FunnelPort::Pagis,
+                port_8443: FunnelPort::Pagis,
             } => public_origin_of(&dns_name),
             _ => Err(FUNNEL_DOES_NOT_SERVE.to_string()),
         },
@@ -319,6 +368,32 @@ pub enum SignInMethod {
     /// A Sign-In Link. In Remote Access the daemon takes no password from
     /// another machine, because the public name faces the internet.
     Link,
+}
+
+/// The TURN server of Remote Access as the ICE server of the browser of
+/// one request (ADR-0028): `turns:` the name of the Public Origin, port
+/// 8443, over TCP, with a credential of its own. Only a browser that is
+/// not on this machine gets it, by the test of the sign-in rules: a
+/// browser on this machine reaches the Media Relay by itself. With Remote
+/// Access off the daemon runs no TURN server, and nobody gets it.
+///
+/// A browser on the tailnet gets it too. Where the Media Relay advertises
+/// an address that the browser reaches over UDP, ICE takes that direct
+/// pair before the relayed one.
+pub(crate) fn turn_ice_server(
+    state: &AppState,
+    peer: SocketAddr,
+    headers: &HeaderMap,
+) -> Option<pagis_computer::IceServer> {
+    let turn = state.remote_access_turn.as_ref()?;
+    if crate::forwarded::is_from_this_machine(peer, headers) {
+        return None;
+    }
+    let host = url::Url::parse(&state.public_origin)
+        .ok()?
+        .host_str()?
+        .to_string();
+    Some(turn.ice_server(format!("turns:{host}:{FUNNEL_TURN_PORT}?transport=tcp")))
 }
 
 /// How the client of one request signs in: with a Sign-In Link where
@@ -392,7 +467,7 @@ async fn remote_access_dto(state: &AppState) -> Result<RemoteAccessDto, ApiError
     let tailscale = state
         .remote_access_switch
         .tailscale
-        .state(state.runtime_port)
+        .state(state.remote_access_switch.targets(state.runtime_port))
         .await;
     let SwitchSnapshot {
         public_origin,
@@ -428,6 +503,20 @@ fn require_local(state: &AppState) -> Result<(), ApiError> {
 /// Why Tailscale cannot turn Remote Access on now, in words that say
 /// what the owner does.
 fn not_ready(state: &TailscaleState) -> Option<String> {
+    if let Some(FunnelPort::Other { target }) = state.port_443() {
+        return Some(format!(
+            "port 443 of Tailscale Funnel on this computer serves {target}, and Pagis does not \
+             replace it; remove it with `tailscale funnel --https=443 off`, then turn on Remote \
+             Access again"
+        ));
+    }
+    if let Some(FunnelPort::Other { target }) = state.port_8443() {
+        return Some(format!(
+            "port 8443 of Tailscale Funnel on this computer serves {target}, and Pagis does not \
+             replace it; remove it with `tailscale funnel --tls-terminated-tcp=8443 off`, then \
+             turn on Remote Access again"
+        ));
+    }
     match state {
         TailscaleState::NotInstalled { install_url } => Some(format!(
             "Tailscale is not installed on this computer; install it from {install_url}, sign \
@@ -438,14 +527,7 @@ fn not_ready(state: &TailscaleState) -> Option<String> {
              in, and turn on Remote Access again"
                 .to_string(),
         ),
-        TailscaleState::FunnelOff { .. } | TailscaleState::Ready { .. } => match state.port_443() {
-            Some(Port443::Other { target }) => Some(format!(
-                "port 443 of Tailscale Funnel on this computer serves {target}, and Pagis \
-                     does not replace it; remove it with `tailscale funnel --https=443 off`, \
-                     then turn on Remote Access again"
-            )),
-            _ => None,
-        },
+        TailscaleState::FunnelOff { .. } | TailscaleState::Ready { .. } => None,
     }
 }
 
@@ -477,27 +559,24 @@ pub async fn get_remote_access(
     )
 )]
 /// Turn on Remote Access (ADR-0028). The daemon turns on Funnel on port
-/// 443 to the product port on loopback, in the background, because
-/// Tailscale can wait for the owner to turn on HTTPS and Funnel for the
-/// tailnet. Then it writes the Public Origin and the Trusted Proxy and
-/// keeps the Bind Address on loopback. The change takes effect on the
-/// next start.
+/// 443 to the product port and on port 8443 to the TURN server of the
+/// live screen, both on loopback, in the background, because Tailscale
+/// can wait for the owner to turn on HTTPS and Funnel for the tailnet.
+/// Then it writes the Public Origin and the Trusted Proxy and keeps the
+/// Bind Address on loopback. The change takes effect on the next start.
 pub async fn turn_on_remote_access(
     State(state): State<Arc<AppState>>,
     _administrator: Administrator,
 ) -> Result<(StatusCode, Json<RemoteAccessDto>), ApiError> {
     require_local(&state)?;
-    let tailscale = state
-        .remote_access_switch
-        .tailscale
-        .state(state.runtime_port)
-        .await;
+    let targets = state.remote_access_switch.targets(state.runtime_port);
+    let tailscale = state.remote_access_switch.tailscale.state(targets).await;
     if let Some(reason) = not_ready(&tailscale) {
         return Err(ApiError::conflict(reason));
     }
     state
         .remote_access_switch
-        .start(Arc::clone(&state.system), state.runtime_port);
+        .start(Arc::clone(&state.system), targets);
     Ok((StatusCode::ACCEPTED, Json(remote_access_dto(&state).await?)))
 }
 
@@ -512,11 +591,11 @@ pub async fn turn_on_remote_access(
     )
 )]
 /// Turn off Remote Access (ADR-0028), or stop a turn-on that waits. The
-/// daemon removes the Funnel of the product port and clears the Public
-/// Origin, the Trusted Proxy and Remote Access, and binds loopback. People
-/// who signed in from other machines keep their accounts and their
-/// Sessions, and reach nothing until Remote Access is on again. The change
-/// takes effect on the next start.
+/// daemon removes the Funnel of the product port and of the TURN server,
+/// clears the Public Origin, the Trusted Proxy and Remote Access, and
+/// binds loopback. People who signed in from other machines keep their
+/// accounts and their Sessions, and reach nothing until Remote Access is
+/// on again. The change takes effect on the next start.
 pub async fn turn_off_remote_access(
     State(state): State<Arc<AppState>>,
     _administrator: Administrator,
@@ -529,7 +608,7 @@ pub async fn turn_off_remote_access(
     if let Err(reason) = state
         .remote_access_switch
         .tailscale
-        .funnel_off(state.runtime_port)
+        .funnel_off(state.remote_access_switch.targets(state.runtime_port))
         .await
     {
         tracing::warn!(%reason, "Tailscale did not remove the Funnel of Pagis");
@@ -562,11 +641,14 @@ mod tests {
     }
 
     /// Each state that cannot turn Remote Access on says what to do, and
-    /// so does a port 443 that serves something else.
+    /// so does a port 443 or a port 8443 that serves something else.
     #[test]
     fn a_state_that_cannot_turn_on_says_what_to_do() {
-        let other = Port443::Other {
+        let other = FunnelPort::Other {
             target: "http://127.0.0.1:3000".to_string(),
+        };
+        let tcp = FunnelPort::Other {
+            target: "127.0.0.1:5432".to_string(),
         };
         for (state, says) in [
             (
@@ -582,6 +664,7 @@ mod tests {
             (
                 TailscaleState::FunnelOff {
                     port_443: other.clone(),
+                    port_8443: FunnelPort::Nothing,
                 },
                 "http://127.0.0.1:3000",
             ),
@@ -589,24 +672,42 @@ mod tests {
                 TailscaleState::Ready {
                     dns_name: "owner-mac.tail1234.ts.net".to_string(),
                     port_443: other,
+                    port_8443: FunnelPort::Nothing,
                 },
                 "tailscale funnel --https=443 off",
+            ),
+            (
+                TailscaleState::FunnelOff {
+                    port_443: FunnelPort::Nothing,
+                    port_8443: tcp.clone(),
+                },
+                "127.0.0.1:5432",
+            ),
+            (
+                TailscaleState::Ready {
+                    dns_name: "owner-mac.tail1234.ts.net".to_string(),
+                    port_443: FunnelPort::Pagis,
+                    port_8443: tcp,
+                },
+                "tailscale funnel --tls-terminated-tcp=8443 off",
             ),
         ] {
             let reason = not_ready(&state).expect("a reason");
             assert!(reason.contains(says), "{reason}");
         }
-        for port_443 in [Port443::Nothing, Port443::Pagis] {
+        for served in [FunnelPort::Nothing, FunnelPort::Pagis] {
             assert_eq!(
                 not_ready(&TailscaleState::FunnelOff {
-                    port_443: port_443.clone()
+                    port_443: served.clone(),
+                    port_8443: served.clone(),
                 }),
                 None
             );
             assert_eq!(
                 not_ready(&TailscaleState::Ready {
                     dns_name: "owner-mac.tail1234.ts.net".to_string(),
-                    port_443,
+                    port_443: served.clone(),
+                    port_8443: served,
                 }),
                 None
             );

@@ -799,19 +799,25 @@ impl MediaRelay for TurnRelay {
 /// One TURN REST API credential: the username is the expiry in Unix
 /// seconds and a session name, and the password is the base64 HMAC-SHA1
 /// of that username under the shared secret.
-fn mint_turn_credential(secret: &str, ttl: Duration) -> (String, String) {
-    use base64::Engine;
-    use hmac::Mac;
-
+pub(crate) fn mint_turn_credential(secret: &str, ttl: Duration) -> (String, String) {
     let expiry = pagis_core::now_ms() / 1000 + ttl.as_secs() as i64;
     let mut session = [0u8; 8];
     rand::RngCore::fill_bytes(&mut rand::rng(), &mut session);
     let username = format!("{expiry}:{}", hex::encode(session));
+    let credential = turn_password(secret, &username);
+    (username, credential)
+}
+
+/// The password of a TURN REST API username: the base64 HMAC-SHA1 of
+/// the username under the shared secret.
+pub(crate) fn turn_password(secret: &str, username: &str) -> String {
+    use base64::Engine;
+    use hmac::Mac;
+
     let mut mac = hmac::Hmac::<sha1::Sha1>::new_from_slice(secret.as_bytes())
         .expect("HMAC takes a key of any length");
     mac.update(username.as_bytes());
-    let credential = base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes());
-    (username, credential)
+    base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes())
 }
 
 #[cfg(test)]

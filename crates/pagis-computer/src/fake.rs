@@ -60,6 +60,186 @@ pub fn ice_check(credentials: &crate::IceCredentials, nominates: bool) -> Vec<u8
     buffer[..length].to_vec()
 }
 
+/// A TURN client over TCP, as a browser runs one through the Funnel of
+/// Remote Access (ADR-0028): the client of the `turn` crate over one TCP
+/// connection, framed as RFC 8656 section 12.5 says. A test connects it to
+/// the loopback port of the TURN server, as `tailscaled` does once it has
+/// ended TLS.
+pub struct TurnClient {
+    connection: std::sync::Arc<FramedTcp>,
+    relay: Box<dyn webrtc_util::Conn + Send + Sync>,
+    _client: turn::client::Client,
+}
+
+impl TurnClient {
+    /// Connect to the TURN server at `server`, and allocate a UDP relay
+    /// with `username` and `password`.
+    pub async fn allocate(
+        server: std::net::SocketAddr,
+        username: &str,
+        password: &str,
+    ) -> Result<Self, String> {
+        let stream = tokio::net::TcpStream::connect(server)
+            .await
+            .map_err(|error| format!("cannot connect to the TURN server at {server}: {error}"))?;
+        let local = stream.local_addr().map_err(|error| error.to_string())?;
+        let (reader, writer) = stream.into_split();
+        let connection = std::sync::Arc::new(FramedTcp {
+            server,
+            local,
+            reader: tokio::sync::Mutex::new((reader, bytes::BytesMut::new())),
+            writer: tokio::sync::Mutex::new(Some(writer)),
+            closed: tokio_util::sync::CancellationToken::new(),
+        });
+        let client = turn::client::Client::new(turn::client::ClientConfig {
+            stun_serv_addr: String::new(),
+            turn_serv_addr: server.to_string(),
+            username: username.to_string(),
+            password: password.to_string(),
+            realm: String::new(),
+            software: String::new(),
+            // TCP carries each request once; a short timer would send
+            // it again before the answer comes.
+            rto_in_ms: 2000,
+            conn: std::sync::Arc::clone(&connection) as _,
+            vnet: None,
+        })
+        .await
+        .map_err(|error| error.to_string())?;
+        client.listen().await.map_err(|error| error.to_string())?;
+        let relay = client
+            .allocate()
+            .await
+            .map_err(|error| format!("the TURN server allocated nothing: {error}"))?;
+        Ok(Self {
+            connection,
+            relay: Box::new(relay),
+            _client: client,
+        })
+    }
+
+    /// The relay address that the server allocated.
+    pub fn relayed_address(&self) -> std::net::SocketAddr {
+        self.relay
+            .local_addr()
+            .expect("an allocation has a relay address")
+    }
+
+    /// Send `datagram` to `peer` through the relay. The first datagram to
+    /// a peer asks for its permission first.
+    pub async fn send_to(&self, datagram: &[u8], peer: std::net::SocketAddr) -> Result<(), String> {
+        self.relay
+            .send_to(datagram, peer)
+            .await
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
+    /// The next datagram that a peer sent to the relay, and that peer.
+    pub async fn recv_from(&self) -> Result<(Vec<u8>, std::net::SocketAddr), String> {
+        let mut buffer = vec![0u8; 2048];
+        let (read, from) = self
+            .relay
+            .recv_from(&mut buffer)
+            .await
+            .map_err(|error| error.to_string())?;
+        buffer.truncate(read);
+        Ok((buffer, from))
+    }
+
+    /// Close the TCP connection, as a browser that goes away does, with no
+    /// Refresh that ends the allocation first.
+    pub async fn hang_up(&self) {
+        self.connection.closed.cancel();
+        self.connection.writer.lock().await.take();
+    }
+}
+
+/// The TCP connection of a [`TurnClient`], one TURN message at a time.
+struct FramedTcp {
+    server: std::net::SocketAddr,
+    local: std::net::SocketAddr,
+    reader: tokio::sync::Mutex<(tokio::net::tcp::OwnedReadHalf, bytes::BytesMut)>,
+    writer: tokio::sync::Mutex<Option<tokio::net::tcp::OwnedWriteHalf>>,
+    closed: tokio_util::sync::CancellationToken,
+}
+
+#[async_trait]
+impl webrtc_util::Conn for FramedTcp {
+    async fn connect(&self, _address: std::net::SocketAddr) -> webrtc_util::Result<()> {
+        Ok(())
+    }
+
+    async fn recv(&self, buffer: &mut [u8]) -> webrtc_util::Result<usize> {
+        Ok(self.recv_from(buffer).await?.0)
+    }
+
+    async fn recv_from(
+        &self,
+        buffer: &mut [u8],
+    ) -> webrtc_util::Result<(usize, std::net::SocketAddr)> {
+        use tokio::io::AsyncReadExt;
+
+        let mut reader = self.reader.lock().await;
+        let (reader, stream) = &mut *reader;
+        loop {
+            let frame =
+                crate::remote_access_turn::frame(stream).map_err(webrtc_util::Error::Other)?;
+            if let Some(frame) = frame {
+                let message = stream.split_to(frame.taken);
+                let into = buffer
+                    .get_mut(..frame.message)
+                    .ok_or(webrtc_util::Error::ErrBufferShort)?;
+                into.copy_from_slice(&message[..frame.message]);
+                return Ok((frame.message, self.server));
+            }
+            stream.reserve(2048);
+            let read = tokio::select! {
+                () = self.closed.cancelled() => 0,
+                read = reader.read_buf(stream) => read?,
+            };
+            if read == 0 {
+                return Err(webrtc_util::Error::ErrUseClosedNetworkConn);
+            }
+        }
+    }
+
+    async fn send(&self, message: &[u8]) -> webrtc_util::Result<usize> {
+        self.send_to(message, self.server).await
+    }
+
+    async fn send_to(
+        &self,
+        message: &[u8],
+        _target: std::net::SocketAddr,
+    ) -> webrtc_util::Result<usize> {
+        use tokio::io::AsyncWriteExt;
+
+        let mut writer = self.writer.lock().await;
+        let writer = writer
+            .as_mut()
+            .ok_or(webrtc_util::Error::ErrUseClosedNetworkConn)?;
+        writer.write_all(message).await?;
+        Ok(message.len())
+    }
+
+    fn local_addr(&self) -> webrtc_util::Result<std::net::SocketAddr> {
+        Ok(self.local)
+    }
+
+    fn remote_addr(&self) -> Option<std::net::SocketAddr> {
+        Some(self.server)
+    }
+
+    async fn close(&self) -> webrtc_util::Result<()> {
+        Ok(())
+    }
+
+    fn as_any(&self) -> &(dyn std::any::Any + Send + Sync) {
+        self
+    }
+}
+
 /// The fake's world: which image is present, and what a live frame
 /// returns. Containers "run" in memory; volumes are a name set that
 /// survives stop, mirroring Docker's named-volume behavior.

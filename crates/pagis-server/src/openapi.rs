@@ -441,7 +441,7 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         remote_access::RemoteAccessDto,
         remote_access::TurningOnDto,
         remote_access::TailscaleState,
-        remote_access::Port443,
+        remote_access::FunnelPort,
         remote_access::SignInMethod,
         system::AnalyticsDto,
         system::AnalyticsBlockedDto,

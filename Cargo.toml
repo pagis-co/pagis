@@ -112,6 +112,13 @@ str0m = { version = "0.9", default-features = false }
 # datagram it reads and the source address of each one it sends
 # (IP_PKTINFO, on Linux and macOS).
 nix = { version = "0.31", default-features = false, features = ["net", "uio"] }
+# The TURN server of Remote Access (ADR-0028): the TURN code of webrtc-rs
+# (allocations, the long-term credential check, permissions and
+# channels) behind the TCP framing of RFC 8656 that Pagis adds. It reads
+# and writes through the `Conn` trait of `webrtc-util`, the same release
+# line.
+turn = "0.17"
+webrtc-util = { version = "0.17", default-features = false, features = ["conn"] }
 rand = "0.9"
 # The umask of the daemon process: the standard library has no call
 # for it.

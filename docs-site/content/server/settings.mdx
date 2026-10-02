@@ -20,6 +20,7 @@ for the run and is never written back into the file.
 | `[secrets] key_file` | None | `/run/secrets/pagis-secrets-key` | The **Key File** (Linux). |
 | `[screen] advertise_ip` | `PAGIS_SCREEN_ADVERTISE_IP` | `127.0.0.1` | The address browsers reach the Media Relay at. |
 | `[screen] media_port_first`, `media_port_last` | `PAGIS_SCREEN_MEDIA_PORT_FIRST`, `PAGIS_SCREEN_MEDIA_PORT_LAST` | `50000`, `50099` | The Media Relay's UDP range. |
+| `[screen] remote_access_turn_port` | None | `4402` | The loopback TCP port of the TURN server that carries the live screen through the Funnel in Remote Access. |
 
 ```toml
 bind = "10.0.1.7"

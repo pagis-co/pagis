@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex};
 use axum::extract::{Request, State};
 use axum::response::Response;
 use pagis_core::{User, UserRole, Workspace, WorkspaceId, now_ms};
-use pagis_server::{Port443, SESSION_COOKIE};
+use pagis_server::{FunnelPort, SESSION_COOKIE};
 use pagis_testkit::{FakeTailscale, TestDaemon, TestDaemonOptions};
 
 /// The origin the proxy answers on, as the deployment configures it.
@@ -462,7 +462,10 @@ async fn the_owners_client_app_signs_in_on_a_local_installation_with_a_public_or
 #[tokio::test]
 async fn an_administrator_turns_on_remote_access_for_a_local_installation() {
     let before = TestDaemon::start_with(TestDaemonOptions {
-        tailscale: Arc::new(FakeTailscale::ready(Port443::Nothing)),
+        tailscale: Arc::new(FakeTailscale::ready(
+            FunnelPort::Nothing,
+            FunnelPort::Nothing,
+        )),
         ..TestDaemonOptions::default()
     })
     .await;

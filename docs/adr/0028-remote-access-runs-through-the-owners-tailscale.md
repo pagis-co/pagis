@@ -42,14 +42,15 @@ the Administration Interface, under Network, turns Remote Access on:
    signed out, the switch says what to install or open.
 2. Where the tailnet has HTTPS or Funnel off, the switch shows the page
    that Tailscale names to turn it on, and waits.
-3. The daemon turns on Funnel on port 443 to the product port on loopback.
-   Where port 443 serves something else, the switch says so and replaces
-   nothing. Where Tailscale refuses Funnel on macOS, the switch names the
-   standalone build.
+3. The daemon turns on Funnel on port 443 to the product port on loopback,
+   and on port 8443 to the TURN server of the live screen on loopback.
+   Where either port serves something else, the switch says so and
+   replaces nothing. Where Tailscale refuses Funnel on macOS, the switch
+   names the standalone build.
 4. It writes the Public Origin, `https://<machine>.<tailnet>.ts.net`, and
    `127.0.0.1` as the Trusted Proxy, and asks for the reserved restart.
 
-Turning the switch off removes the Funnel of the product port, clears the
+Turning the switch off removes both Funnel ports of Pagis, clears the
 three settings, and asks for the restart. `config.toml` records Remote
 Access as `[remote_access] enabled`, and `PAGIS_REMOTE_ACCESS` sets it for
 one run.
@@ -136,12 +137,57 @@ installation dispatches.
 ### The live screen reaches another machine through TURN over the Funnel
 
 The Funnel carries TCP alone, and the Media Relay sends the screen over UDP
-(ADR-0014). With Remote Access on, the daemon also runs a TURN server on
-loopback TCP, and the daemon publishes it with Funnel on port 8443, where
-`tailscaled` ends TLS and forwards plain TCP. The ICE servers that a
-browser on another machine gets name `turns:<machine>.<tailnet>.ts.net:8443`
-with a short-lived credential. A browser on this machine, or on the
-tailnet, keeps the direct UDP path, and ICE picks it first.
+(ADR-0014). With Remote Access on, the daemon also runs a TURN server on a
+loopback TCP port, `[screen] remote_access_turn_port` (4402 by default).
+The turn-on publishes it with
+`tailscale funnel --bg --yes --tls-terminated-tcp=8443 tcp://127.0.0.1:<port>`,
+so `tailscaled` ends TLS on port 8443 and forwards plain TCP. The port is
+fixed and never random, because the Funnel configuration names it. The
+TURN server listens on loopback alone, and only while Remote Access is on.
+
+`GET /api/v1/screen/ice` gives a browser that is not on this machine, by
+the test of the sign-in rules, `turns:<machine>.<tailnet>.ts.net:8443?transport=tcp`
+with a credential of its own. A browser on this machine gets no TURN
+server and keeps the direct path. A browser on the tailnet gets the TURN
+server too, and where the Media Relay advertises an address that it
+reaches over UDP, ICE picks that direct pair first.
+
+The browser makes a UDP allocation over its TCP connection (RFC 8656), and
+the server relays its datagrams to the Media Relay. The server relays to
+the Media Relay's advertised address, on a port of its UDP range, and to
+nothing else: it refuses another port of loopback, another address of the
+machine and every address of the internet, so the public port reaches
+nothing else on this machine. Each relay socket binds the Media Relay's
+address, at a port outside its range. A credential follows the TURN REST
+API scheme of the `turn` relay, under a secret that the daemon makes at
+each start and keeps in memory, out of `config.toml`. A credential lives
+twelve hours, because a browser signs each Refresh of its allocation with
+it.
+
+The TURN code is the `turn` crate of webrtc-rs (MIT or Apache-2.0), on its
+maintained 0.17 line: the long-term credential check, allocations,
+permissions and channels, in the tokio runtime of the daemon. The crate
+reads whole messages and has no TCP listener, so Pagis frames each TCP
+connection as RFC 8656 section 12.5 says: a STUN message by its length,
+and a ChannelData message by its length and its padding to four bytes,
+which browsers send over TCP. A connection that closes takes its
+allocation with it. The server holds at most 64 connections, closes a
+connection that makes no allocation in ten seconds, and keeps at most 1024
+nonces, because the crate keeps each nonce that it gives out.
+
+Other ways were considered:
+
+- **turn-rs (`turn-server`).** It is MIT and reads TCP, but it relays only
+  between its own clients: a peer must be an address of the TURN server,
+  so it cannot reach the Media Relay.
+- **turn-server-proto (turn-proto).** It is a sans-IO server for TCP and
+  UDP, but its TCP buffer neither strips nor adds the padding of a
+  ChannelData message, and Pagis would write the whole I/O loop around it.
+- **medea-turn.** It is a fork of the webrtc-rs crate with a TCP
+  transport, and its repository is archived.
+- **coturn beside the daemon.** It relays UDP behind
+  `--tls-terminated-tcp=8443`, but it is a second process for each Local
+  Installation, which the Client App would install and supervise.
 
 ## Consequences
 
@@ -160,6 +206,10 @@ tailnet, keeps the direct UDP path, and ICE picks it first.
   relays, one machine with a 150 Mbit/s upload carried 5 to 12 Mbit/s on
   one connection and about 15 Mbit/s in total on four. The live screen
   needs about 2 Mbit/s for each viewer, so a few people watch at once.
+- The TURN port faces the internet through the Funnel. A client with no
+  credential gets no allocation, and an allocation reaches the Media
+  Relay alone, where a viewer path takes nothing from a sender that does
+  not hold its ICE password.
 - A round trip through a Funnel relay and back to the same machine took
   120 to 265 ms, for TURN and for a WebSocket. A phone pays the path from
   the phone to the relay and from the relay to the home machine.
@@ -168,8 +218,5 @@ tailnet, keeps the direct UDP path, and ICE picks it first.
 
 ## Not built
 
-- The TURN server in the daemon and its Funnel port. Until it runs, a
-  browser on another machine shows "Live screen unavailable" for the live
-  screen of a Computer, unless `[screen] advertise_ip` names an address that
-  it reaches over UDP.
-- The `tailscale` service of `deploy/compose.yaml`.
+- The `tailscale` service of `deploy/compose.yaml`. A Headless Server in
+  Remote Access runs the TURN server, and nothing publishes its port.

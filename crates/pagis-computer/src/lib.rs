@@ -12,6 +12,7 @@ mod image;
 mod manager;
 mod pull_progress;
 pub mod relay;
+pub mod remote_access_turn;
 mod tenants;
 pub mod test_docker;
 
@@ -30,6 +31,7 @@ pub use relay::{
     DaemonRelay, IceCredentials, IceServer, MediaForwarder, MediaPath, MediaRelay, OpenPath,
     REGISTRATION_PREFIX, TurnRelay, TurnServer,
 };
+pub use remote_access_turn::{MediaRelayPeers, RemoteAccessTurn};
 pub use tenants::{AwakeCeiling, ComputerKind, ComputerManagers, ComputerManagersDeps};
 
 use std::path::PathBuf;

@@ -70,7 +70,8 @@ pub use forwarded::TrustedProxy;
 pub use live_connections::LiveConnections;
 pub use openapi::ApiDoc;
 pub use remote_access::{
-    FUNNEL_PROXY, Port443, RemoteAccessSwitch, Tailscale, TailscaleState, serves_this_machine_only,
+    FUNNEL_PROXY, FUNNEL_TURN_PORT, FunnelPort, FunnelTargets, RemoteAccessSwitch, Tailscale,
+    TailscaleState, serves_this_machine_only,
 };
 pub use ring::{EventRing, RingConfig, RingedBus};
 pub use routes::{
@@ -274,6 +275,10 @@ pub struct AppState {
     /// The Remote Access switch of a local installation, over the
     /// Tailscale of this machine.
     pub remote_access_switch: RemoteAccessSwitch,
+    /// The TURN server of Remote Access, which carries the live screen to
+    /// a browser on another machine over the Funnel (ADR-0028). `Some`
+    /// while the daemon runs in Remote Access, and `None` otherwise.
+    pub remote_access_turn: Option<Arc<pagis_computer::RemoteAccessTurn>>,
     /// Where a browser reaches the Administration Interface. The
     /// product answers it to an Administrator, so the page can link to
     /// the port it draws no installation setting of its own for. The

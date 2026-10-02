@@ -1,0 +1,19 @@
+{
+  "TCP": {
+    "8443": {
+      "HTTPS": true
+    }
+  },
+  "Web": {
+    "owner-mac.tail1234.ts.net:8443": {
+      "Handlers": {
+        "/": {
+          "Proxy": "http://127.0.0.1:8080"
+        }
+      }
+    }
+  },
+  "AllowFunnel": {
+    "owner-mac.tail1234.ts.net:8443": true
+  }
+}

@@ -292,6 +292,11 @@ pub struct TestDaemon {
     pub administration_addr: SocketAddr,
     /// Where a test reaches the administration port.
     pub administration_base_url: String,
+    /// The loopback address of the TURN server of Remote Access
+    /// (ADR-0028), on an ephemeral port. It serves while the daemon runs
+    /// in Remote Access; otherwise its port is only the one that the
+    /// switch names to Tailscale.
+    pub remote_access_turn_addr: SocketAddr,
     /// The origin a browser reaches this daemon at. It is
     /// [`TestDaemon::base_url`] unless the test named one.
     pub public_origin: String,
@@ -471,6 +476,15 @@ impl TestDaemon {
                     )
                 });
         let administration_addr = administration_listener.local_addr().expect("local addr");
+        // The TURN server of Remote Access binds loopback whatever the
+        // daemon binds, as the production one does.
+        let remote_access_turn_listener =
+            tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+                .await
+                .expect("bind an ephemeral TURN port");
+        let remote_access_turn_addr = remote_access_turn_listener
+            .local_addr()
+            .expect("local addr");
         let live_calls = Arc::new(pagis_telephony::LiveCalls::default());
         let live_tiers = Arc::new(pagis_telephony::LiveTiers::default());
         let interfaces = pagis::app(
@@ -487,6 +501,10 @@ impl TestDaemon {
                 },
                 remote_access: options.remote_access,
                 tailscale: options.tailscale,
+                remote_access_turn_port: remote_access_turn_addr.port(),
+                remote_access_turn_listener: options
+                    .remote_access
+                    .then_some(remote_access_turn_listener),
                 ring: options.ring,
                 brain: Some(options.brain),
                 agents: options.agents,
@@ -626,6 +644,7 @@ impl TestDaemon {
             base_url: format!("http://{addr}"),
             administration_addr,
             administration_base_url: format!("http://{administration_addr}"),
+            remote_access_turn_addr,
             public_origin,
             dm_channel_id,
             agent_id,

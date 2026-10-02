@@ -1,0 +1,24 @@
+{
+  "TCP": {
+    "443": {
+      "HTTPS": true
+    },
+    "8443": {
+      "TCPForward": "127.0.0.1:4402",
+      "TerminateTLS": "owner-mac.tail1234.ts.net"
+    }
+  },
+  "Web": {
+    "owner-mac.tail1234.ts.net:443": {
+      "Handlers": {
+        "/": {
+          "Proxy": "http://127.0.0.1:4400"
+        }
+      }
+    }
+  },
+  "AllowFunnel": {
+    "owner-mac.tail1234.ts.net:443": true,
+    "owner-mac.tail1234.ts.net:8443": true
+  }
+}
