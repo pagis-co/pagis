@@ -102,6 +102,7 @@ async fn person(daemon: &TestDaemon, email: &str, password: &str) -> User {
             onboarded_at: Some(now),
             chief_of_staff_agent_id: None,
             report_schedule_id: None,
+            home_exit_host_id: None,
         })
         .await
         .expect("create the workspace");

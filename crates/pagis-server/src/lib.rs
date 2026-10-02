@@ -12,6 +12,7 @@ mod client_name;
 mod cors;
 mod cross_origin;
 pub mod error;
+mod exit_socket;
 pub mod forget;
 pub mod forwarded;
 mod grants;
@@ -126,6 +127,10 @@ pub struct AppState {
     /// registers one while it holds the client's socket, and the reads
     /// that show presence ask it.
     pub host_presence: Arc<pagis_broker::HostPresence>,
+    /// The exit sockets of the Hosts, which carry the connections of
+    /// their Person's Computers as the Home Exit (ADR-0029). The exit
+    /// listener opens a stream on them.
+    pub home_exits: Arc<pagis_computer::HomeExits>,
     /// The installed Capability Manifests are the authority for
     /// Connection capability names.
     pub broker: Arc<pagis_broker::Broker>,
@@ -738,6 +743,7 @@ fn product_router(state: Arc<AppState>) -> Router {
         // `routers` puts around the product router refuses an upgrade
         // that a page at another origin starts.
         .route("/api/v1/ws", get(ws::upgrade))
+        .route("/api/v1/hosts/{host_id}/exit", get(exit_socket::upgrade))
         .route("/api/v1/channels/{channel_id}/dictate", get(voice::dictate))
         // Listen-Live (ADR-0020).
         .route("/api/v1/calls/{call_id}/listen", get(calls::listen))

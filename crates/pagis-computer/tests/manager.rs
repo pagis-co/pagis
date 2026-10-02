@@ -138,6 +138,31 @@ fn harness_with_relay(
     caps: AwakeCaps,
     relay: Arc<dyn pagis_computer::MediaRelay>,
 ) -> Harness {
+    harness_of(runtime, idle_stop, caps, relay, None)
+}
+
+/// The exit listener of the Server harness, as a Computer reaches it.
+const EXIT_DAEMON: &str = "host.docker.internal:4403";
+
+/// The harness of a Server: its Computers reach the exit listener of
+/// the daemon at [`EXIT_DAEMON`] (ADR-0029).
+fn server_harness() -> Harness {
+    harness_of(
+        FakeComputerRuntime::with_image(),
+        Duration::from_secs(600),
+        AwakeCaps::default(),
+        pagis_computer::fake::loopback_relay(),
+        Some(EXIT_DAEMON.to_string()),
+    )
+}
+
+fn harness_of(
+    runtime: FakeComputerRuntime,
+    idle_stop: Duration,
+    caps: AwakeCaps,
+    relay: Arc<dyn pagis_computer::MediaRelay>,
+    exit_daemon: Option<String>,
+) -> Harness {
     let runtime = Arc::new(runtime);
     let bus = Arc::new(RecordingBus::default());
     let skills = Arc::new(FakeSkills::default());
@@ -157,6 +182,7 @@ fn harness_with_relay(
         idle_stop,
         relay,
         ceiling: Arc::clone(&ceiling),
+        exit_daemon,
     });
     Harness {
         manager,
@@ -633,6 +659,7 @@ async fn a_stop_for_good_stops_the_computers_of_every_tenant() {
         relay: pagis_computer::fake::loopback_relay(),
         caps: AwakeCaps::default(),
         cancel: tokio_util::sync::CancellationToken::new(),
+        exit_daemon: None,
     });
     let (agent_a, agent_b) = (AgentId::generate(), AgentId::generate());
     for (tenant, agent) in [(&tenant_a, &agent_a), (&tenant_b, &agent_b)] {
@@ -1494,6 +1521,119 @@ async fn every_computer_boots_with_the_exit_proxy_in_its_environment() {
     }
 }
 
+/// The exit entries of one start environment.
+fn exit_entries(env: &[String]) -> Vec<String> {
+    env.iter()
+        .filter(|entry| entry.starts_with("PAGIS_EXIT_"))
+        .cloned()
+        .collect()
+}
+
+/// On a Server an Agent's Computer names the exit listener of the
+/// daemon, and its Exit Proxy starts in the mode of its Person's choice
+/// (ADR-0029): `home` while the Person has a Home Exit, `direct` while
+/// they have none. The choice of the store reaches the next wake.
+#[tokio::test]
+async fn an_agent_computer_on_a_server_starts_in_the_mode_of_its_persons_choice() {
+    let h = server_harness();
+
+    h.manager.wake(&h.agent_id).await.expect("wake");
+    wait_awake(&h).await;
+    let env = h.runtime.start_envs().pop().expect("one start");
+    assert_eq!(
+        exit_entries(&env),
+        [
+            format!("PAGIS_EXIT_DAEMON={EXIT_DAEMON}"),
+            "PAGIS_EXIT_MODE=direct".to_string(),
+        ]
+    );
+    h.manager.sleep(&h.agent_id).await.expect("sleep");
+
+    h.workspaces
+        .set_home_exit(&h.workspace_id, Some(&pagis_core::HostId::generate()))
+        .await
+        .expect("the Home Exit is written");
+    let second = AgentId::generate();
+    for agent_id in [&h.agent_id, &second] {
+        h.manager.wake(agent_id).await.expect("wake");
+        wait_awake_of(&h, agent_id).await;
+        let env = h.runtime.start_envs().pop().expect("a start");
+        assert_eq!(
+            exit_entries(&env),
+            [
+                format!("PAGIS_EXIT_DAEMON={EXIT_DAEMON}"),
+                "PAGIS_EXIT_MODE=home".to_string(),
+            ]
+        );
+    }
+}
+
+/// The Plugin Computer serves the Plugins of the Workspace, which call
+/// APIs and not sites that score addresses, so it stays in `Direct` mode
+/// with no exit listener, whatever the Person chose. A Computer of a
+/// Local Installation leaves from the owner's own connection, so it has
+/// no exit listener either.
+#[tokio::test]
+async fn the_plugin_computer_and_a_local_installation_start_direct_with_no_listener() {
+    let server = server_harness();
+    server
+        .workspaces
+        .set_home_exit(&server.workspace_id, Some(&pagis_core::HostId::generate()))
+        .await
+        .expect("the Home Exit is written");
+    server
+        .manager
+        .ensure_plugin_computer(Vec::new())
+        .await
+        .expect("the plugin computer wakes");
+    let env = server.runtime.start_envs().pop().expect("one start");
+    assert_eq!(exit_entries(&env), Vec::<String>::new());
+
+    let local = harness_with(FakeComputerRuntime::with_image(), Duration::from_secs(600));
+    local
+        .workspaces
+        .set_home_exit(&local.workspace_id, Some(&pagis_core::HostId::generate()))
+        .await
+        .expect("the Home Exit is written");
+    local.manager.wake(&local.agent_id).await.expect("wake");
+    wait_awake(&local).await;
+    let env = local.runtime.start_envs().pop().expect("one start");
+    assert_eq!(exit_entries(&env), Vec::<String>::new());
+}
+
+/// The exit listener knows a Computer by its token: the token of an
+/// awake Agent's Computer names that Computer, and the token of the
+/// Plugin Computer, of a Computer that sleeps, and of nobody, name
+/// nothing.
+#[tokio::test]
+async fn a_token_names_the_awake_agent_computer_that_holds_it() {
+    use pagis_computer::ComputerTokens;
+
+    let h = server_harness();
+    h.manager.wake(&h.agent_id).await.expect("wake");
+    wait_awake(&h).await;
+    let plugin = h
+        .manager
+        .ensure_plugin_computer(Vec::new())
+        .await
+        .expect("the plugin computer wakes");
+    let token = format!("fake-token-{}", h.agent_id);
+
+    assert_eq!(
+        h.manager.computer_of(&token),
+        Some(pagis_computer::ComputerOwner::new(
+            h.workspace_id.clone(),
+            h.agent_id.clone()
+        ))
+    );
+    assert_eq!(h.manager.computer_of(&plugin.token), None);
+    assert_eq!(h.manager.computer_of("fake-token-nobody"), None);
+    assert_eq!(h.manager.computer_of(""), None);
+
+    h.manager.sleep(&h.agent_id).await.expect("sleep");
+    assert_eq!(h.manager.computer_of(&token), None);
+}
+
 #[tokio::test]
 async fn a_new_workspace_timezone_reaches_the_next_wake() {
     let h = harness_with(FakeComputerRuntime::with_image(), Duration::from_millis(20));
@@ -1993,6 +2133,7 @@ fn tenant_manager(
         idle_stop: Duration::from_secs(600),
         relay: pagis_computer::fake::loopback_relay(),
         ceiling: Arc::clone(ceiling),
+        exit_daemon: None,
     })
 }
 
@@ -2030,6 +2171,7 @@ fn daemon_managers(
         relay: pagis_computer::fake::loopback_relay(),
         caps,
         cancel: CancellationToken::new(),
+        exit_daemon: None,
     })
 }
 

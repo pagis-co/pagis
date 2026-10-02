@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use pagis_core::{
-    AgentId, ScheduleId, StoreError, UnixMillis, UserId, Workspace, WorkspaceId, WorkspaceStore,
+    AgentId, HostId, ScheduleId, StoreError, UnixMillis, UserId, Workspace, WorkspaceId,
+    WorkspaceStore,
 };
 use sqlx::{Row, SqlitePool};
 
@@ -31,18 +32,21 @@ fn row_to_workspace(row: &sqlx::sqlite::SqliteRow) -> Workspace {
         report_schedule_id: row
             .get::<Option<String>, _>("report_schedule_id")
             .map(ScheduleId::from),
+        home_exit_host_id: row
+            .get::<Option<String>, _>("home_exit_host_id")
+            .map(HostId::from),
     }
 }
 
 /// The columns [`row_to_workspace`] reads, in one place.
 const COLUMNS: &str = "id, user_id, name, timezone, created_at, onboarded_at, \
-     chief_of_staff_agent_id, report_schedule_id";
+     chief_of_staff_agent_id, report_schedule_id, home_exit_host_id";
 
 #[async_trait]
 impl WorkspaceStore for SqliteWorkspaceStore {
     async fn create(&self, workspace: &Workspace) -> Result<(), StoreError> {
         sqlx::query(&format!(
-            "INSERT INTO workspaces ({COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+            "INSERT INTO workspaces ({COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
         ))
         .bind(workspace.id.as_str())
         .bind(workspace.user_id.as_str())
@@ -62,6 +66,7 @@ impl WorkspaceStore for SqliteWorkspaceStore {
                 .as_ref()
                 .map(ScheduleId::as_str),
         )
+        .bind(workspace.home_exit_host_id.as_ref().map(HostId::as_str))
         .execute(&self.pool)
         .await
         .map_err(db_err)?;
@@ -146,5 +151,26 @@ impl WorkspaceStore for SqliteWorkspaceStore {
             .await
             .map_err(db_err)?;
         Ok(())
+    }
+
+    async fn set_home_exit(
+        &self,
+        id: &WorkspaceId,
+        host_id: Option<&HostId>,
+    ) -> Result<bool, StoreError> {
+        // The Host must be of this Workspace, in the same statement as
+        // the write, so no Person's Home Exit is another Person's machine.
+        let updated = sqlx::query(
+            "UPDATE workspaces SET home_exit_host_id = ?1 \
+             WHERE id = ?2 AND user_id IS NOT NULL \
+             AND (?1 IS NULL OR EXISTS \
+             (SELECT 1 FROM hosts WHERE hosts.id = ?1 AND hosts.workspace_id = ?2))",
+        )
+        .bind(host_id.map(HostId::as_str))
+        .bind(id.as_str())
+        .execute(&self.pool)
+        .await
+        .map_err(db_err)?;
+        Ok(updated.rows_affected() == 1)
     }
 }

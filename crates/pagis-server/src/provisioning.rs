@@ -152,6 +152,7 @@ impl WorkspaceSeed<'_> {
             // exists (ADR-0022).
             chief_of_staff_agent_id: None,
             report_schedule_id: None,
+            home_exit_host_id: None,
         };
         self.workspaces.create(&workspace).await?;
 

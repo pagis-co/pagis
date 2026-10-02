@@ -17,8 +17,10 @@
 
 import type { CookieReader } from './clientSession'
 import { exchangeClientCredential, reusableSession } from './clientSession'
+import type { Dial, ExitSocket } from './exit'
+import { ExitLink, openExitSocket } from './exit'
 import type { CommandRunner, HostSocket } from './host'
-import { HostLink, openWebSocket } from './host'
+import { EXIT_CAPABILITY, HostLink, openWebSocket, SHELL_CAPABILITY } from './host'
 
 export interface HostLinkDeps {
   /** The origin of the server this client is the Host for. */
@@ -28,12 +30,27 @@ export interface HostLinkDeps {
   /** The Client Credential of a local installation, or `null` on a server
    *  this client did not start. */
   credential: () => string | null
+  /** What the machine declares. The default is the shell alone. A machine
+   *  that declares the exit also opens the exit socket. */
+  capabilities?: readonly string[]
   /** How the socket opens. The default is the real WebSocket. */
   open?: (url: string, secret: string) => Promise<HostSocket>
+  /** How the exit socket opens. The default is the real WebSocket. */
+  openExit?: (url: string, secret: string, hostId: string) => Promise<ExitSocket>
   /** How a dispatched command runs. The default is the real shell. */
   run?: CommandRunner
+  /** How the exit dials a connection. The default is the dial of the Home Exit. */
+  dial?: Dial
   retryMs?: number
   request?: typeof fetch
+}
+
+/** The links of this machine to one server: the Host socket, and the exit
+ *  socket of a machine that declares the exit. The client starts and
+ *  stops them together. */
+export interface HostLinks {
+  start(): void
+  stop(): void
 }
 
 /**
@@ -63,16 +80,21 @@ export async function hostSession(deps: HostLinkDeps): Promise<string> {
  * ask the server about it again. On a server it waits for the Person to
  * sign in again; on a local installation it trades the Client Credential
  * for a new Session.
+ *
+ * The exit socket opens once the Host socket registered, with the id of
+ * that registration and the Session of that socket. A Session that ended
+ * on either socket is used again by neither.
  */
-export function hostLinkFor(deps: HostLinkDeps): HostLink {
+export function hostLinkFor(deps: HostLinkDeps): HostLinks {
   const open = deps.open ?? ((url, secret) => openWebSocket(url, secret))
+  const capabilities = deps.capabilities ?? [SHELL_CAPABILITY]
   let current: string | null = null
   let ended: string | null = null
   const jar: CookieReader = {
     get: async (filter) =>
       (await deps.jar.get(filter)).filter((cookie) => cookie.value !== ended),
   }
-  return new HostLink(
+  const host = new HostLink(
     async () => {
       current = await hostSession({ ...deps, jar })
       return open(deps.url, current)
@@ -82,5 +104,35 @@ export function hostLinkFor(deps: HostLinkDeps): HostLink {
     () => {
       ended = current
     },
+    capabilities,
   )
+  if (!capabilities.includes(EXIT_CAPABILITY)) return host
+
+  const openExit = deps.openExit ?? ((url, secret, hostId) => openExitSocket(url, secret, hostId))
+  let exitSession: string | null = null
+  const exit = new ExitLink(
+    async () => {
+      const hostId = host.registeredId()
+      if (hostId === null || current === null || current === ended) {
+        throw new Error('the Host socket has not registered')
+      }
+      exitSession = current
+      return openExit(deps.url, exitSession, hostId)
+    },
+    deps.retryMs,
+    deps.dial,
+    () => {
+      ended = exitSession
+    },
+  )
+  return {
+    start: () => {
+      host.start()
+      exit.start()
+    },
+    stop: () => {
+      host.stop()
+      exit.stop()
+    },
+  }
 }

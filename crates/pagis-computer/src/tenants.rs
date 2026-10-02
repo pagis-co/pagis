@@ -174,6 +174,9 @@ pub struct ComputerManagersDeps {
     pub caps: AwakeCaps,
     /// The token that stops each manager's idle sweeper at shutdown.
     pub cancel: CancellationToken,
+    /// The exit listener of the daemon as a Computer reaches it, on a
+    /// Server alone (ADR-0029).
+    pub exit_daemon: Option<String>,
 }
 
 /// The Computer managers of the daemon, one per tenant.
@@ -215,6 +218,7 @@ impl ComputerManagers {
             idle_stop: self.deps.idle_stop,
             relay: Arc::clone(&self.deps.relay),
             ceiling: Arc::clone(&self.ceiling),
+            exit_daemon: self.deps.exit_daemon.clone(),
         });
         manager.spawn_sweeper(self.deps.cancel.clone());
         managers.insert(workspace_id.clone(), Arc::clone(&manager));
@@ -289,5 +293,22 @@ impl ComputerManagers {
     /// the tenant.
     pub fn ice_servers(&self) -> Vec<crate::IceServer> {
         self.deps.relay.ice_servers()
+    }
+}
+
+/// The exit listener asks every tenant's manager: a token names one
+/// Computer of the whole server.
+impl crate::ComputerTokens for ComputerManagers {
+    fn computer_of(&self, token: &str) -> Option<crate::ComputerOwner> {
+        let managers: Vec<Arc<ComputerManager>> = self
+            .managers
+            .lock()
+            .expect("the computer manager lock")
+            .values()
+            .cloned()
+            .collect();
+        managers
+            .iter()
+            .find_map(|manager| crate::ComputerTokens::computer_of(manager.as_ref(), token))
     }
 }

@@ -64,26 +64,91 @@ the connections that the proxy holds, and `POST /exit` sets the mode:
   the name in order, and answers 403 when no other address is left. The
   private address of another machine passes, and the egress rules hold
   it.
-- **Home.** The proxy sends each connection to the daemon, which carries it
-  through the Person's Home Exit when that Host is present, and from the
-  server when it is absent. The proxy authenticates to the daemon with the
-  Computer's own token, so the daemon knows the Computer and its Person.
+- **Home.** The proxy sends each connection to the exit listener of the
+  daemon, which carries it through the Person's Home Exit when that Host
+  is present, and from the server when it is absent. For each connection
+  the proxy sends one `CONNECT host:port` with
+  `Proxy-Authorization: Bearer <token>`, where the token is the
+  Computer's control token, so the daemon knows the Computer and its
+  Person. On a 200 the dial gives the stream to the tunnel or the
+  forward that asked for it, and every other answer is a 403 or a 502 of
+  the proxy. Every name goes to the daemon, so the name resolves where
+  the connection leaves. A literal private address (RFC 1918, a unique
+  local IPv6 address or carrier-grade NAT) still leaves from the
+  Computer: it is on the server's network and never at the Person's
+  home, so the egress rules and `PAGIS_COMPUTER_ALLOW` hold it. The
+  refusal of this Computer, loopback and link-local applies to a literal
+  first, as in Direct mode.
 
 At each switch the Exit Proxy closes the connections it holds, also when
 the mode stays the same, so Chromium opens new ones on the new path at
 once, and no page keeps one address for some requests and another for the
-rest. In Home mode the proxy also writes Chromium's managed policy with
-`WebRtcIPHandling` set to `disable_non_proxied_udp`, and Direct mode
-removes it. Chromium watches its policy directory and applies that policy
-with no restart. `QuicAllowed` takes effect only at a start, so it is
-false in every mode.
+rest. Each mode writes Chromium's managed policy file
+`/etc/chromium/policies/managed/pagis-exit.json`: Home mode sets
+`WebRtcIPHandling` to `disable_non_proxied_udp` in it, and Direct mode
+writes `{}`. The image makes the file with `{}`, owned by `screen` with
+mode 644, and the directory stays root's: screend rewrites the contents
+of that one file and never makes or removes a file there, so no other
+policy enters the directory. Chromium watches its policy directory and
+applies the change a few seconds later with no restart. `QuicAllowed`
+takes effect only at a start, so it is false in every mode.
+
+A Computer takes its first mode at its wake. The daemon names the exit
+listener and the first mode in `PAGIS_EXIT_DAEMON` and `PAGIS_EXIT_MODE`
+of the container, and screend starts the proxy in that mode and writes
+its policy file before the browser starts. An Agent's Computer on a
+Server starts in Home mode when its Person has chosen a Home Exit, and in
+Direct mode otherwise. A Computer of a Local Installation names no exit
+listener and runs in Direct mode alone, and the daemon of a Local
+Installation opens no exit listener: its Computers already leave from the
+owner's connection. The Plugin Computer names no exit listener either and
+stays in Direct mode: it serves the Plugins of the Workspace, which call
+APIs and not sites that score addresses.
 
 A `CONNECT` and an absolute-form request carry the host name, so the name
 resolves where the connection leaves, and the site sees one address for
 the name and the connection. A tool that ignores the proxy leaves from the
 server, which is the address that Home mode also uses when the Home Exit
-is absent. The daemon refuses the private and link-local destinations
-that the egress rules refuse.
+is absent.
+
+### The exit listener carries each connection of Home mode
+
+The **exit listener** of the daemon takes the `CONNECT` of each Computer
+in Home mode, on a Server alone, on TCP port 4403 by default
+(`[computer] exit_port`, `PAGIS_COMPUTER_EXIT_PORT`). It reads one head of
+at most 8 KiB within 10 seconds, and the token check is the first thing
+that it does with it: a token of no awake Agent's Computer gets 407 and
+the connection closes. The token names the Computer, and with it the
+Agent and the Workspace of its Person. Then:
+
+- A destination that is an address and not a public unicast address
+  gets 403: loopback, private, link-local, carrier-grade NAT, multicast,
+  unspecified, broadcast, reserved and the documentation ranges.
+- When the Person's Home Exit is present, the listener opens one stream
+  to it, and answers 200, 403 for a destination that the Home Exit
+  refused, or 502.
+- When it is absent, the listener resolves the name on the server,
+  refuses every address that is not public unicast with 403, dials from
+  the server to the first address that takes the connection, and answers
+  200 or 502.
+
+After a 200 the listener copies the bytes both ways until either side
+closes. It counts the bytes that each Person's Home Exit carries, in
+memory.
+
+The listener binds every interface of the server. The Computers reach it
+at `host.docker.internal`, which Docker maps to an address of its own
+choice on the Docker host, so no one bind address fits every Docker host.
+The egress rules of the deployment close the port to everything but the
+Computers: a rule of the `INPUT` chain drops the TCP of the port on every
+interface but the Computers' bridges, so the network, the other
+containers and the server itself reach it no more than they reach a
+closed port. The token check stands in for a narrower bind among the
+Computers: the token is 256 random bits that the agent's shell cannot
+read. One source address holds at most 256 connections at once, eight
+times the 32 that Chromium holds to one proxy, so a shell of an Agent,
+which reaches the port with no token, cannot take the open files that
+serve every Workspace.
 
 ### The Home Exit is one Host of the Person, chosen by that Person
 
@@ -95,16 +160,58 @@ through another Person's machine. An Administrator can turn the Home Exit
 off for the whole installation with a System Setting, and can never turn it
 on for a Person.
 
-The Client App opens a second authenticated WebSocket for exit traffic, so
-bulk bytes never wait in front of a `host_shell` dispatch. Each `CONNECT`
-is one stream on it, multiplexed with yamux. For each stream, the Client
-App resolves the name, refuses a loopback, private, link-local,
-carrier-grade NAT or multicast address after the lookup, dials, and copies
-the bytes both ways. The check after the lookup stops a name that resolves
-to the home network.
+The Workspace holds the choice: one Host of that Workspace, or none. The
+store writes a Host of the same Workspace alone, in the one statement of
+the write. The daemon checks it again when it opens a stream: an exit
+socket carries the connections of the Workspace whose Session opened it,
+and of no other, whatever the record names.
+
+A Client App that is connected to an installation that it did not start
+declares `exit` beside `shell`. A Client App of a Local Installation does
+not. After its Host socket registered the machine, the Client App opens
+the exit socket, a second WebSocket at `/api/v1/hosts/{host_id}/exit`,
+with the same Session cookie and the same trusted-origin rule as the Host
+socket, so bulk bytes never wait in front of a `host_shell` dispatch. The
+daemon refuses the socket of a Host of another Workspace, and of a Host
+that declared no `exit`. The Host is present as a Home Exit while this
+socket lives. The socket reconnects as the Host socket does, and it closes
+with 1008 at the end of its Session.
+
+Binary frames carry one byte stream, and yamux runs over it. The daemon
+opens one stream for each connection and the Client App accepts it. The
+daemon runs the `yamux` crate of libp2p. The Client App runs a module of
+its own with the accepting side of the yamux specification: the Node
+yamux of libp2p needs a libp2p connection and about thirty packages, and
+the other Node yamux loses bytes across chunk boundaries and has no
+receive backpressure. A test runs the two against each other over the
+real WebSocket. Each stream starts with one line each way:
+
+1. The daemon writes the preamble: the destination as `host:port` and a
+   line feed, at most 262 bytes. The host is a DNS name, an IPv4
+   address, or an IPv6 address in brackets, as in the target of a
+   `CONNECT`.
+2. The Client App answers with one status line before any other byte:
+   `ok`, `refused <reason>` or `failed <reason>`, at most 512 bytes.
+   `refused` means that every address of the destination failed the
+   address check, and `failed` means a malformed preamble, a name that
+   does not resolve, or a connection that failed.
+3. After `ok` the stream carries the raw bytes of the connection both
+   ways, and a half-close of one side is a half-close of the other.
+
+For each stream, the Client App resolves the name and refuses, after
+the lookup, each loopback, private, link-local, carrier-grade NAT,
+multicast, unspecified or broadcast address, IPv4-mapped and NAT64 forms
+included, each address of its own machine, and each address in the
+subnet of one of its interfaces, in both families. A home network can
+have public addresses: most have global IPv6 addresses, and some
+machines have a public IPv4 address, so the fixed ranges alone do not
+hold it. The Client App reads its interfaces at each dial, because they
+change as a laptop moves. It dials the first address that passes. The
+check after the lookup stops a name that resolves to the home network.
 
 When the Home Exit is absent, a new connection leaves from the server, and
-the connections that it carried close. The Computer's view and the Agent's
+the connections that it carried close: the end of the exit socket ends
+every stream on it. The Computer's view and the Agent's
 `computer` tool result say which exit is in use, such as "exit: MacBook
 Pro" or "exit: server". A sudden change of address is a signal that
 sites read, so the Person sees each change.
@@ -172,15 +279,31 @@ Other ways were considered:
   is the image's. They match a Home Exit in the Person's own country only
   where that language is the country's.
 - A laptop that travels moves the address with it.
+- Through a Home Exit a name resolves at the Person's home, so an
+  internal name of the server's network, such as one that
+  `PAGIS_COMPUTER_ALLOW` opens, does not resolve there. A Computer in Home
+  mode reaches such a destination by its address, which leaves from the
+  Computer.
+- A Computer takes the Person's choice at its wake, so a Computer that
+  is awake when the choice changes keeps its mode until its next wake.
+- In Home mode every connection of a Computer but a literal private one
+  passes through the daemon, so a new connection fails while the daemon
+  restarts, and the connections that it carried close with it.
+- The exit listener is a port of the server on every interface. On a
+  server that the deployment's egress rules do not hold, the firewall of
+  the server keeps it closed to the network.
+- The Client App's check holds the subnets of its interfaces, and not a
+  home network that it reaches through a router only, such as a second
+  subnet behind the same router.
 
 ## Not built
 
-Home mode is not built. Every Computer runs its Exit Proxy in Direct mode,
-and nothing in the daemon switches it. The parts:
-
-- Home mode of the Exit Proxy, its `WebRtcIPHandling` policy, the daemon's
-  side of Home mode, and the egress rule that lets a Computer reach it.
-- The `exit` capability, the exit WebSocket and its streams, and the
-  address check in the Client App.
-- The Home Exit setting, its System Setting, the exit in use in the
-  Computer's view and in the tool result, and the tray count.
+- The Settings route and card where a Person chooses their Home Exit.
+  The Workspace holds the choice, and nothing in the product writes it
+  yet.
+- The System Setting that turns the Home Exit off for the installation.
+- The switch of every Computer of a Person, with no restart, when the
+  choice changes.
+- The exit in use in the Computer's view and in the tool result, the
+  tray count of the Client App, and the documentation of the Home Exit
+  for People and for Administrators.

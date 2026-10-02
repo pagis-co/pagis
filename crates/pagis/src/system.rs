@@ -115,9 +115,32 @@ pub fn taken_turn_port_message(port: u16) -> String {
     )
 }
 
+/// The same failure for the exit listener of a Server (ADR-0029). The
+/// egress rules of the deployment name its port too, so a move changes
+/// both.
+pub fn taken_exit_port_message(port: u16) -> String {
+    format!(
+        "the exit port {port} of the Computers is already in use. Stop the process that holds \
+         it, or name another port in `[computer] exit_port` of config.toml (or \
+         PAGIS_COMPUTER_EXIT_PORT), and the same port in PAGIS_EXIT_PORT of the egress rules."
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The exit port is a setting of its own, and the egress rules name
+    /// it, so its message names both.
+    #[test]
+    fn the_exit_port_message_names_its_setting_and_the_egress_rules() {
+        let message = taken_exit_port_message(4403);
+
+        assert!(message.contains("exit port 4403"));
+        assert!(message.contains("[computer] exit_port"));
+        assert!(message.contains("PAGIS_EXIT_PORT"));
+        assert!(!message.contains("--port"));
+    }
 
     #[test]
     fn the_taken_port_message_names_the_port_and_the_flag() {

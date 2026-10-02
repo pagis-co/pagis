@@ -17,7 +17,7 @@ use crate::domain::{
 use crate::event::{Event, NewEvent};
 use crate::id::{
     AgentId, AgentMailboxId, ArtifactId, CallId, ChannelId, ConnectionId, ContributionId, EventId,
-    EventSubscriptionId, GrantId, IncomingEventId, MessageId, PhoneNumberId, PluginId,
+    EventSubscriptionId, GrantId, HostId, IncomingEventId, MessageId, PhoneNumberId, PluginId,
     PurchaseIntentId, RequestId, RunId, ScheduleId, ScheduleOccurrenceId, SoftwarePackageId,
     TextRecordId, UserId, WakeupId, WorkspaceId,
 };
@@ -145,6 +145,15 @@ pub trait WorkspaceStore: Send + Sync {
         id: &WorkspaceId,
         schedule_id: Option<&ScheduleId>,
     ) -> Result<(), StoreError>;
+    /// Name one Host of this Workspace as the Person's Home Exit, or
+    /// clear it (ADR-0029). A Host of another Workspace is never the
+    /// Home Exit of this one: the write then changes nothing and answers
+    /// `false`, as it does for a Host or a Workspace that does not exist.
+    async fn set_home_exit(
+        &self,
+        id: &WorkspaceId,
+        host_id: Option<&HostId>,
+    ) -> Result<bool, StoreError>;
 }
 
 #[async_trait]

@@ -4,9 +4,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::block::Block;
 use crate::id::{
-    AgentId, ArtifactId, ChannelId, ConnectionId, EventSubscriptionId, GrantId, IncomingEventId,
-    MessageId, ParticipantId, RequestId, RunId, ScheduleId, ScheduleOccurrenceId, SourceBatchId,
-    UserId, WakeupId, WorkspaceId,
+    AgentId, ArtifactId, ChannelId, ConnectionId, EventSubscriptionId, GrantId, HostId,
+    IncomingEventId, MessageId, ParticipantId, RequestId, RunId, ScheduleId, ScheduleOccurrenceId,
+    SourceBatchId, UserId, WakeupId, WorkspaceId,
 };
 use crate::time::UnixMillis;
 
@@ -31,6 +31,10 @@ pub struct Workspace {
     /// The Schedule that makes the Chief of Staff write the Report for
     /// Home (ADR-0022). The seed creates it; Home runs it on demand.
     pub report_schedule_id: Option<ScheduleId>,
+    /// The Person's Home Exit (ADR-0029): the one Host of this Workspace
+    /// through which the Person's Computers on a Server reach the
+    /// internet, or `None` when the Person has chosen none.
+    pub home_exit_host_id: Option<HostId>,
 }
 
 /// The model alias every seeded Agent thinks on. The seed creates it,

@@ -3564,6 +3564,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "nohash-hasher"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2bf50223579dc7cdcfb3bfcacf7069ff68243f8c363f62ffa99cf000a6b9c451"
+
+[[package]]
 name = "nom"
 version = "7.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4030,6 +4036,7 @@ dependencies = [
  "hex",
  "jsonschema",
  "pagis-audit",
+ "pagis-computer",
  "pagis-core",
  "pagis-storage-sqlite",
  "psl",
@@ -4055,6 +4062,7 @@ dependencies = [
  "futures",
  "hex",
  "hmac 0.12.1",
+ "httparse",
  "image",
  "nix 0.31.3",
  "pagis-audit",
@@ -4076,6 +4084,7 @@ dependencies = [
  "tracing-subscriber",
  "turn",
  "webrtc-util",
+ "yamux",
 ]
 
 [[package]]
@@ -7924,6 +7933,21 @@ dependencies = [
  "sha2 0.10.9",
  "tempfile",
  "toml",
+]
+
+[[package]]
+name = "yamux"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4f4e661d6ba6f09a768e31c6f3d88f9fac596ad5d376515d598a37b62d220b34"
+dependencies = [
+ "futures",
+ "log",
+ "nohash-hasher",
+ "parking_lot",
+ "pin-project",
+ "static_assertions",
+ "web-time",
 ]
 
 [[package]]

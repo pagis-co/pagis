@@ -163,7 +163,7 @@ RUN set -eux; \
     unzip -q /tmp/ubol.zip -d /opt/pagis/ublock-origin-lite
 
 FROM debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a
-LABEL org.pagis.computer.version="0.18.0"
+LABEL org.pagis.computer.version="0.19.0"
 # GHCR reads the OCI source label to link the package to the
 # repository, which is where a reader of the package page goes for the
 # source and the licenses.
@@ -251,6 +251,14 @@ COPY fingerprint /opt/pagis/fingerprint
 # secrets, and anything the browser saved would sit on a volume the
 # agent can otherwise reach.
 COPY chromium-policies /etc/chromium/policies/managed
+# The policy file of the Exit Proxy (ADR-0029). screend runs as `screen`
+# and rewrites its contents at each mode: `WebRtcIPHandling` in Home
+# mode, and `{}` in Direct mode. The directory stays root's, so screend
+# changes this one file and adds no other policy, and the agent uid
+# reads the file and writes nothing there.
+RUN printf '{}\n' > /etc/chromium/policies/managed/pagis-exit.json \
+    && chown screen:screen /etc/chromium/policies/managed/pagis-exit.json \
+    && chmod 0644 /etc/chromium/policies/managed/pagis-exit.json
 # The content blocker, fetched in the `blocker` stage above.
 # browser.sh gives the tree to Chromium as an unpacked extension. It
 # belongs to `screen`, the uid that runs the browser: Chromium indexes
