@@ -284,6 +284,9 @@ async fn wake_preview_idle_stop_and_rewake_preserve_home() {
     // HTTP/3 is off: it runs over UDP, which the Exit Proxy does not
     // carry (ADR-0029).
     assert!(policy.contains("\"QuicAllowed\": false"), "{policy}");
+    // Chromium shows no promotion of its own features, such as the
+    // sign-in promo on the avatar button, in the Agent's screenshots.
+    assert!(policy.contains("\"PromotionsEnabled\": false"), "{policy}");
 
     // Typing runs through screend's virtual keyboard, and a batch is
     // refused unless its declared holder holds the switch.
@@ -1293,6 +1296,47 @@ async fn a_blinking_caret_does_not_hold_a_settled_frame() {
             frames_match(&settled, &frame),
             "frame {sample} of the blinking caret does not match the settled frame"
         );
+    }
+}
+
+/// With no input, the screen of an awake Computer holds still: from the
+/// settled frame when the Computer turns awake to 25 s after, each frame
+/// matches it ([`pagis_computer::exec::frames_match`]). A change that
+/// nothing caused is noise in the screenshots the Agent reads.
+///
+/// Chromium opens a "Sign in to Chromium?" promo on the avatar button
+/// when it starts, and closes the promo 20 s later, about 18 s after the
+/// Computer turns awake. That change is larger than the settle
+/// tolerance. The policy file sets `PromotionsEnabled` to false, which
+/// turns the promo off.
+#[tokio::test]
+#[ignore = "needs Docker; run via cargo test -- --ignored"]
+async fn the_screen_of_an_awake_computer_holds_still_with_no_input() {
+    use pagis_computer::exec::frames_match;
+    let real = Real::new();
+    let (manager, _screens) = real.manager(Duration::from_secs(600));
+    let agent_id = AgentId::generate();
+    manager.wake(&agent_id).await.expect("wake");
+    wait_awake(&manager, &agent_id).await;
+    let awake = tokio::time::Instant::now();
+    let settled = manager
+        .settled_frame(&agent_id)
+        .await
+        .expect("settled frame");
+    while awake.elapsed() < Duration::from_secs(25) {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let frame = manager.live_frame(&agent_id).await.expect("live frame");
+        if !frames_match(&settled, &frame) {
+            let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR"));
+            std::fs::write(dir.join("still-settled.png"), &settled).expect("write");
+            std::fs::write(dir.join("still-changed.png"), &frame).expect("write");
+            panic!(
+                "the screen changed {:?} after the computer turned awake; \
+                 the frames are still-settled.png and still-changed.png in {}",
+                awake.elapsed(),
+                dir.display()
+            );
+        }
     }
 }
 

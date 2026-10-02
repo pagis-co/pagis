@@ -163,7 +163,7 @@ RUN set -eux; \
     unzip -q /tmp/ubol.zip -d /opt/pagis/ublock-origin-lite
 
 FROM debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a
-LABEL org.pagis.computer.version="0.19.0"
+LABEL org.pagis.computer.version="0.20.0"
 # GHCR reads the OCI source label to link the package to the
 # repository, which is where a reader of the package page goes for the
 # source and the licenses.
@@ -250,6 +250,12 @@ COPY fingerprint /opt/pagis/fingerprint
 # Chromium's own password manager is off (ADR-0013): the daemon keeps
 # secrets, and anything the browser saved would sit on a volume the
 # agent can otherwise reach.
+# `PromotionsEnabled` is false, so Chromium shows no promotion of its
+# own features. Without it, a "Sign in to Chromium?" promo opens on the
+# avatar button when the browser starts and closes 20 s later. That
+# change is larger than the settle tolerance (ADR-0014), and it is noise
+# in the screenshots the agent reads. `BrowserSignin` does not stop the
+# promo.
 COPY chromium-policies /etc/chromium/policies/managed
 # The policy file of the Exit Proxy (ADR-0029). screend runs as `screen`
 # and rewrites its contents at each mode: `WebRtcIPHandling` in Home
