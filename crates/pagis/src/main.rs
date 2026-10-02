@@ -201,6 +201,7 @@ async fn run(flags: RunFlags) -> anyhow::Result<i32> {
         %administration_addr,
         %public_origin,
         trusted_proxy = ?proxy.address(),
+        remote_access = booted.config.remote_access.enabled,
         "listening"
     );
     let restart = Arc::new(RestartSwitch::default());

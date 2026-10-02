@@ -88,6 +88,8 @@ const PROXY_HEADERS: &[&str] = &[
     "x-forwarded-host",
     FORWARDED_PROTO,
     "x-real-ip",
+    // The Funnel of Remote Access marks each request from the internet.
+    "tailscale-funnel-request",
 ];
 
 /// Whether a request came from a program on this machine and not
@@ -426,6 +428,10 @@ mod tests {
             headers(&[("host", "127.0.0.1:4400"), ("x-real-ip", "203.0.113.7")]),
             headers(&[("host", "127.0.0.1:4400"), ("forwarded", "for=203.0.113.7")]),
             headers(&[("host", "127.0.0.1:4400"), ("via", "1.1 caddy")]),
+            headers(&[
+                ("host", "127.0.0.1:4400"),
+                ("tailscale-funnel-request", "?1"),
+            ]),
             headers(&[("host", "pagis.example")]),
             headers(&[("host", "pagis.example:443")]),
             headers(&[("host", "10.0.0.5:4400")]),

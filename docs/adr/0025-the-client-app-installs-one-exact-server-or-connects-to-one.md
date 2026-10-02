@@ -65,7 +65,8 @@ request from a program on this machine that did not come through a proxy.
 1. The socket peer is loopback. The daemon reads the socket, never
    `X-Forwarded-For`.
 2. The request carries no proxy header: `Forwarded`, `Via`, `X-Forwarded-For`,
-   `X-Forwarded-Host`, `X-Forwarded-Proto` or `X-Real-IP`.
+   `X-Forwarded-Host`, `X-Forwarded-Proto`, `X-Real-IP` or the
+   `Tailscale-Funnel-Request` of Remote Access (ADR-0028).
 3. The `Host` header names `localhost` or a loopback address.
 
 Any other request gets `403`. A same-machine proxy connects from `127.0.0.1`
