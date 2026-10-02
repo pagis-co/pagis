@@ -1,14 +1,15 @@
 ---
 title: Deploy with Compose
-description: The four services of the Compose deployment, their network, their volumes and the first start.
+description: The services of the Compose deployment, their network, their volumes and the first start.
 icon: Container
 ---
 
 ## Start the server
 
 You need a Linux VM with Docker and Docker Compose, and a domain name that
-points to the VM. Replace `<release>` with the release that you install, for
-example `0.1.0`.
+points to the VM. For a machine at home with no domain name, see
+[Remote Access at home](/server/remote-access). Replace `<release>` with the
+release that you install, for example `0.1.0`.
 
 ```bash title="Terminal"
 git clone --depth 1 --branch v<release> https://github.com/pagis-co/pagis
@@ -31,18 +32,21 @@ Then make the first Administrator ([The first Administrator](/server/administrat
 
 ## The files
 
-`deploy/` holds six files, and only `.env` is edited:
+`deploy/` holds seven files, and only `.env` is edited:
 
 | File | What it is |
 | --- | --- |
-| `compose.yaml` | The four services. Nothing in it is edited for a deployment. |
+| `compose.yaml` | The services. Nothing in it is edited for a deployment. |
 | `.env.example` | Every setting, stated one time. Copy it to `.env` and fill it in. |
-| `Caddyfile` | The proxy, which holds the certificate. |
+| `Caddyfile` | The proxy of the `proxy` profile, which holds the certificate. |
+| `tailscale-serve.json` | The Funnel of the `tailscale` profile ([Remote Access at home](/server/remote-access)). |
 | `egress.sh` | The egress rules of the Computers, which the `egress` service installs. |
 | `backup.sh` | The backup ([Backup and restore](/server/backup)). |
 | `restore.sh` | The restore ([Backup and restore](/server/backup)). |
 
-The four services:
+Three services always run, and one way in runs with them.
+`COMPOSE_PROFILES` in `.env` selects the way in: `proxy` for a VM with a
+domain name, or `tailscale` for a machine at home.
 
 - **`db`**, `postgres:18-alpine`, pinned by digest, on the `pagis-database`
   volume. It listens on loopback, so nothing off the VM reaches it.
@@ -56,14 +60,18 @@ The four services:
   `ghcr.io/pagis-co/pagis-server:<release>`, a public image, on the VM's
   `/var/lib/pagis`. It is the one service that receives the Docker socket,
   because it is the one that starts Computers.
-- **`proxy`**, `caddy:2-alpine`, pinned by digest, which holds the
-  certificate and speaks TLS. It is the one service that binds a public
-  interface.
+- **`proxy`**, the `proxy` profile, `caddy:2-alpine`, pinned by digest,
+  which holds the certificate and speaks TLS. It is the one service that
+  binds a public interface.
+- **`tailscale`**, the `tailscale` profile, `tailscale/tailscale`, pinned by
+  digest, which serves the Funnel of `tailscale-serve.json` and holds the
+  certificate of the public name. It opens no port for the Funnel: the
+  Funnel comes in through the tunnel that the service opens to Tailscale.
 
-`compose.yaml` names `postgres`, `klipper-lb` and `caddy` by tag and digest
-(`postgres:18-alpine@sha256:...`), so a server runs the bytes that its
-release was tested with, and a moved tag does not reach it. The `pagis`
-image takes the release in `PAGIS_VERSION`.
+`compose.yaml` names `postgres`, `klipper-lb`, `caddy` and `tailscale` by
+tag and digest (`postgres:18-alpine@sha256:...`), so a server runs the
+bytes that its release was tested with, and a moved tag does not reach it.
+The `pagis` image takes the release in `PAGIS_VERSION`.
 
 ## The `.env` names
 
@@ -72,6 +80,8 @@ image takes the release in `PAGIS_VERSION`.
 
 | `.env` | Where it goes |
 | --- | --- |
+| `COMPOSE_PROFILES` | Compose itself: the way in, `proxy` or `tailscale` |
+| `PAGIS_REMOTE_ACCESS` | `PAGIS_REMOTE_ACCESS`: `1` with `tailscale`, empty with `proxy` |
 | `PAGIS_DOMAIN` | `PAGIS_PUBLIC_ORIGIN`, as `https://<PAGIS_DOMAIN>` |
 | `PAGIS_PUBLIC_IP` | `PAGIS_SCREEN_ADVERTISE_IP` |
 | `PAGIS_MEDIA_PORT_FIRST` | `PAGIS_SCREEN_MEDIA_PORT_FIRST`, and the range that the egress rules keep open |
@@ -79,6 +89,7 @@ image takes the release in `PAGIS_VERSION`.
 | `PAGIS_COMPUTER_ALLOW` | The `egress` service: the private destinations that a Computer reaches. Empty by default. |
 | `PAGIS_DATABASE_PASSWORD` | `PAGIS_DATABASE_URL`, and the `db` service's password |
 | `PAGIS_VERSION` | The image tag |
+| `TS_AUTHKEY`, `TS_HOSTNAME` | The `tailscale` service: the auth key of its first start, and its name on the tailnet |
 
 `compose.yaml` sets the rest: `PAGIS_BIND=127.0.0.1`, `PAGIS_PORT=4400`,
 `PAGIS_TRUSTED_PROXY=127.0.0.1`, and the Administration Port on
@@ -100,11 +111,13 @@ Privacy is then a Bind Address rather than a published port:
 
 | Port | Binds | Who reaches it |
 | --- | --- | --- |
-| 443, 80 | Every interface | The team's browsers and Client Apps. The certificate lives here. |
-| 4400, the product port | `127.0.0.1` | The proxy, on the same loopback, and nobody else. |
+| 443, 80 | Every interface, with the `proxy` profile | The team's browsers and Client Apps. The certificate lives here. |
+| None, the `tailscale` service | One free UDP port, for its tunnel to Tailscale | Tailscale. The Funnel comes in through the tunnel. |
+| 4400, the product port | `127.0.0.1` | The proxy or `tailscaled`, on the same loopback, and nobody else. |
+| 4402, the TURN server of Remote Access | `127.0.0.1`, in Remote Access only | `tailscaled`, which forwards port 8443 of the Funnel to it. |
 | 5432, Postgres | `127.0.0.1` | The daemon, and nobody else. |
 | 4401, the Administration Port | `127.0.0.1` | The Administrator, over an SSH tunnel. |
-| The Media Relay's UDP range | Every interface | The team's browsers, because media does not go through the proxy, and the Computers. Open exactly that range in the VM's firewall, and nothing else. |
+| The Media Relay's UDP range | Every interface | The team's browsers, because media does not go through the proxy, and the Computers. Open exactly that range in the VM's firewall, and nothing else. At home, open it to the LAN alone. |
 | None, the `egress` service | Nothing | Nobody. The service writes the egress rules, which close every port of the VM to the Computers except the Media Relay's range. |
 
 ## The state directory has one path
@@ -131,6 +144,7 @@ exception, because a Computer reads them as a different user.
 | `pagis-database` | The Postgres cluster | As a dump, not as files |
 | `pagis-volume-<workspace_id>-<agent_id>` | One Agent's Computer home, made by the daemon | Yes, one tarball each |
 | `caddy-data`, `caddy-config` | The certificate and Caddy's state | No. Caddy gets a certificate again on a new host. |
+| `tailscale-state` | The key of the `tailscale` service on the tailnet, and its certificate | No. A new host joins the tailnet with a new auth key. |
 
 Pagis encrypts only the secrets in these volumes, for example `secrets.enc`.
 The rest of their content has no encryption. Put `/var/lib/pagis` and

@@ -6,7 +6,8 @@ icon: Server
 
 One team, one server. The Headless Server is the Pagis server as a Linux
 container image, and a team runs it on its own VM with the Compose files in
-[`deploy/`](https://github.com/pagis-co/pagis/tree/main/deploy).
+[`deploy/`](https://github.com/pagis-co/pagis/tree/main/deploy). A household
+runs the same files on a Linux machine at home, in Remote Access.
 [ADR-0024](https://github.com/pagis-co/pagis/blob/main/docs/adr/0024-a-server-serves-a-network.md) holds the decisions.
 
 <Cards>
@@ -18,6 +19,9 @@ container image, and a team runs it on its own VM with the Compose files in
   </Card>
   <Card title="Put a proxy in front" href="/server/proxy">
     Hold the TLS certificate with Caddy or nginx.
+  </Card>
+  <Card title="Run it at home" href="/server/remote-access">
+    Reach it through your Tailscale Funnel.
   </Card>
   <Card title="Back up and restore" href="/server/backup">
     Keep a copy of the whole installation.
@@ -73,7 +77,8 @@ A server holds no Client Credential. The daemon writes no credential file
 and removes one that a local run left, refuses the trade at
 `/api/v1/sessions/client`, answers nothing at `/api/v1/runtime/identity` and
 mints no one-time sign-in link. The start banner in the logs therefore
-carries no way in, and everybody signs in with an address and a password.
+carries no way in. People sign in with an address and a password, or with a
+[Sign-In Link](/server/sign-in#sign-in-links).
 
 A local installation holds one, whatever its Public Origin. The daemon
 accepts the trade, the sign-in link and the runtime identity handshake only

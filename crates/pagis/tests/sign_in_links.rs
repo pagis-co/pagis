@@ -553,6 +553,53 @@ async fn pair_refuses_a_directory_with_no_installation() {
     assert_eq!(std::fs::read_dir(home.path()).unwrap().count(), 0);
 }
 
+/// The Headless Server image states its database and its Public Origin
+/// in the environment, and the `config.toml` of its state directory holds
+/// neither. `docker compose exec pagis pagis pair` runs the command in
+/// the environment of the daemon, so the command reads both from there,
+/// as the daemon does, and the link starts at the public name.
+#[tokio::test]
+async fn the_pair_command_reads_the_deployment_from_the_environment() {
+    let Some(daemon) = TestDaemon::start_on_postgres().await else {
+        return;
+    };
+    let home = daemon.booted.home.clone();
+    let config_file = home.join("config.toml");
+    let mut config = pagis::Config::read_file(&config_file).unwrap();
+    let database_url = std::mem::take(&mut config.database.url);
+    config.public_origin = String::new();
+    config.save(&config_file).unwrap();
+    let public_origin = "https://pagis.tail1234.ts.net";
+
+    let output = tokio::task::spawn_blocking(move || {
+        std::process::Command::new(env!("CARGO_BIN_EXE_pagis"))
+            .arg("pair")
+            .env("PAGIS_HOME", &home)
+            .env("PAGIS_DATABASE_URL", database_url)
+            .env("PAGIS_PUBLIC_ORIGIN", public_origin)
+            .env("PAGIS_REQUIRE_PUBLIC_ORIGIN", "true")
+            .output()
+    })
+    .await
+    .unwrap()
+    .expect("run pagis pair");
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        output.status.success(),
+        "{stdout}{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let url = stdout
+        .lines()
+        .find(|line| line.starts_with(&format!("{public_origin}/sign-in#")))
+        .unwrap_or_else(|| panic!("the link of the public name is printed:\n{stdout}"));
+    let traded = trade(&daemon, secret_of(url), SAFARI_ON_MACOS).await;
+    assert_eq!(traded.status(), StatusCode::OK);
+    let signed_in: serde_json::Value = traded.json().await.unwrap();
+    assert_eq!(signed_in["id"], daemon.user_id.to_string());
+}
+
 /// The binary prints the QR code and the link, which the daemon spends.
 #[tokio::test]
 async fn the_pair_command_prints_the_link_and_its_qr_code() {

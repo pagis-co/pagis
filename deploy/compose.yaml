@@ -11,10 +11,18 @@
 # Every setting is stated once, in `.env`. Nothing here is edited for a
 # deployment.
 #
-# `postgres`, `klipper-lb` and `caddy` are pinned by tag and digest, so a
-# server runs the bytes that its release was tested with. Dependabot
-# moves the digests between releases, and an upgrade takes the
-# `compose.yaml`, the `egress.sh` and the `Caddyfile` of the new release
+# The way in is a Compose profile, which `COMPOSE_PROFILES` in `.env`
+# selects. `proxy` runs Caddy, for a VM with a domain name. `tailscale`
+# runs the owner's Tailscale Funnel in place of Caddy, for a machine at
+# home with no domain name and no open port, in Remote Access
+# (https://docs.pagis.co/server/remote-access). The other services run
+# with either one.
+#
+# `postgres`, `klipper-lb`, `caddy` and `tailscale` are pinned by tag and
+# digest, so a server runs the bytes that its release was tested with.
+# Dependabot moves the digests between releases, and an upgrade takes the
+# `compose.yaml`, the `egress.sh`, the `Caddyfile` and the
+# `tailscale-serve.json` of the new release
 # (https://docs.pagis.co/server/upgrade).
 #
 # **Every service shares the host's network namespace**, which is what
@@ -27,8 +35,10 @@
 # not for a desktop Docker.
 #
 # Privacy is then a bind address rather than a published port: Postgres,
-# the product port and the administration port each bind loopback, and
-# the proxy is the one service that binds a public interface.
+# the product port and the administration port each bind loopback. Caddy
+# is the one service that binds a public interface. The Tailscale
+# service opens no port for the Funnel: the Funnel comes in through the
+# tunnel that the service opens to Tailscale.
 name: pagis
 
 services:
@@ -124,6 +134,11 @@ services:
       # credential trade and prints no sign-in link (ADR-0025).
       PAGIS_PUBLIC_ORIGIN: https://${PAGIS_DOMAIN:?set PAGIS_DOMAIN in .env}
       PAGIS_TRUSTED_PROXY: 127.0.0.1
+      # Remote Access (ADR-0028), with the `tailscale` profile: another
+      # machine signs in with a Sign-In Link and never with a password,
+      # and the TURN server of the live screen listens on 127.0.0.1:4402
+      # for the Funnel. Empty with the `proxy` profile.
+      PAGIS_REMOTE_ACCESS: ${PAGIS_REMOTE_ACCESS:-}
       # The administration port stays on loopback, so it is reachable
       # over an SSH tunnel and from nowhere else.
       PAGIS_ADMINISTRATION_BIND: 127.0.0.1
@@ -166,11 +181,13 @@ services:
       # receives it: reaching this socket is reaching the host.
       - /var/run/docker.sock:/var/run/docker.sock
 
-  # The reverse proxy. It holds the certificate and speaks TLS to the
-  # browser; the daemon terminates no TLS (ADR-0024). It is the
-  # one service that binds a public interface, on 80 and 443.
+  # The way in of the `proxy` profile: the reverse proxy. It holds the
+  # certificate and speaks TLS to the browser; the daemon terminates no
+  # TLS (ADR-0024). It is the one service that binds a public interface,
+  # on 80 and 443.
   proxy:
     image: caddy:2-alpine@sha256:6aeddd44c3078b0f9a35206472a11420648a79c184603ef95957d0a20044cb2b
+    profiles: [proxy]
     restart: unless-stopped
     network_mode: host
     depends_on:
@@ -182,6 +199,38 @@ services:
       - caddy-data:/data
       - caddy-config:/config
 
+  # The way in of the `tailscale` profile: the owner's Tailscale Funnel
+  # (ADR-0028). The official image joins the tailnet as `TS_HOSTNAME`
+  # and applies `tailscale-serve.json`, with the name of this machine,
+  # `<TS_HOSTNAME>.<tailnet>.ts.net`, in place of `${TS_CERT_DOMAIN}`.
+  # The Funnel then forwards port 443 to the product port, and port 8443,
+  # with TLS ended, to the TURN server of the live screen, both on
+  # loopback. `tailscaled` holds the certificate. The image reads the
+  # file at each start, so `docker compose restart tailscale` applies a
+  # new one.
+  #
+  # Userspace networking adds no interface, no route and no firewall
+  # rule to the host, so the service needs no capability. The node
+  # keeps its key in a volume: the auth key is read at the first start
+  # alone, and every later start uses the key in the volume.
+  tailscale:
+    image: tailscale/tailscale:v1.102.5@sha256:c507f3a2a6ab1cabd8d809b98edeb41edbd5c3fb6ad9632ffd098b4c7d0b4065
+    profiles: [tailscale]
+    restart: unless-stopped
+    network_mode: host
+    depends_on:
+      - pagis
+    environment:
+      TS_AUTHKEY: ${TS_AUTHKEY:-}
+      TS_AUTH_ONCE: "true"
+      TS_HOSTNAME: ${TS_HOSTNAME:-pagis}
+      TS_USERSPACE: "true"
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_SERVE_CONFIG: /config/tailscale-serve.json
+    volumes:
+      - ./tailscale-serve.json:/config/tailscale-serve.json:ro
+      - tailscale-state:/var/lib/tailscale
+
 secrets:
   pagis-secrets-key:
     file: ./secrets/pagis-secrets-key
@@ -190,3 +239,4 @@ volumes:
   pagis-database:
   caddy-data:
   caddy-config:
+  tailscale-state:

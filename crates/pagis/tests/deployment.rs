@@ -10,21 +10,80 @@ fn repository() -> PathBuf {
         .join("../..")
 }
 
-/// The deployment as `docker compose config` resolves it.
+/// The deployment as `docker compose config` resolves it, with no
+/// setting put in and every profile on, so it holds every service.
 fn compose_config() -> serde_json::Value {
-    let compose = repository().join("deploy/compose.yaml");
-    let output = std::process::Command::new("docker")
+    let mut command = compose();
+    command.args([
+        "--profile",
+        "*",
+        "config",
+        "--no-interpolate",
+        "--format",
+        "json",
+    ]);
+    config_of(command)
+}
+
+/// The deployment as Compose resolves it for the settings of
+/// `deploy/.env.example`, with `overrides` from the environment, which
+/// win over the file. Only the services of the active profiles are in it.
+fn example_config(overrides: &[(&str, &str)]) -> serde_json::Value {
+    let mut command = compose();
+    command
+        .arg("--env-file")
+        .arg(repository().join("deploy/.env.example"))
+        .args(["config", "--format", "json"])
+        .env_remove("COMPOSE_PROFILES")
+        .env_remove("PAGIS_REMOTE_ACCESS");
+    command.envs(overrides.iter().copied());
+    config_of(command)
+}
+
+fn compose() -> std::process::Command {
+    let mut command = std::process::Command::new("docker");
+    command
         .args(["compose", "--file"])
-        .arg(&compose)
-        .args(["config", "--no-interpolate", "--format", "json"])
-        .output()
-        .expect("the docker CLI runs");
+        .arg(repository().join("deploy/compose.yaml"));
+    command
+}
+
+fn config_of(mut command: std::process::Command) -> serde_json::Value {
+    let output = command.output().expect("the docker CLI runs");
     assert!(
         output.status.success(),
         "docker compose config failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
     serde_json::from_slice(&output.stdout).expect("compose prints JSON")
+}
+
+/// The names of the services in `config`, sorted.
+fn service_names(config: &serde_json::Value) -> Vec<String> {
+    let mut names: Vec<String> = config["services"]
+        .as_object()
+        .expect("the services")
+        .keys()
+        .cloned()
+        .collect();
+    names.sort();
+    names
+}
+
+/// The names that `deploy/.env.example` sets, in the order of the file.
+fn example_settings() -> Vec<String> {
+    std::fs::read_to_string(repository().join("deploy/.env.example"))
+        .expect("the example settings")
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(|line| {
+            line.split_once('=')
+                .unwrap_or_else(|| panic!("{line:?} is not NAME=value"))
+                .0
+                .to_string()
+        })
+        .collect()
 }
 
 /// The global options of `deploy/Caddyfile`: the lines of the block that
@@ -115,6 +174,119 @@ fn the_secrets_carry_no_setting_that_compose_ignores() {
                 .collect();
             assert_eq!(keys, ["source", "target"], "{name}: {secret}");
         }
+    }
+}
+
+/// The way in is a Compose profile. `proxy` runs Caddy, which binds 80
+/// and 443 and gets the certificate of a domain name. `tailscale` runs
+/// the owner's Tailscale Funnel, for a machine at home with no domain
+/// name and no open port. The other services run with either one.
+#[test]
+fn the_way_in_is_a_profile_of_its_own() {
+    let config = compose_config();
+    let services = config["services"].as_object().expect("the services");
+
+    for (name, service) in services {
+        let expected = match name.as_str() {
+            "proxy" => serde_json::json!(["proxy"]),
+            "tailscale" => serde_json::json!(["tailscale"]),
+            _ => serde_json::Value::Null,
+        };
+        assert_eq!(service["profiles"], expected, "{name}");
+    }
+    assert!(services.contains_key("proxy"), "{services:?}");
+    assert!(services.contains_key("tailscale"), "{services:?}");
+}
+
+/// The `tailscale` service shares the host's network, as every service
+/// does, so its Funnel reaches the product port and the TURN server of
+/// the daemon on loopback. Userspace networking changes no network
+/// setting of the host. The Funnel comes from the serve configuration in
+/// `deploy/`, and the node keeps its state in a volume, so the auth key
+/// is read at the first start alone.
+#[test]
+fn the_tailscale_service_serves_the_funnel_from_its_file() {
+    let config = compose_config();
+    let tailscale = &config["services"]["tailscale"];
+    let environment = &tailscale["environment"];
+    let volumes = tailscale["volumes"].as_array().expect("the volumes");
+    let mounted_at = |target: &serde_json::Value| {
+        volumes
+            .iter()
+            .find(|volume| volume["target"] == *target)
+            .unwrap_or_else(|| panic!("nothing is mounted at {target}: {volumes:?}"))
+    };
+
+    assert_eq!(tailscale["network_mode"], "host");
+    assert_eq!(environment["TS_USERSPACE"], "true");
+    let serve = mounted_at(&environment["TS_SERVE_CONFIG"]);
+    assert_eq!(serve["type"], "bind", "{serve}");
+    assert_eq!(serve["read_only"], true, "{serve}");
+    let source = std::path::Path::new(serve["source"].as_str().expect("a source"));
+    assert_eq!(
+        source.canonicalize().expect("the serve configuration"),
+        repository()
+            .join("deploy/tailscale-serve.json")
+            .canonicalize()
+            .expect("deploy/tailscale-serve.json"),
+    );
+    let state = mounted_at(&environment["TS_STATE_DIR"]);
+    assert_eq!(state["type"], "volume", "{state}");
+    assert_eq!(environment["TS_AUTH_ONCE"], "true");
+
+    // The serve configuration names the product port that the daemon
+    // binds. Compose prints a YAML number as a number.
+    let port = match &config["services"]["pagis"]["environment"]["PAGIS_PORT"] {
+        serde_json::Value::String(port) => port.clone(),
+        port => port.to_string(),
+    };
+    let file = std::fs::read_to_string(source).expect("the serve configuration");
+    assert!(
+        file.contains(&format!("\"http://127.0.0.1:{port}\"")),
+        "{file}"
+    );
+}
+
+/// `.env.example` resolves as it is, with the `proxy` profile, and with
+/// the `tailscale` profile and Remote Access in its place. Compose reads
+/// every `${...}` of every service, also of a profile that is off, so a
+/// required setting of one way in would stop a server of the other.
+#[test]
+fn the_example_settings_resolve_for_each_way_in() {
+    let proxy = example_config(&[]);
+    assert_eq!(service_names(&proxy), ["db", "egress", "pagis", "proxy"]);
+    assert_eq!(
+        proxy["services"]["pagis"]["environment"]["PAGIS_REMOTE_ACCESS"],
+        ""
+    );
+
+    let home = example_config(&[
+        ("COMPOSE_PROFILES", "tailscale"),
+        ("PAGIS_REMOTE_ACCESS", "1"),
+    ]);
+    assert_eq!(service_names(&home), ["db", "egress", "pagis", "tailscale"]);
+    assert_eq!(
+        home["services"]["pagis"]["environment"]["PAGIS_REMOTE_ACCESS"],
+        "1"
+    );
+}
+
+/// Each setting of `.env.example` goes somewhere: a service of
+/// `compose.yaml` reads it, or Compose itself does (`COMPOSE_*`). A
+/// setting that nothing reads would look like a setting and change
+/// nothing.
+#[test]
+fn every_example_setting_reaches_the_deployment() {
+    let config = compose_config().to_string();
+
+    for name in example_settings() {
+        if name.starts_with("COMPOSE_") {
+            continue;
+        }
+        assert!(
+            config.contains(&format!("${{{name}}}")) || config.contains(&format!("${{{name}:")),
+            "nothing in deploy/compose.yaml reads {name}"
+        );
     }
 }
 

@@ -29,28 +29,31 @@ restart of every service:
 
 ```bash
 cd deploy
-# Replace compose.yaml, egress.sh and Caddyfile with the files in deploy/ at
-# the tag of the new release.
+# Replace compose.yaml, egress.sh, Caddyfile and tailscale-serve.json with
+# the files in deploy/ at the tag of the new release.
 sed -i 's/^PAGIS_VERSION=.*/PAGIS_VERSION=<the new release>/' .env
 docker compose pull
 docker compose up -d
-docker compose restart egress proxy
+docker compose restart egress proxy tailscale
 ```
 
 `docker compose up -d` starts a service again only when its settings in
 `compose.yaml` and `.env` or its image change. The `egress` service runs
-`egress.sh` and Caddy reads the `Caddyfile` only when they start, so
-`docker compose restart egress proxy` applies a new `egress.sh` and a new
-`Caddyfile`. `egress.sh` replaces its rules in one step, so the Computers
-keep the policy while the service starts again.
+`egress.sh`, Caddy reads the `Caddyfile`, and the `tailscale` service reads
+`tailscale-serve.json` only when they start. So
+`docker compose restart egress proxy tailscale` applies the new files.
+Compose restarts the services that run and ignores the service of the
+profile that is off. `egress.sh` replaces its rules in one step, so the
+Computers keep the policy while the service starts again.
 
 Take a backup first, and restart at a quiet hour.
 
-**`postgres`, `klipper-lb` and `caddy` get upstream patches only with a
-release of Pagis.** The `compose.yaml` of each release pins their digests,
-and Dependabot moves the digests between releases. So take the
-`compose.yaml`, the `egress.sh` and the `Caddyfile` of the new release, and
-pull and restart every service, not only `pagis`. Keep your settings in
+**`postgres`, `klipper-lb`, `caddy` and `tailscale` get upstream patches
+only with a release of Pagis.** The `compose.yaml` of each release pins
+their digests, and Dependabot moves the digests between releases. So take
+the `compose.yaml`, the `egress.sh`, the `Caddyfile` and the
+`tailscale-serve.json` of the new release, and pull and restart every
+service, not only `pagis`. Keep your settings in
 `.env`, because `compose.yaml` holds none of them.
 
 **The release marker is one-way.** The state directory holds a

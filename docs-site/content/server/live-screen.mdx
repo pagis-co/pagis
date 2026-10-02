@@ -27,7 +27,10 @@ both, and how many people watch at once.
 
 With Remote Access on, the daemon runs a TURN server on a loopback TCP
 port, and Funnel publishes it on port 8443 of the public name, where
-`tailscaled` ends TLS and forwards plain TCP. A browser that is not on this
+`tailscaled` ends TLS and forwards plain TCP. On a local installation the
+Remote Access switch turns on that Funnel. On a server at home, the
+`tailscale` service of the compose deployment does
+([Remote Access at home](/server/remote-access#the-live-screen)). A browser that is not on this
 machine gets `turns:<machine>.<tailnet>.ts.net:8443?transport=tcp` from
 `GET /api/v1/screen/ice`, with a credential of its own. A browser on this
 machine gets none.
