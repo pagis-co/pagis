@@ -28,12 +28,16 @@
 //!
 //! The listener binds every interface of the server, because the address
 //! at which a Computer reaches the Docker host is the Docker daemon's
-//! choice. The token check stands in for a narrower bind, and the
-//! firewall of the server keeps the port closed to the network.
+//! choice. The egress rules of the deployment close the port to every
+//! interface but the Computers' bridges, and the token check stands in
+//! for a narrower bind. One source address holds at most 256 connections
+//! at once, so a shell of an Agent, which reaches the port with no
+//! token, cannot take the open files that serve every Workspace.
 
+use std::collections::HashMap;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -52,6 +56,13 @@ const HEAD_TIMEOUT: Duration = Duration::from_secs(10);
 /// How long the listener waits for one address of a destination to take
 /// a connection from the server.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// How many connections one source address holds at once. Chromium holds
+/// at most 32 connections to one proxy, so a Computer stays far under
+/// it. A shell of an Agent reaches the port with no token, and the open
+/// files of the daemon serve every Workspace, so one Computer holds no
+/// more than this.
+const PER_SOURCE: usize = 256;
 
 /// Which Agent's Computer holds a token. The exit listener knows a
 /// Computer by the token that its Exit Proxy sends.
@@ -119,6 +130,10 @@ pub struct ExitListener {
     /// Which addresses a connection may reach from the server: the
     /// public unicast addresses.
     reaches: fn(IpAddr) -> bool,
+    /// The open connections of each source address.
+    sources: Arc<Mutex<HashMap<IpAddr, usize>>>,
+    /// How many connections one source address holds at once.
+    per_source: usize,
 }
 
 impl ExitListener {
@@ -127,6 +142,23 @@ impl ExitListener {
             computers,
             home_exits,
             reaches: is_public_unicast,
+            sources: Arc::new(Mutex::new(HashMap::new())),
+            per_source: PER_SOURCE,
+        })
+    }
+
+    /// Count one more connection of `source`, or `None` when it holds as
+    /// many as it may. The count goes down when the answer drops.
+    fn admit(&self, source: IpAddr) -> Option<Source> {
+        let mut sources = self.sources.lock().expect("the exit sources");
+        let held = sources.entry(source).or_insert(0);
+        if *held >= self.per_source {
+            return None;
+        }
+        *held += 1;
+        Some(Source {
+            sources: Arc::clone(&self.sources),
+            address: source,
         })
     }
 
@@ -139,9 +171,17 @@ impl ExitListener {
                 accepted = listener.accept() => accepted,
             };
             match accepted {
-                Ok((stream, _)) => {
-                    tokio::spawn(Arc::clone(&self).carry(stream));
-                }
+                Ok((stream, peer)) => match self.admit(peer.ip()) {
+                    Some(source) => {
+                        tokio::spawn(Arc::clone(&self).carry(stream, source));
+                    }
+                    None => {
+                        tracing::debug!(
+                            source = %peer.ip(),
+                            "the exit listener closed a connection past the cap of its source"
+                        );
+                    }
+                },
                 Err(error) => {
                     // A full table of open files refuses the accept and
                     // not the listener, so the listener waits and accepts
@@ -153,8 +193,9 @@ impl ExitListener {
         }
     }
 
-    /// Answer one `CONNECT`, and carry its bytes after a 200.
-    async fn carry(self: Arc<Self>, mut client: TcpStream) {
+    /// Answer one `CONNECT`, and carry its bytes after a 200. The
+    /// connection counts for its source until this returns.
+    async fn carry(self: Arc<Self>, mut client: TcpStream, _source: Source) {
         let _ = client.set_nodelay(true);
         let Ok(head) = tokio::time::timeout(HEAD_TIMEOUT, read_head(&mut client)).await else {
             return;
@@ -262,6 +303,24 @@ impl ExitListener {
             None if refused => Dial::Refused,
             None => Dial::Failed("the name has no address".to_string()),
         })
+    }
+}
+
+/// One open connection of a source address, counted while it lives.
+struct Source {
+    sources: Arc<Mutex<HashMap<IpAddr, usize>>>,
+    address: IpAddr,
+}
+
+impl Drop for Source {
+    fn drop(&mut self) {
+        let mut sources = self.sources.lock().expect("the exit sources");
+        if let Some(held) = sources.get_mut(&self.address) {
+            *held -= 1;
+            if *held == 0 {
+                sources.remove(&self.address);
+            }
+        }
     }
 }
 
@@ -426,12 +485,20 @@ mod tests {
         /// The exit listener, where the server reaches the addresses that
         /// `reaches` passes: a test reaches its targets on loopback.
         async fn listener_reaching(&self, reaches: fn(IpAddr) -> bool) -> SocketAddr {
+            self.listener_of(reaches, PER_SOURCE).await
+        }
+
+        /// The exit listener of production, where one source address
+        /// holds at most `per_source` connections.
+        async fn listener_of(&self, reaches: fn(IpAddr) -> bool, per_source: usize) -> SocketAddr {
             let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind a port");
             let address = listener.local_addr().expect("an address");
             let exit = Arc::new(ExitListener {
                 computers: self.tokens(),
                 home_exits: Arc::clone(&self.home_exits),
                 reaches,
+                sources: Arc::new(Mutex::new(HashMap::new())),
+                per_source,
             });
             tokio::spawn(exit.serve(listener, CancellationToken::new()));
             address
@@ -611,6 +678,65 @@ mod tests {
         }
         assert!(exit.destinations().is_empty(), "the Home Exit was asked");
         assert_eq!(taken.load(Ordering::SeqCst), 0, "the target was dialled");
+    }
+
+    /// One source address holds at most its cap of connections at once,
+    /// with a token or without one. The next connection closes at once,
+    /// with no answer, and a connection that ends gives its place back.
+    /// The cap of production leaves room for the 32 connections that
+    /// Chromium holds to one proxy.
+    #[tokio::test]
+    async fn one_source_holds_at_most_its_cap_of_connections() {
+        const CAP: usize = 4;
+        const { assert!(PER_SOURCE >= 8 * 32) };
+        let world = World::new();
+        let listener = world.listener_of(is_public_unicast, CAP).await;
+        // Connections that send no head, as an idle client holds them.
+        let mut idle = Vec::new();
+        for _ in 0..CAP {
+            idle.push(
+                TcpStream::connect(listener)
+                    .await
+                    .expect("reach the listener"),
+            );
+        }
+
+        // The listener takes connections in their order, so the next one
+        // comes after the cap is full.
+        let mut over = TcpStream::connect(listener)
+            .await
+            .expect("reach the listener");
+        let mut byte = [0; 1];
+        let closed = tokio::time::timeout(Duration::from_secs(2), over.read(&mut byte))
+            .await
+            .expect("the connection past the cap closes at once, before the head timeout");
+        assert!(matches!(closed, Ok(0) | Err(_)), "{closed:?}");
+
+        drop(idle.pop());
+        let deadline = tokio::time::Instant::now() + WAIT;
+        loop {
+            // A connection that the listener closes at once can fail the
+            // write, the read, or both.
+            let mut stream = TcpStream::connect(listener)
+                .await
+                .expect("reach the listener");
+            let mut answer = String::new();
+            if stream
+                .write_all(b"CONNECT example.com:443 HTTP/1.1\r\n\r\n")
+                .await
+                .is_ok()
+            {
+                let _ = tokio::time::timeout(WAIT, stream.read_to_string(&mut answer)).await;
+            }
+            if answer.starts_with("HTTP/1.1 407") {
+                break;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "the place of the closed connection never came back: {answer:?}"
+            );
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
     }
 
     /// The token comes first, then the request: a Computer that sends

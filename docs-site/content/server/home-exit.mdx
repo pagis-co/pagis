@@ -52,11 +52,13 @@ connected ([Settings](/server/settings)).
   address at which a Computer reaches the VM.
 - It answers only a connection that carries the token of an awake Agent's
   Computer. It refuses every other one.
-- The egress rules open the port to the Computers
-  ([What a Computer reaches](/server/computers#what-a-computer-reaches)).
-  `PAGIS_EXIT_PORT` of the `egress` service names the same port.
-- **Keep the port closed to the network in the firewall of the VM.** Open
-  it to no address outside the VM, and do not publish it through the proxy.
+- The egress rules open the port to the Computers and close it to
+  everything else: to the network, to the other containers and to the VM
+  itself ([What a Computer reaches](/server/computers#what-a-computer-reaches)).
+  `PAGIS_EXIT_PORT` of the `egress` service names the same port. One
+  address of a Computer holds at most 256 connections to it at once.
+- **A server that does not run the egress rules keeps the port closed to
+  the network in its firewall.** Do not publish it through the proxy.
   Nobody but the Computers needs it.
 
 A daemon whose exit port is taken names the port and the two settings that

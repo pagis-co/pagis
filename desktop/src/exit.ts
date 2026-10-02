@@ -30,6 +30,8 @@
 import { lookup } from 'node:dns/promises'
 import { BlockList, connect, isIPv4, isIPv6 } from 'node:net'
 import type { Socket } from 'node:net'
+import { networkInterfaces } from 'node:os'
+import type { NetworkInterfaceInfo } from 'node:os'
 import { pipeline } from 'node:stream'
 import type { Duplex } from 'node:stream'
 
@@ -55,6 +57,9 @@ export type Lookup = (host: string) => Promise<readonly { address: string }[]>
 
 /** Open a TCP connection to an address, as [`connectTcp`] does. */
 export type Connect = (host: string, port: number, signal: AbortSignal) => Promise<Socket>
+
+/** The interfaces of this machine, as `os.networkInterfaces` gives them. */
+export type Interfaces = () => Partial<Record<string, readonly NetworkInterfaceInfo[]>>
 
 /** A dial that the address check refused: the answer is `refused`. */
 export class RefusedDestination extends Error {}
@@ -128,6 +133,28 @@ function lastIPv4(address: string): string {
   return [high >> 8, high & 0xff, low >> 8, low & 0xff].join('.')
 }
 
+/**
+ * The networks of this machine: each address of each interface, and the
+ * subnet of each interface, in both families.
+ *
+ * A home network can have public addresses: most have global IPv6
+ * addresses, and some machines have a public IPv4 address. The fixed
+ * ranges of [`isRefusedAddress`] do not hold them, and these networks do.
+ */
+function localNetworks(interfaces: Interfaces): BlockList {
+  const local = new BlockList()
+  for (const addresses of Object.values(interfaces())) {
+    for (const entry of addresses ?? []) {
+      const family = String(entry.family) === 'IPv4' || String(entry.family) === '4' ? 'ipv4' : 'ipv6'
+      const address = entry.address.split('%')[0]
+      local.addAddress(address, family)
+      const prefix = entry.cidr?.split('/')[1]
+      if (prefix !== undefined) local.addSubnet(address, Number(prefix), family)
+    }
+  }
+  return local
+}
+
 /** A DNS name, as the Exit Proxy writes it in a preamble. */
 const NAME = /^[A-Za-z0-9._-]+$/
 
@@ -184,17 +211,25 @@ export function connectTcp(host: string, port: number, signal: AbortSignal): Pro
  *
  * It resolves the name here, so the name resolves where the connection
  * leaves, and it checks every address after the lookup, so a name that
- * resolves to the home network is refused. It connects to the first
- * address that passes, by address, so no second lookup can give another
- * one. A literal address resolves to itself.
+ * resolves to the home network is refused. The check refuses the fixed
+ * ranges of [`isRefusedAddress`], each address of this machine, and each
+ * address in the subnet of one of its interfaces. It reads the interfaces
+ * at each dial, because they change as a laptop moves. It connects to
+ * the first address that passes, by address, so no second lookup can
+ * give another one. A literal address resolves to itself.
  */
 export function homeDial(
   lookupName: Lookup = (host) => lookup(host, { all: true }),
   connectTo: Connect = connectTcp,
+  interfaces: Interfaces = networkInterfaces,
 ): Dial {
   return async ({ host, port }, signal) => {
     const addresses = await untilAborted(lookupName(host), signal)
-    const allowed = addresses.find((candidate) => !isRefusedAddress(candidate.address))
+    const local = localNetworks(interfaces)
+    const allowed = addresses.find(
+      ({ address }) =>
+        !isRefusedAddress(address) && !local.check(address, isIPv4(address) ? 'ipv4' : 'ipv6'),
+    )
     if (allowed !== undefined) return connectTo(allowed.address, port, signal)
     if (addresses.length === 0) throw new Error(`${host} has no address`)
     throw new RefusedDestination(`every address of ${host} is on this machine or on a local network`)

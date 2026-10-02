@@ -942,3 +942,79 @@ async fn the_daemon_and_the_client_app_carry_bytes_both_ways_over_the_exit_socke
             .is_none()
     );
 }
+
+/// Bulk bytes both ways at once on several streams, as an upload while a
+/// page loads, from a peer that pings. The yamux of the daemon reads no
+/// frame while it holds the answer to a Ping, and it holds it until the
+/// socket takes its bytes. The exit socket carries the two directions
+/// apart, so the bytes to the Client App go out while the bytes from it
+/// wait, and neither side waits for the other for ever. The pipe of the
+/// daemon is 64 KiB, so each stream carries many times its size.
+#[tokio::test]
+async fn bulk_bytes_both_ways_on_several_streams_keep_the_exit_socket_moving() {
+    const STREAMS: usize = 8;
+    const BYTES: usize = 4 * 1024 * 1024;
+    let daemon = TestDaemon::start().await;
+    let host = HostClient::connect(
+        &daemon,
+        "Air",
+        "macos",
+        &["shell", "exit"],
+        HostAnswer::ok(),
+    )
+    .await;
+    let host_id = HostId::from(host.host_id().to_string());
+    assert!(
+        daemon
+            .stores()
+            .workspaces
+            .set_home_exit(&daemon.workspace_id, Some(&host_id))
+            .await
+            .expect("the Home Exit is written")
+    );
+    let _client_app = ExitClient::connect_pinging(
+        &daemon,
+        daemon.cookie(),
+        host.host_id(),
+        FakeHomeExit::to(bulk_echo_target().await),
+    )
+    .await
+    .expect("the exit socket opens");
+    wait_until("the Host is no present Home Exit", || {
+        daemon.home_exits.is_open(&host_id)
+    })
+    .await;
+
+    let carried = futures::future::join_all((0..STREAMS).map(|index| {
+        let home_exits = Arc::clone(&daemon.home_exits);
+        let workspace_id = daemon.workspace_id.clone();
+        async move {
+            let mut stream = home_exits
+                .open(&workspace_id, &format!("upload-{index}.example.com"), 443)
+                .await
+                .expect("the Home Exit is present")
+                .expect("the Home Exit carries the connection");
+            let sent: Vec<u8> = (0..BYTES)
+                .map(|byte| ((byte + index) % 253) as u8)
+                .collect();
+            let (mut reader, mut writer) = tokio::io::split(&mut stream);
+            let mut back = Vec::with_capacity(BYTES);
+            let (written, read) = tokio::join!(
+                async {
+                    writer.write_all(&sent).await?;
+                    writer.shutdown().await
+                },
+                reader.read_to_end(&mut back),
+            );
+            written.expect("the bytes go out");
+            read.expect("the bytes come back");
+            assert!(back == sent, "stream {index} came back changed");
+        }
+    }));
+    tokio::time::timeout(Duration::from_secs(30), carried)
+        .await
+        .expect("the exit socket stopped: the bytes of one direction waited for the other");
+    let bytes = daemon.home_exits.bytes(&daemon.workspace_id);
+    assert_eq!(bytes.sent, (STREAMS * BYTES) as u64);
+    assert_eq!(bytes.received, (STREAMS * BYTES) as u64);
+}
