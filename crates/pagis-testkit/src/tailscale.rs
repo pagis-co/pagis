@@ -24,6 +24,11 @@ pub struct FakeTailscale {
     /// Why a turn-on fails, where it fails.
     refusal: Option<String>,
     changes: Mutex<Vec<String>>,
+    /// Whether the next read of the state stops until
+    /// [`FakeTailscale::release_held_read`].
+    hold_next_read: Mutex<bool>,
+    read_held: Notify,
+    read_released: Notify,
 }
 
 impl FakeTailscale {
@@ -34,6 +39,9 @@ impl FakeTailscale {
             approved: Notify::new(),
             refusal: None,
             changes: Mutex::default(),
+            hold_next_read: Mutex::new(false),
+            read_held: Notify::new(),
+            read_released: Notify::new(),
         }
     }
 
@@ -83,6 +91,22 @@ impl FakeTailscale {
         self.approved.notify_one();
     }
 
+    /// Stop the next read of the state until the test releases it, as a
+    /// slow `tailscale status` does.
+    pub fn hold_next_state_read(&self) {
+        *self.hold_next_read.lock().expect("the hold") = true;
+    }
+
+    /// Wait until a read of the state stops at the hold.
+    pub async fn read_is_held(&self) {
+        self.read_held.notified().await;
+    }
+
+    /// Let the read that stops at the hold go on.
+    pub fn release_held_read(&self) {
+        self.read_released.notify_one();
+    }
+
     /// The changes that the switch asked for, in order: `funnel on <port>`
     /// and `funnel off <port>`.
     pub fn changes(&self) -> Vec<String> {
@@ -106,6 +130,11 @@ impl FakeTailscale {
 #[async_trait::async_trait]
 impl Tailscale for FakeTailscale {
     async fn state(&self, _port: u16) -> TailscaleState {
+        let held = std::mem::take(&mut *self.hold_next_read.lock().expect("the hold"));
+        if held {
+            self.read_held.notify_one();
+            self.read_released.notified().await;
+        }
         self.state.lock().expect("the state").clone()
     }
 

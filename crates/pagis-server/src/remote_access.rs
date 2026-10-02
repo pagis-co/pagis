@@ -200,9 +200,13 @@ impl RemoteAccessSwitch {
         slot.turn_on = TurnOn::Idle;
     }
 
-    /// The turn-on that waits, and why the last one failed.
-    fn progress(&self) -> (Option<TurningOnDto>, Option<String>) {
-        match &self.slot().turn_on {
+    /// The turn-on that waits, why the last one failed, and the Public
+    /// Origin of Remote Access that the config file holds, read together.
+    /// A turn-on writes the file and ends under the lock of the slot, so a
+    /// read sees both or neither.
+    fn snapshot(&self, system: &dyn SystemConfigFile) -> SwitchSnapshot {
+        let slot = self.slot();
+        let (turning_on, failure) = match &slot.turn_on {
             TurnOn::Idle => (None, None),
             TurnOn::Waiting { enable_url, .. } => (
                 Some(TurningOnDto {
@@ -211,8 +215,21 @@ impl RemoteAccessSwitch {
                 None,
             ),
             TurnOn::Failed(reason) => (None, Some(reason.clone())),
+        };
+        SwitchSnapshot {
+            public_origin: system.remote_access(),
+            turning_on,
+            failure,
         }
     }
+}
+
+/// What the switch reads of its own progress and of the config file at
+/// one moment.
+struct SwitchSnapshot {
+    public_origin: Result<Option<String>, String>,
+    turning_on: Option<TurningOnDto>,
+    failure: Option<String>,
 }
 
 /// One turn-on: Funnel first, then the settings. It writes the settings
@@ -370,16 +387,22 @@ async fn remote_access_dto(state: &AppState) -> Result<RemoteAccessDto, ApiError
             failure: None,
         });
     }
-    let public_origin = state.system.remote_access().map_err(|error| {
-        tracing::error!(%error, "cannot read the config file");
-        ApiError::internal()
-    })?;
+    // Tailscale answers slowly, so the switch reads it first. A turn-on
+    // that ends meanwhile then shows whole in the snapshot.
     let tailscale = state
         .remote_access_switch
         .tailscale
         .state(state.runtime_port)
         .await;
-    let (turning_on, failure) = state.remote_access_switch.progress();
+    let SwitchSnapshot {
+        public_origin,
+        turning_on,
+        failure,
+    } = state.remote_access_switch.snapshot(state.system.as_ref());
+    let public_origin = public_origin.map_err(|error| {
+        tracing::error!(%error, "cannot read the config file");
+        ApiError::internal()
+    })?;
     Ok(RemoteAccessDto {
         enabled: public_origin.is_some(),
         restart_required: public_origin.as_deref() != running_public_origin(state),

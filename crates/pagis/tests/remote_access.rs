@@ -254,6 +254,35 @@ async fn with_funnel_off_the_switch_shows_the_page_and_waits_for_the_approval() 
     assert_eq!(tailscale.changes().len(), 1, "{:?}", tailscale.changes());
 }
 
+/// A read of the switch that a turn-on overtakes shows the end of the
+/// turn-on whole: the Public Origin it wrote, and no turn-on that waits.
+/// The read waits on `tailscale status`, and the turn-on ends meanwhile.
+#[tokio::test]
+async fn a_read_that_a_turn_on_overtakes_shows_its_end_whole() {
+    let tailscale = Arc::new(FakeTailscale::funnel_off());
+    let daemon = TestDaemon::start_with(TestDaemonOptions {
+        tailscale: Arc::clone(&tailscale) as _,
+        ..TestDaemonOptions::default()
+    })
+    .await;
+    assert_eq!(turn_on(&daemon).await.status(), StatusCode::ACCEPTED);
+    waiting_at_the_page(&daemon).await;
+
+    tailscale.hold_next_state_read();
+    let overtaken = read(&daemon);
+    let turn_on_ends = async {
+        tailscale.read_is_held().await;
+        tailscale.approve();
+        settled(&daemon).await;
+        tailscale.release_held_read();
+    };
+    let (overtaken, ()) = tokio::join!(overtaken, turn_on_ends);
+
+    assert!(overtaken["turning_on"].is_null(), "{overtaken}");
+    assert_eq!(overtaken["enabled"], true, "{overtaken}");
+    assert_eq!(overtaken["public_origin"], TAILNET_ORIGIN);
+}
+
 /// A turn-on that `tailscale funnel` refuses says why, and writes
 /// nothing.
 #[tokio::test]
