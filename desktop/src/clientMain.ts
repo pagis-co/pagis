@@ -33,7 +33,8 @@ import {
 } from './dataDirectory'
 import { EXIT_CAPABILITY, SHELL_CAPABILITY } from './host'
 import { opensInSystemBrowser } from './origin'
-import { type HostLinks, hostLinkFor } from './serverHost'
+import { ExitTraffic } from './exit'
+import { type HostLinks, hostLinkFor, turnOffHomeExit } from './serverHost'
 import { AutostartEntry, type LoginItem } from './loginItem'
 import { applicationMenu, createTray, renderTray } from './menus'
 import { PidFile } from './pidFile'
@@ -119,6 +120,9 @@ class Shell {
   // client, and never in the daemon. On a server, the same links make
   // the machine a Home Exit that its Person can choose.
   private hostLink: HostLinks | null = null
+  // The exit traffic that this machine carries as the Home Exit of its
+  // Person (ADR-0029). The tray shows it while it flows.
+  private readonly exitTraffic = new ExitTraffic(() => this.renderTray())
   private quitting = false
   private readonly controller = new ClientController({
     backUp: (signal) => this.backUpForUpgrade(signal),
@@ -531,8 +535,23 @@ class Shell {
       // machine. Those of a Local Installation run on this machine and
       // leave from it, so its client is no Home Exit.
       capabilities: this.connection ? [SHELL_CAPABILITY, EXIT_CAPABILITY] : [SHELL_CAPABILITY],
+      traffic: this.exitTraffic,
     })
     this.hostLink.start()
+  }
+
+  /**
+   * "Turn Off Home Exit" in the tray (ADR-0029): the server clears the
+   * Person's choice and switches their Computers back at once, so the
+   * exit traffic of this machine stops.
+   */
+  private async turnOffHomeExit(): Promise<void> {
+    if (!this.connection) return
+    await turnOffHomeExit({
+      url: this.connection.origin,
+      jar: session.defaultSession.cookies,
+      credential: () => null,
+    })
   }
 
   private isAdministrationUrl(target: string): boolean {
@@ -766,6 +785,11 @@ class Shell {
   private renderMenus(): void {
     if (SMOKE) return
     Menu.setApplicationMenu(applicationMenu(this.menuActions()))
+    this.renderTray()
+  }
+
+  /** The tray alone: the exit traffic changes it while it flows. */
+  private renderTray(): void {
     if (this.tray) renderTray(this.tray, this.menuActions())
   }
 
@@ -897,6 +921,10 @@ class Shell {
       }),
       restartToUpdate: () => void this.restartToUpdate().catch((error: unknown) => {
         dialog.showErrorBox('Pagis could not install the Update', this.failure(error))
+      }),
+      exitTraffic: () => this.exitTraffic,
+      turnOffHomeExit: () => void this.turnOffHomeExit().catch((error: unknown) => {
+        dialog.showErrorBox('Pagis could not turn off the Home Exit', this.failure(error))
       }),
     }
   }

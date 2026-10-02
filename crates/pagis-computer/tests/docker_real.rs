@@ -104,7 +104,7 @@ impl Real {
             idle_stop: idle_after,
             relay: pagis_computer::fake::loopback_relay(),
             ceiling: Arc::new(AwakeCeiling::new(AwakeCaps::default())),
-            exit_daemon: None,
+            exit: None,
         });
         (manager, screens)
     }
@@ -1874,7 +1874,11 @@ async fn a_computer_in_home_mode_leaves_through_its_persons_home_exit() {
     tokio::spawn({
         let home_exits = Arc::clone(&home_exits);
         let (workspace_id, host_id) = (real.workspace_id.clone(), host_id.clone());
-        async move { home_exits.serve(workspace_id, host_id, daemon_end).await }
+        async move {
+            home_exits
+                .serve(workspace_id, host_id, "Air".to_string(), daemon_end)
+                .await
+        }
     });
     tokio::spawn(Arc::clone(&exit).serve(client_app_end));
     let listener = tokio::net::TcpListener::bind((address_for_the_computers(), 0))
@@ -1894,7 +1898,10 @@ async fn a_computer_in_home_mode_leaves_through_its_persons_home_exit() {
         idle_stop: Duration::from_secs(600),
         relay: pagis_computer::fake::loopback_relay(),
         ceiling: Arc::new(AwakeCeiling::new(AwakeCaps::default())),
-        exit_daemon: Some(pagis_computer::exit_daemon(exit_port)),
+        exit: Some(pagis_computer::ComputerExit {
+            daemon: pagis_computer::exit_daemon(exit_port),
+            home_exits: Arc::clone(&home_exits),
+        }),
     });
     tokio::spawn(
         ExitListener::new(Arc::clone(&manager) as _, Arc::clone(&home_exits))

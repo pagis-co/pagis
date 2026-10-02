@@ -277,6 +277,10 @@ struct Loop {
     memory_root: Arc<tempfile::TempDir>,
     computer_runtime: Arc<pagis_computer::fake::FakeComputerRuntime>,
     computer: Arc<pagis_computer::ComputerManager>,
+    /// The Home Exits that the Computers of a Server read. The harness of
+    /// a local installation gives its Computers none.
+    home_exits: Arc<pagis_computer::HomeExits>,
+    workspaces: Arc<SqliteWorkspaceStore>,
     skills: Arc<ScriptedSkills>,
     _screens: Arc<tempfile::TempDir>,
     /// The person's own machine, registered and connected, as a local
@@ -345,6 +349,26 @@ async fn boot_watching_writes<F>(pool: SqlitePool, config: AgentLoopConfig, wrap
 where
     F: FnOnce(Arc<SqliteMessageStore>) -> Arc<dyn MessageStore>,
 {
+    boot_as(pool, config, wrap, false).await
+}
+
+/// Boot the loop as a Server, whose Agent's Computer names the exit
+/// listener of the daemon and runs in the mode of its Person's Home Exit
+/// (ADR-0029).
+async fn boot_on_server(pool: SqlitePool) -> Loop {
+    boot_as(
+        pool,
+        AgentLoopConfig::default(),
+        |messages| messages as Arc<dyn MessageStore>,
+        true,
+    )
+    .await
+}
+
+async fn boot_as<F>(pool: SqlitePool, config: AgentLoopConfig, wrap: F, server: bool) -> Loop
+where
+    F: FnOnce(Arc<SqliteMessageStore>) -> Arc<dyn MessageStore>,
+{
     let workspace = fixture::seeded_workspace(&pool).await;
     SqliteWorkspaceStore::new(pool.clone())
         .create(&workspace)
@@ -401,6 +425,8 @@ where
     let computer_runtime = Arc::new(pagis_computer::fake::FakeComputerRuntime::with_image());
     let skills = Arc::new(ScriptedSkills::default());
     let screens = Arc::new(tempfile::tempdir().expect("screens dir"));
+    let workspaces = Arc::new(SqliteWorkspaceStore::new(pool.clone()));
+    let home_exits = pagis_computer::HomeExits::new(Arc::clone(&workspaces) as _);
     let computers = pagis_computer::ComputerManagers::new(pagis_computer::ComputerManagersDeps {
         runtime: Arc::clone(&computer_runtime) as _,
         skills: Arc::clone(&skills) as _,
@@ -415,7 +441,10 @@ where
             per_server: 256,
         },
         cancel: tokio_util::sync::CancellationToken::new(),
-        exit_daemon: None,
+        exit: server.then(|| pagis_computer::ComputerExit {
+            daemon: pagis_computer::exit_daemon(4403),
+            home_exits: Arc::clone(&home_exits),
+        }),
     });
     let computer = computers.get(&workspace.id);
     let artifacts = Arc::new(SqliteArtifactStore::new(pool.clone()));
@@ -544,6 +573,8 @@ where
         memory_root,
         computer_runtime,
         computer,
+        home_exits,
+        workspaces,
         skills,
         _screens: screens,
         workspace,
@@ -5153,6 +5184,75 @@ async fn a_portable_computer_action_replies_with_the_current_screenshot(pool: Sq
     let result = requests[1].messages.last().unwrap();
     assert_eq!(result.images.len(), 1);
     assert!(result.images[0].starts_with("data:image/png;base64,"));
+}
+
+/// The `computer` tool result says which exit the Computer uses on a
+/// Server (ADR-0029), on a line of the daemon outside the envelope of
+/// the screen: none in Direct mode, the server in Home mode while the
+/// Home Exit is absent, and the Host by its name while it is present.
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn the_computer_tool_result_names_the_exit_in_use(pool: SqlitePool) {
+    let harness = boot_on_server(pool).await;
+    harness.computer_runtime.set_frame(&display_png());
+    let mut events = harness
+        .bus
+        .subscribe(EventScope::Installation, Some(0))
+        .await;
+    // One click in each Run, and the text of the result it got.
+    let click = async |events: &mut pagis_core::EventStream| {
+        harness.brain.push(Script::tool_call(
+            &[],
+            "computer",
+            serde_json::json!({
+                "action": { "type": "click", "button": "left", "x": 100, "y": 50 }
+            }),
+        ));
+        harness.brain.push(Script::reply(&["Clicked it."]));
+        harness.send("click the button").await;
+        next_state(events, "completed").await;
+        let requests = harness.brain.requests();
+        let result = requests[requests.len() - 1]
+            .messages
+            .last()
+            .unwrap()
+            .clone();
+        assert_eq!(result.images.len(), 1);
+        result.text
+    };
+
+    let direct = click(&mut events).await;
+    assert!(!direct.contains("exit:"), "{direct}");
+
+    harness
+        .workspaces
+        .set_home_exit(&harness.workspace.id, Some(&harness.host.id))
+        .await
+        .unwrap();
+    assert!(harness.computer.switch_exit().await.is_empty());
+    let absent = click(&mut events).await;
+    assert!(absent.ends_with("\nexit: server"), "{absent}");
+
+    let (daemon_end, client_app_end) = pagis_computer::fake::exit_socket_pair();
+    tokio::spawn({
+        let home_exits = Arc::clone(&harness.home_exits);
+        let (workspace_id, host_id) = (harness.workspace.id.clone(), harness.host.id.clone());
+        async move {
+            home_exits
+                .serve(workspace_id, host_id, "Air".to_string(), daemon_end)
+                .await
+        }
+    });
+    let nowhere = "127.0.0.1:9".parse().unwrap();
+    tokio::spawn(pagis_computer::fake::FakeHomeExit::to(nowhere).serve(client_app_end));
+    while !harness.home_exits.is_open(&harness.host.id) {
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+    let present = click(&mut events).await;
+    assert!(present.ends_with("\nexit: Air"), "{present}");
+    assert!(
+        present.starts_with(pagis_core::untrusted::BEGIN_MARKER),
+        "the label is the daemon's and not the screen's: {present}"
+    );
 }
 
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]

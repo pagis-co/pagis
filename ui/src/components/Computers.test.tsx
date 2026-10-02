@@ -13,7 +13,7 @@ import { ComputerTile } from './Computers'
 const agent = { id: 'ag1', name: 'Sage', job: 'general assistant', status: 'active' }
 
 function stubApi(options: {
-  computer?: { state: string; percent?: number | null; holder?: string }
+  computer?: { state: string; percent?: number | null; holder?: string; exit?: string | null }
   wake?: () => Promise<{ data?: unknown; error?: unknown }>
 }) {
   return {
@@ -103,6 +103,21 @@ describe('ComputerTile', () => {
         { params: { path: { agent_id: 'ag1' } } },
       ),
     )
+  })
+
+  /** The exit in use (ADR-0029) is the daemon's own line, such as
+   *  "exit: Air" or "exit: server". A Computer in Direct mode has none. */
+  it('an awake tile names the exit in use', async () => {
+    mount(stubApi({ computer: { state: 'awake', percent: null, exit: 'exit: Air' } }))
+
+    expect(await screen.findByText('exit: Air')).toBeTruthy()
+  })
+
+  it('a tile in Direct mode names no exit', async () => {
+    mount(stubApi({ computer: { state: 'awake', percent: null, exit: null } }))
+
+    expect(await screen.findByLabelText("Sage's live screen")).toBeTruthy()
+    expect(screen.queryByText(/^exit:/)).toBeNull()
   })
 
   it('a pulling computer shows progress and loses the Wake button', async () => {

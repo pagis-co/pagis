@@ -16,8 +16,8 @@
 //   that sign-in puts the Session in the jar (`serverSignIn.ts`).
 
 import type { CookieReader } from './clientSession'
-import { exchangeClientCredential, reusableSession } from './clientSession'
-import type { Dial, ExitSocket } from './exit'
+import { exchangeClientCredential, reusableSession, SESSION_COOKIE } from './clientSession'
+import type { Dial, ExitSocket, ExitTraffic } from './exit'
 import { ExitLink, openExitSocket } from './exit'
 import type { CommandRunner, HostSocket } from './host'
 import { EXIT_CAPABILITY, HostLink, openWebSocket, SHELL_CAPABILITY } from './host'
@@ -41,6 +41,8 @@ export interface HostLinkDeps {
   run?: CommandRunner
   /** How the exit dials a connection. The default is the dial of the Home Exit. */
   dial?: Dial
+  /** What counts the exit traffic of the machine, which the tray shows. */
+  traffic?: ExitTraffic
   retryMs?: number
   request?: typeof fetch
 }
@@ -124,6 +126,7 @@ export function hostLinkFor(deps: HostLinkDeps): HostLinks {
     () => {
       ended = exitSession
     },
+    deps.traffic,
   )
   return {
     start: () => {
@@ -135,4 +138,33 @@ export function hostLinkFor(deps: HostLinkDeps): HostLinks {
       exit.stop()
     },
   }
+}
+
+/**
+ * Turn the Person's Home Exit off (ADR-0029): the client asks the server
+ * to clear the choice of the Person whose Session it holds, as the
+ * Settings card does. Their Computers then reach the internet from the
+ * server, and the exit traffic of this machine stops.
+ *
+ * It throws with the answer of the server when the server does not turn
+ * it off.
+ */
+export async function turnOffHomeExit(
+  deps: Pick<HostLinkDeps, 'url' | 'jar' | 'credential' | 'request'>,
+): Promise<void> {
+  const request = deps.request ?? fetch
+  const secret = await hostSession(deps)
+  const response = await request(new URL('/api/v1/settings/home-exit', deps.url), {
+    method: 'DELETE',
+    redirect: 'error',
+    headers: { cookie: `${SESSION_COOKIE}=${secret}` },
+  })
+  if (response.ok) return
+  const detail = await response
+    .json()
+    .then((body: { error?: { message?: string } }) => body.error?.message)
+    .catch(() => undefined)
+  throw new Error(
+    `the Pagis server did not turn the Home Exit off: HTTP ${response.status}${detail ? `, ${detail}` : ''}`,
+  )
 }

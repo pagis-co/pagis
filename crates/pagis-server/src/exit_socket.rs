@@ -22,7 +22,7 @@ use axum::extract::{Path, State};
 use axum::response::Response;
 use futures::stream::{SplitSink, SplitStream};
 use futures::{SinkExt, StreamExt};
-use pagis_core::{EXIT_CAPABILITY, HostId, WorkspaceId};
+use pagis_core::{EXIT_CAPABILITY, Host, HostId, WorkspaceId};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream, ReadHalf, WriteHalf};
 use tokio_util::compat::TokioAsyncReadCompatExt;
 use tokio_util::sync::CancellationToken;
@@ -56,7 +56,7 @@ pub async fn upgrade(
         ));
     }
     let session_ended = live.session_ended;
-    Ok(ws.on_upgrade(move |socket| carry(state, workspace_id, host.id, session_ended, socket)))
+    Ok(ws.on_upgrade(move |socket| carry(state, workspace_id, host, session_ended, socket)))
 }
 
 /// Serve the socket as the Home Exit of its Host until the client
@@ -69,14 +69,14 @@ pub async fn upgrade(
 async fn carry(
     state: Arc<AppState>,
     workspace_id: WorkspaceId,
-    host_id: HostId,
+    host: Host,
     session_ended: CancellationToken,
     socket: WebSocket,
 ) {
     let (daemon_end, socket_end) = tokio::io::duplex(PIPE_BYTES);
     let served = state
         .home_exits
-        .serve(workspace_id, host_id, daemon_end.compat());
+        .serve(workspace_id, host.id, host.name, daemon_end.compat());
     let (mut sink, mut stream) = socket.split();
     let (pipe_reader, pipe_writer) = tokio::io::split(socket_end);
     let ended = tokio::select! {

@@ -34,6 +34,7 @@ impl SystemConfigFile for FileSystemConfig {
             docker_endpoint: config.docker_endpoint(),
             log_level: config.log_level,
             analytics: config.analytics,
+            home_exit: config.computer.home_exit,
         })
     }
 
@@ -46,6 +47,7 @@ impl SystemConfigFile for FileSystemConfig {
         config.docker_endpoint = settings.docker_endpoint.clone().unwrap_or_default();
         config.log_level = settings.log_level.clone();
         config.analytics = settings.analytics;
+        config.computer.home_exit = settings.home_exit;
         config.save(&path).map_err(|error| error.to_string())
     }
 
@@ -185,6 +187,7 @@ mod tests {
             docker_endpoint: Some("unix:///tmp/docker.sock".to_string()),
             log_level: "debug".to_string(),
             analytics: false,
+            home_exit: false,
         })
         .unwrap();
 
@@ -195,7 +198,13 @@ mod tests {
                 docker_endpoint: Some("unix:///tmp/docker.sock".to_string()),
                 log_level: "debug".to_string(),
                 analytics: false,
+                home_exit: false,
             }
+        );
+        assert!(
+            std::fs::read_to_string(dir.path().join("config.toml"))
+                .unwrap()
+                .contains("home_exit = false")
         );
     }
 
@@ -266,6 +275,7 @@ mod tests {
             docker_endpoint: Some("unix:///tmp/docker.sock".to_string()),
             log_level: "debug".to_string(),
             analytics: false,
+            home_exit: false,
         };
         file.write(&settings).unwrap();
 
@@ -287,6 +297,7 @@ mod tests {
             docker_endpoint: None,
             log_level: "warn".to_string(),
             analytics: true,
+            home_exit: true,
         })
         .unwrap();
 

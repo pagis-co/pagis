@@ -333,6 +333,11 @@ struct FakeState {
     /// The mode of each Exit Proxy: the one its start environment named,
     /// then the one of the last switch.
     exit_modes: HashMap<AgentId, crate::ExitMode>,
+    /// Every switch of an Exit Proxy that took effect, in order.
+    exit_switches: Vec<(AgentId, crate::ExitMode)>,
+    /// The Computers whose Exit Proxy refuses every switch, with the
+    /// reason.
+    failing_exit_switches: HashMap<AgentId, String>,
 }
 
 /// Makes the stream of one download.
@@ -402,6 +407,8 @@ impl Default for FakeComputerRuntime {
                 downloaded: Vec::new(),
                 browser: FakeBrowser::default(),
                 exit_modes: HashMap::new(),
+                exit_switches: Vec::new(),
+                failing_exit_switches: HashMap::new(),
             }),
         }
     }
@@ -810,6 +817,32 @@ impl FakeComputerRuntime {
 
     /// The server side of the streaming exec started last, so a test
     /// answers the daemon the way a real MCP server does.
+    /// The mode of the Exit Proxy of `agent_id`, as its start environment
+    /// or its last switch set it, or `None` before its first start.
+    pub fn exit_mode(&self, agent_id: &AgentId) -> Option<crate::ExitMode> {
+        self.state
+            .lock()
+            .expect("fake state")
+            .exit_modes
+            .get(agent_id)
+            .copied()
+    }
+
+    /// Every switch of an Exit Proxy that took effect, in order.
+    pub fn exit_switches(&self) -> Vec<(AgentId, crate::ExitMode)> {
+        self.state.lock().expect("fake state").exit_switches.clone()
+    }
+
+    /// Make the Exit Proxy of `agent_id` refuse every switch with
+    /// `reason`.
+    pub fn fail_exit_switch(&self, agent_id: &AgentId, reason: &str) {
+        self.state
+            .lock()
+            .expect("fake state")
+            .failing_exit_switches
+            .insert(agent_id.clone(), reason.to_string());
+    }
+
     pub fn take_server_end(&self) -> Option<tokio::io::DuplexStream> {
         self.state.lock().expect("fake state").server_ends.pop()
     }
@@ -1202,11 +1235,13 @@ impl ComputerRuntime for FakeComputerRuntime {
         computer: &StartedComputer,
         mode: crate::ExitMode,
     ) -> Result<u64, String> {
-        self.state
-            .lock()
-            .expect("fake state")
-            .exit_modes
-            .insert(fake_agent(computer), mode);
+        let agent_id = fake_agent(computer);
+        let mut state = self.state.lock().expect("fake state");
+        if let Some(reason) = state.failing_exit_switches.get(&agent_id) {
+            return Err(format!("the Exit Proxy switch was refused: {reason}"));
+        }
+        state.exit_modes.insert(agent_id.clone(), mode);
+        state.exit_switches.push((agent_id, mode));
         Ok(0)
     }
 

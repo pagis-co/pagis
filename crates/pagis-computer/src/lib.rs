@@ -25,11 +25,11 @@ pub use docker::{
     DockerSource,
 };
 pub use exit_listener::{ComputerTokens, ExitListener};
-pub use home_exit::{ExitBytes, ExitError, ExitStream, HomeExits};
+pub use home_exit::{ExitBytes, ExitError, ExitInUse, ExitStream, HomeExits};
 pub use image::{ComputerImage, ImagePullError};
 pub use manager::{
-    ComputerManager, ComputerManagerDeps, DaemonHold, Preview, SHELL_HOME, ShellCommand,
-    TakeoverTiming,
+    ComputerManager, ComputerManagerDeps, DaemonHold, ExitSwitchFailure, Preview, SHELL_HOME,
+    ShellCommand, TakeoverTiming,
 };
 pub use relay::{
     DaemonRelay, IceCredentials, IceServer, MediaForwarder, MediaPath, MediaRelay, OpenPath,
@@ -39,6 +39,7 @@ pub use remote_access_turn::{MediaRelayPeers, RemoteAccessTurn};
 pub use tenants::{AwakeCeiling, ComputerKind, ComputerManagers, ComputerManagersDeps};
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use pagis_core::{AgentId, SkillMount, WorkspaceId};
@@ -131,6 +132,17 @@ pub struct ExitStart {
 /// daemon on `port`: the Docker host, as the Media Relay is reached.
 pub fn exit_daemon(port: u16) -> String {
     format!("{RELAY_HOST}:{port}")
+}
+
+/// The exit of the Computers of a Server (ADR-0029): the exit listener
+/// that each Agent's Computer names at its start, and the Home Exits of
+/// the People, which say which mode is in effect for each Person. A Local
+/// Installation has none, and its Computers run in `Direct` mode alone.
+#[derive(Clone)]
+pub struct ComputerExit {
+    /// The exit listener as a Computer reaches it ([`exit_daemon`]).
+    pub daemon: String,
+    pub home_exits: Arc<HomeExits>,
 }
 
 /// The environment one container boots with: the Workspace timezone,

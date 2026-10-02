@@ -404,12 +404,20 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     if booted.installation() == crate::Installation::Local && options.exit_listener.is_some() {
         anyhow::bail!("a Local Installation opens no exit listener");
     }
-    let exit_daemon = options
+    // The Home Exits of the People: the exit socket of each Host, the
+    // System Setting that an Administrator turns off, and on a Server the
+    // exit listener that sends a Computer's connections through them.
+    let home_exits = pagis_computer::HomeExits::new(Arc::clone(&workspaces) as _);
+    home_exits.set_enabled(booted.config.computer.home_exit);
+    let exit = options
         .exit_listener
         .as_ref()
         .map(|listener| listener.local_addr())
         .transpose()?
-        .map(|address| pagis_computer::exit_daemon(address.port()));
+        .map(|address| pagis_computer::ComputerExit {
+            daemon: pagis_computer::exit_daemon(address.port()),
+            home_exits: Arc::clone(&home_exits),
+        });
     // One Computer manager per tenant: the manager names and
     // labels every Docker object, so a container of one Workspace is
     // never a container of another. Each manager's idle sweeper starts
@@ -425,12 +433,8 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         relay: options.media_relay,
         caps: options.computer_awake_caps,
         cancel: options.cancel.clone(),
-        exit_daemon,
+        exit,
     });
-    // The Home Exits of the People: the exit socket of each Host, and
-    // on a Server the exit listener that sends a Computer's connections
-    // through them.
-    let home_exits = pagis_computer::HomeExits::new(Arc::clone(&workspaces) as _);
     if let Some(listener) = options.exit_listener.take() {
         let address = listener.local_addr()?;
         let exit =

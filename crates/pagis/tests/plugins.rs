@@ -499,7 +499,7 @@ async fn a_plugin_server_starts_in_the_calling_tenants_plugin_computer() {
         relay: pagis_computer::fake::loopback_relay(),
         caps: pagis_computer::AwakeCaps::default(),
         cancel: tokio_util::sync::CancellationToken::new(),
-        exit_daemon: None,
+        exit: None,
     });
     let processes = pagis::plugin_tools::ComputerServerProcesses::new(
         std::sync::Arc::clone(&managers),

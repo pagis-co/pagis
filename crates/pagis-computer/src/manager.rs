@@ -13,9 +13,10 @@ use tokio_util::sync::CancellationToken;
 
 use crate::image::Preparation;
 use crate::{
-    BindMount, CONTAINER_LANG, ComputerError, ComputerImage, ComputerImageState, ComputerRuntime,
-    ComputerState, DEFAULT_TIMEZONE, ExecOutcome, ExecRequest, ExitMode, ExitStart, IMAGE_VERSION,
-    InputHolder, OutputCap, StartedComputer, container_env, mounts_fingerprint,
+    BindMount, CONTAINER_LANG, ComputerError, ComputerExit, ComputerImage, ComputerImageState,
+    ComputerRuntime, ComputerState, DEFAULT_TIMEZONE, ExecOutcome, ExecRequest, ExitInUse,
+    ExitMode, ExitStart, IMAGE_VERSION, InputHolder, OutputCap, StartedComputer, container_env,
+    mounts_fingerprint,
 };
 
 /// Publish pull progress at most every this many percent.
@@ -112,6 +113,11 @@ struct Entry {
     /// at most one: the next offer replaces it, and it closes when the
     /// Computer stops being awake (ADR-0014).
     path: Option<crate::OpenPath>,
+    /// The mode of the Exit Proxy of an awake Agent's Computer on a
+    /// Server, as its start, its last switch or its adoption gave it
+    /// (ADR-0029). `None` while it is not awake, for the Plugin
+    /// Computer, and on a Local Installation.
+    exit: Option<ExitMode>,
 }
 
 impl Entry {
@@ -123,8 +129,18 @@ impl Entry {
             timezone: None,
             occupied: false,
             path: None,
+            exit: None,
         }
     }
+}
+
+/// An awake Agent's Computer whose Exit Proxy did not switch. It keeps
+/// its mode, and it takes the mode in effect at its next wake.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExitSwitchFailure {
+    pub agent_id: AgentId,
+    /// Why, as the Exit Proxy or the store answered.
+    pub error: String,
 }
 
 /// One live hold of the input switch.
@@ -190,10 +206,13 @@ pub struct ComputerManager {
     /// ceiling, so the server count is the server's and not one
     /// tenant's.
     ceiling: Arc<crate::AwakeCeiling>,
-    /// The exit listener of the daemon as a Computer reaches it, on a
-    /// Server alone (ADR-0029). `None` on a Local Installation, whose
-    /// Computers run their Exit Proxy in `Direct` mode alone.
-    exit_daemon: Option<String>,
+    /// The exit of the Computers of a Server (ADR-0029). `None` on a
+    /// Local Installation, whose Computers run their Exit Proxy in
+    /// `Direct` mode alone.
+    exit: Option<ComputerExit>,
+    /// Serializes the switches of the Exit Proxies, so the last change of
+    /// the choice is the one that the Computers keep.
+    exit_switch: tokio::sync::Mutex<()>,
 }
 
 /// What the manager needs to run the computers of one Workspace.
@@ -211,9 +230,8 @@ pub struct ComputerManagerDeps {
     pub idle_stop: Duration,
     pub relay: Arc<dyn crate::MediaRelay>,
     pub ceiling: Arc<crate::AwakeCeiling>,
-    /// The exit listener of the daemon as a Computer reaches it
-    /// ([`crate::exit_daemon`]), on a Server alone.
-    pub exit_daemon: Option<String>,
+    /// The exit of the Computers, on a Server alone.
+    pub exit: Option<ComputerExit>,
 }
 
 impl ComputerManager {
@@ -236,7 +254,8 @@ impl ComputerManager {
             running_execs: Mutex::new(HashMap::new()),
             wake_preflight: tokio::sync::Mutex::new(()),
             ceiling: deps.ceiling,
-            exit_daemon: deps.exit_daemon,
+            exit: deps.exit,
+            exit_switch: tokio::sync::Mutex::new(()),
         })
     }
 
@@ -489,10 +508,11 @@ impl ComputerManager {
     /// timezone, and where the Exit Proxy starts (ADR-0029).
     ///
     /// An Agent's Computer on a Server names the exit listener of the
-    /// daemon, and starts in `Home` mode when the Person has chosen a
-    /// Home Exit. The Plugin Computer starts in `Direct` mode with no
-    /// listener: it serves the Plugins of the Workspace, which call APIs
-    /// and not sites that score addresses.
+    /// daemon in every mode, so a switch reaches it while it runs. It
+    /// starts in `Home` mode when the Person has chosen a Home Exit and
+    /// the System Setting is on. The Plugin Computer starts in `Direct`
+    /// mode with no listener: it serves the Plugins of the Workspace,
+    /// which call APIs and not sites that score addresses.
     ///
     /// A store that cannot answer gives UTC and `Direct` mode, because a
     /// computer that boots on the wrong clock, or leaves from the server
@@ -509,15 +529,15 @@ impl ComputerManager {
                 None
             }
         };
-        let exit = match (&self.exit_daemon, Self::kind(agent_id)) {
-            (Some(daemon), crate::ComputerKind::Sprite) => Some(ExitStart {
-                daemon: daemon.clone(),
+        let exit = match (&self.exit, Self::kind(agent_id)) {
+            (Some(exit), crate::ComputerKind::Sprite) => Some(ExitStart {
+                daemon: exit.daemon.clone(),
                 mode: match workspace
                     .as_ref()
-                    .is_some_and(|workspace| workspace.home_exit_host_id.is_some())
+                    .and_then(|workspace| exit.home_exits.choice_in_effect(workspace))
                 {
-                    true => ExitMode::Home,
-                    false => ExitMode::Direct,
+                    Some(_) => ExitMode::Home,
+                    None => ExitMode::Direct,
                 },
             }),
             _ => None,
@@ -576,9 +596,15 @@ impl ComputerManager {
             )
             .await?;
         self.touch(agent_id);
+        self.record_exit(agent_id, boot.exit.as_ref().map(|exit| exit.mode));
         self.set_phase(agent_id, Phase::Awake(started)).await;
         self.record_mounts(agent_id, Some(mounts_fingerprint(&mounts)));
         self.record_timezone(agent_id, Some(boot.timezone));
+        // The choice can change while the Computer downloads and starts,
+        // and a switch passes by a Computer that is not awake yet.
+        if boot.exit.is_some() {
+            self.settle_exit().await;
+        }
         Ok(())
     }
 
@@ -1431,6 +1457,10 @@ impl ComputerManager {
                 self.touch(agent_id);
                 self.occupy_adopted(agent_id);
                 let mounts = running.mounts;
+                let exit = self.adopted_exit(agent_id, &running.computer).await;
+                self.record_exit(agent_id, exit);
+                let switches =
+                    self.exit.is_some() && Self::kind(agent_id) == crate::ComputerKind::Sprite;
                 self.set_phase(agent_id, Phase::Awake(running.computer))
                     .await;
                 // The adopted container's own label, so the next wake
@@ -1439,11 +1469,195 @@ impl ComputerManager {
                 // This process did not boot it, so its clock is its
                 // own: a shell command inherits the container's `TZ`.
                 self.record_timezone(agent_id, None);
+                // The choice may have changed while no daemon ran, and a
+                // proxy that did not report its mode switches too.
+                if switches {
+                    self.settle_exit().await;
+                }
             }
             Ok(None) => {}
             Err(error) => {
                 tracing::warn!(%error, %agent_id, "running-container check failed");
             }
+        }
+    }
+
+    /// Switch the Exit Proxy of each awake Agent's Computer of this
+    /// Workspace to the mode in effect, at once and with no restart
+    /// (ADR-0029). The Person turned their Home Exit on, off, or to
+    /// another Host, so every Computer switches, also one whose mode
+    /// stays: the proxy closes the connections that it holds, and the
+    /// next ones take the new path. Each Computer that switched shows its
+    /// new exit.
+    ///
+    /// A Computer that fails its switch keeps its mode and does not stop
+    /// the others: the answer names each one, and it takes the mode in
+    /// effect at its next wake. A Computer that is not awake takes it at
+    /// its wake.
+    pub async fn switch_exit(&self) -> Vec<ExitSwitchFailure> {
+        self.switch_exits(true).await
+    }
+
+    /// Switch each awake Agent's Computer of this Workspace whose mode is
+    /// not the mode in effect, and leave the others and their connections
+    /// as they are. The Home Exit System Setting changed, or a Computer
+    /// woke or was adopted with a mode that the choice has since changed.
+    pub async fn settle_exit(&self) -> Vec<ExitSwitchFailure> {
+        self.switch_exits(false).await
+    }
+
+    /// Switch the Exit Proxies: every awake Agent's Computer when
+    /// `every`, and else the ones whose mode is not the mode in effect.
+    async fn switch_exits(&self, every: bool) -> Vec<ExitSwitchFailure> {
+        let Some(exit) = &self.exit else {
+            return Vec::new();
+        };
+        let _one_at_a_time = self.exit_switch.lock().await;
+        let wanted =
+            exit.home_exits
+                .read_choice(&self.workspace_id)
+                .await
+                .map(|choice| match choice {
+                    Some(_) => ExitMode::Home,
+                    None => ExitMode::Direct,
+                });
+        let computers: Vec<(AgentId, StartedComputer)> = self
+            .entries
+            .lock()
+            .expect("computer entries lock")
+            .iter()
+            .filter_map(|(agent_id, entry)| match (&entry.phase, &wanted) {
+                (Phase::Awake(computer), Ok(mode))
+                    if agent_id.as_str() != crate::PLUGIN_AGENT
+                        && (every || entry.exit != Some(*mode)) =>
+                {
+                    Some((agent_id.clone(), computer.clone()))
+                }
+                (Phase::Awake(computer), Err(_)) if agent_id.as_str() != crate::PLUGIN_AGENT => {
+                    Some((agent_id.clone(), computer.clone()))
+                }
+                _ => None,
+            })
+            .collect();
+        let mode = match wanted {
+            Ok(mode) => mode,
+            Err(error) => {
+                tracing::error!(%error, workspace_id = %self.workspace_id, "the Home Exit was not read");
+                return computers
+                    .into_iter()
+                    .map(|(agent_id, _)| ExitSwitchFailure {
+                        agent_id,
+                        error: format!("the Home Exit was not read: {error}"),
+                    })
+                    .collect();
+            }
+        };
+        let switched =
+            futures::future::join_all(computers.iter().map(|(agent_id, computer)| async move {
+                (agent_id, self.runtime.set_exit_mode(computer, mode).await)
+            }))
+            .await;
+        let mut failures = Vec::new();
+        for (agent_id, result) in switched {
+            match result {
+                Ok(closed) => {
+                    tracing::info!(%agent_id, mode = mode.as_str(), closed, "the Exit Proxy switched");
+                    self.record_exit(agent_id, Some(mode));
+                    self.publish_exit(agent_id).await;
+                }
+                Err(error) => {
+                    tracing::warn!(%error, %agent_id, mode = mode.as_str(), "the Exit Proxy did not switch");
+                    failures.push(ExitSwitchFailure {
+                        agent_id: agent_id.clone(),
+                        error,
+                    });
+                }
+            }
+        }
+        failures
+    }
+
+    /// Where the connections of an awake Agent's Computer leave now
+    /// (ADR-0029): its Person's Home Exit or the server while its Exit
+    /// Proxy runs in `Home` mode, and none in `Direct` mode, while it is
+    /// not awake, and on a Local Installation.
+    pub async fn exit_in_use(&self, agent_id: &AgentId) -> Option<ExitInUse> {
+        let exit = self.exit.as_ref()?;
+        let mode = self
+            .entries
+            .lock()
+            .expect("computer entries lock")
+            .get(agent_id)
+            .filter(|entry| matches!(entry.phase, Phase::Awake(_)))
+            .and_then(|entry| entry.exit)?;
+        match mode {
+            ExitMode::Home => Some(exit.home_exits.in_use(&self.workspace_id).await),
+            ExitMode::Direct => None,
+        }
+    }
+
+    /// The Home Exit of this Workspace's Person came or went: each awake
+    /// Computer in `Home` mode shows its new exit.
+    pub async fn home_exit_changed(&self) {
+        let in_home_mode: Vec<AgentId> = self
+            .entries
+            .lock()
+            .expect("computer entries lock")
+            .iter()
+            .filter(|(_, entry)| {
+                matches!(entry.phase, Phase::Awake(_)) && entry.exit == Some(ExitMode::Home)
+            })
+            .map(|(agent_id, _)| agent_id.clone())
+            .collect();
+        for agent_id in &in_home_mode {
+            self.publish_exit(agent_id).await;
+        }
+    }
+
+    /// Publish `computer.exit_changed` with the exit in use of one
+    /// Computer, as its view and its `computer` tool result show it, or
+    /// null for none.
+    async fn publish_exit(&self, agent_id: &AgentId) {
+        let exit = self.exit_in_use(agent_id).await.map(|exit| exit.label());
+        let event = NewEvent {
+            workspace_id: self.workspace_id.clone(),
+            event_type: "computer.exit_changed".to_string(),
+            agent_id: Some(agent_id.clone()),
+            run_id: None,
+            channel_id: None,
+            payload: serde_json::json!({ "exit": exit }),
+        };
+        if let Err(error) = self.bus.publish(event).await {
+            tracing::error!(%error, %agent_id, "computer.exit_changed publish failed");
+        }
+    }
+
+    /// The mode of the Exit Proxy of an adopted Agent's Computer on a
+    /// Server, as the proxy reports it. `None` for the Plugin Computer,
+    /// on a Local Installation, and when the proxy does not answer: the
+    /// next settle then switches it.
+    async fn adopted_exit(
+        &self,
+        agent_id: &AgentId,
+        computer: &StartedComputer,
+    ) -> Option<ExitMode> {
+        if self.exit.is_none() || Self::kind(agent_id) != crate::ComputerKind::Sprite {
+            return None;
+        }
+        match self.runtime.exit_status(computer).await {
+            Ok(status) => Some(status.mode),
+            Err(error) => {
+                tracing::warn!(%error, %agent_id, "the Exit Proxy of an adopted computer did not answer");
+                None
+            }
+        }
+    }
+
+    /// Record the mode of the Exit Proxy of one Computer.
+    fn record_exit(&self, agent_id: &AgentId, mode: Option<ExitMode>) {
+        let mut entries = self.entries.lock().expect("computer entries lock");
+        if let Some(entry) = entries.get_mut(agent_id) {
+            entry.exit = mode;
         }
     }
 
@@ -1476,7 +1690,10 @@ impl ComputerManager {
             entry.phase = phase;
             let closing = match entry.phase {
                 Phase::Awake(_) => None,
-                _ => entry.path.take(),
+                _ => {
+                    entry.exit = None;
+                    entry.path.take()
+                }
             };
             let state = match &entry.phase {
                 Phase::Off => ComputerState::Off,

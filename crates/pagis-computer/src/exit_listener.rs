@@ -525,7 +525,11 @@ mod tests {
             let (daemon_end, client_app_end) = exit_socket_pair();
             let home_exits = Arc::clone(&self.home_exits);
             let (workspace_id, host_id) = (person.workspace_id.clone(), person.host_id.clone());
-            tokio::spawn(async move { home_exits.serve(workspace_id, host_id, daemon_end).await });
+            tokio::spawn(async move {
+                home_exits
+                    .serve(workspace_id, host_id, "Air".to_string(), daemon_end)
+                    .await
+            });
             let client_app = tokio::spawn(exit.serve(client_app_end));
             let deadline = tokio::time::Instant::now() + WAIT;
             while !self.home_exits.is_open(&person.host_id) {

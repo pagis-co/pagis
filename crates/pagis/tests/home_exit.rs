@@ -5,8 +5,10 @@
 //! Server the exit listener takes the `CONNECT` of a Computer's Exit Proxy
 //! and carries it through the Person's Home Exit. These tests drive the
 //! whole path over real sockets: the socket route, its Person rule, the
-//! end of the Session, the exit listener of a Server, and the start
-//! environment of a Computer. The Client App's end of the socket is the
+//! end of the Session, the exit listener of a Server, the start
+//! environment of a Computer, the Person's choice in Settings with the
+//! live switch of their Computers, the exit in use, and the System
+//! Setting of the Administrator. The Client App's end of the socket is the
 //! fake Home Exit of `pagis_computer`, which speaks the protocol of the
 //! Client App; the interop test at the end drives the Client App's own
 //! code.
@@ -15,11 +17,16 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use futures::{SinkExt, StreamExt};
+use pagis_computer::ExitMode;
 use pagis_computer::fake::{FakeComputerRuntime, FakeHomeExit};
 use pagis_core::HostId;
 use pagis_testkit::{ExitClient, HostAnswer, HostClient, TestDaemon, TestDaemonOptions};
+use reqwest::StatusCode;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
+use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
 
 const WAIT: Duration = Duration::from_secs(5);
 
@@ -370,6 +377,408 @@ async fn a_server_carries_a_computers_connection_through_its_persons_home_exit()
         ),
         "the connection stays open after the Home Exit went away"
     );
+}
+
+/// One request of the signed-in Person's own Home Exit route.
+async fn home_exit(
+    daemon: &TestDaemon,
+    cookie: &str,
+    method: reqwest::Method,
+    body: Option<serde_json::Value>,
+) -> reqwest::Response {
+    let request = reqwest::Client::new()
+        .request(
+            method,
+            format!("{}/api/v1/settings/home-exit", daemon.base_url),
+        )
+        .header("cookie", cookie);
+    match body {
+        Some(body) => request.json(&body),
+        None => request,
+    }
+    .send()
+    .await
+    .expect("the Home Exit route answers")
+}
+
+/// Choose `host_id` as the Person's Home Exit through the route, and
+/// answer the response.
+async fn choose(daemon: &TestDaemon, host_id: &str) -> reqwest::Response {
+    home_exit(
+        daemon,
+        daemon.cookie(),
+        reqwest::Method::PUT,
+        Some(serde_json::json!({ "host_id": host_id })),
+    )
+    .await
+}
+
+/// The Home Exit System Setting through the Administration Port.
+async fn switch_the_system_setting(daemon: &TestDaemon, enabled: bool) -> reqwest::Response {
+    reqwest::Client::new()
+        .put(format!(
+            "{}/api/v1/settings/system/home-exit",
+            daemon.administration_base_url
+        ))
+        .header("cookie", daemon.cookie())
+        .json(&serde_json::json!({ "enabled": enabled }))
+        .send()
+        .await
+        .expect("the System Setting route answers")
+}
+
+/// The Computer of the seeded Agent, as its view reads it.
+async fn computer(daemon: &TestDaemon) -> serde_json::Value {
+    reqwest::Client::new()
+        .get(format!(
+            "{}/api/v1/agents/{}/computer",
+            daemon.base_url, daemon.agent_id
+        ))
+        .header("cookie", daemon.cookie())
+        .send()
+        .await
+        .expect("the state answers")
+        .json()
+        .await
+        .expect("the state is JSON")
+}
+
+/// Wait until the Computer's view shows `exit`.
+async fn wait_for_exit(daemon: &TestDaemon, exit: serde_json::Value) {
+    let deadline = tokio::time::Instant::now() + WAIT;
+    loop {
+        let shown = computer(daemon).await;
+        if shown["exit"] == exit {
+            return;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the view shows {shown}, not {exit}"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
+
+/// The event stream of the Product App, signed in as the seeded Person.
+async fn firehose(daemon: &TestDaemon) -> Socket {
+    let (mut socket, _) = connect_async(daemon.ws_request(&daemon.ws_url()))
+        .await
+        .expect("the event socket opens");
+    socket
+        .send(Message::text(
+            serde_json::json!({ "type": "auth" }).to_string(),
+        ))
+        .await
+        .expect("send the auth frame");
+    next_frame_of(&mut socket, "ready").await;
+    socket
+}
+
+/// The next JSON frame of `frame_type` on the event stream.
+async fn next_frame_of(socket: &mut Socket, frame_type: &str) -> serde_json::Value {
+    loop {
+        let frame = tokio::time::timeout(WAIT, socket.next())
+            .await
+            .expect("a frame in time")
+            .expect("the socket is open")
+            .expect("the frame is readable");
+        let Message::Text(text) = frame else { continue };
+        let frame: serde_json::Value = serde_json::from_str(&text).expect("the frame is JSON");
+        if frame["type"] == frame_type {
+            return frame;
+        }
+    }
+}
+
+/// A Server over the fake runtime, or `None` where Docker does not run
+/// the Postgres of the test.
+async fn server(runtime: &Arc<FakeComputerRuntime>) -> Option<TestDaemon> {
+    TestDaemon::start_on_postgres_with(TestDaemonOptions {
+        computer: Arc::clone(runtime) as _,
+        ..TestDaemonOptions::default()
+    })
+    .await
+}
+
+/// The Person chooses their own Host as the Home Exit in Settings, and
+/// the Exit Proxy of their awake Computer switches to Home mode at once,
+/// with no restart. Its view says which exit is in use, and each change
+/// shows on the event stream: the server while the Host is absent, the
+/// Host by its name while its exit socket is open. Turned off, the
+/// Computer switches back and shows no exit.
+#[tokio::test]
+async fn a_person_chooses_their_own_host_and_their_awake_computer_switches() {
+    let runtime = Arc::new(FakeComputerRuntime::with_image());
+    let Some(daemon) = server(&runtime).await else {
+        return;
+    };
+    let host = HostClient::connect(
+        &daemon,
+        "Air",
+        "macos",
+        &["shell", "exit"],
+        HostAnswer::ok(),
+    )
+    .await;
+    HostClient::connect(&daemon, "Phone", "ios", &[], HostAnswer::ok()).await;
+    wake(&daemon).await;
+    let agent_id = pagis_core::AgentId::from(daemon.agent_id.clone());
+    assert_eq!(runtime.exit_mode(&agent_id), Some(ExitMode::Direct));
+    let starts = runtime.starts();
+
+    let read = home_exit(&daemon, daemon.cookie(), reqwest::Method::GET, None).await;
+    assert_eq!(read.status(), StatusCode::OK);
+    let read: serde_json::Value = read.json().await.expect("JSON");
+    assert_eq!(read["available"], true);
+    assert_eq!(read["administrator_turned_off"], false);
+    assert_eq!(read["chosen"], serde_json::Value::Null);
+    let hosts = read["hosts"].as_array().expect("the Hosts");
+    assert_eq!(hosts.len(), 1, "only a Host that declares exit: {read}");
+    assert_eq!(hosts[0]["name"], "Air");
+    assert_eq!(hosts[0]["present"], false);
+
+    let chose = choose(&daemon, host.host_id()).await;
+    assert_eq!(chose.status(), StatusCode::OK);
+    let chose: serde_json::Value = chose.json().await.expect("JSON");
+    assert_eq!(chose["home_exit"]["chosen"]["id"], host.host_id());
+    assert_eq!(chose["not_switched"], serde_json::json!([]));
+    assert_eq!(runtime.exit_mode(&agent_id), Some(ExitMode::Home));
+    assert_eq!(
+        runtime.starts(),
+        starts,
+        "the switch restarted the Computer"
+    );
+    assert_eq!(computer(&daemon).await["exit"], "exit: server");
+
+    let mut events = firehose(&daemon).await;
+    let _client_app = ExitClient::connect(
+        &daemon,
+        daemon.cookie(),
+        host.host_id(),
+        FakeHomeExit::to(echo_target().await),
+    )
+    .await
+    .expect("the exit socket opens");
+    wait_for_exit(&daemon, serde_json::json!("exit: Air")).await;
+    let change = next_frame_of(&mut events, "computer.exit_changed").await;
+    assert_eq!(change["payload"]["agent_id"], daemon.agent_id);
+    assert_eq!(change["payload"]["payload"]["exit"], "exit: Air");
+    let read: serde_json::Value = home_exit(&daemon, daemon.cookie(), reqwest::Method::GET, None)
+        .await
+        .json()
+        .await
+        .expect("JSON");
+    assert_eq!(read["chosen"]["present"], true);
+
+    let cleared = home_exit(&daemon, daemon.cookie(), reqwest::Method::DELETE, None).await;
+    assert_eq!(cleared.status(), StatusCode::OK);
+    let cleared: serde_json::Value = cleared.json().await.expect("JSON");
+    assert_eq!(cleared["home_exit"]["chosen"], serde_json::Value::Null);
+    assert_eq!(runtime.exit_mode(&agent_id), Some(ExitMode::Direct));
+    assert_eq!(computer(&daemon).await["exit"], serde_json::Value::Null);
+}
+
+/// Only a Host of the Person that declared `exit` can be their Home
+/// Exit, and the route says why it refuses another: the Host of another
+/// Person is not one of theirs, and a Host without `exit` carries no
+/// exit traffic. The choice does not change.
+#[tokio::test]
+async fn the_home_exit_is_a_host_of_the_person_that_declared_exit() {
+    let runtime = Arc::new(FakeComputerRuntime::with_image());
+    let Some(daemon) = server(&runtime).await else {
+        return;
+    };
+    let theirs = another_person(&daemon).await;
+    let their_host = HostClient::connect_as(
+        &daemon,
+        &theirs,
+        "Their Air",
+        "macos",
+        &["shell", "exit"],
+        HostAnswer::ok(),
+    )
+    .await;
+    let phone = HostClient::connect(&daemon, "Phone", "ios", &["shell"], HostAnswer::ok()).await;
+
+    let refused = choose(&daemon, their_host.host_id()).await;
+    assert_eq!(refused.status(), StatusCode::NOT_FOUND);
+    let body: serde_json::Value = refused.json().await.expect("JSON");
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("host")),
+        "{body}"
+    );
+
+    let refused = choose(&daemon, phone.host_id()).await;
+    assert_eq!(refused.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let body: serde_json::Value = refused.json().await.expect("JSON");
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("Phone") && message.contains("`exit`")),
+        "{body}"
+    );
+
+    let read: serde_json::Value = home_exit(&daemon, daemon.cookie(), reqwest::Method::GET, None)
+        .await
+        .json()
+        .await
+        .expect("JSON");
+    assert_eq!(read["chosen"], serde_json::Value::Null);
+    let workspace = daemon
+        .stores()
+        .workspaces
+        .get(&daemon.workspace_id)
+        .await
+        .expect("read")
+        .expect("the Workspace");
+    assert_eq!(workspace.home_exit_host_id, None);
+}
+
+/// A Computer whose Exit Proxy does not switch keeps its mode, and the
+/// answer names it. The choice is saved, and the Computer takes it at
+/// its next wake.
+#[tokio::test]
+async fn the_answer_names_a_computer_that_did_not_switch() {
+    let runtime = Arc::new(FakeComputerRuntime::with_image());
+    let Some(daemon) = server(&runtime).await else {
+        return;
+    };
+    let host = HostClient::connect(
+        &daemon,
+        "Air",
+        "macos",
+        &["shell", "exit"],
+        HostAnswer::ok(),
+    )
+    .await;
+    wake(&daemon).await;
+    let agent_id = pagis_core::AgentId::from(daemon.agent_id.clone());
+    runtime.fail_exit_switch(&agent_id, "screend does not answer");
+
+    let chose = choose(&daemon, host.host_id()).await;
+
+    assert_eq!(chose.status(), StatusCode::OK);
+    let chose: serde_json::Value = chose.json().await.expect("JSON");
+    assert_eq!(chose["home_exit"]["chosen"]["id"], host.host_id());
+    let failed = chose["not_switched"].as_array().expect("a list");
+    assert_eq!(failed.len(), 1, "{chose}");
+    assert_eq!(failed[0]["agent_id"], daemon.agent_id);
+    assert!(
+        failed[0]["agent_name"]
+            .as_str()
+            .is_some_and(|name| !name.is_empty())
+    );
+    assert!(
+        failed[0]["error"]
+            .as_str()
+            .is_some_and(|error| error.contains("screend does not answer")),
+        "{chose}"
+    );
+    assert_eq!(runtime.exit_mode(&agent_id), Some(ExitMode::Direct));
+    assert_eq!(computer(&daemon).await["exit"], serde_json::Value::Null);
+}
+
+/// An Administrator turns the Home Exit off for the installation: the
+/// awake Computer switches to Direct mode at once, the Person's view
+/// says that the Administrator turned it off, their choice stays, and
+/// they cannot choose another. On again, the choice is back in effect.
+#[tokio::test]
+async fn the_administrator_turns_the_home_exit_off_and_on_for_the_installation() {
+    let runtime = Arc::new(FakeComputerRuntime::with_image());
+    let Some(daemon) = server(&runtime).await else {
+        return;
+    };
+    let host = HostClient::connect(
+        &daemon,
+        "Air",
+        "macos",
+        &["shell", "exit"],
+        HostAnswer::ok(),
+    )
+    .await;
+    assert_eq!(
+        choose(&daemon, host.host_id()).await.status(),
+        StatusCode::OK
+    );
+    wake(&daemon).await;
+    let agent_id = pagis_core::AgentId::from(daemon.agent_id.clone());
+    assert_eq!(runtime.exit_mode(&agent_id), Some(ExitMode::Home));
+
+    let off = switch_the_system_setting(&daemon, false).await;
+
+    assert_eq!(off.status(), StatusCode::OK);
+    let off: serde_json::Value = off.json().await.expect("JSON");
+    assert_eq!(off["settings"]["home_exit"]["enabled"], false);
+    assert_eq!(off["not_switched"], 0);
+    let config = pagis::Config::read_file(&daemon.booted.home.join("config.toml")).unwrap();
+    assert!(!config.computer.home_exit);
+    assert_eq!(runtime.exit_mode(&agent_id), Some(ExitMode::Direct));
+    assert_eq!(computer(&daemon).await["exit"], serde_json::Value::Null);
+    let read: serde_json::Value = home_exit(&daemon, daemon.cookie(), reqwest::Method::GET, None)
+        .await
+        .json()
+        .await
+        .expect("JSON");
+    assert_eq!(read["administrator_turned_off"], true);
+    assert_eq!(read["chosen"]["id"], host.host_id());
+    let refused = choose(&daemon, host.host_id()).await;
+    assert_eq!(refused.status(), StatusCode::CONFLICT);
+    let body: serde_json::Value = refused.json().await.expect("JSON");
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("Administrator")),
+        "{body}"
+    );
+
+    let on = switch_the_system_setting(&daemon, true).await;
+
+    assert_eq!(on.status(), StatusCode::OK);
+    assert_eq!(runtime.exit_mode(&agent_id), Some(ExitMode::Home));
+    assert_eq!(computer(&daemon).await["exit"], "exit: server");
+}
+
+/// A Local Installation has no Home Exit: its Computers leave from the
+/// owner's own connection. The Person's route says it is not available
+/// and changes nothing, and the System Settings name no Home Exit.
+#[tokio::test]
+async fn a_local_installation_has_no_home_exit() {
+    let daemon = TestDaemon::start().await;
+    let host = HostClient::connect(&daemon, "Air", "macos", &["shell"], HostAnswer::ok()).await;
+
+    let read = home_exit(&daemon, daemon.cookie(), reqwest::Method::GET, None).await;
+    assert_eq!(read.status(), StatusCode::OK);
+    let read: serde_json::Value = read.json().await.expect("JSON");
+    assert_eq!(read["available"], false);
+    assert_eq!(read["hosts"], serde_json::json!([]));
+
+    assert_eq!(
+        choose(&daemon, host.host_id()).await.status(),
+        StatusCode::CONFLICT
+    );
+    let cleared = home_exit(&daemon, daemon.cookie(), reqwest::Method::DELETE, None).await;
+    assert_eq!(cleared.status(), StatusCode::CONFLICT);
+    assert_eq!(
+        switch_the_system_setting(&daemon, false).await.status(),
+        StatusCode::CONFLICT
+    );
+    let settings: serde_json::Value = reqwest::Client::new()
+        .get(format!(
+            "{}/api/v1/settings/system",
+            daemon.administration_base_url
+        ))
+        .header("cookie", daemon.cookie())
+        .send()
+        .await
+        .expect("the settings answer")
+        .json()
+        .await
+        .expect("JSON");
+    assert_eq!(settings["home_exit"], serde_json::Value::Null);
 }
 
 /// The repository root, read at run time so a binary built in another

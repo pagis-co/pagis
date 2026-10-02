@@ -73,6 +73,10 @@ const MAX_STATUS = 512
 const PREAMBLE_TIMEOUT_MS = 10_000
 const DIAL_TIMEOUT_MS = 15_000
 
+/** How long the traffic waits before it tells of new bytes, so a page
+ *  that loads tells of its bytes once a second at most. */
+const TRAFFIC_NOTICE_MS = 1_000
+
 /** The close code of an exit socket whose Session ended, the same code as
  *  that of the Host socket: 1008, policy violation. */
 const SESSION_ENDED = 1008
@@ -245,13 +249,63 @@ function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
 }
 
 /**
+ * The exit traffic that this client carries for its Person's Computers:
+ * the connections open now, and the bytes that it copied both ways since
+ * the client started. The tray item says when traffic flows, with the
+ * byte count.
+ *
+ * `onChange` hears each connection that opens or closes at once, and new
+ * bytes once a second at most.
+ */
+export class ExitTraffic {
+  private readonly onChange: () => void
+  private open = 0
+  private total = 0
+  private timer: ReturnType<typeof setTimeout> | null = null
+
+  constructor(onChange: () => void = () => {}) {
+    this.onChange = onChange
+  }
+
+  /** The connections that this client carries now. */
+  get connections(): number {
+    return this.open
+  }
+
+  /** The bytes that this client copied both ways since it started. */
+  get bytes(): number {
+    return this.total
+  }
+
+  opened(): void {
+    this.open += 1
+    this.onChange()
+  }
+
+  closed(): void {
+    this.open -= 1
+    this.onChange()
+  }
+
+  copied(count: number): void {
+    this.total += count
+    if (this.timer !== null) return
+    this.timer = setTimeout(() => {
+      this.timer = null
+      this.onChange()
+    }, TRAFFIC_NOTICE_MS)
+  }
+}
+
+/**
  * Carry the connection of one stream: read its destination, dial it,
- * answer, and copy the bytes both ways.
+ * answer, and copy the bytes both ways. `traffic` counts the connection
+ * while it is open, and the bytes that it copies.
  *
  * A FIN on the stream half-closes the socket, and the end of the socket's
  * readable side ends the stream. An error on either side destroys both.
  */
-export async function carry(stream: Duplex, dial: Dial): Promise<void> {
+export async function carry(stream: Duplex, dial: Dial, traffic?: ExitTraffic): Promise<void> {
   // A reset of the stream or of its session is how a connection ends
   // early. The 'close' that follows it stops whatever the stream feeds.
   stream.on('error', () => {})
@@ -279,6 +333,14 @@ export async function carry(stream: Duplex, dial: Dial): Promise<void> {
   // client, so the callbacks have nothing more to do.
   pipeline(stream, socket, () => {})
   pipeline(socket, stream, () => {})
+  if (traffic !== undefined) {
+    traffic.opened()
+    stream.once('close', () => traffic.closed())
+    // The pipelines read in the same turn, so these listeners see every
+    // chunk that they copy.
+    stream.on('data', (chunk: Buffer) => traffic.copied(chunk.length))
+    socket.on('data', (chunk: Buffer) => traffic.copied(chunk.length))
+  }
 }
 
 /**
@@ -426,7 +488,8 @@ export async function openExitSocket(
 
 /**
  * Keep the exit socket open for as long as the client runs, and carry
- * each stream that the daemon opens on it.
+ * each stream that the daemon opens on it. `traffic` counts what the
+ * streams carry.
  *
  * A socket that closes takes its streams and their connections with it,
  * and the link opens another one. A socket that closes with code 1008
@@ -438,6 +501,7 @@ export class ExitLink {
   private readonly retryMs: number
   private readonly dial: Dial
   private readonly sessionEnded: () => void
+  private readonly traffic: ExitTraffic
   private socket: ExitSocket | null = null
   private session: YamuxSession | null = null
   private stopped = false
@@ -448,11 +512,13 @@ export class ExitLink {
     retryMs = 3_000,
     dial: Dial = homeDial(),
     sessionEnded: () => void = () => {},
+    traffic: ExitTraffic = new ExitTraffic(),
   ) {
     this.open = open
     this.retryMs = retryMs
     this.dial = dial
     this.sessionEnded = sessionEnded
+    this.traffic = traffic
   }
 
   /** Open the socket, and keep doing so until [`stop`]. */
@@ -487,7 +553,7 @@ export class ExitLink {
     }
     const session = new YamuxSession({
       send: (bytes) => socket.send(bytes),
-      onStream: (stream) => void carry(stream, this.dial),
+      onStream: (stream) => void carry(stream, this.dial, this.traffic),
       // The daemon ended the session or broke the protocol. A new socket
       // starts a new session.
       onEnd: () => socket.close(),

@@ -32,7 +32,7 @@ firewall before the daemon starts:
 - **The exit port of the daemon**: yes, TCP port `4403` on the VM. The
   Exit Proxy of a Computer in Home mode sends each connection there, with
   the Computer's token, and the daemon carries it through the Person's
-  Home Exit, or from the VM while that Host is absent. The daemon binds
+  [Home Exit](/server/home-exit), or from the VM while that Host is absent. The daemon binds
   the port on every interface, and the rules close it to everything but
   the Computers: to the network, to the other containers and to the VM
   itself. One address of a Computer holds at most 256 connections to it

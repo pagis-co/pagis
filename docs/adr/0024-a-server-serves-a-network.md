@@ -188,8 +188,8 @@ installation part with `403` and names the Administration Interface.
 ### System Settings and restarts
 
 A System Setting is a setting of the installation: the port, the Docker
-endpoint, the log level, the data directory, and Remote Access of a local
-installation. An Administrator changes it in the Administration Interface; the
+endpoint, the log level, the data directory, Remote Access of a local
+installation, and the Home Exit of a server (ADR-0029). An Administrator changes it in the Administration Interface; the
 daemon is the one writer of the config file. The timezone is each Person's own
 (ADR-0006). A change that needs a restart offers one: the server exits with the
 reserved restart code, the Client App starts it again, and a daemon run from
