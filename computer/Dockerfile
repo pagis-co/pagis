@@ -163,7 +163,7 @@ RUN set -eux; \
     unzip -q /tmp/ubol.zip -d /opt/pagis/ublock-origin-lite
 
 FROM debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a
-LABEL org.pagis.computer.version="0.20.0"
+LABEL org.pagis.computer.version="0.20.1"
 # GHCR reads the OCI source label to link the package to the
 # repository, which is where a reader of the package page goes for the
 # source and the licenses.
@@ -177,7 +177,12 @@ LABEL org.opencontainers.image.description="The agent computer for Pagis: a head
 # croscore with crosextra for the metric substitutes of Arial, Times
 # New Roman, Calibri and Cambria. Without them, twenty font files render
 # every page in DejaVu and leave a font list that a bot scorer weighs.
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# The upgrade takes each Debian security fix that is out at build time,
+# also before Docker publishes a base image that holds it, so the
+# vulnerability scan of a release does not stop on a fixed package of the
+# base.
+RUN apt-get update && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends \
     chromium foot sudo xkb-data \
     fonts-dejavu-core fonts-liberation fonts-noto-core \
     fonts-noto-color-emoji fonts-croscore fonts-crosextra-carlito \
