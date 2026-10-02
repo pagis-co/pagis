@@ -52,8 +52,8 @@ starts the Server Runtime with it, as does a developer who runs from source;
 the headless image never passes it and refuses to start with it (ADR-0024). A
 local installation holds a credential whatever its Public Origin. The default
 is a server, so a start that forgets the flag asks for a password. The flag
-decides and not the configuration, because a multi-user local installation and
-a server behind a same-host proxy have the same configuration. The boot
+decides and not the configuration, because a local installation in Remote
+Access and a server behind a same-host proxy have the same configuration. The boot
 records the answer once, and every other site reads the record. A server boot
 removes a credential file left in the workspace home, and an installation with
 no credential refuses the trade and the link.
@@ -65,7 +65,8 @@ request from a program on this machine that did not come through a proxy.
 1. The socket peer is loopback. The daemon reads the socket, never
    `X-Forwarded-For`.
 2. The request carries no proxy header: `Forwarded`, `Via`, `X-Forwarded-For`,
-   `X-Forwarded-Host`, `X-Forwarded-Proto` or `X-Real-IP`.
+   `X-Forwarded-Host`, `X-Forwarded-Proto`, `X-Real-IP` or the
+   `Tailscale-Funnel-Request` of Remote Access (ADR-0028).
 3. The `Host` header names `localhost` or a loopback address.
 
 Any other request gets `403`. A same-machine proxy connects from `127.0.0.1`
@@ -215,8 +216,8 @@ with Back and Install. The window then shows progress, a taken port, or a
 failure with Repair, Cancel and "Choose another setup". Quit asks first only
 while an installation or a start-up runs. Both answers run the same local
 installation; "Several people" then opens the Administration Interface on
-`/settings#multi-user`, where the owner types the Public Origin of their proxy
-or tunnel (ADR-0024). The answer is stored nowhere.
+`/settings#remote-access`, where the owner turns on Remote Access (ADR-0028).
+The answer is stored nowhere.
 
 Privileged setup IPC accepts a call only from the exact setup view, from its
 main frame, at the packaged setup URL, and validates every argument. The
@@ -395,4 +396,3 @@ smoke launch of the client.
   namespaces to a program with no AppArmor profile, and the Chromium sandbox
   needs them, so a person there uses the deb.
 - An rpm. A Fedora or openSUSE person uses the AppImage.
-- "Several people" with no Multi-User Mode to open (ADR-0028).

@@ -48,6 +48,10 @@ pub const RELAY_TURN: &str = "turn";
 /// start as a local installation, or without a Public Origin that people
 /// on other machines can open.
 pub const REQUIRE_PUBLIC_ORIGIN: &str = "PAGIS_REQUIRE_PUBLIC_ORIGIN";
+/// The variable that turns Remote Access on or off for one run, over
+/// `[remote_access] enabled` of `config.toml` (ADR-0028). A Local
+/// Installation and a Server both read it.
+pub const REMOTE_ACCESS: &str = "PAGIS_REMOTE_ACCESS";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -68,6 +72,8 @@ pub struct Config {
     /// `X-Forwarded-Proto` and nobody else's. Empty believes no
     /// forwarded header, which is the local installation.
     pub trusted_proxy: String,
+    /// Remote Access (ADR-0028). `PAGIS_REMOTE_ACCESS` overrides it.
+    pub remote_access: RemoteAccess,
     /// The Administration Interface's own listener.
     pub administration: Administration,
     /// The artifact upload size cap, 50 MB by default.
@@ -87,6 +93,17 @@ pub struct Config {
     pub providers: Providers,
     pub database: Database,
     pub secrets: Secrets,
+}
+
+/// Remote Access (ADR-0028): the installation serves other machines at
+/// the public name of the owner's Tailscale Funnel, where another machine
+/// signs in with a Sign-In Link and never with a password. The switch of
+/// a Local Installation writes it with the Public Origin and the Trusted
+/// Proxy. The deployment of a Server sets `PAGIS_REMOTE_ACCESS`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RemoteAccess {
+    pub enabled: bool,
 }
 
 /// The Administration Interface's own listener.
@@ -140,6 +157,17 @@ fn parse_bind(bind: &str, default: &str, key: &str) -> anyhow::Result<IpAddr> {
              such as {default:?} or \"0.0.0.0\""
         )
     })
+}
+
+/// One `PAGIS_*` switch: `true` or `1` turns it on, and `false`, `0` or
+/// an empty value turns it off. Anything else stops the daemon and names
+/// the variable.
+fn parse_flag(key: &str, value: &str) -> anyhow::Result<bool> {
+    match value.trim() {
+        "" | "0" | "false" => Ok(false),
+        "1" | "true" => Ok(true),
+        other => anyhow::bail!("{key} is {other:?}; it is \"true\" or \"false\""),
+    }
 }
 
 /// One `PAGIS_*` port override, named in the failure so the deployment
@@ -460,6 +488,7 @@ impl Default for Config {
             bind: DEFAULT_BIND.to_string(),
             public_origin: String::new(),
             trusted_proxy: String::new(),
+            remote_access: RemoteAccess::default(),
             administration: Administration::default(),
             artifact_max_bytes: DEFAULT_ARTIFACT_MAX_BYTES,
             computer: Computer::default(),
@@ -497,12 +526,9 @@ impl Config {
         installation: Installation,
         var: &dyn Fn(&str) -> Option<String>,
     ) -> anyhow::Result<()> {
-        let required = match var(REQUIRE_PUBLIC_ORIGIN).as_deref().map(str::trim) {
-            None | Some("") | Some("0") | Some("false") => false,
-            Some("1") | Some("true") => true,
-            Some(other) => {
-                anyhow::bail!("{REQUIRE_PUBLIC_ORIGIN} is {other:?}; it is \"true\" or \"false\"")
-            }
+        let required = match var(REQUIRE_PUBLIC_ORIGIN) {
+            Some(value) => parse_flag(REQUIRE_PUBLIC_ORIGIN, &value)?,
+            None => false,
         };
         if !required {
             return Ok(());
@@ -581,6 +607,9 @@ impl Config {
         }
         if let Some(proxy) = var("PAGIS_TRUSTED_PROXY") {
             self.trusted_proxy = proxy;
+        }
+        if let Some(remote_access) = var(REMOTE_ACCESS) {
+            self.remote_access.enabled = parse_flag(REMOTE_ACCESS, &remote_access)?;
         }
         if let Some(port) = var("PAGIS_ADMINISTRATION_PORT") {
             self.administration.port = parse_env("PAGIS_ADMINISTRATION_PORT", &port)?;
@@ -733,6 +762,32 @@ mod tests {
         assert!(!Config::read_file(&path).unwrap().analytics);
     }
 
+    /// Remote Access is off until the switch or the deployment turns it
+    /// on. `PAGIS_REMOTE_ACCESS` wins over the file both ways, and a value
+    /// that is not a switch stops the daemon with the name of the
+    /// variable.
+    #[test]
+    fn remote_access_is_off_until_the_file_or_the_variable_turns_it_on() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+
+        assert!(!Config::load_or_init(&path).unwrap().remote_access.enabled);
+        std::fs::write(&path, "[remote_access]\nenabled = true\n").unwrap();
+        assert!(Config::read_file(&path).unwrap().remote_access.enabled);
+
+        for (value, enabled) in [("1", true), ("true", true), ("0", false), ("false", false)] {
+            let mut config = Config::read_file(&path).unwrap();
+            config
+                .apply_environment(&|key| (key == REMOTE_ACCESS).then(|| value.to_string()))
+                .unwrap();
+            assert_eq!(config.remote_access.enabled, enabled, "{value}");
+        }
+        let error = Config::default()
+            .apply_environment(&|key| (key == REMOTE_ACCESS).then(|| "yes".to_string()))
+            .expect_err("a value that is not a switch");
+        assert!(error.to_string().contains(REMOTE_ACCESS), "{error}");
+    }
+
     #[test]
     fn init_writes_the_defaults_and_names_the_key_file() {
         let dir = tempfile::tempdir().unwrap();
@@ -772,6 +827,7 @@ mod tests {
             "PAGIS_BIND" => Some("0.0.0.0".to_string()),
             "PAGIS_PUBLIC_ORIGIN" => Some("https://pagis.example.net".to_string()),
             "PAGIS_TRUSTED_PROXY" => Some("172.28.0.10".to_string()),
+            "PAGIS_REMOTE_ACCESS" => Some("true".to_string()),
             "PAGIS_DATABASE_URL" => Some("postgres://pagis@db/pagis".to_string()),
             "PAGIS_ADMINISTRATION_PORT" => Some("4402".to_string()),
             "PAGIS_ADMINISTRATION_BIND" => Some("127.0.0.1".to_string()),
@@ -793,6 +849,7 @@ mod tests {
             config.trusted_proxy().unwrap().address(),
             Some("172.28.0.10".parse::<IpAddr>().unwrap())
         );
+        assert!(config.remote_access.enabled);
         assert_eq!(config.database.url(), Some("postgres://pagis@db/pagis"));
         assert_eq!(config.administration.port, 4402);
         assert_eq!(config.screen.advertise_ip, "198.51.100.7");

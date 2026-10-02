@@ -55,7 +55,7 @@ pub const PUBLIC_ROUTES: &[(&str, &str)] = &[
          started the authorization gets a fixed refusal page. Only for \
          that Person does it set the transaction cookie, which holds the \
          hash of the `state`, and redirect to Google. A local \
-         installation with the multi-user mode off has one Person and \
+         installation with Remote Access off has one Person and \
          answers only programs of its own machine, so there it asks for \
          no Session, and the callback keeps every check. It returns no \
          workspace content.",
@@ -97,7 +97,10 @@ pub const PUBLIC_ROUTES: &[(&str, &str)] = &[
     (
         "/api/v1/health",
         "The liveness answer the desktop shell reads before it attaches \
-         (ADR-0025): a status and the daemon version.",
+         (ADR-0025): a status and the daemon version. The sign-in page \
+         reads from it how its browser signs in, a password or a \
+         Sign-In Link (ADR-0028), which follows the setting and the \
+         address of the request alone.",
     ),
     (
         "/api/v1/runtime/identity",
@@ -315,8 +318,8 @@ pub const ADMINISTRATION_ROUTES: &[Route] = &[
         authenticated: true,
     },
     Route {
-        path: "/api/v1/settings/system/multi-user",
-        methods: &["put", "delete"],
+        path: "/api/v1/settings/system/remote-access",
+        methods: &["get", "put", "delete"],
         authenticated: true,
     },
     Route {

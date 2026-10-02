@@ -36,7 +36,7 @@ describe('client setup and recovery controller', () => {
       beginLaunch: () => {}, connect: async () => '', activate: () => {}, openProduct: async () => {},
       createSupervisor: () => { created += 1; return new FakeSupervisor() },
       assertNoExternalRuntime: async () => {}, onDaemonState: () => {},
-      openMultiUserSwitch: async () => {},
+      openRemoteAccessSwitch: async () => {},
     })
     const resume = controller.resume()
 
@@ -59,7 +59,7 @@ describe('client setup and recovery controller', () => {
       openProduct: async () => { opens += 1; if (opens === 1) throw new Error('handoff failed') },
       createSupervisor: () => { creates += 1; return supervisor },
       assertNoExternalRuntime: async () => {}, onDaemonState: () => {},
-      openMultiUserSwitch: async () => {},
+      openRemoteAccessSwitch: async () => {},
     })
 
     await expect(controller.resume()).rejects.toThrow(/handoff failed/)
@@ -87,7 +87,7 @@ describe('client setup and recovery controller', () => {
       connect: async () => '',
       activate: () => {}, openProduct: async (url) => { opened = url },
       createSupervisor: () => supervisor, assertNoExternalRuntime: async () => {}, onDaemonState: () => {},
-      openMultiUserSwitch: async () => {},
+      openRemoteAccessSwitch: async () => {},
     })
     await expect(controller.resume()).rejects.toThrow(/uses port 4400/)
 
@@ -111,7 +111,7 @@ describe('client setup and recovery controller', () => {
       activate: () => {}, openProduct: async () => { opened = true },
       createSupervisor: () => supervisor, assertNoExternalRuntime: async () => {},
       onDaemonState: (state) => states.push(state.kind),
-      openMultiUserSwitch: async () => {},
+      openRemoteAccessSwitch: async () => {},
     })
 
     await expect(controller.run({ kind: 'local', people: 'one' })).rejects.toThrow(/uses port 4400/)
@@ -137,13 +137,13 @@ describe('client setup and recovery controller', () => {
       connect: async () => '',
       activate: () => {}, openProduct: async (url) => { calls.push(`open-product:${url}`) },
       createSupervisor: () => supervisor, assertNoExternalRuntime: async () => {}, onDaemonState: () => {},
-      openMultiUserSwitch: async () => { calls.push('open-multi-user-switch') },
+      openRemoteAccessSwitch: async () => { calls.push('open-remote-access-switch') },
     })
     await expect(controller.run({ kind: 'local', people: 'several' })).rejects.toThrow(/uses port 4400/)
 
     await controller.usePortAndResume(4401)
 
-    expect(calls).toEqual(['open-product:http://127.0.0.1:4401/', 'open-multi-user-switch'])
+    expect(calls).toEqual(['open-product:http://127.0.0.1:4401/', 'open-remote-access-switch'])
   })
 
   it('opens the product alone when an installed client starts', async () => {
@@ -154,7 +154,7 @@ describe('client setup and recovery controller', () => {
       connect: async () => '',
       activate: () => {}, openProduct: async () => { calls.push('open-product') },
       createSupervisor: () => new FakeSupervisor(), assertNoExternalRuntime: async () => {}, onDaemonState: () => {},
-      openMultiUserSwitch: async () => { calls.push('open-multi-user-switch') },
+      openRemoteAccessSwitch: async () => { calls.push('open-remote-access-switch') },
     })
 
     await controller.resume()
@@ -177,7 +177,7 @@ describe('client setup and recovery controller', () => {
         return supervisor
       },
       assertNoExternalRuntime: async () => {}, onDaemonState: () => {},
-      openMultiUserSwitch: async () => { calls.push('open-multi-user-switch') },
+      openRemoteAccessSwitch: async () => { calls.push('open-remote-access-switch') },
     })
 
     await controller.upgrade(true)
@@ -197,7 +197,7 @@ describe('client setup and recovery controller', () => {
       activate: () => {}, openProduct: async () => {},
       createSupervisor: () => { created += 1; return new FakeSupervisor() },
       assertNoExternalRuntime: async () => {}, onDaemonState: () => {},
-      openMultiUserSwitch: async () => {},
+      openRemoteAccessSwitch: async () => {},
     })
     const upgrade = controller.upgrade(true)
     expect(controller.inProgress).toBe(true)
@@ -221,7 +221,7 @@ describe('client setup and recovery controller', () => {
       openProduct: async (url) => { calls.push(`open-product:${url}`) },
       createSupervisor: () => { calls.push('create-supervisor'); return new FakeSupervisor() },
       assertNoExternalRuntime: async () => {}, onDaemonState: () => {},
-      openMultiUserSwitch: async () => {},
+      openRemoteAccessSwitch: async () => {},
     })
 
     await controller.run({ kind: 'server', url: 'pagis.example.com' })
@@ -243,7 +243,7 @@ describe('client setup and recovery controller', () => {
       install: async () => { installs += 1; return '/installed/pagis' },
       beginLaunch: () => {}, connect: async () => '', activate: () => {}, openProduct: async () => {},
       createSupervisor: () => supervisor, assertNoExternalRuntime: async () => {}, onDaemonState: () => {},
-      openMultiUserSwitch: async () => {},
+      openRemoteAccessSwitch: async () => {},
     })
     await controller.resume()
     const changing = controller.usePortAndResume(4401)
@@ -271,7 +271,7 @@ describe('client setup and recovery controller', () => {
       connect: () => new Promise((resolve) => { finishConnect = () => resolve('https://pagis.example.com/') }),
       activate: () => {}, openProduct: async () => {},
       createSupervisor: () => supervisor, assertNoExternalRuntime: async () => {}, onDaemonState: () => {},
-      openMultiUserSwitch: async () => {},
+      openRemoteAccessSwitch: async () => {},
     })
     expect(controller.inProgress).toBe(false)
 

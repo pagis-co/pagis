@@ -61,6 +61,7 @@ mod plugins;
 mod progress;
 mod reflection_filter;
 mod release_evaluation;
+mod remote_access;
 mod report;
 mod requests;
 mod retention;

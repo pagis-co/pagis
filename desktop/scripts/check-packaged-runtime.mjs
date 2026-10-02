@@ -118,7 +118,7 @@ try {
     activate: () => {},
     openProduct: async () => {},
     connect: async () => 'https://pagis.example.com/',
-    openMultiUserSwitch: async () => {},
+    openRemoteAccessSwitch: async () => {},
   })
   await assert.rejects(coordinator.run({ kind: 'server' }), /Enter the address of your Pagis server/)
   await assert.rejects(coordinator.run({ kind: 'local' }), /Pagis does not know this setup/)

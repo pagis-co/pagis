@@ -42,8 +42,9 @@ _Avoid_: database dump
 ### Bind Address
 The address one listener of the daemon binds. The product port and the
 Administration Port each have one, and both default to loopback. The Bind
-Address says where the daemon listens. The Public Origin, not the Bind
-Address, decides whether an installation serves other machines (ADR-0024).
+Address says where the daemon listens. It does not decide whether a Local
+Installation serves other machines: Remote Access does (ADR-0024,
+ADR-0028).
 _Avoid_: listen address
 
 ### Client App
@@ -94,29 +95,18 @@ State Directory. It comes from no hardware, host name or Public Origin
 
 ### Installation Report
 The daily Analytics event of one installation: the kind of installation,
-the Storage Backend, the Multi-User Mode, whether Docker answers, the
-number of People and of Agents as ranges, and one flag for each feature in
-use (ADR-0026).
+the Storage Backend, whether Remote Access is on, whether Docker answers,
+the number of People and of Agents as ranges, and one flag for each
+feature in use (ADR-0026).
 
 ### Local Installation
 An installation on the Person's own computer: the Server Runtime that a
 Client App installs. It keeps its data in the State Directory, its records
 in SQLite and its Computers on the same machine. It sends model requests to
 the configured providers and runs no model. It serves the People at the
-machine, or other People too in Multi-User Mode, and it always holds a
-Client Credential (ADR-0025).
+machine, and other machines and People too while Remote Access is on. It
+always holds a Client Credential (ADR-0025).
 _Avoid_: local mode, single-user mode, offline mode
-
-### Multi-User Mode
-The mode of an installation whose Public Origin host is not loopback: it
-serves People on other machines. The mode follows from the Public Origin
-and is not a setting of its own. An Administrator of a Local Installation
-switches it in the Administration Interface, which writes the Public Origin
-and the Trusted Proxy and keeps the Bind Address on loopback. The owner's
-Client App stays signed in. With the mode off, a Local Installation answers
-only a program on its own machine. A Server is always in it (ADR-0024).
-Not built: Remote Access takes its place on a Local Installation
-(ADR-0028).
 
 ### Onboarding
 The first steps the Product App shows a new Local Installation: welcome,
@@ -134,9 +124,9 @@ _Avoid_: product interface, web UI
 ### Public Origin
 The origin a browser reaches an installation at: the scheme, the host and
 the port. On a server it is the name the proxy answers on, over TLS. On a
-Local Installation it derives from the Bind Address and the port unless
-Multi-User Mode sets it. The CORS answer names it, and its host decides
-Multi-User Mode (ADR-0024).
+Local Installation it derives from the Bind Address and the port, unless
+Remote Access sets it to the public name of the owner's Tailscale Funnel.
+The CORS answer names it (ADR-0024, ADR-0028).
 _Avoid_: base URL, external URL, site address
 
 ### Release Marker
@@ -156,10 +146,15 @@ _Avoid_: build matrix, artifact list
 ### Remote Access
 How an installation at home serves the owner's other machines and the
 other People of the installation: a public name that the owner's
-Tailscale Funnel answers on, where a client signs in with a Sign-In Link
-and never with a password. A Server behind its own proxy is not in it.
-Not built (ADR-0028).
-_Avoid_: tunnel mode, remote mode, pairing
+Tailscale Funnel answers on, where another machine signs in with a
+Sign-In Link and never with a password. An Administrator of a Local
+Installation turns it on with one switch in the Administration Interface,
+which turns on the Funnel, sets the Public Origin and the Trusted Proxy,
+and restarts the daemon. A Local Installation serves other machines only
+while it is on. A Server behind its own proxy is not in it (ADR-0028).
+Not built: the TURN server that carries the live screen to another
+machine, and the Tailscale service of a Headless Server.
+_Avoid_: tunnel mode, remote mode, pairing, multi-user mode
 
 ### Runtime Lock
 The Client App's signed statement of the one Server Runtime release it
@@ -217,8 +212,8 @@ start without one. The files stay on the disk either way (ADR-0024).
 
 ### System Setting
 A setting of the installation rather than of a Workspace: the port, the
-Docker endpoint, the log level, the data directory, the Multi-User Mode of
-a Local Installation, and the Analytics. An Administrator changes it in the
+Docker endpoint, the log level, the data directory, Remote Access of a
+Local Installation, and the Analytics. An Administrator changes it in the
 Administration Interface, and the daemon writes `config.toml` (ADR-0024,
 ADR-0026).
 The timezone is not one: it belongs to each Person (ADR-0006).
@@ -226,7 +221,8 @@ The timezone is not one: it belongs to each Person (ADR-0006).
 ### Trusted Proxy
 The one address whose `X-Forwarded-For` and `X-Forwarded-Proto` the daemon
 believes. The daemon terminates no TLS: the Trusted Proxy holds the
-certificate (ADR-0024).
+certificate. In Remote Access it is the Tailscale of the same machine, at
+loopback (ADR-0024, ADR-0028).
 _Avoid_: upstream, front-end proxy, load balancer
 
 ### Update
@@ -319,7 +315,8 @@ goes with a QR code. A signed-in Person makes one for one more client of
 their own, good for five minutes. An Administrator gets one as the invite of
 a Person, good for seven days. `pagis pair` prints one on the machine of the
 installation, good for five minutes. Its page posts the secret, so opening
-the link spends nothing (ADR-0028).
+the link spends nothing. In Remote Access it is the one way in for another
+machine, and the sign-in page there takes a pasted link (ADR-0028).
 _Avoid_: pairing code, magic link, invite token
 
 ### Spend Cap

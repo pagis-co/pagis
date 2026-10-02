@@ -326,8 +326,8 @@ pub struct ProviderEntryDto {
     pub portal: Option<String>,
     /// True for the `oauth` entry of a brokered flow in which the browser
     /// that goes to the provider can first ask the Person to sign in to
-    /// Pagis. False on a local installation with the multi-user mode
-    /// off, whose start route asks for no Session, and for every other
+    /// Pagis. False on a local installation with Remote Access off,
+    /// whose start route asks for no Session, and for every other
     /// entry.
     pub browser_sign_in: bool,
 }
@@ -450,10 +450,9 @@ pub struct AuthorizeConnectionResponse {
     /// start route on the Public Origin. A browser with a Session of the
     /// Person who asked goes on from there to consent at Google, and the
     /// connection reaches `connected` when Google redirects that browser
-    /// back to this installation. A local installation with the
-    /// multi-user mode off has one Person and asks the browser for no
-    /// Session. Absent for every Connection this request already
-    /// finished.
+    /// back to this installation. A local installation with Remote
+    /// Access off has one Person and asks the browser for no Session.
+    /// Absent for every Connection this request already finished.
     pub authorization_url: Option<String>,
 }
 
@@ -541,7 +540,7 @@ pub async fn list_connections(
 /// client is the installation's; where it holds none the form asks for
 /// the person's own Desktop client. The entry also says whether the
 /// browser step can ask for a sign-in, which a local installation with
-/// the multi-user mode off never does.
+/// Remote Access off never does.
 #[utoipa::path(get, path = "/api/v1/settings/connections/providers", responses(
     (status = 200, body = ProviderPage),
     (status = 401, body = crate::error::ErrorBody),
@@ -557,7 +556,7 @@ pub async fn list_connection_providers(
         .await
         .map_err(connect_error)?
         .is_some();
-    let browser_sign_in = brokered && !crate::system::serves_this_machine_only(&state);
+    let browser_sign_in = brokered && !crate::remote_access::serves_this_machine_only(&state);
     Ok(Json(ProviderPage {
         items: pagis_connect::person_catalog(brokered)
             .iter()
@@ -700,8 +699,8 @@ impl TransactionCookie {
     ///
     /// Over `https:` it is `__Host-` and `Secure`: the prefix makes a
     /// browser keep it for this host alone, with `Path=/` and no
-    /// `Domain`. A Server and a Local Installation in the multi-user mode
-    /// are there, because Google takes a plain `http:` redirect URI only
+    /// `Domain`. A Server and a Local Installation in Remote Access are
+    /// there, because Google takes a plain `http:` redirect URI only
     /// on loopback. A Local Installation on a loopback `http:` origin
     /// gets neither: Safari refuses a `Secure` cookie from a plain `http:`
     /// origin and Chrome refuses the prefix there, so the flow would
@@ -769,7 +768,7 @@ const SIGN_IN_AND_START: &str = "/connections/google/start";
 /// cookie, which binds the `state` to this browser, and redirects to
 /// Google.
 ///
-/// A local installation with the multi-user mode off has one Person and
+/// A local installation with Remote Access off has one Person and
 /// answers only programs of its own machine. There the route asks the
 /// browser for no Session: the Client App opens it in the system
 /// browser, and the owner does not sign in a second time. The callback
@@ -789,7 +788,7 @@ pub async fn google_start(
     use axum::http::header;
     use axum::response::IntoResponse;
 
-    let tenant = match crate::system::serves_this_machine_only(&state) {
+    let tenant = match crate::remote_access::serves_this_machine_only(&state) {
         true => None,
         false => match crate::auth::resolve(&state, &headers).await? {
             Some(tenant) => Some(tenant),

@@ -143,10 +143,10 @@ async fn boot() -> Harness {
     Harness { daemon, brain, gog }
 }
 
-/// A local installation in the multi-user mode: People on other
-/// machines reach it through the owner's proxy on this machine. With the
-/// mode off, the daemon refuses every forwarded request outright.
-async fn boot_in_the_multi_user_mode() -> Harness {
+/// A local installation in Remote Access: People on other machines reach
+/// it through the Funnel on this machine. With Remote Access off, the
+/// daemon refuses every forwarded request outright.
+async fn boot_in_remote_access() -> Harness {
     let brain = Arc::new(ScriptedBrain::default());
     let gog = Arc::new(FakeGog::default());
     let daemon = TestDaemon::start_with(TestDaemonOptions {
@@ -155,6 +155,7 @@ async fn boot_in_the_multi_user_mode() -> Harness {
         authorize_timeout: Duration::from_secs(5),
         public_origin: "https://pagis.owner.example".to_string(),
         trusted_proxy: Some(std::net::Ipv4Addr::LOCALHOST.into()),
+        remote_access: true,
         ..TestDaemonOptions::default()
     })
     .await;
@@ -423,12 +424,11 @@ async fn connecting_google_records_the_account_and_reaches_connected() {
 }
 
 /// A `byo` Google consent runs on the daemon host, so a request that
-/// came through a proxy starts none. On a local installation in the
-/// multi-user mode, a person on another machine reaches the daemon that
-/// way. The answer names the fix: the Installation OAuth Client.
+/// came through a proxy starts none. On a local installation in Remote
+/// Access, a person on another machine reaches the daemon that way. The answer names the fix: the Installation OAuth Client.
 #[tokio::test]
 async fn a_byo_google_connection_through_a_proxy_is_refused_and_names_the_fix() {
-    let h = boot_in_the_multi_user_mode().await;
+    let h = boot_in_remote_access().await;
 
     let response = client()
         .post(format!("{}/api/v1/settings/connections", h.daemon.base_url))
@@ -468,7 +468,7 @@ async fn a_byo_google_connection_through_a_proxy_is_refused_and_names_the_fix() 
 /// same rule when the person asks again from elsewhere.
 #[tokio::test]
 async fn authorizing_a_byo_google_connection_through_a_proxy_is_refused() {
-    let h = boot_in_the_multi_user_mode().await;
+    let h = boot_in_remote_access().await;
     let (status, created) = create_connection(&h.daemon, "work", "alice@example.com").await;
     assert_eq!(status, 201);
     let id = created["id"].as_str().unwrap();
@@ -849,19 +849,20 @@ mod brokered {
         cookie_name: &'static str,
     }
 
-    /// A Local Installation with the multi-user mode off: its Public
-    /// Origin is loopback, and it has one Person.
+    /// A Local Installation with Remote Access off: its Public Origin is
+    /// loopback, and it has one Person.
     async fn brokered() -> Brokered {
         brokered_with(TestDaemonOptions::default()).await
     }
 
-    /// A Local Installation in the multi-user mode: the owner's proxy
-    /// answers on an `https:` Public Origin and reaches the daemon from
-    /// this machine. People on other machines use it.
-    async fn brokered_in_the_multi_user_mode() -> Brokered {
+    /// A Local Installation in Remote Access: the Funnel answers on an
+    /// `https:` Public Origin and reaches the daemon from this machine.
+    /// People on other machines use it.
+    async fn brokered_in_remote_access() -> Brokered {
         brokered_with(TestDaemonOptions {
             public_origin: "https://pagis.owner.example".to_string(),
             trusted_proxy: Some(std::net::Ipv4Addr::LOCALHOST.into()),
+            remote_access: true,
             ..TestDaemonOptions::default()
         })
         .await
@@ -1239,13 +1240,13 @@ mod brokered {
         assert!(h.refresh_token().await.is_none());
     }
 
-    /// In the multi-user mode the start route requires a Session of the
+    /// In Remote Access the start route requires a Session of the
     /// Person who started the authorization. A browser with no Session
     /// goes to sign in. Another Person of the Org, who opens a forwarded
     /// start address, gets no transaction cookie and no Google address.
     #[tokio::test]
-    async fn in_the_multi_user_mode_the_start_route_requires_a_session_of_the_initiating_person() {
-        let h = brokered_in_the_multi_user_mode().await;
+    async fn in_remote_access_the_start_route_requires_a_session_of_the_initiating_person() {
+        let h = brokered_in_remote_access().await;
         let url = h.authorize(h.daemon.cookie(), &["gmail_read"]).await;
         let grace = another_person(&h.daemon).await;
 
@@ -1267,7 +1268,7 @@ mod brokered {
         assert!(location(&started).starts_with(GOOGLE));
     }
 
-    /// On a Local Installation with the multi-user mode off, the Client
+    /// On a Local Installation with Remote Access off, the Client
     /// App opens the start route in the system browser, which holds no
     /// Session. That installation has one Person, so the start route asks
     /// for no sign-in: it sets the transaction cookie and sends the
@@ -1357,14 +1358,14 @@ mod brokered {
     }
 
     /// On an `https:` Public Origin, where a Server and a Local
-    /// Installation in the multi-user mode are, the start route sets the
+    /// Installation in Remote Access are, the start route sets the
     /// transaction cookie with the `__Host-` prefix and sends the browser
     /// to Google. The cookie holds the hash of the `state` and not the
     /// `state` itself, and it lives as long as the authorization waits.
     /// The callback reads it back.
     #[tokio::test]
     async fn the_start_route_sets_the_transaction_cookie_and_redirects_to_google() {
-        let h = brokered_in_the_multi_user_mode().await;
+        let h = brokered_in_remote_access().await;
         let url = h.authorize(h.daemon.cookie(), &["gmail_read"]).await;
         let state = state_of(&url);
 
@@ -1675,15 +1676,14 @@ mod brokered {
         assert!(h.refresh_token().await.is_none());
     }
 
-    /// In the multi-user mode the Client App opens the start route in the
+    /// In Remote Access the Client App opens the start route in the
     /// system browser, which holds no Session. The start route sends that
     /// browser to sign in at a Product App address that comes back to the
     /// start route, and the Person who started the authorization finishes
     /// it there. The authorization holds the Session of the Client App.
     #[tokio::test]
-    async fn in_the_multi_user_mode_the_client_app_person_signs_in_in_the_system_browser_and_finishes()
-     {
-        let h = brokered_in_the_multi_user_mode().await;
+    async fn in_remote_access_the_client_app_person_signs_in_in_the_system_browser_and_finishes() {
+        let h = brokered_in_remote_access().await;
         let base = h.daemon.base_url.clone();
         h.daemon
             .stores()

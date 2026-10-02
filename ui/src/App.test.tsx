@@ -206,3 +206,40 @@ describe('sign-in link', () => {
     expect(api.POST).not.toHaveBeenCalled()
   })
 })
+
+describe('the sign-in page', () => {
+  /** A browser with no Session, and the sign-in that the health answer
+   *  names for it. */
+  function signedOut(signIn: 'password' | 'link') {
+    api.GET.mockImplementation(async (path: string) => {
+      if (path === '/api/v1/user') {
+        return { error: { error: { code: 'unauthorized', message: 'no session' } } }
+      }
+      if (path === '/api/v1/setup') {
+        return { error: { error: { code: 'setup_complete', message: 'gone' } } }
+      }
+      if (path === '/api/v1/health') {
+        return { data: { status: 'ok', version: '0.1.1', sign_in: signIn } }
+      }
+      return shellResponse(path)
+    })
+  }
+
+  // In Remote Access the daemon takes no password from another machine,
+  // so that browser gets the field for a Sign-In Link (ADR-0028).
+  it('shows another machine in Remote Access the field for a sign-in link', async () => {
+    signedOut('link')
+    mount('/')
+
+    expect(await screen.findByLabelText('Paste a sign-in link')).toBeTruthy()
+    expect(screen.queryByLabelText('Password')).toBeNull()
+  })
+
+  it('shows this machine the address and the password', async () => {
+    signedOut('password')
+    mount('/')
+
+    expect(await screen.findByLabelText('Password')).toBeTruthy()
+    expect(screen.queryByLabelText('Paste a sign-in link')).toBeNull()
+  })
+})

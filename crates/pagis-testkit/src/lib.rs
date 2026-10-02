@@ -15,6 +15,7 @@ pub mod postgres;
 pub mod software;
 pub mod sql;
 pub mod store_suite;
+pub mod tailscale;
 pub mod tenancy;
 
 use std::net::SocketAddr;
@@ -36,6 +37,7 @@ pub use grant::MemoryGrantStore;
 pub use host_client::{HostAnswer, HostClient};
 pub use plugin::{MemoryPluginStore, MemoryPluginToolStore};
 pub use software::MemorySoftwareStore;
+pub use tailscale::FakeTailscale;
 pub use tenancy::{A_PLUGIN_STDERR, Person, Report, TwoTenants};
 
 /// A Docker search that looks at an empty directory, so no test ever
@@ -116,6 +118,14 @@ pub struct TestDaemonOptions {
     /// The address whose forwarded headers the daemon believes.
     /// `None` trusts none, as a local installation does.
     pub trusted_proxy: Option<std::net::IpAddr>,
+    /// Whether the daemon runs in Remote Access (ADR-0028). The harness
+    /// writes it to the configuration file, as the switch does; a test
+    /// names the Public Origin and the Trusted Proxy beside it.
+    pub remote_access: bool,
+    /// The Tailscale that the Remote Access switch drives. The default
+    /// has no `tailscale` command; keep an `Arc` to approve a turn-on and
+    /// read the changes it was asked for.
+    pub tailscale: Arc<dyn pagis_server::Tailscale>,
     /// The Media Relay the System Settings name. The daemon serves
     /// the screen through the fake loopback relay whatever this says.
     pub screen: pagis_server::ScreenRelay,
@@ -215,6 +225,8 @@ impl Default for TestDaemonOptions {
             bind: std::net::Ipv4Addr::LOCALHOST.into(),
             public_origin: String::new(),
             trusted_proxy: None,
+            remote_access: false,
+            tailscale: Arc::new(FakeTailscale::not_installed()),
             screen: pagis::Screen::default()
                 .screen_relay()
                 .expect("the default screen section"),
@@ -406,16 +418,17 @@ impl TestDaemon {
     }
 
     async fn boot_on(home: TempDir, options: TestDaemonOptions) -> Self {
-        // The backend, the bind address, the Public Origin and the
-        // Trusted Proxy are settings, so the harness writes them before
-        // the boot reads them. None of them decides whether the boot
-        // writes a Client Credential: the kind of installation does
+        // The backend, the bind address, the Public Origin, the Trusted
+        // Proxy and Remote Access are settings, so the harness writes them
+        // before the boot reads them. None of them decides whether the
+        // boot writes a Client Credential: the kind of installation does
         // (ADR-0025).
         let path = home.path().join("config.toml");
         let writes_config = options.database.is_some()
             || !options.bind.is_loopback()
             || !options.public_origin.is_empty()
-            || options.trusted_proxy.is_some();
+            || options.trusted_proxy.is_some()
+            || options.remote_access;
         if writes_config {
             let mut config = pagis::Config::read_file(&path).expect("read the config");
             if let Some(url) = &options.database {
@@ -428,6 +441,7 @@ impl TestDaemon {
             if let Some(proxy) = options.trusted_proxy {
                 config.trusted_proxy = proxy.to_string();
             }
+            config.remote_access.enabled = options.remote_access;
             config.save(&path).expect("write the config");
         }
         let booted = pagis::boot(home.path(), options.installation)
@@ -471,6 +485,8 @@ impl TestDaemon {
                     Some(address) => pagis_server::TrustedProxy::at(address),
                     None => pagis_server::TrustedProxy::none(),
                 },
+                remote_access: options.remote_access,
+                tailscale: options.tailscale,
                 ring: options.ring,
                 brain: Some(options.brain),
                 agents: options.agents,

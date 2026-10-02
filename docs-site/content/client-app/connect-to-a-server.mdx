@@ -66,9 +66,10 @@ sign-in with a password. The Sessions list of the Person names the Session
 A link with no secret, such as a copy that lost the part after `#`, gets a
 message under the field, and the client sends nothing. A link that is spent
 or expired opens a page that says so. The page names the three ways to a new
-link, and it keeps the sign-in with an address and a password. After the
-client connected to a server, it has no field for a new link. That part is
-not built.
+link, and it links to the sign-in page of the server. On an installation in
+Remote Access, that sign-in page takes no password from this machine: it has
+one field, **Paste a sign-in link**. Paste a new link there, also when the
+client connected before and its Session ended.
 
 ## Start the Client App again
 
@@ -108,8 +109,9 @@ the server.
 **The client connects to a server only over `https://`.** It refuses an
 `http://` address before it sends a request, unless the host is loopback
 (`127.0.0.1`, `[::1]` or `localhost`), such as an SSH tunnel. The refusal
-names the https setups of [Serve several People](/client-app/several-people): Caddy,
-Tailscale Serve and Cloudflare Tunnel. A `server.json` that holds an
+names the two ways to an `https://` address: Remote Access on a local
+installation ([Serve several People](/client-app/several-people)), and a proxy
+that holds TLS in front of a server. A `server.json` that holds an
 `http://` origin of another computer fails at the start, and the setup page
 shows the refusal. The client follows no redirect before the product window
 opens, and uses the TLS certificate check of the platform. On an `https://`

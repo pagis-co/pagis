@@ -29,7 +29,7 @@ impl Source for FakeSource {
         Ok(Report {
             installation: InstallationKind::Server,
             storage: StorageBackend::Postgres,
-            multi_user: true,
+            remote_access: true,
             computers: false,
             people: Bucket::Few,
             agents: Bucket::Some,

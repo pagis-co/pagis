@@ -20,7 +20,6 @@ import type {
   BindingValueRequest,
   CallSummaryDto,
   MessageDto,
-  EnableMultiUserBody,
   PluginSourceRequest,
   RunDto,
   SystemSettingsBody,
@@ -70,6 +69,7 @@ export const modelListsKey = ["model-lists"] as const;
 export const providerSetupsKey = ["provider-setups"] as const;
 export const retentionKey = ["retention"] as const;
 export const systemSettingsKey = ["system-settings"] as const;
+export const remoteAccessKey = ["system-settings", "remote-access"] as const;
 export const peopleKey = ["administration", "people"] as const;
 export const installationUsageKey = (period: string) =>
   ["administration", "usage", period] as const;
@@ -83,6 +83,7 @@ export const installationHostsKey = ["administration", "hosts"] as const;
 export const resourcesKey = ["administration", "resources"] as const;
 export const installationHealthKey = ["administration", "health"] as const;
 export const setupKey = ["setup"] as const;
+export const healthKey = ["health"] as const;
 export const myUsageKey = ["usage"] as const;
 export const connectionsKey = ["connections"] as const;
 export const connectionProvidersKey = ["connections", "providers"] as const;
@@ -973,10 +974,10 @@ export function useSignIn(api: ApiClient) {
     mutationFn: async (credential: { email: string; password: string }) => {
       // The daemon takes the device's timezone at the Person's first
       // sign-in, so their Schedules run on their own clock.
-      const { data, response } = await api.POST("/api/v1/sessions", {
+      const { data, error, response } = await api.POST("/api/v1/sessions", {
         body: { ...credential, timezone: deviceTimezone() },
       });
-      if (data === undefined) throw new Error(signInMessage(response.status));
+      if (data === undefined) throw new Error(signInMessage(response.status, error));
       return data;
     },
     onSuccess: (user) => queryClient.setQueryData(userKey, user),
@@ -984,8 +985,13 @@ export function useSignIn(api: ApiClient) {
 }
 
 /** What the sign-in page tells a person whose sign-in was refused. */
-function signInMessage(status: number): string {
+function signInMessage(status: number, error: unknown): string {
   if (status === 401) return "The address and the password do not match.";
+  // In Remote Access the daemon takes no password from another machine,
+  // and its answer names the Sign-In Link.
+  if (status === 403) {
+    return errorMessage(error, "This Pagis takes no password from this machine.");
+  }
   if (status === 429) {
     return "Too many attempts. Wait a minute, then sign in again.";
   }
@@ -1007,6 +1013,12 @@ export function useLinkSignIn(api: ApiClient) {
   });
 }
 
+/** Where a person gets a new Sign-In Link, in the words of the daemon's
+ *  refusal of a spent or expired link. */
+export const WHERE_TO_GET_A_LINK =
+  "Make a new link in Settings → Sessions on a browser or app that is signed in. Or ask " +
+  'an Administrator for a new invite, or run "pagis pair" on the machine of the server.';
+
 /** What the sign-in page tells a person whose link was refused. The
  *  daemon's refusal of a spent or expired link names the ways to a new
  *  one, so the page shows it as it is, and says the same where the
@@ -1015,9 +1027,7 @@ function linkSignInMessage(status: number, error: unknown): string {
   if (status === 401) {
     return errorMessage(
       error,
-      "This sign-in link is spent or expired. Make a new link in Settings → Sessions on a " +
-        "browser or app that is signed in. Or ask an Administrator for a new invite, or run " +
-        '"pagis pair" on the machine of the server.',
+      `This sign-in link is spent or expired. ${WHERE_TO_GET_A_LINK}`,
     );
   }
   if (status === 429) {
@@ -2566,6 +2576,17 @@ export function useInstallationUsage(api: ApiClient, period: UsagePeriod = {}) {
   });
 }
 
+/** How this browser signs in (ADR-0028): `link` where Remote Access
+ *  takes no password from its machine, else `password`. The health answer
+ *  says it, with no Session. */
+export function useSignInMethod(api: ApiClient) {
+  return useQuery({
+    queryKey: healthKey,
+    queryFn: async () => (await unwrap(api.GET("/api/v1/health"))).sign_in,
+    staleTime: Infinity,
+  });
+}
+
 /** What the server's own first run still needs. It answers
  *  while no administrator can sign in, and `410 Gone` from the first
  *  password onwards. The `410` is an answer, not a failure: the data is
@@ -2763,27 +2784,43 @@ export function useSaveSystemSettings(api: ApiClient) {
   });
 }
 
-/** Turn the multi-user mode on (ADR-0024). The daemon writes the
- *  Public Origin and the Trusted Proxy; a restart puts them in effect. */
-export function useEnableMultiUser(api: ApiClient) {
+/** How often the switch reads Remote Access while a turn-on waits for
+ *  Tailscale. */
+const TURN_ON_POLL_MS = 1_000;
+
+/** Remote Access and the Tailscale of the machine (ADR-0028). While a
+ *  turn-on waits, the read comes again each second, so the switch shows
+ *  the page that Tailscale names and the end of the turn-on. */
+export function useRemoteAccess(api: ApiClient) {
+  return useQuery({
+    queryKey: remoteAccessKey,
+    queryFn: () => unwrap(api.GET("/api/v1/settings/system/remote-access")),
+    refetchInterval: (query) =>
+      query.state.data?.turning_on ? TURN_ON_POLL_MS : false,
+  });
+}
+
+/** Turn Remote Access on. The daemon turns on Tailscale Funnel in the
+ *  background and answers at once; the read follows the turn-on. */
+export function useTurnOnRemoteAccess(api: ApiClient) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (body: EnableMultiUserBody) =>
-      unwrap(api.PUT("/api/v1/settings/system/multi-user", { body })),
-    onSuccess: (saved) => {
-      queryClient.setQueryData(systemSettingsKey, saved.settings);
+    mutationFn: () => unwrap(api.PUT("/api/v1/settings/system/remote-access")),
+    onSuccess: (remoteAccess) => {
+      queryClient.setQueryData(remoteAccessKey, remoteAccess);
     },
   });
 }
 
-/** Turn the multi-user mode off: the daemon clears the Public Origin and
- *  the Trusted Proxy and binds loopback. */
-export function useDisableMultiUser(api: ApiClient) {
+/** Turn Remote Access off, or stop a turn-on that waits. The daemon
+ *  removes the Funnel and clears the settings; a restart puts it in
+ *  effect. */
+export function useTurnOffRemoteAccess(api: ApiClient) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () => unwrap(api.DELETE("/api/v1/settings/system/multi-user")),
-    onSuccess: (saved) => {
-      queryClient.setQueryData(systemSettingsKey, saved.settings);
+    mutationFn: () => unwrap(api.DELETE("/api/v1/settings/system/remote-access")),
+    onSuccess: (remoteAccess) => {
+      queryClient.setQueryData(remoteAccessKey, remoteAccess);
     },
   });
 }

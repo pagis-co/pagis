@@ -13,6 +13,11 @@
   cursor: pointer;
 }
 
+.ui-switch:disabled {
+  cursor: not-allowed;
+  opacity: var(--opacity-disabled);
+}
+
 .ui-switch:focus-visible {
   outline: none;
   border-radius: var(--radius-sm);

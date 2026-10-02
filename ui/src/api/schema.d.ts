@@ -898,7 +898,7 @@ export interface paths {
          *     cookie, which binds the `state` to this browser, and redirects to
          *     Google.
          *
-         *     A local installation with the multi-user mode off has one Person and
+         *     A local installation with Remote Access off has one Person and
          *     answers only programs of its own machine. There the route asks the
          *     browser for no Session: the Client App opens it in the system
          *     browser, and the owner does not sign in a second time. The callback
@@ -1867,7 +1867,7 @@ export interface paths {
          *     client is the installation's; where it holds none the form asks for
          *     the person's own Desktop client. The entry also says whether the
          *     browser step can ask for a sign-in, which a local installation with
-         *     the multi-user mode off never does.
+         *     Remote Access off never does.
          */
         get: operations["list_connection_providers"];
         put?: never;
@@ -2509,29 +2509,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/settings/system/multi-user": {
+    "/api/v1/settings/system/remote-access": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** Remote Access and the Tailscale of this machine (ADR-0028). */
+        get: operations["get_remote_access"];
         /**
-         * Turn the multi-user mode on (ADR-0024): write the Public Origin and
-         *     the Trusted Proxy, and keep the Bind Address on loopback, where the
-         *     owner's proxy or tunnel on this machine reaches the daemon. The
-         *     change takes effect on the next start.
+         * Turn on Remote Access (ADR-0028). The daemon turns on Funnel on port
+         *     443 to the product port on loopback, in the background, because
+         *     Tailscale can wait for the owner to turn on HTTPS and Funnel for the
+         *     tailnet. Then it writes the Public Origin and the Trusted Proxy and
+         *     keeps the Bind Address on loopback. The change takes effect on the
+         *     next start.
          */
-        put: operations["enable_multi_user"];
+        put: operations["turn_on_remote_access"];
         post?: never;
         /**
-         * Turn the multi-user mode off (ADR-0024): clear the Public Origin and
-         *     the Trusted Proxy, and bind loopback. People who signed in over the
-         *     network keep their accounts and reach nothing until the mode is on
-         *     again. The change takes effect on the next start.
+         * Turn off Remote Access (ADR-0028), or stop a turn-on that waits. The
+         *     daemon removes the Funnel of the product port and clears the Public
+         *     Origin, the Trusted Proxy and Remote Access, and binds loopback. People
+         *     who signed in from other machines keep their accounts and their
+         *     Sessions, and reach nothing until Remote Access is on again. The change
+         *     takes effect on the next start.
          */
-        delete: operations["disable_multi_user"];
+        delete: operations["turn_off_remote_access"];
         options?: never;
         head?: never;
         patch?: never;
@@ -2990,10 +2995,9 @@ export interface components {
              *     start route on the Public Origin. A browser with a Session of the
              *     Person who asked goes on from there to consent at Google, and the
              *     connection reaches `connected` when Google redirects that browser
-             *     back to this installation. A local installation with the
-             *     multi-user mode off has one Person and asks the browser for no
-             *     Session. Absent for every Connection this request already
-             *     finished.
+             *     back to this installation. A local installation with Remote
+             *     Access off has one Person and asks the browser for no Session.
+             *     Absent for every Connection this request already finished.
              */
             authorization_url?: string | null;
             connection: components["schemas"]["ConnectionDto"];
@@ -3685,21 +3689,6 @@ export interface components {
         };
         /** @enum {string} */
         DurationUnit: "days" | "hours";
-        /** @description Turn the multi-user mode on. */
-        EnableMultiUserRequest: {
-            /**
-             * @description The absolute `https://` or `http://` origin that the owner's proxy
-             *     or tunnel answers on, such as `https://pagis.example.net`. Its host
-             *     is not loopback.
-             */
-            public_origin: string;
-            /**
-             * @description The IP address the proxy or tunnel reaches the daemon from:
-             *     `127.0.0.1` for one on this machine. Null or empty believes no
-             *     forwarded header.
-             */
-            trusted_proxy?: string | null;
-        };
         ErrorBody: {
             error: components["schemas"]["ErrorDetail"];
         };
@@ -3822,8 +3811,15 @@ export interface components {
         /**
          * @description What the desktop shell reads before it attaches to a daemon it did
          *     not start (ADR-0025): the daemon answers, and it says its version.
+         *     The sign-in page of the Product App reads how its browser signs in
+         *     (ADR-0028).
          */
         HealthDto: {
+            /**
+             * @description How the client that asks signs in: `link` from another machine in
+             *     Remote Access, else `password`.
+             */
+            sign_in: components["schemas"]["SignInMethod"];
             status: string;
             version: string;
         };
@@ -4539,24 +4535,6 @@ export interface components {
             preselected?: string | null;
             providers: components["schemas"]["ProviderModelsDto"][];
         };
-        /** @description The multi-user mode as the Settings view shows it (ADR-0024). */
-        MultiUserDto: {
-            /**
-             * @description Whether the installation serves People on other machines: its
-             *     Public Origin host is not loopback.
-             */
-            enabled: boolean;
-            /** @description The Public Origin people open. Null when the mode is off. */
-            public_origin?: string | null;
-            /**
-             * @description Whether an Administrator can switch the mode here. Only a local
-             *     installation can: a server always serves a network, and its
-             *     deployment names the Public Origin.
-             */
-            switchable: boolean;
-            /** @description The address whose forwarded headers the daemon believes, or null. */
-            trusted_proxy?: string | null;
-        };
         /** @description One Session of the signed-in Person, for their Sessions list. */
         MySessionDto: {
             /** @description `browser` or `desktop`. */
@@ -4941,6 +4919,19 @@ export interface components {
             /** @description The source message's text, for the pointer's preview line. */
             preview: string;
         };
+        /** @description What port 443 of the Funnel of this machine serves. */
+        Port443: {
+            /** @enum {string} */
+            serves: "nothing";
+        } | {
+            /** @enum {string} */
+            serves: "pagis";
+        } | {
+            /** @enum {string} */
+            serves: "other";
+            /** @description What port 443 forwards to, as Tailscale names it. */
+            target: string;
+        };
         PreviewForget: {
             target: components["schemas"]["ForgetTarget"];
         };
@@ -4976,8 +4967,8 @@ export interface components {
             /**
              * @description True for the `oauth` entry of a brokered flow in which the browser
              *     that goes to the provider can first ask the Person to sign in to
-             *     Pagis. False on a local installation with the multi-user mode
-             *     off, whose start route asks for no Session, and for every other
+             *     Pagis. False on a local installation with Remote Access off,
+             *     whose start route asks for no Session, and for every other
              *     entry.
              */
             browser_sign_in: boolean;
@@ -5065,6 +5056,32 @@ export interface components {
         ReflectionFilter: {
             default: components["schemas"]["Verdict"];
             rules: components["schemas"]["Rule"][];
+        };
+        /** @description Remote Access as the Settings view shows it (ADR-0028). */
+        RemoteAccessDto: {
+            /**
+             * @description Whether Remote Access is on. A Local Installation shows what
+             *     `config.toml` says, which a restart puts in effect. A Server shows
+             *     what it runs with.
+             */
+            enabled: boolean;
+            /** @description Why the last turn-on failed, or null. */
+            failure?: string | null;
+            /**
+             * @description The public `https://` name that other machines open, while Remote
+             *     Access is on.
+             */
+            public_origin?: string | null;
+            /** @description Whether the running daemon differs from `enabled` until a restart. */
+            restart_required: boolean;
+            /**
+             * @description Whether an Administrator switches Remote Access here. Only a Local
+             *     Installation does: a Server's deployment sets
+             *     `PAGIS_REMOTE_ACCESS`.
+             */
+            switchable: boolean;
+            tailscale?: null | components["schemas"]["TailscaleState"];
+            turning_on?: null | components["schemas"]["TurningOnDto"];
         };
         /** @description One author of the replies in a thread. */
         ReplyAuthorDto: {
@@ -5314,8 +5331,8 @@ export interface components {
         };
         /**
          * @description The saved settings, and whether they take effect only after a
-         *     restart. The port, the log level and the multi-user mode need one;
-         *     the Docker endpoint does not.
+         *     restart. The port and the log level need one; the Docker endpoint
+         *     does not.
          */
         SavedSystemSettingsDto: {
             restart_required: boolean;
@@ -5404,8 +5421,8 @@ export interface components {
         };
         /**
          * @description The Media Relay of the running daemon as the Settings view shows
-         *     it (ADR-0014). The live screen does not go through the proxy or
-         *     tunnel of the multi-user mode, so the view names where it goes.
+         *     it (ADR-0014). The live screen goes through neither the Trusted Proxy
+         *     nor the Funnel of Remote Access, so the view names where it goes.
          */
         ScreenDto: {
             /** @description `[screen] advertise_ip`: the address the relay gives to browsers. */
@@ -5616,6 +5633,12 @@ export interface components {
             /** @description `<public origin>/sign-in#<secret>`. It is good for one use. */
             url: string;
         };
+        /**
+         * @description How a client at the address that asks signs in (ADR-0028). The
+         *     sign-in page of the Product App shows the form that it names.
+         * @enum {string}
+         */
+        SignInMethod: "password" | "link";
         /** @description One fact the filter editor offers for one resource. */
         Signal: {
             id: string;
@@ -5827,7 +5850,6 @@ export interface components {
              */
             listening_port: number;
             log_level: string;
-            multi_user: components["schemas"]["MultiUserDto"];
             /**
              * Format: int32
              * @description The product port that `config.toml` names.
@@ -5890,6 +5912,31 @@ export interface components {
             /** @description The column's stable key; the UI sorts on it. */
             key: string;
             label: string;
+        };
+        /**
+         * @description Tailscale on the machine of the installation, as the Remote Access
+         *     switch reads it. Each state has one thing for the owner to do.
+         */
+        TailscaleState: {
+            /** @description Where the owner gets Tailscale for this system. */
+            install_url: string;
+            /** @enum {string} */
+            state: "not_installed";
+        } | {
+            /** @description What the `tailscale` command said, where it said why. */
+            detail?: string | null;
+            /** @enum {string} */
+            state: "not_running";
+        } | {
+            port_443: components["schemas"]["Port443"];
+            /** @enum {string} */
+            state: "funnel_off";
+        } | {
+            /** @description The name of this machine on the tailnet, with no trailing dot. */
+            dns_name: string;
+            port_443: components["schemas"]["Port443"];
+            /** @enum {string} */
+            state: "ready";
         };
         /** @description One thread: the root message plus its replies, oldest first. */
         ThreadDto: {
@@ -5990,6 +6037,15 @@ export interface components {
          * @enum {string}
          */
         TrustTier: "unknown" | "trusted" | "owner";
+        /** @description A turn-on that waits for Tailscale. */
+        TurningOnDto: {
+            /**
+             * @description The page that Tailscale names to turn on HTTPS and Funnel for the
+             *     tailnet. The turn-on waits until the owner approves there. Null
+             *     while Tailscale names no page.
+             */
+            enable_url?: string | null;
+        };
         UpdateAgentRequest: {
             description?: string;
             job: string;
@@ -10866,6 +10922,15 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
+            /** @description Remote Access, where another machine signs in with a Sign-In Link */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
             429: {
                 headers: {
                     [name: string]: unknown;
@@ -12710,63 +12775,7 @@ export interface operations {
             };
         };
     };
-    enable_multi_user: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["EnableMultiUserRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SavedSystemSettingsDto"];
-                };
-            };
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description A server, which always serves a network */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
-    };
-    disable_multi_user: {
+    get_remote_access: {
         parameters: {
             query?: never;
             header?: never;
@@ -12780,7 +12789,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SavedSystemSettingsDto"];
+                    "application/json": components["schemas"]["RemoteAccessDto"];
                 };
             };
             401: {
@@ -12799,7 +12808,87 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description A server, which always serves a network */
+        };
+    };
+    turn_on_remote_access: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The turn-on runs; `turning_on` shows it until it ends */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemoteAccessDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description A Server, or Tailscale that cannot turn Remote Access on now */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    turn_off_remote_access: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemoteAccessDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description A Server, whose deployment turns Remote Access on */
             409: {
                 headers: {
                     [name: string]: unknown;

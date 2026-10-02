@@ -1,0 +1,14 @@
+
+Funnel is not enabled on your tailnet.
+To enable, visit:
+
+         https://login.tailscale.com/f/funnel?node=nTEST000000CNTRL
+
+Success.
+Available on the internet:
+
+https://owner-mac.tail1234.ts.net/
+|-- proxy http://127.0.0.1:4400
+
+Funnel started and running in the background.
+To disable the proxy, run: tailscale funnel --https=443 off

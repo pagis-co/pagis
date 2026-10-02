@@ -391,7 +391,7 @@ function AccountDetail({
   api: ApiClient
   connection: ConnectionDto
   /** Whether the tab that goes to Google can ask for a sign-in to
-   *  Pagis first: on a Server and in the multi-user mode, whose start
+   *  Pagis first: on a Server and in Remote Access, whose start
    *  route requires a Session of the Person. The catalog entry of the
    *  provider says so. */
   browserSignIn: boolean

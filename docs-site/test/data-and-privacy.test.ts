@@ -122,7 +122,7 @@ describe('the Data and privacy page', () => {
     expect(section(encryption, 3, MODEL_PROVIDER)).toBeDefined();
   });
 
-  it('links the multi-user part to what the model provider receives', async () => {
+  it('links the part on several People to what the model provider receives', async () => {
     const several = requiredSection(await text(PRIVACY), 2, 'Several People on a local installation');
     expect(links(several)).toContain('#what-the-model-provider-receives');
   });

@@ -79,8 +79,8 @@ A local installation holds one, whatever its Public Origin. The daemon
 accepts the trade, the sign-in link and the runtime identity handshake only
 from a program on the same machine: the socket peer is loopback, the request
 carries no header that a proxy writes (`Forwarded`, `Via`,
-`X-Forwarded-For`, `X-Forwarded-Host`, `X-Forwarded-Proto`, `X-Real-IP`),
-and the `Host` header names a loopback host. Anything else gets `403`. A
+`X-Forwarded-For`, `X-Forwarded-Host`, `X-Forwarded-Proto`, `X-Real-IP`,
+`Tailscale-Funnel-Request`), and the `Host` header names a loopback host. Anything else gets `403`. A
 request through the Trusted Proxy is refused even when the proxy runs on the
 same machine, because that proxy writes `X-Forwarded-For` or passes on the
 public name ([ADR-0025](https://github.com/pagis-co/pagis/blob/main/docs/adr/0025-the-client-app-installs-one-exact-server-or-connects-to-one.md)).

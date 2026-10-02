@@ -1,7 +1,9 @@
 //! The ways in, and the ways out.
 //!
-//! **Password**, on a server: `POST /api/v1/sessions` takes an email and
-//! a password and answers with a session cookie. A refusal never says
+//! **Password**: `POST /api/v1/sessions` takes an email and a password
+//! and answers with a session cookie. In Remote Access (ADR-0028) it takes
+//! a password only from this machine: another machine signs in with a
+//! Sign-In Link, and the refusal says so. A refusal never says
 //! whether the address exists, in its answer or in its time: an unknown
 //! address, a disabled Person and a Person with no password check the
 //! password against a dummy argon2id hash with the parameters of a real
@@ -41,8 +43,8 @@
 //! The trade and the start link answer a request from this machine
 //! alone, never one that came through a proxy, even a proxy on the same
 //! machine ([`crate::forwarded::is_from_this_machine`] holds the rule).
-//! A local installation that other People reach through the owner's
-//! proxy therefore keeps both as the owner's own way in.
+//! A local installation that other People reach through Remote Access
+//! therefore keeps both as the owner's own way in.
 //!
 //! A server holds no Client Credential, so it refuses both the exchange
 //! and the start link, and a credential file is never a way into a
@@ -83,6 +85,7 @@ use crate::AppState;
 use crate::auth::{Tenant, cleared_session_cookie, hash_secret, session_cookie};
 use crate::client_name::browser_session_name;
 use crate::error::ApiError;
+use crate::remote_access::SignInMethod;
 use crate::user::UserDto;
 
 /// How many attempts that do not sign in one account or one address may
@@ -375,6 +378,13 @@ pub struct PasswordSignInRequest {
 /// The longest machine name a Session keeps.
 const CLIENT_NAME_MAX: usize = 255;
 
+/// Why a password from another machine is refused in Remote Access. It
+/// names the Sign-In Link and the three ways to one, in the words of
+/// [`link_refused`].
+const PASSWORD_FROM_ANOTHER_MACHINE: &str = "This Pagis takes no password from another machine. Sign in with a Sign-In Link. Make a \
+     new link in Settings → Sessions on a browser or app that is signed in. Or ask an \
+     Administrator for a new invite, or run \"pagis pair\" on the machine of the server.";
+
 /// A refused Sign-In Link. It is the same answer for a secret that
 /// names no link, a link that is spent or expired, a link of the other
 /// kind, and a link of a disabled Person. The `/sign-in` page shows it
@@ -412,6 +422,7 @@ fn session_client(
     responses(
         (status = 200, body = UserDto, description = "Signed in; the session is in an HTTP-only cookie"),
         (status = 401, body = crate::error::ErrorBody),
+        (status = 403, body = crate::error::ErrorBody, description = "Remote Access, where another machine signs in with a Sign-In Link"),
         (status = 429, body = crate::error::ErrorBody),
     )
 )]
@@ -421,6 +432,12 @@ pub async fn sign_in_with_password(
     headers: HeaderMap,
     Json(body): Json<PasswordSignInRequest>,
 ) -> Result<Response, ApiError> {
+    // The public name of Remote Access faces the internet, so a password
+    // never crosses it. The refusal comes before any check of the
+    // address or the password, so it says nothing about either.
+    if crate::remote_access::sign_in_method(&state, peer, &headers) == SignInMethod::Link {
+        return Err(ApiError::forbidden(PASSWORD_FROM_ANOTHER_MACHINE));
+    }
     let now = state.clock.now_ms();
     let (client_kind, client_name) = session_client(body.client_name.as_deref(), &headers)?;
     // Behind a reverse proxy every request comes from the proxy, so the

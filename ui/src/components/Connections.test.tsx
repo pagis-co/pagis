@@ -709,8 +709,8 @@ describe('Connections mailbox providers', () => {
  *  catches up when the redirect lands. */
 describe('Connections brokered Google', () => {
   /** The catalog a brokered installation serves: the account field
-   *  alone. `browserSignIn` is false on a Local Installation with the
-   *  multi-user mode off, where the browser needs no Session. */
+   *  alone. `browserSignIn` is false on a Local Installation with
+   *  Remote Access off, where the browser needs no Session. */
   function brokeredCatalog(browserSignIn: boolean): ProviderEntryDto[] {
     return PROVIDERS.map((entry) =>
       entry.id === 'google'
@@ -809,8 +809,8 @@ describe('Connections brokered Google', () => {
     // connected because the request returned.
     expect(await screen.findByText('Finish at Google')).toBeTruthy()
     expect(screen.getByText(/opened in a new tab/)).toBeTruthy()
-    // The new tab has no Session of its own on a Server or in the
-    // multi-user mode, so it can ask the person to sign in first.
+    // The new tab has no Session of its own on a Server or in Remote
+    // Access, so it can ask the person to sign in first.
     expect(screen.getByText(SIGN_IN)).toBeTruthy()
 
     // Google sends the person back, the callback lands, and the list is
@@ -827,7 +827,7 @@ describe('Connections brokered Google', () => {
     vi.unstubAllGlobals()
   })
 
-  /** A Local Installation with the multi-user mode off has one Person,
+  /** A Local Installation with Remote Access off has one Person,
    *  and its start route asks the new tab for no sign-in. The copy does
    *  not mention one. */
   it('mentions no sign-in in the new tab on a single-Person installation', async () => {
@@ -853,7 +853,7 @@ describe('Connections brokered Google', () => {
   })
 
   it.each([
-    ['names the sign-in on a Server or in the multi-user mode', true],
+    ['names the sign-in on a Server or in Remote Access', true],
     ['names no sign-in on a single-Person installation', false],
   ])('the card that changes access %s', async (_, browserSignIn) => {
     const api = brokeredApi([connected({ auth_mode: 'brokered' })], undefined, browserSignIn)

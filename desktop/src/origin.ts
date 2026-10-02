@@ -126,8 +126,8 @@ function serverUrl(typed: string): URL {
   if (!isTrustedServerOrigin(url)) {
     throw new Error(
       'Pagis connects to a server on another computer only over https://. ' +
-      'Put TLS in front of the server with Caddy, Tailscale Serve or Cloudflare Tunnel, ' +
-      'as docs.pagis.co/client-app/several-people shows, then type its https:// address.',
+      'Turn on Remote Access on that computer, as docs.pagis.co/client-app/several-people ' +
+      'shows, or put a proxy that holds TLS in front of a server. Then type its https:// address.',
     )
   }
   return url

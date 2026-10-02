@@ -17,8 +17,12 @@ decision behind it.
 ## A local installation
 
 Set nothing. The relay advertises `127.0.0.1` and the browser is on the same
-machine. A local installation in the multi-user mode names the address that
-the other People reach it at; [The live screen for other people](/client-app/several-people#the-live-screen-for-other-people) gives it for each proxy and tunnel.
+machine. The live screen does not go through the Funnel of Remote Access,
+and the live screen through the Funnel is not built, so a browser on
+another machine shows "Live screen unavailable". A machine that reaches this
+computer over UDP, on the tailnet or on the LAN, sees it where
+`advertise_ip` names that address; [The live screen for other people](/client-app/several-people#the-live-screen-for-other-people) gives
+both.
 
 ## A server with a public address
 

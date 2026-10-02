@@ -101,11 +101,10 @@ internet ([What a Computer reaches](/server/computers#what-a-computer-reaches)).
 ## Several People on a local installation
 
 Any installation can hold several People, and the seeded Person is the
-Administrator. To let other People reach a local installation, put TLS in
-front of it with your own proxy or tunnel (Caddy, Tailscale Serve,
-Cloudflare Tunnel), then turn on **Multi-user mode** in the Settings view
-of the Administration Interface and type the name that the proxy answers on
-as the Public Origin. [Serve several People](/client-app/several-people) holds each setup.
+Administrator. To let other People reach a local installation, turn on
+**Remote Access** in the Settings view of the Administration Interface. It
+gives the installation a public name of your own Tailscale Funnel, and
+Tailscale holds its certificate. [Serve several People](/client-app/several-people) states the setup.
 
 The Computers of the Agents of the other People also run on this computer,
 and they reach what [What a Computer reaches](#what-a-computer-reaches) states. The providers of the
@@ -178,7 +177,7 @@ the daemon fills a Credential ([ADR-0013](https://github.com/pagis-co/pagis/blob
 model ([ADR-0021](https://github.com/pagis-co/pagis/blob/main/docs/adr/0021-caller-id-proposes-a-tier-and-a-keypad-code-confirms-it.md)). The provider decides what it keeps from a request, and
 for how long.
 
-On a server, and on a local installation in Multi-User Mode, the
+On a server, and on a local installation in Remote Access, the
 Administrator stores the provider keys for the whole Org. The providers of
 these keys get the model requests of every Person.
 

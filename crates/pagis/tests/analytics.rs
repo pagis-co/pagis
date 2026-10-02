@@ -243,7 +243,7 @@ async fn a_release_build_sends_the_installation_report() {
     assert_eq!(report["release"], env!("CARGO_PKG_VERSION"));
     assert_eq!(report["installation"], "local");
     assert_eq!(report["storage"], "sqlite");
-    assert_eq!(report["multi_user"], false);
+    assert_eq!(report["remote_access"], false);
     // The test daemon finds no Docker.
     assert_eq!(report["computers"], false);
     assert_eq!(report["people"], "1");

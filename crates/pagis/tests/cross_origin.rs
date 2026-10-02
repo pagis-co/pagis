@@ -673,15 +673,19 @@ async fn the_host_socket_of_the_client_app_registers_a_host() {
     assert!(registered["payload"]["host_id"].is_string(), "{registered}");
 }
 
-/// On a local installation in the multi-user mode, the Public Origin is
-/// the name that the owner's proxy answers on. The owner's Client App and
+/// On a local installation in Remote Access, the Public Origin is the
+/// name that the Funnel answers on. The owner's Client App and
 /// the Sign-In Link still open the Product App at the loopback origin of
 /// the daemon (ADR-0024), and a browser sends no `Sec-Fetch-Site` on a
 /// WebSocket handshake. So the product port of a local installation
 /// serves that origin too, and the sockets of that page upgrade.
 #[tokio::test]
 async fn a_local_installation_serves_its_loopback_origin_too() {
-    let daemon = TestDaemon::start_with(options()).await;
+    let daemon = TestDaemon::start_with(TestDaemonOptions {
+        remote_access: true,
+        ..options()
+    })
+    .await;
     let local_origin = daemon.booted.config.local_origin(daemon.addr.port());
     assert_ne!(local_origin, daemon.public_origin);
 

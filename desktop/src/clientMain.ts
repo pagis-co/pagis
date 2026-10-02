@@ -75,9 +75,9 @@ import {
 import { handleWindowClose } from './windowClose'
 import { installNavigationRule } from './windowNavigation'
 
-/** The Multi-User Mode switch in the Settings view of the Administration
+/** The Remote Access switch in the Settings view of the Administration
  *  Interface. Setup for several People opens it after the product. */
-const MULTI_USER_SWITCH = '/settings#multi-user'
+const REMOTE_ACCESS_SWITCH = '/settings#remote-access'
 
 const SMOKE = process.argv.includes('--smoke')
 const SMOKE_DEADLINE_MS = 60000
@@ -134,7 +134,7 @@ class Shell {
     connect: (request, signal) => this.connect(request, signal),
     activate: () => this.activateOwnRuntime(),
     openProduct: (url) => this.finishHandoff(url),
-    openMultiUserSwitch: () => this.openAdministration(MULTI_USER_SWITCH),
+    openRemoteAccessSwitch: () => this.openAdministration(REMOTE_ACCESS_SWITCH),
     createSupervisor: (binary, beforeSpawn) => this.createSupervisor(binary, beforeSpawn),
     assertNoExternalRuntime: () => this.assertNoExternalRuntime(),
     onDaemonState: (state) => this.renderSupervisorState(state),

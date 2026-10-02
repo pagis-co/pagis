@@ -62,7 +62,7 @@ describe('SignInLinkPage', () => {
     const onSignedIn = mount(post)
 
     expect((await screen.findByRole('alert')).textContent).toBe(refusal)
-    expect(screen.getByRole('link', { name: 'Sign in with an address and a password' })
+    expect(screen.getByRole('link', { name: 'Go to the sign-in page' })
       .getAttribute('href')).toBe('/')
     expect(onSignedIn).not.toHaveBeenCalled()
   })

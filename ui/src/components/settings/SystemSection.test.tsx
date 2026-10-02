@@ -1,5 +1,6 @@
 // The System section: the two-column daemon form, Save and
-// restart, the Docker probe row, the analytics switch and About.
+// restart, Remote Access, the Docker probe row, the analytics switch and
+// About.
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
@@ -8,13 +9,17 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ApiClient } from '../../api/client'
 import { SystemSection } from './SystemSection'
 
+const remoteAccess = {
+  enabled: false,
+  restart_required: false,
+  public_origin: null,
+  switchable: true,
+  tailscale: { state: 'not_installed', install_url: 'https://pkgs.tailscale.com/stable/#macos' },
+  turning_on: null,
+  failure: null,
+}
+
 const settings = {
-  multi_user: {
-    enabled: false,
-    public_origin: null,
-    trusted_proxy: null,
-    switchable: true,
-  },
   screen: {
     relay: 'daemon' as const,
     advertise_ip: '127.0.0.1',
@@ -53,7 +58,9 @@ const settings = {
 
 function stubApi(overrides: Partial<Record<'GET' | 'PUT' | 'POST', unknown>> = {}) {
   return {
-    GET: vi.fn(async () => ({ data: settings })),
+    GET: vi.fn(async (path: string) => ({
+      data: path === '/api/v1/settings/system/remote-access' ? remoteAccess : settings,
+    })),
     PUT: vi.fn(async () => ({
       data: { settings: { ...settings, port: 4500 }, restart_required: true },
     })),
@@ -86,12 +93,12 @@ describe('SystemSection', () => {
     expect(screen.getByText('pagis 0.14.2')).toBeTruthy()
   })
 
-  it('shows the multi-user mode with its switch', async () => {
+  it('shows Remote Access with its switch under Network', async () => {
     mount(stubApi())
 
     expect(await screen.findByText('Network')).toBeTruthy()
     expect(
-      screen.getByRole('switch', { name: /Multi-user mode/ }).getAttribute('aria-checked'),
+      (await screen.findByRole('switch', { name: /Remote Access/ })).getAttribute('aria-checked'),
     ).toBe('false')
   })
 

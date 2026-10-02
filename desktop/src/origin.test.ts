@@ -22,7 +22,7 @@ describe('the origin the client talks to', () => {
   it('refuses http:// to another computer, and names https:// and the setups that give it', () => {
     expect(() => serverOrigin('http://192.168.1.10:4400')).toThrow(/only over https:\/\//)
     expect(() => serverOrigin('http://192.168.1.10:4400'))
-      .toThrow(/Caddy, Tailscale Serve or Cloudflare Tunnel/)
+      .toThrow(/Turn on Remote Access on that computer/)
     expect(() => serverOrigin('http://pagis.example.com')).toThrow(/only over https:\/\//)
   })
 
