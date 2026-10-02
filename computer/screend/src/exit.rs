@@ -1054,20 +1054,11 @@ mod tests {
     }
 
     /// The targets of the tests that need a destination that answers.
-    /// Run it on another machine than those tests, such as a second
-    /// container on one Docker network with them, and name that machine
-    /// in `PAGIS_EXIT_TEST_TARGETS` for them:
-    ///
-    /// ```text
-    /// docker network create screend-test
-    /// docker run -d --name screend-targets --network screend-test <builder> \
-    ///     cargo test --locked serve_the_proxy_test_targets -- --ignored
-    /// docker run --rm --network screend-test -e PAGIS_EXIT_TEST_TARGETS=screend-targets \
-    ///     <builder> cargo test --locked -- --include-ignored \
-    ///     --skip serve_the_proxy_test_targets
-    /// ```
-    ///
-    /// It serves until it is stopped.
+    /// They run on another machine than those tests:
+    /// `cargo xtask step screend-test` starts this test in a second
+    /// container on a Docker network of its own, and names that container
+    /// in `PAGIS_EXIT_TEST_TARGETS` for them. It serves until it is
+    /// stopped.
     #[tokio::test]
     #[ignore = "the targets of the proxy tests, for a second machine; it serves until it is stopped"]
     async fn serve_the_proxy_test_targets() {

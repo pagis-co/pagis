@@ -55,6 +55,14 @@ cargo xtask step computer-image
 cargo nextest run -p pagis-computer --run-ignored only
 ```
 
+The screen daemon, `computer/screend`, is a Cargo workspace of its own,
+and it builds only on Linux. `cargo xtask step screend-test` runs its
+tests in Docker, in the Rust image that builds it in the Computer Image.
+The tests of the Exit Proxy that need a destination run against a
+second container. The named volumes `pagis-screend-registry` and
+`pagis-screend-target` keep the Cargo downloads and builds of these
+containers.
+
 In `ui/`, `desktop/` and `docs-site/`, `npm run typecheck` and `npm test`
 check the TypeScript code. In `docs-site/`, `npm run build` compiles and
 exports each page, and `npm run test:export` serves the export as Cloudflare
@@ -112,6 +120,7 @@ unknown name prints the list. The gate steps are:
 | --- | --- |
 | `fmt`, `clippy` | Formatting, and clippy with warnings as errors |
 | `computer-image` | Builds the Computer Image that the Docker tests run |
+| `screend-test` | The tests of `computer/screend`, in Docker |
 | `test` | Each test of the workspace. With Docker, also the Docker tests |
 | `gog-contract` | The Google adapter against the pinned `gog` release |
 | `emergency-drift` | The emergency number table against its generator |
@@ -147,7 +156,7 @@ gate steps with `cargo xtask step`:
 | Job | Steps |
 | --- | --- |
 | fmt and clippy | `fmt clippy` |
-| tests | `computer-image test` |
+| tests | `computer-image screend-test test` |
 | contract drift | `ui-deps contract-drift gog-contract` |
 | UI | `ui-deps ui-typecheck ui-test` |
 | desktop | `desktop-deps desktop-typecheck desktop-test` |
