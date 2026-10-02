@@ -65,9 +65,20 @@ writes them.
 The Bind Address stays loopback. A phone needs no Tailscale app, and so
 keeps its one VPN slot for another use.
 
-A Headless Server at home gets the same name from an optional `tailscale`
-service in `deploy/compose.yaml`, which runs the official Tailscale image
-with a Funnel configuration. The deployment sets `PAGIS_REMOTE_ACCESS`.
+A Headless Server at home gets the same name from the `tailscale` profile
+of `deploy/compose.yaml`, which runs in place of the Caddy of the `proxy`
+profile. `COMPOSE_PROFILES` in `.env` selects the profile, and the same
+`.env` sets `PAGIS_REMOTE_ACCESS`. The `tailscale` service runs the official
+Tailscale image, with host networking as every service of the deployment
+and with userspace networking, so it changes no network setting of the
+host. At each start the image applies `deploy/tailscale-serve.json`: the
+Funnel that the switch turns on, as an `ipn.ServeConfig` with
+`${TS_CERT_DOMAIN}` in place of the name of the machine. The node keeps its
+state in a volume, so a tagged auth key of the owner's tailnet is read at
+the first start alone. The Media Relay advertises the LAN address of the
+machine, because the TURN server binds each relay socket on the advertised
+address, and a browser on the LAN takes the direct path. `pagis pair` in the
+container gives the first Session.
 
 Other ways were considered:
 
@@ -215,8 +226,3 @@ Other ways were considered:
   the phone to the relay and from the relay to the home machine.
 - The standalone build of Tailscale for macOS serves Funnel. Tailscale's
   documents disagree on whether the Mac App Store build does.
-
-## Not built
-
-- The `tailscale` service of `deploy/compose.yaml`. A Headless Server in
-  Remote Access runs the TURN server, and nothing publishes its port.

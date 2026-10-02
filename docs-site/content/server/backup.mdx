@@ -90,9 +90,9 @@ Three things are never in the archive:
   Computer that has no token on the disk, and it starts that Computer
   again at its next wake.
 
-To restore onto a new host, put `compose.yaml`, `egress.sh`, `Caddyfile`
-and `.env` in `deploy/` and the Key File in `deploy/secrets/`, on a machine
-that has no Pagis volumes, then run:
+To restore onto a new host, put `compose.yaml`, `egress.sh`, `Caddyfile`,
+`tailscale-serve.json` and `.env` in `deploy/` and the Key File in
+`deploy/secrets/`, on a machine that has no Pagis volumes, then run:
 
 ```bash
 deploy/restore.sh /var/backups/pagis/nightly
@@ -100,6 +100,11 @@ deploy/restore.sh /var/backups/pagis/nightly
 
 The script restores the volumes in the archive and no others, and it
 refuses to start when a volume of that name already exists on the host.
+
+A server at home in Remote Access needs a new auth key in `TS_AUTHKEY`,
+because the archive holds no state of the `tailscale` service. Remove the
+old machine from your tailnet first, so the new one gets the same name
+([Remote Access at home](/server/remote-access)).
 
 `pagis restore` refuses a state directory that holds an installation and a
 database that holds records, because two installations in one place are

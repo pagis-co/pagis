@@ -80,11 +80,12 @@ version number of its own, and each release pins one digest of it
 
 ### Headless Server
 The Pagis server as a Linux container image, for a team that runs it on
-its own VM: the same daemon and Product App as the Server Runtime, with
-every program the daemon starts. It refuses to start without a Public
-Origin whose host is not loopback or without a Postgres database URL, and
-it holds no Client Credential. Its trust root is the registry and the
-digest that the deployment pins (ADR-0024).
+its own VM, or a household on a Linux machine at home: the same daemon and
+Product App as the Server Runtime, with every program the daemon starts. It
+refuses to start without a Public Origin whose host is not loopback or
+without a Postgres database URL, and it holds no Client Credential. Its
+trust root is the registry and the digest that the deployment pins
+(ADR-0024).
 _Avoid_: server container, docker server, self-hosted build
 
 ### Installation ID
@@ -153,8 +154,9 @@ which turns on the Funnel, sets the Public Origin and the Trusted Proxy,
 and restarts the daemon. A Local Installation serves other machines only
 while it is on. While it is on, a TURN server in the daemon carries the
 live screen to a browser on another machine, through the Funnel on port
-8443. A Server behind its own proxy is not in it (ADR-0028). Not built:
-the Tailscale service of a Headless Server.
+8443. A Headless Server at home is in it through the Tailscale service of
+its compose deployment, which runs the Funnel in place of a proxy. A
+Server behind its own proxy is not in it (ADR-0028).
 _Avoid_: tunnel mode, remote mode, pairing, multi-user mode
 
 ### Runtime Lock
@@ -173,8 +175,10 @@ _Avoid_: libsecret, gnome-keyring, Linux keychain
 
 ### Server
 An installation that serves People on other machines from a machine that
-nobody sits at: the Headless Server on a VM. It keeps its records in
-Postgres, and a proxy in front of it holds the TLS certificate (ADR-0024).
+nobody sits at: the Headless Server on a VM or at home. It keeps its
+records in Postgres, and a proxy in front of it holds the TLS certificate:
+the proxy of its deployment, or at home the Tailscale Funnel of Remote
+Access (ADR-0024, ADR-0028).
 _Avoid_: hosted installation, cloud
 
 ### Server Package

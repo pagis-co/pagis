@@ -18,7 +18,8 @@ updates:
     schedule:
       interval: weekly
 
-  # `postgres`, `klipper-lb` and `caddy` of a Headless Server deployment.
+  # `postgres`, `klipper-lb`, `caddy` and `tailscale` of a Headless Server
+  # deployment.
   # A server gets their updates with the next release of Pagis.
   - package-ecosystem: docker-compose
     directory: /deploy

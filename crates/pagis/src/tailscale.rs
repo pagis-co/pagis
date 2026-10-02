@@ -784,6 +784,37 @@ mod tests {
         );
     }
 
+    /// The `tailscale` service of the compose deployment applies
+    /// `deploy/tailscale-serve.json`, and the official image puts the name
+    /// of the machine in place of `${TS_CERT_DOMAIN}`. The switch of a
+    /// Local Installation reads that Funnel as the Funnel of Pagis on both
+    /// ports, at the product port and the TURN server port of the
+    /// deployment, so a Headless Server at home serves what the switch
+    /// turns on.
+    #[test]
+    fn the_funnel_of_the_compose_deployment_is_the_funnel_of_pagis() {
+        let root = PathBuf::from(
+            std::env::var_os("CARGO_MANIFEST_DIR").expect("cargo sets the manifest directory"),
+        );
+        let file = std::fs::read_to_string(root.join("../../deploy/tailscale-serve.json"))
+            .expect("read deploy/tailscale-serve.json");
+        assert!(file.contains("${TS_CERT_DOMAIN}"), "{file}");
+        let serve = file.replace("${TS_CERT_DOMAIN}", DNS_NAME);
+        let targets = FunnelTargets {
+            product: crate::config::DEFAULT_PORT,
+            turn: crate::config::DEFAULT_REMOTE_ACCESS_TURN_PORT,
+        };
+
+        assert_eq!(
+            port_443(&serve, DNS_NAME, targets.product).unwrap(),
+            FunnelPort::Pagis
+        );
+        assert_eq!(
+            port_8443(&serve, DNS_NAME, targets.turn).unwrap(),
+            FunnelPort::Pagis
+        );
+    }
+
     /// The handlers of another name of this machine are not port 443 of
     /// its tailnet name.
     #[test]

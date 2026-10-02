@@ -5,7 +5,9 @@ icon: LogIn
 ---
 
 A Person signs in at `https://<the domain>/` with an address and a password,
-or with a [Sign-In Link](#sign-in-links). The answer is an HTTP-only, host-only, `SameSite=Strict` Session cookie, and
+or with a [Sign-In Link](#sign-in-links). A server in Remote Access takes no
+password from another machine, so a browser there signs in with a link
+([Remote Access at home](/server/remote-access)). The answer is an HTTP-only, host-only, `SameSite=Strict` Session cookie, and
 it carries `Secure` where the proxy reported TLS. No token appears in a URL.
 The CORS answer names the Public Origin and no other origin, so a page
 elsewhere cannot read the API with a Person's cookie. Each port also refuses a

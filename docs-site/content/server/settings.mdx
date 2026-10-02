@@ -14,13 +14,14 @@ for the run and is never written back into the file.
 | `bind` | `PAGIS_BIND` | `127.0.0.1` | The **Bind Address** of the product port. Name the private interface the proxy is on, or `0.0.0.0` for every interface. |
 | `public_origin` | `PAGIS_PUBLIC_ORIGIN` | Derived from `bind` and `port` | The **Public Origin**: the scheme, host and port a browser reaches the installation at. The CORS answer names it. |
 | `trusted_proxy` | `PAGIS_TRUSTED_PROXY` | None | The **Trusted Proxy**: the one address whose `X-Forwarded-For` and `X-Forwarded-Proto` the daemon believes. |
+| `[remote_access] enabled` | `PAGIS_REMOTE_ACCESS` | Off | **Remote Access**: another machine signs in with a Sign-In Link alone, and the TURN server of the live screen runs. The compose deployment turns it on with the `tailscale` profile ([Remote Access at home](/server/remote-access)). |
 | `[administration] port` | `PAGIS_ADMINISTRATION_PORT` | `4401` | The Administration Port. |
 | `[administration] bind` | `PAGIS_ADMINISTRATION_BIND` | `127.0.0.1` | Its Bind Address, loopback whatever the product port binds. |
 | `[database] url` | `PAGIS_DATABASE_URL` | None | The `postgres://` URL of the database that holds the records. A server does not start without it. |
 | `[secrets] key_file` | None | `/run/secrets/pagis-secrets-key` | The **Key File** (Linux). |
 | `[screen] advertise_ip` | `PAGIS_SCREEN_ADVERTISE_IP` | `127.0.0.1` | The address browsers reach the Media Relay at. |
 | `[screen] media_port_first`, `media_port_last` | `PAGIS_SCREEN_MEDIA_PORT_FIRST`, `PAGIS_SCREEN_MEDIA_PORT_LAST` | `50000`, `50099` | The Media Relay's UDP range. |
-| `[screen] remote_access_turn_port` | None | `4402` | The loopback TCP port of the TURN server that carries the live screen through the Funnel in Remote Access. |
+| `[screen] remote_access_turn_port` | None | `4402` | The loopback TCP port of the TURN server that carries the live screen through the Funnel in Remote Access. `deploy/tailscale-serve.json` names `4402`. |
 
 ```toml
 bind = "10.0.1.7"

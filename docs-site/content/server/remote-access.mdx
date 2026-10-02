@@ -1,0 +1,215 @@
+---
+title: Remote Access at home
+description: Run the server on a Linux machine at home, and reach it from your phone and your laptop through your Tailscale Funnel, with no domain name and no open port.
+icon: HouseWifi
+---
+
+A machine at home has no domain name and no public address, and it is
+often behind carrier-grade NAT. The `tailscale` profile of the compose
+deployment runs the official Tailscale image in place of Caddy. Your
+Tailscale Funnel gives the server a public `https://` name, such as
+`https://pagis.tail1234.ts.net`, holds its certificate, and forwards each
+request to the daemon on loopback. Your phone and your laptop need no
+Tailscale.
+
+The server is then in **Remote Access**. A browser or an app on another
+machine signs in with a [Sign-In Link](/server/sign-in#sign-in-links) and
+never with a password
+([ADR-0028](https://github.com/pagis-co/pagis/blob/main/docs/adr/0028-remote-access-runs-through-the-owners-tailscale.md)).
+
+## What you need
+
+- **A Linux machine at home with Docker and Docker Compose.** Every service
+  of the deployment uses host networking, which is a Linux facility
+  ([Every service shares the VM's network namespace](/server/compose#every-service-shares-the-vms-network-namespace)).
+- **A Tailscale account.** The `tailscale` service joins your tailnet as a
+  machine of its own, so the machine at home needs no other Tailscale.
+- **A fixed LAN address for the machine**, for example a DHCP reservation
+  on your router. The live screen uses it.
+
+## Prepare your tailnet
+
+1. In the Tailscale admin console, open **DNS**. Turn on **MagicDNS** and
+   **HTTPS Certificates**.
+2. On the same page, find the tailnet DNS name, such as `tail1234.ts.net`.
+   The server gets the name `pagis.tail1234.ts.net`.
+3. Open **Access controls** and add a tag for the server, with the `funnel`
+   attribute. Add these two entries to the sections of the same name in
+   your policy file, and keep the other entries:
+
+   ```json title="Tailnet policy file"
+   {
+     "tagOwners": {
+       "tag:pagis": ["autogroup:admin"]
+     },
+     "nodeAttrs": [
+       { "target": ["tag:pagis"], "attr": ["funnel"] }
+     ]
+   }
+   ```
+
+4. Open **Settings**, then **Keys**, and generate an auth key with the tag
+   `tag:pagis`. The service reads the key at its first start only, so a
+   key for one use is enough.
+
+The `funnel` attribute permits the machine with the tag to serve a Funnel.
+Without it, the name answers on your tailnet only. A tagged machine has no
+key expiry, so the server stays on the tailnet.
+
+## Start the server
+
+Replace `<release>` with the release that you install, for example
+`0.1.1`.
+
+```bash title="Terminal"
+git clone --depth 1 --branch v<release> https://github.com/pagis-co/pagis
+cd pagis/deploy
+mkdir -p secrets
+head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > secrets/pagis-secrets-key
+chmod 600 secrets/pagis-secrets-key
+cp .env.example .env
+```
+
+Set these lines in `.env`:
+
+```bash title=".env"
+COMPOSE_PROFILES=tailscale
+PAGIS_REMOTE_ACCESS=1
+PAGIS_DOMAIN=pagis.tail1234.ts.net
+PAGIS_PUBLIC_IP=192.168.1.20
+PAGIS_DATABASE_PASSWORD=<a long random password>
+PAGIS_ADMIN_EMAIL=you@example.com
+PAGIS_ADMIN_PASSWORD=<at least 12 characters>
+OPENAI_API_KEY=<the key of a model provider>
+TS_AUTHKEY=<the auth key of step 4>
+TS_HOSTNAME=pagis
+```
+
+- **`COMPOSE_PROFILES=tailscale` and `PAGIS_REMOTE_ACCESS=1` go together.**
+  The profile runs the `tailscale` service in place of Caddy. The setting
+  puts the daemon in Remote Access: it refuses a password from another
+  machine, and it runs the TURN server of the live screen.
+- **`PAGIS_DOMAIN`** is `TS_HOSTNAME`, a dot, and the tailnet DNS name.
+  The daemon serves the Public Origin `https://<PAGIS_DOMAIN>`.
+- **`PAGIS_PUBLIC_IP`** is the LAN address of the machine
+  ([The live screen](#the-live-screen)).
+- **`PAGIS_ADMIN_EMAIL` and `PAGIS_ADMIN_PASSWORD`** make the first
+  Administrator at the first start, with the model keys
+  ([The first Administrator](/server/administration#the-first-administrator)).
+
+Then start the server, and read the log of the `tailscale` service:
+
+```bash title="Terminal"
+docker compose up -d
+docker compose logs -f tailscale
+```
+
+The log shows `serve proxy: applying serve config` when the service
+applies the Funnel. Find the machine `pagis`, the name in `TS_HOSTNAME`, on
+the **Machines** page of the admin console. If your tailnet already has a
+machine with that name, Tailscale gives another name, such as `pagis-1`.
+Then set `PAGIS_DOMAIN` to that name and run `docker compose up -d` again.
+
+## Sign in the first time
+
+Make a Sign-In Link in the `pagis` container:
+
+```bash title="Terminal"
+docker compose exec pagis pagis pair
+```
+
+The command prints a link of the public name and its QR code. The link
+signs in the first Administrator, the address of `PAGIS_ADMIN_EMAIL`. It is
+good for five minutes and one use.
+
+Scan the QR code with the camera of your phone, or open the link in the
+browser of your laptop. The page of the link signs that browser in. To sign
+in a Client App, paste the link at **Connect to a Pagis server**
+([Connect with a Sign-In Link](/client-app/connect-to-a-server#connect-with-a-sign-in-link)).
+
+For one more browser or phone, select **Sign in another browser or app**
+under **Settings → Sessions**, or run `pagis pair` again. For another
+Person, create the Person in the Administration Interface, and send the
+invite link. `pagis pair --email <address>` makes a link for the Person
+with that address.
+
+The Administration Port stays on loopback and is never on the Funnel.
+Reach it over SSH from a machine on your LAN, and sign in with
+`PAGIS_ADMIN_EMAIL` and `PAGIS_ADMIN_PASSWORD`:
+
+```bash title="Terminal"
+ssh -L 4401:127.0.0.1:4401 <the machine at home>
+```
+
+Then open `http://127.0.0.1:4401/`.
+
+## How the Funnel reaches the daemon
+
+`deploy/tailscale-serve.json` is the Funnel of the server. The official
+image puts the name of the machine in place of `${TS_CERT_DOMAIN}` and
+applies the file at each start:
+
+| Public port | Forwards to | What it serves |
+| --- | --- | --- |
+| 443 | `http://127.0.0.1:4400` | The product port. |
+| 8443 | `127.0.0.1:4402`, with TLS ended | The TURN server of the live screen. |
+
+These are the two ports that the Remote Access switch of a local
+installation turns on. The Funnel relays route on the TLS server name and
+decrypt nothing. `tailscaled` in the `tailscale` service holds the
+certificate. It writes `X-Forwarded-For` and `X-Forwarded-Proto`, and the
+daemon believes them from the Trusted Proxy `127.0.0.1`.
+
+The service runs Tailscale with userspace networking. It adds no network
+interface, no route and no firewall rule to the machine, it needs no
+capability, and it opens no port of your router. Its state, with the key
+of the machine on the tailnet, is in the volume `tailscale-state`, so a
+restart needs no auth key.
+
+## The live screen
+
+A browser on another machine sees the live screen of a Computer through
+the TURN server on port 8443 of the Funnel. The TURN server binds each
+relay socket on `PAGIS_PUBLIC_IP`, and it relays to the Media Relay there,
+on the media range. So `PAGIS_PUBLIC_IP` is an address of the machine
+itself: its LAN address. The public address of your router does not work.
+
+A browser on your LAN reaches the LAN address over UDP, and it takes that
+direct path first. The direct path carries more and answers faster. Allow
+the media range, `PAGIS_MEDIA_PORT_FIRST` to `PAGIS_MEDIA_PORT_LAST`, from
+the LAN in the firewall of the machine. Open no port of your router.
+
+The TURN server listens on port 4402 of loopback, and
+`deploy/tailscale-serve.json` names that port. Keep
+`[screen] remote_access_turn_port` at its default, `4402`
+([The TURN server of Remote Access](/server/live-screen#the-turn-server-of-remote-access)).
+
+## Limits
+
+- **Bandwidth.** Tailscale does not publish the bandwidth of Funnel.
+  Through its public relays, one machine carried about 15 Mbit/s in total.
+  The live screen takes about 2 Mbit/s for each viewer, so a few people
+  watch at once through the Funnel. A viewer on the LAN takes the direct
+  path and uses none of it.
+- **Latency.** A round trip through a Funnel relay took 120 to 265 ms, so a
+  takeover from another machine answers more slowly than on the LAN.
+- **The name is public.** The name of the machine and of your tailnet is
+  in the public Certificate Transparency logs, so bots find it. Each route
+  of the product port that answers without a Session holds no content of a
+  Workspace.
+
+## When something does not work
+
+- **The log says that the node cannot issue TLS certificates.** HTTPS is
+  off for your tailnet. Turn on **HTTPS Certificates** on the **DNS** page,
+  then run `docker compose restart tailscale`.
+- **The name answers on your tailnet, and not from the internet.** The
+  machine has no `funnel` attribute. Look at the tag of the machine and
+  the `nodeAttrs` entry of your policy file.
+- **The link of `pagis pair` does not open.** `PAGIS_DOMAIN` is not the
+  name of the machine on your tailnet. Set it to the name on the
+  **Machines** page, run `docker compose up -d`, and run `pagis pair`
+  again.
+
+`docker compose exec tailscale tailscale funnel status` shows what the
+Funnel of the server serves.
