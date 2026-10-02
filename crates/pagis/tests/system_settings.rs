@@ -429,310 +429,6 @@ async fn a_member_reaches_no_system_setting_and_an_administrator_does() {
     }
 }
 
-// --- the multi-user mode ------------------------------------------------
-
-/// The origin the owner's proxy or tunnel answers on.
-const OWNERS_ORIGIN: &str = "https://pagis.owner.example";
-
-async fn enable_multi_user(daemon: &TestDaemon, body: serde_json::Value) -> reqwest::Response {
-    client()
-        .put(format!(
-            "{}/api/v1/settings/system/multi-user",
-            daemon.administration_base_url
-        ))
-        .header("cookie", daemon.cookie())
-        .json(&body)
-        .send()
-        .await
-        .unwrap()
-}
-
-async fn disable_multi_user(daemon: &TestDaemon) -> reqwest::Response {
-    client()
-        .delete(format!(
-            "{}/api/v1/settings/system/multi-user",
-            daemon.administration_base_url
-        ))
-        .header("cookie", daemon.cookie())
-        .send()
-        .await
-        .unwrap()
-}
-
-fn config_file(daemon: &TestDaemon) -> pagis::Config {
-    pagis::Config::read_file(&daemon.booted.home.join("config.toml")).unwrap()
-}
-
-/// A local installation serves its own machine until an Administrator
-/// turns the mode on, and the Settings view says it can.
-#[tokio::test]
-async fn a_local_installation_starts_off_and_can_switch() {
-    let daemon = TestDaemon::start().await;
-
-    let settings = settings(&daemon).await;
-
-    assert_eq!(
-        settings["multi_user"],
-        serde_json::json!({
-            "enabled": false,
-            "public_origin": null,
-            "trusted_proxy": null,
-            "switchable": true,
-        })
-    );
-}
-
-/// Turning the mode on writes the Public Origin and the Trusted Proxy,
-/// keeps the Bind Address on loopback, and offers the restart that puts
-/// them in effect.
-#[tokio::test]
-async fn switching_on_writes_the_origin_and_the_proxy_and_offers_a_restart() {
-    let daemon = TestDaemon::start().await;
-
-    let response = enable_multi_user(
-        &daemon,
-        serde_json::json!({
-            "public_origin": "https://Pagis.Owner.example/",
-            "trusted_proxy": "127.0.0.1",
-        }),
-    )
-    .await;
-
-    assert_eq!(response.status(), StatusCode::OK);
-    let saved: serde_json::Value = response.json().await.unwrap();
-    assert_eq!(saved["restart_required"], true);
-    assert_eq!(
-        saved["settings"]["multi_user"],
-        serde_json::json!({
-            "enabled": true,
-            "public_origin": OWNERS_ORIGIN,
-            "trusted_proxy": "127.0.0.1",
-            "switchable": true,
-        })
-    );
-    let config = config_file(&daemon);
-    assert_eq!(config.public_origin, OWNERS_ORIGIN);
-    assert_eq!(config.trusted_proxy, "127.0.0.1");
-    assert!(config.bind_address().unwrap().is_loopback());
-    // The read is the same after the write.
-    assert_eq!(settings(&daemon).await["multi_user"]["enabled"], true);
-    // Nothing is restarted until the Administrator asks.
-    assert!(!daemon.restart.is_asked());
-}
-
-/// The Trusted Proxy is optional.
-#[tokio::test]
-async fn switching_on_with_no_proxy_believes_no_forwarded_header() {
-    let daemon = TestDaemon::start().await;
-
-    let response = enable_multi_user(
-        &daemon,
-        serde_json::json!({ "public_origin": OWNERS_ORIGIN, "trusted_proxy": "" }),
-    )
-    .await;
-
-    assert_eq!(response.status(), StatusCode::OK);
-    let saved: serde_json::Value = response.json().await.unwrap();
-    assert_eq!(
-        saved["settings"]["multi_user"]["trusted_proxy"],
-        serde_json::Value::Null
-    );
-    assert_eq!(config_file(&daemon).trusted_proxy, "");
-}
-
-/// An origin people on other machines cannot open, or a proxy that is
-/// not an address, is refused with a sentence that says what to type,
-/// and the file does not change.
-#[tokio::test]
-async fn switching_on_refuses_an_origin_or_a_proxy_that_does_not_work() {
-    let daemon = TestDaemon::start().await;
-    let before = std::fs::read_to_string(daemon.booted.home.join("config.toml")).unwrap();
-
-    for body in [
-        serde_json::json!({ "public_origin": "pagis.owner.example" }),
-        serde_json::json!({ "public_origin": "ftp://pagis.owner.example" }),
-        serde_json::json!({ "public_origin": "https://pagis.owner.example/pagis" }),
-        serde_json::json!({ "public_origin": "http://localhost:4400" }),
-        serde_json::json!({ "public_origin": "http://127.0.0.1:4400" }),
-        serde_json::json!({ "public_origin": OWNERS_ORIGIN, "trusted_proxy": "the proxy" }),
-    ] {
-        let response = enable_multi_user(&daemon, body.clone()).await;
-        assert_eq!(
-            response.status(),
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "{body}"
-        );
-        let refused: serde_json::Value = response.json().await.unwrap();
-        assert_eq!(refused["error"]["code"], "validation", "{body}");
-    }
-
-    let after = std::fs::read_to_string(daemon.booted.home.join("config.toml")).unwrap();
-    assert_eq!(after, before);
-    assert_eq!(settings(&daemon).await["multi_user"]["enabled"], false);
-}
-
-/// Turning the mode off clears the Public Origin and the Trusted Proxy
-/// and binds loopback. A daemon that runs in the mode needs a restart
-/// to leave it.
-#[tokio::test]
-async fn switching_off_clears_the_origin_and_the_proxy() {
-    let daemon = TestDaemon::start_with(TestDaemonOptions {
-        public_origin: OWNERS_ORIGIN.to_string(),
-        trusted_proxy: Some(std::net::Ipv4Addr::LOCALHOST.into()),
-        ..TestDaemonOptions::default()
-    })
-    .await;
-    assert_eq!(settings(&daemon).await["multi_user"]["enabled"], true);
-
-    let response = disable_multi_user(&daemon).await;
-
-    assert_eq!(response.status(), StatusCode::OK);
-    let saved: serde_json::Value = response.json().await.unwrap();
-    assert_eq!(saved["restart_required"], true);
-    assert_eq!(saved["settings"]["multi_user"]["enabled"], false);
-    assert_eq!(
-        saved["settings"]["multi_user"]["public_origin"],
-        serde_json::Value::Null
-    );
-    let config = config_file(&daemon);
-    assert_eq!(config.public_origin, "");
-    assert_eq!(config.trusted_proxy, "");
-    assert!(config.bind_address().unwrap().is_loopback());
-}
-
-/// A request that the owner's proxy forwards, as Caddy writes it.
-async fn through_the_proxy(daemon: &TestDaemon, cookie: &str, path: &str) -> reqwest::Response {
-    client()
-        .get(format!("{}{path}", daemon.base_url))
-        .header("host", "pagis.owner.example")
-        .header("x-forwarded-for", "203.0.113.9")
-        .header("x-forwarded-proto", "https")
-        .header("cookie", cookie)
-        .send()
-        .await
-        .unwrap()
-}
-
-/// With the mode off, a Member's Session reaches nothing through a
-/// proxy that still runs: the daemon refuses every request that a proxy
-/// forwarded, on both ports and for the pages too. The owner at the
-/// machine still reaches everything.
-#[tokio::test]
-async fn with_the_mode_off_a_proxy_that_still_runs_reaches_nothing() {
-    let daemon = TestDaemon::start_with(TestDaemonOptions {
-        public_origin: OWNERS_ORIGIN.to_string(),
-        trusted_proxy: Some(std::net::Ipv4Addr::LOCALHOST.into()),
-        ..TestDaemonOptions::default()
-    })
-    .await;
-    let member = member(daemon.pool()).await;
-    let cookie = daemon.cookie_for(&member.id).await;
-    let before = through_the_proxy(&daemon, &cookie, "/api/v1/channels").await;
-    assert_eq!(before.status(), StatusCode::OK);
-
-    assert_eq!(disable_multi_user(&daemon).await.status(), StatusCode::OK);
-    let daemon = daemon.restart(TestDaemonOptions::default()).await;
-
-    for path in ["/api/v1/channels", "/api/v1/user", "/"] {
-        let after = through_the_proxy(&daemon, &cookie, path).await;
-        assert_eq!(after.status(), StatusCode::FORBIDDEN, "{path}");
-    }
-    let administration = client()
-        .get(format!("{}/api/v1/system", daemon.administration_base_url))
-        .header("x-forwarded-for", "203.0.113.9")
-        .header("cookie", &cookie)
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(administration.status(), StatusCode::FORBIDDEN);
-    let owner = client()
-        .get(format!("{}/api/v1/channels", daemon.base_url))
-        .header("cookie", daemon.cookie())
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(owner.status(), StatusCode::OK);
-}
-
-/// A switch back to what the daemon runs with needs no restart.
-#[tokio::test]
-async fn switching_back_to_the_running_mode_needs_no_restart() {
-    let daemon = TestDaemon::start().await;
-    enable_multi_user(
-        &daemon,
-        serde_json::json!({ "public_origin": OWNERS_ORIGIN }),
-    )
-    .await;
-
-    let saved: serde_json::Value = disable_multi_user(&daemon).await.json().await.unwrap();
-
-    assert_eq!(saved["restart_required"], false);
-}
-
-/// A server always serves a network. The Settings view shows the mode
-/// it runs with and no switch, and the routes refuse a switch. The view
-/// also names the Media Relay the server runs with, which its
-/// deployment sets in the environment and not in the file.
-#[tokio::test]
-async fn a_server_is_always_multi_user_and_refuses_the_switch() {
-    let Some(daemon) = TestDaemon::start_on_postgres_with(TestDaemonOptions {
-        public_origin: "https://pagis.example.net".to_string(),
-        trusted_proxy: Some(std::net::Ipv4Addr::LOCALHOST.into()),
-        screen: pagis_server::ScreenRelay {
-            relay: pagis_server::MediaRelayKind::Turn,
-            advertise_ip: "10.0.1.7".to_string(),
-            media_ports: 50000..=50019,
-        },
-        ..TestDaemonOptions::default()
-    })
-    .await
-    else {
-        return;
-    };
-
-    let view = settings(&daemon).await;
-    assert_eq!(
-        view["multi_user"],
-        serde_json::json!({
-            "enabled": true,
-            "public_origin": "https://pagis.example.net",
-            "trusted_proxy": "127.0.0.1",
-            "switchable": false,
-        })
-    );
-    assert_eq!(
-        view["screen"],
-        serde_json::json!({
-            "relay": "turn",
-            "advertise_ip": "10.0.1.7",
-            "loopback": false,
-            "media_port_first": 50000,
-            "media_port_last": 50019,
-        })
-    );
-    let before = std::fs::read_to_string(daemon.booted.home.join("config.toml")).unwrap();
-
-    let on = enable_multi_user(
-        &daemon,
-        serde_json::json!({ "public_origin": "https://other.example.net" }),
-    )
-    .await;
-    assert_eq!(on.status(), StatusCode::CONFLICT);
-    let off = disable_multi_user(&daemon).await;
-    assert_eq!(off.status(), StatusCode::CONFLICT);
-    let refused: serde_json::Value = off.json().await.unwrap();
-    assert!(
-        refused["error"]["message"]
-            .as_str()
-            .unwrap()
-            .contains("PAGIS_PUBLIC_ORIGIN"),
-        "{refused}"
-    );
-
-    let after = std::fs::read_to_string(daemon.booted.home.join("config.toml")).unwrap();
-    assert_eq!(after, before);
-}
-
 // --- the live screen ----------------------------------------------------
 
 /// The Media Relay of a daemon on its default `[screen]` section.
@@ -742,10 +438,10 @@ fn default_screen() -> pagis_server::ScreenRelay {
         .expect("the default screen section")
 }
 
-/// The live screen does not go through the proxy or tunnel, so the
-/// Settings view names where the Media Relay of the running daemon
-/// answers. A local installation that configures nothing advertises
-/// loopback.
+/// The live screen goes through neither the Trusted Proxy nor the
+/// Funnel, so the Settings view names where the Media Relay of the
+/// running daemon answers. A local installation that configures nothing
+/// advertises loopback.
 #[tokio::test]
 async fn a_local_installation_names_the_media_relay_on_loopback() {
     let daemon = TestDaemon::start().await;
@@ -783,6 +479,37 @@ async fn a_local_installation_names_the_lan_address_it_advertises() {
             "loopback": false,
             "media_port_first": 50000,
             "media_port_last": 50099,
+        })
+    );
+}
+
+/// A server names the Media Relay it runs with, which its deployment sets
+/// in the environment and not in the file.
+#[tokio::test]
+async fn a_server_names_the_media_relay_it_runs_with() {
+    let Some(daemon) = TestDaemon::start_on_postgres_with(TestDaemonOptions {
+        public_origin: "https://pagis.example.net".to_string(),
+        trusted_proxy: Some(std::net::Ipv4Addr::LOCALHOST.into()),
+        screen: pagis_server::ScreenRelay {
+            relay: pagis_server::MediaRelayKind::Turn,
+            advertise_ip: "10.0.1.7".to_string(),
+            media_ports: 50000..=50019,
+        },
+        ..TestDaemonOptions::default()
+    })
+    .await
+    else {
+        return;
+    };
+
+    assert_eq!(
+        settings(&daemon).await["screen"],
+        serde_json::json!({
+            "relay": "turn",
+            "advertise_ip": "10.0.1.7",
+            "loopback": false,
+            "media_port_first": 50000,
+            "media_port_last": 50019,
         })
     );
 }

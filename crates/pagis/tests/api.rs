@@ -13,10 +13,15 @@ async fn health_endpoint_reports_ok() {
 
     assert_eq!(response.status(), 200);
     let body: serde_json::Value = response.json().await.unwrap();
-    // The version is the shell's attach check (ADR-0025).
+    // The version is the shell's attach check (ADR-0025). A browser on
+    // this machine signs in with a password (ADR-0028).
     assert_eq!(
         body,
-        serde_json::json!({ "status": "ok", "version": env!("CARGO_PKG_VERSION") })
+        serde_json::json!({
+            "status": "ok",
+            "version": env!("CARGO_PKG_VERSION"),
+            "sign_in": "password",
+        })
     );
 }
 

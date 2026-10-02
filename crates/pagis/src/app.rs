@@ -45,6 +45,13 @@ pub struct AppOptions {
     /// The reverse proxy whose forwarded headers the daemon believes.
     /// A local installation trusts none.
     pub proxy: pagis_server::TrustedProxy,
+    /// Whether the daemon runs in Remote Access (ADR-0028). `main` reads
+    /// `[remote_access] enabled` and `PAGIS_REMOTE_ACCESS`.
+    pub remote_access: bool,
+    /// The `tailscale` command that the Remote Access switch drives.
+    /// Production runs the command of this machine; the testkit injects
+    /// a fake, because no test may change a tailnet.
+    pub tailscale: Arc<dyn pagis_server::Tailscale>,
     pub ring: RingConfig,
     /// `None` builds the production router brain over `keys`.
     pub brain: Option<Arc<dyn Brain>>,
@@ -184,6 +191,8 @@ impl AppOptions {
                 booted.config.administration.port,
             )),
             proxy: booted.config.trusted_proxy()?,
+            remote_access: booted.config.remote_access.enabled,
+            tailscale: Arc::new(crate::tailscale::TailscaleCommand::of_this_machine()),
             ring: RingConfig::default(),
             brain: None,
             agents: AgentLoopConfig::default(),
@@ -1148,7 +1157,7 @@ pub async fn app(booted: &Booted, options: AppOptions) -> anyhow::Result<Interfa
                 Some(_) => pagis_analytics::StorageBackend::Postgres,
                 None => pagis_analytics::StorageBackend::Sqlite,
             },
-            multi_user: !pagis_server::origin_host_is_loopback(&options.public_origin),
+            remote_access: options.remote_access,
             docker_discovery: Arc::clone(&options.docker_discovery),
         },
         options.cancel.clone(),
@@ -1228,6 +1237,8 @@ pub async fn app(booted: &Booted, options: AppOptions) -> anyhow::Result<Interfa
             .client_credential
             .is_some()
             .then(|| booted.config.local_origin(options.runtime_port)),
+        remote_access: options.remote_access,
+        remote_access_switch: pagis_server::RemoteAccessSwitch::new(options.tailscale),
         administration: options.administration,
         proxy: options.proxy,
         screen: options.screen,
@@ -1248,8 +1259,8 @@ pub async fn app(booted: &Booted, options: AppOptions) -> anyhow::Result<Interfa
         restart: options.restart,
         clock: options.clock,
     };
-    // A local installation with the multi-user mode off serves this
-    // machine alone, on both ports and for the pages too, whatever a
+    // A local installation with Remote Access off serves this machine
+    // alone, on both ports and for the pages too, whatever a Funnel or a
     // proxy on this machine forwards.
     let this_machine_only = pagis_server::serves_this_machine_only(&state);
     pagis_server::forget::resume(&state).await?;

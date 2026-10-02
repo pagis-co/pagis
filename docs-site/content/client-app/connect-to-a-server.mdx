@@ -69,8 +69,9 @@ the server.
 **The client connects to a server only over `https://`.** It refuses an
 `http://` address before it sends a request, unless the host is loopback
 (`127.0.0.1`, `[::1]` or `localhost`), such as an SSH tunnel. The refusal
-names the https setups of [Serve several People](/client-app/several-people): Caddy,
-Tailscale Serve and Cloudflare Tunnel. A `server.json` that holds an
+names the two ways to an `https://` address: Remote Access on a local
+installation ([Serve several People](/client-app/several-people)), and a proxy
+that holds TLS in front of a server. A `server.json` that holds an
 `http://` origin of another computer fails at the start, and the setup page
 shows the refusal. The client follows no redirect before the product window
 opens, and uses the TLS certificate check of the platform. On an `https://`

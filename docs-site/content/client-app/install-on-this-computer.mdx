@@ -12,11 +12,12 @@ icon: HardDrive
   identity. On Linux the package is the gzip tar archive of the client's
   architecture, and the lock's sizes, hashes and modes are the whole check,
   because Linux has no code signature to check.
-- **Opens the multi-user switch for several people.** After the Product App,
-  "Several people" opens the Administration Interface, signed in with the
-  Client Credential, on the Multi-User Mode switch in its Settings view. The
-  owner turns the mode on there, with the Public Origin of their proxy or
-  tunnel. The client stores the answer nowhere.
+- **Opens the Remote Access switch for several people.** After the Product
+  App, "Several people" opens the Administration Interface, signed in with
+  the Client Credential, on the Remote Access switch in its Settings view.
+  The owner turns on Remote Access there, through their own Tailscale
+  ([Serve several People](/client-app/several-people)). The client stores
+  the answer nowhere.
 - **Keeps packages apart from data.** The client keeps its own files in
   its Electron `userData` directory, `~/Library/Application Support/Pagis`
   on macOS and `~/.config/Pagis` on Linux (`$XDG_CONFIG_HOME/Pagis` when
@@ -50,10 +51,9 @@ icon: HardDrive
   Session cookie into the cookie jar of the window, and only then loads
   `http://127.0.0.1:<port>/`. The credential stays in the main process and
   never goes into a URL. This holds whatever the Public Origin names: when
-  other People reach the installation through your proxy or tunnel, the
-  client on this machine still opens signed in. The daemon accepts the trade
-  only from this machine and never through a proxy, even a proxy on this
-  machine ([ADR-0025](https://github.com/pagis-co/pagis/blob/main/docs/adr/0025-the-client-app-installs-one-exact-server-or-connects-to-one.md)).
+  other People reach the installation through Remote Access, the client on
+  this machine still opens signed in. The daemon accepts the trade only from
+  this machine and never through a proxy, even the Funnel on this machine ([ADR-0025](https://github.com/pagis-co/pagis/blob/main/docs/adr/0025-the-client-app-installs-one-exact-server-or-connects-to-one.md)).
 - **Upgrades the installation at start.** A Client App of a newer release
   upgrades the installation of an older release when it starts, and asks no
   setup question. The window shows each step. First, the `pagis` command of

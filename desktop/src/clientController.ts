@@ -22,7 +22,7 @@ export interface ClientControllerDependencies {
    *  nothing. */
   connect(url: string, signal?: AbortSignal): Promise<string>
   openProduct(url: string): Promise<void>
-  openMultiUserSwitch(): Promise<void>
+  openRemoteAccessSwitch(): Promise<void>
   createSupervisor(binary: string, beforeSpawn: () => void): ClientSupervisor
   assertNoExternalRuntime(): Promise<void>
   onDaemonState(state: DaemonState): void
@@ -68,7 +68,7 @@ export class ClientController {
         this.abort = abort
         return this.dependencies.connect(url, abort.signal)
       },
-      openMultiUserSwitch: () => this.dependencies.openMultiUserSwitch(),
+      openRemoteAccessSwitch: () => this.dependencies.openRemoteAccessSwitch(),
     })
   }
 

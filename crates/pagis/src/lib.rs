@@ -24,6 +24,7 @@ pub mod software_tools;
 mod spa;
 pub mod subscription_tools;
 pub mod system;
+mod tailscale;
 mod tools;
 
 pub use analytics::AnalyticsOptions;
@@ -38,3 +39,4 @@ pub use pair::{Pairing, pair};
 pub use secrets::{EncryptedFileSecretStore, platform_secret_store};
 pub use spa::product_app_is_built;
 pub use system::{FileSystemConfig, taken_administration_port_message, taken_port_message};
+pub use tailscale::TailscaleCommand;

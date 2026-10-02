@@ -3184,7 +3184,7 @@
           "settings"
         ],
         "summary": "Send one browser to Google for a brokered authorization.",
-        "description": "The authorize request answers this address, and it belongs to the\nPerson who asked. It sits outside the session middleware because a\nbrowser with no Session must sign in and come back, not get `401`: it\ngoes to the same address in the Product App, which shows the sign-in\npage and then comes back here. A Session of another Person gets a\nrefusal. For the initiating Person, the route sets the transaction\ncookie, which binds the `state` to this browser, and redirects to\nGoogle.\n\nA local installation with the multi-user mode off has one Person and\nanswers only programs of its own machine. There the route asks the\nbrowser for no Session: the Client App opens it in the system\nbrowser, and the owner does not sign in a second time. The callback\nkeeps every check.",
+        "description": "The authorize request answers this address, and it belongs to the\nPerson who asked. It sits outside the session middleware because a\nbrowser with no Session must sign in and come back, not get `401`: it\ngoes to the same address in the Product App, which shows the sign-in\npage and then comes back here. A Session of another Person gets a\nrefusal. For the initiating Person, the route sets the transaction\ncookie, which binds the `state` to this browser, and redirects to\nGoogle.\n\nA local installation with Remote Access off has one Person and\nanswers only programs of its own machine. There the route asks the\nbrowser for no Session: the Client App opens it in the system\nbrowser, and the owner does not sign in a second time. The callback\nkeeps every check.",
         "operationId": "google_start",
         "parameters": [
           {
@@ -6461,6 +6461,16 @@
               }
             }
           },
+          "403": {
+            "description": "Remote Access, where another machine signs in with a Sign-In Link",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
           "429": {
             "description": "",
             "content": {
@@ -6768,7 +6778,7 @@
           "settings"
         ],
         "summary": "The Provider Catalog (ADR-0012) a person picks from: every provider\na person connects on their own, with the form each one needs. An\nInstallation Connection is not in it.",
-        "description": "The Google entry follows the installation. Where the Org holds\na Web OAuth client the form asks for the account alone, because the\nclient is the installation's; where it holds none the form asks for\nthe person's own Desktop client. The entry also says whether the\nbrowser step can ask for a sign-in, which a local installation with\nthe multi-user mode off never does.",
+        "description": "The Google entry follows the installation. Where the Org holds\na Web OAuth client the form asks for the account alone, because the\nclient is the installation's; where it holds none the form asks for\nthe person's own Desktop client. The entry also says whether the\nbrowser step can ask for a sign-in, which a local installation with\nRemote Access off never does.",
         "operationId": "list_connection_providers",
         "responses": {
           "200": {
@@ -8787,30 +8797,59 @@
         }
       }
     },
-    "/api/v1/settings/system/multi-user": {
-      "put": {
+    "/api/v1/settings/system/remote-access": {
+      "get": {
         "tags": [
-          "system"
+          "remote_access"
         ],
-        "summary": "Turn the multi-user mode on (ADR-0024): write the Public Origin and\nthe Trusted Proxy, and keep the Bind Address on loopback, where the\nowner's proxy or tunnel on this machine reaches the daemon. The\nchange takes effect on the next start.",
-        "operationId": "enable_multi_user",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/EnableMultiUserRequest"
-              }
-            }
-          },
-          "required": true
-        },
+        "summary": "Remote Access and the Tailscale of this machine (ADR-0028).",
+        "operationId": "get_remote_access",
         "responses": {
           "200": {
             "description": "",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SavedSystemSettingsDto"
+                  "$ref": "#/components/schemas/RemoteAccessDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "remote_access"
+        ],
+        "summary": "Turn on Remote Access (ADR-0028). The daemon turns on Funnel on port\n443 to the product port on loopback, in the background, because\nTailscale can wait for the owner to turn on HTTPS and Funnel for the\ntailnet. Then it writes the Public Origin and the Trusted Proxy and\nkeeps the Bind Address on loopback. The change takes effect on the\nnext start.",
+        "operationId": "turn_on_remote_access",
+        "responses": {
+          "202": {
+            "description": "The turn-on runs; `turning_on` shows it until it ends",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemoteAccessDto"
                 }
               }
             }
@@ -8836,17 +8875,7 @@
             }
           },
           "409": {
-            "description": "A server, which always serves a network",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "",
+            "description": "A Server, or Tailscale that cannot turn Remote Access on now",
             "content": {
               "application/json": {
                 "schema": {
@@ -8859,17 +8888,17 @@
       },
       "delete": {
         "tags": [
-          "system"
+          "remote_access"
         ],
-        "summary": "Turn the multi-user mode off (ADR-0024): clear the Public Origin and\nthe Trusted Proxy, and bind loopback. People who signed in over the\nnetwork keep their accounts and reach nothing until the mode is on\nagain. The change takes effect on the next start.",
-        "operationId": "disable_multi_user",
+        "summary": "Turn off Remote Access (ADR-0028), or stop a turn-on that waits. The\ndaemon removes the Funnel of the product port and clears the Public\nOrigin, the Trusted Proxy and Remote Access, and binds loopback. People\nwho signed in from other machines keep their accounts and their\nSessions, and reach nothing until Remote Access is on again. The change\ntakes effect on the next start.",
+        "operationId": "turn_off_remote_access",
         "responses": {
           "200": {
             "description": "",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SavedSystemSettingsDto"
+                  "$ref": "#/components/schemas/RemoteAccessDto"
                 }
               }
             }
@@ -8895,7 +8924,7 @@
             }
           },
           "409": {
-            "description": "A server, which always serves a network",
+            "description": "A Server, whose deployment turns Remote Access on",
             "content": {
               "application/json": {
                 "schema": {
@@ -10197,7 +10226,7 @@
               "string",
               "null"
             ],
-            "description": "The address to open for a `brokered` Google Connection: the\nstart route on the Public Origin. A browser with a Session of the\nPerson who asked goes on from there to consent at Google, and the\nconnection reaches `connected` when Google redirects that browser\nback to this installation. A local installation with the\nmulti-user mode off has one Person and asks the browser for no\nSession. Absent for every Connection this request already\nfinished."
+            "description": "The address to open for a `brokered` Google Connection: the\nstart route on the Public Origin. A browser with a Session of the\nPerson who asked goes on from there to consent at Google, and the\nconnection reaches `connected` when Google redirects that browser\nback to this installation. A local installation with Remote\nAccess off has one Person and asks the browser for no Session.\nAbsent for every Connection this request already finished."
           },
           "connection": {
             "$ref": "#/components/schemas/ConnectionDto"
@@ -12095,26 +12124,6 @@
           "hours"
         ]
       },
-      "EnableMultiUserRequest": {
-        "type": "object",
-        "description": "Turn the multi-user mode on.",
-        "required": [
-          "public_origin"
-        ],
-        "properties": {
-          "public_origin": {
-            "type": "string",
-            "description": "The absolute `https://` or `http://` origin that the owner's proxy\nor tunnel answers on, such as `https://pagis.example.net`. Its host\nis not loopback."
-          },
-          "trusted_proxy": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "The IP address the proxy or tunnel reaches the daemon from:\n`127.0.0.1` for one on this machine. Null or empty believes no\nforwarded header."
-          }
-        }
-      },
       "ErrorBody": {
         "type": "object",
         "required": [
@@ -12495,12 +12504,17 @@
       },
       "HealthDto": {
         "type": "object",
-        "description": "What the desktop shell reads before it attaches to a daemon it did\nnot start (ADR-0025): the daemon answers, and it says its version.",
+        "description": "What the desktop shell reads before it attaches to a daemon it did\nnot start (ADR-0025): the daemon answers, and it says its version.\nThe sign-in page of the Product App reads how its browser signs in\n(ADR-0028).",
         "required": [
           "status",
-          "version"
+          "version",
+          "sign_in"
         ],
         "properties": {
+          "sign_in": {
+            "$ref": "#/components/schemas/SignInMethod",
+            "description": "How the client that asks signs in: `link` from another machine in\nRemote Access, else `password`."
+          },
           "status": {
             "type": "string"
           },
@@ -14378,38 +14392,6 @@
           }
         }
       },
-      "MultiUserDto": {
-        "type": "object",
-        "description": "The multi-user mode as the Settings view shows it (ADR-0024).",
-        "required": [
-          "enabled",
-          "switchable"
-        ],
-        "properties": {
-          "enabled": {
-            "type": "boolean",
-            "description": "Whether the installation serves People on other machines: its\nPublic Origin host is not loopback."
-          },
-          "public_origin": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "The Public Origin people open. Null when the mode is off."
-          },
-          "switchable": {
-            "type": "boolean",
-            "description": "Whether an Administrator can switch the mode here. Only a local\ninstallation can: a server always serves a network, and its\ndeployment names the Public Origin."
-          },
-          "trusted_proxy": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "The address whose forwarded headers the daemon believes, or null."
-          }
-        }
-      },
       "MySessionDto": {
         "type": "object",
         "description": "One Session of the signed-in Person, for their Sessions list.",
@@ -15319,6 +15301,61 @@
           }
         }
       },
+      "Port443": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Funnel publishes nothing on port 443.",
+            "required": [
+              "serves"
+            ],
+            "properties": {
+              "serves": {
+                "type": "string",
+                "enum": [
+                  "nothing"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Funnel publishes the product port of this Pagis on port 443.",
+            "required": [
+              "serves"
+            ],
+            "properties": {
+              "serves": {
+                "type": "string",
+                "enum": [
+                  "pagis"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Port 443 serves something else, which Pagis does not replace.",
+            "required": [
+              "target",
+              "serves"
+            ],
+            "properties": {
+              "serves": {
+                "type": "string",
+                "enum": [
+                  "other"
+                ]
+              },
+              "target": {
+                "type": "string",
+                "description": "What port 443 forwards to, as Tailscale names it."
+              }
+            }
+          }
+        ],
+        "description": "What port 443 of the Funnel of this machine serves."
+      },
       "PreviewForget": {
         "type": "object",
         "required": [
@@ -15402,7 +15439,7 @@
           },
           "browser_sign_in": {
             "type": "boolean",
-            "description": "True for the `oauth` entry of a brokered flow in which the browser\nthat goes to the provider can first ask the Person to sign in to\nPagis. False on a local installation with the multi-user mode\noff, whose start route asks for no Session, and for every other\nentry."
+            "description": "True for the `oauth` entry of a brokered flow in which the browser\nthat goes to the provider can first ask the Person to sign in to\nPagis. False on a local installation with Remote Access off,\nwhose start route asks for no Session, and for every other\nentry."
           },
           "capabilities": {
             "type": "array",
@@ -15622,6 +15659,65 @@
           }
         },
         "additionalProperties": false
+      },
+      "RemoteAccessDto": {
+        "type": "object",
+        "description": "Remote Access as the Settings view shows it (ADR-0028).",
+        "required": [
+          "enabled",
+          "restart_required",
+          "switchable"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether Remote Access is on. A Local Installation shows what\n`config.toml` says, which a restart puts in effect. A Server shows\nwhat it runs with."
+          },
+          "failure": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the last turn-on failed, or null."
+          },
+          "public_origin": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The public `https://` name that other machines open, while Remote\nAccess is on."
+          },
+          "restart_required": {
+            "type": "boolean",
+            "description": "Whether the running daemon differs from `enabled` until a restart."
+          },
+          "switchable": {
+            "type": "boolean",
+            "description": "Whether an Administrator switches Remote Access here. Only a Local\nInstallation does: a Server's deployment sets\n`PAGIS_REMOTE_ACCESS`."
+          },
+          "tailscale": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TailscaleState",
+                "description": "Tailscale on this machine. Null on a Server, whose deployment runs\nTailscale beside the daemon."
+              }
+            ]
+          },
+          "turning_on": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TurningOnDto",
+                "description": "The turn-on that waits for Tailscale, or null."
+              }
+            ]
+          }
+        }
       },
       "ReplyAuthorDto": {
         "type": "object",
@@ -16316,7 +16412,7 @@
       },
       "SavedSystemSettingsDto": {
         "type": "object",
-        "description": "The saved settings, and whether they take effect only after a\nrestart. The port, the log level and the multi-user mode need one;\nthe Docker endpoint does not.",
+        "description": "The saved settings, and whether they take effect only after a\nrestart. The port and the log level need one; the Docker endpoint\ndoes not.",
         "required": [
           "settings",
           "restart_required"
@@ -16650,7 +16746,7 @@
       },
       "ScreenDto": {
         "type": "object",
-        "description": "The Media Relay of the running daemon as the Settings view shows\nit (ADR-0014). The live screen does not go through the proxy or\ntunnel of the multi-user mode, so the view names where it goes.",
+        "description": "The Media Relay of the running daemon as the Settings view shows\nit (ADR-0014). The live screen goes through neither the Trusted Proxy\nnor the Funnel of Remote Access, so the view names where it goes.",
         "required": [
           "relay",
           "advertise_ip",
@@ -17115,6 +17211,14 @@
             "description": "`<public origin>/sign-in#<secret>`. It is good for one use."
           }
         }
+      },
+      "SignInMethod": {
+        "type": "string",
+        "description": "How a client at the address that asks signs in (ADR-0028). The\nsign-in page of the Product App shows the form that it names.",
+        "enum": [
+          "password",
+          "link"
+        ]
       },
       "Signal": {
         "type": "object",
@@ -17750,7 +17854,6 @@
           "data_directory",
           "version",
           "docker",
-          "multi_user",
           "screen",
           "analytics"
         ],
@@ -17780,9 +17883,6 @@
           },
           "log_level": {
             "type": "string"
-          },
-          "multi_user": {
-            "$ref": "#/components/schemas/MultiUserDto"
           },
           "port": {
             "type": "integer",
@@ -17934,6 +18034,96 @@
             "type": "string"
           }
         }
+      },
+      "TailscaleState": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "No `tailscale` command on this machine.",
+            "required": [
+              "install_url",
+              "state"
+            ],
+            "properties": {
+              "install_url": {
+                "type": "string",
+                "description": "Where the owner gets Tailscale for this system."
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "not_installed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Tailscale is installed, but it does not run or it is signed out.",
+            "required": [
+              "state"
+            ],
+            "properties": {
+              "detail": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "What the `tailscale` command said, where it said why."
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "not_running"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "The tailnet has HTTPS or Funnel off. A turn-on shows the page that\nTailscale names to turn them on.",
+            "required": [
+              "port_443",
+              "state"
+            ],
+            "properties": {
+              "port_443": {
+                "$ref": "#/components/schemas/Port443"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "funnel_off"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Tailscale runs and the tailnet allows Funnel.",
+            "required": [
+              "dns_name",
+              "port_443",
+              "state"
+            ],
+            "properties": {
+              "dns_name": {
+                "type": "string",
+                "description": "The name of this machine on the tailnet, with no trailing dot."
+              },
+              "port_443": {
+                "$ref": "#/components/schemas/Port443"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "ready"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "Tailscale on the machine of the installation, as the Remote Access\nswitch reads it. Each state has one thing for the owner to do."
       },
       "ThreadDto": {
         "type": "object",
@@ -18222,6 +18412,19 @@
           "trusted",
           "owner"
         ]
+      },
+      "TurningOnDto": {
+        "type": "object",
+        "description": "A turn-on that waits for Tailscale.",
+        "properties": {
+          "enable_url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The page that Tailscale names to turn on HTTPS and Funnel for the\ntailnet. The turn-on waits until the owner approves there. Null\nwhile Tailscale names no page."
+          }
+        }
       },
       "UpdateAgentRequest": {
         "type": "object",

@@ -11,14 +11,23 @@ export interface SwitchProps {
   onCheckedChange: (checked: boolean) => void
   children: ReactNode
   className?: string
+  /** A switch that cannot change now, such as while a change runs. */
+  disabled?: boolean
 }
 
-export function Switch({ checked, onCheckedChange, children, className }: SwitchProps) {
+export function Switch({
+  checked,
+  onCheckedChange,
+  children,
+  className,
+  disabled = false,
+}: SwitchProps) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={checked}
+      disabled={disabled}
       className={cx('ui-switch', className)}
       onClick={() => onCheckedChange(!checked)}
     >

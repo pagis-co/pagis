@@ -63,7 +63,7 @@
                 <input type="radio" name="people" value="several" />
                 <span class="choice-text">
                   <span class="choice-title">Several people</span>
-                  <span class="choice-detail">Other people use Pagis from their machines, through your proxy or tunnel. After the installation, Pagis opens the Administration Interface. There, you turn on multi-user mode.</span>
+                  <span class="choice-detail">Other people use Pagis from their machines, through your Tailscale. After the installation, Pagis opens the Administration Interface. There, you turn on Remote Access.</span>
                 </span>
               </label>
             </div>
@@ -280,8 +280,8 @@
         }
         if (url.protocol === 'http:' && !['127.0.0.1', '[::1]', 'localhost'].includes(url.hostname)) {
           return 'Pagis connects to a server on another computer only over https://. ' +
-            'Put TLS in front of the server with Caddy, Tailscale Serve or Cloudflare Tunnel, ' +
-            'as docs.pagis.co/client-app/several-people shows, then type its https:// address.'
+            'Turn on Remote Access on that computer, as docs.pagis.co/client-app/several-people ' +
+            'shows, or put a proxy that holds TLS in front of a server. Then type its https:// address.'
         }
         return null
       }

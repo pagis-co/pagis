@@ -20,7 +20,7 @@ describe('client setup', () => {
       activate: () => calls.push('activate'),
       openProduct: async () => { calls.push('open-product') },
       connect: async () => 'https://pagis.example.com/',
-      openMultiUserSwitch: async () => { calls.push('open-multi-user-switch') },
+      openRemoteAccessSwitch: async () => { calls.push('open-remote-access-switch') },
     })
 
     const first = setup.run(LOCAL)
@@ -34,7 +34,7 @@ describe('client setup', () => {
     ])
   })
 
-  it('installs for several People, then opens the Multi-User Mode switch after the product', async () => {
+  it('installs for several People, then opens the Remote Access switch after the product', async () => {
     const calls: string[] = []
     const setup = new SetupCoordinator({
       backUp: async () => {},
@@ -43,18 +43,18 @@ describe('client setup', () => {
       activate: () => calls.push('activate'),
       openProduct: async (url) => { calls.push(`open-product:${url}`) },
       connect: async () => { calls.push('connect'); return 'https://pagis.example.com/' },
-      openMultiUserSwitch: async () => { calls.push('open-multi-user-switch') },
+      openRemoteAccessSwitch: async () => { calls.push('open-remote-access-switch') },
     })
 
     await setup.run({ kind: 'local', people: 'several' })
 
     expect(calls).toEqual([
       'install', 'start:/installed/pagis', 'activate',
-      'open-product:http://127.0.0.1:4400/', 'open-multi-user-switch',
+      'open-product:http://127.0.0.1:4400/', 'open-remote-access-switch',
     ])
   })
 
-  it('does not open the Multi-User Mode switch after a cancelled installation', async () => {
+  it('does not open the Remote Access switch after a cancelled installation', async () => {
     const calls: string[] = []
     let finishOpen!: () => void
     const setup = new SetupCoordinator({
@@ -65,7 +65,7 @@ describe('client setup', () => {
       activate: () => {},
       openProduct: () => new Promise((resolve) => { finishOpen = resolve }),
       connect: async () => 'https://pagis.example.com/',
-      openMultiUserSwitch: async () => { calls.push('open-multi-user-switch') },
+      openRemoteAccessSwitch: async () => { calls.push('open-remote-access-switch') },
     })
     const job = setup.run({ kind: 'local', people: 'several' })
     while (!finishOpen) await Promise.resolve()
@@ -86,7 +86,7 @@ describe('client setup', () => {
       start: async () => 'http://127.0.0.1:4400/', activate: () => {},
       openProduct: async () => {},
       connect: async () => 'https://pagis.example.com/',
-      openMultiUserSwitch: async () => {},
+      openRemoteAccessSwitch: async () => {},
     })
     for (const request of [
       { kind: 'connected' },
@@ -109,7 +109,7 @@ describe('client setup', () => {
       start: async () => '',
       activate: () => {}, openProduct: async () => {},
       connect: async () => 'https://pagis.example.com/',
-      openMultiUserSwitch: async () => {},
+      openRemoteAccessSwitch: async () => {},
     })
     void setup.run(LOCAL).catch(() => undefined)
 
@@ -128,7 +128,7 @@ describe('client setup', () => {
       start: async () => '',
       activate: () => {}, openProduct: async () => {},
       connect: async () => 'https://pagis.example.com/',
-      openMultiUserSwitch: async () => {},
+      openRemoteAccessSwitch: async () => {},
     })
     const job = setup.run(LOCAL)
     finishInstall('/installed/pagis')
@@ -149,7 +149,7 @@ describe('client setup', () => {
       start: () => new Promise((resolve) => { finishStart = resolve }),
       activate: () => calls.push('activate'), openProduct: async () => { calls.push('open-product') },
       connect: async () => 'https://pagis.example.com/',
-      openMultiUserSwitch: async () => {},
+      openRemoteAccessSwitch: async () => {},
     })
     const job = setup.run(LOCAL)
     while (!finishStart) await Promise.resolve()
@@ -171,7 +171,7 @@ describe('client setup', () => {
       start: async () => { state.beginLaunch('0.2.0'); throw new Error('startup interrupted') },
       activate: () => state.activate('0.2.0'), openProduct: async () => {},
       connect: async () => 'https://pagis.example.com/',
-      openMultiUserSwitch: async () => {},
+      openRemoteAccessSwitch: async () => {},
     })
 
     await expect(setup.run(LOCAL)).rejects.toThrow(/interrupted/)
@@ -193,7 +193,7 @@ describe('the Upgrade of a Local Installation', () => {
       activate: () => calls.push('activate'),
       openProduct: async (url) => { calls.push(`open-product:${url}`) },
       connect: async () => { calls.push('connect'); return 'https://pagis.example.com/' },
-      openMultiUserSwitch: async () => { calls.push('open-multi-user-switch') },
+      openRemoteAccessSwitch: async () => { calls.push('open-remote-access-switch') },
     })
   }
 
@@ -263,7 +263,7 @@ describe('setup against a server the client did not start', () => {
       activate: () => calls.push('activate'),
       openProduct: async (url) => { calls.push(`open-product:${url}`) },
       connect: async (url) => { calls.push(`connect:${url}`); return 'https://pagis.example.com/' },
-      openMultiUserSwitch: async () => {},
+      openRemoteAccessSwitch: async () => {},
     })
 
     await setup.run(SERVER)
@@ -282,7 +282,7 @@ describe('setup against a server the client did not start', () => {
       install: async () => '/installed/pagis', start: async () => '',
       activate: () => {}, openProduct: async () => {},
       connect: async () => 'https://pagis.example.com/',
-      openMultiUserSwitch: async () => {},
+      openRemoteAccessSwitch: async () => {},
     })
     for (const request of [
       { kind: 'server' },
@@ -314,7 +314,7 @@ describe('setup against a server the client did not start', () => {
       openProduct: async () => { calls.push('open-product') },
       cancel: () => { calls.push('cancel'); finishConnect('https://pagis.example.com/') },
       connect: () => new Promise((resolve) => { finishConnect = resolve }),
-      openMultiUserSwitch: async () => {},
+      openRemoteAccessSwitch: async () => {},
     })
     const job = setup.run(SERVER)
     while (!finishConnect) await Promise.resolve()

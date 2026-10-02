@@ -1164,8 +1164,10 @@ pub fn router(state: Arc<AppState>) -> Router {
             get(crate::system::get_system_settings).put(crate::system::set_system_settings),
         )
         .route(
-            "/api/v1/settings/system/multi-user",
-            put(crate::system::enable_multi_user).delete(crate::system::disable_multi_user),
+            "/api/v1/settings/system/remote-access",
+            get(crate::remote_access::get_remote_access)
+                .put(crate::remote_access::turn_on_remote_access)
+                .delete(crate::remote_access::turn_off_remote_access),
         )
         .route(
             "/api/v1/settings/system/analytics",

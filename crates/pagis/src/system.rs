@@ -5,7 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
-use pagis_server::{MultiUserMode, SystemConfig, SystemConfigFile, origin_host_is_loopback};
+use pagis_server::{FUNNEL_PROXY, SystemConfig, SystemConfigFile};
 
 use crate::config::{Config, DEFAULT_BIND};
 
@@ -49,36 +49,27 @@ impl SystemConfigFile for FileSystemConfig {
         config.save(&path).map_err(|error| error.to_string())
     }
 
-    fn multi_user(&self) -> Result<Option<MultiUserMode>, String> {
+    fn remote_access(&self) -> Result<Option<String>, String> {
         let config = Config::read_file(&self.path()).map_err(|error| error.to_string())?;
-        let public_origin = config.public_origin(config.port);
-        if origin_host_is_loopback(&public_origin) {
-            return Ok(None);
-        }
-        let trusted_proxy = config
-            .trusted_proxy()
-            .map_err(|error| error.to_string())?
-            .address();
-        Ok(Some(MultiUserMode {
-            public_origin,
-            trusted_proxy,
-        }))
+        Ok(config
+            .remote_access
+            .enabled
+            .then(|| config.public_origin(config.port)))
     }
 
-    fn set_multi_user(&self, mode: Option<&MultiUserMode>) -> Result<(), String> {
+    fn set_remote_access(&self, public_origin: Option<&str>) -> Result<(), String> {
         let path = self.path();
         let mut config = Config::read_file(&path).map_err(|error| error.to_string())?;
         // Loopback in both directions: the Client App reaches the daemon
-        // at 127.0.0.1, and the owner's proxy or tunnel on this machine
-        // does too, so the plain-HTTP port never faces the network.
+        // at 127.0.0.1, and the Funnel of this machine does too, so the
+        // plain-HTTP port never faces the network.
         config.bind = DEFAULT_BIND.to_string();
-        config.public_origin = mode
-            .map(|mode| mode.public_origin.clone())
-            .unwrap_or_default();
-        config.trusted_proxy = mode
-            .and_then(|mode| mode.trusted_proxy)
-            .map(|address| address.to_string())
-            .unwrap_or_default();
+        config.remote_access.enabled = public_origin.is_some();
+        config.public_origin = public_origin.unwrap_or_default().to_string();
+        config.trusted_proxy = match public_origin {
+            Some(_) => FUNNEL_PROXY.to_string(),
+            None => String::new(),
+        };
         config.save(&path).map_err(|error| error.to_string())
     }
 
@@ -160,90 +151,80 @@ mod tests {
         );
     }
 
-    /// The mode follows from the Public Origin: nothing configured is an
-    /// installation that serves its own machine, and a switch writes the
-    /// origin and the proxy and keeps the bind on loopback.
+    /// Remote Access writes three settings and keeps the bind on
+    /// loopback, and turning it off clears all three.
     #[test]
-    fn the_multi_user_mode_follows_from_the_public_origin_in_the_file() {
+    fn remote_access_writes_the_origin_and_the_proxy_and_clears_them() {
         let dir = tempfile::tempdir().unwrap();
         let file = FileSystemConfig::new(dir.path());
         let path = dir.path().join("config.toml");
-        assert_eq!(file.multi_user().unwrap(), None);
+        assert_eq!(file.remote_access().unwrap(), None);
 
-        let mode = MultiUserMode {
-            public_origin: "https://pagis.owner.example".to_string(),
-            trusted_proxy: Some("127.0.0.1".parse().unwrap()),
-        };
-        file.set_multi_user(Some(&mode)).unwrap();
+        file.set_remote_access(Some("https://owner-mac.tail1234.ts.net"))
+            .unwrap();
 
-        assert_eq!(file.multi_user().unwrap(), Some(mode));
+        assert_eq!(
+            file.remote_access().unwrap().as_deref(),
+            Some("https://owner-mac.tail1234.ts.net")
+        );
         let config = Config::read_file(&path).unwrap();
+        assert!(config.remote_access.enabled);
         assert!(config.bind_address().unwrap().is_loopback());
-        assert_eq!(config.public_origin, "https://pagis.owner.example");
+        assert_eq!(config.public_origin, "https://owner-mac.tail1234.ts.net");
         assert_eq!(config.trusted_proxy, "127.0.0.1");
 
-        file.set_multi_user(None).unwrap();
+        file.set_remote_access(None).unwrap();
 
-        assert_eq!(file.multi_user().unwrap(), None);
+        assert_eq!(file.remote_access().unwrap(), None);
         let config = Config::read_file(&path).unwrap();
+        assert!(!config.remote_access.enabled);
         assert!(config.bind_address().unwrap().is_loopback());
         assert_eq!(config.public_origin, "");
         assert_eq!(config.trusted_proxy, "");
     }
 
-    /// A bind on a network address with no Public Origin derives a
-    /// Public Origin on that address, which is not loopback, so the
-    /// installation is in the multi-user mode. Turning the mode off binds
-    /// loopback, which ends it.
+    /// A Public Origin or a network bind that somebody wrote by hand is
+    /// not Remote Access: only the switch turns it on. Turning it off
+    /// binds loopback again.
     #[test]
-    fn a_network_bind_is_the_multi_user_mode_until_it_is_turned_off() {
+    fn a_public_origin_alone_is_not_remote_access() {
         let dir = tempfile::tempdir().unwrap();
         let file = FileSystemConfig::new(dir.path());
         let path = dir.path().join("config.toml");
         let mut config = Config::read_file(&path).unwrap();
         config.bind = "192.168.1.20".to_string();
+        config.public_origin = "https://pagis.owner.example".to_string();
         config.save(&path).unwrap();
 
-        assert_eq!(
-            file.multi_user().unwrap(),
-            Some(MultiUserMode {
-                public_origin: "http://192.168.1.20:4400".to_string(),
-                trusted_proxy: None,
-            })
-        );
+        assert_eq!(file.remote_access().unwrap(), None);
 
-        file.set_multi_user(None).unwrap();
-        assert_eq!(file.multi_user().unwrap(), None);
+        file.set_remote_access(None).unwrap();
+        assert!(
+            Config::read_file(&path)
+                .unwrap()
+                .bind_address()
+                .unwrap()
+                .is_loopback()
+        );
     }
 
-    /// The switch writes three keys and keeps the System Settings.
+    /// The switch keeps the System Settings.
     #[test]
     fn a_switch_keeps_the_system_settings() {
         let dir = tempfile::tempdir().unwrap();
         let file = FileSystemConfig::new(dir.path());
-        file.write(&SystemConfig {
+        let settings = SystemConfig {
             port: 4500,
             docker_endpoint: Some("unix:///tmp/docker.sock".to_string()),
             log_level: "debug".to_string(),
             analytics: false,
-        })
-        .unwrap();
+        };
+        file.write(&settings).unwrap();
 
-        file.set_multi_user(Some(&MultiUserMode {
-            public_origin: "https://pagis.owner.example".to_string(),
-            trusted_proxy: None,
-        }))
-        .unwrap();
+        file.set_remote_access(Some("https://owner-mac.tail1234.ts.net"))
+            .unwrap();
 
-        assert_eq!(
-            file.read().unwrap(),
-            SystemConfig {
-                port: 4500,
-                docker_endpoint: Some("unix:///tmp/docker.sock".to_string()),
-                log_level: "debug".to_string(),
-                analytics: false,
-            }
-        );
+        assert_eq!(file.read().unwrap(), settings);
     }
 
     #[test]

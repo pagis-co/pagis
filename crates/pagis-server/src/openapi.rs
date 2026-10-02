@@ -23,6 +23,7 @@ use crate::model_lists;
 use crate::phone_numbers;
 use crate::plugins;
 use crate::providers;
+use crate::remote_access;
 use crate::requests;
 use crate::run_steps;
 use crate::runs;
@@ -205,8 +206,9 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         workspace::get_report,
         system::get_system_settings,
         system::set_system_settings,
-        system::enable_multi_user,
-        system::disable_multi_user,
+        remote_access::get_remote_access,
+        remote_access::turn_on_remote_access,
+        remote_access::turn_off_remote_access,
         system::set_analytics,
         system::probe_docker,
         system::restart,
@@ -434,10 +436,13 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         system::SystemSettingsDto,
         system::SavedSystemSettingsDto,
         system::UpdateSystemSettingsRequest,
-        system::MultiUserDto,
         system::ScreenDto,
         system::MediaRelayKind,
-        system::EnableMultiUserRequest,
+        remote_access::RemoteAccessDto,
+        remote_access::TurningOnDto,
+        remote_access::TailscaleState,
+        remote_access::Port443,
+        remote_access::SignInMethod,
         system::AnalyticsDto,
         system::AnalyticsBlockedDto,
         system::SetAnalyticsRequest,

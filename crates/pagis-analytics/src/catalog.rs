@@ -63,7 +63,8 @@ impl Event {
 pub struct Report {
     pub installation: InstallationKind,
     pub storage: StorageBackend,
-    pub multi_user: bool,
+    /// Whether the installation runs in Remote Access (ADR-0028).
+    pub remote_access: bool,
     /// Whether the daemon reaches Docker, so the Agents' Computers run.
     pub computers: bool,
     pub people: Bucket,
@@ -137,7 +138,7 @@ mod tests {
         Report {
             installation: InstallationKind::Local,
             storage: StorageBackend::Sqlite,
-            multi_user: false,
+            remote_access: false,
             computers: true,
             people: Bucket::One,
             agents: Bucket::Few,
@@ -205,10 +206,10 @@ mod tests {
                 "arch",
                 "computers",
                 "installation",
-                "multi_user",
                 "os",
                 "people",
                 "release",
+                "remote_access",
                 "storage",
                 "uses_agent_mailboxes",
                 "uses_connections",
@@ -222,6 +223,7 @@ mod tests {
         );
         assert_eq!(properties["installation"], "local");
         assert_eq!(properties["storage"], "sqlite");
+        assert_eq!(properties["remote_access"], false);
         assert_eq!(properties["people"], "1");
         assert_eq!(properties["agents"], "2-5");
         assert_eq!(properties["uses_schedules"], true);

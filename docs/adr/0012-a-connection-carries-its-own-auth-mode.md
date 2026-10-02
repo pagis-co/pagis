@@ -88,8 +88,8 @@ once. A public callback route on the Public Origin receives the redirect. A
 `state` value, made for each authorization, names one Connection and one
 Person. A start route on the Public Origin requires a Session of that Person
 and sets a transaction cookie that binds the `state` to that browser; on a
-Local Installation with the Multi-User Mode off, it requires no Session,
-because that installation has one Person. The callback refuses a redirect
+Local Installation with Remote Access off, it requires no Session, because
+that installation has one Person. The callback refuses a redirect
 without that cookie or with a Session that is not live, and the daemon seals
 the token only when the consenting Google account is the Connection's account.
 The Connection records only the requested capabilities that Google granted.
@@ -98,8 +98,8 @@ Where the Org holds no client, a new Google Connection is `byo`, and `gog` runs
 the loopback flow on the daemon host. Only a person at that machine can finish
 it, so the daemon starts it only for a request from that machine, by the rule
 of `pagis_server::forwarded::is_from_this_machine` (ADR-0025). Every other
-request is refused, including a Member of a multi-user local installation and
-every person on a server. The refusal says that an Administrator sets up the
+request is refused, including a Member of a local installation in Remote
+Access and every person on a server. The refusal says that an Administrator sets up the
 Google OAuth client in the Administration Interface.
 
 `gog` keeps its tokens under the Workspace's own `GOG_HOME`, not in the

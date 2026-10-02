@@ -1,7 +1,8 @@
 /**
  * Who uses a local installation, as the setup page asks it. The answer
- * only chooses where setup goes next: nothing stores it, and the
- * Multi-User Mode stays derived from the Public Origin.
+ * only chooses where setup goes next: nothing stores it. Other People
+ * reach the installation through Remote Access, which its own switch
+ * turns on.
  */
 export type LocalPeople = 'one' | 'several'
 
@@ -26,9 +27,9 @@ export interface SetupDependencies {
   /** Check the server at the address that the person typed, and answer
    *  its origin. */
   connect(url: string): Promise<string>
-  /** Open the Administration Interface, signed in, on the Multi-User
-   *  Mode switch of the installation this client started. */
-  openMultiUserSwitch(): Promise<void>
+  /** Open the Administration Interface, signed in, on the Remote
+   *  Access switch of the installation this client started. */
+  openRemoteAccessSwitch(): Promise<void>
 }
 
 export class SetupCoordinator {
@@ -85,7 +86,7 @@ export class SetupCoordinator {
 
   /**
    * Install the one locked server release, start it and hand over. For
-   * several People, the owner then turns on the Multi-User Mode in the
+   * several People, the owner then turns on Remote Access in the
    * Administration Interface.
    */
   private async runLocal(people: LocalPeople, generation: number): Promise<void> {
@@ -98,7 +99,7 @@ export class SetupCoordinator {
     await this.dependencies.openProduct(url)
     if (people === 'one') return
     this.requireCurrent(generation)
-    await this.dependencies.openMultiUserSwitch()
+    await this.dependencies.openRemoteAccessSwitch()
   }
 
   /** Check a server that is already running, and hand over to its own

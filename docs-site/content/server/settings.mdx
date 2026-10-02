@@ -45,8 +45,8 @@ Client App reports it at their first sign-in, and they change it in
 **Settings → Timezone** of the Product App. The clock of the server is
 never a Person's timezone.
 
-A change to the port, the log level or the multi-user mode takes effect on
-a restart. The daemon then exits with code 75, and a supervisor starts it
+A change to the port, the log level or Remote Access takes effect on a
+restart. The daemon then exits with code 75, and a supervisor starts it
 again: the Client App, or the `restart` policy of the compose deployment.
 Each of them sets `PAGIS_SUPERVISED=1`, and the Settings view then waits for
 the new process. A daemon that a person started by hand has no supervisor, so

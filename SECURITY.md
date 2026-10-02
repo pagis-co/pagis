@@ -35,7 +35,7 @@ Put this information in the report:
 - The affected version: the release, and the Computer Image version when
   the defect is in a Computer.
 - The installation method: the Headless Server, a Local Installation
-  with Multi-User Mode on or off, or a Client App connected to a Server.
+  with Remote Access on or off, or a Client App connected to a Server.
 - The steps to reproduce the defect.
 - The impact: what an attacker can read, change or run.
 

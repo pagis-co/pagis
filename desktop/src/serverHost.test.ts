@@ -268,7 +268,7 @@ class RecordedWebSocket extends EventTarget {
 
 /** The origin rule refuses http:// to another computer. The loopback
  *  origin of the server this client started stays usable. */
-describe('a Local Installation with Multi-User Mode off', () => {
+describe('a Local Installation with Remote Access off', () => {
   afterEach(() => {
     RecordedWebSocket.opened = []
     vi.unstubAllGlobals()

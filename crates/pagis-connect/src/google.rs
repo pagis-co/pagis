@@ -12,8 +12,8 @@
 //! `public_origin`. For a browser with a Session of that Person, the
 //! start route sets a transaction cookie that binds the `state` to that
 //! browser, and sends the browser to Google (RFC 9700, section 2.1.1). A
-//! local installation with the multi-user mode off has one Person, and
-//! there the start route asks the browser for no Session.
+//! local installation with Remote Access off has one Person, and there
+//! the start route asks the browser for no Session.
 //! Google redirects the browser to the callback on the same origin. The
 //! daemon trades the code only for the browser with that cookie, while
 //! the Session is live, and keeps the token only for the Google account
@@ -184,7 +184,7 @@ pub enum Opener<'a> {
     /// A browser with a Session of this Person. It goes on only when
     /// this Person started the authorization.
     SignedIn(&'a UserId),
-    /// A browser of a Local Installation with the multi-user mode off.
+    /// A browser of a Local Installation with Remote Access off.
     /// That installation has one Person and answers only programs of its
     /// own machine, so the browser needs no Session.
     ThisMachine,

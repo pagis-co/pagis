@@ -48,7 +48,8 @@ pub(crate) struct InstallationSource {
     pub org_id: OrgId,
     pub installation: InstallationKind,
     pub storage: StorageBackend,
-    pub multi_user: bool,
+    /// Whether the daemon runs in Remote Access (ADR-0028).
+    pub remote_access: bool,
     pub docker_discovery: Arc<pagis_computer::DockerDiscovery>,
 }
 
@@ -96,7 +97,7 @@ impl pagis_analytics::Source for InstallationSource {
         Ok(Report {
             installation: self.installation,
             storage: self.storage,
-            multi_user: self.multi_user,
+            remote_access: self.remote_access,
             computers: self.docker_discovery.endpoint().await.is_some(),
             people: Bucket::of(people),
             agents: Bucket::of(agents),

@@ -16,8 +16,8 @@ use std::sync::{Arc, Mutex};
 use axum::extract::{Request, State};
 use axum::response::Response;
 use pagis_core::{User, UserRole, Workspace, WorkspaceId, now_ms};
-use pagis_server::SESSION_COOKIE;
-use pagis_testkit::{TestDaemon, TestDaemonOptions};
+use pagis_server::{Port443, SESSION_COOKIE};
+use pagis_testkit::{FakeTailscale, TestDaemon, TestDaemonOptions};
 
 /// The origin the proxy answers on, as the deployment configures it.
 const PUBLIC_ORIGIN: &str = "https://pagis.example.net";
@@ -233,7 +233,7 @@ async fn daemon_behind_a_trusted_proxy() -> Option<(TestDaemon, ForwardingProxy)
     Some((daemon, proxy))
 }
 
-/// The same proxy in front of a daemon that trusts no address: the
+/// The same proxy in front of a server that trusts no address: the
 /// forwarded scheme is not believed, so the cookie is not `Secure`. A
 /// page that claims TLS cannot make the daemon mark a cookie for it.
 #[tokio::test]
@@ -242,11 +242,15 @@ async fn an_untrusted_forwarded_scheme_does_not_make_the_cookie_secure() {
         eprintln!("skipped: this machine has no non-loopback address to bind");
         return;
     };
-    let daemon = TestDaemon::start_with(TestDaemonOptions {
+    let Some(daemon) = TestDaemon::start_on_postgres_with(TestDaemonOptions {
         bind,
+        public_origin: PUBLIC_ORIGIN.to_string(),
         ..TestDaemonOptions::default()
     })
-    .await;
+    .await
+    else {
+        return;
+    };
     let proxy =
         ForwardingProxy::start(daemon.base_url.clone(), "203.0.113.7".parse().unwrap()).await;
     person(&daemon, "grace@example.com", "a good password").await;
@@ -406,17 +410,18 @@ async fn a_local_installation_binds_loopback_with_no_configuration() {
 
 // --- the Client Credential works from this machine alone --------------
 
-/// The origin the owner's own proxy or tunnel answers on.
-const OWNERS_ORIGIN: &str = "https://pagis.owner.example";
+/// The origin the Funnel of the owner's machine answers on.
+const OWNERS_ORIGIN: &str = "https://owner-mac.tail1234.ts.net";
 
-/// A local installation that other People reach through the owner's
-/// proxy on the same machine: the daemon binds loopback, the Public
-/// Origin is the name the proxy answers on, and the proxy at
-/// `127.0.0.1` is the Trusted Proxy.
-async fn local_installation_behind_its_owners_proxy() -> (TestDaemon, ForwardingProxy) {
+/// A local installation that other People reach through Remote Access:
+/// the daemon binds loopback, the Public Origin is the name the Funnel
+/// answers on, and the Funnel at `127.0.0.1` is the Trusted Proxy. The
+/// proxy of the test stands in for the Funnel.
+async fn local_installation_in_remote_access() -> (TestDaemon, ForwardingProxy) {
     let daemon = TestDaemon::start_with(TestDaemonOptions {
         public_origin: OWNERS_ORIGIN.to_string(),
         trusted_proxy: Some(std::net::Ipv4Addr::LOCALHOST.into()),
+        remote_access: true,
         ..TestDaemonOptions::default()
     })
     .await;
@@ -431,7 +436,7 @@ async fn local_installation_behind_its_owners_proxy() -> (TestDaemon, Forwarding
 /// Credential.
 #[tokio::test]
 async fn the_owners_client_app_signs_in_on_a_local_installation_with_a_public_origin() {
-    let (daemon, _proxy) = local_installation_behind_its_owners_proxy().await;
+    let (daemon, _proxy) = local_installation_in_remote_access().await;
 
     let response = client()
         .post(format!("{}/api/v1/sessions/client", daemon.base_url))
@@ -450,27 +455,45 @@ async fn the_owners_client_app_signs_in_on_a_local_installation_with_a_public_or
     assert_eq!(setup.status(), 410);
 }
 
-/// An Administrator turns a local installation into the multi-user mode
-/// from the Administration Interface alone. After the restart, a second
-/// person signs in through the configured origin, and the owner's Client
-/// App stays signed in by the credential.
+/// An Administrator turns on Remote Access from the Administration
+/// Interface alone. After the restart, a second person on another machine
+/// signs in through the Funnel with a Sign-In Link and not with a
+/// password, and the owner's Client App stays signed in by the credential.
 #[tokio::test]
-async fn an_administrator_switches_a_local_installation_to_multi_user() {
-    let before = TestDaemon::start().await;
+async fn an_administrator_turns_on_remote_access_for_a_local_installation() {
+    let before = TestDaemon::start_with(TestDaemonOptions {
+        tailscale: Arc::new(FakeTailscale::ready(Port443::Nothing)),
+        ..TestDaemonOptions::default()
+    })
+    .await;
+    let switch = format!(
+        "{}/api/v1/settings/system/remote-access",
+        before.administration_base_url
+    );
     let response = client()
-        .put(format!(
-            "{}/api/v1/settings/system/multi-user",
-            before.administration_base_url
-        ))
+        .put(&switch)
         .header("cookie", before.cookie())
-        .json(&serde_json::json!({
-            "public_origin": OWNERS_ORIGIN,
-            "trusted_proxy": "127.0.0.1",
-        }))
         .send()
         .await
         .unwrap();
-    assert_eq!(response.status(), 200);
+    assert_eq!(response.status(), 202);
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        let read: serde_json::Value = client()
+            .get(&switch)
+            .header("cookie", before.cookie())
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        if read["enabled"] == true {
+            break;
+        }
+        assert!(tokio::time::Instant::now() < deadline, "{read}");
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
 
     // The next start reads the file the switch wrote, as the boot does.
     let config = pagis::Config::read_file(&before.booted.home.join("config.toml")).unwrap();
@@ -478,20 +501,40 @@ async fn an_administrator_switches_a_local_installation_to_multi_user() {
         bind: config.bind_address().unwrap(),
         public_origin: config.public_origin(config.port),
         trusted_proxy: config.trusted_proxy().unwrap().address(),
+        remote_access: config.remote_access.enabled,
         ..TestDaemonOptions::default()
     })
     .await;
     assert_eq!(after.public_origin, OWNERS_ORIGIN);
-    let proxy =
+    let funnel =
         ForwardingProxy::start(after.base_url.clone(), "203.0.113.7".parse().unwrap()).await;
-    person(&after, "grace@example.com", "a good password").await;
+    let grace = person(&after, "grace@example.com", "a good password").await;
 
-    let second = client()
-        .post(format!("{}/api/v1/sessions", proxy.base_url))
+    let password = client()
+        .post(format!("{}/api/v1/sessions", funnel.base_url))
         .json(&serde_json::json!({
             "email": "grace@example.com",
             "password": "a good password",
         }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(password.status(), 403);
+    assert_eq!(set_cookie(&password, SESSION_COOKIE), None);
+
+    let link = pagis_server::mint_public_origin_link(
+        after.stores().sign_in_links.as_ref(),
+        &grace.id,
+        &after.public_origin,
+        pagis_core::CLIENT_LINK_LIFETIME_MS,
+        now_ms(),
+    )
+    .await
+    .unwrap();
+    let secret = link.url.split_once('#').expect("a fragment").1;
+    let second = client()
+        .post(format!("{}/api/v1/sessions/link", funnel.base_url))
+        .json(&serde_json::json!({ "secret": secret }))
         .send()
         .await
         .unwrap();
@@ -514,7 +557,7 @@ async fn an_administrator_switches_a_local_installation_to_multi_user() {
 /// peer is loopback.
 #[tokio::test]
 async fn a_credential_trade_through_the_trusted_proxy_is_refused() {
-    let (daemon, proxy) = local_installation_behind_its_owners_proxy().await;
+    let (daemon, proxy) = local_installation_in_remote_access().await;
 
     let response = client()
         .post(format!("{}/api/v1/sessions/client", proxy.base_url))
@@ -569,7 +612,7 @@ async fn a_credential_trade_from_another_address_is_refused() {
 /// browser in on this machine alone.
 #[tokio::test]
 async fn the_sign_in_link_works_from_this_machine_alone() {
-    let (daemon, proxy) = local_installation_behind_its_owners_proxy().await;
+    let (daemon, proxy) = local_installation_in_remote_access().await;
 
     let through_the_proxy = pagis::start_link(daemon.stores(), &daemon.base_url)
         .await

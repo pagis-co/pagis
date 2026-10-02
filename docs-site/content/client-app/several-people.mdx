@@ -1,74 +1,144 @@
 ---
 title: Serve several People
-description: Let other People reach a Local Installation through your own proxy or tunnel, in Multi-User Mode.
+description: Let your other machines and other People reach a Local Installation through Remote Access, at a public name of your Tailscale Funnel.
 icon: Users
 ---
 
-A local installation can also serve other People: a household, or a small
-team, with SQLite. This is the multi-user mode. It follows from the Public
-Origin: an installation whose Public Origin host is not loopback is in the
-mode, and no other setting says so.
+A local installation can also serve your phone and your laptop away from
+home, and other People: a household, or a small team, with SQLite. Remote
+Access does this. Your Tailscale Funnel gives the installation a public
+`https://` name, such as `https://owner-mac.tail1234.ts.net`, and forwards
+each request to Pagis on this computer. The other machines need no
+Tailscale. Another machine signs in with a Sign-In Link and never with a
+password ([ADR-0028](https://github.com/pagis-co/pagis/blob/main/docs/adr/0028-remote-access-runs-through-the-owners-tailscale.md)).
 
-The daemon terminates no TLS, so the owner runs a proxy or tunnel of their
-own on the same machine. It holds the certificate, answers on a name that
-the other People open, and forwards to the daemon on loopback. Three setups
-follow: Caddy, Tailscale Serve and Cloudflare Tunnel. Each one forwards the
-WebSocket upgrade, sets `X-Forwarded-Proto` and `X-Forwarded-For`, and passes
-on the name that people open in `Host`. Those headers are also what tell the
-daemon that a request came through the proxy and not from the owner's own
-Client App, so the Client Credential and a `byo` Google Connection stay with
-the machine itself ([ADR-0025](https://github.com/pagis-co/pagis/blob/main/docs/adr/0025-the-client-app-installs-one-exact-server-or-connects-to-one.md)).
+## What you need
 
-## Turn the mode on
+- **A Tailscale account, and Tailscale on this computer**, signed in and
+  connected. On macOS, install the standalone build from
+  [pkgs.tailscale.com](https://pkgs.tailscale.com/stable/#macos). It serves
+  Funnel, and Tailscale's own documents disagree on whether the Mac App
+  Store build does.
+- **On Linux, permission to change Tailscale.** `tailscale funnel` needs
+  root or the operator of Tailscale. Run
+  `sudo tailscale set --operator=$USER` once, as the user that runs Pagis.
+- **HTTPS and Funnel for your tailnet.** Where they are off, the switch
+  shows the page of Tailscale that turns them on.
 
-1. Set up one of the proxies or tunnels below, and open its name in a
-   browser to check that Pagis answers.
-2. In the Administration Interface, open **Settings**, and turn on
-   **Multi-user mode** under **Network**. A Client App set up for "Several
-   people" opens this switch after the installation.
-3. Type the address people open as the **Public Origin**, such as
-   `https://pagis.example.net`. It is an absolute `https://` or `http://`
-   URL whose host is not loopback. Use `https://`: at an `http://` address
-   on another machine, the browser gives no microphone for dictation, a
-   password crosses the network in clear text, and the Client App of another
-   Person refuses to connect.
-4. Keep `127.0.0.1` as the **Trusted Proxy**. That is the address a proxy or
-   tunnel on this machine reaches the daemon from. The daemon then believes
-   its `X-Forwarded-Proto`, so the Session cookie carries `Secure`, and its
-   `X-Forwarded-For`, so the sign-in rate limit counts each browser apart.
-5. Select **Turn on and restart**. The daemon writes the Public Origin and
-   the Trusted Proxy to `config.toml` and starts again.
+## Turn on Remote Access
 
-The switch keeps the Bind Address on loopback. A proxy or tunnel on the same
-machine reaches the daemon there, and so does the owner's Client App, while
-the plain-HTTP port stays off the network, so nobody reaches Pagis around
-the proxy's TLS.
+1. In the Administration Interface, open **Settings**, and find **Remote
+   Access** under **Network**. A Client App set up for "Several people"
+   opens this switch after the installation.
+2. Read what the switch says about Tailscale on this computer. Where
+   Tailscale is not installed, or does not run, or is signed out, the
+   switch says what to do, and **Check again** reads it again.
+3. Turn on **Remote Access**, read the note, and select **Turn on and
+   restart**.
+4. Where your tailnet has HTTPS or Funnel off, the switch shows a page of
+   `login.tailscale.com`. Open it and approve. Pagis goes on when you
+   approve. **Cancel** stops the wait.
+5. Pagis turns on Funnel, writes the Public Origin and the Trusted Proxy to
+   `config.toml`, and starts again. The switch then shows the public name.
 
-The installation keeps its Client Credential, so the Client App on the
-machine stays signed in. The first-run route stays closed, because a
-credential exists. The Administrator creates the other People in the
-Administration Interface, and each new Person gets an invite link. To sign
-in from a browser or a phone on another machine, the owner selects **Sign in
-another browser or app** under **Settings → Sessions** in the Client App, or
-runs `pagis pair` on this machine (the command is in
-[Back up and restore](/client-app/backup)), and opens the link there
-([Sign-In Links](/server/sign-in#sign-in-links)). The owner can also set
-their own address and password in the Administration Interface ([ADR-0024](https://github.com/pagis-co/pagis/blob/main/docs/adr/0024-a-server-serves-a-network.md)).
+Pagis runs this command as you, on this computer:
 
-**Turn the mode off** with the same switch and **Turn off and restart**. The
-daemon clears the Public Origin and the Trusted Proxy and binds loopback.
-With the mode off, the daemon answers only a request from a program on its
-own machine: it refuses every request that carries a proxy header, such as
-`X-Forwarded-For`, or a `Host` that is not a loopback name. A browser that
-opens a page gets a short page that says so, with status 403. A request under
-`/api/`, and every request that does not ask for HTML, gets the JSON error.
-The People who signed in from other machines keep their accounts and their
-Sessions, and they reach nothing until the mode is on again, also while the
-proxy or tunnel still runs. Stop the proxy or tunnel as well.
+```bash
+tailscale funnel --bg --yes --https=443 http://127.0.0.1:4400
+```
 
-A server is always in the mode. Its deployment names the Public Origin in
-`PAGIS_PUBLIC_ORIGIN`, and the Administration Interface shows the mode with
-no switch.
+The port is the product port of the installation. Where port 443 of your
+Funnel already serves something else, the switch names it and replaces
+nothing. Remove it with `tailscale funnel --https=443 off` first.
+
+The Public Origin is `https://` and the name of this computer on your
+tailnet. The Trusted Proxy is `127.0.0.1`, where `tailscaled` reaches Pagis.
+Pagis believes its `X-Forwarded-Proto`, so the Session cookie carries
+`Secure`, and its `X-Forwarded-For`, so the sign-in rate limit counts each
+browser apart. The Bind Address stays on loopback, so nobody reaches the
+plain-HTTP port of Pagis around the TLS of the Funnel.
+
+The installation keeps its Client Credential, so the Client App on this
+computer stays signed in. The Administration Interface stays on loopback and
+is never on the Funnel.
+
+## Sign in from another machine
+
+Pagis takes no password from another machine in Remote Access. A browser
+there opens the sign-in page with one field, **Paste a sign-in link**. A
+[Sign-In Link](/server/sign-in#sign-in-links) comes from three places:
+
+- **An invite.** The Administrator creates each other Person under
+  **People** in the Administration Interface, and the answer shows the
+  invite of that Person. It is good for seven days.
+- **Another browser or app of the same Person.** Under **Settings →
+  Sessions**, select **Sign in another browser or app**. To sign in your
+  own phone, do this in the Client App on this computer. The link is good
+  for five minutes.
+- **`pagis pair`** on this computer, the command of
+  [Back up and restore](/client-app/backup). It is the way back in for a
+  Person who has no Session left.
+
+Open the link on the other machine, or paste it into the field of the
+sign-in page. A browser on this computer keeps the sign-in with an address
+and a password.
+
+The name of your computer and your tailnet is in the public Certificate
+Transparency logs, so bots find it. Each route of the product port that
+answers without a Session holds no content of a Workspace.
+
+## Turn off Remote Access
+
+Turn off the same switch and select **Turn off and restart**. Pagis removes
+the Funnel of Pagis with `tailscale funnel --https=443 off`, clears Remote
+Access, the Public Origin and the Trusted Proxy, binds loopback, and starts
+again.
+
+With Remote Access off, Pagis answers only a request from a program on this
+computer. It refuses every request that carries a proxy header, such as
+`X-Forwarded-For`, or a `Host` that is not a loopback name, also when a
+Funnel still runs. A browser that opens a page gets a short page that says
+so, with status 403. A request under `/api/`, and every request that does
+not ask for HTML, gets the JSON error. The People who signed in from other
+machines keep their accounts and their Sessions, and they reach nothing
+until Remote Access is on again.
+
+A server is not switched here. It serves its network through its own proxy
+([Put a proxy in front](/server/proxy)), and its Settings view shows Remote
+Access with no switch.
+
+## The live screen for other people
+
+The live screen of a Computer does not go through the Funnel. A browser
+sends and receives it over UDP at the Media Relay's address, which is
+`[screen] advertise_ip` in `config.toml`, on one port of `media_port_first`
+to `media_port_last` (50000 to 50099 by default). A local installation
+advertises `127.0.0.1`, so a browser on another machine shows "Live screen
+unavailable". The live screen through the Funnel is not built.
+
+A machine that reaches this computer over UDP can see the live screen. The
+relay listens on every interface of this computer, so one setting and one
+firewall rule carry the screen to it:
+
+- **A machine on your tailnet.** Set `advertise_ip` to the tailnet address
+  of this computer, which `tailscale ip -4` prints, such as
+  `100.101.102.103`. The tailnet carries UDP, so no port opens to the
+  internet. That machine needs Tailscale.
+- **A machine on your LAN.** Set `advertise_ip` to the LAN address of this
+  computer, such as `192.168.1.20`, and allow the UDP range in the firewall
+  of this computer.
+
+For example, with Tailscale:
+
+```toml
+[screen]
+advertise_ip = "100.101.102.103"
+```
+
+Restart Pagis after the change. `PAGIS_SCREEN_ADVERTISE_IP` sets the same
+address for one run. In Settings, **Remote Access** says what another
+machine sees of the live screen with the address that the running daemon
+advertises.
 
 ## What a Computer reaches here
 
@@ -81,112 +151,6 @@ Under Docker Desktop or Colima it can possibly also reach the services that
 listen on this computer's loopback, through the host gateway. An HTTP or SSE
 Plugin server sends its requests from the daemon, so it also reaches the
 HTTP services on this computer's loopback ([Reach](/plugins#reach)). The
-Pagis product port still asks for a password or the Client Credential, and
+Pagis product port still asks for a Session or the Client Credential, and
 the control port of each other Computer still asks for its secret. A server
 installs the rules ([What a Computer reaches](/server/computers#what-a-computer-reaches)).
-
-## Caddy
-
-For a name that people reach over the internet or the LAN, with a DNS record
-that points at this machine and ports 80 and 443 open to it:
-
-```text title="Caddyfile"
-{
-	admin off
-}
-
-pagis.example.net {
-	reverse_proxy 127.0.0.1:4400
-}
-```
-
-Run it with `caddy run --config Caddyfile`. Caddy gets and renews the
-certificate, sets `X-Forwarded-Proto`, appends to `X-Forwarded-For`, keeps
-the `Host` that the browser sent, and passes a WebSocket upgrade through with
-no configuration. The Public Origin is `https://pagis.example.net`.
-`admin off` closes the admin API of Caddy, which listens on the loopback of
-this machine by default, where the daemon and each HTTP Plugin server also
-send requests.
-
-## Tailscale Serve
-
-For People on the owner's tailnet, with MagicDNS and HTTPS certificates
-turned on for the tailnet:
-
-```bash
-tailscale serve --bg 4400
-```
-
-Tailscale serves `https://<machine>.<tailnet>.ts.net` to the tailnet and
-forwards to `http://127.0.0.1:4400`. It sets `X-Forwarded-Proto` to `https`
-and `X-Forwarded-For` to the tailnet address of the person's device, keeps
-the `Host` that the browser sent, and passes a WebSocket upgrade through.
-The Public Origin is the `https://` address that `tailscale serve status`
-prints, such as `https://owner-mac.tail1234.ts.net`. `tailscale serve reset`
-stops it.
-
-## Cloudflare Tunnel
-
-For a name on a domain whose DNS is on Cloudflare, with no port open on this
-machine:
-
-```bash
-cloudflared tunnel login
-cloudflared tunnel create pagis
-cloudflared tunnel route dns pagis pagis.example.net
-```
-
-Then write `~/.cloudflared/config.yml`, with the tunnel UUID that `create`
-printed:
-
-```yaml
-tunnel: <Tunnel-UUID>
-credentials-file: /Users/owner/.cloudflared/<Tunnel-UUID>.json
-ingress:
-  - hostname: pagis.example.net
-    service: http://127.0.0.1:4400
-  - service: http_status:404
-```
-
-Run it with `cloudflared tunnel run pagis`. Cloudflare holds the
-certificate, sets `X-Forwarded-Proto`, appends the browser's address to
-`X-Forwarded-For`, and carries WebSockets; `cloudflared` keeps the `Host`
-that the browser sent. The Public Origin is `https://pagis.example.net`.
-
-## The live screen for other people
-
-The live screen of a Computer does not go through the proxy or tunnel. A
-browser sends and receives it over UDP at the Media Relay's address, which
-is `[screen] advertise_ip` in `config.toml`, on one port of
-`media_port_first` to `media_port_last` (50000 to 50099 by default). A
-local installation advertises `127.0.0.1`, so the mode alone keeps the live
-screen on this computer: People on other machines see "Live screen
-unavailable". The relay listens on every interface of this computer, so one
-setting and one firewall rule carry the screen to them. Each setup above
-names its own address:
-
-- **Caddy on the LAN.** Set `advertise_ip` to this computer's LAN address,
-  such as `192.168.1.20`, and allow the UDP range in this computer's
-  firewall. For People on the internet, set the public address and forward
-  the UDP range from the router to this computer.
-- **Tailscale Serve.** Set `advertise_ip` to this computer's tailnet
-  address, which `tailscale ip -4` prints, such as `100.101.102.103`. The
-  tailnet carries UDP, so no port is opened to the internet.
-- **Cloudflare Tunnel.** The tunnel carries no UDP. Put a TURN server in
-  front of the relay (`relay = "turn"`, the variant in [Live screen](/server/live-screen#a-server-behind-an-external-turn-server)), or advertise a public address and forward the UDP
-  range to this computer.
-
-For example, with Tailscale:
-
-```toml
-[screen]
-advertise_ip = "100.101.102.103"
-```
-
-Restart Pagis after the change. `PAGIS_SCREEN_ADVERTISE_IP` sets the same
-address for one run.
-
-In Settings, **Multi-user mode** names the address that the running daemon
-advertises. It says whether other machines reach the live screen, and for an
-address that is not loopback, the UDP range that the firewall must let
-through.

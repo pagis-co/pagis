@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef } from 'react'
 
 import { createApiClient } from './api/client'
 import type { ApiClient } from './api/client'
-import { useSetupState, useUser } from './queries'
+import { useSetupState, useSignInMethod, useUser } from './queries'
 import { createAppRouter } from './routes'
 import { SignIn } from './SignIn'
 import { SIGN_IN_LINK_PATH, SignInLinkPage } from './SignInLinkPage'
@@ -43,10 +43,18 @@ export function App({ history }: { history?: RouterHistory }) {
 
 /** The sign-in of the product port. The setup read answers only while
  *  nobody can sign in, and then the page names where the first
- *  Administrator is made. */
+ *  Administrator is made. The health read says whether this browser
+ *  signs in with a password or with a Sign-In Link (ADR-0028); where it
+ *  does not answer, the page keeps the password form. */
 function ProductSignIn({ api }: { api: ApiClient }) {
   const setup = useSetupState(api)
+  const method = useSignInMethod(api)
+  if (method.isPending) return null
   return (
-    <SignIn api={api} administrationOrigin={setup.data?.administration_origin ?? null} />
+    <SignIn
+      api={api}
+      administrationOrigin={setup.data?.administration_origin ?? null}
+      method={method.data ?? 'password'}
+    />
   )
 }

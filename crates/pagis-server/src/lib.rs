@@ -28,6 +28,7 @@ mod phone_numbers;
 mod plugins;
 mod providers;
 pub mod provisioning;
+pub mod remote_access;
 mod requests;
 mod ring;
 pub mod routes;
@@ -68,6 +69,9 @@ pub use auth::{SESSION_COOKIE, Tenant, hash_secret};
 pub use forwarded::TrustedProxy;
 pub use live_connections::LiveConnections;
 pub use openapi::ApiDoc;
+pub use remote_access::{
+    FUNNEL_PROXY, Port443, RemoteAccessSwitch, Tailscale, TailscaleState, serves_this_machine_only,
+};
 pub use ring::{EventRing, RingConfig, RingedBus};
 pub use routes::{
     ADMINISTRATION_PUBLIC_ROUTES, ADMINISTRATION_ROUTES, PUBLIC_ROUTES, ROUTES, Route,
@@ -78,8 +82,8 @@ pub use sign_in_links::{
     MintedLink, SIGN_IN_PAGE, mint_public_origin_link, mint_start_link, qr_svg, qr_text,
 };
 pub use system::{
-    MediaRelayKind, MultiUserMode, RESTART_EXIT_CODE, RestartSwitch, ScreenRelay, SystemConfig,
-    SystemConfigFile, origin_host_is_loopback, serves_this_machine_only,
+    MediaRelayKind, RESTART_EXIT_CODE, RestartSwitch, ScreenRelay, SystemConfig, SystemConfigFile,
+    origin_host_is_loopback,
 };
 pub use user::AdministrationAddress;
 
@@ -258,9 +262,18 @@ pub struct AppState {
     /// The loopback origin at which a program on this machine reaches the
     /// product port of a local installation: the origin of the owner's
     /// Client App window and of the Sign-In Link (ADR-0024). It is the
-    /// Public Origin while the multi-user mode is off. `None` on a server,
+    /// Public Origin while Remote Access is off. `None` on a server,
     /// which no Client App opens at loopback.
     pub local_origin: Option<String>,
+    /// Whether this daemon runs in Remote Access (ADR-0028):
+    /// `[remote_access] enabled` of `config.toml`, or
+    /// `PAGIS_REMOTE_ACCESS`. Another machine then signs in with a
+    /// Sign-In Link and never with a password, and a local installation
+    /// serves other machines.
+    pub remote_access: bool,
+    /// The Remote Access switch of a local installation, over the
+    /// Tailscale of this machine.
+    pub remote_access_switch: RemoteAccessSwitch,
     /// Where a browser reaches the Administration Interface. The
     /// product answers it to an Administrator, so the page can link to
     /// the port it draws no installation setting of its own for. The
@@ -742,8 +755,8 @@ fn product_router(state: Arc<AppState>) -> Router {
         // and comes back, and only a Session of the Person who started
         // the authorization gets the transaction cookie that binds the
         // `state` to that browser, and the address at Google. A local
-        // installation with the multi-user mode off has one Person, and
-        // there any browser of the machine goes on with no Session.
+        // installation with Remote Access off has one Person, and there
+        // any browser of the machine goes on with no Session.
         .route(
             "/api/v1/connections/google/start",
             get(settings::google_start),
@@ -789,17 +802,27 @@ fn product_router(state: Arc<AppState>) -> Router {
 
 /// What the desktop shell reads before it attaches to a daemon it did
 /// not start (ADR-0025): the daemon answers, and it says its version.
+/// The sign-in page of the Product App reads how its browser signs in
+/// (ADR-0028).
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct HealthDto {
     pub status: String,
     pub version: String,
+    /// How the client that asks signs in: `link` from another machine in
+    /// Remote Access, else `password`.
+    pub sign_in: remote_access::SignInMethod,
 }
 
 #[utoipa::path(get, path = "/api/v1/health", responses((status = 200, body = HealthDto)))]
-async fn health() -> Json<HealthDto> {
+async fn health(
+    State(state): State<Arc<AppState>>,
+    ConnectInfo(peer): ConnectInfo<std::net::SocketAddr>,
+    headers: axum::http::HeaderMap,
+) -> Json<HealthDto> {
     Json(HealthDto {
         status: "ok".to_string(),
         version: VERSION.to_string(),
+        sign_in: remote_access::sign_in_method(&state, peer, &headers),
     })
 }
 

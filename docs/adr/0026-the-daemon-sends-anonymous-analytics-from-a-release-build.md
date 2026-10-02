@@ -41,9 +41,9 @@ features that Pagis does not use.
   day. Each event carries the release, the operating system and the
   architecture.
 - The Installation Report holds the kind of installation, the Storage
-  Backend, the Multi-User Mode, whether Docker answers, the number of
-  People and of Agents as ranges (0, 1, 2-5, 6-20, 21+), and one flag for
-  each feature in use: Connections, Schedules, Event Subscriptions,
+  Backend, whether Remote Access is on, whether Docker answers, the number
+  of People and of Agents as ranges (0, 1, 2-5, 6-20, 21+), and one flag
+  for each feature in use: Connections, Schedules, Event Subscriptions,
   Plugins, Software, Hosts, Agent Phone Numbers and Agent Mailboxes.
 - Every property is an enum, a number or a flag. The types allow no
   content, no names, no addresses, no paths and no identifier but the

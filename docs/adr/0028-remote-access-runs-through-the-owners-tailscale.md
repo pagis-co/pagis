@@ -7,10 +7,10 @@ Status: accepted.
 A person who runs Pagis at home wants to reach it from their phone and from
 a laptop away from home. Other People of the household want to reach it too.
 The installation sits behind a home router with no public address, often
-behind carrier-grade NAT. The Multi-User Mode (ADR-0024) asks the owner to
-set up a proxy or a tunnel by hand, type its name as the Public Origin, and
-let every other machine sign in with a password on a page that faces the
-internet.
+behind carrier-grade NAT. The Multi-User Mode that ADR-0024 first recorded
+asked the owner to set up a proxy or a tunnel by hand, type its name as the
+Public Origin, and let every other machine sign in with a password on a
+page that faces the internet.
 
 Products that serve a home installation to its owner's phones and laptops
 share one shape. OpenClaw turns on Tailscale Serve or Funnel from one
@@ -43,8 +43,16 @@ the Administration Interface, under Network, turns Remote Access on:
 2. Where the tailnet has HTTPS or Funnel off, the switch shows the page
    that Tailscale names to turn it on, and waits.
 3. The daemon turns on Funnel on port 443 to the product port on loopback.
+   Where port 443 serves something else, the switch says so and replaces
+   nothing. Where Tailscale refuses Funnel on macOS, the switch names the
+   standalone build.
 4. It writes the Public Origin, `https://<machine>.<tailnet>.ts.net`, and
    `127.0.0.1` as the Trusted Proxy, and asks for the reserved restart.
+
+Turning the switch off removes the Funnel of the product port, clears the
+three settings, and asks for the restart. `config.toml` records Remote
+Access as `[remote_access] enabled`, and `PAGIS_REMOTE_ACCESS` sets it for
+one run.
 
 The Funnel relays route on the TLS server name and decrypt nothing. The
 `tailscaled` on the owner's machine holds the certificate and forwards to
@@ -86,7 +94,11 @@ the Public Origin that its deployment names and the password sign-in.
 ### A client signs in with a Sign-In Link, never with a password
 
 With Remote Access on, the product port accepts no password from another
-machine. A browser or an app signs in with a **Sign-In Link**: a one-use
+machine, and the refusal names the Sign-In Link. The sign-in page reads
+from the health answer how its browser signs in: a browser on another
+machine gets one field for a pasted link, with the line that says where to
+get one, and a browser on this machine keeps the password. A browser or an
+app signs in with a **Sign-In Link**: a one-use
 URL of the Public Origin, `https://<public origin>/sign-in#<secret>`,
 shown as a QR code beside a copy button. The secret is in the fragment, so
 it reaches no proxy log and no `Referer`. The page posts it to the daemon,
@@ -154,17 +166,9 @@ tailnet, keeps the direct UDP path, and ICE picks it first.
 
 ## Not built
 
-The Multi-User Mode of ADR-0024 is what runs. The Sign-In Link of the
-Public Origin, its three sources, the Sessions list in Settings,
-`pagis pair` and the Session that ends 30 days after its last use are built,
-and they work in the Multi-User Mode and on a Server. These parts are not
-built:
-
-- The Remote Access switch, the Tailscale driver in the daemon, and the
-  `PAGIS_REMOTE_ACCESS` setting.
-- The refusal of a password from another machine in Remote Access.
 - The Sign-In Link in "Connect to a Pagis server".
-- The TURN server in the daemon and its Funnel port.
+- The TURN server in the daemon and its Funnel port. Until it runs, a
+  browser on another machine shows "Live screen unavailable" for the live
+  screen of a Computer, unless `[screen] advertise_ip` names an address that
+  it reaches over UDP.
 - The `tailscale` service of `deploy/compose.yaml`.
-- The removal of the Multi-User Mode switch and of the hand-made proxy and
-  tunnel setups from the documentation.

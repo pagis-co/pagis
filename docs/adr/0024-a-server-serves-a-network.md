@@ -48,23 +48,25 @@ product port serves the Public Origin, and on a local installation also its
 loopback origin, where the Client App and the Sign-In Link open the Product
 App. The Administration Port serves its own origin.
 
-### The Multi-User Mode follows from the Public Origin
+### A local installation serves other machines through Remote Access
 
-A Public Origin whose host is loopback serves the People at the machine; any
-other serves People on other machines. The Bind Address does not decide this,
-because the compose deployment binds loopback with a proxy on the same host.
+A server serves its network: its deployment names the Public Origin, and a
+proxy in front of it holds the certificate. A local installation serves the
+People at its machine, and other machines only through Remote Access
+(ADR-0028), at a public name of the owner's Tailscale Funnel. Neither the
+Public Origin nor the Bind Address decides this. The compose deployment
+binds loopback with a proxy on the same host, and a Public Origin that
+somebody writes into `config.toml` by hand opens no way in.
 
-A local installation that serves several People runs on SQLite, and they reach
-it through the owner's proxy or tunnel. https://docs.pagis.co/client-app/several-people holds
-the Caddy, Tailscale Serve and Cloudflare Tunnel setups.
+A local installation that serves several People runs on SQLite.
 
 The Product App works at an `http://` Public Origin, and `https://` is the
 recommended one. The Product App needs no secure-context API: it makes ids
 with `crypto.getRandomValues` and copies through the copy command when the
 Clipboard API is absent. The microphone has no substitute, so dictation says it
 needs `https://`. Over `http://` the password crosses the network in clear and
-the cookie has no `Secure`, so every documented setup gives an `https://`
-address.
+the cookie has no `Secure`, so Remote Access and every documented proxy setup
+give an `https://` address.
 
 A Client App that connects to a server requires `https://` except for a
 loopback host (`127.0.0.1`, `[::1]`, `localhost`), because it runs the commands
@@ -78,33 +80,29 @@ platform's TLS certificate check with no pinning, and on an `https://` origin
 holds the Session cookie as `Secure`, also where a proxy that does not report
 TLS makes the server leave it out.
 
-An Administrator of a local installation switches the mode in the
-Administration Interface. No flag is stored: the switch writes the settings the
-mode follows from. `PUT /api/v1/settings/system/multi-user` takes the Public
-Origin and an optional Trusted Proxy (an IP address; the form offers
-`127.0.0.1`). It refuses an origin that is not an absolute `https://` or
-`http://` URL of a scheme, a host and an optional port alone, and a loopback or
-unspecified host. `DELETE /api/v1/settings/system/multi-user` clears both.
-Both write `config.toml` through the System Settings seam, bind loopback, and
-answer whether a restart is required (whenever the written mode differs from
-the running one); the form then asks for the reserved restart. Binding loopback
-keeps the plain-HTTP port off the network, so nobody reaches the daemon around
-the proxy's TLS; a same-machine proxy (Caddy, `tailscale serve`, `cloudflared`)
-reaches the daemon at `127.0.0.1`. Turning the mode off must bind loopback
-too, because a network bind would derive a non-loopback Public Origin.
+An Administrator of a local installation switches Remote Access in the
+Administration Interface. `GET /api/v1/settings/system/remote-access` reads
+the Tailscale of the machine, `PUT` turns the Funnel on, and `DELETE` turns it
+off. Turning on writes `[remote_access] enabled`, the Public Origin
+`https://<machine>.<tailnet>.ts.net` and the Trusted Proxy `127.0.0.1`.
+Turning off removes the Funnel of the product port and clears all three. Both
+write `config.toml` through the System Settings seam and bind loopback, and
+the page then asks for the reserved restart. Binding loopback keeps the
+plain-HTTP port off the network, so nobody reaches the daemon around the TLS
+of the Funnel. `PAGIS_REMOTE_ACCESS` sets Remote Access for one run, on a
+local installation and on a server.
 
-With the mode off, the daemon refuses on both ports every request that is not
-from a program on its own machine, by the rule of the Client Credential trade
-(ADR-0025), so a proxy the owner forgot to stop reaches nothing. People from
-other machines keep their accounts. A server always serves a network: its
-deployment names `PAGIS_PUBLIC_ORIGIN`, its Settings view shows the mode with
-no switch, and both routes answer `409`.
+With Remote Access off, a local installation refuses on both ports every
+request that is not from a program on its own machine, by the rule of the
+Client Credential trade (ADR-0025), so a Funnel, a proxy or a tunnel that
+still runs reaches nothing. People from other machines keep their accounts.
+A server serves its network whatever Remote Access says: its Settings view
+shows Remote Access with no switch, and the switch routes answer `409`.
 
-The mode does not decide the Client Credential; the kind of installation does
-(ADR-0025). A local installation in the Multi-User Mode keeps its credential,
+Remote Access does not decide the Client Credential; the kind of installation
+does (ADR-0025). A local installation in Remote Access keeps its credential,
 and the owner's Client App reaches it at its loopback origin and stays signed
-in, while other People sign in with an address and a password through the
-proxy.
+in, while another machine signs in with a Sign-In Link.
 
 ### Server setup
 
@@ -123,7 +121,7 @@ can sign in. Two paths write the same rows, once:
   that only an operator reaches the loopback Administration Port, over SSH.
 
 `/api/v1/setup` answers `410 Gone` from the first password on. A local
-installation never runs it, also in the Multi-User Mode: its seeded
+installation never runs it, also in Remote Access: its seeded
 Administrator signs in with the Client Credential and sets a browser address
 and password in the Administration Interface.
 
@@ -189,7 +187,7 @@ installation part with `403` and names the Administration Interface.
 ### System Settings and restarts
 
 A System Setting is a setting of the installation: the port, the Docker
-endpoint, the log level, the data directory, and the Multi-User Mode of a local
+endpoint, the log level, the data directory, and Remote Access of a local
 installation. An Administrator changes it in the Administration Interface; the
 daemon is the one writer of the config file. The timezone is each Person's own
 (ADR-0006). A change that needs a restart offers one: the server exits with the
@@ -293,9 +291,3 @@ one-way (ADR-0025).
 - The `sqlx` Postgres driver carries rustls, so a managed Postgres that
   requires TLS works.
 - One daemon serves everyone, so a restart interrupts every person.
-
-## Not built
-
-- Remote Access in the place of the Multi-User Mode of a Local
-  Installation, and of the Caddy, Tailscale Serve and Cloudflare Tunnel
-  setups that the owner makes by hand (ADR-0028).

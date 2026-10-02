@@ -125,13 +125,14 @@ pub fn is_from_this_machine(peer: SocketAddr, headers: &HeaderMap) -> bool {
 
 /// Refuse a request that did not come from a program on this machine.
 ///
-/// A local installation with the multi-user mode off serves the People
-/// of this machine alone. The daemon then binds loopback, but a reverse
-/// proxy or a tunnel on this machine can still forward requests from
-/// other machines to it, and the owner may not stop it when the mode
-/// goes off. So every request must pass [`is_from_this_machine`], and
-/// a Session that a Member opened from another machine reaches nothing
-/// until the mode is on again, whether the proxy still runs or not.
+/// A local installation with Remote Access off serves the People of
+/// this machine alone. The daemon then binds loopback, but a Funnel, a
+/// reverse proxy or a tunnel on this machine can still forward requests
+/// from other machines to it, and it may still run after Remote Access
+/// goes off. So every request must pass [`is_from_this_machine`], and a
+/// Session that a Member opened from another machine reaches nothing
+/// until Remote Access is on again, whether the Funnel still runs or
+/// not.
 pub async fn refuse_other_machines(
     axum::extract::ConnectInfo(peer): axum::extract::ConnectInfo<SocketAddr>,
     request: axum::extract::Request,
@@ -145,7 +146,7 @@ pub async fn refuse_other_machines(
 
 /// Why [`refuse_other_machines`] refuses a request.
 const ONLY_THIS_MACHINE: &str = "this installation serves only the people of its own computer; \
-     its owner turns on the multi-user mode to serve other machines";
+     its owner turns on Remote Access to serve other machines";
 
 /// The refusal as a page, for a browser that opens the Public Origin.
 /// The refusal blocks the fonts and the stylesheets of the UI too, so
@@ -171,7 +172,7 @@ fn refusal(path: &str, headers: &HeaderMap) -> axum::response::Response {
         StatusCode::FORBIDDEN,
         [
             (header::CONTENT_TYPE, "text/html; charset=utf-8"),
-            // The owner can turn the mode on, and the page must not
+            // The owner can turn Remote Access on, and the page must not
             // outlive that.
             (header::CACHE_CONTROL, "no-store"),
             (
