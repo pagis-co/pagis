@@ -987,7 +987,8 @@ async fn python_opens_an_https_connection() {
 /// Open one URL in the browser the supervisor runs. A second Chromium
 /// hands the URL to the session that already holds the profile, and
 /// exits. The page therefore renders under the supervisor's flags, not
-/// under this command's.
+/// under this command's. The command returns before the browser opens
+/// the page.
 fn open_in_the_running_browser(owner: &ComputerOwner, url: &str) {
     let opened = docker_exec_raw(
         owner,
@@ -1222,12 +1223,14 @@ async fn the_real_browser_reports_a_human_fingerprint() {
 }
 
 /// The page the blinking caret test types into: one text field that
-/// takes the focus when the page opens, and writes what it holds into
-/// the title of the page.
+/// takes the focus when the page opens. The page turns green when the
+/// field gets the focus, and writes what the field holds into its title.
 const WRITE_CARET_PAGE: &str = r#"cat > /tmp/caret.html <<'PAGE'
 <title>caret</title>
 <body style="margin:40px">
-<input autofocus style="font-size:24px" oninput="document.title = 'caret ' + this.value">
+<input autofocus style="font-size:24px"
+  onfocus="document.body.style.background = 'lime'"
+  oninput="document.title = 'caret ' + this.value">
 </body>
 PAGE
 "#;
@@ -1254,11 +1257,27 @@ async fn a_blinking_caret_does_not_hold_a_settled_frame() {
     wait_awake(&manager, &agent_id).await;
     docker_exec(&owner, &["sh", "-c", WRITE_CARET_PAGE]);
     open_in_the_running_browser(&owner, "file:///tmp/caret.html");
-    // The page opens in a new tab, which settles before the typing.
-    manager
-        .settled_frame(&agent_id)
-        .await
-        .expect("the page opens");
+    // A settled frame can come before the new tab. Also, Chromium drops
+    // the input to a new page until the screen shows the page. Thus the
+    // typing starts when the screen shows the green page.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+    loop {
+        let frame = manager.preview(&agent_id).await.expect("preview");
+        let picture = image::load_from_memory(&frame.png)
+            .expect("the frame is a PNG")
+            .to_rgb8();
+        let centre = picture
+            .get_pixel(picture.width() / 2, picture.height() / 2)
+            .0;
+        if centre[0] < 60 && centre[1] > 200 && centre[2] < 60 {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the field never got the focus: the centre pixel is {centre:?}"
+        );
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
     manager
         .input(
             &agent_id,
@@ -1268,8 +1287,7 @@ async fn a_blinking_caret_does_not_hold_a_settled_frame() {
         )
         .await
         .expect("typing in the field");
-    // The text is in the field, so the field has the focus and its
-    // caret blinks.
+    // The text is in the field, so its caret blinks.
     let computer = real
         .runtime
         .running(&owner)
