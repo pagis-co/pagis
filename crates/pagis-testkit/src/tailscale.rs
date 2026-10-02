@@ -3,7 +3,7 @@
 
 use std::sync::Mutex;
 
-use pagis_server::{Port443, Tailscale, TailscaleState};
+use pagis_server::{FunnelPort, FunnelTargets, Tailscale, TailscaleState};
 use tokio::sync::Notify;
 
 /// The name of the machine on the fake tailnet.
@@ -13,8 +13,8 @@ pub const TAILNET_NAME: &str = "owner-mac.tail1234.ts.net";
 pub const ENABLE_URL: &str = "https://login.tailscale.com/f/funnel?node=nTEST000000CNTRL";
 
 /// A Tailscale whose state a test sets. A turn-on serves the product port
-/// at [`TAILNET_NAME`], and a turn-off removes it, as the real command
-/// does. It records each change it is asked for.
+/// and the TURN server at [`TAILNET_NAME`], and a turn-off removes them, as
+/// the real command does. It records each change it is asked for.
 pub struct FakeTailscale {
     state: Mutex<TailscaleState>,
     /// Whether a turn-on names [`ENABLE_URL`] and waits for
@@ -63,17 +63,19 @@ impl FakeTailscale {
         Self {
             asks_approval: true,
             ..Self::in_state(TailscaleState::FunnelOff {
-                port_443: Port443::Nothing,
+                port_443: FunnelPort::Nothing,
+                port_8443: FunnelPort::Nothing,
             })
         }
     }
 
-    /// Tailscale runs, the tailnet allows Funnel, and port 443 serves
-    /// `port_443`.
-    pub fn ready(port_443: Port443) -> Self {
+    /// Tailscale runs, the tailnet allows Funnel, and ports 443 and 8443
+    /// serve `port_443` and `port_8443`.
+    pub fn ready(port_443: FunnelPort, port_8443: FunnelPort) -> Self {
         Self::in_state(TailscaleState::Ready {
             dns_name: TAILNET_NAME.to_string(),
             port_443,
+            port_8443,
         })
     }
 
@@ -107,19 +109,29 @@ impl FakeTailscale {
         self.read_released.notify_one();
     }
 
-    /// The changes that the switch asked for, in order: `funnel on <port>`
-    /// and `funnel off <port>`.
+    /// The changes that the switch asked for, in order: `funnel on
+    /// <product port> <TURN port>` and `funnel off <product port> <TURN
+    /// port>`.
     pub fn changes(&self) -> Vec<String> {
         self.changes.lock().expect("the changes").clone()
     }
 
-    fn set_port_443(&self, served: Port443) {
+    fn record(&self, change: &str, targets: FunnelTargets) {
+        self.changes
+            .lock()
+            .expect("the changes")
+            .push(format!("{change} {} {}", targets.product, targets.turn));
+    }
+
+    /// Serve `port_443` and `port_8443`, where Tailscale runs.
+    fn set_ports(&self, port_443: FunnelPort, port_8443: FunnelPort) {
         let mut state = self.state.lock().expect("the state");
         *state = match &*state {
             TailscaleState::FunnelOff { .. } | TailscaleState::Ready { .. } => {
                 TailscaleState::Ready {
                     dns_name: TAILNET_NAME.to_string(),
-                    port_443: served,
+                    port_443,
+                    port_8443,
                 }
             }
             other => other.clone(),
@@ -129,7 +141,7 @@ impl FakeTailscale {
 
 #[async_trait::async_trait]
 impl Tailscale for FakeTailscale {
-    async fn state(&self, _port: u16) -> TailscaleState {
+    async fn state(&self, _targets: FunnelTargets) -> TailscaleState {
         let held = std::mem::take(&mut *self.hold_next_read.lock().expect("the hold"));
         if held {
             self.read_held.notify_one();
@@ -140,13 +152,10 @@ impl Tailscale for FakeTailscale {
 
     async fn funnel_on(
         &self,
-        port: u16,
+        targets: FunnelTargets,
         enable_url: &(dyn Fn(String) + Send + Sync),
     ) -> Result<(), String> {
-        self.changes
-            .lock()
-            .expect("the changes")
-            .push(format!("funnel on {port}"));
+        self.record("funnel on", targets);
         if self.asks_approval {
             enable_url(ENABLE_URL.to_string());
             self.approved.notified().await;
@@ -154,20 +163,18 @@ impl Tailscale for FakeTailscale {
         if let Some(reason) = &self.refusal {
             return Err(reason.clone());
         }
-        self.set_port_443(Port443::Pagis);
+        self.set_ports(FunnelPort::Pagis, FunnelPort::Pagis);
         Ok(())
     }
 
-    async fn funnel_off(&self, port: u16) -> Result<(), String> {
-        self.changes
-            .lock()
-            .expect("the changes")
-            .push(format!("funnel off {port}"));
-        let serves_pagis =
-            self.state.lock().expect("the state").port_443() == Some(&Port443::Pagis);
-        if serves_pagis {
-            self.set_port_443(Port443::Nothing);
-        }
+    async fn funnel_off(&self, targets: FunnelTargets) -> Result<(), String> {
+        self.record("funnel off", targets);
+        let state = self.state.lock().expect("the state").clone();
+        let remove = |served: Option<&FunnelPort>| match served {
+            Some(FunnelPort::Pagis) | None => FunnelPort::Nothing,
+            Some(other) => other.clone(),
+        };
+        self.set_ports(remove(state.port_443()), remove(state.port_8443()));
         Ok(())
     }
 }

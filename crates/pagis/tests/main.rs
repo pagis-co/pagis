@@ -18,6 +18,7 @@ mod boot;
 mod browser_files;
 mod browser_images;
 mod browser_live_screen;
+mod browser_remote_access_turn;
 mod browser_widgets;
 mod call_bridge;
 mod calls;

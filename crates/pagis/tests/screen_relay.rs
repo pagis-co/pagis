@@ -21,19 +21,19 @@ use str0m::{Candidate, Event, Input, Output, Rtc};
 use tokio::net::UdpSocket;
 
 /// One WebRTC peer on a real UDP socket.
-struct Peer {
-    rtc: Rtc,
-    socket: UdpSocket,
+pub(crate) struct Peer {
+    pub(crate) rtc: Rtc,
+    pub(crate) socket: UdpSocket,
     /// The address this peer advertised, which is where it believes the
     /// packets it reads arrived. The pipeline advertises the relay's
     /// address, exactly as screend does.
-    local: SocketAddr,
+    pub(crate) local: SocketAddr,
 }
 
 impl Peer {
     /// Send what the session produced, then take in one datagram or one
     /// timeout. Returns the events of this step.
-    async fn step(&mut self) -> Vec<Event> {
+    pub(crate) async fn step(&mut self) -> Vec<Event> {
         let mut events = Vec::new();
         let timeout = loop {
             match self.rtc.poll_output().expect("the session polls") {

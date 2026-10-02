@@ -3,11 +3,12 @@
 //! the screen preview — a current frame while the computer is awake,
 //! the last screenshot while it sleeps.
 
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::Json;
-use axum::extract::{Path, State};
-use axum::http::{StatusCode, header};
+use axum::extract::{ConnectInfo, Path, State};
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use pagis_core::{
     Agent, AgentId, AgentStatus, AvatarAppearance, Channel, ChannelId, ChannelKind,
@@ -886,11 +887,14 @@ pub struct ScreenIceBody {
     pub ice_servers: Vec<IceServerDto>,
 }
 
-/// The ICE servers of the installation's Media Relay (ADR-0014).
+/// The ICE servers of the installation's Media Relay (ADR-0014), and in
+/// Remote Access the TURN server that carries the live screen to a
+/// browser on another machine over the Funnel (ADR-0028).
 ///
 /// A browser reads this before it makes its offer, because ICE servers
-/// are fixed when the peer connection is made. The `turn` relay mints
-/// credentials for each answer, so the answer is never cached.
+/// are fixed when the peer connection is made. The `turn` relay and the
+/// TURN server of Remote Access mint credentials for each answer, so the
+/// answer is never cached.
 #[utoipa::path(
     get,
     path = "/api/v1/screen/ice",
@@ -901,6 +905,8 @@ pub struct ScreenIceBody {
 )]
 pub async fn screen_ice(
     State(state): State<Arc<AppState>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     _tenant: Tenant,
 ) -> Result<Json<ScreenIceBody>, ApiError> {
     Ok(Json(ScreenIceBody {
@@ -908,6 +914,9 @@ pub async fn screen_ice(
             .computers
             .ice_servers()
             .into_iter()
+            .chain(crate::remote_access::turn_ice_server(
+                &state, peer, &headers,
+            ))
             .map(|server| IceServerDto {
                 urls: server.urls,
                 username: server.username,

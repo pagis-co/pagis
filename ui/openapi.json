@@ -6397,8 +6397,8 @@
         "tags": [
           "agents"
         ],
-        "summary": "The ICE servers of the installation's Media Relay (ADR-0014).",
-        "description": "A browser reads this before it makes its offer, because ICE servers\nare fixed when the peer connection is made. The `turn` relay mints\ncredentials for each answer, so the answer is never cached.",
+        "summary": "The ICE servers of the installation's Media Relay (ADR-0014), and in\nRemote Access the TURN server that carries the live screen to a\nbrowser on another machine over the Funnel (ADR-0028).",
+        "description": "A browser reads this before it makes its offer, because ICE servers\nare fixed when the peer connection is made. The `turn` relay and the\nTURN server of Remote Access mint credentials for each answer, so the\nanswer is never cached.",
         "operationId": "screen_ice",
         "responses": {
           "200": {
@@ -8841,7 +8841,7 @@
         "tags": [
           "remote_access"
         ],
-        "summary": "Turn on Remote Access (ADR-0028). The daemon turns on Funnel on port\n443 to the product port on loopback, in the background, because\nTailscale can wait for the owner to turn on HTTPS and Funnel for the\ntailnet. Then it writes the Public Origin and the Trusted Proxy and\nkeeps the Bind Address on loopback. The change takes effect on the\nnext start.",
+        "summary": "Turn on Remote Access (ADR-0028). The daemon turns on Funnel on port\n443 to the product port and on port 8443 to the TURN server of the\nlive screen, both on loopback, in the background, because Tailscale\ncan wait for the owner to turn on HTTPS and Funnel for the tailnet.\nThen it writes the Public Origin and the Trusted Proxy and keeps the\nBind Address on loopback. The change takes effect on the next start.",
         "operationId": "turn_on_remote_access",
         "responses": {
           "202": {
@@ -8890,7 +8890,7 @@
         "tags": [
           "remote_access"
         ],
-        "summary": "Turn off Remote Access (ADR-0028), or stop a turn-on that waits. The\ndaemon removes the Funnel of the product port and clears the Public\nOrigin, the Trusted Proxy and Remote Access, and binds loopback. People\nwho signed in from other machines keep their accounts and their\nSessions, and reach nothing until Remote Access is on again. The change\ntakes effect on the next start.",
+        "summary": "Turn off Remote Access (ADR-0028), or stop a turn-on that waits. The\ndaemon removes the Funnel of the product port and of the TURN server,\nclears the Public Origin, the Trusted Proxy and Remote Access, and\nbinds loopback. People who signed in from other machines keep their\naccounts and their Sessions, and reach nothing until Remote Access is\non again. The change takes effect on the next start.",
         "operationId": "turn_off_remote_access",
         "responses": {
           "200": {
@@ -12419,6 +12419,61 @@
           "date"
         ]
       },
+      "FunnelPort": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Funnel publishes nothing on the port.",
+            "required": [
+              "serves"
+            ],
+            "properties": {
+              "serves": {
+                "type": "string",
+                "enum": [
+                  "nothing"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Funnel publishes the port of this Pagis: the product port on port\n443, the TURN server on port 8443.",
+            "required": [
+              "serves"
+            ],
+            "properties": {
+              "serves": {
+                "type": "string",
+                "enum": [
+                  "pagis"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "The port serves something else, which Pagis does not replace.",
+            "required": [
+              "target",
+              "serves"
+            ],
+            "properties": {
+              "serves": {
+                "type": "string",
+                "enum": [
+                  "other"
+                ]
+              },
+              "target": {
+                "type": "string",
+                "description": "What the port forwards to, as Tailscale names it."
+              }
+            }
+          }
+        ],
+        "description": "What one port of the Funnel of this machine serves."
+      },
       "GrantDto": {
         "type": "object",
         "required": [
@@ -15301,61 +15356,6 @@
           }
         }
       },
-      "Port443": {
-        "oneOf": [
-          {
-            "type": "object",
-            "description": "Funnel publishes nothing on port 443.",
-            "required": [
-              "serves"
-            ],
-            "properties": {
-              "serves": {
-                "type": "string",
-                "enum": [
-                  "nothing"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "description": "Funnel publishes the product port of this Pagis on port 443.",
-            "required": [
-              "serves"
-            ],
-            "properties": {
-              "serves": {
-                "type": "string",
-                "enum": [
-                  "pagis"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "description": "Port 443 serves something else, which Pagis does not replace.",
-            "required": [
-              "target",
-              "serves"
-            ],
-            "properties": {
-              "serves": {
-                "type": "string",
-                "enum": [
-                  "other"
-                ]
-              },
-              "target": {
-                "type": "string",
-                "description": "What port 443 forwards to, as Tailscale names it."
-              }
-            }
-          }
-        ],
-        "description": "What port 443 of the Funnel of this machine serves."
-      },
       "PreviewForget": {
         "type": "object",
         "required": [
@@ -18084,11 +18084,15 @@
             "description": "The tailnet has HTTPS or Funnel off. A turn-on shows the page that\nTailscale names to turn them on.",
             "required": [
               "port_443",
+              "port_8443",
               "state"
             ],
             "properties": {
               "port_443": {
-                "$ref": "#/components/schemas/Port443"
+                "$ref": "#/components/schemas/FunnelPort"
+              },
+              "port_8443": {
+                "$ref": "#/components/schemas/FunnelPort"
               },
               "state": {
                 "type": "string",
@@ -18104,6 +18108,7 @@
             "required": [
               "dns_name",
               "port_443",
+              "port_8443",
               "state"
             ],
             "properties": {
@@ -18112,7 +18117,12 @@
                 "description": "The name of this machine on the tailnet, with no trailing dot."
               },
               "port_443": {
-                "$ref": "#/components/schemas/Port443"
+                "$ref": "#/components/schemas/FunnelPort",
+                "description": "The product port, where Funnel serves Pagis."
+              },
+              "port_8443": {
+                "$ref": "#/components/schemas/FunnelPort",
+                "description": "The TURN server of the live screen, where Funnel serves Pagis."
               },
               "state": {
                 "type": "string",

@@ -151,9 +151,10 @@ Sign-In Link and never with a password. An Administrator of a Local
 Installation turns it on with one switch in the Administration Interface,
 which turns on the Funnel, sets the Public Origin and the Trusted Proxy,
 and restarts the daemon. A Local Installation serves other machines only
-while it is on. A Server behind its own proxy is not in it (ADR-0028).
-Not built: the TURN server that carries the live screen to another
-machine, and the Tailscale service of a Headless Server.
+while it is on. While it is on, a TURN server in the daemon carries the
+live screen to a browser on another machine, through the Funnel on port
+8443. A Server behind its own proxy is not in it (ADR-0028). Not built:
+the Tailscale service of a Headless Server.
 _Avoid_: tunnel mode, remote mode, pairing, multi-user mode
 
 ### Runtime Lock
@@ -926,7 +927,9 @@ How the pixels of a screen reach a browser. A Computer publishes no media
 port; a browser sends media to the relay's one advertised address and UDP
 port range, and the relay forwards it. The `daemon` relay forwards in the
 daemon; the `turn` relay puts an external TURN server in front
-(ADR-0014).
+(ADR-0014). In Remote Access, the TURN server of the daemon carries the
+browser leg of another machine over the Funnel, and it relays to the
+Media Relay and to nothing else (ADR-0028).
 
 ### Plugin Computer
 The one container of a Workspace that runs the stdio servers of its

@@ -103,6 +103,18 @@ pub fn taken_administration_port_message(port: u16) -> String {
     )
 }
 
+/// The same failure for the TURN server of Remote Access (ADR-0028). Its
+/// port is a setting too, and Funnel names it, so a move needs the old
+/// Funnel port removed and Remote Access turned on again.
+pub fn taken_turn_port_message(port: u16) -> String {
+    format!(
+        "the TURN port {port} of Remote Access is already in use. Stop the process that holds \
+         it, or name another port in `[screen] remote_access_turn_port` of config.toml, remove \
+         the old one with `tailscale funnel --tls-terminated-tcp=8443 off`, and turn on Remote \
+         Access again, so Tailscale Funnel publishes the new port."
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -123,6 +135,19 @@ mod tests {
 
         assert!(message.contains("administration port 4401"));
         assert!(message.contains("[administration] port"));
+        assert!(!message.contains("--port"));
+    }
+
+    /// The TURN port of Remote Access is a setting of its own, and the
+    /// Funnel names it, so its message says to turn Remote Access on again.
+    #[test]
+    fn the_turn_port_message_names_its_own_setting() {
+        let message = taken_turn_port_message(4402);
+
+        assert!(message.contains("TURN port 4402"));
+        assert!(message.contains("[screen] remote_access_turn_port"));
+        assert!(message.contains("tailscale funnel --tls-terminated-tcp=8443 off"));
+        assert!(message.contains("turn on Remote Access again"));
         assert!(!message.contains("--port"));
     }
 

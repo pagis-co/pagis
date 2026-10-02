@@ -1729,10 +1729,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The ICE servers of the installation's Media Relay (ADR-0014).
+         * The ICE servers of the installation's Media Relay (ADR-0014), and in
+         *     Remote Access the TURN server that carries the live screen to a
+         *     browser on another machine over the Funnel (ADR-0028).
          * @description A browser reads this before it makes its offer, because ICE servers
-         *     are fixed when the peer connection is made. The `turn` relay mints
-         *     credentials for each answer, so the answer is never cached.
+         *     are fixed when the peer connection is made. The `turn` relay and the
+         *     TURN server of Remote Access mint credentials for each answer, so the
+         *     answer is never cached.
          */
         get: operations["screen_ice"];
         put?: never;
@@ -2520,21 +2523,21 @@ export interface paths {
         get: operations["get_remote_access"];
         /**
          * Turn on Remote Access (ADR-0028). The daemon turns on Funnel on port
-         *     443 to the product port on loopback, in the background, because
-         *     Tailscale can wait for the owner to turn on HTTPS and Funnel for the
-         *     tailnet. Then it writes the Public Origin and the Trusted Proxy and
-         *     keeps the Bind Address on loopback. The change takes effect on the
-         *     next start.
+         *     443 to the product port and on port 8443 to the TURN server of the
+         *     live screen, both on loopback, in the background, because Tailscale
+         *     can wait for the owner to turn on HTTPS and Funnel for the tailnet.
+         *     Then it writes the Public Origin and the Trusted Proxy and keeps the
+         *     Bind Address on loopback. The change takes effect on the next start.
          */
         put: operations["turn_on_remote_access"];
         post?: never;
         /**
          * Turn off Remote Access (ADR-0028), or stop a turn-on that waits. The
-         *     daemon removes the Funnel of the product port and clears the Public
-         *     Origin, the Trusted Proxy and Remote Access, and binds loopback. People
-         *     who signed in from other machines keep their accounts and their
-         *     Sessions, and reach nothing until Remote Access is on again. The change
-         *     takes effect on the next start.
+         *     daemon removes the Funnel of the product port and of the TURN server,
+         *     clears the Public Origin, the Trusted Proxy and Remote Access, and
+         *     binds loopback. People who signed in from other machines keep their
+         *     accounts and their Sessions, and reach nothing until Remote Access is
+         *     on again. The change takes effect on the next start.
          */
         delete: operations["turn_off_remote_access"];
         options?: never;
@@ -3778,6 +3781,19 @@ export interface components {
         };
         /** @enum {string} */
         FormFieldKind: "text" | "number" | "select" | "checkbox" | "date";
+        /** @description What one port of the Funnel of this machine serves. */
+        FunnelPort: {
+            /** @enum {string} */
+            serves: "nothing";
+        } | {
+            /** @enum {string} */
+            serves: "pagis";
+        } | {
+            /** @enum {string} */
+            serves: "other";
+            /** @description What the port forwards to, as Tailscale names it. */
+            target: string;
+        };
         GrantDto: {
             agent_id: string;
             /** @description Denormalized so the settings page renders standalone. */
@@ -4919,19 +4935,6 @@ export interface components {
             /** @description The source message's text, for the pointer's preview line. */
             preview: string;
         };
-        /** @description What port 443 of the Funnel of this machine serves. */
-        Port443: {
-            /** @enum {string} */
-            serves: "nothing";
-        } | {
-            /** @enum {string} */
-            serves: "pagis";
-        } | {
-            /** @enum {string} */
-            serves: "other";
-            /** @description What port 443 forwards to, as Tailscale names it. */
-            target: string;
-        };
         PreviewForget: {
             target: components["schemas"]["ForgetTarget"];
         };
@@ -5928,13 +5931,17 @@ export interface components {
             /** @enum {string} */
             state: "not_running";
         } | {
-            port_443: components["schemas"]["Port443"];
+            port_443: components["schemas"]["FunnelPort"];
+            port_8443: components["schemas"]["FunnelPort"];
             /** @enum {string} */
             state: "funnel_off";
         } | {
             /** @description The name of this machine on the tailnet, with no trailing dot. */
             dns_name: string;
-            port_443: components["schemas"]["Port443"];
+            /** @description The product port, where Funnel serves Pagis. */
+            port_443: components["schemas"]["FunnelPort"];
+            /** @description The TURN server of the live screen, where Funnel serves Pagis. */
+            port_8443: components["schemas"]["FunnelPort"];
             /** @enum {string} */
             state: "ready";
         };

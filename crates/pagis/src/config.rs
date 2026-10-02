@@ -41,6 +41,11 @@ pub const DEFAULT_MEDIA_PORT_FIRST: u16 = 50000;
 pub const DEFAULT_MEDIA_PORT_LAST: u16 = 50099;
 /// How long a minted TURN credential lives.
 pub const DEFAULT_TURN_TTL_SECONDS: u64 = 3600;
+/// The loopback port of the TURN server of Remote Access (ADR-0028). It
+/// sits next to the product port and the administration port. Funnel
+/// publishes it on port 8443, and the turn-on names it in the Funnel
+/// configuration, so it is fixed and never random.
+pub const DEFAULT_REMOTE_ACCESS_TURN_PORT: u16 = 4402;
 /// The Media Relay implementations `screen.relay` names.
 pub const RELAY_DAEMON: &str = "daemon";
 pub const RELAY_TURN: &str = "turn";
@@ -360,6 +365,11 @@ pub struct Screen {
     /// itself and needs no other service; `turn` puts an external TURN
     /// server in front of the browser leg.
     pub relay: String,
+    /// The loopback TCP port of the TURN server that carries the live
+    /// screen to another machine in Remote Access (ADR-0028). The daemon
+    /// listens on it while Remote Access is on, and Funnel publishes it on
+    /// port 8443.
+    pub remote_access_turn_port: u16,
     /// The TURN server the `turn` relay uses.
     pub turn: Turn,
 }
@@ -399,6 +409,7 @@ impl Default for Screen {
             media_port_first: DEFAULT_MEDIA_PORT_FIRST,
             media_port_last: DEFAULT_MEDIA_PORT_LAST,
             relay: RELAY_DAEMON.to_string(),
+            remote_access_turn_port: DEFAULT_REMOTE_ACCESS_TURN_PORT,
             turn: Turn::default(),
         }
     }
@@ -446,6 +457,18 @@ impl Screen {
                 )))
             }
         }
+    }
+
+    /// The loopback port of the TURN server of Remote Access. Zero would
+    /// be a random port, which the Funnel configuration cannot name.
+    pub fn remote_access_turn_port(&self) -> anyhow::Result<u16> {
+        anyhow::ensure!(
+            self.remote_access_turn_port > 0,
+            "screen.remote_access_turn_port is 0; it is the fixed loopback port that Funnel \
+             publishes the TURN server of Remote Access on, such as \
+             {DEFAULT_REMOTE_ACCESS_TURN_PORT}"
+        );
+        Ok(self.remote_access_turn_port)
     }
 
     /// The Media Relay this installation runs, as the System Settings
@@ -1185,6 +1208,45 @@ mod tests {
             .map(|_| ())
             .expect_err("not a range");
         assert!(error.to_string().contains("media_port_first"), "{error}");
+    }
+
+    /// The TURN server of Remote Access has a fixed loopback port next to
+    /// the other two, which the file names, and a port of zero, a random
+    /// port, stops the daemon.
+    #[test]
+    fn the_turn_server_of_remote_access_has_a_fixed_port() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+
+        let config = Config::load_or_init(&path).unwrap();
+
+        assert_eq!(
+            config.screen.remote_access_turn_port().unwrap(),
+            DEFAULT_REMOTE_ACCESS_TURN_PORT
+        );
+        assert_ne!(DEFAULT_REMOTE_ACCESS_TURN_PORT, config.port);
+        assert_ne!(DEFAULT_REMOTE_ACCESS_TURN_PORT, config.administration.port);
+        let written = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            written.contains("remote_access_turn_port = 4402"),
+            "{written}"
+        );
+
+        std::fs::write(&path, "[screen]\nremote_access_turn_port = 4500\n").unwrap();
+        let moved = Config::load_or_init(&path).unwrap();
+        assert_eq!(moved.screen.remote_access_turn_port().unwrap(), 4500);
+
+        let random = Screen {
+            remote_access_turn_port: 0,
+            ..Screen::default()
+        };
+        let error = random
+            .remote_access_turn_port()
+            .expect_err("no random port");
+        assert!(
+            error.to_string().contains("remote_access_turn_port"),
+            "{error}"
+        );
     }
 
     /// A local installation configures nothing and is reached from its

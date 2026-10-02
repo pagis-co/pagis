@@ -1,6 +1,7 @@
 // The Remote Access switch: each state of Tailscale with its one action,
-// the page that Tailscale names while a turn-on waits, the public name
-// when it is on, and the restart that puts either change in effect.
+// what ports 443 and 8443 of the Funnel serve, the page that Tailscale
+// names while a turn-on waits, the public name and the live screen when
+// it is on, and the restart that puts either change in effect.
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
@@ -13,7 +14,19 @@ const NAME = 'owner-mac.tail1234.ts.net'
 const ORIGIN = `https://${NAME}`
 const ENABLE_URL = 'https://login.tailscale.com/f/funnel?node=nTEST000000CNTRL'
 
-const ready: TailscaleState = { state: 'ready', dns_name: NAME, port_443: { serves: 'nothing' } }
+const ready: TailscaleState = {
+  state: 'ready',
+  dns_name: NAME,
+  port_443: { serves: 'nothing' },
+  port_8443: { serves: 'nothing' },
+}
+
+const serving: TailscaleState = {
+  state: 'ready',
+  dns_name: NAME,
+  port_443: { serves: 'pagis' },
+  port_8443: { serves: 'pagis' },
+}
 
 function off(tailscale: TailscaleState = ready): RemoteAccessDto {
   return {
@@ -29,7 +42,7 @@ function off(tailscale: TailscaleState = ready): RemoteAccessDto {
 
 function on(overrides: Partial<RemoteAccessDto> = {}): RemoteAccessDto {
   return {
-    ...off({ state: 'ready', dns_name: NAME, port_443: { serves: 'pagis' } }),
+    ...off(serving),
     enabled: true,
     public_origin: ORIGIN,
     ...overrides,
@@ -131,16 +144,32 @@ describe('RemoteAccess', () => {
     mount(
       stubApi([
         off({
-          state: 'ready',
-          dns_name: NAME,
+          ...ready,
           port_443: { serves: 'other', target: '/ http://127.0.0.1:3000' },
         }),
       ]),
     )
 
     expect((await theSwitch()).hasAttribute('disabled')).toBe(true)
+    expect(screen.getByText(/Port 443 of Tailscale Funnel/)).toBeTruthy()
     expect(screen.getByText('/ http://127.0.0.1:3000')).toBeTruthy()
     expect(screen.getByText('tailscale funnel --https=443 off')).toBeTruthy()
+  })
+
+  it('names what port 8443 serves and does not replace it', async () => {
+    mount(
+      stubApi([
+        off({
+          ...ready,
+          port_8443: { serves: 'other', target: '127.0.0.1:5432' },
+        }),
+      ]),
+    )
+
+    expect((await theSwitch()).hasAttribute('disabled')).toBe(true)
+    expect(screen.getByText(/Port 8443 of Tailscale Funnel/)).toBeTruthy()
+    expect(screen.getByText('127.0.0.1:5432')).toBeTruthy()
+    expect(screen.getByText('tailscale funnel --tls-terminated-tcp=8443 off')).toBeTruthy()
   })
 
   it('says that Tailscale is ready and names the public name before a turn-on', async () => {
@@ -155,6 +184,7 @@ describe('RemoteAccess', () => {
 
     expect(toggle.getAttribute('aria-checked')).toBe('true')
     expect(screen.getByText(/never with a password/)).toBeTruthy()
+    expect(screen.getByText(/for port 8443, to the TURN server/)).toBeTruthy()
     expect(screen.getAllByText(ORIGIN).length).toBeGreaterThan(0)
     expect(screen.getByRole('button', { name: 'Turn on and restart' })).toBeTruthy()
   })
@@ -162,7 +192,11 @@ describe('RemoteAccess', () => {
   it('turns on, shows the page that Tailscale names, and restarts when the turn-on ends', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     const api = stubApi([
-      off({ state: 'funnel_off', port_443: { serves: 'nothing' } }),
+      off({
+        state: 'funnel_off',
+        port_443: { serves: 'nothing' },
+        port_8443: { serves: 'nothing' },
+      }),
       { ...off(), turning_on: { enable_url: ENABLE_URL } },
       { ...on(), restart_required: true },
     ])
@@ -213,13 +247,18 @@ describe('RemoteAccess', () => {
     )
   })
 
-  it('shows the public name when it is on, and what another machine sees of the live screen', async () => {
+  it('shows the public name when it is on, and how another machine sees the live screen', async () => {
     mount(stubApi([on()]))
 
     expect((await theSwitch()).getAttribute('aria-checked')).toBe('true')
     expect(screen.getByRole('link', { name: ORIGIN }).getAttribute('href')).toBe(ORIGIN)
     expect(screen.getByText(/sign in with a sign-in link/)).toBeTruthy()
-    expect(screen.getByText(/Live screen unavailable/)).toBeTruthy()
+    const note = screen.getByText(/through the TURN server of Pagis/)
+    expect(note.textContent).toMatch(/port 8443 of the Funnel/)
+    expect(note.textContent).toMatch(/about 15 Mbit\/s in total/)
+    expect(note.textContent).toMatch(/about 2 Mbit\/s/)
+    expect(screen.queryByText(/Live screen unavailable/)).toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 
   it('offers to turn on again where the Funnel does not serve Pagis', async () => {
@@ -230,6 +269,24 @@ describe('RemoteAccess', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Turn on again' }))
 
     await waitFor(() => expect(api.PUT).toHaveBeenCalled())
+  })
+
+  it('offers to turn on again where port 8443 does not serve the live screen', async () => {
+    const api = stubApi([on({ tailscale: { ...serving, port_8443: { serves: 'nothing' } } })])
+    mount(api)
+
+    expect((await screen.findByRole('alert')).textContent).toMatch(/does not serve Pagis now/)
+    fireEvent.click(screen.getByRole('button', { name: 'Turn on again' }))
+
+    await waitFor(() => expect(api.PUT).toHaveBeenCalled())
+  })
+
+  it('names each port of the Funnel that still serves Pagis while Remote Access is off', async () => {
+    mount(stubApi([off(serving)]))
+
+    expect(await screen.findByText('tailscale funnel --https=443 off')).toBeTruthy()
+    expect(screen.getByText('tailscale funnel --tls-terminated-tcp=8443 off')).toBeTruthy()
+    expect(screen.getAllByText(/still serves Pagis/)).toHaveLength(2)
   })
 
   it('turns off and restarts', async () => {

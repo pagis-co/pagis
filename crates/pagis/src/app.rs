@@ -52,6 +52,14 @@ pub struct AppOptions {
     /// Production runs the command of this machine; the testkit injects
     /// a fake, because no test may change a tailnet.
     pub tailscale: Arc<dyn pagis_server::Tailscale>,
+    /// The loopback port of the TURN server of Remote Access (ADR-0028):
+    /// `[screen] remote_access_turn_port`. The switch publishes it with
+    /// Funnel on port 8443.
+    pub remote_access_turn_port: u16,
+    /// The listener of that port. `main` binds it while Remote Access is
+    /// on, and the testkit binds an ephemeral port. The daemon serves the
+    /// TURN server on it, and does not run in Remote Access without it.
+    pub remote_access_turn_listener: Option<tokio::net::TcpListener>,
     pub ring: RingConfig,
     /// `None` builds the production router brain over `keys`.
     pub brain: Option<Arc<dyn Brain>>,
@@ -193,6 +201,9 @@ impl AppOptions {
             proxy: booted.config.trusted_proxy()?,
             remote_access: booted.config.remote_access.enabled,
             tailscale: Arc::new(crate::tailscale::TailscaleCommand::of_this_machine()),
+            remote_access_turn_port: booted.config.screen.remote_access_turn_port()?,
+            // `main` binds it, after the other two listeners.
+            remote_access_turn_listener: None,
             ring: RingConfig::default(),
             brain: None,
             agents: AgentLoopConfig::default(),
@@ -1163,6 +1174,19 @@ pub async fn app(booted: &Booted, options: AppOptions) -> anyhow::Result<Interfa
         options.cancel.clone(),
     );
 
+    let remote_access_turn = match (options.remote_access, options.remote_access_turn_listener) {
+        (false, _) => None,
+        (true, None) => anyhow::bail!(
+            "Remote Access is on, and nothing listens on the TURN port {} of the live screen",
+            options.remote_access_turn_port
+        ),
+        (true, Some(listener)) => Some(Arc::new(start_remote_access_turn(
+            listener,
+            &options.screen,
+            options.cancel.child_token(),
+        )?)),
+    };
+
     let state = AppState {
         bus,
         channels,
@@ -1238,7 +1262,11 @@ pub async fn app(booted: &Booted, options: AppOptions) -> anyhow::Result<Interfa
             .is_some()
             .then(|| booted.config.local_origin(options.runtime_port)),
         remote_access: options.remote_access,
-        remote_access_switch: pagis_server::RemoteAccessSwitch::new(options.tailscale),
+        remote_access_switch: pagis_server::RemoteAccessSwitch::new(
+            options.tailscale,
+            options.remote_access_turn_port,
+        ),
+        remote_access_turn,
         administration: options.administration,
         proxy: options.proxy,
         screen: options.screen,
@@ -1285,6 +1313,30 @@ pub async fn app(booted: &Booted, options: AppOptions) -> anyhow::Result<Interfa
         interfaces.administration = interfaces.administration.layer(guard());
     }
     Ok(interfaces)
+}
+
+/// Start the TURN server of Remote Access on `listener` (ADR-0028). It
+/// relays to the Media Relay of `screen` alone: its advertised address,
+/// on a port of its range. The server stops with the daemon.
+fn start_remote_access_turn(
+    listener: tokio::net::TcpListener,
+    screen: &pagis_server::ScreenRelay,
+    stop: CancellationToken,
+) -> anyhow::Result<pagis_computer::RemoteAccessTurn> {
+    let address: std::net::IpAddr = screen.advertise_ip.parse().map_err(|_| {
+        anyhow::anyhow!(
+            "screen.advertise_ip is {:?}; the TURN server of Remote Access relays to the Media \
+             Relay at that address, so it is an IP address of this machine",
+            screen.advertise_ip
+        )
+    })?;
+    let peers = pagis_computer::MediaRelayPeers::new(address, screen.media_ports.clone());
+    let turn = pagis_computer::RemoteAccessTurn::start(listener, peers, stop)?;
+    tracing::info!(
+        address = %turn.address(),
+        "the TURN server of Remote Access carries the live screen to other machines"
+    );
+    Ok(turn)
 }
 
 /// Start the analytics task of a daemon that may send (ADR-0026), and
@@ -1601,4 +1653,57 @@ fn spawn_scheduler(
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The TURN server of Remote Access relays to the address that the
+    /// Media Relay advertises, so a name there stops it, and the error
+    /// names the setting.
+    #[tokio::test]
+    async fn an_advertised_name_that_is_not_an_address_stops_the_turn_server() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let screen = pagis_server::ScreenRelay {
+            relay: pagis_server::MediaRelayKind::Daemon,
+            advertise_ip: "pagis.example.net".to_string(),
+            media_ports: 50000..=50099,
+        };
+
+        let error = start_remote_access_turn(listener, &screen, CancellationToken::new())
+            .map(|_| ())
+            .expect_err("a name is not an address");
+
+        assert!(error.to_string().contains("screen.advertise_ip"), "{error}");
+    }
+
+    /// The TURN server starts on the listener it gets, and stops with the
+    /// daemon.
+    #[tokio::test]
+    async fn the_turn_server_starts_on_its_listener_and_stops_with_the_daemon() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let stop = CancellationToken::new();
+
+        let turn = start_remote_access_turn(
+            listener,
+            &pagis_server::ScreenRelay {
+                relay: pagis_server::MediaRelayKind::Daemon,
+                advertise_ip: "127.0.0.1".to_string(),
+                media_ports: 50000..=50099,
+            },
+            stop.clone(),
+        )
+        .expect("the TURN server starts");
+
+        assert_eq!(turn.address(), address);
+        assert!(tokio::net::TcpStream::connect(address).await.is_ok());
+        stop.cancel();
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+        while tokio::net::TcpStream::connect(address).await.is_ok() {
+            assert!(tokio::time::Instant::now() < deadline, "it still listens");
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    }
 }

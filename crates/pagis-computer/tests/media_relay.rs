@@ -68,7 +68,7 @@ fn forwarder(ports: RangeInclusive<u16>, idle: Duration) -> MediaForwarder {
 /// down here would be a range another body already holds; the base is
 /// spread by the process id and the clock and the ports are probed the
 /// way the relay binds them.
-async fn ports(count: u16) -> RangeInclusive<u16> {
+pub(crate) async fn ports(count: u16) -> RangeInclusive<u16> {
     let spread = std::process::id()
         ^ std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

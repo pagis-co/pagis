@@ -41,15 +41,19 @@ password ([ADR-0028](https://github.com/pagis-co/pagis/blob/main/docs/adr/0028-r
 5. Pagis turns on Funnel, writes the Public Origin and the Trusted Proxy to
    `config.toml`, and starts again. The switch then shows the public name.
 
-Pagis runs this command as you, on this computer:
+Pagis runs these two commands as you, on this computer:
 
 ```bash
 tailscale funnel --bg --yes --https=443 http://127.0.0.1:4400
+tailscale funnel --bg --yes --tls-terminated-tcp=8443 tcp://127.0.0.1:4402
 ```
 
-The port is the product port of the installation. Where port 443 of your
-Funnel already serves something else, the switch names it and replaces
-nothing. Remove it with `tailscale funnel --https=443 off` first.
+The first port is the product port of the installation. The second is the
+TURN server that carries the live screen to other machines,
+`[screen] remote_access_turn_port` in `config.toml`. Where port 443 or port
+8443 of your Funnel already serves something else, the switch names it and
+replaces nothing. Remove it first with `tailscale funnel --https=443 off`
+or `tailscale funnel --tls-terminated-tcp=8443 off`.
 
 The Public Origin is `https://` and the name of this computer on your
 tailnet. The Trusted Proxy is `127.0.0.1`, where `tailscaled` reaches Pagis.
@@ -90,9 +94,9 @@ answers without a Session holds no content of a Workspace.
 ## Turn off Remote Access
 
 Turn off the same switch and select **Turn off and restart**. Pagis removes
-the Funnel of Pagis with `tailscale funnel --https=443 off`, clears Remote
-Access, the Public Origin and the Trusted Proxy, binds loopback, and starts
-again.
+the Funnel of Pagis with `tailscale funnel --https=443 off` and
+`tailscale funnel --tls-terminated-tcp=8443 off`, clears Remote Access, the
+Public Origin and the Trusted Proxy, binds loopback, and starts again.
 
 With Remote Access off, Pagis answers only a request from a program on this
 computer. It refuses every request that carries a proxy header, such as
@@ -109,16 +113,36 @@ Access with no switch.
 
 ## The live screen for other people
 
-The live screen of a Computer does not go through the Funnel. A browser
-sends and receives it over UDP at the Media Relay's address, which is
+In Remote Access, a browser on another machine sees the live screen of a
+Computer through the Funnel. The Media Relay sends the screen over UDP,
+and the Funnel carries TCP alone, so Pagis runs a TURN server on this
+computer, and Funnel publishes it on port 8443 of your public name. Pagis
+gives each browser on another machine this TURN server with a credential of
+its own, and the browser sends its screen session through it. The TURN
+server listens on loopback at `[screen] remote_access_turn_port` (4402 by
+default), and it relays to the Media Relay of Pagis and to nothing else on
+this computer. A browser on this computer gets no TURN server and reaches
+the Media Relay directly.
+
+The Funnel limits how many people watch at once. Tailscale does not publish
+the bandwidth of Funnel. Through its public relays, one computer carried
+about 15 Mbit/s in total, and the live screen takes about 2 Mbit/s for each
+viewer, so a few people watch at once. A round trip through a Funnel relay
+took 120 to 265 ms, so a takeover from another machine answers more slowly
+than one on this computer.
+
+Where you change `remote_access_turn_port`, Pagis reads the Funnel of the
+old port as something else, and the switch names it. Remove it with
+`tailscale funnel --tls-terminated-tcp=8443 off`, then turn on Remote Access
+again, so the Funnel publishes the new port.
+
+A machine that reaches this computer over UDP can take a direct path to
+the Media Relay, which carries more and answers faster, and the browser
+takes it first. The Media Relay sends and receives the screen at
 `[screen] advertise_ip` in `config.toml`, on one port of `media_port_first`
 to `media_port_last` (50000 to 50099 by default). A local installation
-advertises `127.0.0.1`, so a browser on another machine shows "Live screen
-unavailable". The live screen through the Funnel is not built.
-
-A machine that reaches this computer over UDP can see the live screen. The
-relay listens on every interface of this computer, so one setting and one
-firewall rule carry the screen to it:
+advertises `127.0.0.1`. The relay listens on every interface of this
+computer, so one setting and one firewall rule carry the screen directly:
 
 - **A machine on your tailnet.** Set `advertise_ip` to the tailnet address
   of this computer, which `tailscale ip -4` prints, such as
@@ -136,8 +160,8 @@ advertise_ip = "100.101.102.103"
 ```
 
 Restart Pagis after the change. `PAGIS_SCREEN_ADVERTISE_IP` sets the same
-address for one run. In Settings, **Remote Access** says what another
-machine sees of the live screen with the address that the running daemon
+address for one run. In Settings, **Remote Access** says how another
+machine sees the live screen with the address that the running daemon
 advertises.
 
 ## What a Computer reaches here

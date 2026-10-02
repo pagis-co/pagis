@@ -17,12 +17,35 @@ decision behind it.
 ## A local installation
 
 Set nothing. The relay advertises `127.0.0.1` and the browser is on the same
-machine. The live screen does not go through the Funnel of Remote Access,
-and the live screen through the Funnel is not built, so a browser on
-another machine shows "Live screen unavailable". A machine that reaches this
-computer over UDP, on the tailnet or on the LAN, sees it where
-`advertise_ip` names that address; [The live screen for other people](/client-app/several-people#the-live-screen-for-other-people) gives
-both.
+machine. In Remote Access, a browser on another machine reaches the relay
+through the TURN server of Pagis, which the Funnel publishes on port 8443.
+A machine that reaches this computer over UDP, on the tailnet or on the
+LAN, takes a direct path where `advertise_ip` names that address. [The live screen for other people](/client-app/several-people#the-live-screen-for-other-people) gives
+both, and how many people watch at once.
+
+## The TURN server of Remote Access
+
+With Remote Access on, the daemon runs a TURN server on a loopback TCP
+port, and Funnel publishes it on port 8443 of the public name, where
+`tailscaled` ends TLS and forwards plain TCP. A browser that is not on this
+machine gets `turns:<machine>.<tailnet>.ts.net:8443?transport=tcp` from
+`GET /api/v1/screen/ice`, with a credential of its own. A browser on this
+machine gets none.
+
+```toml
+[screen]
+# The loopback port of the TURN server. The turn-on of Remote Access names
+# it in the Funnel configuration, so it is fixed.
+remote_access_turn_port = 4402
+```
+
+The TURN server relays to the Media Relay's advertised address, on a port
+of the Media Relay's range, and refuses every other peer, also another
+port of loopback. Its credentials follow the scheme of the `turn` relay
+below, under a secret that the daemon makes at each start and keeps out of
+`config.toml`, and each one lives twelve hours. The server takes at most 64
+connections, and it closes a connection that makes no allocation in ten
+seconds.
 
 ## A server with a public address
 
@@ -91,6 +114,10 @@ realm=relay.example.net
 - `relay = "turn"` with no `urls` or no `secret`, because the daemon would have
   nothing to mint a credential for.
 - A `media_port_first` above `media_port_last`, or a first port of zero.
+- A `remote_access_turn_port` of zero.
+- In Remote Access, a `remote_access_turn_port` that another process holds,
+  and an `advertise_ip` that is not an IP address, because the TURN server
+  relays to it.
 
 ## When a viewer sees no screen
 
@@ -104,3 +131,8 @@ realm=relay.example.net
   daemon as `host.docker.internal`; a firewall that refuses UDP from the Docker
   bridges to the range stops the registration, and the relay then has no
   Computer to copy the browser's packets to.
+- In Remote Access, port 8443 of the Funnel does not serve the TURN server of
+  Pagis, for example after `remote_access_turn_port` changed. The Remote
+  Access switch says what the port serves; remove it with
+  `tailscale funnel --tls-terminated-tcp=8443 off` and turn on Remote Access
+  again.

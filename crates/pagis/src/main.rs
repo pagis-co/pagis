@@ -190,6 +190,19 @@ async fn run(flags: RunFlags) -> anyhow::Result<i32> {
     )
     .await?;
     let administration_addr = administration_listener.local_addr()?;
+    // The TURN server of the live screen listens on loopback while Remote
+    // Access is on, at the fixed port that Funnel publishes (ADR-0028).
+    let remote_access_turn_listener = match booted.config.remote_access.enabled {
+        true => Some(
+            bind_listener(
+                std::net::Ipv4Addr::LOCALHOST.into(),
+                booted.config.screen.remote_access_turn_port()?,
+                pagis::taken_turn_port_message,
+            )
+            .await?,
+        ),
+        false => None,
+    };
     let addr = listener.local_addr()?;
     let port = addr.port();
     // The origin a browser reaches this installation at, and the one
@@ -208,6 +221,7 @@ async fn run(flags: RunFlags) -> anyhow::Result<i32> {
     let mut options = pagis::AppOptions::production(&booted, Arc::clone(&restart))?;
     let background = options.cancel.clone();
     options.runtime_port = port;
+    options.remote_access_turn_listener = remote_access_turn_listener;
     if flags.port.is_some() {
         options.port_override = Some("--port");
     }

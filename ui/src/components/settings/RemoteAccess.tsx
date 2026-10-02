@@ -3,11 +3,12 @@
 // of the owner's Tailscale Funnel.
 //
 // The switch reads the Tailscale of this computer and says what to do in
-// each state. Turning it on runs Funnel in the background, because
-// Tailscale can wait while the owner turns on HTTPS and Funnel for the
-// tailnet on a page that it names; the switch shows that page until the
-// turn-on ends. Either change takes effect on a restart, which the
-// switch asks for. A server shows Remote Access and no switch: its
+// each state. Turning it on runs Funnel in the background, for Pagis on
+// port 443 and for the TURN server of the live screen on port 8443,
+// because Tailscale can wait while the owner turns on HTTPS and Funnel
+// for the tailnet on a page that it names; the switch shows that page
+// until the turn-on ends. Either change takes effect on a restart, which
+// the switch asks for. A server shows Remote Access and no switch: its
 // deployment sets PAGIS_REMOTE_ACCESS.
 
 import { useEffect, useState } from 'react'
@@ -32,19 +33,23 @@ export const REMOTE_ACCESS_GUIDE = 'https://docs.pagis.co/client-app/several-peo
 /** The documentation page of the Media Relay of a server. */
 export const SCREEN_GUIDE = 'https://docs.pagis.co/server/live-screen'
 
-/** What removes a Funnel on port 443 by hand. */
-const FUNNEL_OFF = 'tailscale funnel --https=443 off'
+/** The two ports of the Funnel: what each publishes of Pagis, and what
+ *  removes it by hand. */
+const FUNNEL_PORTS = [
+  { key: 'port_443', number: 443, off: 'tailscale funnel --https=443 off' },
+  { key: 'port_8443', number: 8443, off: 'tailscale funnel --tls-terminated-tcp=8443 off' },
+] as const
 
-/** What port 443 of the Funnel serves, where Tailscale runs. */
-function port443(tailscale: TailscaleState | null | undefined) {
-  if (tailscale?.state === 'ready' || tailscale?.state === 'funnel_off') return tailscale.port_443
-  return null
+/** What each port of the Funnel serves, where Tailscale runs. */
+function funnelPorts(tailscale: TailscaleState | null | undefined) {
+  if (tailscale?.state !== 'ready' && tailscale?.state !== 'funnel_off') return []
+  return FUNNEL_PORTS.map((port) => ({ ...port, served: tailscale[port.key] }))
 }
 
 /** Whether the switch can turn Remote Access on in this state. */
 function canTurnOn(tailscale: TailscaleState | null | undefined): boolean {
   if (tailscale?.state !== 'ready' && tailscale?.state !== 'funnel_off') return false
-  return port443(tailscale)?.serves !== 'other'
+  return funnelPorts(tailscale).every((port) => port.served.serves !== 'other')
 }
 
 /** What the Tailscale of this computer asks the owner to do, with the
@@ -63,14 +68,14 @@ function TailscaleNote({
       Check again
     </Button>
   )
-  const served = port443(tailscale)
-  if (served?.serves === 'other') {
+  const taken = funnelPorts(tailscale).find((port) => port.served.serves === 'other')
+  if (taken?.served.serves === 'other') {
     return (
       <Row>
         <span className="system-row-note">
-          Port 443 of Tailscale Funnel on this computer serves{' '}
-          <code>{served.target}</code>. Pagis does not replace it. Remove it with{' '}
-          <code>{FUNNEL_OFF}</code>, then check again.
+          Port {taken.number} of Tailscale Funnel on this computer serves{' '}
+          <code>{taken.served.target}</code>. Pagis does not replace it. Remove it with{' '}
+          <code>{taken.off}</code>, then check again.
         </span>
         {checkAgain}
       </Row>
@@ -129,33 +134,28 @@ function TailscaleNote({
 }
 
 /** What another machine sees of the live screen of a Computer. The
- *  Funnel carries no UDP, so the Media Relay alone decides it. */
+ *  Funnel carries TCP alone, so the TURN server of Pagis on port 8443
+ *  carries the screen to it, unless the machine reaches the Media Relay
+ *  over UDP. */
 function ScreenNote({ screen }: { screen: ScreenDto }) {
-  if (screen.relay === 'turn') {
-    return (
-      <Row>
-        <span className="system-row-note">
-          The live screen of a Computer goes through your TURN server. Machines that reach the
-          TURN server see the live screen.
-        </span>
-      </Row>
-    )
-  }
   return (
     <Row>
       <span className="system-row-note">
-        The live screen of a Computer does not go through the Funnel.{' '}
-        {screen.loopback ? (
-          <>On another machine, Pagis shows “Live screen unavailable”.</>
+        Other machines see the live screen of a Computer through the TURN server of Pagis, on
+        port 8443 of the Funnel. The Funnel carries about 15 Mbit/s in total for this computer,
+        and each viewer takes about 2 Mbit/s, so a few people watch at once.{' '}
+        {screen.relay === 'turn' ? (
+          <>Machines that reach your TURN server use it first.</>
         ) : (
-          <>
-            The Media Relay advertises <code>{screen.advertise_ip}</code>, so machines that reach
-            this address over UDP ports{' '}
-            <code>
-              {screen.media_port_first}–{screen.media_port_last}
-            </code>{' '}
-            see the live screen. Other machines see “Live screen unavailable”.
-          </>
+          !screen.loopback && (
+            <>
+              Machines that reach <code>{screen.advertise_ip}</code> over UDP ports{' '}
+              <code>
+                {screen.media_port_first}–{screen.media_port_last}
+              </code>{' '}
+              use that direct path first.
+            </>
+          )
         )}
       </span>
     </Row>
@@ -271,8 +271,12 @@ export function RemoteAccess({
     !busy && waiting === null && (remote.enabled || asking !== null || canTurnOn(remote.tailscale))
   const failed = turnOn.isError ? turnOn.error : turnOff.isError ? turnOff.error : null
   const status = restartMessage(restart.phase, daemon.supervised)
-  const servesPagis = port443(remote.tailscale)?.serves === 'pagis'
-  // Remote Access is on and running, but the Funnel does not serve Pagis.
+  const ports = funnelPorts(remote.tailscale)
+  const servesPagis = ports.length > 0 && ports.every((port) => port.served.serves === 'pagis')
+  // The ports of the Funnel that still serve Pagis after a turn-off.
+  const leftOn = ports.filter((port) => port.served.serves === 'pagis')
+  // Remote Access is on and running, but the Funnel does not serve Pagis
+  // on both ports.
   const broken = remote.enabled && !remote.restart_required && !servesPagis
 
   return (
@@ -325,14 +329,16 @@ export function RemoteAccess({
               onCheckAgain={() => void read.refetch()}
             />
           )}
-          {!remote.enabled && servesPagis && (
-            <Row>
-              <span className="system-row-note">
-                Tailscale Funnel still serves Pagis on port 443, and Pagis refuses other machines
-                while Remote Access is off. To remove it, run <code>{FUNNEL_OFF}</code>.
-              </span>
-            </Row>
-          )}
+          {!remote.enabled &&
+            leftOn.map((port) => (
+              <Row key={port.key}>
+                <span className="system-row-note">
+                  Tailscale Funnel still serves Pagis on port {port.number}, and Pagis refuses
+                  other machines while Remote Access is off. To remove it, run{' '}
+                  <code>{port.off}</code>.
+                </span>
+              </Row>
+            ))}
         </>
       )}
 
@@ -351,7 +357,7 @@ export function RemoteAccess({
         <Row>
           <span className="system-row-note">
             Pagis turns on Tailscale Funnel for port 443 of this computer, to Pagis on this
-            computer.{' '}
+            computer, and for port 8443, to the TURN server that carries the live screen.{' '}
             {remote.tailscale?.state === 'ready' ? (
               <>
                 Anyone on the internet then reaches the sign-in page at{' '}
