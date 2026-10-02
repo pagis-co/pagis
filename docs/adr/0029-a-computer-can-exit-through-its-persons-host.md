@@ -53,12 +53,17 @@ the connections that the proxy holds, and `POST /exit` sets the mode:
   Computer with no proxy does. This is the mode of every Computer whose
   Person has no Home Exit on, and of every Computer of a Local
   Installation. The proxy resolves the name itself and opens no
-  connection to the Computer's own loopback, to an unspecified address
-  or to a link-local address (169.254.0.0/16, fe80::/10), as Squid's
-  default `to_localhost` and `to_linklocal` rules do. It checks an
-  IPv4-mapped IPv6 address as its IPv4 address, connects to the other
-  addresses of the name in order, and answers 403 when no other address
-  is left. A private address passes, and the egress rules hold it.
+  connection to this Computer itself, by loopback or by any of its
+  addresses, to an unspecified address or to a link-local address
+  (169.254.0.0/16, fe80::/10). These are Squid's default `to_localhost`
+  and `to_linklocal` rules, with every address of the Computer added to
+  loopback. A UDP bind to an address succeeds only for an address of the
+  Computer, and a bind that fails for another reason than
+  `EADDRNOTAVAIL` refuses the address. The proxy checks an IPv4-mapped
+  IPv6 address as its IPv4 address, connects to the other addresses of
+  the name in order, and answers 403 when no other address is left. The
+  private address of another machine passes, and the egress rules hold
+  it.
 - **Home.** The proxy sends each connection to the daemon, which carries it
   through the Person's Home Exit when that Host is present, and from the
   server when it is absent. The proxy authenticates to the daemon with the
@@ -151,12 +156,10 @@ Other ways were considered:
 - Chromium's local network checks see the proxy and not the destination,
   because Chromium resolves no name that it sends to a proxy. A page's
   request to a name that resolves to a private address therefore reaches
-  what the Computer reaches. On a server, the egress rules limit that to
-  the blocks of `PAGIS_COMPUTER_ALLOW` and to the containers of the
-  Computer's own Workspace, its own Tenant Network address among them. A
-  Local Installation has no egress rules, so there it includes the LAN.
-  The Exit Proxy refuses loopback and link-local, so such a name reaches
-  no service that listens on the Computer's loopback alone.
+  the other containers of the Workspace and the private destinations
+  that the Computer reaches: the blocks of `PAGIS_COMPUTER_ALLOW` on a
+  server, and the LAN on a Local Installation, which has no egress
+  rules. It reaches nothing on the Computer itself.
 - A tool in the terminal that ignores `HTTPS_PROXY` leaves from the server.
   apt is such a tool, because `pagis-apt` runs it under sudo, which keeps
   none of the proxy variables.

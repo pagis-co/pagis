@@ -18,16 +18,20 @@
 //! the Computer, as a client with no proxy does.
 //!
 //! In `Direct` mode the proxy resolves each name itself, and it opens no
-//! connection to this Computer's own loopback, to an unspecified address
-//! or to a link-local address, as Squid's default `to_localhost` and
-//! `to_linklocal` rules do. It checks an IPv4-mapped IPv6 address as its
-//! IPv4 address, and it connects to the other addresses of the name in
-//! order. A name with no other address gets 403. Chromium checks a page's
-//! request to a local network against the address that it resolves, and
-//! it resolves no name that it sends to a proxy, so without this rule a
-//! page could name a host that resolves to 127.0.0.1 and reach the
-//! services on the Computer's loopback. Private addresses pass: the
-//! egress rules of the Docker host hold them.
+//! connection to this Computer itself, by loopback or by any of its
+//! addresses, to an unspecified address or to a link-local address. This
+//! is Squid's default `to_localhost` and `to_linklocal` rules, with every
+//! address of the Computer added to loopback. A UDP bind tells an address
+//! of the Computer from any other, and a bind that fails for another
+//! reason than EADDRNOTAVAIL refuses the address. The proxy checks an
+//! IPv4-mapped IPv6 address as its IPv4 address, and it connects to the
+//! other addresses of the name in order. A name with no other address
+//! gets 403. Chromium checks a page's request to a local network against
+//! the address that it resolves, and it resolves no name that it sends to
+//! a proxy, so without this rule a page could name a host that resolves
+//! to the Computer and reach the services that listen in it. The private
+//! addresses of other machines pass: the egress rules of the Docker host
+//! hold them.
 //!
 //! The daemon reads and sets the mode over the control endpoint
 //! (`GET /exit`, `POST /exit`). A switch closes every connection that the
@@ -412,15 +416,30 @@ async fn connect_to_allowed(
     })
 }
 
-/// Whether the proxy refuses to open a connection to `ip`: an address of
-/// this Computer's own loopback, an unspecified address (0.0.0.0/8 and
-/// `::`), or a link-local address (169.254.0.0/16 and fe80::/10). An
-/// IPv4-mapped IPv6 address is checked as its IPv4 address. Private
-/// addresses pass: the egress rules of the Docker host hold them.
+/// Whether the proxy refuses to open a connection to `ip`: this Computer
+/// itself, by loopback or by any of its addresses, an unspecified address
+/// (0.0.0.0/8 and `::`), or a link-local address (169.254.0.0/16 and
+/// fe80::/10). An IPv4-mapped IPv6 address is checked as its IPv4
+/// address. The private addresses of other machines pass: the egress
+/// rules of the Docker host hold them.
 fn is_refused(ip: IpAddr) -> bool {
-    match ip.to_canonical() {
+    let ip = ip.to_canonical();
+    let special = match ip {
         IpAddr::V4(ip) => ip.is_loopback() || ip.octets()[0] == 0 || ip.is_link_local(),
         IpAddr::V6(ip) => ip.is_loopback() || ip.is_unspecified() || ip.is_unicast_link_local(),
+    };
+    special || is_this_computer(ip)
+}
+
+/// Whether `ip` is an address of this Computer. A socket binds only to an
+/// address of this machine, and the kernel answers every other address
+/// with EADDRNOTAVAIL. The probe socket closes at once. A bind that fails
+/// for another reason gives no answer, so the address counts as this
+/// Computer's, and the rule fails closed.
+fn is_this_computer(ip: IpAddr) -> bool {
+    match std::net::UdpSocket::bind((ip, 0)) {
+        Ok(_probe) => true,
+        Err(error) => error.kind() != io::ErrorKind::AddrNotAvailable,
     }
 }
 
@@ -430,8 +449,9 @@ fn dial_refusal(error: DialError, host: &str, port: u16) -> Response<Body> {
         DialError::Refused => refusal(
             StatusCode::FORBIDDEN,
             format!(
-                "the Exit Proxy opens no connection to this Computer's own loopback \
-                 or to a link-local address, and every address of {host} is one"
+                "the Exit Proxy opens no connection to this Computer itself \
+                 (loopback or one of its addresses) or to a link-local address, \
+                 and every address of {host} is one"
             ),
         ),
         DialError::Failed(error) => refusal(
@@ -519,12 +539,10 @@ mod tests {
     /// How long a test waits for one answer.
     const WAIT: Duration = Duration::from_secs(5);
 
-    /// An address of this machine off loopback, where the targets of
-    /// these tests listen, because the proxy opens no connection to
-    /// loopback. A UDP connect sends nothing: it takes the route to an
-    /// address of TEST-NET-1, and with it the address of this machine on
-    /// that route.
-    fn allowed_ip() -> std::net::IpAddr {
+    /// The address of this machine on its route off loopback. A UDP
+    /// connect sends nothing: it takes the route to an address of
+    /// TEST-NET-1, and with it the address of this machine on that route.
+    fn own_ip() -> IpAddr {
         let socket = std::net::UdpSocket::bind("0.0.0.0:0").expect("a UDP socket");
         socket
             .connect("192.0.2.1:9")
@@ -532,6 +550,33 @@ mod tests {
         let ip = socket.local_addr().expect("an address").ip();
         assert!(!ip.is_loopback(), "the route off loopback leaves from {ip}");
         ip
+    }
+
+    /// The ports of the targets that `serve_the_proxy_test_targets`
+    /// serves, and one port of that machine where nothing listens.
+    const ECHO_PORT: u16 = 7101;
+    const FIRST_PORT: u16 = 7102;
+    const SECOND_PORT: u16 = 7103;
+    const CLOSED_PORT: u16 = 7104;
+
+    /// The machine of the targets of the tests that need a destination
+    /// that answers. The proxy opens no connection to this machine, so
+    /// those targets run on another one: a second container or network
+    /// namespace that runs `serve_the_proxy_test_targets`, by the name or
+    /// the address in `PAGIS_EXIT_TEST_TARGETS`.
+    async fn targets() -> IpAddr {
+        let name = std::env::var("PAGIS_EXIT_TEST_TARGETS")
+            .expect("PAGIS_EXIT_TEST_TARGETS names the machine of serve_the_proxy_test_targets");
+        let address = tokio::net::lookup_host((name.as_str(), 0))
+            .await
+            .expect("the machine of the targets resolves")
+            .next()
+            .expect("the machine of the targets has an address");
+        assert!(
+            !is_refused(address.ip()),
+            "{name} is this machine, and the proxy refuses it"
+        );
+        address.ip()
     }
 
     /// A proxy on a free loopback port.
@@ -543,13 +588,12 @@ mod tests {
         (proxy, address)
     }
 
-    /// A TCP server that greets each connection, then sends back what it
-    /// reads.
-    async fn echo_target() -> SocketAddr {
-        let listener = TcpListener::bind((allowed_ip(), 0))
+    /// A TCP server on `port` that greets each connection, then sends
+    /// back what it reads.
+    async fn echo_target(port: u16) {
+        let listener = TcpListener::bind(("0.0.0.0", port))
             .await
-            .expect("bind a port");
-        let address = listener.local_addr().expect("the target address");
+            .expect("bind the echo port");
         tokio::spawn(async move {
             loop {
                 let (mut stream, _) = listener.accept().await.expect("accept");
@@ -560,17 +604,15 @@ mod tests {
                 });
             }
         });
-        address
     }
 
-    /// An HTTP server that answers each request with what it got: its
-    /// own name, the method, the request target, the Host header and the
-    /// header names.
-    async fn http_target(name: &'static str) -> SocketAddr {
-        let listener = TcpListener::bind((allowed_ip(), 0))
+    /// An HTTP server on `port` that answers each request with what it
+    /// got: its own name, the method, the request target, the Host header
+    /// and the header names.
+    async fn http_target(name: &'static str, port: u16) {
+        let listener = TcpListener::bind(("0.0.0.0", port))
             .await
-            .expect("bind a port");
-        let address = listener.local_addr().expect("the target address");
+            .expect("bind the HTTP port");
         tokio::spawn(async move {
             loop {
                 let (stream, _) = listener.accept().await.expect("accept");
@@ -597,7 +639,31 @@ mod tests {
                 );
             }
         });
-        address
+    }
+
+    /// The targets of the tests that need a destination that answers.
+    /// Run it on another machine than those tests, such as a second
+    /// container on one Docker network with them, and name that machine
+    /// in `PAGIS_EXIT_TEST_TARGETS` for them:
+    ///
+    /// ```text
+    /// docker network create screend-test
+    /// docker run -d --name screend-targets --network screend-test <builder> \
+    ///     cargo test --locked serve_the_proxy_test_targets -- --ignored
+    /// docker run --rm --network screend-test -e PAGIS_EXIT_TEST_TARGETS=screend-targets \
+    ///     <builder> cargo test --locked -- --include-ignored \
+    ///     --skip serve_the_proxy_test_targets
+    /// ```
+    ///
+    /// It serves until it is stopped.
+    #[tokio::test]
+    #[ignore = "the targets of the proxy tests, for a second machine; it serves until it is stopped"]
+    async fn serve_the_proxy_test_targets() {
+        echo_target(ECHO_PORT).await;
+        http_target("first", FIRST_PORT).await;
+        http_target("second", SECOND_PORT).await;
+        eprintln!("the proxy test targets serve");
+        std::future::pending::<()>().await;
     }
 
     /// Read one response head, byte by byte, so the bytes after it stay
@@ -670,9 +736,10 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "needs serve_the_proxy_test_targets on a second machine, named in PAGIS_EXIT_TEST_TARGETS"]
     async fn a_connect_tunnel_carries_bytes_both_ways() {
         let (_proxy, address) = proxy().await;
-        let target = echo_target().await;
+        let target = SocketAddr::new(targets().await, ECHO_PORT);
 
         let (mut stream, head) = tunnel_to(address, &target.to_string()).await;
 
@@ -691,10 +758,12 @@ mod tests {
     /// with the Host of its address and without the headers of the hop
     /// to the proxy.
     #[tokio::test]
+    #[ignore = "needs serve_the_proxy_test_targets on a second machine, named in PAGIS_EXIT_TEST_TARGETS"]
     async fn an_absolute_form_request_reaches_its_host_also_two_hosts_on_one_connection() {
         let (proxy, address) = proxy().await;
-        let first = http_target("first").await;
-        let second = http_target("second").await;
+        let targets = targets().await;
+        let first = SocketAddr::new(targets, FIRST_PORT);
+        let second = SocketAddr::new(targets, SECOND_PORT);
         let stream = TcpStream::connect(address).await.expect("reach the proxy");
         let (mut sender, connection) = hyper::client::conn::http1::handshake(TokioIo::new(stream))
             .await
@@ -776,14 +845,10 @@ mod tests {
     /// A destination that does not answer is the gateway's failure, and
     /// the client hears it as one.
     #[tokio::test]
+    #[ignore = "needs serve_the_proxy_test_targets on a second machine, named in PAGIS_EXIT_TEST_TARGETS"]
     async fn a_destination_that_refuses_is_a_bad_gateway() {
         let (_proxy, address) = proxy().await;
-        let closed_port = {
-            let listener = TcpListener::bind((allowed_ip(), 0))
-                .await
-                .expect("bind a port");
-            listener.local_addr().expect("an address")
-        };
+        let closed_port = SocketAddr::new(targets().await, CLOSED_PORT);
 
         let (_stream, head) = tunnel_to(address, &closed_port.to_string()).await;
         assert!(head.starts_with("HTTP/1.1 502"), "{head}");
@@ -816,14 +881,16 @@ mod tests {
         (port, taken)
     }
 
-    /// A page can name a host that resolves to this Computer's loopback,
-    /// and Chromium resolves no name it sends to a proxy, so the proxy
-    /// refuses each address of the loopback, the unspecified addresses
-    /// and the link-local addresses itself, with 403, and dials none.
+    /// A page can name a host that resolves to this Computer, and
+    /// Chromium resolves no name it sends to a proxy, so the proxy itself
+    /// refuses this Computer, by loopback or by any of its addresses, the
+    /// unspecified addresses and the link-local addresses, with 403, and
+    /// dials none of them.
     #[tokio::test]
-    async fn a_destination_on_loopback_or_link_local_is_forbidden_and_never_dialled() {
+    async fn a_destination_on_this_computer_or_link_local_is_forbidden_and_never_dialled() {
         let (_proxy, address) = proxy().await;
         let (port, taken) = counting_listener().await;
+        let own = own_ip().to_string();
 
         for host in [
             "localhost",
@@ -832,6 +899,7 @@ mod tests {
             "[::ffff:127.0.0.1]",
             "0.0.0.0",
             "169.254.169.254",
+            own.as_str(),
         ] {
             let target = format!("{host}:{port}");
             let (_stream, head) = tunnel_to(address, &target).await;
@@ -861,7 +929,10 @@ mod tests {
             .expect("the answer arrives in time")
             .expect("the answer is readable");
         assert!(
-            answer.contains("no connection to this Computer's own loopback"),
+            answer.contains(
+                "the Exit Proxy opens no connection to this Computer itself \
+                 (loopback or one of its addresses) or to a link-local address"
+            ),
             "{answer}"
         );
     }
@@ -869,23 +940,23 @@ mod tests {
     /// A name that resolves to a refused address and to an allowed one
     /// reaches the allowed one, and the refused one is never dialled.
     #[tokio::test]
+    #[ignore = "needs serve_the_proxy_test_targets on a second machine, named in PAGIS_EXIT_TEST_TARGETS"]
     async fn a_name_with_a_refused_and_an_allowed_address_reaches_the_allowed_one() {
         let (port, taken) = counting_listener().await;
-        let allowed = SocketAddr::new(allowed_ip(), port);
-        let loopback = SocketAddr::from(([127, 0, 0, 1], port));
+        let refused = SocketAddr::new(own_ip(), port);
+        let allowed = SocketAddr::new(targets().await, ECHO_PORT);
 
-        let stream = connect_to_allowed(vec![loopback, allowed])
+        let mut stream = connect_to_allowed(vec![refused, allowed])
             .await
             .expect("a connection");
 
         assert_eq!(stream.peer_addr().expect("a peer"), allowed);
-        drop(stream);
-        let deadline = tokio::time::Instant::now() + WAIT;
-        while taken.load(Ordering::SeqCst) == 0 {
-            assert!(tokio::time::Instant::now() < deadline, "nothing was taken");
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-        assert_eq!(taken.load(Ordering::SeqCst), 1);
+        expect_bytes(&mut stream, b"hello from the target\n").await;
+        assert_eq!(
+            taken.load(Ordering::SeqCst),
+            0,
+            "the refused address was dialled"
+        );
     }
 
     /// A name with no address is a failure of the gateway, not a refusal.
@@ -898,34 +969,44 @@ mod tests {
         assert!(matches!(error, DialError::Failed(_)), "{error:?}");
     }
 
-    /// The addresses that the proxy refuses, by the rule of production.
+    /// The addresses that the proxy refuses, by the rule of production:
+    /// this machine, by loopback or by its own address, the unspecified
+    /// addresses and the link-local addresses. The addresses of other
+    /// machines pass, private ones too. None of them is an address of a
+    /// machine that runs these tests.
     #[test]
-    fn the_proxy_refuses_loopback_unspecified_and_link_local_alone() {
-        for refused in [
+    fn the_proxy_refuses_this_computer_unspecified_and_link_local_alone() {
+        let own = own_ip();
+        let own_mapped = match own {
+            IpAddr::V4(ip) => IpAddr::V6(ip.to_ipv6_mapped()),
+            IpAddr::V6(ip) => IpAddr::V6(ip),
+        };
+        let refused = [
             "127.0.0.1",
             "127.1.2.3",
             "0.0.0.0",
+            "0.1.2.3",
             "169.254.169.254",
             "::1",
             "::",
             "::ffff:127.0.0.1",
             "::ffff:169.254.169.254",
             "fe80::1",
-        ] {
-            let ip: std::net::IpAddr = refused.parse().expect("an address");
-            assert!(is_refused(ip), "{refused} is not refused");
+        ]
+        .map(|ip| ip.parse::<IpAddr>().expect("an address"));
+        for ip in refused.into_iter().chain([own, own_mapped]) {
+            assert!(is_refused(ip), "{ip} is not refused");
         }
         for allowed in [
             "93.184.215.14",
-            "10.0.0.1",
-            "172.18.0.5",
-            "192.168.1.40",
-            "100.64.0.1",
+            "10.255.255.254",
+            "192.168.255.254",
+            "100.127.255.254",
             "2606:2800:21f:cb07:6820:80da:af6b:8b2c",
-            "fd00::1",
-            "::ffff:10.0.0.1",
+            "fd00:ffff::1",
+            "::ffff:10.255.255.254",
         ] {
-            let ip: std::net::IpAddr = allowed.parse().expect("an address");
+            let ip: IpAddr = allowed.parse().expect("an address");
             assert!(!is_refused(ip), "{allowed} is refused");
         }
     }
@@ -934,9 +1015,10 @@ mod tests {
     /// the mode stays the same, and answers how many it closed. The
     /// proxy goes on serving new connections.
     #[tokio::test]
+    #[ignore = "needs serve_the_proxy_test_targets on a second machine, named in PAGIS_EXIT_TEST_TARGETS"]
     async fn a_switch_closes_every_connection_and_counts_them() {
         let (proxy, address) = proxy().await;
-        let target = echo_target().await;
+        let target = SocketAddr::new(targets().await, ECHO_PORT);
         let (mut first, _) = tunnel_to(address, &target.to_string()).await;
         let (mut second, _) = tunnel_to(address, &target.to_string()).await;
         expect_bytes(&mut first, b"hello from the target\n").await;

@@ -50,8 +50,8 @@ each connection from the Computer, so the same rules hold it. The
 browser sends its connections to the proxy, and every shell has
 `HTTP_PROXY` and `HTTPS_PROXY` set to it. A tool that ignores these
 variables connects directly. The proxy opens no connection to the
-Computer's own loopback or to a link-local address, also for a name
-that resolves there.
+Computer itself, by loopback or by any of its addresses, or to a
+link-local address, also for a name that resolves there.
 
 `PAGIS_COMPUTER_ALLOW` in `.env` names the private destinations that a
 Computer reaches, as IPv4 addresses and CIDR blocks separated by commas:

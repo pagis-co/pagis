@@ -1295,13 +1295,13 @@ async fn a_blinking_caret_does_not_hold_a_settled_frame() {
     }
 }
 
-/// The target server of the Exit Proxy test, which runs in the Computer
-/// on its own Tenant Network address. `/hello` answers at once. `/slow`
+/// The target server of the Exit Proxy test, which runs in a container
+/// of its own on the Tenant Network. `/hello` answers at once. `/slow`
 /// sends its headers and the first kilobyte of a megabyte, writes one
 /// line to `/tmp/target.log`, and then holds the connection open for ten
 /// minutes. `/page` is a page whose script reads `/slow` and writes in
 /// its title how the read goes.
-const EXIT_TARGET: &str = r#"cat > /tmp/target.py <<'TARGET'
+const EXIT_TARGET: &str = r#"
 import http.server, sys, time
 
 PAGE = b"""<!doctype html><title>pagis-exit loading</title>
@@ -1348,12 +1348,45 @@ class Target(http.server.BaseHTTPRequestHandler):
         pass
 
 
-http.server.ThreadingHTTPServer((sys.argv[1], int(sys.argv[2])), Target).serve_forever()
-TARGET
+http.server.ThreadingHTTPServer(("0.0.0.0", int(sys.argv[1])), Target).serve_forever()
 "#;
 
-/// The port of the target server.
+/// The name of the target server on the Tenant Network, and its port.
+const EXIT_TARGET_NAME: &str = "exit-target";
 const EXIT_TARGET_PORT: u16 = 8080;
+
+/// Start the target server in a container of its own on the Tenant
+/// Network of `real`, as the Vault tests start their site: the Computer
+/// Image with `python3` for its entrypoint. The container carries the
+/// test's mark, so the test removes it with the Computer. It answers
+/// the container's name.
+fn start_exit_target(real: &Real) -> String {
+    let container = format!("pagis-exit-target-{}", real.docker.mark());
+    let label = format!("{}={}", pagis_computer::TEST_LABEL, real.docker.mark());
+    let network = pagis_computer::network_name(&real.workspace_id);
+    let port = EXIT_TARGET_PORT.to_string();
+    let created = Command::new("docker")
+        .args(["create", "--name", &container, "--label", &label])
+        .args(["--network", &network, "--network-alias", EXIT_TARGET_NAME])
+        .args(["--entrypoint", "python3", IMAGE, "-c", EXIT_TARGET, &port])
+        .output()
+        .expect("docker create runs");
+    assert!(
+        created.status.success(),
+        "the target was not created: {}",
+        String::from_utf8_lossy(&created.stderr)
+    );
+    let started = Command::new("docker")
+        .args(["start", &container])
+        .output()
+        .expect("docker start runs");
+    assert!(
+        started.status.success(),
+        "the target did not start: {}",
+        String::from_utf8_lossy(&started.stderr)
+    );
+    container
+}
 
 /// Wait until a window of the Computer carries `title`.
 async fn wait_for_title(control_addr: &str, token: &str, title: &str) {
@@ -1383,17 +1416,18 @@ async fn wait_for_title(control_addr: &str, token: &str, title: &str) {
 /// - only the daemon reads the proxy's mode: screend asks for the token;
 /// - every shell names the proxy: the shell of `computer_shell`, and
 ///   the shell of the terminal, which sudo starts;
-/// - the proxy opens no tunnel to the Computer's loopback;
+/// - the proxy opens no tunnel to the Computer itself, by loopback or by
+///   its Tenant Network address;
 /// - a page in the browser, opened through the browser channel, and a
 ///   shell tool reach a server through the proxy: while a slow request
 ///   of each is open, the proxy holds their connections;
 /// - a switch of the mode closes the connections that the proxy holds,
 ///   so both slow requests end at once and not after their ten minutes.
 ///
-/// The target runs on the Computer's own address on its Tenant Network,
-/// because the browser and the shells send no loopback address through
-/// the proxy. Python's `urllib` is the shell tool: it reads `http_proxy`
-/// as curl does, and the image has no curl.
+/// The target runs in a second container on the Tenant Network, because
+/// the proxy opens no connection to the Computer itself. Python's
+/// `urllib` is the shell tool: it reads `http_proxy` as curl does, and
+/// the image has no curl.
 #[tokio::test]
 #[ignore = "needs Docker; run via cargo test -- --ignored"]
 async fn the_browser_and_the_shell_leave_through_the_exit_proxy() {
@@ -1487,36 +1521,32 @@ async fn the_browser_and_the_shell_leave_through_the_exit_proxy() {
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
 
-    // The target, on the Computer's own address.
-    let address = container_ip(&owner);
-    docker_exec(&owner, &["sh", "-c", EXIT_TARGET]);
-    let started = Command::new("docker")
-        .args(["exec", "-d", "--user", "agent", &owner.container_name()])
-        .args(["python3", "/tmp/target.py", &address])
-        .arg(EXIT_TARGET_PORT.to_string())
-        .status()
-        .expect("docker exec runs");
-    assert!(started.success(), "the target did not start");
+    // The target, in a container of its own on the Tenant Network.
+    let target_container = start_exit_target(&real);
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
-    while !reaches(&owner, &address, EXIT_TARGET_PORT) {
+    while !reaches(&owner, EXIT_TARGET_NAME, EXIT_TARGET_PORT) {
         assert!(
             tokio::time::Instant::now() < deadline,
             "the target does not listen"
         );
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
-    let target = format!("http://{address}:{EXIT_TARGET_PORT}");
+    let target = format!("http://{EXIT_TARGET_NAME}:{EXIT_TARGET_PORT}");
 
-    // The proxy opens a tunnel to the Computer's own Tenant Network
-    // address, and none to its loopback, where screend's control port
-    // also listens: a page's name that resolves to 127.0.0.1 reaches
-    // nothing.
-    assert_eq!(tunnel_status(&owner, &address, EXIT_TARGET_PORT), Some(200));
-    for loopback in ["127.0.0.1", "localhost"] {
+    // The proxy opens a tunnel to the other container, and none to the
+    // Computer itself, where screend's control port listens on every
+    // address: a page's name that resolves to the Computer reaches
+    // nothing in it.
+    assert_eq!(
+        tunnel_status(&owner, EXIT_TARGET_NAME, EXIT_TARGET_PORT),
+        Some(200)
+    );
+    let own_address = container_ip(&owner);
+    for own in ["127.0.0.1", "localhost", own_address.as_str()] {
         assert_eq!(
-            tunnel_status(&owner, loopback, pagis_computer::CONTROL_PORT),
+            tunnel_status(&owner, own, pagis_computer::CONTROL_PORT),
             Some(403),
-            "the Exit Proxy opened a tunnel to {loopback}"
+            "the Exit Proxy opened a tunnel to {own}"
         );
     }
 
@@ -1565,7 +1595,10 @@ async fn the_browser_and_the_shell_leave_through_the_exit_proxy() {
     ));
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
     loop {
-        let log = docker_exec_raw(&owner, &[], &["cat", "/tmp/target.log"]);
+        let log = Command::new("docker")
+            .args(["exec", &target_container, "cat", "/tmp/target.log"])
+            .output()
+            .expect("docker exec runs");
         if String::from_utf8_lossy(&log.stdout).lines().count() >= 2 {
             break;
         }
