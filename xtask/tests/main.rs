@@ -10,6 +10,7 @@ mod gog;
 mod image;
 mod pins;
 mod release;
+mod screend;
 mod secrets;
 mod security_policy;
 mod server_image;
