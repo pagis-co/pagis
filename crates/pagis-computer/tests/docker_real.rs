@@ -1383,6 +1383,7 @@ async fn wait_for_title(control_addr: &str, token: &str, title: &str) {
 /// - only the daemon reads the proxy's mode: screend asks for the token;
 /// - every shell names the proxy: the shell of `computer_shell`, and
 ///   the shell of the terminal, which sudo starts;
+/// - the proxy opens no tunnel to the Computer's loopback;
 /// - a page in the browser, opened through the browser channel, and a
 ///   shell tool reach a server through the proxy: while a slow request
 ///   of each is open, the proxy holds their connections;
@@ -1506,6 +1507,19 @@ async fn the_browser_and_the_shell_leave_through_the_exit_proxy() {
     }
     let target = format!("http://{address}:{EXIT_TARGET_PORT}");
 
+    // The proxy opens a tunnel to the Computer's own Tenant Network
+    // address, and none to its loopback, where screend's control port
+    // also listens: a page's name that resolves to 127.0.0.1 reaches
+    // nothing.
+    assert_eq!(tunnel_status(&owner, &address, EXIT_TARGET_PORT), Some(200));
+    for loopback in ["127.0.0.1", "localhost"] {
+        assert_eq!(
+            tunnel_status(&owner, loopback, pagis_computer::CONTROL_PORT),
+            Some(403),
+            "the Exit Proxy opened a tunnel to {loopback}"
+        );
+    }
+
     // A shell tool reaches the target.
     let outcome = shell(
         format!(
@@ -1623,6 +1637,34 @@ fn container_ip(owner: &ComputerOwner) -> String {
         String::from_utf8_lossy(&output.stderr)
     );
     String::from_utf8_lossy(&output.stdout).trim().to_string()
+}
+
+/// Asks the Exit Proxy of the Computer for a tunnel to
+/// `argv[1]:argv[2]`, and prints the status code of the answer, or
+/// nothing when no answer comes in five seconds.
+const TUNNEL_PROBE: &str = r#"
+import socket, sys
+target = f"{sys.argv[1]}:{sys.argv[2]}"
+try:
+    with socket.create_connection(("127.0.0.1", 3128), timeout=5) as proxy:
+        proxy.sendall(f"CONNECT {target} HTTP/1.1\r\nHost: {target}\r\n\r\n".encode())
+        print(proxy.recv(64).decode(errors="replace").split(" ")[1])
+except OSError:
+    pass
+"#;
+
+/// The status code that the Exit Proxy of `from` answers a tunnel to
+/// `address:port` with, for the agent's shell (ADR-0029), or `None` when
+/// it gives no answer in five seconds. The proxy dials from the
+/// Computer, so the egress rules hold its connections as they hold the
+/// shell's own.
+pub(crate) fn tunnel_status(from: &ComputerOwner, address: &str, port: u16) -> Option<u16> {
+    let output = docker_exec_raw(
+        from,
+        &["--user", "agent"],
+        &["python3", "-c", TUNNEL_PROBE, address, &port.to_string()],
+    );
+    String::from_utf8_lossy(&output.stdout).trim().parse().ok()
 }
 
 /// Whether a TCP connection from inside `from` reaches `address:port`.

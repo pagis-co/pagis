@@ -37,7 +37,7 @@ use std::time::Duration;
 use pagis_computer::{ComputerOwner, ComputerRuntime, IMAGE, TEST_LABEL, network_name};
 use pagis_core::AgentId;
 
-use crate::docker_real::{Real, docker_exec_raw, reaches};
+use crate::docker_real::{Real, docker_exec_raw, reaches, tunnel_status};
 
 /// The address of the metadata service of the clouds, and the block of
 /// the network that stands in for it.
@@ -444,31 +444,6 @@ fn echoes(from: &ComputerOwner, address: &str, port: u16) -> bool {
     .success()
 }
 
-/// Asks the Exit Proxy of the Computer for a tunnel to `argv[1]:argv[2]`,
-/// and ends with 0 when the proxy opened it.
-const TUNNEL_PROBE: &str = r#"
-import socket, sys
-target = f"{sys.argv[1]}:{sys.argv[2]}"
-with socket.create_connection(("127.0.0.1", 3128), timeout=5) as proxy:
-    proxy.sendall(f"CONNECT {target} HTTP/1.1\r\nHost: {target}\r\n\r\n".encode())
-    status = proxy.recv(64).decode(errors="replace")
-sys.exit(0 if status.startswith("HTTP/1.1 200") else 1)
-"#;
-
-/// Whether the Exit Proxy of the Computer opens a tunnel to
-/// `address:port` for the agent's shell (ADR-0029). The proxy dials from
-/// the Computer, so the rules hold its connections as they hold the
-/// shell's own.
-fn tunnels(from: &ComputerOwner, address: &str, port: u16) -> bool {
-    docker_exec_raw(
-        from,
-        &["--user", "agent"],
-        &["python3", "-c", TUNNEL_PROBE, address, &port.to_string()],
-    )
-    .status
-    .success()
-}
-
 /// Whether the Computer resolves `name`.
 fn resolves(from: &ComputerOwner, name: &str) -> bool {
     docker_exec_raw(from, &["--user", "agent"], &["getent", "hosts", name])
@@ -500,13 +475,22 @@ fn assert_the_policy(real: &Real, owner: &ComputerOwner, rules: &HostRules) {
         "no control: without the rules the Computer does not reach {METADATA}"
     );
     assert!(
-        tunnels(owner, METADATA, SERVICE_PORT),
-        "no control: without the rules the Exit Proxy does not reach {METADATA}"
-    );
-    assert!(
         reaches(owner, &places.lan, SERVICE_PORT),
         "no control: without the rules the Computer does not reach the LAN listener {}",
         places.lan
+    );
+    assert_eq!(
+        tunnel_status(owner, &places.lan, SERVICE_PORT),
+        Some(200),
+        "no control: without the rules the Exit Proxy does not reach the LAN listener {}",
+        places.lan
+    );
+    // The Exit Proxy refuses a link-local address with or without the
+    // rules (ADR-0029).
+    assert_eq!(
+        tunnel_status(owner, METADATA, SERVICE_PORT),
+        Some(403),
+        "the Exit Proxy did not refuse the metadata service {METADATA}"
     );
     assert!(
         reaches(owner, host, places.host_port),
@@ -525,12 +509,14 @@ fn assert_the_policy(real: &Real, owner: &ComputerOwner, rules: &HostRules) {
         !reaches(owner, METADATA, SERVICE_PORT),
         "the Computer reached the metadata service {METADATA}"
     );
-    assert!(
-        !tunnels(owner, METADATA, SERVICE_PORT),
-        "the Exit Proxy reached the metadata service {METADATA}"
+    assert_eq!(
+        tunnel_status(owner, METADATA, SERVICE_PORT),
+        Some(403),
+        "the Exit Proxy did not refuse the metadata service {METADATA}"
     );
-    assert!(
-        !tunnels(owner, &places.lan, SERVICE_PORT),
+    assert_ne!(
+        tunnel_status(owner, &places.lan, SERVICE_PORT),
+        Some(200),
         "the Exit Proxy reached the LAN address {}",
         places.lan
     );
@@ -562,8 +548,9 @@ fn assert_the_policy(real: &Real, owner: &ComputerOwner, rules: &HostRules) {
         reaches(owner, PUBLIC, 443),
         "the Computer does not reach {PUBLIC}:443"
     );
-    assert!(
-        tunnels(owner, PUBLIC, 443),
+    assert_eq!(
+        tunnel_status(owner, PUBLIC, 443),
+        Some(200),
         "the Exit Proxy does not reach {PUBLIC}:443"
     );
 }
