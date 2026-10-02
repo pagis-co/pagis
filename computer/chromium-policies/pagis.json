@@ -3,6 +3,7 @@
   "AutofillAddressEnabled": false,
   "AutofillCreditCardEnabled": false,
   "PasswordLeakDetectionEnabled": false,
+  "QuicAllowed": false,
   "URLBlocklist": [
     "javascript:*",
     "devtools://*",

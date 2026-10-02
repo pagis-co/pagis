@@ -27,39 +27,63 @@ Computer's traffic, with no port open at home.
 
 ### Every Computer sends its connections to the Exit Proxy inside it
 
-The **Exit Proxy** is an HTTP `CONNECT` proxy on loopback inside every
-Computer. Chromium starts with `--proxy-server` set to it, and every shell
-has `HTTP_PROXY` and `HTTPS_PROXY` set to it. These settings never change,
-so a Computer never restarts for the Home Exit. Chromium's policy sets
+The **Exit Proxy** is an HTTP proxy on loopback inside every Computer,
+which screend runs. Chromium starts with `--proxy-server` set to it, and
+every shell has `HTTP_PROXY` and `HTTPS_PROXY` set to it, with `NO_PROXY`
+for loopback and the Docker host. These settings never change, so a
+Computer never restarts for the Home Exit. Chromium's policy sets
 `QuicAllowed` to false, so its pages use HTTP/2 or HTTP/1.1 over TCP and
 pass through the proxy.
 
+A client sends `CONNECT` for `https://`, `wss://` and `ws://`, and the
+proxy answers with a TCP tunnel. A client sends each plain `http://`
+request in absolute form, and the proxy forwards it to its host as an
+HTTP/1.1 request. Chromium sends requests to several hosts on one
+connection to the proxy, and curl sends `http://` the same way. Every
+connection that the proxy opens, for a tunnel or for a forwarded request,
+goes through one dial, and the mode chooses the dial. A dial carries raw
+TCP to `host:port`, so the HTTP stays in the Exit Proxy, and the daemon
+and the Client App carry bytes and nothing else.
+
 The Exit Proxy has two modes, and the daemon switches them on a running
-Computer over its control channel:
+Computer over its control channel, where `GET /exit` reads the mode and
+the connections that the proxy holds, and `POST /exit` sets the mode:
 
 - **Direct.** The proxy dials each connection from the Computer, as a
   Computer with no proxy does. This is the mode of every Computer whose
   Person has no Home Exit on, and of every Computer of a Local
-  Installation.
+  Installation. The proxy resolves the name itself and opens no
+  connection to this Computer itself, by loopback or by any of its
+  addresses, to an unspecified address or to a link-local address
+  (169.254.0.0/16, fe80::/10). These are Squid's default `to_localhost`
+  and `to_linklocal` rules, with every address of the Computer added to
+  loopback. A UDP bind to an address succeeds only for an address of the
+  Computer, and a bind that fails for another reason than
+  `EADDRNOTAVAIL` refuses the address. The proxy checks an IPv4-mapped
+  IPv6 address as its IPv4 address, connects to the other addresses of
+  the name in order, and answers 403 when no other address is left. The
+  private address of another machine passes, and the egress rules hold
+  it.
 - **Home.** The proxy sends each connection to the daemon, which carries it
   through the Person's Home Exit when that Host is present, and from the
   server when it is absent. The proxy authenticates to the daemon with the
   Computer's own token, so the daemon knows the Computer and its Person.
 
-At each switch the Exit Proxy closes the connections it holds, so Chromium
-opens new ones on the new path at once, and no page keeps one address for
-some requests and another for the rest. In Home mode the proxy also writes
-Chromium's managed policy with `WebRtcIPHandling` set to
-`disable_non_proxied_udp`, and Direct mode removes it. Chromium watches its
-policy directory and applies that policy with no restart. `QuicAllowed`
-takes effect only at a start, so it is false in every mode.
+At each switch the Exit Proxy closes the connections it holds, also when
+the mode stays the same, so Chromium opens new ones on the new path at
+once, and no page keeps one address for some requests and another for the
+rest. In Home mode the proxy also writes Chromium's managed policy with
+`WebRtcIPHandling` set to `disable_non_proxied_udp`, and Direct mode
+removes it. Chromium watches its policy directory and applies that policy
+with no restart. `QuicAllowed` takes effect only at a start, so it is
+false in every mode.
 
-A `CONNECT` carries the host name, so the name resolves where the
-connection leaves, and the site sees one address for the name and the
-connection. A tool that ignores the proxy leaves from the server, which is
-the address that Home mode also uses when the Home Exit is absent. The
-daemon refuses the private and link-local destinations that the egress
-rules refuse.
+A `CONNECT` and an absolute-form request carry the host name, so the name
+resolves where the connection leaves, and the site sees one address for
+the name and the connection. A tool that ignores the proxy leaves from the
+server, which is the address that Home mode also uses when the Home Exit
+is absent. The daemon refuses the private and link-local destinations
+that the egress rules refuse.
 
 ### The Home Exit is one Host of the Person, chosen by that Person
 
@@ -126,7 +150,19 @@ Other ways were considered:
 
 - Chromium in every Computer uses no HTTP/3. In Home mode, WebRTC from
   inside the Computer fails or uses TCP.
+- Chromium holds at most 32 connections to one proxy at a time, its
+  default for the `MaxConnectionsPerProxy` policy, so a page that opens
+  more waits for one to close.
+- Chromium's local network checks see the proxy and not the destination,
+  because Chromium resolves no name that it sends to a proxy. A page's
+  request to a name that resolves to a private address therefore reaches
+  the other containers of the Workspace and the private destinations
+  that the Computer reaches: the blocks of `PAGIS_COMPUTER_ALLOW` on a
+  server, and the LAN on a Local Installation, which has no egress
+  rules. It reaches nothing on the Computer itself.
 - A tool in the terminal that ignores `HTTPS_PROXY` leaves from the server.
+  apt is such a tool, because `pagis-apt` runs it under sudo, which keeps
+  none of the proxy variables.
 - Every page load gains the round trips between the server and the Home
   Exit, and the home upload speed caps it. The live screen does not use
   this path.
@@ -139,13 +175,11 @@ Other ways were considered:
 
 ## Not built
 
-None of this record is built. A Computer on a server reaches the internet
-directly, under the egress rules of ADR-0014. The parts:
+Home mode is not built. Every Computer runs its Exit Proxy in Direct mode,
+and nothing in the daemon switches it. The parts:
 
-- The Exit Proxy in the Computer Image, its modes and its switch, its
-  Chromium flag and policies, and its environment.
-- The daemon's side of Home mode, and the egress rule that lets a Computer
-  reach it.
+- Home mode of the Exit Proxy, its `WebRtcIPHandling` policy, the daemon's
+  side of Home mode, and the egress rule that lets a Computer reach it.
 - The `exit` capability, the exit WebSocket and its streams, and the
   address check in the Client App.
 - The Home Exit setting, its System Setting, the exit in use in the

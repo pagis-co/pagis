@@ -697,9 +697,9 @@ impl ComputerRuntime for BollardRuntime {
         let config = bollard::models::ContainerCreateBody {
             image: Some(IMAGE.to_string()),
             host_config: Some(host_config),
-            // The clock and the locale of this container. They
-            // are set at create time, so every process the entrypoint
-            // starts inherits them.
+            // The clock, the locale and the Exit Proxy of this
+            // container. They are set at create time, so every process
+            // the entrypoint starts inherits them.
             env: Some(env.to_vec()),
             labels: Some(labels),
             exposed_ports: Some(HashMap::from([(control_key(), HashMap::new())])),
@@ -920,6 +920,50 @@ impl ComputerRuntime for BollardRuntime {
         body["idle_ms"]
             .as_u64()
             .ok_or_else(|| "holder status carries no idle_ms".to_string())
+    }
+
+    async fn exit_status(&self, computer: &StartedComputer) -> Result<crate::ExitStatus, String> {
+        let response = reqwest::Client::new()
+            .get(format!("http://{}/exit", computer.control_addr))
+            .bearer_auth(&computer.token)
+            .send()
+            .await
+            .map_err(|err| format!("the Exit Proxy status did not answer: {err}"))?;
+        if !response.status().is_success() {
+            let detail = response.text().await.unwrap_or_default();
+            return Err(format!("the Exit Proxy status was refused: {detail}"));
+        }
+        response
+            .json()
+            .await
+            .map_err(|err| format!("the Exit Proxy status is not readable: {err}"))
+    }
+
+    async fn set_exit_mode(
+        &self,
+        computer: &StartedComputer,
+        mode: crate::ExitMode,
+    ) -> Result<u64, String> {
+        #[derive(serde::Deserialize)]
+        struct Switched {
+            closed: u64,
+        }
+        let response = reqwest::Client::new()
+            .post(format!("http://{}/exit", computer.control_addr))
+            .bearer_auth(&computer.token)
+            .json(&serde_json::json!({ "mode": mode }))
+            .send()
+            .await
+            .map_err(|err| format!("the Exit Proxy switch did not answer: {err}"))?;
+        if !response.status().is_success() {
+            let detail = response.text().await.unwrap_or_default();
+            return Err(format!("the Exit Proxy switch was refused: {detail}"));
+        }
+        let switched: Switched = response
+            .json()
+            .await
+            .map_err(|err| format!("the Exit Proxy switch answer is not readable: {err}"))?;
+        Ok(switched.closed)
     }
 
     /// One command in the container: create, start, then
@@ -1895,6 +1939,121 @@ mod tests {
             .unwrap_err();
 
         assert!(error.contains("browser"), "{error}");
+    }
+
+    /// A stand-in screend for the Exit Proxy: `GET /exit` answers one
+    /// status, and `POST /exit` keeps each body it gets and answers that
+    /// it closed three connections. Both refuse a request without the
+    /// container token, as screend does.
+    async fn exit_screend() -> (
+        StartedComputer,
+        Arc<std::sync::Mutex<Vec<serde_json::Value>>>,
+    ) {
+        use axum::http::{HeaderMap, StatusCode};
+        use axum::response::IntoResponse as _;
+        use axum::routing::get;
+        let bodies = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let kept = Arc::clone(&bodies);
+        let token = |headers: &HeaderMap| {
+            headers.get("authorization").and_then(|v| v.to_str().ok()) == Some("Bearer token-one")
+        };
+        let app = axum::Router::new().route(
+            "/exit",
+            get(move |headers: HeaderMap| async move {
+                if !token(&headers) {
+                    return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
+                }
+                axum::Json(serde_json::json!({ "mode": "direct", "connections": 2 }))
+                    .into_response()
+            })
+            .post(move |headers: HeaderMap, body: String| {
+                let kept = Arc::clone(&kept);
+                async move {
+                    if !token(&headers) {
+                        return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
+                    }
+                    let body: serde_json::Value =
+                        serde_json::from_str(&body).expect("the switch body is JSON");
+                    kept.lock().expect("the bodies").push(body);
+                    axum::Json(serde_json::json!({ "mode": "direct", "closed": 3 })).into_response()
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let control_addr = listener.local_addr().unwrap().to_string();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let computer = StartedComputer {
+            container: "container-one".to_string(),
+            control_addr,
+            token: "token-one".to_string(),
+        };
+        (computer, bodies)
+    }
+
+    /// The runtime of the Exit Proxy tests. They reach a stand-in
+    /// screend and never Docker.
+    fn exit_runtime() -> BollardRuntime {
+        BollardRuntime::new(
+            Arc::new(DockerDiscovery::production(None)),
+            RuntimeOptions {
+                limits: ComputerLimits::default(),
+                tokens_dir: std::env::temp_dir().join("pagis-exit-proxy-tokens"),
+                labels: Vec::new(),
+            },
+        )
+    }
+
+    #[tokio::test]
+    async fn the_exit_status_reads_the_mode_and_the_connections() {
+        let (computer, _bodies) = exit_screend().await;
+
+        let status = exit_runtime().exit_status(&computer).await.unwrap();
+
+        assert_eq!(
+            status,
+            crate::ExitStatus {
+                mode: crate::ExitMode::Direct,
+                connections: 2
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn a_mode_switch_sends_the_mode_and_reads_how_many_connections_closed() {
+        let (computer, bodies) = exit_screend().await;
+
+        let closed = exit_runtime()
+            .set_exit_mode(&computer, crate::ExitMode::Direct)
+            .await
+            .unwrap();
+
+        assert_eq!(closed, 3);
+        assert_eq!(
+            *bodies.lock().unwrap(),
+            vec![serde_json::json!({ "mode": "direct" })]
+        );
+    }
+
+    /// screend refuses a request without its token, and the error says
+    /// what refused it.
+    #[tokio::test]
+    async fn a_refused_exit_request_is_an_error() {
+        let (computer, bodies) = exit_screend().await;
+        let computer = StartedComputer {
+            token: "another-token".to_string(),
+            ..computer
+        };
+        let runtime = exit_runtime();
+
+        let read = runtime.exit_status(&computer).await.unwrap_err();
+        let set = runtime
+            .set_exit_mode(&computer, crate::ExitMode::Direct)
+            .await
+            .unwrap_err();
+
+        assert!(read.contains("unauthorized"), "{read}");
+        assert!(set.contains("unauthorized"), "{set}");
+        assert!(bodies.lock().unwrap().is_empty());
     }
 
     fn volume(options: &[(&str, &str)]) -> bollard::models::Volume {

@@ -163,7 +163,7 @@ RUN set -eux; \
     unzip -q /tmp/ubol.zip -d /opt/pagis/ublock-origin-lite
 
 FROM debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a
-LABEL org.pagis.computer.version="0.17.1"
+LABEL org.pagis.computer.version="0.18.0"
 # GHCR reads the OCI source label to link the package to the
 # repository, which is where a reader of the package page goes for the
 # source and the licenses.
@@ -208,10 +208,18 @@ COPY --from=runtimes /opt/node /usr/local/
 # hosts, which is the one privilege step sudo exists for here.
 # Both homes live on the per-agent volume mounted at /data, so the
 # browser profile survives a stop the way the agent's files do.
+# sudo resets the environment, and the terminal's shell keeps the Exit
+# Proxy entries of the container (ADR-0029), so the terminal sends its
+# connections through the Exit Proxy as `computer_shell` does.
+# `pagis-apt` keeps none of them, so apt connects directly.
 RUN useradd -u 1000 -d /data/agent -s /bin/bash agent \
     && useradd -u 1001 -d /data/screen -s /bin/bash screen
-RUN printf 'screen ALL=(agent) NOPASSWD: /bin/bash\n' > /etc/sudoers.d/pagis-agent-shell \
-    && chmod 0440 /etc/sudoers.d/pagis-agent-shell
+RUN printf '%s\n' \
+      'Defaults:screen env_keep += "HTTP_PROXY HTTPS_PROXY NO_PROXY http_proxy https_proxy no_proxy"' \
+      'screen ALL=(agent) NOPASSWD: /bin/bash' \
+      > /etc/sudoers.d/pagis-agent-shell \
+    && chmod 0440 /etc/sudoers.d/pagis-agent-shell \
+    && visudo -cf /etc/sudoers.d/pagis-agent-shell
 # System packages. `pagis-apt` is the only command the agent uid
 # may run as root, and the wrapper — not the caller — owns every option
 # apt sees. A sudoers rule on apt-get
@@ -272,7 +280,9 @@ ENV XDG_RUNTIME_DIR=/run/pagis-xdg \
     WLR_LIBINPUT_NO_DEVICES=1 \
     WAYLAND_DISPLAY=wayland-0
 # The screend control endpoint: /healthz, /frame.png, /input,
-# /offer, /windows, /holder, /browser/* — and the WebRTC media UDP port.
+# /offer, /windows, /holder, /browser/*, /exit — and the WebRTC media UDP
+# port. The Exit Proxy of screend listens on 127.0.0.1:3128 alone, so it
+# publishes no port.
 # Reaching the port is not holding it: every endpoint but
 # /healthz needs the bearer token that entrypoint.sh copies out of the
 # mount at /run/pagis-token/screend.

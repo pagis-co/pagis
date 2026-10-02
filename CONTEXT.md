@@ -904,11 +904,12 @@ the daemon stops for good, and its disk stays. A restart of the daemon
 keeps it running (ADR-0014).
 
 ### Exit Proxy
-The proxy inside every Computer that its browser and its terminal send each
-connection to. It dials the connection from the Computer, or, while the
-Person's Home Exit is on, sends it to the daemon, which carries it through
-the Home Exit. The daemon switches it with no restart. Not built
-(ADR-0029).
+The HTTP proxy on loopback inside every Computer that its browser and its
+shells send each connection to. In Direct mode it dials the connection
+from the Computer. The daemon reads and sets its mode with no restart, and
+each switch closes the connections that the proxy holds. Home mode, in
+which it sends each connection to the daemon to carry through the Person's
+Home Exit, is not built (ADR-0029).
 _Avoid_: egress proxy, outbound proxy
 
 ### Home Exit

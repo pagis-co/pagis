@@ -15,7 +15,7 @@ use crate::image::Preparation;
 use crate::{
     BindMount, CONTAINER_LANG, ComputerError, ComputerImage, ComputerImageState, ComputerRuntime,
     ComputerState, DEFAULT_TIMEZONE, ExecOutcome, ExecRequest, IMAGE_VERSION, InputHolder,
-    OutputCap, StartedComputer, locale_env, mounts_fingerprint,
+    OutputCap, StartedComputer, container_env, mounts_fingerprint,
 };
 
 /// Publish pull progress at most every this many percent.
@@ -524,7 +524,7 @@ impl ComputerManager {
         }
         let started = self
             .runtime
-            .start(&self.owner(agent_id), &mounts, &locale_env(&timezone))
+            .start(&self.owner(agent_id), &mounts, &container_env(&timezone))
             .await?;
         self.touch(agent_id);
         self.set_phase(agent_id, Phase::Awake(started)).await;

@@ -106,14 +106,41 @@ pub const DEFAULT_TIMEZONE: &str = "UTC";
 /// on a volume quota bounds the disk that one download takes.
 pub const MAX_ARCHIVE_BYTES: u64 = 1024 * 1024 * 1024;
 
-/// The environment one container boots with: the Workspace
-/// timezone and the locale of the image. The compositor, screend and
-/// Chromium are children of the entrypoint, so they inherit it. A
-/// clock and a language that disagree with the egress IP make the
+/// The Exit Proxy inside every Computer (ADR-0029). screend listens
+/// here, and `computer/browser.sh` gives Chromium the same address.
+pub const EXIT_PROXY: &str = "http://127.0.0.1:3128";
+
+/// The environment one container boots with: the Workspace timezone,
+/// the locale of the image, and the Exit Proxy. The compositor, screend
+/// and Chromium are children of the entrypoint, so they inherit it, and
+/// so does every `docker exec`: `computer_shell` and the servers of the
+/// Plugin Computer. The image's sudo keeps the proxy entries for the
+/// shell of the terminal.
+///
+/// A clock and a language that disagree with the egress IP make the
 /// browser look automated, and pages then render times the agent has
 /// to convert.
-pub fn locale_env(timezone: &str) -> Vec<String> {
-    vec![format!("TZ={timezone}"), format!("LANG={CONTAINER_LANG}")]
+///
+/// The proxy entries come in both cases, because a tool reads one case or
+/// the other: curl reads `http_proxy` in lower case alone. `NO_PROXY` holds
+/// loopback, which Chromium also sends to no proxy, and the Docker host
+/// ([`RELAY_HOST`]), so a connection to the daemon's machine never
+/// leaves through the Exit Proxy. Every container that the runtime
+/// starts is a Computer Image container that runs screend, the Plugin
+/// Computer too, so every container with these entries runs the proxy
+/// that they name.
+pub fn container_env(timezone: &str) -> Vec<String> {
+    let no_proxy = format!("localhost,127.0.0.1,::1,{RELAY_HOST}");
+    vec![
+        format!("TZ={timezone}"),
+        format!("LANG={CONTAINER_LANG}"),
+        format!("HTTP_PROXY={EXIT_PROXY}"),
+        format!("HTTPS_PROXY={EXIT_PROXY}"),
+        format!("http_proxy={EXIT_PROXY}"),
+        format!("https_proxy={EXIT_PROXY}"),
+        format!("NO_PROXY={no_proxy}"),
+        format!("no_proxy={no_proxy}"),
+    ]
 }
 
 /// The in-container screend control port.
@@ -392,6 +419,23 @@ impl InputHolder {
     }
 }
 
+/// Where the Exit Proxy of a Computer opens each connection
+/// (ADR-0029). Every Computer starts in `Direct` mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExitMode {
+    /// Each connection leaves from the Computer.
+    Direct,
+}
+
+/// What the Exit Proxy of a Computer reports.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+pub struct ExitStatus {
+    pub mode: ExitMode,
+    /// The client connections that the proxy holds now.
+    pub connections: u64,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum ComputerError {
     /// The local image under the pinned tag carries the wrong version
@@ -620,6 +664,20 @@ pub trait ComputerRuntime: Send + Sync {
     /// Milliseconds since the last user input the pipeline applied;
     /// drives the inactivity auto-handback.
     async fn user_input_idle_ms(&self, computer: &StartedComputer) -> Result<u64, String>;
+
+    /// The mode of the Computer's Exit Proxy, and the client connections
+    /// it holds now (ADR-0029).
+    async fn exit_status(&self, computer: &StartedComputer) -> Result<ExitStatus, String>;
+
+    /// Set the mode of the Computer's Exit Proxy. The proxy closes every
+    /// connection that it holds, also when the mode stays the same, so
+    /// each client opens a new connection on the path of the mode. The
+    /// answer is how many connections the proxy closed.
+    async fn set_exit_mode(
+        &self,
+        computer: &StartedComputer,
+        mode: ExitMode,
+    ) -> Result<u64, String>;
 
     /// Run one command in the agent's container and wait for it.
     /// The runtime runs `argv` as given: the caller owns the
@@ -872,6 +930,26 @@ mod tests {
     #[test]
     fn the_seccomp_profile_refuses_by_default() {
         assert_eq!(profile()["defaultAction"], "SCMP_ACT_ERRNO");
+    }
+
+    /// A container boots on the Workspace clock, in the image's locale,
+    /// with the Exit Proxy in both cases of each proxy entry, and with
+    /// loopback and the Docker host out of the proxy.
+    #[test]
+    fn the_container_environment_names_the_exit_proxy() {
+        assert_eq!(
+            super::container_env("Asia/Tokyo"),
+            [
+                "TZ=Asia/Tokyo",
+                "LANG=en_US.UTF-8",
+                "HTTP_PROXY=http://127.0.0.1:3128",
+                "HTTPS_PROXY=http://127.0.0.1:3128",
+                "http_proxy=http://127.0.0.1:3128",
+                "https_proxy=http://127.0.0.1:3128",
+                "NO_PROXY=localhost,127.0.0.1,::1,host.docker.internal",
+                "no_proxy=localhost,127.0.0.1,::1,host.docker.internal",
+            ]
+        );
     }
 
     /// The repository of a reference has no tag and no digest. The port

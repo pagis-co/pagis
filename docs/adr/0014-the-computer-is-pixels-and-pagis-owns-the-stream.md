@@ -192,5 +192,6 @@ takes the container's place (ADR-0015).
 
 ## Not built
 
-- The Exit Proxy inside every Computer, and on a Server the egress rule
-  that lets a Computer in Home mode reach the daemon (ADR-0029).
+- Home mode of the Exit Proxy inside every Computer, and on a Server the
+  egress rule that lets a Computer in Home mode reach the daemon
+  (ADR-0029).

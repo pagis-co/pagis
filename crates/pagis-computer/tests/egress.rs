@@ -37,7 +37,7 @@ use std::time::Duration;
 use pagis_computer::{ComputerOwner, ComputerRuntime, IMAGE, TEST_LABEL, network_name};
 use pagis_core::AgentId;
 
-use crate::docker_real::{Real, docker_exec_raw, reaches};
+use crate::docker_real::{Real, docker_exec_raw, reaches, tunnel_status};
 
 /// The address of the metadata service of the clouds, and the block of
 /// the network that stands in for it.
@@ -457,7 +457,7 @@ const PUBLIC: &str = "example.com";
 /// What `owner`'s Computer reaches before and after the rules. Without
 /// them it reaches every listener, which proves that each probe can
 /// succeed. With them it reaches the internet and the Media Relay, and
-/// nothing else.
+/// nothing else, also through its Exit Proxy.
 fn assert_the_policy(real: &Real, owner: &ComputerOwner, rules: &HostRules) {
     let places = Places::start(real);
     let host = places.host.as_str();
@@ -479,6 +479,19 @@ fn assert_the_policy(real: &Real, owner: &ComputerOwner, rules: &HostRules) {
         "no control: without the rules the Computer does not reach the LAN listener {}",
         places.lan
     );
+    assert_eq!(
+        tunnel_status(owner, &places.lan, SERVICE_PORT),
+        Some(200),
+        "no control: without the rules the Exit Proxy does not reach the LAN listener {}",
+        places.lan
+    );
+    // The Exit Proxy refuses a link-local address with or without the
+    // rules (ADR-0029).
+    assert_eq!(
+        tunnel_status(owner, METADATA, SERVICE_PORT),
+        Some(403),
+        "the Exit Proxy did not refuse the metadata service {METADATA}"
+    );
     assert!(
         reaches(owner, host, places.host_port),
         "no control: without the rules the Computer does not reach the Docker host at {host}:{}",
@@ -495,6 +508,17 @@ fn assert_the_policy(real: &Real, owner: &ComputerOwner, rules: &HostRules) {
     assert!(
         !reaches(owner, METADATA, SERVICE_PORT),
         "the Computer reached the metadata service {METADATA}"
+    );
+    assert_eq!(
+        tunnel_status(owner, METADATA, SERVICE_PORT),
+        Some(403),
+        "the Exit Proxy did not refuse the metadata service {METADATA}"
+    );
+    assert_ne!(
+        tunnel_status(owner, &places.lan, SERVICE_PORT),
+        Some(200),
+        "the Exit Proxy reached the LAN address {}",
+        places.lan
     );
     assert!(
         !reaches(owner, &places.lan, SERVICE_PORT),
@@ -524,6 +548,11 @@ fn assert_the_policy(real: &Real, owner: &ComputerOwner, rules: &HostRules) {
         reaches(owner, PUBLIC, 443),
         "the Computer does not reach {PUBLIC}:443"
     );
+    assert_eq!(
+        tunnel_status(owner, PUBLIC, 443),
+        Some(200),
+        "the Exit Proxy does not reach {PUBLIC}:443"
+    );
 }
 
 /// A Computer reaches the public internet and the Media Relay, and not
@@ -537,7 +566,7 @@ async fn a_computer_reaches_the_internet_and_the_media_relay_and_nothing_private
     let owner = real.owner(&AgentId::generate());
     let computer = real
         .runtime
-        .start(&owner, &[], &pagis_computer::locale_env("UTC"))
+        .start(&owner, &[], &pagis_computer::container_env("UTC"))
         .await
         .expect("the container boots");
 
@@ -598,7 +627,7 @@ async fn an_allowed_private_block_is_reachable_and_root_in_the_computer_cannot_c
     let real = Real::new();
     let owner = real.owner(&AgentId::generate());
     real.runtime
-        .start(&owner, &[], &pagis_computer::locale_env("UTC"))
+        .start(&owner, &[], &pagis_computer::container_env("UTC"))
         .await
         .expect("the container boots");
     let places = Places::start(&real);

@@ -10,7 +10,7 @@ use std::time::Duration;
 use pagis_computer::fake::FakeWorkspaces;
 use pagis_computer::{
     AwakeCaps, AwakeCeiling, BollardRuntime, ComputerLimits, ComputerManager, ComputerManagerDeps,
-    ComputerOwner, ComputerRuntime, ComputerState, DockerDiscovery, ExecRequest, IMAGE,
+    ComputerOwner, ComputerRuntime, ComputerState, DockerDiscovery, ExecRequest, ExitMode, IMAGE,
     InputHolder, OutputCap, RuntimeOptions, SHELL_HOME, ShellCommand,
     test_docker::{TestDocker, marked_objects},
 };
@@ -280,6 +280,9 @@ async fn wake_preview_idle_stop_and_rewake_preserve_home() {
         policy.contains("\"PasswordManagerEnabled\": false"),
         "{policy}"
     );
+    // HTTP/3 is off: it runs over UDP, which the Exit Proxy does not
+    // carry (ADR-0029).
+    assert!(policy.contains("\"QuicAllowed\": false"), "{policy}");
 
     // Typing runs through screend's virtual keyboard, and a batch is
     // refused unless its declared holder holds the switch.
@@ -750,6 +753,8 @@ async fn a_granted_plugin_mounts_its_skills_read_only() {
 /// - Chromium starts with the pinned uBlock Origin Lite, with no other
 ///   extension beside it. Each ad frame, consent script and tracker on
 ///   a page costs the agent a screenshot and the tokens to read it;
+/// - Chromium sends its connections to the Exit Proxy, and the proxy
+///   listens on loopback alone (ADR-0029);
 /// - the agent cannot open the browser channel of the daemon. That
 ///   channel is the DevTools pipe that screend and Chromium alone hold
 ///   (ADR-0013). The browser opens no debugging port, and the Agent's
@@ -843,6 +848,13 @@ async fn the_supervisor_restarts_a_dead_chromium() {
         "Chromium did not index the blocker's filter rules: {indexed:?}"
     );
 
+    // Every connection of the browser goes to the Exit Proxy
+    // (ADR-0029).
+    assert!(
+        args.contains(&"--proxy-server=http://127.0.0.1:3128"),
+        "the browser does not send its connections to the Exit Proxy: {args:?}"
+    );
+
     // The browser channel of the daemon.
     assert!(
         args.contains(&"--remote-debugging-pipe"),
@@ -854,9 +866,10 @@ async fn the_supervisor_restarts_a_dead_chromium() {
             .any(|arg| arg.starts_with("--remote-debugging-port")),
         "the browser opens a debugging port: {args:?}"
     );
-    // The only TCP listener is screend's control port. Docker's own
-    // resolver listens on 127.0.0.11 in every container on a user
-    // network, and it is not the browser's.
+    // The only TCP listeners are screend's control port and its Exit
+    // Proxy, which listens on loopback alone, so no other container
+    // reaches it. Docker's own resolver listens on 127.0.0.11 in every
+    // container on a user network, and it is not the browser's.
     let listeners = docker_exec_raw(&owner, &["--user", "agent"], &["python3", "-c", LISTENERS]);
     assert!(
         listeners.status.success(),
@@ -865,8 +878,8 @@ async fn the_supervisor_restarts_a_dead_chromium() {
     );
     assert_eq!(
         String::from_utf8_lossy(&listeners.stdout).trim(),
-        pagis_computer::CONTROL_PORT.to_string(),
-        "a TCP port other than the control port listens"
+        format!("0.0.0.0:{}\n127.0.0.1:3128", pagis_computer::CONTROL_PORT),
+        "a TCP port other than the control port and the Exit Proxy listens"
     );
     let probes = docker_exec_raw(&owner, &["--user", "agent"], &["python3", "-c", OPEN_FDS]);
     let report = String::from_utf8_lossy(&probes.stdout).into_owned();
@@ -889,17 +902,23 @@ async fn the_supervisor_restarts_a_dead_chromium() {
     );
 }
 
-/// Prints the ports of the TCP sockets that listen, except the ones of
-/// Docker's resolver on 127.0.0.11.
+/// Prints the address and the port of each TCP socket that listens,
+/// except the ones of Docker's resolver on 127.0.0.11. The kernel
+/// writes an IPv4 address in the byte order of the machine, and both
+/// architectures of the image are little-endian.
 const LISTENERS: &str = r#"
-ports = set()
+import socket
+listeners = set()
 for table in ("/proc/net/tcp", "/proc/net/tcp6"):
     for line in open(table).read().splitlines()[1:]:
         fields = line.split()
         address, port = fields[1].split(":")
-        if fields[3] == "0A" and address != "0B00007F":
-            ports.add(int(port, 16))
-print("\n".join(str(port) for port in sorted(ports)))
+        if fields[3] != "0A" or address == "0B00007F":
+            continue
+        if len(address) == 8:
+            address = socket.inet_ntoa(bytes.fromhex(address)[::-1])
+        listeners.add(f"{address}:{int(port, 16)}")
+print("\n".join(sorted(listeners)))
 "#;
 
 /// Tries to list and to open the file descriptors of every Chromium
@@ -1201,12 +1220,27 @@ async fn the_real_browser_reports_a_human_fingerprint() {
     }
 }
 
+/// The page the blinking caret test types into: one text field that
+/// takes the focus when the page opens, and writes what it holds into
+/// the title of the page.
+const WRITE_CARET_PAGE: &str = r#"cat > /tmp/caret.html <<'PAGE'
+<title>caret</title>
+<body style="margin:40px">
+<input autofocus style="font-size:24px" oninput="document.title = 'caret ' + this.value">
+</body>
+PAGE
+"#;
+
 /// A focused text field blinks its caret, and the screen still counts
 /// as settled: each frame over one blink cycle matches the settled
 /// frame, so the caret does not hold the screenshot after typing until
 /// the limit. The comparison is the one `settled_frame` makes
 /// ([`pagis_computer::exec::frames_match`]), on the real caret of the
 /// real browser.
+///
+/// The field is on a page of the Computer and not in the address bar,
+/// because the address bar fetches search suggestions from the network
+/// and draws them whenever they arrive.
 #[tokio::test]
 #[ignore = "needs Docker; run via cargo test -- --ignored"]
 async fn a_blinking_caret_does_not_hold_a_settled_frame() {
@@ -1214,24 +1248,35 @@ async fn a_blinking_caret_does_not_hold_a_settled_frame() {
     let real = Real::new();
     let (manager, _screens) = real.manager(Duration::from_secs(600));
     let agent_id = AgentId::generate();
+    let owner = real.owner(&agent_id);
     manager.wake(&agent_id).await.expect("wake");
     wait_awake(&manager, &agent_id).await;
+    docker_exec(&owner, &["sh", "-c", WRITE_CARET_PAGE]);
+    open_in_the_running_browser(&owner, "file:///tmp/caret.html");
+    // The page opens in a new tab, which settles before the typing.
+    manager
+        .settled_frame(&agent_id)
+        .await
+        .expect("the page opens");
     manager
         .input(
             &agent_id,
-            &[
-                InputOp::Key {
-                    keys: vec!["ctrl".to_string(), "l".to_string()],
-                    hold_ms: None,
-                },
-                InputOp::Text {
-                    text: "pagis".to_string(),
-                },
-            ],
+            &[InputOp::Text {
+                text: "pagis".to_string(),
+            }],
         )
         .await
-        .expect("typing in the address bar");
-    // The address bar's suggestions open and settle first.
+        .expect("typing in the field");
+    // The text is in the field, so the field has the focus and its
+    // caret blinks.
+    let computer = real
+        .runtime
+        .running(&owner)
+        .await
+        .expect("running query")
+        .expect("computer is running")
+        .computer;
+    wait_for_title(&computer.control_addr, &computer.token, "caret pagis").await;
     manager.settled_frame(&agent_id).await.expect("first frame");
     let settled = manager
         .settled_frame(&agent_id)
@@ -1248,6 +1293,364 @@ async fn a_blinking_caret_does_not_hold_a_settled_frame() {
             "frame {sample} of the blinking caret does not match the settled frame"
         );
     }
+}
+
+/// The target server of the Exit Proxy test, which runs in a container
+/// of its own on the Tenant Network. `/hello` answers at once. `/slow`
+/// sends its headers and the first kilobyte of a megabyte, writes one
+/// line to `/tmp/target.log`, and then holds the connection open for ten
+/// minutes. `/page` is a page whose script reads `/slow` and writes in
+/// its title how the read goes.
+const EXIT_TARGET: &str = r#"
+import http.server, sys, time
+
+PAGE = b"""<!doctype html><title>pagis-exit loading</title>
+<script>
+fetch("/slow").then(async (response) => {
+  const reader = response.body.getReader();
+  await reader.read();
+  document.title = "pagis-exit streaming";
+  try {
+    while (!(await reader.read()).done) {}
+    document.title = "pagis-exit ended";
+  } catch (error) {
+    document.title = "pagis-exit closed";
+  }
+}, () => { document.title = "pagis-exit refused"; });
+</script>"""
+
+
+class Target(http.server.BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
+    def answer(self, kind, body, length=None):
+        self.send_response(200)
+        self.send_header("Content-Type", kind)
+        self.send_header("Content-Length", str(length or len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+        self.wfile.flush()
+
+    def do_GET(self):
+        if self.path == "/page":
+            self.answer("text/html", PAGE)
+        elif self.path == "/hello":
+            self.answer("text/plain", b"hello from the target")
+        elif self.path == "/slow":
+            with open("/tmp/target.log", "a") as log:
+                log.write("slow\n")
+            self.answer("application/octet-stream", b"x" * 1024, 1024 * 1024)
+            time.sleep(600)
+        else:
+            self.send_error(404)
+
+    def log_message(self, *args):
+        pass
+
+
+http.server.ThreadingHTTPServer(("0.0.0.0", int(sys.argv[1])), Target).serve_forever()
+"#;
+
+/// The name of the target server on the Tenant Network, and its port.
+const EXIT_TARGET_NAME: &str = "exit-target";
+const EXIT_TARGET_PORT: u16 = 8080;
+
+/// Start the target server in a container of its own on the Tenant
+/// Network of `real`, as the Vault tests start their site: the Computer
+/// Image with `python3` for its entrypoint. The container carries the
+/// test's mark, so the test removes it with the Computer. It answers
+/// the container's name.
+fn start_exit_target(real: &Real) -> String {
+    let container = format!("pagis-exit-target-{}", real.docker.mark());
+    let label = format!("{}={}", pagis_computer::TEST_LABEL, real.docker.mark());
+    let network = pagis_computer::network_name(&real.workspace_id);
+    let port = EXIT_TARGET_PORT.to_string();
+    let created = Command::new("docker")
+        .args(["create", "--name", &container, "--label", &label])
+        .args(["--network", &network, "--network-alias", EXIT_TARGET_NAME])
+        .args(["--entrypoint", "python3", IMAGE, "-c", EXIT_TARGET, &port])
+        .output()
+        .expect("docker create runs");
+    assert!(
+        created.status.success(),
+        "the target was not created: {}",
+        String::from_utf8_lossy(&created.stderr)
+    );
+    let started = Command::new("docker")
+        .args(["start", &container])
+        .output()
+        .expect("docker start runs");
+    assert!(
+        started.status.success(),
+        "the target did not start: {}",
+        String::from_utf8_lossy(&started.stderr)
+    );
+    container
+}
+
+/// Wait until a window of the Computer carries `title`.
+async fn wait_for_title(control_addr: &str, token: &str, title: &str) {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+    loop {
+        let open = windows(control_addr, token).await;
+        let titles: Vec<String> = open
+            .as_array()
+            .expect("the window list is an array")
+            .iter()
+            .filter_map(|window| window["title"].as_str().map(str::to_string))
+            .collect();
+        if titles.iter().any(|shown| shown.contains(title)) {
+            return;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "no window carries {title:?}: the titles are {titles:?}"
+        );
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+}
+
+/// Every connection of the browser and of the shells leaves through the
+/// Exit Proxy (ADR-0029). It holds these contracts:
+///
+/// - only the daemon reads the proxy's mode: screend asks for the token;
+/// - every shell names the proxy: the shell of `computer_shell`, and
+///   the shell of the terminal, which sudo starts;
+/// - the proxy opens no tunnel to the Computer itself, by loopback or by
+///   its Tenant Network address;
+/// - a page in the browser, opened through the browser channel, and a
+///   shell tool reach a server through the proxy: while a slow request
+///   of each is open, the proxy holds their connections;
+/// - a switch of the mode closes the connections that the proxy holds,
+///   so both slow requests end at once and not after their ten minutes.
+///
+/// The target runs in a second container on the Tenant Network, because
+/// the proxy opens no connection to the Computer itself. Python's
+/// `urllib` is the shell tool: it reads `http_proxy` as curl does, and
+/// the image has no curl.
+#[tokio::test]
+#[ignore = "needs Docker; run via cargo test -- --ignored"]
+async fn the_browser_and_the_shell_leave_through_the_exit_proxy() {
+    let real = Real::new();
+    let runtime = &real.runtime;
+    let (manager, _screens) = real.manager(Duration::from_secs(600));
+    let agent_id = AgentId::generate();
+    let owner = real.owner(&agent_id);
+    manager.wake(&agent_id).await.expect("wake");
+    wait_awake(&manager, &agent_id).await;
+    let computer = runtime
+        .running(&owner)
+        .await
+        .expect("running query")
+        .expect("computer is running")
+        .computer;
+    wait_browser_settled(&computer.control_addr, &owner, "").await;
+    let shell = |command: String, timeout: Duration| {
+        let manager = Arc::clone(&manager);
+        let agent_id = agent_id.clone();
+        async move {
+            manager
+                .shell(
+                    &agent_id,
+                    ShellCommand {
+                        command,
+                        timeout,
+                        cwd: None,
+                        stdin: None,
+                        output_cap: None,
+                    },
+                )
+                .await
+                .expect("shell")
+        }
+    };
+
+    // The daemon alone reads the mode.
+    let refused = reqwest::get(format!("http://{}/exit", computer.control_addr))
+        .await
+        .expect("the control port answers");
+    assert_eq!(refused.status().as_u16(), 401);
+    assert_eq!(
+        runtime
+            .exit_status(&computer)
+            .await
+            .expect("the exit status")
+            .mode,
+        ExitMode::Direct
+    );
+
+    // Every shell names the proxy.
+    let outcome = shell(
+        "printenv HTTP_PROXY HTTPS_PROXY http_proxy https_proxy NO_PROXY no_proxy".to_string(),
+        Duration::from_secs(30),
+    )
+    .await;
+    assert_eq!(
+        outcome.stdout,
+        "http://127.0.0.1:3128\n".repeat(4)
+            + &"localhost,127.0.0.1,::1,host.docker.internal\n".repeat(2)
+    );
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        let terminal = docker_exec_raw(
+            &owner,
+            &["--user", "agent"],
+            &[
+                "sh",
+                "-c",
+                "for pid in $(pgrep -u agent -x bash); do tr '\\0' '\\n' < /proc/$pid/environ; done",
+            ],
+        );
+        let terminal = String::from_utf8_lossy(&terminal.stdout).into_owned();
+        if terminal
+            .lines()
+            .any(|entry| entry == "HTTPS_PROXY=http://127.0.0.1:3128")
+        {
+            assert!(
+                terminal
+                    .lines()
+                    .any(|entry| entry == "no_proxy=localhost,127.0.0.1,::1,host.docker.internal"),
+                "{terminal}"
+            );
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the shell of the terminal does not name the proxy: {terminal}"
+        );
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+
+    // The target, in a container of its own on the Tenant Network.
+    let target_container = start_exit_target(&real);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    while !reaches(&owner, EXIT_TARGET_NAME, EXIT_TARGET_PORT) {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the target does not listen"
+        );
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    let target = format!("http://{EXIT_TARGET_NAME}:{EXIT_TARGET_PORT}");
+
+    // The proxy opens a tunnel to the other container, and none to the
+    // Computer itself, where screend's control port listens on every
+    // address: a page's name that resolves to the Computer reaches
+    // nothing in it.
+    assert_eq!(
+        tunnel_status(&owner, EXIT_TARGET_NAME, EXIT_TARGET_PORT),
+        Some(200)
+    );
+    let own_address = container_ip(&owner);
+    for own in ["127.0.0.1", "localhost", own_address.as_str()] {
+        assert_eq!(
+            tunnel_status(&owner, own, pagis_computer::CONTROL_PORT),
+            Some(403),
+            "the Exit Proxy opened a tunnel to {own}"
+        );
+    }
+
+    // A shell tool reaches the target.
+    let outcome = shell(
+        format!(
+            "python3 -c \"import urllib.request; \
+             print(urllib.request.urlopen('{target}/hello', timeout=30).read().decode())\""
+        ),
+        Duration::from_secs(60),
+    )
+    .await;
+    assert_eq!(outcome.exit_code, 0, "{}", outcome.stderr);
+    assert_eq!(outcome.stdout, "hello from the target\n");
+
+    // A page in the browser reaches the target, and its script holds a
+    // slow request open.
+    runtime
+        .set_holder(&computer, InputHolder::Daemon)
+        .await
+        .expect("holder set to daemon");
+    let opened = runtime
+        .browser_open(&computer, &format!("{target}/page"))
+        .await
+        .expect("the page opens");
+    assert_eq!(opened, format!("{target}/page"));
+    runtime
+        .set_holder(&computer, InputHolder::Agent)
+        .await
+        .expect("holder set back to agent");
+    wait_for_title(
+        &computer.control_addr,
+        &computer.token,
+        "pagis-exit streaming",
+    )
+    .await;
+
+    // A shell tool holds a slow request open too.
+    let slow = tokio::spawn(shell(
+        format!(
+            "python3 -c \"import urllib.request; \
+             response = urllib.request.urlopen('{target}/slow', timeout=300); \
+             response.read()\""
+        ),
+        Duration::from_secs(120),
+    ));
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        let log = Command::new("docker")
+            .args(["exec", &target_container, "cat", "/tmp/target.log"])
+            .output()
+            .expect("docker exec runs");
+        if String::from_utf8_lossy(&log.stdout).lines().count() >= 2 {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the slow requests did not both reach the target"
+        );
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+
+    // Both slow requests pass through the proxy: it holds their
+    // connections.
+    let status = runtime
+        .exit_status(&computer)
+        .await
+        .expect("the exit status");
+    assert!(
+        status.connections >= 2,
+        "the proxy holds {} connections while two slow requests are open",
+        status.connections
+    );
+
+    // A switch closes them, so both end now.
+    let closed = runtime
+        .set_exit_mode(&computer, ExitMode::Direct)
+        .await
+        .expect("the switch");
+    assert!(closed >= 2, "the switch closed {closed} connections");
+    let outcome = tokio::time::timeout(Duration::from_secs(60), slow)
+        .await
+        .expect("the slow shell request ends after the switch")
+        .expect("the shell task ends");
+    assert_ne!(
+        outcome.exit_code, 124,
+        "the slow shell request ran to its deadline"
+    );
+    assert!(
+        ["IncompleteRead", "ConnectionResetError"]
+            .iter()
+            .any(|closed| outcome.stderr.contains(closed)),
+        "the slow shell request did not end with a closed connection: {}",
+        outcome.stderr
+    );
+    wait_for_title(&computer.control_addr, &computer.token, "pagis-exit closed").await;
+    assert_eq!(
+        runtime
+            .exit_status(&computer)
+            .await
+            .expect("the exit status")
+            .mode,
+        ExitMode::Direct
+    );
 }
 
 /// The address of one container on its Tenant Network.
@@ -1267,6 +1670,34 @@ fn container_ip(owner: &ComputerOwner) -> String {
         String::from_utf8_lossy(&output.stderr)
     );
     String::from_utf8_lossy(&output.stdout).trim().to_string()
+}
+
+/// Asks the Exit Proxy of the Computer for a tunnel to
+/// `argv[1]:argv[2]`, and prints the status code of the answer, or
+/// nothing when no answer comes in five seconds.
+const TUNNEL_PROBE: &str = r#"
+import socket, sys
+target = f"{sys.argv[1]}:{sys.argv[2]}"
+try:
+    with socket.create_connection(("127.0.0.1", 3128), timeout=5) as proxy:
+        proxy.sendall(f"CONNECT {target} HTTP/1.1\r\nHost: {target}\r\n\r\n".encode())
+        print(proxy.recv(64).decode(errors="replace").split(" ")[1])
+except OSError:
+    pass
+"#;
+
+/// The status code that the Exit Proxy of `from` answers a tunnel to
+/// `address:port` with, for the agent's shell (ADR-0029), or `None` when
+/// it gives no answer in five seconds. The proxy dials from the
+/// Computer, so the egress rules hold its connections as they hold the
+/// shell's own.
+pub(crate) fn tunnel_status(from: &ComputerOwner, address: &str, port: u16) -> Option<u16> {
+    let output = docker_exec_raw(
+        from,
+        &["--user", "agent"],
+        &["python3", "-c", TUNNEL_PROBE, address, &port.to_string()],
+    );
+    String::from_utf8_lossy(&output.stdout).trim().parse().ok()
 }
 
 /// Whether a TCP connection from inside `from` reaches `address:port`.
@@ -1295,7 +1726,7 @@ async fn a_container_reaches_its_own_tenant_and_not_another() {
     let second = real.owner(&AgentId::generate());
     let stranger = ComputerOwner::new(WorkspaceId::generate(), AgentId::generate());
 
-    let locale = pagis_computer::locale_env("UTC");
+    let locale = pagis_computer::container_env("UTC");
     let (first_boot, second_boot, stranger_boot) = tokio::join!(
         runtime.start(&first, &[], &locale),
         runtime.start(&second, &[], &locale),
@@ -1353,7 +1784,7 @@ async fn a_started_container_carries_the_limits_and_the_owner_labels() {
     let runtime = &real.runtime;
     let owner = real.owner(&AgentId::generate());
     runtime
-        .start(&owner, &[], &pagis_computer::locale_env("UTC"))
+        .start(&owner, &[], &pagis_computer::container_env("UTC"))
         .await
         .expect("the container boots");
 
@@ -1407,7 +1838,7 @@ async fn a_test_leaves_no_container_volume_or_tenant_network_behind() {
     let real = Real::new();
     let owner = real.owner(&AgentId::generate());
     real.runtime
-        .start(&owner, &[], &pagis_computer::locale_env("UTC"))
+        .start(&owner, &[], &pagis_computer::container_env("UTC"))
         .await
         .expect("the container boots");
     let mark = real.docker.mark().to_string();
@@ -1438,7 +1869,7 @@ async fn a_failed_test_leaves_no_docker_object_behind() {
         let real = Real::new();
         let owner = real.owner(&AgentId::generate());
         real.runtime
-            .start(&owner, &[], &pagis_computer::locale_env("UTC"))
+            .start(&owner, &[], &pagis_computer::container_env("UTC"))
             .await
             .expect("the container boots");
         sender
@@ -1465,7 +1896,7 @@ async fn the_control_port_refuses_a_request_without_the_token() {
     let runtime = &real.runtime;
     let owner = real.owner(&AgentId::generate());
     let computer = runtime
-        .start(&owner, &[], &pagis_computer::locale_env("UTC"))
+        .start(&owner, &[], &pagis_computer::container_env("UTC"))
         .await
         .expect("the container boots");
 
@@ -1565,6 +1996,19 @@ async fn the_plugin_computer_carries_a_server_over_a_streaming_exec() {
         "{}",
         String::from_utf8_lossy(&noise)
     );
+
+    // The Plugin Computer runs screend too, so the Exit Proxy that its
+    // environment names listens in it (ADR-0029), and a server's
+    // connections do not point at nothing.
+    let owner = real.owner(&pagis_computer::plugin_agent());
+    assert_eq!(
+        docker_exec(&owner, &["printenv", "HTTPS_PROXY"]),
+        "http://127.0.0.1:3128\n"
+    );
+    assert!(
+        reaches(&owner, "127.0.0.1", 3128),
+        "the Plugin Computer has no Exit Proxy"
+    );
 }
 
 /// A daemon that has made no volume in this run asks Docker whether it
@@ -1614,7 +2058,7 @@ async fn a_wake_learns_whether_the_writable_layer_is_bounded() {
     );
 
     real.runtime
-        .start(&owner, &[], &pagis_computer::locale_env("UTC"))
+        .start(&owner, &[], &pagis_computer::container_env("UTC"))
         .await
         .expect("the container boots");
 
