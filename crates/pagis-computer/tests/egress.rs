@@ -444,6 +444,31 @@ fn echoes(from: &ComputerOwner, address: &str, port: u16) -> bool {
     .success()
 }
 
+/// Asks the Exit Proxy of the Computer for a tunnel to `argv[1]:argv[2]`,
+/// and ends with 0 when the proxy opened it.
+const TUNNEL_PROBE: &str = r#"
+import socket, sys
+target = f"{sys.argv[1]}:{sys.argv[2]}"
+with socket.create_connection(("127.0.0.1", 3128), timeout=5) as proxy:
+    proxy.sendall(f"CONNECT {target} HTTP/1.1\r\nHost: {target}\r\n\r\n".encode())
+    status = proxy.recv(64).decode(errors="replace")
+sys.exit(0 if status.startswith("HTTP/1.1 200") else 1)
+"#;
+
+/// Whether the Exit Proxy of the Computer opens a tunnel to
+/// `address:port` for the agent's shell (ADR-0029). The proxy dials from
+/// the Computer, so the rules hold its connections as they hold the
+/// shell's own.
+fn tunnels(from: &ComputerOwner, address: &str, port: u16) -> bool {
+    docker_exec_raw(
+        from,
+        &["--user", "agent"],
+        &["python3", "-c", TUNNEL_PROBE, address, &port.to_string()],
+    )
+    .status
+    .success()
+}
+
 /// Whether the Computer resolves `name`.
 fn resolves(from: &ComputerOwner, name: &str) -> bool {
     docker_exec_raw(from, &["--user", "agent"], &["getent", "hosts", name])
@@ -457,7 +482,7 @@ const PUBLIC: &str = "example.com";
 /// What `owner`'s Computer reaches before and after the rules. Without
 /// them it reaches every listener, which proves that each probe can
 /// succeed. With them it reaches the internet and the Media Relay, and
-/// nothing else.
+/// nothing else, also through its Exit Proxy.
 fn assert_the_policy(real: &Real, owner: &ComputerOwner, rules: &HostRules) {
     let places = Places::start(real);
     let host = places.host.as_str();
@@ -473,6 +498,10 @@ fn assert_the_policy(real: &Real, owner: &ComputerOwner, rules: &HostRules) {
     assert!(
         reaches(owner, METADATA, SERVICE_PORT),
         "no control: without the rules the Computer does not reach {METADATA}"
+    );
+    assert!(
+        tunnels(owner, METADATA, SERVICE_PORT),
+        "no control: without the rules the Exit Proxy does not reach {METADATA}"
     );
     assert!(
         reaches(owner, &places.lan, SERVICE_PORT),
@@ -495,6 +524,15 @@ fn assert_the_policy(real: &Real, owner: &ComputerOwner, rules: &HostRules) {
     assert!(
         !reaches(owner, METADATA, SERVICE_PORT),
         "the Computer reached the metadata service {METADATA}"
+    );
+    assert!(
+        !tunnels(owner, METADATA, SERVICE_PORT),
+        "the Exit Proxy reached the metadata service {METADATA}"
+    );
+    assert!(
+        !tunnels(owner, &places.lan, SERVICE_PORT),
+        "the Exit Proxy reached the LAN address {}",
+        places.lan
     );
     assert!(
         !reaches(owner, &places.lan, SERVICE_PORT),
@@ -524,6 +562,10 @@ fn assert_the_policy(real: &Real, owner: &ComputerOwner, rules: &HostRules) {
         reaches(owner, PUBLIC, 443),
         "the Computer does not reach {PUBLIC}:443"
     );
+    assert!(
+        tunnels(owner, PUBLIC, 443),
+        "the Exit Proxy does not reach {PUBLIC}:443"
+    );
 }
 
 /// A Computer reaches the public internet and the Media Relay, and not
@@ -537,7 +579,7 @@ async fn a_computer_reaches_the_internet_and_the_media_relay_and_nothing_private
     let owner = real.owner(&AgentId::generate());
     let computer = real
         .runtime
-        .start(&owner, &[], &pagis_computer::locale_env("UTC"))
+        .start(&owner, &[], &pagis_computer::container_env("UTC"))
         .await
         .expect("the container boots");
 
@@ -598,7 +640,7 @@ async fn an_allowed_private_block_is_reachable_and_root_in_the_computer_cannot_c
     let real = Real::new();
     let owner = real.owner(&AgentId::generate());
     real.runtime
-        .start(&owner, &[], &pagis_computer::locale_env("UTC"))
+        .start(&owner, &[], &pagis_computer::container_env("UTC"))
         .await
         .expect("the container boots");
     let places = Places::start(&real);

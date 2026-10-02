@@ -44,6 +44,13 @@ firewall before the daemon starts:
   `100.64.0.0/10`), which are the LAN or the VPC: no, except the blocks in
   `PAGIS_COMPUTER_ALLOW`.
 
+Every connection of the browser and of the shells in a Computer leaves
+through the Exit Proxy, a proxy on the Computer's loopback that opens
+each connection from the Computer, so the same rules hold it. The
+browser sends its connections to the proxy, and every shell has
+`HTTP_PROXY` and `HTTPS_PROXY` set to it. A tool that ignores these
+variables connects directly.
+
 `PAGIS_COMPUTER_ALLOW` in `.env` names the private destinations that a
 Computer reaches, as IPv4 addresses and CIDR blocks separated by commas:
 

@@ -1173,6 +1173,23 @@ impl ComputerRuntime for FakeComputerRuntime {
         Ok(self.state.lock().expect("fake state").user_idle_ms)
     }
 
+    /// A fake Computer runs no browser and no shell, so its Exit Proxy
+    /// holds no connection, and it stays in the one mode there is.
+    async fn exit_status(&self, _computer: &StartedComputer) -> Result<crate::ExitStatus, String> {
+        Ok(crate::ExitStatus {
+            mode: crate::ExitMode::Direct,
+            connections: 0,
+        })
+    }
+
+    async fn set_exit_mode(
+        &self,
+        _computer: &StartedComputer,
+        _mode: crate::ExitMode,
+    ) -> Result<u64, String> {
+        Ok(0)
+    }
+
     async fn exec(
         &self,
         computer: &StartedComputer,

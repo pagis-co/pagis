@@ -1462,6 +1462,38 @@ async fn a_container_boots_with_the_workspace_timezone_and_the_locale() {
     );
 }
 
+/// Every container the daemon starts runs screend and with it the Exit
+/// Proxy (ADR-0029), so every one boots with the proxy entries: an
+/// Agent's Computer and the Plugin Computer alike. Each tool reads one
+/// case of the names, and loopback and the Docker host stay out of the
+/// proxy.
+#[tokio::test]
+async fn every_computer_boots_with_the_exit_proxy_in_its_environment() {
+    let h = harness_with(FakeComputerRuntime::with_image(), Duration::from_secs(600));
+
+    h.manager.wake(&h.agent_id).await.expect("wake");
+    wait_awake(&h).await;
+    h.manager
+        .ensure_plugin_computer(Vec::new())
+        .await
+        .expect("the plugin computer wakes");
+
+    let envs = h.runtime.start_envs();
+    assert_eq!(envs.len(), 2, "{envs:?}");
+    for env in envs {
+        for entry in [
+            "HTTP_PROXY=http://127.0.0.1:3128",
+            "HTTPS_PROXY=http://127.0.0.1:3128",
+            "http_proxy=http://127.0.0.1:3128",
+            "https_proxy=http://127.0.0.1:3128",
+            "NO_PROXY=localhost,127.0.0.1,::1,host.docker.internal",
+            "no_proxy=localhost,127.0.0.1,::1,host.docker.internal",
+        ] {
+            assert!(env.contains(&entry.to_string()), "missing {entry}: {env:?}");
+        }
+    }
+}
+
 #[tokio::test]
 async fn a_new_workspace_timezone_reaches_the_next_wake() {
     let h = harness_with(FakeComputerRuntime::with_image(), Duration::from_millis(20));
