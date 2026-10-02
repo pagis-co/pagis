@@ -10,6 +10,11 @@
 # (traffic that the host forwards) and INPUT chain (traffic to the host
 # itself), so root inside a Computer cannot remove them.
 #
+# The exit listener binds every interface of this host, because the
+# address at which a Computer reaches the host is Docker's choice. The
+# rules close its port to every interface but the Computers' bridges: to
+# the network, to the other containers and to the host itself.
+#
 # The `egress` service of `compose.yaml` runs this script with the host's
 # network and NET_ADMIN before the daemon starts. Each run replaces the
 # Pagis chains and their jumps in one iptables-restore transaction, so a
@@ -108,10 +113,15 @@ earlier_jumps() {
   # A chain that exists is emptied, and a chain that does not is made.
   echo ':PAGIS-FORWARD - [0:0]'
   echo ':PAGIS-INPUT - [0:0]'
+  echo ':PAGIS-EXIT - [0:0]'
   earlier_jumps DOCKER-USER PAGIS-FORWARD
   earlier_jumps INPUT PAGIS-INPUT
+  earlier_jumps INPUT PAGIS-EXIT
   echo "-I DOCKER-USER 1 -i $bridges -j PAGIS-FORWARD"
   echo "-I INPUT 1 -i $bridges -j PAGIS-INPUT"
+  # The two jumps of INPUT match two sets of interfaces with no interface
+  # in common, so their order changes nothing.
+  echo "-I INPUT 1 ! -i $bridges -j PAGIS-EXIT"
 
   # Traffic that the host forwards from a Computer.
   echo '-A PAGIS-FORWARD -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN'
@@ -138,6 +148,10 @@ earlier_jumps() {
   echo "-A PAGIS-INPUT -p udp --dport $first:$last -j RETURN"
   echo "-A PAGIS-INPUT -p tcp --dport $exit_port -j RETURN"
   echo '-A PAGIS-INPUT -j DROP'
+
+  # Traffic to the exit port from every interface but the Computers'
+  # bridges.
+  echo "-A PAGIS-EXIT -p tcp --dport $exit_port -j DROP"
   echo 'COMMIT'
 } | "$iptables-restore" --noflush
 

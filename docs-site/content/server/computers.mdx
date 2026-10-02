@@ -32,9 +32,13 @@ firewall before the daemon starts:
 - **The exit port of the daemon**: yes, TCP port `4403` on the VM. The
   Exit Proxy of a Computer in Home mode sends each connection there, with
   the Computer's token, and the daemon carries it through the Person's
-  Home Exit, or from the VM while that Host is absent. `PAGIS_EXIT_PORT`
-  of the `egress` service and `PAGIS_COMPUTER_EXIT_PORT` of the daemon
-  name the same port in `compose.yaml`.
+  Home Exit, or from the VM while that Host is absent. The daemon binds
+  the port on every interface, and the rules close it to everything but
+  the Computers: to the network, to the other containers and to the VM
+  itself. One address of a Computer holds at most 256 connections to it
+  at once. `PAGIS_EXIT_PORT` of the `egress` service and
+  `PAGIS_COMPUTER_EXIT_PORT` of the daemon name the same port in
+  `compose.yaml`.
 - **Name resolution**: yes, UDP and TCP port 53 to the resolvers that Docker
   gives to containers, also when a resolver has a private or link-local
   address.
@@ -97,14 +101,15 @@ Computer.
 `egress.sh` writes its rules with the backend of `iptables` that holds
 Docker's `DOCKER-USER` chain, `nf_tables` or legacy. It stops with an error
 when the VM has no such chain, and the daemon does not start. Each run
-replaces the Pagis chains, `PAGIS-FORWARD` and `PAGIS-INPUT`, and their
-jumps, so a second run leaves one copy of each rule. To read what is in
-place:
+replaces the Pagis chains, `PAGIS-FORWARD`, `PAGIS-INPUT` and
+`PAGIS-EXIT`, and their jumps, so a second run leaves one copy of each
+rule. To read what is in place:
 
 ```bash
 docker compose logs egress
 sudo iptables -S PAGIS-FORWARD
 sudo iptables -S PAGIS-INPUT
+sudo iptables -S PAGIS-EXIT
 ```
 
 A stop of the `egress` service leaves the rules in place. A boot of the VM

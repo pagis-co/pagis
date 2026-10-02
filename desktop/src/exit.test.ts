@@ -7,6 +7,7 @@ import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import http, { type IncomingHttpHeaders } from 'node:http'
 import net, { type AddressInfo, type Socket } from 'node:net'
+import type { NetworkInterfaceInfo } from 'node:os'
 import path from 'node:path'
 import { type Duplex, duplexPair } from 'node:stream'
 
@@ -14,15 +15,18 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   carry,
+  type Connect,
   connectTcp,
   type Destination,
   type Dial,
   ExitLink,
   type ExitSocket,
   homeDial,
+  type Interfaces,
   isRefusedAddress,
   openExitSocket,
   parseDestination,
+  RefusedDestination,
 } from './exit'
 
 describe('the address check', () => {
@@ -89,6 +93,79 @@ describe('the address check', () => {
 
   it.each(allowed)('allows %s (%s)', (address) => {
     expect(isRefusedAddress(address)).toBe(false)
+  })
+})
+
+/** One address of an interface, as `os.networkInterfaces` gives it. */
+function address(cidr: string): NetworkInterfaceInfo {
+  const [value] = cidr.split('/')
+  return net.isIPv4(value)
+    ? { address: value, netmask: '', family: 'IPv4', mac: '00:00:00:00:00:00', internal: false, cidr }
+    : { address: value, netmask: '', family: 'IPv6', mac: '00:00:00:00:00:00', internal: false, cidr, scopeid: 0 }
+}
+
+describe('the networks of this machine', () => {
+  // A home network with global IPv6 addresses and a public IPv4 LAN, and
+  // a tunnel whose address is the machine's own public address.
+  const home: Interfaces = () => ({
+    lo0: [address('127.0.0.1/8'), address('::1/128')],
+    en0: [address('2001:db8:1:2::10/64'), address('203.0.113.9/24')],
+    utun0: [address('198.51.100.20/32')],
+  })
+
+  it.each([
+    ["the machine's own global IPv6 address", '2001:db8:1:2::10'],
+    ['a printer in the home /64', '2001:db8:1:2::99'],
+    ['an address of the public IPv4 LAN', '203.0.113.77'],
+    ['the IPv4-mapped form of an address of that LAN', '::ffff:203.0.113.77'],
+    ["the machine's own public IPv4 address", '198.51.100.20'],
+  ])('refuses %s, which no fixed range holds', async (_what, local) => {
+    expect(isRefusedAddress(local)).toBe(false)
+    const connect = vi.fn(async () => ({}) as Socket)
+    const dial = homeDial(async () => [{ address: local }], connect, home)
+
+    await expect(dial({ host: 'nas.example.com', port: 443 }, new AbortController().signal)).rejects.toBeInstanceOf(
+      RefusedDestination,
+    )
+    expect(connect).not.toHaveBeenCalled()
+  })
+
+  it('connects to an address outside every local subnet', async () => {
+    const connect = vi.fn<Connect>(async () => ({}) as Socket)
+    const signal = new AbortController().signal
+
+    for (const outside of ['2001:db8:1:3::1', '203.0.114.1', '198.51.100.21']) {
+      await homeDial(async () => [{ address: outside }], connect, home)({ host: 'example.com', port: 443 }, signal)
+    }
+
+    expect(connect.mock.calls.map(([host]) => host)).toEqual(['2001:db8:1:3::1', '203.0.114.1', '198.51.100.21'])
+  })
+
+  it('skips a local address and connects to the next one that passes', async () => {
+    const connect = vi.fn(async () => ({}) as Socket)
+    const signal = new AbortController().signal
+
+    await homeDial(async () => [{ address: '2001:db8:1:2::99' }, { address: '2001:db8:9::1' }], connect, home)(
+      { host: 'example.com', port: 443 },
+      signal,
+    )
+
+    expect(connect).toHaveBeenCalledWith('2001:db8:9::1', 443, signal)
+  })
+
+  it('reads the interfaces at each dial, as a laptop moves from one network to another', async () => {
+    const connect = vi.fn(async () => ({}) as Socket)
+    const signal = new AbortController().signal
+    let network = '2001:db8:1:2::10/64'
+    const interfaces = vi.fn<Interfaces>(() => ({ en0: [address(network)] }))
+    const dial = homeDial(async () => [{ address: '2001:db8:1:2::99' }], connect, interfaces)
+
+    await expect(dial({ host: 'example.com', port: 443 }, signal)).rejects.toBeInstanceOf(RefusedDestination)
+    network = '2001:db8:7:7::10/64'
+    await dial({ host: 'example.com', port: 443 }, signal)
+
+    expect(interfaces).toHaveBeenCalledTimes(2)
+    expect(connect).toHaveBeenCalledWith('2001:db8:1:2::99', 443, signal)
   })
 })
 

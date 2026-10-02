@@ -139,10 +139,16 @@ memory.
 The listener binds every interface of the server. The Computers reach it
 at `host.docker.internal`, which Docker maps to an address of its own
 choice on the Docker host, so no one bind address fits every Docker host.
-The token check stands in for a narrower bind: the token is 256 random
-bits that the agent's shell cannot read. The egress rules of the
-deployment open the port to the Computers, and the firewall of the server
-keeps it closed to the network.
+The egress rules of the deployment close the port to everything but the
+Computers: a rule of the `INPUT` chain drops the TCP of the port on every
+interface but the Computers' bridges, so the network, the other
+containers and the server itself reach it no more than they reach a
+closed port. The token check stands in for a narrower bind among the
+Computers: the token is 256 random bits that the agent's shell cannot
+read. One source address holds at most 256 connections at once, eight
+times the 32 that Chromium holds to one proxy, so a shell of an Agent,
+which reaches the port with no token, cannot take the open files that
+serve every Workspace.
 
 ### The Home Exit is one Host of the Person, chosen by that Person
 
@@ -192,11 +198,16 @@ real WebSocket. Each stream starts with one line each way:
 3. After `ok` the stream carries the raw bytes of the connection both
    ways, and a half-close of one side is a half-close of the other.
 
-For each stream, the Client App resolves the name, refuses each loopback,
-private, link-local, carrier-grade NAT, multicast, unspecified or
-broadcast address after the lookup, IPv4-mapped and NAT64 forms
-included, and dials the first address that passes. The check after the
-lookup stops a name that resolves to the home network.
+For each stream, the Client App resolves the name and refuses, after
+the lookup, each loopback, private, link-local, carrier-grade NAT,
+multicast, unspecified or broadcast address, IPv4-mapped and NAT64 forms
+included, each address of its own machine, and each address in the
+subnet of one of its interfaces, in both families. A home network can
+have public addresses: most have global IPv6 addresses, and some
+machines have a public IPv4 address, so the fixed ranges alone do not
+hold it. The Client App reads its interfaces at each dial, because they
+change as a laptop moves. It dials the first address that passes. The
+check after the lookup stops a name that resolves to the home network.
 
 When the Home Exit is absent, a new connection leaves from the server, and
 the connections that it carried close: the end of the exit socket ends
@@ -278,8 +289,12 @@ Other ways were considered:
 - In Home mode every connection of a Computer but a literal private one
   passes through the daemon, so a new connection fails while the daemon
   restarts, and the connections that it carried close with it.
-- The exit listener is a port of the server on every interface, and the
-  firewall of the server keeps it closed to the network.
+- The exit listener is a port of the server on every interface. On a
+  server that the deployment's egress rules do not hold, the firewall of
+  the server keeps it closed to the network.
+- The Client App's check holds the subnets of its interfaces, and not a
+  home network that it reaches through a router only, such as a second
+  subnet behind the same router.
 
 ## Not built
 

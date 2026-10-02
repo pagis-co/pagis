@@ -135,7 +135,7 @@ fn run_egress(env: &[(&str, &str)]) -> Output {
 const LIST_RULES: &str = r#"set -e
 for t in iptables-nft iptables-legacy; do
   "$t" -S DOCKER-USER >/dev/null 2>&1 || continue
-  for chain in DOCKER-USER INPUT PAGIS-FORWARD PAGIS-INPUT; do
+  for chain in DOCKER-USER INPUT PAGIS-FORWARD PAGIS-INPUT PAGIS-EXIT; do
     "$t" -S "$chain" 2>/dev/null | grep -e PAGIS || true
   done
   exit 0
@@ -154,7 +154,7 @@ for t in iptables-nft iptables-legacy; do
       [ -z "$rule" ] || "$t" $rule
     done
   done
-  for chain in PAGIS-FORWARD PAGIS-INPUT; do
+  for chain in PAGIS-FORWARD PAGIS-INPUT PAGIS-EXIT; do
     if "$t" -S "$chain" >/dev/null 2>&1; then
       "$t" -F "$chain"
       "$t" -X "$chain"
@@ -162,6 +162,34 @@ for t in iptables-nft iptables-legacy; do
   done
 done
 "#;
+
+/// Prints the INPUT chain of the Docker host in the form of
+/// `iptables -S`, in its order, from the backend that holds Docker's
+/// DOCKER-USER chain.
+const LIST_INPUT: &str = r#"set -e
+for t in iptables-nft iptables-legacy; do
+  "$t" -S DOCKER-USER >/dev/null 2>&1 || continue
+  "$t" -S INPUT
+  exit 0
+done
+echo "the Docker host has no DOCKER-USER chain" >&2
+exit 1
+"#;
+
+/// The rules of the INPUT chain of the Docker host, in order.
+fn input_rules() -> Vec<String> {
+    let listed = on_the_docker_host(&[], LIST_INPUT.as_bytes());
+    assert!(
+        listed.status.success(),
+        "the INPUT chain is not listed: {}",
+        String::from_utf8_lossy(&listed.stderr)
+    );
+    String::from_utf8_lossy(&listed.stdout)
+        .lines()
+        .filter(|rule| rule.starts_with("-A "))
+        .map(str::to_string)
+        .collect()
+}
 
 /// Each Pagis rule on the Docker host.
 fn host_rules() -> Vec<String> {
@@ -459,6 +487,30 @@ fn echoes(from: &ComputerOwner, address: &str, port: u16) -> bool {
     .success()
 }
 
+/// Whether a TCP connection from a container on `network` reaches
+/// `address:port`: `host` is the network namespace of the Docker host
+/// itself, and `bridge` is Docker's default bridge, whose interface is
+/// `docker0` and not one of the Computers' bridges.
+fn reaches_from(real: &Real, network: &str, address: &str, port: u16) -> bool {
+    let probe = format!("timeout 5 bash -c 'exec 3<>/dev/tcp/{address}/{port}'");
+    Command::new("docker")
+        .args(["run", "--rm", "--label"])
+        .arg(format!("{TEST_LABEL}={}", real.docker.mark()))
+        .args([
+            "--network",
+            network,
+            "--entrypoint",
+            "bash",
+            IMAGE,
+            "-c",
+            &probe,
+        ])
+        .output()
+        .expect("docker run")
+        .status
+        .success()
+}
+
 /// Whether the Computer resolves `name`.
 fn resolves(from: &ComputerOwner, name: &str) -> bool {
     docker_exec_raw(from, &["--user", "agent"], &["getent", "hosts", name])
@@ -517,6 +569,14 @@ fn assert_the_policy(real: &Real, owner: &ComputerOwner, rules: &HostRules) {
         "no control: without the rules the Computer does not reach the exit port {host}:{}",
         places.exit_port
     );
+    for network in ["host", "bridge"] {
+        assert!(
+            reaches_from(real, network, host, places.exit_port),
+            "no control: without the rules the {network} network does not reach the exit port \
+             {host}:{}",
+            places.exit_port
+        );
+    }
     assert!(
         echoes(owner, host, places.media.last + 1),
         "no control: without the rules the Computer does not reach UDP {host}:{}",
@@ -558,6 +618,16 @@ fn assert_the_policy(real: &Real, owner: &ComputerOwner, rules: &HostRules) {
         "the Computer did not reach the exit listener at TCP {host}:{}",
         places.exit_port
     );
+    // The exit listener binds every interface of the host, and the rules
+    // close its port to everything but the Computers' bridges: to the
+    // host itself, and to a container on another bridge.
+    for network in ["host", "bridge"] {
+        assert!(
+            !reaches_from(real, network, host, places.exit_port),
+            "the {network} network reached the exit port {host}:{}",
+            places.exit_port
+        );
+    }
     assert!(
         !echoes(owner, host, places.media.last + 1),
         "the Computer reached UDP port {} of the Docker host, outside the media range",
@@ -741,10 +811,23 @@ fn a_second_run_leaves_one_copy_of_each_rule() {
     let jumps = [
         format!("-A DOCKER-USER -i {bridge} -j PAGIS-FORWARD"),
         format!("-A INPUT -i {bridge} -j PAGIS-INPUT"),
+        format!("-A INPUT ! -i {bridge} -j PAGIS-EXIT"),
     ];
     for jump in &jumps {
         assert!(second.contains(jump), "no {jump:?} in {second:#?}");
     }
+    // The two jumps of INPUT come before every other rule of the chain,
+    // so no rule of the host takes a packet first.
+    let input = input_rules();
+    assert_eq!(
+        input[..2],
+        [jumps[2].clone(), jumps[1].clone()],
+        "the INPUT chain is {input:#?}"
+    );
+    assert!(
+        second.contains(&"-A PAGIS-EXIT -p tcp -m tcp --dport 4403 -j DROP".to_string()),
+        "the exit port is not closed to the other interfaces in {second:#?}"
+    );
     for block in [
         "169.254.0.0/16",
         "10.0.0.0/8",
@@ -769,7 +852,7 @@ fn a_second_run_leaves_one_copy_of_each_rule() {
     );
 
     let other = format!("pgt{:08x}", rand::random::<u32>());
-    rules.install(&other, &media, 4403, "");
+    rules.install(&other, &media, 4500, "");
     let third = host_rules();
     let jumps_now: Vec<&String> = third
         .iter()
@@ -779,6 +862,7 @@ fn a_second_run_leaves_one_copy_of_each_rule() {
         jumps_now,
         [
             &format!("-A DOCKER-USER -i {other} -j PAGIS-FORWARD"),
+            &format!("-A INPUT ! -i {other} -j PAGIS-EXIT"),
             &format!("-A INPUT -i {other} -j PAGIS-INPUT"),
         ],
         "{third:#?}"
@@ -786,6 +870,14 @@ fn a_second_run_leaves_one_copy_of_each_rule() {
     assert!(
         !third.iter().any(|rule| rule.contains("10.20.0.0/16")),
         "the block of the earlier run stays: {third:#?}"
+    );
+    assert!(
+        !third.iter().any(|rule| rule.contains("4403")),
+        "the exit port of the earlier run stays: {third:#?}"
+    );
+    assert!(
+        third.contains(&"-A PAGIS-EXIT -p tcp -m tcp --dport 4500 -j DROP".to_string()),
+        "{third:#?}"
     );
 }
 
