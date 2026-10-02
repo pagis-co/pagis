@@ -55,8 +55,16 @@ async fn exit_host(harness: &Harness, workspace_id: &WorkspaceId, name: &str) ->
 async fn open_exit(exits: &Arc<HomeExits>, host: &Host, exit: Arc<FakeHomeExit>) {
     let (daemon_end, client_app_end) = exit_socket_pair();
     let serving = Arc::clone(exits);
-    let (workspace_id, host_id) = (host.workspace_id.clone(), host.id.clone());
-    tokio::spawn(async move { serving.serve(workspace_id, host_id, daemon_end).await });
+    let (workspace_id, host_id, host_name) = (
+        host.workspace_id.clone(),
+        host.id.clone(),
+        host.name.clone(),
+    );
+    tokio::spawn(async move {
+        serving
+            .serve(workspace_id, host_id, host_name, daemon_end)
+            .await
+    });
     tokio::spawn(exit.serve(client_app_end));
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
     while !exits.is_open(&host.id) {
