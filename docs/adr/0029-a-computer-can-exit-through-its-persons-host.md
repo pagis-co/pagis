@@ -97,9 +97,11 @@ A Computer takes its first mode at its wake. The daemon names the exit
 listener and the first mode in `PAGIS_EXIT_DAEMON` and `PAGIS_EXIT_MODE`
 of the container, and screend starts the proxy in that mode and writes
 its policy file before the browser starts. An Agent's Computer on a
-Server starts in Home mode when its Person has chosen a Home Exit, and in
-Direct mode otherwise. A Computer of a Local Installation names no exit
-listener and runs in Direct mode alone, and the daemon of a Local
+Server names the exit listener in both modes, so a switch to Home mode
+reaches a Computer that woke in Direct mode. It starts in Home mode when
+its Person has chosen a Home Exit and the Home Exit System Setting is on,
+and in Direct mode otherwise. A Computer of a Local Installation names no
+exit listener and runs in Direct mode alone, and the daemon of a Local
 Installation opens no exit listener: its Computers already leave from the
 owner's connection. The Plugin Computer names no exit listener either and
 stays in Direct mode: it serves the Plugins of the Workspace, which call
@@ -160,6 +162,49 @@ the write. The daemon checks it again when it opens a stream: an exit
 socket carries the connections of the Workspace whose Session opened it,
 and of no other, whatever the record names.
 
+The Person reads and sets the choice at `/api/v1/settings/home-exit` of
+the product port: `GET` reads it with the Hosts that declared `exit` and
+whether each has its exit socket open, `PUT` chooses a Host, and `DELETE`
+clears the choice. `PUT` reads the Host in the Person's Workspace, so the
+Host of another Person answers `404`, and a Host that declared no `exit`
+answers `422`. The Settings card is on the Hosts page of the Product App.
+A Local Installation has no Home Exit: `GET` says that it is not
+available, the card shows nothing, and a change answers `409`.
+
+The **Home Exit System Setting** is `[computer] home_exit` of
+`config.toml`, on by default. An Administrator turns it off in the System
+Settings of the Administration Interface (`PUT
+/api/v1/settings/system/home-exit`), which a Local Installation answers
+with `409`. While it is off, no choice is in effect: every Computer runs
+in Direct mode, the exit listener carries no connection through a Home
+Exit, and a new choice answers `409`. The choice of each Person stays in
+the store, the Settings card says that the Administrator turned the Home
+Exit off, and each choice is in effect again when the setting is on.
+
+### A change switches the awake Computers at once
+
+When a Person turns their Home Exit on, off, or to another Host, the
+daemon switches the Exit Proxy of each of their awake Agent's Computers
+with `POST /exit`, at once and with no restart. It switches every one,
+also one whose mode stays, so the connections through the old Host close.
+A Computer whose switch fails keeps its mode and does not stop the others:
+the answer of the route names each one with the reason, and that Computer
+takes the choice at its next wake. A Computer that is asleep takes it at
+its wake.
+
+When the System Setting changes, the daemon switches each awake Computer
+of every Person whose mode is not the mode in effect, and leaves the others
+and their connections as they are. Its answer counts the Computers that
+did not switch, and the log names them.
+
+A Computer that downloads its image or starts when the choice changes read
+the choice at its wake, and a switch passes it by. Once it is awake, the
+daemon compares its mode with the mode in effect and switches it when they
+differ. A Computer that a restart of the daemon left running reports its
+mode at its adoption, and the daemon switches it the same way. The switches
+of one Workspace run one at a time, so the last change of the choice is
+the one that the Computers keep.
+
 A Client App that is connected to an installation that it did not start
 declares `exit` beside `shell`. A Client App of a Local Installation does
 not. After its Host socket registered the machine, the Client App opens
@@ -200,10 +245,26 @@ lookup stops a name that resolves to the home network.
 
 When the Home Exit is absent, a new connection leaves from the server, and
 the connections that it carried close: the end of the exit socket ends
-every stream on it. The Computer's view and the Agent's
-`computer` tool result say which exit is in use, such as "exit: MacBook
-Pro" or "exit: server". A sudden change of address is a signal that
-sites read, so the Person sees each change.
+every stream on it.
+
+### The Person sees the exit in use
+
+The daemon defines the **exit in use** of an awake Agent's Computer once,
+for every place that shows it:
+
+- In Home mode while the Person's Home Exit is present: `exit: <Host
+  name>`, such as `exit: MacBook Pro`.
+- In Home mode while it is absent: `exit: server`.
+- In Direct mode: nothing, because a Person with no Home Exit needs no
+  label.
+
+The view of the Computer reads it as the `exit` of its state, and the
+Agent reads it on the last line of each `computer` tool result, outside
+the envelope of the screen, because the daemon writes it. A sudden change
+of address is a signal that sites read, so the Person sees each change: the
+daemon publishes `computer.exit_changed` with the new label for each
+Computer that switches, and for each Computer in Home mode whose Home Exit
+comes or goes, and the Product App reads the state of that Computer again.
 
 ### The Person turns it on knowing the cost
 
@@ -218,7 +279,12 @@ The Settings card that turns the Home Exit on says, before the switch:
 - The Agents reach nothing on this machine or its local network.
 
 While exit traffic flows, the tray item of the Client App says so with a
-byte count, and its menu turns the Home Exit off.
+byte count, and its menu turns the Home Exit off. The Client App counts in
+its own carry of each stream: the connections open now, and the bytes that
+it copied both ways since it started. While a connection is open, the first
+item of the tray menu says "Home Exit: 3 connections, 12.4 MB carried", and
+"Turn Off Home Exit" under it sends `DELETE /api/v1/settings/home-exit`
+with the Session of the Host socket, as the Settings card does.
 
 Other ways were considered:
 
@@ -273,22 +339,12 @@ Other ways were considered:
   `PAGIS_COMPUTER_ALLOW` opens, does not resolve there. A Computer in Home
   mode reaches such a destination by its address, which leaves from the
   Computer.
-- A Computer takes the Person's choice at its wake, so a Computer that
-  is awake when the choice changes keeps its mode until its next wake.
+- A change of the choice closes the open connections of each awake
+  Computer of the Person, also when the mode stays, and a change of the
+  System Setting closes those of each Computer that switches. A Computer
+  whose switch fails keeps its mode until its next wake.
 - In Home mode every connection of a Computer but a literal private one
   passes through the daemon, so a new connection fails while the daemon
   restarts, and the connections that it carried close with it.
 - The exit listener is a port of the server on every interface, and the
   firewall of the server keeps it closed to the network.
-
-## Not built
-
-- The Settings route and card where a Person chooses their Home Exit.
-  The Workspace holds the choice, and nothing in the product writes it
-  yet.
-- The System Setting that turns the Home Exit off for the installation.
-- The switch of every Computer of a Person, with no restart, when the
-  choice changes.
-- The exit in use in the Computer's view and in the tool result, the
-  tray count of the Client App, and the documentation of the Home Exit
-  for People and for Administrators.

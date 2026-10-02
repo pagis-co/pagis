@@ -32,7 +32,7 @@ firewall before the daemon starts:
 - **The exit port of the daemon**: yes, TCP port `4403` on the VM. The
   Exit Proxy of a Computer in Home mode sends each connection there, with
   the Computer's token, and the daemon carries it through the Person's
-  Home Exit, or from the VM while that Host is absent. `PAGIS_EXIT_PORT`
+  [Home Exit](/server/home-exit), or from the VM while that Host is absent. `PAGIS_EXIT_PORT`
   of the `egress` service and `PAGIS_COMPUTER_EXIT_PORT` of the daemon
   name the same port in `compose.yaml`.
 - **Name resolution**: yes, UDP and TCP port 53 to the resolvers that Docker

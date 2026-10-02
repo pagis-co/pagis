@@ -16,6 +16,7 @@ mod exit_socket;
 pub mod forget;
 pub mod forwarded;
 mod grants;
+mod home_exit;
 mod hosts;
 mod knowledge;
 mod live_connections;
@@ -736,6 +737,13 @@ fn product_router(state: Arc<AppState>) -> Router {
         .route(
             "/api/v1/settings/sign-in-links",
             post(sign_in_links::make_client_link),
+        )
+        // The Person's own Home Exit (ADR-0029).
+        .route(
+            "/api/v1/settings/home-exit",
+            get(home_exit::get_home_exit)
+                .put(home_exit::set_home_exit)
+                .delete(home_exit::clear_home_exit),
         )
         // The sockets read the same session cookie as every other
         // route, so they sit behind the same middleware. Their

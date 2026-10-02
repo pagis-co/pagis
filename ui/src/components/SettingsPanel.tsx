@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import type { ApiClient } from '../api/client'
 import { AdministrationLink } from './settings/AdministrationLink'
 import { Connections } from './Connections'
+import { HomeExit } from './settings/HomeExit'
 import { Hosts } from './settings/Hosts'
 import { ModelsSettings } from './ModelsSettings'
 import { Retention } from './settings/Retention'
@@ -159,7 +160,12 @@ export function SettingsPanel({
           <Connections api={api} onOpen={onOpenConnection} />
         </section>
       )}
-      {section === 'hosts' && <Hosts api={api} />}
+      {section === 'hosts' && (
+        <>
+          <Hosts api={api} />
+          <HomeExit api={api} />
+        </>
+      )}
       {section === 'sessions' && <Sessions api={api} />}
       {section === 'vault' && <Vault api={api} />}
       {section === 'trusted-contacts' && <TrustedContacts api={api} />}

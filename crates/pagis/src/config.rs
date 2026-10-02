@@ -300,6 +300,11 @@ pub struct Computer {
     /// connection there, and the egress rules open it to the Computers.
     /// A Local Installation opens no exit listener.
     pub exit_port: u16,
+    /// The Home Exit System Setting of a Server (ADR-0029): whether its
+    /// People may send their Computers' connections through a Home Exit.
+    /// On by default; an Administrator turns it off for the installation
+    /// in System Settings. A Local Installation has no Home Exit.
+    pub home_exit: bool,
 }
 
 impl Default for Computer {
@@ -316,6 +321,7 @@ impl Default for Computer {
             volume_gb: 10,
             layer_gb: 10,
             exit_port: DEFAULT_COMPUTER_EXIT_PORT,
+            home_exit: true,
         }
     }
 }
@@ -808,6 +814,27 @@ mod tests {
 
         std::fs::write(&path, "analytics = false\n").unwrap();
         assert!(!Config::read_file(&path).unwrap().analytics);
+    }
+
+    /// The Home Exit of a Server is on until an Administrator turns it
+    /// off, in a new file and in a file that does not name the setting.
+    #[test]
+    fn the_home_exit_is_on_by_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+
+        assert!(Config::load_or_init(&path).unwrap().computer.home_exit);
+        assert!(
+            std::fs::read_to_string(&path)
+                .unwrap()
+                .contains("home_exit = true")
+        );
+
+        std::fs::write(&path, "[computer]\nexit_port = 4403\n").unwrap();
+        assert!(Config::read_file(&path).unwrap().computer.home_exit);
+
+        std::fs::write(&path, "[computer]\nhome_exit = false\n").unwrap();
+        assert!(!Config::read_file(&path).unwrap().computer.home_exit);
     }
 
     /// Remote Access is off until the switch or the deployment turns it

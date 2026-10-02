@@ -1,7 +1,8 @@
 // The Computer tile of an Agent. Awake, the tile is a live WebRTC view
 // that expands to a full-page view; asleep, it shows the last screenshot
 // and a Wake button. `computer.state_changed` WS events keep state and
-// preview live.
+// preview live. An awake Computer in Home mode names the exit in use,
+// and `computer.exit_changed` events keep it live.
 
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
@@ -208,6 +209,12 @@ export function ComputerTile({
         <span className="computer-state">
           {computerStateWord(state, computer.data?.percent)}
         </span>
+        {/* Where the pages see this Computer leave from (ADR-0029). The
+            daemon writes the line, and `computer.exit_changed` events
+            keep it live. */}
+        {state === 'awake' && computer.data?.exit && (
+          <span className="computer-exit">{computer.data.exit}</span>
+        )}
         {(state === 'off' || state === 'failed') && (
           <Button
             size="sm"

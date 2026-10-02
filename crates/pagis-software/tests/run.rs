@@ -429,7 +429,7 @@ async fn a_manager_refuses_an_agent_of_another_tenant() {
         relay: pagis_computer::fake::loopback_relay(),
         caps: pagis_computer::AwakeCaps::default(),
         cancel: tokio_util::sync::CancellationToken::new(),
-        exit_daemon: None,
+        exit: None,
     });
 
     let refused = managers

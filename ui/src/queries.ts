@@ -78,6 +78,8 @@ export const liveSessionsKey = ["administration", "sessions"] as const;
 export const mySessionsKey = ["sessions"] as const;
 /** The person's own machines. */
 export const hostsKey = ["hosts"] as const;
+/** The person's own Home Exit (ADR-0029). */
+export const homeExitKey = ["home-exit"] as const;
 /** Every machine of the installation, on the administration port. */
 export const installationHostsKey = ["administration", "hosts"] as const;
 export const resourcesKey = ["administration", "resources"] as const;
@@ -676,6 +678,37 @@ export function useHosts(api: ApiClient) {
   return useQuery({
     queryKey: hostsKey,
     queryFn: async () => (await unwrap(api.GET("/api/v1/hosts"))).items,
+  });
+}
+
+/** The person's own Home Exit on a server (ADR-0029): the Host they
+ *  chose, the Hosts they can choose, and whether the Administrator
+ *  turned it off. A local installation answers that it has none. */
+export function useHomeExit(api: ApiClient) {
+  return useQuery({
+    queryKey: homeExitKey,
+    queryFn: () => unwrap(api.GET("/api/v1/settings/home-exit")),
+  });
+}
+
+/** Choose one Host as the Home Exit. The daemon switches each awake
+ *  Computer of the person at once, and names each one that did not. */
+export function useChooseHomeExit(api: ApiClient) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (hostId: string) =>
+      unwrap(api.PUT("/api/v1/settings/home-exit", { body: { host_id: hostId } })),
+    onSuccess: (saved) => queryClient.setQueryData(homeExitKey, saved.home_exit),
+  });
+}
+
+/** Turn the Home Exit off: the person's Computers reach the internet
+ *  from the server again, at once. */
+export function useTurnOffHomeExit(api: ApiClient) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => unwrap(api.DELETE("/api/v1/settings/home-exit")),
+    onSuccess: (saved) => queryClient.setQueryData(homeExitKey, saved.home_exit),
   });
 }
 
@@ -2832,6 +2865,19 @@ export function useSetAnalytics(api: ApiClient) {
   return useMutation({
     mutationFn: (enabled: boolean) =>
       unwrap(api.PUT("/api/v1/settings/system/analytics", { body: { enabled } })),
+    onSuccess: (saved) => {
+      queryClient.setQueryData(systemSettingsKey, saved.settings);
+    },
+  });
+}
+
+/** Turn the Home Exit off or on for every person of a server
+ *  (ADR-0029). The awake Computers switch at once, with no restart. */
+export function useSetHomeExitSetting(api: ApiClient) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (enabled: boolean) =>
+      unwrap(api.PUT("/api/v1/settings/system/home-exit", { body: { enabled } })),
     onSuccess: (saved) => {
       queryClient.setQueryData(systemSettingsKey, saved.settings);
     },

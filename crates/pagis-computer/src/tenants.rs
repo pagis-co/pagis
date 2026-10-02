@@ -174,9 +174,8 @@ pub struct ComputerManagersDeps {
     pub caps: AwakeCaps,
     /// The token that stops each manager's idle sweeper at shutdown.
     pub cancel: CancellationToken,
-    /// The exit listener of the daemon as a Computer reaches it, on a
-    /// Server alone (ADR-0029).
-    pub exit_daemon: Option<String>,
+    /// The exit of the Computers, on a Server alone (ADR-0029).
+    pub exit: Option<crate::ComputerExit>,
 }
 
 /// The Computer managers of the daemon, one per tenant.
@@ -190,13 +189,25 @@ pub struct ComputerManagers {
 }
 
 impl ComputerManagers {
+    /// The managers of the daemon. On a Server a task follows the Home
+    /// Exits until the daemon stops, so each awake Computer shows a Home
+    /// Exit of its Person that comes or goes.
     pub fn new(deps: ComputerManagersDeps) -> Arc<Self> {
-        Arc::new(Self {
+        let changes = deps.exit.as_ref().map(|exit| exit.home_exits.changes());
+        let managers = Arc::new(Self {
             ceiling: Arc::new(AwakeCeiling::new(deps.caps)),
             image: ComputerImage::new(Arc::clone(&deps.runtime)),
             deps,
             managers: Mutex::new(HashMap::new()),
-        })
+        });
+        if let Some(changes) = changes {
+            tokio::spawn(follow_home_exits(
+                Arc::downgrade(&managers),
+                changes,
+                managers.deps.cancel.clone(),
+            ));
+        }
+        managers
     }
 
     /// The manager of one tenant, made on first use. Its idle sweeper
@@ -218,7 +229,7 @@ impl ComputerManagers {
             idle_stop: self.deps.idle_stop,
             relay: Arc::clone(&self.deps.relay),
             ceiling: Arc::clone(&self.ceiling),
-            exit_daemon: self.deps.exit_daemon.clone(),
+            exit: self.deps.exit.clone(),
         });
         manager.spawn_sweeper(self.deps.cancel.clone());
         managers.insert(workspace_id.clone(), Arc::clone(&manager));
@@ -259,14 +270,32 @@ impl ComputerManagers {
     /// A restart for a settings change does not call it, and the next
     /// daemon adopts the Computers that still run.
     pub async fn stop_all(&self) {
-        let managers: Vec<Arc<ComputerManager>> = self
-            .managers
+        let managers = self.existing();
+        futures::future::join_all(managers.iter().map(|manager| manager.stop_all())).await;
+    }
+
+    /// Switch each awake Agent's Computer of every tenant whose mode is
+    /// not the mode in effect (ADR-0029): the Administrator changed the
+    /// Home Exit System Setting. The answer names each Computer that did
+    /// not switch; a failure does not stop the others.
+    pub async fn settle_exits(&self) -> Vec<crate::ExitSwitchFailure> {
+        let managers = self.existing();
+        futures::future::join_all(managers.iter().map(|manager| manager.settle_exit()))
+            .await
+            .into_iter()
+            .flatten()
+            .collect()
+    }
+
+    /// The managers made so far. A tenant with none has no Computer
+    /// awake.
+    fn existing(&self) -> Vec<Arc<ComputerManager>> {
+        self.managers
             .lock()
             .expect("the computer manager lock")
             .values()
             .cloned()
-            .collect();
-        futures::future::join_all(managers.iter().map(|manager| manager.stop_all())).await;
+            .collect()
     }
 
     /// The shared awake ceiling, for the tests and the System read.
@@ -296,17 +325,48 @@ impl ComputerManagers {
     }
 }
 
+/// Show each Home Exit that comes or goes on the awake Computers of its
+/// Person, until `cancel` or until the managers go. A reader that fell
+/// behind lost which Person it was, so every Person's Computers show
+/// their exit again.
+async fn follow_home_exits(
+    managers: std::sync::Weak<ComputerManagers>,
+    mut changes: tokio::sync::broadcast::Receiver<WorkspaceId>,
+    cancel: CancellationToken,
+) {
+    use tokio::sync::broadcast::error::RecvError;
+
+    loop {
+        let change = tokio::select! {
+            () = cancel.cancelled() => return,
+            change = changes.recv() => change,
+        };
+        let Some(managers) = managers.upgrade() else {
+            return;
+        };
+        let affected: Vec<Arc<ComputerManager>> = match change {
+            Ok(workspace_id) => managers
+                .managers
+                .lock()
+                .expect("the computer manager lock")
+                .get(&workspace_id)
+                .cloned()
+                .into_iter()
+                .collect(),
+            Err(RecvError::Lagged(_)) => managers.existing(),
+            Err(RecvError::Closed) => return,
+        };
+        for manager in affected {
+            manager.home_exit_changed().await;
+        }
+    }
+}
+
 /// The exit listener asks every tenant's manager: a token names one
 /// Computer of the whole server.
 impl crate::ComputerTokens for ComputerManagers {
     fn computer_of(&self, token: &str) -> Option<crate::ComputerOwner> {
-        let managers: Vec<Arc<ComputerManager>> = self
-            .managers
-            .lock()
-            .expect("the computer manager lock")
-            .values()
-            .cloned()
-            .collect();
+        let managers = self.existing();
         managers
             .iter()
             .find_map(|manager| crate::ComputerTokens::computer_of(manager.as_ref(), token))

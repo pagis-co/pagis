@@ -1470,6 +1470,17 @@ fn screen_result(note: Option<&str>) -> String {
     wrap_untrusted(SCREEN_SOURCE, &body)
 }
 
+/// A computer result with the exit in use of the Computer on a last line
+/// of its own (ADR-0029), such as `exit: MacBook Pro`. The daemon writes
+/// the line, so it stays outside the envelope of the screen. A Computer
+/// in Direct mode has no exit in use, and the result stays as it is.
+fn with_exit(result: String, exit: Option<&str>) -> String {
+    match exit {
+        Some(exit) => format!("{result}\n{exit}"),
+        None => result,
+    }
+}
+
 /// What settled a pending request.
 enum Decision {
     Approved,
@@ -2892,6 +2903,14 @@ async fn run_computer(
     let outcome =
         computer_use::execute_actions(&computer, &ctx.agent.id, &parsed.actions, ctx.computer)
             .await;
+    // Which exit the pages saw this Computer leave from (ADR-0029). A
+    // change of the address is a signal that sites read, so every result
+    // says it.
+    let exit = computer
+        .exit_in_use(&ctx.agent.id)
+        .await
+        .map(|exit| exit.label());
+    let exit = exit.as_deref();
 
     // Every screenshot the model sees persists as a run-tagged
     // artifact; the 30-day sweep reclaims them.
@@ -2918,7 +2937,10 @@ async fn run_computer(
                 if parsed.vocabulary == Vocabulary::OpenAi {
                     return ToolFlow::Fatal(format!("the computer is unavailable: {error}"));
                 }
-                return ToolFlow::Result(format!("computer batch failed: {error}"));
+                return ToolFlow::Result(with_exit(
+                    format!("computer batch failed: {error}"),
+                    exit,
+                ));
             }
         }
     }
@@ -2961,11 +2983,11 @@ async fn run_computer(
             )
             .await;
             if image_uris.is_empty() {
-                ToolFlow::Result(note.unwrap_or_else(|| "OK".to_string()))
+                ToolFlow::Result(with_exit(note.unwrap_or_else(|| "OK".to_string()), exit))
             } else {
                 // The reply image: the last screenshot taken.
                 let last = image_uris.split_off(image_uris.len() - 1);
-                ToolFlow::ResultWithImages(screen_result(note.as_deref()), last)
+                ToolFlow::ResultWithImages(with_exit(screen_result(note.as_deref()), exit), last)
             }
         }
         Err(error) => {
@@ -2983,11 +3005,14 @@ async fn run_computer(
                 // The wire needs a screenshot even on failure.
                 let last = image_uris.split_off(image_uris.len() - 1);
                 ToolFlow::ResultWithImages(
-                    screen_result(Some(&format!("action failed: {error}"))),
+                    with_exit(
+                        screen_result(Some(&format!("action failed: {error}"))),
+                        exit,
+                    ),
                     last,
                 )
             } else {
-                ToolFlow::Result(format!("action failed: {error}"))
+                ToolFlow::Result(with_exit(format!("action failed: {error}"), exit))
             }
         }
     }

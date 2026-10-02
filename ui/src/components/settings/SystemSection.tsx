@@ -1,6 +1,7 @@
 // The installation settings (ADR-0024): the daemon's three settings in a
 // two-column form, "Save and restart", Remote Access (ADR-0028), the
-// Docker probe row, the anonymous analytics (ADR-0026), and About.
+// Docker probe row, the anonymous analytics (ADR-0026), the Home Exit of
+// a server (ADR-0029), and About.
 // The installation's setup of each provider is the Providers view.
 //
 // They answer on the administration port alone, so the Administration
@@ -18,6 +19,7 @@ import {
 } from '../../queries'
 import { dockerSourceName } from '../dockerSource'
 import { Analytics } from './Analytics'
+import { HomeExitSetting } from './HomeExitSetting'
 import { RemoteAccess } from './RemoteAccess'
 import { restartMessage, useDaemonRestart } from './restart'
 
@@ -158,6 +160,13 @@ function SystemForm({ api, settings }: { api: ApiClient; settings: SystemSetting
 
       <SectionLabel>Analytics</SectionLabel>
       <Analytics api={api} analytics={settings.analytics} />
+
+      {settings.home_exit && (
+        <>
+          <SectionLabel>Home Exit</SectionLabel>
+          <HomeExitSetting api={api} homeExit={settings.home_exit} />
+        </>
+      )}
 
       <SectionLabel>About</SectionLabel>
       <Frame>

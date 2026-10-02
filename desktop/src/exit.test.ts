@@ -19,6 +19,7 @@ import {
   type Dial,
   ExitLink,
   type ExitSocket,
+  ExitTraffic,
   homeDial,
   isRefusedAddress,
   openExitSocket,
@@ -164,12 +165,12 @@ function loopbackDial(port: number, asked: Destination[] = []): Dial {
 
 /** A stream as the daemon opens it: `carry` gets one end, and the test
  *  is the daemon at the other end. */
-function stream(dial: Dial): { daemon: Duplex; answer: () => string } {
+function stream(dial: Dial, traffic?: ExitTraffic): { daemon: Duplex; answer: () => string } {
   const [client, daemon] = duplexPair()
   const chunks: Buffer[] = []
   daemon.on('data', (chunk: Buffer) => chunks.push(chunk))
   daemon.on('error', () => {})
-  void carry(client, dial)
+  void carry(client, dial, traffic)
   return { daemon, answer: () => Buffer.concat(chunks).toString() }
 }
 
@@ -223,6 +224,41 @@ describe('a stream that carries one connection', () => {
     await vi.waitFor(() => expect(target.received()).toBe('GET / HTTP/1.1\r\n'))
     expect(asked).toEqual([{ host: 'example.com', port: 443 }])
     daemon.destroy()
+  })
+
+  it('counts the connection while it is open, and the bytes that it copies both ways', async () => {
+    const target = await openSite()
+    const traffic = new ExitTraffic()
+    const { daemon, answer } = stream(loopbackDial(target.port), traffic)
+
+    daemon.write('example.com:443\nGET / HTTP/1.1\r\n')
+
+    await vi.waitFor(() => expect(answer()).toBe('ok\nhello from the site'))
+    await vi.waitFor(() => expect(target.received()).toBe('GET / HTTP/1.1\r\n'))
+    // The request one way and the greeting the other, and no preamble or
+    // status line: those are the protocol and not the connection.
+    await vi.waitFor(() => expect(traffic.bytes).toBe(16 + 19))
+    expect(traffic.connections).toBe(1)
+
+    daemon.destroy(new Error('the daemon reset the stream'))
+    await vi.waitFor(() => expect(traffic.connections).toBe(0))
+    expect(traffic.bytes).toBe(35)
+  })
+
+  it('counts no connection that it refused or that failed', async () => {
+    const traffic = new ExitTraffic()
+    const refused = stream(
+      homeDial(async () => [{ address: '192.168.1.10' }], vi.fn()),
+      traffic,
+    )
+    refused.daemon.write('printer.home.arpa:631\n')
+    await ended(refused.daemon)
+    const failed = stream(loopbackDial(await closedPort()), traffic)
+    failed.daemon.write('example.com:443\n')
+    await ended(failed.daemon)
+
+    expect(traffic.connections).toBe(0)
+    expect(traffic.bytes).toBe(0)
   })
 
   it('reads a preamble that arrives in parts', async () => {
@@ -751,13 +787,47 @@ class FakeExitSocket implements ExitSocket {
   }
 }
 
+describe('the exit traffic', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('tells each connection that opens or closes at once, and new bytes at most once a second', () => {
+    vi.useFakeTimers()
+    const onChange = vi.fn()
+    const traffic = new ExitTraffic(onChange)
+
+    traffic.opened()
+    expect(onChange).toHaveBeenCalledTimes(1)
+    traffic.copied(100)
+    traffic.copied(200)
+    expect(onChange).toHaveBeenCalledTimes(1)
+    vi.advanceTimersByTime(999)
+    expect(onChange).toHaveBeenCalledTimes(1)
+    vi.advanceTimersByTime(1)
+    expect(onChange).toHaveBeenCalledTimes(2)
+    expect(traffic.bytes).toBe(300)
+
+    traffic.closed()
+    expect(onChange).toHaveBeenCalledTimes(3)
+    expect(traffic.connections).toBe(0)
+    vi.advanceTimersByTime(5_000)
+    expect(onChange).toHaveBeenCalledTimes(3)
+  })
+})
+
 describe('the link that keeps the exit socket open', () => {
   const sites: Array<{ close: () => Promise<void> }> = []
   afterEach(async () => {
     for (const opened of sites.splice(0)) await opened.close()
   })
 
-  function linkOver(sockets: FakeExitSocket[], dial: Dial = vi.fn(), sessionEnded = () => {}): ExitLink {
+  function linkOver(
+    sockets: FakeExitSocket[],
+    dial: Dial = vi.fn(),
+    sessionEnded = () => {},
+    traffic = new ExitTraffic(),
+  ): ExitLink {
     return new ExitLink(
       async () => {
         const socket = new FakeExitSocket()
@@ -767,6 +837,7 @@ describe('the link that keeps the exit socket open', () => {
       1,
       dial,
       sessionEnded,
+      traffic,
     )
   }
 
@@ -835,7 +906,8 @@ describe('the link that keeps the exit socket open', () => {
     sites.push(target)
     const sockets: FakeExitSocket[] = []
     const asked: Destination[] = []
-    const link = linkOver(sockets, loopbackDial(target.port, asked))
+    const traffic = new ExitTraffic()
+    const link = linkOver(sockets, loopbackDial(target.port, asked), () => {}, traffic)
     link.start()
     await vi.waitFor(() => expect(sockets).toHaveLength(1))
 
@@ -846,10 +918,12 @@ describe('the link that keeps the exit socket open', () => {
       { host: 'example.com', port: 443 },
       { host: 'example.org', port: 443 },
     ])
+    expect(traffic.connections).toBe(2)
 
     sockets[0].closeWith(1006)
 
     await Promise.all(target.connections.map(released))
+    await vi.waitFor(() => expect(traffic.connections).toBe(0))
     link.stop()
   })
 

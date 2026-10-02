@@ -14,6 +14,7 @@ use crate::channels;
 use crate::error::{ErrorBody, ErrorDetail};
 use crate::forget;
 use crate::grants;
+use crate::home_exit;
 use crate::hosts;
 use crate::knowledge;
 use crate::mail;
@@ -141,6 +142,9 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         requests::get_request,
         requests::decide_request,
         hosts::list_hosts,
+        home_exit::get_home_exit,
+        home_exit::set_home_exit,
+        home_exit::clear_home_exit,
         grants::list_grants,
         grants::create_connection_grant,
         grants::set_grant_capabilities,
@@ -210,6 +214,7 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         remote_access::turn_on_remote_access,
         remote_access::turn_off_remote_access,
         system::set_analytics,
+        system::set_home_exit_setting,
         system::probe_docker,
         system::restart,
         software::list_software,
@@ -262,6 +267,11 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         administration::AdministrationHostsDto,
         hosts::HostDto,
         hosts::HostsDto,
+        home_exit::HomeExitDto,
+        home_exit::HomeExitHostDto,
+        home_exit::SetHomeExitRequest,
+        home_exit::SwitchedHomeExitDto,
+        home_exit::ExitSwitchFailureDto,
         administration::PersonResourcesDto,
         administration::ResourcesDto,
         administration::InstallationHealthDto,
@@ -446,6 +456,9 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         system::AnalyticsDto,
         system::AnalyticsBlockedDto,
         system::SetAnalyticsRequest,
+        system::HomeExitSettingDto,
+        system::SetHomeExitSettingRequest,
+        system::SwitchedHomeExitSettingDto,
         system::DockerReportDto,
         system::DockerCandidateDto,
         system::RestartDto,

@@ -9,6 +9,12 @@
 //! (ADR-0026) on and off. The change takes effect at the next check of
 //! the analytics task, with no restart.
 //!
+//! On a Server the same view turns the Home Exit off and on for every
+//! Person (ADR-0029). Off, every Computer runs in Direct mode and the
+//! awake ones switch at once; each Person's choice stays and is in effect
+//! again when the setting is on. It never turns a Home Exit on for a
+//! Person. A Local Installation has no Home Exit.
+//!
 //! Every route here answers on the Administration Port alone and takes
 //! the [`Administrator`] extractor: a Member reads nothing of the
 //! installation and changes nothing of it.
@@ -50,6 +56,8 @@ pub struct SystemConfig {
     pub log_level: String,
     /// Whether a release build sends anonymous analytics (ADR-0026).
     pub analytics: bool,
+    /// Whether the People of a Server may use a Home Exit (ADR-0029).
+    pub home_exit: bool,
 }
 
 /// Which Media Relay carries the live screen (ADR-0014): `daemon`
@@ -226,6 +234,14 @@ pub struct AnalyticsDto {
     pub blocked: Option<AnalyticsBlockedDto>,
 }
 
+/// The Home Exit of the People of a Server (ADR-0029).
+#[derive(Debug, Serialize, ToSchema)]
+pub struct HomeExitSettingDto {
+    /// The System Setting: whether the People may send their Computers'
+    /// connections through a Home Exit of their own. On by default.
+    pub enabled: bool,
+}
+
 /// Every System Setting in one read.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct SystemSettingsDto {
@@ -257,6 +273,9 @@ pub struct SystemSettingsDto {
     /// through. A change to `[screen]` takes effect at the next start.
     pub screen: ScreenDto,
     pub analytics: AnalyticsDto,
+    /// The Home Exit of a Server, or null on a Local Installation, which
+    /// has no Home Exit.
+    pub home_exit: Option<HomeExitSettingDto>,
 }
 
 /// The saved settings, and whether they take effect only after a
@@ -282,6 +301,21 @@ pub struct UpdateSystemSettingsRequest {
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct SetAnalyticsRequest {
     pub enabled: bool,
+}
+
+/// Turn the Home Exit off or on for every Person of a Server.
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct SetHomeExitSettingRequest {
+    pub enabled: bool,
+}
+
+/// The settings after the Home Exit changed, and how many awake
+/// Computers did not switch. Each of those keeps its mode and takes the
+/// setting at its next wake; the log of the daemon names them.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct SwitchedHomeExitSettingDto {
+    pub settings: SystemSettingsDto,
+    pub not_switched: u32,
 }
 
 /// The daemon's answer to a restart request.
@@ -316,6 +350,9 @@ fn settings_dto(state: &AppState, config: SystemConfig, report: DockerReport) ->
             enabled: config.analytics,
             blocked: state.analytics_blocked.map(Into::into),
         },
+        home_exit: (!is_local(state)).then_some(HomeExitSettingDto {
+            enabled: config.home_exit,
+        }),
     }
 }
 
@@ -380,6 +417,7 @@ pub async fn set_system_settings(
         docker_endpoint,
         log_level,
         analytics: current.analytics,
+        home_exit: current.home_exit,
     };
     state.system.write(&config).map_err(|error| {
         tracing::error!(%error, "cannot write the config file");
@@ -494,6 +532,52 @@ pub async fn set_analytics(
     Ok(Json(SavedSystemSettingsDto {
         settings: settings_dto(&state, config, report),
         restart_required: false,
+    }))
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/v1/settings/system/home-exit",
+    request_body = SetHomeExitSettingRequest,
+    responses(
+        (status = 200, body = SwitchedHomeExitSettingDto),
+        (status = 401, body = crate::error::ErrorBody),
+        (status = 403, body = crate::error::ErrorBody),
+        (status = 409, description = "A Local Installation has no Home Exit", body = crate::error::ErrorBody),
+    )
+)]
+/// Turn the Home Exit off or on for every Person of a Server
+/// (ADR-0029). The daemon writes the setting, and each awake Computer
+/// whose mode changes switches at once, with no restart.
+pub async fn set_home_exit_setting(
+    State(state): State<Arc<AppState>>,
+    _administrator: Administrator,
+    Json(request): Json<SetHomeExitSettingRequest>,
+) -> Result<Json<SwitchedHomeExitSettingDto>, ApiError> {
+    if is_local(&state) {
+        return Err(ApiError::conflict(
+            "a Local Installation has no Home Exit: its Computers reach the internet from this              machine's own connection",
+        ));
+    }
+    let mut config = state.system.read().map_err(|error| {
+        tracing::error!(%error, "cannot read the config file");
+        ApiError::internal()
+    })?;
+    config.home_exit = request.enabled;
+    state.system.write(&config).map_err(|error| {
+        tracing::error!(%error, "cannot write the config file");
+        ApiError::internal()
+    })?;
+    state.home_exits.set_enabled(request.enabled);
+    tracing::info!(
+        enabled = request.enabled,
+        "the administrator switched the Home Exit"
+    );
+    let not_switched = state.computers.settle_exits().await.len();
+    let report = state.docker_discovery.probe().await;
+    Ok(Json(SwitchedHomeExitSettingDto {
+        settings: settings_dto(&state, config, report),
+        not_switched: u32::try_from(not_switched).unwrap_or(u32::MAX),
     }))
 }
 
