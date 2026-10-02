@@ -8,8 +8,8 @@ export type LocalPeople = 'one' | 'several'
 /**
  * What the setup page asked for. The local installation is
  * installed and supervised by this client; the server one is the
- * address of the server alone, and the client starts nothing. The
- * Person signs in on that server's own page.
+ * address of the server or a Sign-In Link of it, and the client starts
+ * nothing. The Person signs in on that server's own page.
  */
 export type SetupRequest =
   | { kind: 'local'; people: LocalPeople }
@@ -23,8 +23,9 @@ export interface SetupDependencies {
   start(binary: string): Promise<string>
   activate(): void
   openProduct(url: string): Promise<void>
-  /** Check the server at the address that the person typed, and answer
-   *  its origin. */
+  /** Check the server at the address or the Sign-In Link that the person
+   *  typed, and answer where the product window opens: the origin of
+   *  the server, or the link on that origin. */
   connect(url: string): Promise<string>
   /** Open the Administration Interface, signed in, on the Multi-User
    *  Mode switch of the installation this client started. */
@@ -102,11 +103,11 @@ export class SetupCoordinator {
   }
 
   /** Check a server that is already running, and hand over to its own
-   *  sign-in page. */
+   *  sign-in page, or to the page of the Sign-In Link that signs in. */
   private async runServer(url: string, generation: number): Promise<void> {
-    const origin = await this.dependencies.connect(url)
+    const opens = await this.dependencies.connect(url)
     this.requireCurrent(generation)
-    await this.dependencies.openProduct(origin)
+    await this.dependencies.openProduct(opens)
   }
 
   private requireCurrent(generation: number): void {
@@ -122,7 +123,7 @@ export class SetupCoordinator {
  */
 function refusal(request: unknown): Error {
   return new Error(isServerRequest(request)
-    ? 'Enter the address of your Pagis server, then select Continue.'
+    ? 'Enter the address of your Pagis server, or paste a sign-in link, then select Continue.'
     : 'Pagis does not know this setup. Choose a setup again.')
 }
 

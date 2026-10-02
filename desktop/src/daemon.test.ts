@@ -7,7 +7,7 @@ import * as path from 'node:path'
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { DaemonSupervisor, DiagnosticLog, STOP_GRACE_MS, stopOwnedChild, type DaemonState } from './daemon'
+import { DaemonSupervisor, DiagnosticLog, STOP_GRACE_MS, redact, stopOwnedChild, type DaemonState } from './daemon'
 import { configPath, readAdministrationPort, readPort } from './dataDirectory'
 import { sleep, waitForHealth } from './health'
 import { PidFile } from './pidFile'
@@ -147,6 +147,18 @@ describe('the daemon supervisor', () => {
 
     expect(log.tail()).toContain('/api/v1/sessions/link/[redacted]')
     expect(log.tail()).not.toContain('do-not-print')
+  })
+
+  /** The product window opens a Sign-In Link, and Electron names the
+   *  address in the error of a load that failed. The secret stays good
+   *  until the page posts it, so no message that the client shows or
+   *  logs holds it. */
+  it('redacts the secret of a Sign-In Link', () => {
+    const failure = redact(
+      "ERR_CONNECTION_REFUSED (-102) loading 'https://pagis-home.tail1234.ts.net/sign-in#do-not-print'",
+    )
+
+    expect(failure).toBe("ERR_CONNECTION_REFUSED (-102) loading 'https://pagis-home.tail1234.ts.net/sign-in#[redacted]'")
   })
 
   it('redacts the Client Credential and the session cookie', () => {

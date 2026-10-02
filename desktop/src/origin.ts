@@ -58,8 +58,54 @@ export function isTrustedServerOrigin(url: string | URL): boolean {
  * scheme, the host and the port and nothing after them.
  */
 export function serverOrigin(typed: string): string {
+  return originOf(serverUrl(typed))
+}
+
+/** The path of the page that a Sign-In Link opens (ADR-0028). */
+const SIGN_IN_PATH = '/sign-in'
+
+/**
+ * What the person typed in the Server address field: the address of a
+ * server, or a Sign-In Link of one, `https://<host>/sign-in#<secret>`.
+ */
+export interface ServerAddress {
+  /** The origin of the server. The client keeps it, and nothing more. */
+  origin: string
+  /** Where the product window opens: the Sign-In Link on that origin, or
+   *  else the origin. The Product App's page at `/sign-in` trades the
+   *  secret for a Session. Nothing keeps this address, because a link
+   *  carries a secret in it. */
+  opens: string
+}
+
+/**
+ * Read the Server address field. It takes an address, as `serverOrigin`
+ * reads it, or a Sign-In Link, which has the same rules for its origin.
+ *
+ * The link that the product window opens is made again from the checked
+ * origin and the secret, so the window opens no other server and no
+ * other page. A link with no secret is refused: its page would sign
+ * nobody in, and a copy that cut off the part after `#` makes one.
+ */
+export function serverAddress(typed: string): ServerAddress {
+  const url = serverUrl(typed)
+  const origin = originOf(url)
+  if (url.pathname !== SIGN_IN_PATH) return { origin, opens: origin }
+  if (url.hash.length <= 1) {
+    throw new Error('This sign-in link is not complete. Copy the whole link, then paste it again.')
+  }
+  return { origin, opens: `${url.protocol}//${url.host}${SIGN_IN_PATH}${url.hash}` }
+}
+
+function originOf(url: URL): string {
+  return `${url.protocol}//${url.host}/`
+}
+
+/** What the person typed, as a URL of a server that the client trusts,
+ *  or an error in words for the person. */
+function serverUrl(typed: string): URL {
   const raw = typed.trim()
-  if (raw.length === 0) throw new Error('Enter the address of your Pagis server.')
+  if (raw.length === 0) throw new Error('Enter the address of your Pagis server, or paste a sign-in link.')
   const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`
   let url: URL
   try {
@@ -84,7 +130,7 @@ export function serverOrigin(typed: string): string {
       'as docs.pagis.co/client-app/several-people shows, then type its https:// address.',
     )
   }
-  return `${url.protocol}//${url.host}/`
+  return url
 }
 
 /**

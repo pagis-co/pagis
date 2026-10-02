@@ -377,12 +377,16 @@ const CLIENT_NAME_MAX: usize = 255;
 
 /// A refused Sign-In Link. It is the same answer for a secret that
 /// names no link, a link that is spent or expired, a link of the other
-/// kind, and a link of a disabled Person.
+/// kind, and a link of a disabled Person. The `/sign-in` page shows it
+/// as it is, so it names the three ways to a new link (ADR-0028).
 fn link_refused() -> ApiError {
     ApiError {
         status: StatusCode::UNAUTHORIZED,
         code: "unauthorized",
-        message: "that sign-in link is spent or expired".to_string(),
+        message: "This sign-in link is spent or expired. Make a new link in Settings → \
+                  Sessions on a browser or app that is signed in. Or ask an Administrator \
+                  for a new invite, or run \"pagis pair\" on the machine of the server."
+            .to_string(),
     }
 }
 

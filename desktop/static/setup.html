@@ -38,10 +38,13 @@
               </label>
             </div>
             <div id="server" hidden>
-              <!-- A problem with the address shows under the field. -->
+              <!-- The field takes the address of a server or a Sign-In Link of
+                   it (ADR-0028). A problem with the address shows under the
+                   field. -->
               <div class="field">
-                <label for="server-url">Server address</label>
-                <input id="server-url" class="input" type="url" inputmode="url" autocomplete="off" placeholder="pagis.example.com" aria-describedby="connect-trust" required />
+                <label for="server-url">Server address or sign-in link</label>
+                <p id="server-url-hint" class="field-hint">Paste a sign-in link from an invite or from Settings → Sessions, or type the address of the server.</p>
+                <input id="server-url" class="input" type="url" inputmode="url" autocomplete="off" placeholder="pagis.example.com" aria-describedby="server-url-hint connect-trust" required />
                 <!-- The client runs each command that the server sends, with no check of its own (ADR-0015). The Connect to a server page of the documentation site states this in full. -->
                 <p id="connect-trust" class="field-hint">Connect only to a server you trust.</p>
                 <p id="server-url-error" class="field-error" hidden></p>
@@ -241,29 +244,31 @@
       }
 
       /** Show a problem with the server address under its field, or clear
-       *  it. The field keeps the trust line as its description. */
+       *  it. The field keeps its hint and the trust line as its
+       *  description. */
       function showAddressProblem(problem) {
         addressError.textContent = problem ?? ''
         addressError.hidden = problem === null
         if (problem === null) {
           address.removeAttribute('aria-invalid')
-          address.setAttribute('aria-describedby', 'connect-trust')
+          address.setAttribute('aria-describedby', 'server-url-hint connect-trust')
         } else {
           address.setAttribute('aria-invalid', 'true')
-          address.setAttribute('aria-describedby', 'server-url-error connect-trust')
+          address.setAttribute('aria-describedby', 'server-url-error server-url-hint connect-trust')
           address.focus()
         }
       }
 
       /**
-       * The problem with the server address, or null. These are the rules
-       * and the words of serverOrigin (src/origin.ts), which the main
-       * process applies again. The page cannot load that module, because
-       * its policy allows its inline script and no other script.
+       * The problem with the server address or the sign-in link, or null.
+       * These are the rules and the words of serverAddress (src/origin.ts),
+       * which the main process applies again. The page cannot load that
+       * module, because its policy allows its inline script and no other
+       * script.
        */
       function serverAddressProblem(typed) {
         const raw = typed.trim()
-        if (raw.length === 0) return 'Enter the address of your Pagis server.'
+        if (raw.length === 0) return 'Enter the address of your Pagis server, or paste a sign-in link.'
         const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`
         let url
         try {
@@ -283,12 +288,16 @@
             'Put TLS in front of the server with Caddy, Tailscale Serve or Cloudflare Tunnel, ' +
             'as docs.pagis.co/client-app/several-people shows, then type its https:// address.'
         }
+        if (url.pathname === '/sign-in' && url.hash.length <= 1) {
+          return 'This sign-in link is not complete. Copy the whole link, then paste it again.'
+        }
         return null
       }
 
       /** Continue on the first screen: the second screen, or a check of
-       *  the server address. The main process then closes this window and
-       *  opens the sign-in page of the server. */
+       *  the server address or the sign-in link. The main process then
+       *  closes this window and opens the sign-in page of the server, or
+       *  the page of the link. */
       function next() {
         if (selected('use') === 'install') {
           question = 'who'

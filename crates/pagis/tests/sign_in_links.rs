@@ -177,7 +177,8 @@ async fn the_session_of_a_link_is_named_for_its_browser() {
 }
 
 /// A link past its expiry, and a secret that names no link, answer the
-/// same refusal and set no cookie.
+/// same refusal and set no cookie. The `/sign-in` page shows the
+/// refusal, so it says the three ways to a new link.
 #[tokio::test]
 async fn an_expired_link_and_an_unknown_secret_are_refused() {
     let daemon = TestDaemon::start().await;
@@ -200,6 +201,18 @@ async fn an_expired_link_and_an_unknown_secret_are_refused() {
     assert_eq!(unknown.status(), StatusCode::UNAUTHORIZED);
     let unknown: serde_json::Value = unknown.json().await.unwrap();
     assert_eq!(late, unknown, "the refusal says nothing about the link");
+    let message = late["error"]["message"].as_str().unwrap();
+    assert!(
+        message.starts_with("This sign-in link is spent or expired."),
+        "{message}"
+    );
+    for way in [
+        "Settings → Sessions",
+        "an Administrator for a new invite",
+        "pagis pair",
+    ] {
+        assert!(message.contains(way), "the refusal names {way}: {message}");
+    }
 }
 
 /// The start link opens through its own route alone, and a link of the
