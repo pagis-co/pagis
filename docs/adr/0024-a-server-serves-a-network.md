@@ -291,3 +291,9 @@ one-way (ADR-0025).
 - The `sqlx` Postgres driver carries rustls, so a managed Postgres that
   requires TLS works.
 - One daemon serves everyone, so a restart interrupts every person.
+
+## Not built
+
+- Remote Access in the place of the Multi-User Mode of a Local
+  Installation, and of the Caddy, Tailscale Serve and Cloudflare Tunnel
+  setups that the owner makes by hand (ADR-0028).

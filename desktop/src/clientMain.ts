@@ -55,7 +55,7 @@ import { type SetupState, type Upgrade, setupFailureState } from './setupState'
 import { isTrustedSetupRequest } from './setupTrust'
 import { isServerRequest } from './setupCoordinator'
 import { assertServerIsReady, connectToServer } from './serverOnboarding'
-import { watchServerSignIn } from './serverSignIn'
+import { openServerPage, watchServerSignIn } from './serverSignIn'
 import { ServerConnections, type ServerConnection } from './serverConnection'
 import { reportUncaughtExceptions } from './uncaughtFailure'
 import { checkSignedChecksum } from './signedChecksums'
@@ -394,18 +394,20 @@ class Shell {
   }
 
   /**
-   * Onboarding against a server this client did not start: its address,
-   * and nothing else. The origin is kept so a later start opens the same
-   * server. The Person signs in on that server's own page in the product
-   * window, so the Session goes into the product window's cookie store
-   * and nowhere else.
+   * Onboarding against a server this client did not start: its address
+   * or a Sign-In Link of it, and nothing else. The origin is kept so a
+   * later start opens the same server. The Person signs in on that
+   * server's own page in the product window, so the Session goes into
+   * the product window's cookie store and nowhere else. The window opens
+   * the link that the person pasted, and the secret of the link goes
+   * nowhere else.
    */
   private async connect(url: string, signal?: AbortSignal): Promise<string> {
     this.setSetupState({ kind: 'installing', detail: 'Connecting to the Pagis server…' })
-    const origin = await connectToServer(url, app.getVersion(), fetch, signal)
-    this.connection = this.connections.write(origin)
+    const address = await connectToServer(url, app.getVersion(), fetch, signal)
+    this.connection = this.connections.write(address.origin)
     this.followConnection()
-    return origin
+    return address.opens
   }
 
   /**
@@ -483,10 +485,12 @@ class Shell {
     // the cookie jar of this window before the window loads the URL, and
     // the machine registers as its Host at once. A server this client did
     // not start shows its own sign-in page when the jar holds no Session
-    // of it, and the machine registers as its Host after that sign-in.
+    // of it, or the page of the Sign-In Link that the person pasted, and
+    // the machine registers as its Host after that sign-in. The watch
+    // and the Host link get the origin, never the link.
     if (this.connection) {
-      this.watchSignIn(url)
-      await this.mainWindow.loadURL(url)
+      this.watchSignIn(this.connection.origin)
+      await openServerPage(this.mainWindow, url)
       this.mainWindow?.show()
     } else {
       await openSignedIn(url, this.clientCredential(), session.defaultSession.cookies, this.mainWindow)

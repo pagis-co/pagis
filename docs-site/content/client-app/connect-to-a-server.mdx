@@ -13,23 +13,63 @@ trust.
 
 ## Set up the connection
 
-"Connect to a Pagis server" shows the Server address field, and the setup
-page takes that address and nothing else: no email address and no password.
-It checks the address before it sends it: an empty or malformed address gets
-a message under the field, and the field takes the focus. The main process
-checks the request again and refuses a request with no address in words for
-a person. The client installs nothing, supervises nothing and keeps no key.
-It checks that a Pagis server answers at the address and that its release is
-inside the client's Compatibility Range: the client's own version and every
-later version that promises the same API. When the server has no
-Administrator yet, the client says so and names the Administration Interface
-that finishes setup. Each of these problems shows under the field, and the
-setup window stays. When the checks pass, the client keeps the origin in
-`userData/server.json`, closes the setup window and opens the product window
-at the server's origin. There the Product App shows its own sign-in page, and
-the Person signs in on it, as in the Slack and Mattermost clients. When the
-cookie jar of the product window holds a Session of the server, the client
-registers this machine as a Host of the server.
+"Connect to a Pagis server" shows the "Server address or sign-in link"
+field. The setup page takes the address of the server, such as
+`pagis.example.com`, or a [sign-in link](#connect-with-a-sign-in-link) of
+the server, and nothing else: no email address and no password. It checks
+the address before it sends it: an empty or malformed address gets a message
+under the field, and the field takes the focus. The main process checks the
+request again and refuses a request with no address in words for a person.
+The client installs nothing, supervises nothing and keeps no key. It checks
+that a Pagis server answers at the address and that its release is inside
+the client's Compatibility Range: the client's own version and every later
+version that promises the same API. When the server has no Administrator
+yet, the client says so and names the Administration Interface that
+finishes setup. Each of these problems shows under the field, and the setup
+window stays. When the checks pass, the client keeps the origin in
+`userData/server.json`, closes the setup window and opens the product
+window. For an address, the window opens at the server's origin. There the
+Product App shows its own sign-in page, and the Person signs in on it, as in
+the Slack and Mattermost clients. When the cookie jar of the product window
+holds a Session of the server, the client registers this machine as a Host
+of the server.
+
+## Connect with a sign-in link
+
+An installation in Remote Access signs in a browser or an app on another
+machine with a Sign-In Link, and never with a password
+([ADR-0028](https://github.com/pagis-co/pagis/blob/main/docs/adr/0028-remote-access-runs-through-the-owners-tailscale.md)).
+A link is an address of the server, `https://<host>/sign-in#<secret>`, and
+it signs in one client, one time. Get a link in one of these ways:
+
+- **From a browser or an app where you are signed in.** Under **Settings →
+  Sessions**, select **Sign in another browser or app**, then copy the link.
+  The link is good for five minutes.
+- **From an Administrator.** An invite is a link for your first Session, and
+  it is good for seven days. An Administrator makes a new invite with **New
+  invite** under **People** in the Administration Interface.
+- **With `pagis pair` on the machine of the server.** The command prints a
+  link that is good for five minutes
+  ([Sign-In Links](/server/sign-in#sign-in-links)).
+
+Paste the whole link in the field, then select **Continue**. The client
+checks the origin of the link as it checks an address: the https rule, the
+health route, the Compatibility Range and the setup of the server. It keeps
+the origin in `userData/server.json`, and nothing more. The secret of the
+link goes to no file, no client storage and no log. The product window then
+opens at the link. The page of the link posts the secret to the server, and
+the answer puts the Session cookie in the cookie jar of the product window.
+The client then registers this machine as a Host of the server, as after a
+sign-in with a password. The Sessions list of the Person names the Session
+"Pagis on macOS" or "Pagis on Linux".
+
+A link with no secret, such as a copy that lost the part after `#`, gets a
+message under the field, and the client sends nothing. A link that is spent
+or expired opens a page that says so. The page names the three ways to a new
+link, and it links to the sign-in page of the server. On an installation in
+Remote Access, that sign-in page takes no password from this machine: it has
+one field, **Paste a sign-in link**. Paste a new link there, also when the
+client connected before and its Session ended.
 
 ## Start the Client App again
 

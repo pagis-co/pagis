@@ -7,8 +7,8 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { ApiClient, SignInMethod } from './api/client'
-import { userKey } from './queries'
-import { SignIn, WHERE_TO_GET_A_LINK, linkSecret } from './SignIn'
+import { userKey, WHERE_TO_GET_A_LINK } from './queries'
+import { SignIn, linkSecret } from './SignIn'
 
 const SECRET = 'b'.repeat(64)
 const PERSON = { id: 'user-2', email: 'grace@example.com' }

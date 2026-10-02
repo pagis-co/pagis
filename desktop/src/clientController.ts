@@ -17,9 +17,9 @@ export interface ClientControllerDependencies {
   install(options: InstallOptions): Promise<string>
   beginLaunch(): void
   activate(): void
-  /** Check a server this client did not start at the address that the
-   *  person typed, and answer its origin. It installs and supervises
-   *  nothing. */
+  /** Check a server this client did not start at the address or the
+   *  Sign-In Link that the person typed, and answer where the product
+   *  window opens. It installs and supervises nothing. */
   connect(url: string, signal?: AbortSignal): Promise<string>
   openProduct(url: string): Promise<void>
   openRemoteAccessSwitch(): Promise<void>

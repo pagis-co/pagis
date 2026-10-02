@@ -16,15 +16,9 @@ import { useState } from 'react'
 
 import type { ApiClient, SignInMethod } from './api/client'
 import { Button, Input, LogoMark } from './primitives'
-import { useLinkSignIn, userKey, useSignIn } from './queries'
+import { useLinkSignIn, userKey, useSignIn, WHERE_TO_GET_A_LINK } from './queries'
 
 import './sign-in.css'
-
-/** Where a person gets a new Sign-In Link. The daemon says the same when
- *  it refuses a link. */
-export const WHERE_TO_GET_A_LINK =
-  'Make a new link in Settings → Sessions on a browser or app that is signed in. ' +
-  'Or ask an Administrator for a new invite, or run "pagis pair" on the machine of the server.'
 
 /** The secret of a pasted Sign-In Link: what follows `#` in the whole
  *  link, `<public origin>/sign-in#<secret>`, or the pasted text where it

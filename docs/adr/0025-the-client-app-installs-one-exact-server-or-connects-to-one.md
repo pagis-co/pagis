@@ -28,7 +28,8 @@ Linux distribution has a notary checked before first launch.
 - **The Client App**, on macOS arm64 and Linux amd64 and arm64. Setup asks
   whether to install on this computer or to connect to a server. Install
   installs and supervises one exact Server Runtime release and asks "Just me"
-  or "Several people". Connect opens the server's own sign-in page.
+  or "Several people". Connect opens the server's own sign-in page, or the
+  page of a Sign-In Link of the server (ADR-0028).
 
 Nothing converts one installation into another. Local is not offline: a local
 installation keeps Workspaces, memory and Computers on the machine and sends
@@ -207,7 +208,8 @@ the content centred between the title bar and a footer that holds Quit on the
 left and the next step on the right. A long state scrolls in the middle area
 alone. The first screen asks "How do you want to use Pagis?" with "Install on
 this computer" and "Connect to a Pagis server"; the second choice shows the
-Server address field and, below it, the Host trust in one line (ADR-0015). After
+Server address field, which also takes a Sign-In Link, and, below it, the Host
+trust in one line (ADR-0015). After
 "Install on this computer" a second screen asks "Just me" or "Several people"
 with Back and Install. The window then shows progress, a taken port, or a
 failure with Repair, Cancel and "Choose another setup". Quit asks first only
@@ -292,16 +294,21 @@ and every later version that promises the same API. It reads the version from
 the health route at every start and refuses a server outside the range with a
 message that says which end to update. Trust rests on TLS and the sign-in.
 
-Setup asks for the server address alone. The client checks it with the rules
-of `serverOrigin`, reaches the health route and applies the range; a server not
-yet set up says so and names the Administration Interface. Problems show under
-the field. When the checks pass, the product window opens at the server's
-origin, and the person signs in on the server's own page, as the Slack,
-Mattermost and Element clients do; the client never holds the password.
-`server.json` holds the origin alone. When the product window's cookie jar
-holds a Session of the server, the client registers the machine as a Host, and
-on `https://` holds the cookie as `Secure` (ADR-0024). It has the same tray
-lifetime and supervises no process.
+Setup asks for the server address or a Sign-In Link of the server
+(ADR-0028), and nothing else. The client checks the origin of either with the
+rules of `serverOrigin`, reaches the health route and applies the range; a
+server not yet set up says so and names the Administration Interface. A link
+with no secret is refused. Problems show under the field. When the checks
+pass, the product window opens at the server's origin, and the person signs in
+on the server's own page, as the Slack, Mattermost and Element clients do; the
+client never holds the password. For a link, the product window opens at the
+link, which the client makes again from the checked origin and the secret. The
+page of the link trades the secret for the Session in the product window, so
+the client sends the secret nowhere itself. `server.json` holds the origin
+alone, and the secret goes to no file, no client storage and no log. When the
+product window's cookie jar holds a Session of the server, the client registers
+the machine as a Host, and on `https://` holds the cookie as `Secure`
+(ADR-0024). It has the same tray lifetime and supervises no process.
 
 ### Updates never roll data backwards
 
@@ -388,5 +395,3 @@ smoke launch of the client.
   namespaces to a program with no AppArmor profile, and the Chromium sandbox
   needs them, so a person there uses the deb.
 - An rpm. A Fedora or openSUSE person uses the AppImage.
-- "Connect to a Pagis server" with a Sign-In Link of an installation in
-  Remote Access (ADR-0028).

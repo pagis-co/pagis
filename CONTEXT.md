@@ -53,7 +53,8 @@ and Linux amd64 and arm64 as an AppImage and a deb. At setup it asks
 whether to install on this computer ("just me" or "several people") or to
 connect to a server. On this computer it installs and supervises one Server
 Runtime. Connected to a server, it keeps the server's origin and opens the
-server's own sign-in page. Either way it shows the Product App, stays in
+server's own sign-in page, or the page of a Sign-In Link that the Person
+pasted at setup. Either way it shows the Product App, stays in
 the tray (the menu bar on macOS), and registers its machine as a Host
 (ADR-0025).
 _Avoid_: Desktop App, desktop client, the shell
@@ -296,7 +297,8 @@ _Avoid_: user record, account (for a Person; an account is at an external provid
 What a client holds after a Person signs in: an HTTP-only, host-only,
 `SameSite=Strict` cookie that names the Person and the kind of client. A
 browser's Session also carries the name of the browser and its system, such
-as "Safari on macOS". It ends at sign-out, when the Person removes it from
+as "Safari on macOS", or "Pagis on macOS" for the product window of a
+connected Client App. It ends at sign-out, when the Person removes it from
 their Sessions list, and 30 days after its last use. A password sign-in, the
 trade of a Client Credential and a Sign-In Link hand one out. It grants
 nothing on its own (ADR-0023, ADR-0028).

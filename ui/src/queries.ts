@@ -1004,19 +1004,31 @@ function signInMessage(status: number, error: unknown): string {
 export function useLinkSignIn(api: ApiClient) {
   return useMutation({
     mutationFn: async (secret: string) => {
-      const { data, response } = await api.POST("/api/v1/sessions/link", {
+      const { data, error, response } = await api.POST("/api/v1/sessions/link", {
         body: { secret, timezone: deviceTimezone() },
       });
-      if (data === undefined) throw new Error(linkSignInMessage(response.status));
+      if (data === undefined) throw new Error(linkSignInMessage(response.status, error));
       return data;
     },
   });
 }
 
-/** What the sign-in page tells a person whose link was refused. */
-function linkSignInMessage(status: number): string {
+/** Where a person gets a new Sign-In Link, in the words of the daemon's
+ *  refusal of a spent or expired link. */
+export const WHERE_TO_GET_A_LINK =
+  "Make a new link in Settings → Sessions on a browser or app that is signed in. Or ask " +
+  'an Administrator for a new invite, or run "pagis pair" on the machine of the server.';
+
+/** What the sign-in page tells a person whose link was refused. The
+ *  daemon's refusal of a spent or expired link names the ways to a new
+ *  one, so the page shows it as it is, and says the same where the
+ *  answer holds no refusal. */
+function linkSignInMessage(status: number, error: unknown): string {
   if (status === 401) {
-    return "This sign-in link is spent or expired. Ask for a new link.";
+    return errorMessage(
+      error,
+      `This sign-in link is spent or expired. ${WHERE_TO_GET_A_LINK}`,
+    );
   }
   if (status === 429) {
     return "Too many attempts. Wait a few minutes, then open the link again.";

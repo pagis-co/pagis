@@ -77,7 +77,9 @@ export function SignInLinkPage({
             <p className="sign-in-error" role="alert">
               {failure}
             </p>
-            <a href="/">Sign in with an address and a password</a>
+            {/* The sign-in page takes a password, or a pasted link where
+                Remote Access takes no password from this machine. */}
+            <a href="/">Go to the sign-in page</a>
           </>
         )}
       </div>

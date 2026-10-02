@@ -127,7 +127,9 @@ password sign-in does.
 
 A Client App on another machine connects to an installation in Remote
 Access with a Sign-In Link. "Connect to a Pagis server" takes the link,
-keeps its origin, and trades the secret for its Session. The trust
+keeps its origin, and trades the secret for its Session. A Client App that
+is connected already, and opens the sign-in page because its link was spent
+or its Session ended, gets the field for a pasted link there. The trust
 statement of ADR-0015 stays: a client that connects runs what the
 installation dispatches.
 
@@ -166,7 +168,6 @@ tailnet, keeps the direct UDP path, and ICE picks it first.
 
 ## Not built
 
-- The Sign-In Link in "Connect to a Pagis server".
 - The TURN server in the daemon and its Funnel port. Until it runs, a
   browser on another machine shows "Live screen unavailable" for the live
   screen of a Computer, unless `[screen] advertise_ip` names an address that

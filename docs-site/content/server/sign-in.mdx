@@ -52,8 +52,9 @@ machine can already read those records. It refuses a disabled account.
 ## Sessions
 
 **Settings → Sessions** lists each browser and app that is signed in as the
-Person: the browser and its system, such as "Safari on macOS", when it
-signed in, and when it was last used. **Remove** signs that browser or app
+Person: the browser and its system, such as "Safari on macOS", or "Pagis on
+macOS" for a Client App that connected to the server, when it signed in, and
+when it was last used. **Remove** signs that browser or app
 out at once. A Session ends 30 days after its last use, so a client in daily
 use stays signed in. **Sign out** ends the Session of the browser that is
 open.
@@ -61,9 +62,12 @@ open.
 ## A Client App connected to this server
 
 A Person can use the Client App instead of a browser. At setup they
-choose to connect to a Pagis server and enter `https://<the domain>`. The
-client then opens the server's own sign-in page, where they sign in with
-their address and password. The client installs nothing and keeps no key.
+choose to connect to a Pagis server and enter `https://<the domain>`, or
+paste a Sign-In Link. For an address, the client opens the server's own
+sign-in page, where they sign in with their address and password. For a
+link, the client opens the page of the link, which signs it in
+([Connect to a server](/client-app/connect-to-a-server#connect-with-a-sign-in-link)).
+The client installs nothing and keeps no key.
 It refuses a server whose release is outside its Compatibility Range (its
 own version and every later version that promises the same API) and says
 which end to update. When the server has no Administrator yet, the client

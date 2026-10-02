@@ -1,36 +1,41 @@
 /**
  * Onboarding against a server the client did not start.
  *
- * It asks for one thing and nothing else: the server's address. There is
- * no key, no Docker, no port and no package, because the administrator
- * configured all of that once on the server and the client assumes the
- * installation is set up. Where it is not set up yet, the client says so
- * and names the page that finishes it. The Person signs in on the
- * server's own sign-in page, in the product window, as a chat client
- * such as Slack or Mattermost does: the client never holds the password.
+ * It asks for one thing and nothing else: the server's address, or a
+ * Sign-In Link of the server. There is no key, no Docker, no port and no
+ * package, because the administrator configured all of that once on the
+ * server and the client assumes the installation is set up. Where it is
+ * not set up yet, the client says so and names the page that finishes
+ * it. The Person signs in on the server's own page, in the product
+ * window, as a chat client such as Slack or Mattermost does: the sign-in
+ * page for a password, or the page of the Sign-In Link, which trades its
+ * secret. The client never holds the password or the secret.
  */
 
 import { probeHealth } from './health'
-import { serverOrigin } from './origin'
+import { type ServerAddress, serverAddress } from './origin'
 import { serverCompatibility } from './serverCompatibility'
 
 /**
- * Check the server at the address the person typed, and answer its
- * origin.
+ * Check the server at the address or the Sign-In Link that the person
+ * typed. Answer the origin to keep and the address that the product
+ * window opens.
  *
  * The order is the order the messages have to be right in: an address
  * that is not a server address is the person's to fix, a server that
  * does not answer is an address to fix, a server outside the
  * compatibility range is a version to fix, and a server with no
- * administrator is a setup to finish.
+ * administrator is a setup to finish. Every check goes to the origin,
+ * and no request carries the secret of a link.
  */
 export async function connectToServer(
-  address: string,
+  typed: string,
   clientVersion: string,
   fetcher: typeof fetch = fetch,
   signal?: AbortSignal,
-): Promise<string> {
-  const origin = serverOrigin(address)
+): Promise<ServerAddress> {
+  const address = serverAddress(typed)
+  const { origin } = address
   await assertServerIsReady(origin, clientVersion, fetcher, signal)
   const setup = await openSetup(origin, fetcher, signal)
   if (setup !== null) {
@@ -39,7 +44,7 @@ export async function connectToServer(
       : `the administration page at ${setup.administrationOrigin}/ on the server itself`
     throw new Error(`This Pagis server has no administrator yet. Finish its setup on ${page}, then connect again.`)
   }
-  return origin
+  return address
 }
 
 /**
