@@ -415,6 +415,7 @@ where
             per_server: 256,
         },
         cancel: tokio_util::sync::CancellationToken::new(),
+        exit_daemon: None,
     });
     let computer = computers.get(&workspace.id);
     let artifacts = Arc::new(SqliteArtifactStore::new(pool.clone()));

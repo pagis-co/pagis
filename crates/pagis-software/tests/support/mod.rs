@@ -170,6 +170,7 @@ pub async fn harness() -> Harness {
         relay: pagis_computer::fake::loopback_relay(),
         caps: pagis_computer::AwakeCaps::default(),
         cancel: tokio_util::sync::CancellationToken::new(),
+        exit_daemon: None,
     });
     let manager = managers.get(&workspace_id);
     let agent_id = AgentId::generate();

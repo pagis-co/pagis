@@ -46,6 +46,10 @@ pub const DEFAULT_TURN_TTL_SECONDS: u64 = 3600;
 /// publishes it on port 8443, and the turn-on names it in the Funnel
 /// configuration, so it is fixed and never random.
 pub const DEFAULT_REMOTE_ACCESS_TURN_PORT: u16 = 4402;
+/// The TCP port of the exit listener of a Server (ADR-0029). It sits
+/// next to the other ports of the daemon, and the egress rules of the
+/// deployment open it to the Computers, so it is fixed and never random.
+pub const DEFAULT_COMPUTER_EXIT_PORT: u16 = 4403;
 /// The Media Relay implementations `screen.relay` names.
 pub const RELAY_DAEMON: &str = "daemon";
 pub const RELAY_TURN: &str = "turn";
@@ -291,6 +295,11 @@ pub struct Computer {
     /// and a Docker storage driver that holds no layer to a size gives
     /// none either way.
     pub layer_gb: u64,
+    /// The TCP port of the exit listener of a Server (ADR-0029). The
+    /// Exit Proxy of each Agent's Computer in Home mode sends each
+    /// connection there, and the egress rules open it to the Computers.
+    /// A Local Installation opens no exit listener.
+    pub exit_port: u16,
 }
 
 impl Default for Computer {
@@ -306,6 +315,7 @@ impl Default for Computer {
             shm_mb: 512,
             volume_gb: 10,
             layer_gb: 10,
+            exit_port: DEFAULT_COMPUTER_EXIT_PORT,
         }
     }
 }
@@ -334,6 +344,17 @@ impl Computer {
 
     pub fn idle_stop(&self) -> std::time::Duration {
         std::time::Duration::from_secs(self.idle_stop_minutes * 60)
+    }
+
+    /// The port of the exit listener. Zero would be a random port, which
+    /// the egress rules cannot name.
+    pub fn exit_port(&self) -> anyhow::Result<u16> {
+        anyhow::ensure!(
+            self.exit_port > 0,
+            "computer.exit_port is 0; it is the fixed port of the exit listener that the egress \
+             rules open to the Computers, such as {DEFAULT_COMPUTER_EXIT_PORT}"
+        );
+        Ok(self.exit_port)
     }
 }
 
@@ -650,6 +671,10 @@ impl Config {
         }
         if let Some(port) = var("PAGIS_SCREEN_MEDIA_PORT_LAST") {
             self.screen.media_port_last = parse_env("PAGIS_SCREEN_MEDIA_PORT_LAST", &port)?;
+        }
+        // The exit port, which the deployment also gives the egress rules.
+        if let Some(port) = var("PAGIS_COMPUTER_EXIT_PORT") {
+            self.computer.exit_port = parse_env("PAGIS_COMPUTER_EXIT_PORT", &port)?;
         }
         Ok(())
     }
@@ -1534,5 +1559,43 @@ mod tests {
             Computer::default().limits(),
             pagis_computer::ComputerLimits::default()
         );
+    }
+
+    /// The exit port of a Server comes from the file or from the
+    /// environment of the deployment, and it is never zero: the egress
+    /// rules name it.
+    #[test]
+    fn the_exit_port_comes_from_the_file_or_the_environment() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+
+        let config = Config::load_or_init(&path).unwrap();
+        assert_eq!(config.computer.exit_port().unwrap(), 4403);
+        assert!(
+            std::fs::read_to_string(&path)
+                .unwrap()
+                .contains("exit_port = 4403")
+        );
+
+        std::fs::write(&path, "[computer]\nexit_port = 4500\n").unwrap();
+        let mut config = Config::read_file(&path).unwrap();
+        assert_eq!(config.computer.exit_port().unwrap(), 4500);
+        config
+            .apply_environment(&|key: &str| {
+                (key == "PAGIS_COMPUTER_EXIT_PORT").then(|| "4600".to_string())
+            })
+            .unwrap();
+        assert_eq!(config.computer.exit_port().unwrap(), 4600);
+
+        let error = config
+            .clone()
+            .apply_environment(&|key: &str| {
+                (key == "PAGIS_COMPUTER_EXIT_PORT").then(|| "exit".to_string())
+            })
+            .unwrap_err();
+        assert!(error.to_string().contains("PAGIS_COMPUTER_EXIT_PORT"));
+        config.computer.exit_port = 0;
+        let error = config.computer.exit_port().unwrap_err();
+        assert!(error.to_string().contains("computer.exit_port"));
     }
 }

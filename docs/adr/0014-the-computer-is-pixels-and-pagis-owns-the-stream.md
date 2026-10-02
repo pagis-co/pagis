@@ -78,9 +78,10 @@ Workspaces. Five things make it one.
   every Workspace (ADR-0017). An HTTP or SSE server is a request of the daemon,
   and the egress policy does not apply to it.
 - **An egress policy on the Docker host.** A Computer reaches the public
-  internet and the Media Relay's UDP range on the Docker host, and no other
-  host address, link-local address or private address except those an
-  Administrator allows. Rules in the host's DOCKER-USER and INPUT chains enforce
+  internet, the Media Relay's UDP range on the Docker host and, on a
+  Server, the TCP port of the daemon's exit listener (ADR-0029), and no
+  other host address, link-local address or private address except those
+  an Administrator allows. Rules in the host's DOCKER-USER and INPUT chains enforce
   it, so root in the container cannot remove them. The Headless Server
   deployment installs them. A Local Installation does not, and its
   documentation says what a Computer then reaches.
@@ -189,9 +190,3 @@ takes the container's place (ADR-0015).
   writable-layer answer from a wake's container create and from `docker info`,
   and makes no probe container, so Health reports `unknown` until a Computer
   wakes.
-
-## Not built
-
-- Home mode of the Exit Proxy inside every Computer, and on a Server the
-  egress rule that lets a Computer in Home mode reach the daemon
-  (ADR-0029).

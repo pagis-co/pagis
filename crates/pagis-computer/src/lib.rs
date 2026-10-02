@@ -7,7 +7,9 @@ mod bollard_runtime;
 pub mod browser;
 pub mod docker;
 pub mod exec;
+pub mod exit_listener;
 pub mod fake;
+pub mod home_exit;
 mod image;
 mod manager;
 mod pull_progress;
@@ -22,6 +24,8 @@ pub use docker::{
     DockerCandidate, DockerCandidateResult, DockerDiscovery, DockerReport, DockerSearch,
     DockerSource,
 };
+pub use exit_listener::{ComputerTokens, ExitListener};
+pub use home_exit::{ExitBytes, ExitError, ExitStream, HomeExits};
 pub use image::{ComputerImage, ImagePullError};
 pub use manager::{
     ComputerManager, ComputerManagerDeps, DaemonHold, Preview, SHELL_HOME, ShellCommand,
@@ -110,12 +114,31 @@ pub const MAX_ARCHIVE_BYTES: u64 = 1024 * 1024 * 1024;
 /// here, and `computer/browser.sh` gives Chromium the same address.
 pub const EXIT_PROXY: &str = "http://127.0.0.1:3128";
 
+/// Where the Exit Proxy of an Agent's Computer on a Server starts
+/// (ADR-0029): the exit listener of the daemon, which `Home` mode sends
+/// each connection to, and the first mode. A Computer of a Local
+/// Installation and the Plugin Computer have none, and run in `Direct`
+/// mode alone.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExitStart {
+    /// The exit listener as a Computer reaches it, such as
+    /// `host.docker.internal:4403` (see [`exit_daemon`]).
+    pub daemon: String,
+    pub mode: ExitMode,
+}
+
+/// The address at which a Computer reaches the exit listener of the
+/// daemon on `port`: the Docker host, as the Media Relay is reached.
+pub fn exit_daemon(port: u16) -> String {
+    format!("{RELAY_HOST}:{port}")
+}
+
 /// The environment one container boots with: the Workspace timezone,
-/// the locale of the image, and the Exit Proxy. The compositor, screend
-/// and Chromium are children of the entrypoint, so they inherit it, and
-/// so does every `docker exec`: `computer_shell` and the servers of the
-/// Plugin Computer. The image's sudo keeps the proxy entries for the
-/// shell of the terminal.
+/// the locale of the image, the Exit Proxy, and where the Exit Proxy
+/// starts. The compositor, screend and Chromium are children of the
+/// entrypoint, so they inherit it, and so does every `docker exec`:
+/// `computer_shell` and the servers of the Plugin Computer. The image's
+/// sudo keeps the proxy entries for the shell of the terminal.
 ///
 /// A clock and a language that disagree with the egress IP make the
 /// browser look automated, and pages then render times the agent has
@@ -129,9 +152,14 @@ pub const EXIT_PROXY: &str = "http://127.0.0.1:3128";
 /// starts is a Computer Image container that runs screend, the Plugin
 /// Computer too, so every container with these entries runs the proxy
 /// that they name.
-pub fn container_env(timezone: &str) -> Vec<String> {
+///
+/// `exit` names the exit listener of the daemon and the first mode in
+/// `PAGIS_EXIT_DAEMON` and `PAGIS_EXIT_MODE`, which screend reads at
+/// start. The address is not a secret: the listener asks for the
+/// Computer's token, which the agent's shell cannot read.
+pub fn container_env(timezone: &str, exit: Option<&ExitStart>) -> Vec<String> {
     let no_proxy = format!("localhost,127.0.0.1,::1,{RELAY_HOST}");
-    vec![
+    let mut env = vec![
         format!("TZ={timezone}"),
         format!("LANG={CONTAINER_LANG}"),
         format!("HTTP_PROXY={EXIT_PROXY}"),
@@ -140,7 +168,12 @@ pub fn container_env(timezone: &str) -> Vec<String> {
         format!("https_proxy={EXIT_PROXY}"),
         format!("NO_PROXY={no_proxy}"),
         format!("no_proxy={no_proxy}"),
-    ]
+    ];
+    if let Some(exit) = exit {
+        env.push(format!("PAGIS_EXIT_DAEMON={}", exit.daemon));
+        env.push(format!("PAGIS_EXIT_MODE={}", exit.mode.as_str()));
+    }
+    env
 }
 
 /// The in-container screend control port.
@@ -420,12 +453,27 @@ impl InputHolder {
 }
 
 /// Where the Exit Proxy of a Computer opens each connection
-/// (ADR-0029). Every Computer starts in `Direct` mode.
+/// (ADR-0029).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ExitMode {
     /// Each connection leaves from the Computer.
     Direct,
+    /// Each connection goes to the exit listener of the daemon, which
+    /// carries it through the Person's Home Exit, or from the server when
+    /// that Host is absent. A literal private address leaves from the
+    /// Computer.
+    Home,
+}
+
+impl ExitMode {
+    /// The name on the wire and in `PAGIS_EXIT_MODE`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ExitMode::Direct => "direct",
+            ExitMode::Home => "home",
+        }
+    }
 }
 
 /// What the Exit Proxy of a Computer reports.
@@ -938,7 +986,7 @@ mod tests {
     #[test]
     fn the_container_environment_names_the_exit_proxy() {
         assert_eq!(
-            super::container_env("Asia/Tokyo"),
+            super::container_env("Asia/Tokyo", None),
             [
                 "TZ=Asia/Tokyo",
                 "LANG=en_US.UTF-8",
@@ -949,6 +997,32 @@ mod tests {
                 "NO_PROXY=localhost,127.0.0.1,::1,host.docker.internal",
                 "no_proxy=localhost,127.0.0.1,::1,host.docker.internal",
             ]
+        );
+    }
+
+    /// An Agent's Computer on a Server names the exit listener of the
+    /// daemon at the Docker host, and the mode its Exit Proxy starts in.
+    #[test]
+    fn the_container_environment_names_the_exit_listener_and_the_first_mode() {
+        for mode in [super::ExitMode::Direct, super::ExitMode::Home] {
+            let exit = super::ExitStart {
+                daemon: super::exit_daemon(4403),
+                mode,
+            };
+            let env = super::container_env("UTC", Some(&exit));
+
+            assert_eq!(
+                env[env.len() - 2..],
+                [
+                    "PAGIS_EXIT_DAEMON=host.docker.internal:4403".to_string(),
+                    format!("PAGIS_EXIT_MODE={}", mode.as_str()),
+                ]
+            );
+        }
+        assert_eq!(super::ExitMode::Home.as_str(), "home");
+        assert_eq!(
+            serde_json::to_value(super::ExitMode::Home).expect("JSON"),
+            serde_json::json!("home")
         );
     }
 

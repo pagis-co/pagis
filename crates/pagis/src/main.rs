@@ -203,6 +203,25 @@ async fn run(flags: RunFlags) -> anyhow::Result<i32> {
         ),
         false => None,
     };
+    // The exit listener of a Server (ADR-0029). The Computers reach it
+    // at the Docker host, whose address is the Docker daemon's choice,
+    // so it binds every interface; the token check of each connection
+    // stands in for a narrower bind, and the firewall of the server keeps
+    // the port closed to the network. A Local Installation opens none.
+    let exit_listener = match installation {
+        pagis::Installation::Server => {
+            let port = booted.config.computer.exit_port()?;
+            Some(
+                bind_listener(
+                    pagis_computer::exit_listener::BIND_ADDRESS.into(),
+                    port,
+                    pagis::taken_exit_port_message,
+                )
+                .await?,
+            )
+        }
+        pagis::Installation::Local => None,
+    };
     let addr = listener.local_addr()?;
     let port = addr.port();
     // The origin a browser reaches this installation at, and the one
@@ -222,6 +241,7 @@ async fn run(flags: RunFlags) -> anyhow::Result<i32> {
     let background = options.cancel.clone();
     options.runtime_port = port;
     options.remote_access_turn_listener = remote_access_turn_listener;
+    options.exit_listener = exit_listener;
     if flags.port.is_some() {
         options.port_override = Some("--port");
     }

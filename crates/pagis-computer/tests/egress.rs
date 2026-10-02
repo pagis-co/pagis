@@ -17,11 +17,12 @@
 //! host itself. The tests model that topology on the Docker host of the
 //! gate:
 //!
-//! - A listener with the host's network is the Media Relay, or another
-//!   service of the Docker host. The Computer reaches it at the gateway
-//!   of its Tenant Network, which is an address of the Docker host, as
-//!   `host.docker.internal` is on a Headless Server. Under Colima that
-//!   name is the Mac, which is outside the Docker host.
+//! - A listener with the host's network is the Media Relay, the exit
+//!   listener of the daemon, or another service of the Docker host. The
+//!   Computer reaches it at the gateway of its Tenant Network, which is an
+//!   address of the Docker host, as `host.docker.internal` is on a
+//!   Headless Server. Under Colima that name is the Mac, which is outside
+//!   the Docker host.
 //! - A listener on a network of its own is an address outside the Tenant
 //!   Networks: 169.254.169.254 for the metadata service of a cloud, and
 //!   an address in 10.0.0.0/8 for a service on the LAN. Docker drops the
@@ -194,14 +195,17 @@ impl HostRules {
     }
 
     /// Install the rules on `bridge` alone, with `media` as the Media
-    /// Relay's range and `allow` as `PAGIS_COMPUTER_ALLOW`.
-    fn install(&self, bridge: &str, media: &MediaRange, allow: &str) {
+    /// Relay's range, `exit` as the port of the exit listener and `allow`
+    /// as `PAGIS_COMPUTER_ALLOW`.
+    fn install(&self, bridge: &str, media: &MediaRange, exit: u16, allow: &str) {
         let first = media.first.to_string();
         let last = media.last.to_string();
+        let exit = exit.to_string();
         let output = run_egress(&[
             ("PAGIS_EGRESS_BRIDGES", bridge),
             ("PAGIS_MEDIA_PORT_FIRST", &first),
             ("PAGIS_MEDIA_PORT_LAST", &last),
+            ("PAGIS_EXIT_PORT", &exit),
             ("PAGIS_COMPUTER_ALLOW", allow),
         ]);
         assert!(
@@ -371,6 +375,9 @@ struct Places {
     host: String,
     /// A TCP listener of the Docker host, outside the media range.
     host_port: u16,
+    /// A TCP listener of the Docker host at the port of the exit
+    /// listener, as the daemon of a Headless Server holds it.
+    exit_port: u16,
     /// The media range. A UDP echo listens on its last port, as the
     /// Media Relay, and one on the port after it.
     media: MediaRange,
@@ -418,6 +425,13 @@ impl Places {
 
         let host_port = 41_000 + rand::random::<u16>() % 8_000;
         listen(real, "host", None, "tcp", host_port);
+        let exit_port = loop {
+            let port = 41_000 + rand::random::<u16>() % 8_000;
+            if port != host_port {
+                break port;
+            }
+        };
+        listen(real, "host", None, "tcp", exit_port);
         let media = MediaRange::random();
         listen(real, "host", None, "udp", media.last);
         listen(real, "host", None, "udp", media.last + 1);
@@ -426,6 +440,7 @@ impl Places {
             bridge: format!("br-{}", &id[..12]),
             host,
             host_port,
+            exit_port,
             media,
             lan,
             lan_block,
@@ -498,12 +513,17 @@ fn assert_the_policy(real: &Real, owner: &ComputerOwner, rules: &HostRules) {
         places.host_port
     );
     assert!(
+        reaches(owner, host, places.exit_port),
+        "no control: without the rules the Computer does not reach the exit port {host}:{}",
+        places.exit_port
+    );
+    assert!(
         echoes(owner, host, places.media.last + 1),
         "no control: without the rules the Computer does not reach UDP {host}:{}",
         places.media.last + 1
     );
 
-    rules.install(&places.bridge, &places.media, "");
+    rules.install(&places.bridge, &places.media, places.exit_port, "");
 
     assert!(
         !reaches(owner, METADATA, SERVICE_PORT),
@@ -529,6 +549,14 @@ fn assert_the_policy(real: &Real, owner: &ComputerOwner, rules: &HostRules) {
         !reaches(owner, host, places.host_port),
         "the Computer reached TCP port {} of the Docker host",
         places.host_port
+    );
+    // The Exit Proxy of a Computer in Home mode sends its connections to
+    // the exit listener of the daemon (ADR-0029), so the rules open that
+    // one TCP port of the Docker host.
+    assert!(
+        reaches(owner, host, places.exit_port),
+        "the Computer did not reach the exit listener at TCP {host}:{}",
+        places.exit_port
     );
     assert!(
         !echoes(owner, host, places.media.last + 1),
@@ -566,7 +594,7 @@ async fn a_computer_reaches_the_internet_and_the_media_relay_and_nothing_private
     let owner = real.owner(&AgentId::generate());
     let computer = real
         .runtime
-        .start(&owner, &[], &pagis_computer::container_env("UTC"))
+        .start(&owner, &[], &pagis_computer::container_env("UTC", None))
         .await
         .expect("the container boots");
 
@@ -627,7 +655,7 @@ async fn an_allowed_private_block_is_reachable_and_root_in_the_computer_cannot_c
     let real = Real::new();
     let owner = real.owner(&AgentId::generate());
     real.runtime
-        .start(&owner, &[], &pagis_computer::container_env("UTC"))
+        .start(&owner, &[], &pagis_computer::container_env("UTC", None))
         .await
         .expect("the container boots");
     let places = Places::start(&real);
@@ -639,6 +667,7 @@ async fn an_allowed_private_block_is_reachable_and_root_in_the_computer_cannot_c
     rules.install(
         &places.bridge,
         &places.media,
+        places.exit_port,
         &format!("192.0.2.0/24, {}", places.lan_block),
     );
 
@@ -695,9 +724,9 @@ fn a_second_run_leaves_one_copy_of_each_rule() {
         last: 50_019,
     };
 
-    rules.install(&bridge, &media, "10.20.0.0/16");
+    rules.install(&bridge, &media, 4403, "10.20.0.0/16");
     let first = host_rules();
-    rules.install(&bridge, &media, "10.20.0.0/16");
+    rules.install(&bridge, &media, 4403, "10.20.0.0/16");
     let second = host_rules();
 
     assert_eq!(first, second);
@@ -734,9 +763,13 @@ fn a_second_run_leaves_one_copy_of_each_rule() {
         second.contains(&"-A PAGIS-INPUT -p udp -m udp --dport 50000:50019 -j RETURN".to_string()),
         "the media range is not in {second:#?}"
     );
+    assert!(
+        second.contains(&"-A PAGIS-INPUT -p tcp -m tcp --dport 4403 -j RETURN".to_string()),
+        "the exit port is not in {second:#?}"
+    );
 
     let other = format!("pgt{:08x}", rand::random::<u32>());
-    rules.install(&other, &media, "");
+    rules.install(&other, &media, 4403, "");
     let third = host_rules();
     let jumps_now: Vec<&String> = third
         .iter()
@@ -764,21 +797,28 @@ fn the_script_refuses_a_setting_it_cannot_read_and_installs_nothing() {
     let _rules = HostRules::clean();
     let first = ("PAGIS_MEDIA_PORT_FIRST", "50000");
     let last = ("PAGIS_MEDIA_PORT_LAST", "50019");
+    let exit = ("PAGIS_EXIT_PORT", "4403");
 
     for (env, named) in [
-        (vec![first], "PAGIS_MEDIA_PORT_LAST"),
+        (vec![first, exit], "PAGIS_MEDIA_PORT_LAST"),
         (
-            vec![("PAGIS_MEDIA_PORT_FIRST", "fifty"), last],
+            vec![("PAGIS_MEDIA_PORT_FIRST", "fifty"), last, exit],
             "PAGIS_MEDIA_PORT_FIRST",
         ),
         (
-            vec![first, ("PAGIS_MEDIA_PORT_LAST", "49999")],
+            vec![first, ("PAGIS_MEDIA_PORT_LAST", "49999"), exit],
             "PAGIS_MEDIA_PORT_LAST",
+        ),
+        (vec![first, last], "PAGIS_EXIT_PORT"),
+        (
+            vec![first, last, ("PAGIS_EXIT_PORT", "exit")],
+            "PAGIS_EXIT_PORT",
         ),
         (
             vec![
                 first,
                 last,
+                exit,
                 ("PAGIS_COMPUTER_ALLOW", "10.0.0.0/8, printer.lan"),
             ],
             "printer.lan",
@@ -820,6 +860,7 @@ fn the_daemon_starts_after_the_egress_rules_are_in_place() {
     for setting in [
         "PAGIS_MEDIA_PORT_FIRST",
         "PAGIS_MEDIA_PORT_LAST",
+        "PAGIS_EXIT_PORT",
         "PAGIS_COMPUTER_ALLOW",
     ] {
         assert!(
@@ -827,6 +868,12 @@ fn the_daemon_starts_after_the_egress_rules_are_in_place() {
             "the egress service does not take {setting}: {egress}"
         );
     }
+    // The rules open the port that the daemon's exit listener binds.
+    assert_eq!(
+        egress["environment"]["PAGIS_EXIT_PORT"],
+        config["services"]["pagis"]["environment"]["PAGIS_COMPUTER_EXIT_PORT"],
+        "the egress rules open another port than the exit listener binds"
+    );
     let sources: Vec<&str> = egress["volumes"]
         .as_array()
         .expect("the egress service mounts its script")

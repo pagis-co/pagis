@@ -7,11 +7,11 @@ use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
 
-use pagis_computer::fake::FakeWorkspaces;
+use pagis_computer::fake::{FakeExitAnswer, FakeHomeExit, FakeWorkspaces, exit_socket_pair};
 use pagis_computer::{
     AwakeCaps, AwakeCeiling, BollardRuntime, ComputerLimits, ComputerManager, ComputerManagerDeps,
-    ComputerOwner, ComputerRuntime, ComputerState, DockerDiscovery, ExecRequest, ExitMode, IMAGE,
-    InputHolder, OutputCap, RuntimeOptions, SHELL_HOME, ShellCommand,
+    ComputerOwner, ComputerRuntime, ComputerState, DockerDiscovery, ExecRequest, ExitListener,
+    ExitMode, HomeExits, IMAGE, InputHolder, OutputCap, RuntimeOptions, SHELL_HOME, ShellCommand,
     test_docker::{TestDocker, marked_objects},
 };
 use pagis_core::{AgentId, WorkspaceId};
@@ -104,6 +104,7 @@ impl Real {
             idle_stop: idle_after,
             relay: pagis_computer::fake::loopback_relay(),
             ceiling: Arc::new(AwakeCeiling::new(AwakeCaps::default())),
+            exit_daemon: None,
         });
         (manager, screens)
     }
@@ -1300,7 +1301,9 @@ async fn a_blinking_caret_does_not_hold_a_settled_frame() {
 /// sends its headers and the first kilobyte of a megabyte, writes one
 /// line to `/tmp/target.log`, and then holds the connection open for ten
 /// minutes. `/page` is a page whose script reads `/slow` and writes in
-/// its title how the read goes.
+/// its title how the read goes. `/webrtc` is a page whose script gathers
+/// the ICE candidates of a peer connection with no ICE server and writes
+/// their count in its title.
 const EXIT_TARGET: &str = r#"
 import http.server, sys, time
 
@@ -1319,6 +1322,27 @@ fetch("/slow").then(async (response) => {
 }, () => { document.title = "pagis-exit refused"; });
 </script>"""
 
+WEBRTC = b"""<!doctype html><title>pagis-webrtc gathering</title>
+<script>
+(async () => {
+  const peer = new RTCPeerConnection({ iceServers: [] });
+  peer.createDataChannel("pagis");
+  let found = 0;
+  peer.onicecandidate = (event) => {
+    if (event.candidate && event.candidate.candidate) found += 1;
+  };
+  await peer.setLocalDescription(await peer.createOffer());
+  await new Promise((done) => {
+    const check = () => { if (peer.iceGatheringState === "complete") done(); };
+    peer.onicegatheringstatechange = check;
+    check();
+    setTimeout(done, 10000);
+  });
+  peer.close();
+  document.title = "pagis-webrtc " + found;
+})();
+</script>"""
+
 
 class Target(http.server.BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
@@ -1334,6 +1358,8 @@ class Target(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/page":
             self.answer("text/html", PAGE)
+        elif self.path.startswith("/webrtc"):
+            self.answer("text/html", WEBRTC)
         elif self.path == "/hello":
             self.answer("text/plain", b"hello from the target")
         elif self.path == "/slow":
@@ -1653,6 +1679,384 @@ async fn the_browser_and_the_shell_leave_through_the_exit_proxy() {
     );
 }
 
+/// Where this test process listens for the Computers, which reach it as
+/// `host.docker.internal`: at the gateway of Docker's default bridge
+/// where that is an address of this machine, as on a Linux Docker host,
+/// and on loopback where it is not, as under Colima and Docker Desktop,
+/// which send `host.docker.internal` to the loopback of this machine.
+fn address_for_the_computers() -> std::net::IpAddr {
+    let gateway = Command::new("docker")
+        .args([
+            "network",
+            "inspect",
+            "bridge",
+            "--format",
+            "{{range .IPAM.Config}}{{.Gateway}}{{end}}",
+        ])
+        .output()
+        .expect("docker network inspect runs");
+    match String::from_utf8_lossy(&gateway.stdout)
+        .trim()
+        .parse::<std::net::IpAddr>()
+    {
+        Ok(gateway) if std::net::TcpListener::bind((gateway, 0)).is_ok() => gateway,
+        _ => std::net::Ipv4Addr::LOCALHOST.into(),
+    }
+}
+
+/// The site that only the Home Exit of the test reaches: an HTTP server
+/// on the loopback of this machine. `/hello` answers one line. `/slow`
+/// sends its head and the first kilobyte of a megabyte, then holds the
+/// connection open.
+async fn home_site() -> std::net::SocketAddr {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind a port");
+    let address = listener.local_addr().expect("an address");
+    tokio::spawn(async move {
+        while let Ok((mut stream, _)) = listener.accept().await {
+            tokio::spawn(async move {
+                let mut head = Vec::new();
+                while !head.ends_with(b"\r\n\r\n") {
+                    match stream.read_u8().await {
+                        Ok(byte) => head.push(byte),
+                        Err(_) => return,
+                    }
+                }
+                let head = String::from_utf8_lossy(&head).into_owned();
+                let path = head.split(' ').nth(1).unwrap_or_default().to_string();
+                match path.as_str() {
+                    "/hello" => {
+                        let body = "hello from the home exit";
+                        let answer = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\
+                             Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                            body.len()
+                        );
+                        stream.write_all(answer.as_bytes()).await.ok();
+                    }
+                    "/slow" => {
+                        stream
+                            .write_all(
+                                b"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n\
+                                  Content-Length: 1048576\r\n\r\n",
+                            )
+                            .await
+                            .ok();
+                        stream.write_all(&[b'x'; 1024]).await.ok();
+                        tokio::time::sleep(Duration::from_secs(600)).await;
+                    }
+                    _ => {
+                        stream
+                            .write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n")
+                            .await
+                            .ok();
+                    }
+                }
+            });
+        }
+    });
+    address
+}
+
+/// Open `/webrtc` of the target in the daemon's tab until the count of
+/// ICE candidates in the title passes `wanted`, and answer the count.
+/// Chromium reads its policy directory again a few seconds after a
+/// change, so the page opens again until the count passes or the time
+/// ends.
+async fn webrtc_candidates(
+    runtime: &BollardRuntime,
+    computer: &pagis_computer::StartedComputer,
+    target: &str,
+    wanted: impl Fn(u32) -> bool,
+) -> u32 {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(120);
+    for attempt in 0.. {
+        runtime
+            .set_holder(computer, InputHolder::Daemon)
+            .await
+            .expect("holder set to daemon");
+        runtime
+            .browser_open(computer, &format!("{target}/webrtc?attempt={attempt}"))
+            .await
+            .expect("the page opens");
+        runtime
+            .set_holder(computer, InputHolder::Agent)
+            .await
+            .expect("holder set back to agent");
+        let gathered = tokio::time::Instant::now() + Duration::from_secs(20);
+        let count = loop {
+            let open = windows(&computer.control_addr, &computer.token).await;
+            let count = open
+                .as_array()
+                .expect("the window list is an array")
+                .iter()
+                .filter_map(|window| window["title"].as_str())
+                .find_map(|title| {
+                    let (_, rest) = title.split_once("pagis-webrtc ")?;
+                    rest.split(|char: char| !char.is_ascii_digit())
+                        .next()?
+                        .parse::<u32>()
+                        .ok()
+                });
+            if count.is_some() || tokio::time::Instant::now() > gathered {
+                break count;
+            }
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        };
+        if let Some(count) = count
+            && wanted(count)
+        {
+            return count;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the page gathered {count:?} candidates, never the wanted count"
+        );
+        tokio::time::sleep(Duration::from_secs(3)).await;
+    }
+    unreachable!("the attempts end at the deadline")
+}
+
+/// The policy file of the Exit Proxy in the Computer, as JSON.
+fn exit_policy(owner: &ComputerOwner) -> serde_json::Value {
+    let policy = docker_exec(
+        owner,
+        &["cat", "/etc/chromium/policies/managed/pagis-exit.json"],
+    );
+    serde_json::from_str(&policy).unwrap_or_else(|error| panic!("{error}: {policy}"))
+}
+
+/// A Computer in Home mode leaves through its Person's Home Exit
+/// (ADR-0029). It holds these contracts:
+///
+/// - an Agent's Computer of a Person with a Home Exit starts in Home
+///   mode, and the policy file holds `WebRtcIPHandling`;
+/// - a shell tool and a page reach a site that only the Home Exit
+///   reaches: the Exit Proxy sends each name to the exit listener with
+///   the Computer's token, and the listener carries it through the exit
+///   socket of the Host, here a stand-in that speaks the protocol of the
+///   Client App;
+/// - a literal private address leaves from the Computer: the page of the
+///   target on the Tenant Network opens by its address;
+/// - Chromium applies the policy file with no restart: WebRTC gathers no
+///   candidate in Home mode, gathers again after a switch to Direct, and
+///   stops again after a switch back to Home, in one browser process;
+/// - a switch to Direct closes the connections that the Home Exit
+///   carries.
+#[tokio::test]
+#[ignore = "needs Docker; run via cargo test -- --ignored"]
+async fn a_computer_in_home_mode_leaves_through_its_persons_home_exit() {
+    let real = Real::new();
+    let runtime = &real.runtime;
+    let agent_id = AgentId::generate();
+    let owner = real.owner(&agent_id);
+    let host_id = pagis_core::HostId::generate();
+    let workspaces = Arc::new(FakeWorkspaces::with_timezone(&real.workspace_id, "UTC"));
+    assert!(
+        pagis_core::WorkspaceStore::set_home_exit(
+            workspaces.as_ref(),
+            &real.workspace_id,
+            Some(&host_id)
+        )
+        .await
+        .expect("the Home Exit is written")
+    );
+    let home_exits = HomeExits::new(Arc::clone(&workspaces) as _);
+    let site = home_site().await;
+    let exit = FakeHomeExit::new(move |host, port| match (host, port) {
+        ("home-site.example", 80) => FakeExitAnswer::Connect(site),
+        _ => FakeExitAnswer::Fail(format!("{host}:{port} is no site of the test")),
+    });
+    let (daemon_end, client_app_end) = exit_socket_pair();
+    tokio::spawn({
+        let home_exits = Arc::clone(&home_exits);
+        let (workspace_id, host_id) = (real.workspace_id.clone(), host_id.clone());
+        async move { home_exits.serve(workspace_id, host_id, daemon_end).await }
+    });
+    tokio::spawn(Arc::clone(&exit).serve(client_app_end));
+    let listener = tokio::net::TcpListener::bind((address_for_the_computers(), 0))
+        .await
+        .expect("bind the exit listener");
+    let exit_port = listener.local_addr().expect("an address").port();
+    let screens = tempfile::tempdir().expect("screens dir");
+    let manager = ComputerManager::new(ComputerManagerDeps {
+        runtime: Arc::clone(runtime) as _,
+        image: pagis_computer::ComputerImage::new(Arc::clone(runtime) as _),
+        skills: Arc::new(pagis_core::NoSkills),
+        workspaces: Arc::clone(&workspaces) as _,
+        agents: Arc::new(pagis_computer::fake::FakeAgents::open()),
+        bus: Arc::new(pagis_audit::AuditEventBus::new(Arc::new(NoopLog))),
+        workspace_id: real.workspace_id.clone(),
+        screens_dir: screens.path().to_path_buf(),
+        idle_stop: Duration::from_secs(600),
+        relay: pagis_computer::fake::loopback_relay(),
+        ceiling: Arc::new(AwakeCeiling::new(AwakeCaps::default())),
+        exit_daemon: Some(pagis_computer::exit_daemon(exit_port)),
+    });
+    tokio::spawn(
+        ExitListener::new(Arc::clone(&manager) as _, Arc::clone(&home_exits))
+            .serve(listener, tokio_util::sync::CancellationToken::new()),
+    );
+    manager.wake(&agent_id).await.expect("wake");
+    wait_awake(&manager, &agent_id).await;
+    let computer = runtime
+        .running(&owner)
+        .await
+        .expect("running query")
+        .expect("computer is running")
+        .computer;
+    wait_browser_settled(&computer.control_addr, &owner, "").await;
+    let shell = |command: String, timeout: Duration| {
+        let manager = Arc::clone(&manager);
+        let agent_id = agent_id.clone();
+        async move {
+            manager
+                .shell(
+                    &agent_id,
+                    ShellCommand {
+                        command,
+                        timeout,
+                        cwd: None,
+                        stdin: None,
+                        output_cap: None,
+                    },
+                )
+                .await
+                .expect("shell")
+        }
+    };
+    let home = serde_json::json!({ "WebRtcIPHandling": "disable_non_proxied_udp" });
+
+    assert_eq!(
+        runtime
+            .exit_status(&computer)
+            .await
+            .expect("the exit status")
+            .mode,
+        ExitMode::Home
+    );
+    assert_eq!(exit_policy(&owner), home);
+
+    // A shell tool reaches the site of the Home Exit.
+    let outcome = shell(
+        "python3 -c \"import urllib.request; \
+         print(urllib.request.urlopen('http://home-site.example/hello', timeout=30).read().decode())\""
+            .to_string(),
+        Duration::from_secs(60),
+    )
+    .await;
+    assert_eq!(outcome.exit_code, 0, "{}", outcome.stderr);
+    assert_eq!(outcome.stdout, "hello from the home exit\n");
+    assert!(
+        exit.destinations()
+            .contains(&"home-site.example:80".to_string()),
+        "{:?}",
+        exit.destinations()
+    );
+
+    // A page reaches it too.
+    runtime
+        .set_holder(&computer, InputHolder::Daemon)
+        .await
+        .expect("holder set to daemon");
+    let opened = runtime
+        .browser_open(&computer, "http://home-site.example/hello")
+        .await
+        .expect("the page opens through the Home Exit");
+    assert_eq!(opened, "http://home-site.example/hello");
+    runtime
+        .set_holder(&computer, InputHolder::Agent)
+        .await
+        .expect("holder set back to agent");
+
+    // The target on the Tenant Network opens by its literal private
+    // address, from the Computer.
+    start_exit_target(&real);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    while !reaches(&owner, EXIT_TARGET_NAME, EXIT_TARGET_PORT) {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the target does not listen"
+        );
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    let target_ip = Command::new("docker")
+        .args([
+            "inspect",
+            "-f",
+            "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
+            &format!("pagis-exit-target-{}", real.docker.mark()),
+        ])
+        .output()
+        .expect("docker inspect runs");
+    let target = format!(
+        "http://{}:{EXIT_TARGET_PORT}",
+        String::from_utf8_lossy(&target_ip.stdout).trim()
+    );
+    let browser = docker_exec(&owner, &["pgrep", "-o", "chromium"]);
+
+    // WebRTC sends no UDP past the proxy in Home mode.
+    assert_eq!(
+        webrtc_candidates(runtime, &computer, &target, |count| count == 0).await,
+        0
+    );
+
+    // A slow request through the Home Exit, which a switch closes.
+    let slow = tokio::spawn(shell(
+        "python3 -c \"import urllib.request; \
+         response = urllib.request.urlopen('http://home-site.example/slow', timeout=300); \
+         response.read()\""
+            .to_string(),
+        Duration::from_secs(120),
+    ));
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    while home_exits.bytes(&real.workspace_id).received < 1024 {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the slow request did not reach the site"
+        );
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    let closed = runtime
+        .set_exit_mode(&computer, ExitMode::Direct)
+        .await
+        .expect("the switch to Direct");
+    assert!(closed >= 1, "the switch closed {closed} connections");
+    let outcome = tokio::time::timeout(Duration::from_secs(60), slow)
+        .await
+        .expect("the slow request ends after the switch")
+        .expect("the shell task ends");
+    assert!(
+        ["IncompleteRead", "ConnectionResetError"]
+            .iter()
+            .any(|closed| outcome.stderr.contains(closed)),
+        "the slow request did not end with a closed connection: {}",
+        outcome.stderr
+    );
+    assert_eq!(exit_policy(&owner), serde_json::json!({}));
+
+    // Chromium applies each policy with no restart.
+    let gathered = webrtc_candidates(runtime, &computer, &target, |count| count > 0).await;
+    assert!(gathered > 0);
+    runtime
+        .set_exit_mode(&computer, ExitMode::Home)
+        .await
+        .expect("the switch back to Home");
+    assert_eq!(exit_policy(&owner), home);
+    assert_eq!(
+        webrtc_candidates(runtime, &computer, &target, |count| count == 0).await,
+        0
+    );
+    assert_eq!(
+        docker_exec(&owner, &["pgrep", "-o", "chromium"]),
+        browser,
+        "the browser started again"
+    );
+}
+
 /// The address of one container on its Tenant Network.
 fn container_ip(owner: &ComputerOwner) -> String {
     let output = Command::new("docker")
@@ -1726,7 +2130,7 @@ async fn a_container_reaches_its_own_tenant_and_not_another() {
     let second = real.owner(&AgentId::generate());
     let stranger = ComputerOwner::new(WorkspaceId::generate(), AgentId::generate());
 
-    let locale = pagis_computer::container_env("UTC");
+    let locale = pagis_computer::container_env("UTC", None);
     let (first_boot, second_boot, stranger_boot) = tokio::join!(
         runtime.start(&first, &[], &locale),
         runtime.start(&second, &[], &locale),
@@ -1784,7 +2188,7 @@ async fn a_started_container_carries_the_limits_and_the_owner_labels() {
     let runtime = &real.runtime;
     let owner = real.owner(&AgentId::generate());
     runtime
-        .start(&owner, &[], &pagis_computer::container_env("UTC"))
+        .start(&owner, &[], &pagis_computer::container_env("UTC", None))
         .await
         .expect("the container boots");
 
@@ -1838,7 +2242,7 @@ async fn a_test_leaves_no_container_volume_or_tenant_network_behind() {
     let real = Real::new();
     let owner = real.owner(&AgentId::generate());
     real.runtime
-        .start(&owner, &[], &pagis_computer::container_env("UTC"))
+        .start(&owner, &[], &pagis_computer::container_env("UTC", None))
         .await
         .expect("the container boots");
     let mark = real.docker.mark().to_string();
@@ -1869,7 +2273,7 @@ async fn a_failed_test_leaves_no_docker_object_behind() {
         let real = Real::new();
         let owner = real.owner(&AgentId::generate());
         real.runtime
-            .start(&owner, &[], &pagis_computer::container_env("UTC"))
+            .start(&owner, &[], &pagis_computer::container_env("UTC", None))
             .await
             .expect("the container boots");
         sender
@@ -1896,7 +2300,7 @@ async fn the_control_port_refuses_a_request_without_the_token() {
     let runtime = &real.runtime;
     let owner = real.owner(&AgentId::generate());
     let computer = runtime
-        .start(&owner, &[], &pagis_computer::container_env("UTC"))
+        .start(&owner, &[], &pagis_computer::container_env("UTC", None))
         .await
         .expect("the container boots");
 
@@ -2058,7 +2462,7 @@ async fn a_wake_learns_whether_the_writable_layer_is_bounded() {
     );
 
     real.runtime
-        .start(&owner, &[], &pagis_computer::container_env("UTC"))
+        .start(&owner, &[], &pagis_computer::container_env("UTC", None))
         .await
         .expect("the container boots");
 

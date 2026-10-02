@@ -41,7 +41,8 @@ tar.workspace = true
 tempfile.workspace = true
 tokio.workspace = true
 tokio-tungstenite.workspace = true
-tokio-util.workspace = true
+# `compat` gives the yamux of the fake Home Exit its pipe.
+tokio-util = { workspace = true, features = ["compat"] }
 
 [dev-dependencies]
 llm-router.workspace = true

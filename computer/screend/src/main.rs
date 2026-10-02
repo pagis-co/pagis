@@ -41,8 +41,10 @@
 //!   GET /exit       -> {mode, connections}: the mode of the Exit Proxy
 //!                      and the client connections it holds now
 //!   POST /exit      -> {mode} -> {mode, closed}: set the mode of the
-//!                      Exit Proxy and close every connection it holds
-//!                      (see `exit`)
+//!                      Exit Proxy, `direct` or `home`, and close every
+//!                      connection it holds; 409 for `home` on a Computer
+//!                      that names no exit listener of the daemon (see
+//!                      `exit`)
 //!
 //! Pointer operations inject natively through zwlr_virtual_pointer_v1
 //! (absolute coordinates); text and key operations inject through a
@@ -61,7 +63,9 @@
 //!
 //! screend also runs the Exit Proxy on loopback, on a runtime thread of
 //! its own (see `exit`). Every connection of the browser and of the
-//! shells goes through it.
+//! shells goes through it. It starts in the mode of `PAGIS_EXIT_MODE`,
+//! and in `home` mode it sends each connection to the exit listener of
+//! the daemon that `PAGIS_EXIT_DAEMON` names, with the control token.
 
 mod auth;
 mod browser;
@@ -794,24 +798,32 @@ fn serve(
             let mut body = String::new();
             let _ = request.as_reader().read_to_string(&mut body);
             let response = match serde_json::from_str::<exit::SwitchBody>(&body) {
-                Ok(exit::SwitchBody { mode }) => {
-                    let switched = exit_proxy.switch(mode);
-                    eprintln!(
-                        "[screend] exit mode: {mode:?}; {} connections closed",
-                        switched.closed
-                    );
-                    tiny_http::Response::from_string(
-                        serde_json::to_string(&switched).expect("the switch answer is JSON"),
-                    )
-                    .with_status_code(200)
-                    .with_header(
-                        tiny_http::Header::from_bytes(
-                            &b"Content-Type"[..],
-                            &b"application/json"[..],
+                Ok(exit::SwitchBody { mode }) => match exit_proxy.switch(mode) {
+                    Ok(switched) => {
+                        eprintln!(
+                            "[screend] exit mode: {mode:?}; {} connections closed",
+                            switched.closed
+                        );
+                        tiny_http::Response::from_string(
+                            serde_json::to_string(&switched).expect("the switch answer is JSON"),
                         )
-                        .expect("static header"),
-                    )
-                }
+                        .with_status_code(200)
+                        .with_header(
+                            tiny_http::Header::from_bytes(
+                                &b"Content-Type"[..],
+                                &b"application/json"[..],
+                            )
+                            .expect("static header"),
+                        )
+                    }
+                    Err(error @ exit::SwitchError::NoDaemon) => {
+                        tiny_http::Response::from_string(error.to_string()).with_status_code(409)
+                    }
+                    Err(error @ exit::SwitchError::Policy(_)) => {
+                        eprintln!("[screend] the exit mode did not switch: {error}");
+                        tiny_http::Response::from_string(error.to_string()).with_status_code(500)
+                    }
+                },
                 Err(err) => tiny_http::Response::from_string(format!("bad exit body: {err}"))
                     .with_status_code(400),
             };
@@ -958,8 +970,24 @@ fn main() {
         );
     }
     // The Exit Proxy listens before the browser starts, so the first
-    // page of the browser finds it.
-    let exit_proxy = Arc::new(exit::ExitProxy::new());
+    // page of the browser finds it, and Chromium reads the policy file
+    // of the first mode when it starts.
+    let daemon = exit::Daemon::from_variable(
+        std::env::var(exit::DAEMON_VARIABLE).ok().as_deref(),
+        guard.token(),
+    );
+    let mode = exit::Mode::from_variable(std::env::var(exit::MODE_VARIABLE).ok().as_deref())
+        .unwrap_or_else(|error| {
+            eprintln!("[screend] {error}");
+            std::process::exit(1);
+        });
+    let exit_proxy = match exit::ExitProxy::start(daemon, exit::POLICY.into(), mode) {
+        Ok(proxy) => Arc::new(proxy),
+        Err(error) => {
+            eprintln!("[screend] the Exit Proxy did not start in {mode:?} mode: {error}");
+            std::process::exit(1);
+        }
+    };
     {
         let listener = exit::listen().expect("bind the Exit Proxy port");
         let exit_proxy = Arc::clone(&exit_proxy);

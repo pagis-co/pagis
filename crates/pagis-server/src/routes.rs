@@ -1002,6 +1002,11 @@ pub const ROUTES: &[Route] = &[
         authenticated: true,
     },
     Route {
+        path: "/api/v1/hosts/{host_id}/exit",
+        methods: &["get"],
+        authenticated: true,
+    },
+    Route {
         path: "/api/v1/channels/{channel_id}/dictate",
         methods: &["get"],
         authenticated: true,

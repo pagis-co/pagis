@@ -25,6 +25,12 @@ use crate::time::UnixMillis;
 /// shell command.
 pub const SHELL_CAPABILITY: &str = "shell";
 
+/// The capability a Host declares when it can carry the connections of
+/// its Person's Computers as their Home Exit (ADR-0029). The Client App
+/// declares it while it is connected to a Server, and a Client App of a
+/// Local Installation does not.
+pub const EXIT_CAPABILITY: &str = "exit";
+
 /// One machine of one Person, as the client on it registered.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Host {

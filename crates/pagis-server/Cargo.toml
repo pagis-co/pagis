@@ -39,8 +39,9 @@ rand.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
-# The signal that ends the live connections of one Session.
-tokio-util.workspace = true
+# The signal that ends the live connections of one Session, and the
+# `compat` pipe of the exit socket of a Host.
+tokio-util = { workspace = true, features = ["compat"] }
 # The CORS answer of the one Public Origin.
 tower-http.workspace = true
 thiserror.workspace = true

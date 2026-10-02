@@ -14,8 +14,8 @@ use tokio_util::sync::CancellationToken;
 use crate::image::Preparation;
 use crate::{
     BindMount, CONTAINER_LANG, ComputerError, ComputerImage, ComputerImageState, ComputerRuntime,
-    ComputerState, DEFAULT_TIMEZONE, ExecOutcome, ExecRequest, IMAGE_VERSION, InputHolder,
-    OutputCap, StartedComputer, container_env, mounts_fingerprint,
+    ComputerState, DEFAULT_TIMEZONE, ExecOutcome, ExecRequest, ExitMode, ExitStart, IMAGE_VERSION,
+    InputHolder, OutputCap, StartedComputer, container_env, mounts_fingerprint,
 };
 
 /// Publish pull progress at most every this many percent.
@@ -134,6 +134,12 @@ struct Hold {
     since: Instant,
 }
 
+/// What one boot takes from the Workspace.
+struct BootSettings {
+    timezone: String,
+    exit: Option<ExitStart>,
+}
+
 /// One screen preview: PNG bytes, live or from the stored screenshot.
 pub struct Preview {
     pub png: Vec<u8>,
@@ -184,6 +190,10 @@ pub struct ComputerManager {
     /// ceiling, so the server count is the server's and not one
     /// tenant's.
     ceiling: Arc<crate::AwakeCeiling>,
+    /// The exit listener of the daemon as a Computer reaches it, on a
+    /// Server alone (ADR-0029). `None` on a Local Installation, whose
+    /// Computers run their Exit Proxy in `Direct` mode alone.
+    exit_daemon: Option<String>,
 }
 
 /// What the manager needs to run the computers of one Workspace.
@@ -201,6 +211,9 @@ pub struct ComputerManagerDeps {
     pub idle_stop: Duration,
     pub relay: Arc<dyn crate::MediaRelay>,
     pub ceiling: Arc<crate::AwakeCeiling>,
+    /// The exit listener of the daemon as a Computer reaches it
+    /// ([`crate::exit_daemon`]), on a Server alone.
+    pub exit_daemon: Option<String>,
 }
 
 impl ComputerManager {
@@ -223,6 +236,7 @@ impl ComputerManager {
             running_execs: Mutex::new(HashMap::new()),
             wake_preflight: tokio::sync::Mutex::new(()),
             ceiling: deps.ceiling,
+            exit_daemon: deps.exit_daemon,
         })
     }
 
@@ -422,14 +436,14 @@ impl ComputerManager {
         };
         self.set_phase(agent_id, first_state.clone()).await;
 
-        // The clock and the locale of this boot. A running
+        // The clock, the locale and the exit of this boot. A running
         // computer keeps the timezone it booted with; a changed
         // Workspace timezone reaches the agent at its next wake.
-        let timezone = self.boot_timezone().await;
+        let boot = self.boot_settings(agent_id).await;
         let manager = Arc::clone(self);
         let agent_id = agent_id.clone();
         tokio::spawn(async move {
-            if let Err(error) = manager.boot(&agent_id, needs_pull, mounts, timezone).await {
+            if let Err(error) = manager.boot(&agent_id, needs_pull, mounts, boot).await {
                 tracing::error!(%error, %agent_id, "computer wake failed");
                 manager.vacate(&agent_id);
                 manager.set_phase(&agent_id, Phase::Failed(error)).await;
@@ -471,17 +485,48 @@ impl ComputerManager {
         self.set_phase(agent_id, Phase::Off).await;
     }
 
-    /// The Workspace timezone the next boot carries. A store
-    /// that cannot answer gives UTC, because a computer that boots on
-    /// the wrong clock is better than one that does not boot.
-    async fn boot_timezone(&self) -> String {
-        match self.workspaces.get(&self.workspace_id).await {
-            Ok(Some(workspace)) => workspace.timezone,
-            Ok(None) => DEFAULT_TIMEZONE.to_string(),
+    /// What the next boot of `agent_id` carries from the Workspace: its
+    /// timezone, and where the Exit Proxy starts (ADR-0029).
+    ///
+    /// An Agent's Computer on a Server names the exit listener of the
+    /// daemon, and starts in `Home` mode when the Person has chosen a
+    /// Home Exit. The Plugin Computer starts in `Direct` mode with no
+    /// listener: it serves the Plugins of the Workspace, which call APIs
+    /// and not sites that score addresses.
+    ///
+    /// A store that cannot answer gives UTC and `Direct` mode, because a
+    /// computer that boots on the wrong clock, or leaves from the server
+    /// as it does while the Home Exit is absent, is better than one that
+    /// does not boot.
+    async fn boot_settings(&self, agent_id: &AgentId) -> BootSettings {
+        let workspace = match self.workspaces.get(&self.workspace_id).await {
+            Ok(workspace) => workspace,
             Err(error) => {
-                tracing::error!(%error, "the workspace timezone read failed; the computer takes UTC");
-                DEFAULT_TIMEZONE.to_string()
+                tracing::error!(
+                    %error,
+                    "the workspace read failed; the computer takes UTC and leaves directly"
+                );
+                None
             }
+        };
+        let exit = match (&self.exit_daemon, Self::kind(agent_id)) {
+            (Some(daemon), crate::ComputerKind::Sprite) => Some(ExitStart {
+                daemon: daemon.clone(),
+                mode: match workspace
+                    .as_ref()
+                    .is_some_and(|workspace| workspace.home_exit_host_id.is_some())
+                {
+                    true => ExitMode::Home,
+                    false => ExitMode::Direct,
+                },
+            }),
+            _ => None,
+        };
+        BootSettings {
+            timezone: workspace
+                .map(|workspace| workspace.timezone)
+                .unwrap_or_else(|| DEFAULT_TIMEZONE.to_string()),
+            exit,
         }
     }
 
@@ -492,7 +537,7 @@ impl ComputerManager {
         agent_id: &AgentId,
         needs_pull: bool,
         mounts: Vec<BindMount>,
-        timezone: String,
+        boot: BootSettings,
     ) -> Result<(), String> {
         if needs_pull {
             let mut preparation = self.image.join();
@@ -524,12 +569,16 @@ impl ComputerManager {
         }
         let started = self
             .runtime
-            .start(&self.owner(agent_id), &mounts, &container_env(&timezone))
+            .start(
+                &self.owner(agent_id),
+                &mounts,
+                &container_env(&boot.timezone, boot.exit.as_ref()),
+            )
             .await?;
         self.touch(agent_id);
         self.set_phase(agent_id, Phase::Awake(started)).await;
         self.record_mounts(agent_id, Some(mounts_fingerprint(&mounts)));
-        self.record_timezone(agent_id, Some(timezone));
+        self.record_timezone(agent_id, Some(boot.timezone));
         Ok(())
     }
 
@@ -1470,6 +1519,25 @@ impl ComputerManager {
         {
             tracing::error!(%error, %agent_id, "screenshot store failed");
         }
+    }
+}
+
+/// The awake Agent's Computers of this Workspace, by token (ADR-0029).
+/// The Plugin Computer is never one: it runs in `Direct` mode alone.
+impl crate::ComputerTokens for ComputerManager {
+    fn computer_of(&self, token: &str) -> Option<crate::ComputerOwner> {
+        let entries = self.entries.lock().expect("computer entries lock");
+        entries
+            .iter()
+            .find_map(|(agent_id, entry)| match &entry.phase {
+                Phase::Awake(computer)
+                    if agent_id.as_str() != crate::PLUGIN_AGENT
+                        && crate::exit_listener::same_secret(token, &computer.token) =>
+                {
+                    Some(self.owner(agent_id))
+                }
+                _ => None,
+            })
     }
 }
 

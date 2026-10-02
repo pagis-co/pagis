@@ -150,6 +150,7 @@ const QUERIES: &[(&str, &str)] = &[(
 /// cookie once the socket is up.
 const UPGRADE_ONLY: &[&str] = &[
     "/api/v1/ws",
+    "/api/v1/hosts/{host_id}/exit",
     "/api/v1/channels/{channel_id}/dictate",
     "/api/v1/calls/{call_id}/listen",
 ];
@@ -233,6 +234,7 @@ impl TwoTenants {
             onboarded_at: None,
             chief_of_staff_agent_id: None,
             report_schedule_id: None,
+            home_exit_host_id: None,
         };
         stores
             .workspaces

@@ -28,11 +28,16 @@ nix.workspace = true
 str0m = { workspace = true, features = ["sha1"] }
 tempfile.workspace = true
 thiserror.workspace = true
-tokio.workspace = true
-tokio-util.workspace = true
+tokio = { workspace = true, features = ["io-util", "net"] }
+# `compat` joins the futures I/O of yamux and the tokio I/O of the exit
+# listener.
+tokio-util = { workspace = true, features = ["compat"] }
 tracing.workspace = true
 # The TURN server of Remote Access (ADR-0028).
 turn.workspace = true
+# The exit listener and the exit socket of a Home Exit (ADR-0029).
+httparse.workspace = true
+yamux.workspace = true
 webrtc-util.workspace = true
 
 [dev-dependencies]

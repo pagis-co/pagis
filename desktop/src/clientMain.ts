@@ -31,9 +31,9 @@ import {
   readClientCredential,
   readPort,
 } from './dataDirectory'
-import { HostLink } from './host'
+import { EXIT_CAPABILITY, SHELL_CAPABILITY } from './host'
 import { opensInSystemBrowser } from './origin'
-import { hostLinkFor } from './serverHost'
+import { type HostLinks, hostLinkFor } from './serverHost'
 import { AutostartEntry, type LoginItem } from './loginItem'
 import { applicationMenu, createTray, renderTray } from './menus'
 import { PidFile } from './pidFile'
@@ -116,8 +116,9 @@ class Shell {
   private lock: RuntimeLock | null = null
   private readonly installer = new RuntimeInstaller(this.runtimeRoot)
   // This machine as a Host. A host action runs here, through the
-  // client, and never in the daemon.
-  private hostLink: HostLink | null = null
+  // client, and never in the daemon. On a server, the same links make
+  // the machine a Home Exit that its Person can choose.
+  private hostLink: HostLinks | null = null
   private quitting = false
   private readonly controller = new ClientController({
     backUp: (signal) => this.backUpForUpgrade(signal),
@@ -526,6 +527,10 @@ class Shell {
       // A server this client did not start holds no Client Credential,
       // so the person's own Session is the only one there is.
       credential: () => (this.connection ? null : this.clientCredential()),
+      // The Computers of a server can reach the internet through this
+      // machine. Those of a Local Installation run on this machine and
+      // leave from it, so its client is no Home Exit.
+      capabilities: this.connection ? [SHELL_CAPABILITY, EXIT_CAPABILITY] : [SHELL_CAPABILITY],
     })
     this.hostLink.start()
   }
