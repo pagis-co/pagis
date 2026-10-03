@@ -185,6 +185,28 @@ fn dev_plan_checks_the_pins_for_a_change_to_the_computer_dockerfile() {
     }
 }
 
+/// A change to screend, or to the Dockerfile that pins its builder image,
+/// runs the tests of screend after the Computer Image build. Another
+/// change to the Computer does not.
+#[test]
+fn dev_plan_tests_screend_for_a_change_to_screend_or_its_dockerfile() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_computer_workspace(tmp.path());
+    let names = |path: &str| step_names(&dev_lanes(tmp.path(), &[path.into()], true).unwrap());
+
+    for path in ["computer/screend/src/exit.rs", "computer/Dockerfile"] {
+        let steps = names(path);
+        let image = steps.iter().position(|name| *name == "computer-image");
+        let screend = steps.iter().position(|name| *name == "screend-test");
+        assert!(
+            image.is_some() && screend == image.map(|at| at + 1),
+            "{path}: {steps:?}"
+        );
+    }
+    assert!(!names("computer/entrypoint.sh").contains(&"screend-test"));
+    assert!(!names("crates/pagis-computer/src/lib.rs").contains(&"screend-test"));
+}
+
 /// A workspace with the Google adapter, a package that the adapter
 /// depends on, a package that depends on the adapter, and one apart.
 fn write_google_workspace(root: &Path) {
@@ -347,6 +369,7 @@ fn plan_lists_every_gate_step_in_order() {
             "fmt",
             "clippy",
             "computer-image",
+            "screend-test",
             "test",
             "gog-contract",
             "emergency-drift",
@@ -926,6 +949,7 @@ fn full_lanes_keep_every_cargo_consumer_in_one_lane() {
                     "fmt",
                     "clippy",
                     "computer-image",
+                    "screend-test",
                     "test",
                     "gog-contract",
                     "emergency-drift",
@@ -1050,7 +1074,7 @@ fn a_name_that_is_not_a_gate_step_is_refused_with_the_step_names() {
         .to_string();
     assert!(error.contains("no step `lint`"), "{error}");
     assert!(
-        error.contains("fmt, clippy, computer-image, test"),
+        error.contains("fmt, clippy, computer-image, screend-test, test"),
         "{error}"
     );
 }

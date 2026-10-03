@@ -328,6 +328,11 @@ pub const ADMINISTRATION_ROUTES: &[Route] = &[
         authenticated: true,
     },
     Route {
+        path: "/api/v1/settings/system/home-exit",
+        methods: &["put"],
+        authenticated: true,
+    },
+    Route {
         path: "/api/v1/settings/system/docker/probe",
         methods: &["post"],
         authenticated: true,
@@ -997,7 +1002,17 @@ pub const ROUTES: &[Route] = &[
         authenticated: true,
     },
     Route {
+        path: "/api/v1/settings/home-exit",
+        methods: &["get", "put", "delete"],
+        authenticated: true,
+    },
+    Route {
         path: "/api/v1/ws",
+        methods: &["get"],
+        authenticated: true,
+    },
+    Route {
+        path: "/api/v1/hosts/{host_id}/exit",
         methods: &["get"],
         authenticated: true,
     },

@@ -177,12 +177,32 @@ pub struct ComputerDto {
     pub percent: Option<u8>,
     pub error: Option<String>,
     pub holder: String,
+    /// Which exit an awake Computer in Home mode uses (ADR-0029), such as
+    /// `exit: MacBook Pro` or `exit: server`. Null in Direct mode, which
+    /// is the mode of a Person with no Home Exit, and while the Computer
+    /// is not awake. `computer.exit_changed` events carry each change.
+    pub exit: Option<String>,
+}
+
+/// The view of one Agent's Computer in `state`.
+async fn computer_view(
+    computer: &pagis_computer::ComputerManager,
+    agent_id: &AgentId,
+    state: ComputerState,
+) -> ComputerDto {
+    let image_state = computer.image_state().await;
+    let exit = computer
+        .exit_in_use(agent_id)
+        .await
+        .map(|exit| exit.label());
+    computer_dto(state, image_state, computer.holder(agent_id), exit)
 }
 
 fn computer_dto(
     state: ComputerState,
     image_state: ComputerImageState,
     holder: InputHolder,
+    exit: Option<String>,
 ) -> ComputerDto {
     let holder = holder.as_str().to_string();
     let (image, image_error) = match image_state {
@@ -210,6 +230,7 @@ fn computer_dto(
         percent,
         error: state_error.or(image_error),
         holder,
+        exit,
     }
 }
 
@@ -662,12 +683,9 @@ pub async fn computer_state(
     require_agent(&state, &tenant, &agent_id).await?;
     let computer = state.computers.get(&tenant.workspace_id);
     let computer_state = computer.state(&agent_id).await;
-    let image_state = computer.image_state().await;
-    Ok(Json(computer_dto(
-        computer_state,
-        image_state,
-        computer.holder(&agent_id),
-    )))
+    Ok(Json(
+        computer_view(&computer, &agent_id, computer_state).await,
+    ))
 }
 
 #[utoipa::path(
@@ -691,14 +709,9 @@ pub async fn wake_computer(
     require_agent(&state, &tenant, &agent_id).await?;
     let computer = state.computers.get(&tenant.workspace_id);
     let computer_state = computer.wake(&agent_id).await.map_err(computer_error)?;
-    let image_state = computer.image_state().await;
     Ok((
         StatusCode::ACCEPTED,
-        Json(computer_dto(
-            computer_state,
-            image_state,
-            computer.holder(&agent_id),
-        )),
+        Json(computer_view(&computer, &agent_id, computer_state).await),
     ))
 }
 
@@ -725,12 +738,9 @@ pub async fn sleep_computer(
     require_agent(&state, &tenant, &agent_id).await?;
     let computer = state.computers.get(&tenant.workspace_id);
     let computer_state = computer.sleep(&agent_id).await.map_err(computer_error)?;
-    let image_state = computer.image_state().await;
-    Ok(Json(computer_dto(
-        computer_state,
-        image_state,
-        computer.holder(&agent_id),
-    )))
+    Ok(Json(
+        computer_view(&computer, &agent_id, computer_state).await,
+    ))
 }
 
 /// What one office keeps on disk: the bytes of that
@@ -790,12 +800,9 @@ pub async fn screen_takeover(
     let computer = state.computers.get(&tenant.workspace_id);
     computer.takeover(&agent_id).await.map_err(computer_error)?;
     let computer_state = computer.state(&agent_id).await;
-    let image_state = computer.image_state().await;
-    Ok(Json(computer_dto(
-        computer_state,
-        image_state,
-        computer.holder(&agent_id),
-    )))
+    Ok(Json(
+        computer_view(&computer, &agent_id, computer_state).await,
+    ))
 }
 
 /// Hand the computer back to the agent: the parked run resumes
@@ -824,12 +831,9 @@ pub async fn screen_handback(
         .await
         .map_err(computer_error)?;
     let computer_state = computer.state(&agent_id).await;
-    let image_state = computer.image_state().await;
-    Ok(Json(computer_dto(
-        computer_state,
-        image_state,
-        computer.holder(&agent_id),
-    )))
+    Ok(Json(
+        computer_view(&computer, &agent_id, computer_state).await,
+    ))
 }
 
 /// One WebRTC SDP payload: the browser's offer up, screend's

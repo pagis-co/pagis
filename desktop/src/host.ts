@@ -19,6 +19,11 @@ import { isTrustedServerOrigin } from './origin'
  *  commands declares this; a client that cannot must not. */
 export const SHELL_CAPABILITY = 'shell'
 
+/** A machine that can be the Home Exit of its Person declares this: it
+ *  opens the exit socket and carries the connections of the Person's
+ *  Computers (`exit.ts`). */
+export const EXIT_CAPABILITY = 'exit'
+
 /** One command the daemon dispatched. */
 export interface HostDispatch {
   id: string
@@ -135,6 +140,7 @@ export class HostAgent {
     private readonly name: string = machineName(),
     private readonly platform: string = platformName(),
     private readonly run: CommandRunner = runInShell,
+    private readonly capabilities: readonly string[] = [SHELL_CAPABILITY],
   ) {
     this.socket.onMessage((frame) => {
       void this.receive(frame)
@@ -149,7 +155,7 @@ export class HostAgent {
         type: 'register_host',
         name: this.name,
         platform: this.platform,
-        capabilities: [SHELL_CAPABILITY],
+        capabilities: this.capabilities,
       }),
     )
   }
@@ -215,6 +221,7 @@ export class HostLink {
     private readonly retryMs = 3_000,
     private readonly run: CommandRunner = runInShell,
     private readonly sessionEnded: () => void = () => {},
+    private readonly capabilities: readonly string[] = [SHELL_CAPABILITY],
   ) {}
 
   /** Open the socket and register, and keep doing so until [`stop`]. */
@@ -258,7 +265,7 @@ export class HostLink {
       if (code === SESSION_ENDED) this.sessionEnded()
       this.retry()
     })
-    this.agent = new HostAgent(socket, machineName(), platformName(), this.run)
+    this.agent = new HostAgent(socket, machineName(), platformName(), this.run, this.capabilities)
     this.agent.start()
   }
 

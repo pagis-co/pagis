@@ -12,6 +12,7 @@ import type { Duplex } from 'node:stream'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
+  EXIT_CAPABILITY,
   HostAgent,
   HostLink,
   type HostSocket,
@@ -19,6 +20,7 @@ import {
   openWebSocket,
   platformName,
   runInShell,
+  SHELL_CAPABILITY,
 } from './host'
 
 /** A socket a test drives: it keeps what the client sent, and hands the
@@ -85,6 +87,21 @@ describe('the host registration', () => {
         capabilities: ['shell'],
       },
     ])
+  })
+
+  /** A client connected to a server declares the exit too, so that its
+   *  Person can choose the machine as their Home Exit. */
+  it('declares the capabilities it is given', () => {
+    const socket = new FakeSocket()
+
+    new HostAgent(socket, 'Air', 'macos', runInShell, [SHELL_CAPABILITY, EXIT_CAPABILITY]).start()
+
+    expect(socket.sent[1]).toEqual({
+      type: 'register_host',
+      name: 'Air',
+      platform: 'macos',
+      capabilities: ['shell', 'exit'],
+    })
   })
 
   it('keeps the id the daemon gives the machine', () => {
@@ -379,6 +396,31 @@ describe('the link that keeps the machine registered', () => {
 
     link.stop()
     expect(sockets[1].closed).toBe(true)
+  })
+
+  it('registers each socket with the capabilities it is given', async () => {
+    const sockets: FakeSocket[] = []
+    const link = new HostLink(
+      async () => {
+        const socket = new FakeSocket()
+        sockets.push(socket)
+        return socket
+      },
+      1,
+      runInShell,
+      () => {},
+      [SHELL_CAPABILITY, EXIT_CAPABILITY],
+    )
+
+    link.start()
+    await vi.waitFor(() => expect(sockets).toHaveLength(1))
+    sockets[0].close()
+    await vi.waitFor(() => expect(sockets).toHaveLength(2))
+    link.stop()
+
+    for (const socket of sockets) {
+      expect(socket.sent[1]).toMatchObject({ type: 'register_host', capabilities: ['shell', 'exit'] })
+    }
   })
 
   it('keeps trying while the daemon refuses the socket', async () => {

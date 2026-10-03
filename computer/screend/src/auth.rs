@@ -59,6 +59,12 @@ impl Guard {
         self.token.is_none()
     }
 
+    /// The token itself. The Exit Proxy sends it to the daemon in `Home`
+    /// mode, so the daemon knows which Computer asks (see `exit`).
+    pub fn token(&self) -> Option<&str> {
+        self.token.as_deref()
+    }
+
     /// May a request for `path` with this `Authorization` header value
     /// proceed?
     pub fn allows(&self, path: &str, authorization: Option<&str>) -> bool {

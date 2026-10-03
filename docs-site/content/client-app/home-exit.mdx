@@ -1,0 +1,113 @@
+---
+title: Home Exit
+description: Send the Agents' Computers on a server to the internet through a computer of your own at home, what that costs, and what the exit label means.
+icon: Route
+---
+
+A Pagis server runs on a VM in a data center, so every Computer on it
+reaches the internet from a data-center address. Many sites treat such an
+address as a bot. They show CAPTCHAs, refuse sign-ups, block some pages and
+mark mail as spam.
+
+The **Home Exit** is one computer of yours that runs the Pagis Client App,
+connected to the server. When you choose it, the Computers of your Agents
+reach the internet through it, and sites see your own connection. Only a
+computer of yours carries your Agents' traffic. The server never sends it
+through the computer of another Person.
+
+A Local Installation has no Home Exit. Its Computers run on your own
+machine and already reach the internet from your connection.
+
+## Know the cost before you turn it on
+
+When a computer of yours is the Home Exit:
+
+- Sites see the internet address of that computer for every page the
+  Agents open.
+- A block or an abuse report lands on that address, and sites can link the
+  Agents' accounts to the household's own accounts.
+- Every byte that a Computer loads crosses that connection twice, once in
+  and once out, and its upload speed limits the pages.
+- Some internet providers forbid a proxy service in their terms.
+- The Agents reach nothing on that computer or on its local network. The
+  Client App refuses every address of the home network, also for a name
+  that resolves there.
+
+## Choose a computer
+
+A computer can be the Home Exit while the Client App on it is connected to
+the server ([Connect to a server](/client-app/connect-to-a-server)). The
+Client App then offers the computer to the server as a possible Home Exit.
+
+1. Open **Settings → Hosts** in the Product App. The **Home Exit** card is
+   under your Hosts. It shows only on a server.
+2. Select the computer in the list. A computer whose Client App does not
+   run now shows "(not connected)".
+3. Read the costs, then select **Turn on**.
+
+Each awake Computer of yours switches at once, with no restart. The
+browser and the shells of the Computer keep their pages and their
+windows, but their open connections close, and the next connections go
+through the Home Exit. A Computer that sleeps takes the choice when it
+wakes. When a Computer does not switch, the card names it and says why.
+That Computer keeps its old path and takes the choice at its next wake.
+
+To use another computer, select it in the same list. To stop, select
+**Turn off**. Your Computers then reach the internet from the server
+again, at once.
+
+## The exit label
+
+An awake Computer that goes through the Home Exit names its exit in use
+beside its state on the Desk, and its Agent reads the same line in the
+result of each action on the screen:
+
+- `exit: MacBook Pro` says that the connections leave through the computer
+  of that name.
+- `exit: server` says that you chose a Home Exit, but that computer is not
+  connected now, so the connections leave from the server.
+- No label says that the Computer reaches the internet from the server,
+  because you chose no Home Exit or the Administrator turned it off.
+
+Sites can notice a sudden change of address, so the label changes at once
+when the path changes.
+
+## When the computer sleeps
+
+The Home Exit carries traffic only while its Client App runs and is
+connected. When the computer sleeps, loses its network or quits the
+Client App, each connection that it carried closes. The next connections
+of your Computers leave from the server, and the label says `exit: server`.
+A Schedule that browses at night keeps working, from the server's address.
+When the Client App connects again, the next connections go through it
+again.
+
+A laptop that travels takes the address of the network that it joins.
+
+## The tray
+
+While exit traffic flows through a computer, the tray item of its Client
+App says so at the top of its menu, such as "Home Exit: 3 connections,
+12.4 MB carried". The count is the bytes that the computer carried since
+the Client App started. **Turn Off Home Exit** under it turns your Home
+Exit off on the server, as **Turn off** in Settings does.
+
+## When the Administrator turns it off
+
+An Administrator can turn the Home Exit off for every Person of the
+server. Then every Computer reaches the internet from the server, and the
+card says that the Administrator turned it off. Your choice stays. It is in
+effect again when the Administrator turns the Home Exit on
+([Home Exit](/server/home-exit) for Administrators).
+
+## What does not go through it
+
+- A tool in the terminal that ignores `HTTPS_PROXY` connects from the
+  server. `pagis-apt` is such a tool.
+- A private address of the server's network, such as one that the
+  Administrator opened with `PAGIS_COMPUTER_ALLOW`, leaves from the server.
+  An internal name of that network does not resolve at home, so a Computer
+  reaches such a destination by its address.
+- The live screen of a Computer does not use the Home Exit.
+- In Home mode, the browser of a Computer makes WebRTC calls over TCP
+  alone, or not at all.

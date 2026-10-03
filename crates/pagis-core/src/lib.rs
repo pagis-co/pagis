@@ -61,7 +61,7 @@ pub use domain::{
 };
 pub use event::{Event, NewEvent};
 pub use exposure::message_source_is_live;
-pub use host::{Host, HostStore, SHELL_CAPABILITY};
+pub use host::{EXIT_CAPABILITY, Host, HostStore, SHELL_CAPABILITY};
 pub use id::{
     AgentId, AgentMailboxId, ArtifactId, CallId, ChannelId, ConnectionId, ContributionId,
     CredentialId, EventId, EventSubscriptionId, GrantId, HostId, IncomingEventId, MessageId,

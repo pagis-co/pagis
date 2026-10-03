@@ -1174,6 +1174,10 @@ pub fn router(state: Arc<AppState>) -> Router {
             put(crate::system::set_analytics),
         )
         .route(
+            "/api/v1/settings/system/home-exit",
+            put(crate::system::set_home_exit_setting),
+        )
+        .route(
             "/api/v1/settings/system/docker/probe",
             post(crate::system::probe_docker),
         )

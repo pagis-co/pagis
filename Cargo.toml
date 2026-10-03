@@ -32,7 +32,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
 license = "MIT"
 
@@ -172,6 +172,12 @@ tantivy = "0.26"
 ignore = "0.4"
 utoipa = { version = "5", features = ["axum_extras"] }
 tokio-tungstenite = "0.28"
+# The streams of the exit socket of a Home Exit (ADR-0029): one yamux
+# stream for each connection of a Computer, over the WebSocket of the
+# Client App.
+yamux = "0.14"
+# The head of a `CONNECT` that the exit listener reads from a Computer.
+httparse = "1"
 tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

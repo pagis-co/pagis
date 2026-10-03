@@ -12,9 +12,11 @@ mod client_name;
 mod cors;
 mod cross_origin;
 pub mod error;
+mod exit_socket;
 pub mod forget;
 pub mod forwarded;
 mod grants;
+mod home_exit;
 mod hosts;
 mod knowledge;
 mod live_connections;
@@ -126,6 +128,10 @@ pub struct AppState {
     /// registers one while it holds the client's socket, and the reads
     /// that show presence ask it.
     pub host_presence: Arc<pagis_broker::HostPresence>,
+    /// The exit sockets of the Hosts, which carry the connections of
+    /// their Person's Computers as the Home Exit (ADR-0029). The exit
+    /// listener opens a stream on them.
+    pub home_exits: Arc<pagis_computer::HomeExits>,
     /// The installed Capability Manifests are the authority for
     /// Connection capability names.
     pub broker: Arc<pagis_broker::Broker>,
@@ -732,12 +738,20 @@ fn product_router(state: Arc<AppState>) -> Router {
             "/api/v1/settings/sign-in-links",
             post(sign_in_links::make_client_link),
         )
+        // The Person's own Home Exit (ADR-0029).
+        .route(
+            "/api/v1/settings/home-exit",
+            get(home_exit::get_home_exit)
+                .put(home_exit::set_home_exit)
+                .delete(home_exit::clear_home_exit),
+        )
         // The sockets read the same session cookie as every other
         // route, so they sit behind the same middleware. Their
         // first frame carries no credential. The origin check that
         // `routers` puts around the product router refuses an upgrade
         // that a page at another origin starts.
         .route("/api/v1/ws", get(ws::upgrade))
+        .route("/api/v1/hosts/{host_id}/exit", get(exit_socket::upgrade))
         .route("/api/v1/channels/{channel_id}/dictate", get(voice::dictate))
         // Listen-Live (ADR-0020).
         .route("/api/v1/calls/{call_id}/listen", get(calls::listen))

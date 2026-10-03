@@ -471,6 +471,13 @@ export function AppShell() {
               queryKey: screenPreviewKey(event.agent_id),
             })
           }
+          // A change of the exit in use (ADR-0029) refreshes the tile,
+          // which names the exit.
+          if (frame.type === 'computer.exit_changed' && event.agent_id != null) {
+            void queryClient.invalidateQueries({
+              queryKey: computerKey(event.agent_id),
+            })
+          }
           // Takeover state and the handback countdown toast.
           if (frame.type.startsWith('screen.') && event.agent_id != null) {
             void queryClient.invalidateQueries({

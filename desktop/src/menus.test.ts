@@ -5,7 +5,7 @@ import * as zlib from 'node:zlib'
 
 import { describe, expect, it, vi } from 'vitest'
 
-import { applicationMenu, renderTray, trayIcon } from './menus'
+import { applicationMenu, exitTrafficLabel, renderTray, trayIcon } from './menus'
 import type { UpdateState } from './updates'
 
 // The menus are built from Electron's own template shape, so the test
@@ -29,7 +29,11 @@ type Item = {
   submenu?: Item[]
 }
 
-function actions(openAdministration: () => void, update: UpdateState | null = null) {
+function actions(
+  openAdministration: () => void,
+  update: UpdateState | null = null,
+  traffic = { connections: 0, bytes: 0 },
+) {
   return {
     open: vi.fn(),
     openAdministration,
@@ -39,6 +43,8 @@ function actions(openAdministration: () => void, update: UpdateState | null = nu
     update: () => update,
     checkForUpdates: vi.fn(),
     restartToUpdate: vi.fn(),
+    exitTraffic: () => traffic,
+    turnOffHomeExit: vi.fn(),
   }
 }
 
@@ -171,6 +177,38 @@ describe('the menus', () => {
     ]) {
       expect(item(menu, 'Check for Updates…')).toBeUndefined()
     }
+  })
+
+  /** While exit traffic flows (ADR-0029), the tray item says so first,
+   *  with the bytes that this machine carried, and its menu turns the
+   *  Home Exit off. */
+  it('says in the tray when exit traffic flows, with a byte count, and turns the Home Exit off', () => {
+    const menuActions = actions(vi.fn(), null, { connections: 3, bytes: 12_400_000 })
+
+    const menu = trayMenu(menuActions)
+
+    expect(menu[0]).toMatchObject({ label: 'Home Exit: 3 connections, 12.4 MB carried', enabled: false })
+    expect(menu[1].label).toBe('Turn Off Home Exit')
+    menu[1].click?.()
+    expect(menuActions.turnOffHomeExit).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows no Home Exit while no exit traffic flows, and none in the application menus', () => {
+    const idle = actions(vi.fn(), null, { connections: 0, bytes: 12_400_000 })
+    const flowing = actions(vi.fn(), null, { connections: 1, bytes: 100 })
+
+    expect(item(trayMenu(idle), 'Turn Off Home Exit')).toBeUndefined()
+    expect(trayMenu(idle)[0].label).toBe('Open Pagis')
+    for (const menu of [applicationMenu(flowing, 'darwin'), applicationMenu(flowing, 'linux')]) {
+      expect(item(menu as unknown as Item[], 'Turn Off Home Exit')).toBeUndefined()
+    }
+  })
+
+  it('counts the connections and names the bytes in the unit that fits', () => {
+    expect(exitTrafficLabel({ connections: 1, bytes: 512 })).toBe('Home Exit: 1 connection, 512 B carried')
+    expect(exitTrafficLabel({ connections: 2, bytes: 1_500 })).toBe('Home Exit: 2 connections, 1.5 kB carried')
+    expect(exitTrafficLabel({ connections: 2, bytes: 999_999 })).toBe('Home Exit: 2 connections, 1.0 MB carried')
+    expect(exitTrafficLabel({ connections: 4, bytes: 2_000_000_000 })).toBe('Home Exit: 4 connections, 2.0 GB carried')
   })
 
   it('gives macOS a template icon and Linux a drawn one', () => {

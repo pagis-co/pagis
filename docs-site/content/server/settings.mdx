@@ -22,6 +22,8 @@ for the run and is never written back into the file.
 | `[screen] advertise_ip` | `PAGIS_SCREEN_ADVERTISE_IP` | `127.0.0.1` | The address browsers reach the Media Relay at. |
 | `[screen] media_port_first`, `media_port_last` | `PAGIS_SCREEN_MEDIA_PORT_FIRST`, `PAGIS_SCREEN_MEDIA_PORT_LAST` | `50000`, `50099` | The Media Relay's UDP range. |
 | `[screen] remote_access_turn_port` | None | `4402` | The loopback TCP port of the TURN server that carries the live screen through the Funnel in Remote Access. `deploy/tailscale-serve.json` names `4402`. |
+| `[computer] exit_port` | `PAGIS_COMPUTER_EXIT_PORT` | `4403` | The TCP port of the exit listener. The Exit Proxy of each Agent's Computer in Home mode sends its connections there, and the daemon carries them through the Person's Home Exit. It binds every interface and answers a Computer's token alone. The egress rules open it to the Computers and close it to everything else (`PAGIS_EXIT_PORT` of `deploy/egress.sh`). A server without those rules keeps the port closed in its firewall. A Local Installation opens no exit listener. |
+| `[computer] home_exit` | None | `true` | The Home Exit System Setting: whether the People of the server may send their Computers' connections through a [Home Exit](/server/home-exit). An Administrator turns it off in the Settings view of the Administration Interface. |
 
 ```toml
 bind = "10.0.1.7"
@@ -40,9 +42,9 @@ Bind the private interface the proxy is on, not `0.0.0.0`, where the
 network allows it. The daemon then answers the proxy alone, and a firewall
 rule is a second line of defence rather than the only one.
 
-An Administrator changes the port, the Docker endpoint and the log level in
-the Settings view of the Administration Interface, and the daemon writes
-`config.toml` itself. The timezone is each Person's own: their browser or
+An Administrator changes the port, the Docker endpoint, the log level, the
+anonymous analytics and the Home Exit in the Settings view of the
+Administration Interface, and the daemon writes `config.toml` itself. The timezone is each Person's own: their browser or
 Client App reports it at their first sign-in, and they change it in
 **Settings → Timezone** of the Product App. The clock of the server is
 never a Person's timezone.

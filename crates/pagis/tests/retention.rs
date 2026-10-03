@@ -31,6 +31,7 @@ async fn fixture(pool: SqlitePool) -> Fixture {
         onboarded_at: None,
         chief_of_staff_agent_id: None,
         report_schedule_id: None,
+        home_exit_host_id: None,
     };
     let workspaces = Arc::new(SqliteWorkspaceStore::new(pool.clone()));
     workspaces.create(&workspace).await.unwrap();

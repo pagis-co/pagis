@@ -57,7 +57,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: stable
           components: rustfmt, clippy
@@ -76,8 +76,9 @@ jobs:
     steps:
       # A runner starts with about 14 GB free. This job holds the build of
       # the workspace tests, the Computer Image twice (in the buildx builder
-      # and in Docker) and the service images of the Docker tests, so it
-      # removes the toolchains the runner ships and the job never uses.
+      # and in Docker), the Rust image and the build of screend, and the
+      # service images of the Docker tests, so it removes the toolchains the
+      # runner ships and the job never uses.
       # The removal takes from one to six minutes and the job fills the
       # disk only when it builds, so the removal runs in the background
       # while the job checks out and restores its cache.
@@ -89,7 +90,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: stable
 
@@ -102,6 +103,13 @@ jobs:
         with:
           tool: nextest
 
+      # The interop test of the exit socket runs the Client App's own
+      # TypeScript under node, which strips its types
+      # (crates/pagis/tests/home_exit.rs). It needs no npm package.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+
       # The image build reads its layers from the GitHub Actions cache,
       # which a buildx builder of the docker-container driver reaches
       # with the runtime token of the job.
@@ -110,8 +118,11 @@ jobs:
       - uses: crazy-max/ghaction-github-runtime@04d248b84655b509d8c44dc1d6f990c879747487 # v4.0.0
 
       # The Docker-real tests run in the Computer Image of this tree, so
-      # the job builds the image first.
-      - run: cargo xtask step computer-image test
+      # the job builds the image first. The tests of screend run in the
+      # Rust image that builds screend in the Computer Image. The named
+      # volumes that keep their Cargo registry and target directory start
+      # empty on a runner, so the step compiles screend each time.
+      - run: cargo xtask step computer-image screend-test test
         env:
           PAGIS_IMAGE_CACHE_FROM: type=gha,scope=computer-image
           PAGIS_IMAGE_CACHE_TO: ${{ github.ref == 'refs/heads/main' && 'type=gha,scope=computer-image,mode=max' || '' }}
@@ -125,7 +136,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: stable
 
@@ -156,7 +167,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: stable
 
@@ -177,7 +188,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: stable
 
@@ -198,7 +209,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: stable
 
@@ -222,7 +233,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: stable
 
@@ -244,7 +255,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: stable
 
@@ -286,7 +297,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: stable
 

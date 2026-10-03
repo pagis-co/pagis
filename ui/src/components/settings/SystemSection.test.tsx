@@ -1,6 +1,6 @@
 // The System section: the two-column daemon form, Save and
-// restart, Remote Access, the Docker probe row, the analytics switch and
-// About.
+// restart, Remote Access, the Docker probe row, the analytics switch, the
+// Home Exit switch of a server and About.
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
@@ -161,6 +161,59 @@ describe('SystemSection', () => {
     expect(
       await screen.findByText('DO_NOT_TRACK is set, so Pagis sends no analytics.'),
     ).toBeTruthy()
+  })
+
+  /** A local installation has no Home Exit (ADR-0029): its Computers
+   *  leave from its own connection. */
+  it('shows no Home Exit switch on a local installation', async () => {
+    mount(stubApi())
+
+    expect(await screen.findByRole('switch', { name: /Send anonymous analytics/ })).toBeTruthy()
+    expect(screen.queryByRole('switch', { name: /Home Exit/ })).toBeNull()
+  })
+
+  it('shows the Home Exit switch of a server, on by default', async () => {
+    mount(
+      stubApi({
+        GET: vi.fn(async (path: string) => ({
+          data:
+            path === '/api/v1/settings/system/remote-access'
+              ? remoteAccess
+              : { ...settings, home_exit: { enabled: true } },
+        })),
+      }),
+    )
+
+    const homeExit = await screen.findByRole('switch', { name: /Let People use a Home Exit/ })
+    expect(homeExit.getAttribute('aria-checked')).toBe('true')
+    expect(screen.getByText(/Each Person turns it on for their own sprites/)).toBeTruthy()
+  })
+
+  it('turns the Home Exit off for every Person, and says what did not switch', async () => {
+    const api = stubApi({
+      GET: vi.fn(async (path: string) => ({
+        data:
+          path === '/api/v1/settings/system/remote-access'
+            ? remoteAccess
+            : { ...settings, home_exit: { enabled: true } },
+      })),
+      PUT: vi.fn(async () => ({
+        data: { settings: { ...settings, home_exit: { enabled: false } }, not_switched: 2 },
+      })),
+    })
+    mount(api)
+
+    fireEvent.click(await screen.findByRole('switch', { name: /Let People use a Home Exit/ }))
+
+    await waitFor(() =>
+      expect(api.PUT).toHaveBeenCalledWith('/api/v1/settings/system/home-exit', {
+        body: { enabled: false },
+      }),
+    )
+    expect(
+      await screen.findByText(/Every sprite.*s computer reaches the internet from this server/),
+    ).toBeTruthy()
+    expect(screen.getByText(/2 computers did not switch/)).toBeTruthy()
   })
 
   it('names the Docker endpoint in use', async () => {

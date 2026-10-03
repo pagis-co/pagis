@@ -7,7 +7,7 @@
       "name": "MIT",
       "identifier": "MIT"
     },
-    "version": "0.1.1"
+    "version": "0.2.0"
   },
   "paths": {
     "/api/v1/administration/computer-image/pull": {
@@ -7061,6 +7061,145 @@
         }
       }
     },
+    "/api/v1/settings/home-exit": {
+      "get": {
+        "tags": [
+          "home_exit"
+        ],
+        "summary": "The signed-in Person's Home Exit, and the Hosts they can choose.",
+        "operationId": "get_home_exit",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HomeExitDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "home_exit"
+        ],
+        "summary": "Choose one of the Person's own Hosts that declared `exit` as their\nHome Exit, and switch each of their awake Computers to it at once.",
+        "operationId": "set_home_exit",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetHomeExitRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SwitchedHomeExitDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No Host of the Person has this id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A Local Installation, or the Administrator turned the Home Exit off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The Host declared no `exit`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "home_exit"
+        ],
+        "summary": "Turn the Person's Home Exit off: their Computers reach the internet\nfrom the server again, at once. The Client App's tray calls this too.",
+        "operationId": "clear_home_exit",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SwitchedHomeExitDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A Local Installation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/settings/keypad-code": {
       "put": {
         "tags": [
@@ -8786,6 +8925,67 @@
           },
           "403": {
             "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/settings/system/home-exit": {
+      "put": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Turn the Home Exit off or on for every Person of a Server\n(ADR-0029). The daemon writes the setting, and each awake Computer\nwhose mode changes switches at once, with no restart.",
+        "operationId": "set_home_exit_setting",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetHomeExitSettingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SwitchedHomeExitSettingDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A Local Installation has no Home Exit",
             "content": {
               "application/json": {
                 "schema": {
@@ -11042,6 +11242,13 @@
               "null"
             ]
           },
+          "exit": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Which exit an awake Computer in Home mode uses (ADR-0029), such as\n`exit: MacBook Pro` or `exit: server`. Null in Direct mode, which\nis the mode of a Person with no Home Exit, and while the Computer\nis not awake. `computer.exit_changed` events carry each change."
+          },
           "holder": {
             "type": "string"
           },
@@ -12187,6 +12394,27 @@
           }
         }
       },
+      "ExitSwitchFailureDto": {
+        "type": "object",
+        "description": "An awake Computer whose Exit Proxy did not switch. It keeps its mode,\nand it takes the choice at its next wake.",
+        "required": [
+          "agent_id",
+          "agent_name",
+          "error"
+        ],
+        "properties": {
+          "agent_id": {
+            "type": "string"
+          },
+          "agent_name": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string",
+            "description": "Why, as the Exit Proxy answered."
+          }
+        }
+      },
       "FailureKind": {
         "type": "string",
         "description": "The cause recorded where a Run fails. The error holds the detail.",
@@ -12575,6 +12803,83 @@
           },
           "version": {
             "type": "string"
+          }
+        }
+      },
+      "HomeExitDto": {
+        "type": "object",
+        "description": "The Person's Home Exit, as Settings shows it.",
+        "required": [
+          "available",
+          "administrator_turned_off",
+          "hosts"
+        ],
+        "properties": {
+          "administrator_turned_off": {
+            "type": "boolean",
+            "description": "True while the Administrator turned the Home Exit off for the\ninstallation. The Person's choice stays, and it is in effect\nagain when the Administrator turns the Home Exit on."
+          },
+          "available": {
+            "type": "boolean",
+            "description": "False on a Local Installation, which has no Home Exit. Settings\nthen shows no Home Exit."
+          },
+          "chosen": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/HomeExitHostDto",
+                "description": "The Host that the Person chose, or null for none."
+              }
+            ]
+          },
+          "hosts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HomeExitHostDto"
+            },
+            "description": "The Person's Hosts that declared `exit`: the Hosts that the Person\ncan choose. A Client App that is connected to the Server declares\nit."
+          }
+        }
+      },
+      "HomeExitHostDto": {
+        "type": "object",
+        "description": "One Host of the Person that can be their Home Exit.",
+        "required": [
+          "id",
+          "name",
+          "platform",
+          "present"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "description": "The name the machine calls itself, which the exit in use shows."
+          },
+          "platform": {
+            "type": "string",
+            "description": "The operating system family the client reported."
+          },
+          "present": {
+            "type": "boolean",
+            "description": "True while the exit socket of the Host is open, so it carries the\nconnections of the Person's Computers when it is their Home Exit."
+          }
+        }
+      },
+      "HomeExitSettingDto": {
+        "type": "object",
+        "description": "The Home Exit of the People of a Server (ADR-0029).",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "The System Setting: whether the People may send their Computers'\nconnections through a Home Exit of their own. On by default."
           }
         }
       },
@@ -16978,6 +17283,30 @@
           }
         }
       },
+      "SetHomeExitRequest": {
+        "type": "object",
+        "required": [
+          "host_id"
+        ],
+        "properties": {
+          "host_id": {
+            "type": "string",
+            "description": "One of the Person's own Hosts that declared `exit`."
+          }
+        }
+      },
+      "SetHomeExitSettingRequest": {
+        "type": "object",
+        "description": "Turn the Home Exit off or on for every Person of a Server.",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        }
+      },
       "SetKeypadCodeRequest": {
         "type": "object",
         "required": [
@@ -17662,6 +17991,43 @@
           }
         }
       },
+      "SwitchedHomeExitDto": {
+        "type": "object",
+        "description": "The Home Exit after a change, and the Computers that did not switch.",
+        "required": [
+          "home_exit",
+          "not_switched"
+        ],
+        "properties": {
+          "home_exit": {
+            "$ref": "#/components/schemas/HomeExitDto"
+          },
+          "not_switched": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExitSwitchFailureDto"
+            }
+          }
+        }
+      },
+      "SwitchedHomeExitSettingDto": {
+        "type": "object",
+        "description": "The settings after the Home Exit changed, and how many awake\nComputers did not switch. Each of those keeps its mode and takes the\nsetting at its next wake; the log of the daemon names them.",
+        "required": [
+          "settings",
+          "not_switched"
+        ],
+        "properties": {
+          "not_switched": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "settings": {
+            "$ref": "#/components/schemas/SystemSettingsDto"
+          }
+        }
+      },
       "SyncConfig": {
         "type": "object",
         "required": [
@@ -17874,6 +18240,17 @@
               "null"
             ],
             "description": "The Docker endpoint the user typed, or null for discovery."
+          },
+          "home_exit": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/HomeExitSettingDto",
+                "description": "The Home Exit of a Server, or null on a Local Installation, which\nhas no Home Exit."
+              }
+            ]
           },
           "listening_port": {
             "type": "integer",

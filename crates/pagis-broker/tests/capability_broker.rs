@@ -33,6 +33,7 @@ async fn workspace(pool: &SqlitePool) -> Workspace {
         onboarded_at: None,
         chief_of_staff_agent_id: None,
         report_schedule_id: None,
+        home_exit_host_id: None,
     }
 }
 

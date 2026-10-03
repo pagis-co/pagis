@@ -3564,6 +3564,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "nohash-hasher"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2bf50223579dc7cdcfb3bfcacf7069ff68243f8c363f62ffa99cf000a6b9c451"
+
+[[package]]
 name = "nom"
 version = "7.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3887,7 +3893,7 @@ dependencies = [
 
 [[package]]
 name = "pagis"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3959,7 +3965,7 @@ dependencies = [
 
 [[package]]
 name = "pagis-agent"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -3991,7 +3997,7 @@ dependencies = [
 
 [[package]]
 name = "pagis-analytics"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4008,7 +4014,7 @@ dependencies = [
 
 [[package]]
 name = "pagis-audit"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -4024,12 +4030,13 @@ dependencies = [
 
 [[package]]
 name = "pagis-broker"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "hex",
  "jsonschema",
  "pagis-audit",
+ "pagis-computer",
  "pagis-core",
  "pagis-storage-sqlite",
  "psl",
@@ -4045,7 +4052,7 @@ dependencies = [
 
 [[package]]
 name = "pagis-computer"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -4055,6 +4062,7 @@ dependencies = [
  "futures",
  "hex",
  "hmac 0.12.1",
+ "httparse",
  "image",
  "nix 0.31.3",
  "pagis-audit",
@@ -4076,11 +4084,12 @@ dependencies = [
  "tracing-subscriber",
  "turn",
  "webrtc-util",
+ "yamux",
 ]
 
 [[package]]
 name = "pagis-connect"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -4097,7 +4106,7 @@ dependencies = [
 
 [[package]]
 name = "pagis-core"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "chacha20poly1305",
@@ -4118,7 +4127,7 @@ dependencies = [
 
 [[package]]
 name = "pagis-evaluation"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -4133,7 +4142,7 @@ dependencies = [
 
 [[package]]
 name = "pagis-google"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -4156,7 +4165,7 @@ dependencies = [
 
 [[package]]
 name = "pagis-knowledge"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "pagis-core",
@@ -4171,7 +4180,7 @@ dependencies = [
 
 [[package]]
 name = "pagis-mail"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "async-imap",
  "async-trait",
@@ -4204,7 +4213,7 @@ dependencies = [
 
 [[package]]
 name = "pagis-mcp-fixture"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -4224,7 +4233,7 @@ dependencies = [
 
 [[package]]
 name = "pagis-memory"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "git2",
@@ -4240,7 +4249,7 @@ dependencies = [
 
 [[package]]
 name = "pagis-plugin"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "futures",
@@ -4263,7 +4272,7 @@ dependencies = [
 
 [[package]]
 name = "pagis-plugins"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "futures",
@@ -4285,7 +4294,7 @@ dependencies = [
 
 [[package]]
 name = "pagis-server"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -4328,7 +4337,7 @@ dependencies = [
 
 [[package]]
 name = "pagis-software"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -4355,7 +4364,7 @@ dependencies = [
 
 [[package]]
 name = "pagis-storage-postgres"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -4373,7 +4382,7 @@ dependencies = [
 
 [[package]]
 name = "pagis-storage-sqlite"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -4393,7 +4402,7 @@ dependencies = [
 
 [[package]]
 name = "pagis-telephony"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "audio-codec-algorithms",
@@ -4431,7 +4440,7 @@ dependencies = [
 
 [[package]]
 name = "pagis-testkit"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -4475,7 +4484,7 @@ dependencies = [
 
 [[package]]
 name = "pagis-trigger"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "chrono-tz",
@@ -4493,7 +4502,7 @@ dependencies = [
 
 [[package]]
 name = "pagis-vault"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "argon2",
  "async-trait",
@@ -4519,11 +4528,11 @@ dependencies = [
 
 [[package]]
 name = "pagis-versions"
-version = "0.1.1"
+version = "0.2.0"
 
 [[package]]
 name = "pagis-voice"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -7913,7 +7922,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "hex",
@@ -7924,6 +7933,21 @@ dependencies = [
  "sha2 0.10.9",
  "tempfile",
  "toml",
+]
+
+[[package]]
+name = "yamux"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4f4e661d6ba6f09a768e31c6f3d88f9fac596ad5d376515d598a37b62d220b34"
+dependencies = [
+ "futures",
+ "log",
+ "nohash-hasher",
+ "parking_lot",
+ "pin-project",
+ "static_assertions",
+ "web-time",
 ]
 
 [[package]]

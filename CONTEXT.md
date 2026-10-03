@@ -218,9 +218,10 @@ start without one. The files stay on the disk either way (ADR-0024).
 ### System Setting
 A setting of the installation rather than of a Workspace: the port, the
 Docker endpoint, the log level, the data directory, Remote Access of a
-Local Installation, and the Analytics. An Administrator changes it in the
-Administration Interface, and the daemon writes `config.toml` (ADR-0024,
-ADR-0026).
+Local Installation, the Analytics, and the Home Exit of a Server, which an
+Administrator turns off for every Person and never on for one. An
+Administrator changes it in the Administration Interface, and the daemon
+writes `config.toml` (ADR-0024, ADR-0026, ADR-0029).
 The timezone is not one: it belongs to each Person (ADR-0006).
 
 ### Trusted Proxy
@@ -904,18 +905,32 @@ the daemon stops for good, and its disk stays. A restart of the daemon
 keeps it running (ADR-0014).
 
 ### Exit Proxy
-The proxy inside every Computer that its browser and its terminal send each
-connection to. It dials the connection from the Computer, or, while the
-Person's Home Exit is on, sends it to the daemon, which carries it through
-the Home Exit. The daemon switches it with no restart. Not built
-(ADR-0029).
+The HTTP proxy on loopback inside every Computer that its browser and its
+shells send each connection to. In Direct mode it dials the connection
+from the Computer. In Home mode it sends each connection to the exit
+listener of the daemon with the Computer's token, and the daemon carries
+it through the Person's Home Exit, or from the server while that Host is
+absent; a literal private address still leaves from the Computer. An
+Agent's Computer on a Server starts in Home mode when its Person has
+chosen a Home Exit and the System Setting lets them use it. When the
+choice or the System Setting changes, the daemon switches the mode of each
+awake Computer with no restart, and each switch closes the connections
+that the proxy holds (ADR-0029).
 _Avoid_: egress proxy, outbound proxy
 
 ### Home Exit
 The one Host of a Person through which that Person's Computers on a Server
 reach the internet, so that sites see the Person's own connection and not
-a data-center address. The Person chooses it, and an Administrator can turn
-it off for the installation. Not built (ADR-0029).
+a data-center address. The Person chooses it in Settings, knowing its
+cost, from their own Hosts that declare `exit`, and the Workspace names
+it. It is present while the exit socket of its Client App is open: a
+second WebSocket that carries one stream for each connection. Only a Host
+of the same Person carries that Person's connections. An Administrator
+can turn it off for the installation with a System Setting. The view of
+an awake Computer in Home mode and its `computer` tool result name the
+exit in use: `exit: <Host name>` while the Home Exit is present, and
+`exit: server` while it is absent. A Local Installation has none
+(ADR-0029).
 _Avoid_: residential proxy, exit node
 
 ### Host
@@ -960,7 +975,8 @@ Credential (ADR-0013, ADR-0014).
 ### Tenant Network
 The one Docker network that every container of one Workspace joins. A
 container on it reaches its own Workspace's containers, the public internet
-and the Media Relay. On a Headless Server it reaches no container of
+and the Media Relay, and on a Headless Server the exit listener of the
+daemon (ADR-0029). On a Headless Server it reaches no container of
 another Workspace, no other address of the Docker host, no link-local
 address and no private address that the Administrator did not allow
 (ADR-0014).

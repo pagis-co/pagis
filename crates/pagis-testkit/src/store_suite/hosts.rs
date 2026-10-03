@@ -5,7 +5,7 @@
 //! new body in `store_suite_hosts!` below; the guard test of the parent
 //! module fails while one is missing.
 
-use pagis_core::{HostId, SHELL_CAPABILITY, Workspace, WorkspaceId};
+use pagis_core::{EXIT_CAPABILITY, HostId, SHELL_CAPABILITY, Workspace, WorkspaceId};
 
 use super::Backend;
 
@@ -148,6 +148,109 @@ pub async fn the_last_seen_time_moves_and_a_missing_host_refuses(backend: &Backe
     assert_eq!(read.last_seen_at, 5_000);
 }
 
+/// The Home Exit of a Workspace (ADR-0029): the Person names one of their
+/// own Hosts, the Workspace reads it back, and the Person clears it.
+pub async fn a_person_names_one_of_their_hosts_as_the_home_exit_and_clears_it(backend: &Backend) {
+    let workspace = backend.seeded_workspace().await;
+    let stores = backend.stores();
+    let air = stores
+        .hosts
+        .register(
+            &workspace.id,
+            "Air",
+            "macos",
+            &[SHELL_CAPABILITY.to_string(), EXIT_CAPABILITY.to_string()],
+            1_000,
+        )
+        .await
+        .unwrap();
+    let home_exit = async || {
+        stores
+            .workspaces
+            .get(&workspace.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .home_exit_host_id
+    };
+    assert_eq!(home_exit().await, None);
+
+    assert!(
+        stores
+            .workspaces
+            .set_home_exit(&workspace.id, Some(&air.id))
+            .await
+            .unwrap()
+    );
+    assert_eq!(home_exit().await, Some(air.id.clone()));
+    // A second registration of the machine keeps it the Home Exit: the
+    // record is the same Host.
+    stores
+        .hosts
+        .register(&workspace.id, "Air", "macos", &[], 2_000)
+        .await
+        .unwrap();
+    assert_eq!(home_exit().await, Some(air.id.clone()));
+
+    assert!(
+        stores
+            .workspaces
+            .set_home_exit(&workspace.id, None)
+            .await
+            .unwrap()
+    );
+    assert_eq!(home_exit().await, None);
+}
+
+/// A Person's Computers never leave through another Person's machine, so
+/// the store never names a Host of another Workspace, or a Host that does
+/// not exist, as the Home Exit. The refused write changes nothing.
+pub async fn a_host_of_another_person_is_never_the_home_exit(backend: &Backend) {
+    let workspace = backend.seeded_workspace().await;
+    let other = second_workspace(backend, &workspace).await;
+    let stores = backend.stores();
+    let mine = stores
+        .hosts
+        .register(&workspace.id, "Air", "macos", &shell(), 1_000)
+        .await
+        .unwrap();
+    let theirs = stores
+        .hosts
+        .register(&other.id, "Their Air", "macos", &shell(), 1_000)
+        .await
+        .unwrap();
+    assert!(
+        stores
+            .workspaces
+            .set_home_exit(&workspace.id, Some(&mine.id))
+            .await
+            .unwrap()
+    );
+
+    for host in [theirs.id.clone(), HostId::generate()] {
+        assert!(
+            !stores
+                .workspaces
+                .set_home_exit(&workspace.id, Some(&host))
+                .await
+                .unwrap(),
+            "the store named {host} as the Home Exit"
+        );
+    }
+    assert!(
+        !stores
+            .workspaces
+            .set_home_exit(&WorkspaceId::generate(), Some(&mine.id))
+            .await
+            .unwrap()
+    );
+
+    let read = stores.workspaces.get(&workspace.id).await.unwrap().unwrap();
+    assert_eq!(read.home_exit_host_id, Some(mine.id));
+    let theirs_read = stores.workspaces.get(&other.id).await.unwrap().unwrap();
+    assert_eq!(theirs_read.home_exit_host_id, None);
+}
+
 /// Every body of this module. [`crate::store_suite!`] turns each one
 /// into a SQLite test and a Postgres test.
 #[macro_export]
@@ -161,6 +264,8 @@ macro_rules! store_suite_hosts {
             one_workspace_never_reads_another_workspace_host,
             two_people_may_hold_a_machine_of_one_name,
             the_last_seen_time_moves_and_a_missing_host_refuses,
+            a_person_names_one_of_their_hosts_as_the_home_exit_and_clears_it,
+            a_host_of_another_person_is_never_the_home_exit,
         );
     };
 }

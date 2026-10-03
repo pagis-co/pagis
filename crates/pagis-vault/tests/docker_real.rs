@@ -180,6 +180,7 @@ impl Desk {
             idle_stop: Duration::from_secs(600),
             relay: pagis_computer::fake::loopback_relay(),
             ceiling: Arc::new(AwakeCeiling::new(AwakeCaps::default())),
+            exit: None,
         });
         let agent_id = AgentId::generate();
         manager.wake(&agent_id).await.expect("wake");

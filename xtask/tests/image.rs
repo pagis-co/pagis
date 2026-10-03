@@ -390,6 +390,21 @@ fn the_image_names_the_repository_it_is_built_from() {
     );
 }
 
+#[test]
+fn the_final_stage_takes_the_debian_fixes_of_its_base() {
+    let dockerfile = dockerfile();
+    let image = &dockerfile[dockerfile.rfind("\nFROM ").expect("a final stage")..];
+    let update = image.find("apt-get update").expect("an apt-get update");
+    let upgrade = image
+        .find("apt-get upgrade -y")
+        .expect("an apt-get upgrade");
+    let clean = image
+        .find("rm -rf /var/lib/apt/lists/*")
+        .expect("the package lists removed");
+
+    assert!(update < upgrade && upgrade < clean, "{image}");
+}
+
 // --- the pin guard ---
 
 #[test]
