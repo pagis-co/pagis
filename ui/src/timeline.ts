@@ -347,10 +347,12 @@ export function formatMoment(at: number, now: number = Date.now()): string {
 /**
  * Fold the merged rows into the conversation the timeline renders.
  *
- * A progress row is plumbing: it joins the reply of its own run as a
- * `work` summary and renders no row of its own. A progress row with no
- * reply stays visible while it says something — the live line, a
- * failure, a cancel — and goes when it only says `Done`.
+ * A progress row is plumbing once its run ends: it joins the reply of
+ * its own run as a `work` summary and renders no row of its own. While
+ * the run works, its live line follows the latest reply of the run, so
+ * Stop stays in reach. A progress row with no reply stays visible while
+ * it says something — the live line, a failure, a cancel — and goes
+ * when it only says `Done`.
  *
  * `lastReadAt` puts the unread marker before the first row written after
  * it; no marker shows when every row is read.
@@ -360,29 +362,34 @@ export function buildConversation(
   options: { lastReadAt?: number | null } = {},
 ): ConversationItem[] {
   const replyOfRun = new Map<string, TimelineRow>()
+  const lastReplyOfRun = new Map<string, TimelineRow>()
   for (const row of rows) {
     if (row.kind !== 'message' || isProgressRow(row) || row.runId === null) {
       continue
     }
     if (!replyOfRun.has(row.runId)) replyOfRun.set(row.runId, row)
+    lastReplyOfRun.set(row.runId, row)
   }
 
-  const reflectionOfRun = new Map<string, TimelineRow>()
+  // The live line of a run that already replied: the Working row, or
+  // the memory settlement, under the latest reply of the run.
+  const liveOfRun = new Map<string, TimelineRow>()
   for (const row of rows) {
     if (
       isProgressRow(row) &&
       row.runId !== null &&
-      row.text === 'Updating memory' &&
+      row.text !== SILENT_OUTCOME &&
+      runOutcome(row.text) === null &&
       replyOfRun.has(row.runId)
     ) {
-      reflectionOfRun.set(row.runId, row)
+      liveOfRun.set(row.runId, row)
     }
   }
 
   const work = new Map<string, WorkSummary>()
   for (const row of rows) {
     if (!isProgressRow(row) || row.runId === null) continue
-    if (row.text === 'Updating memory') continue
+    if (liveOfRun.has(row.runId)) continue
     const reply = replyOfRun.get(row.runId)
     if (reply === undefined) continue
     // The progress row spans the run: the daemon opens it when the run
@@ -466,11 +473,15 @@ export function buildConversation(
       grouped,
       work: work.get(row.key) ?? null,
     })
-    if (row.runId !== null) {
-      const reflection = reflectionOfRun.get(row.runId)
-      if (reflection !== undefined) {
+    if (row.runId !== null && lastReplyOfRun.get(row.runId) === row) {
+      const live = liveOfRun.get(row.runId)
+      if (live !== undefined) {
         previousAuthor = null
-        items.push({ kind: 'reflecting', key: reflection.key, row: reflection })
+        items.push({
+          kind: live.text === 'Updating memory' ? 'reflecting' : 'working',
+          key: live.key,
+          row: live,
+        })
       }
     }
   }
