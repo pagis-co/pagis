@@ -1958,6 +1958,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/settings/home-exit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The signed-in Person's Home Exit, and the Hosts they can choose. */
+        get: operations["get_home_exit"];
+        /**
+         * Choose one of the Person's own Hosts that declared `exit` as their
+         *     Home Exit, and switch each of their awake Computers to it at once.
+         */
+        put: operations["set_home_exit"];
+        post?: never;
+        /**
+         * Turn the Person's Home Exit off: their Computers reach the internet
+         *     from the server again, at once. The Client App's tray calls this too.
+         */
+        delete: operations["clear_home_exit"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/settings/keypad-code": {
         parameters: {
             query?: never;
@@ -2506,6 +2531,27 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["probe_docker"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/system/home-exit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Turn the Home Exit off or on for every Person of a Server
+         *     (ADR-0029). The daemon writes the setting, and each awake Computer
+         *     whose mode changes switches at once, with no restart.
+         */
+        put: operations["set_home_exit_setting"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -3272,6 +3318,13 @@ export interface components {
          */
         ComputerDto: {
             error?: string | null;
+            /**
+             * @description Which exit an awake Computer in Home mode uses (ADR-0029), such as
+             *     `exit: MacBook Pro` or `exit: server`. Null in Direct mode, which
+             *     is the mode of a Person with no Home Exit, and while the Computer
+             *     is not awake. `computer.exit_changed` events carry each change.
+             */
+            exit?: string | null;
             holder: string;
             /** @description `absent`, `present`, `mismatched`, or `unavailable`. */
             image: string;
@@ -3714,6 +3767,16 @@ export interface components {
             run_id?: string | null;
         };
         /**
+         * @description An awake Computer whose Exit Proxy did not switch. It keeps its mode,
+         *     and it takes the choice at its next wake.
+         */
+        ExitSwitchFailureDto: {
+            agent_id: string;
+            agent_name: string;
+            /** @description Why, as the Exit Proxy answered. */
+            error: string;
+        };
+        /**
          * @description The cause recorded where a Run fails. The error holds the detail.
          * @enum {string}
          */
@@ -3838,6 +3901,48 @@ export interface components {
             sign_in: components["schemas"]["SignInMethod"];
             status: string;
             version: string;
+        };
+        /** @description The Person's Home Exit, as Settings shows it. */
+        HomeExitDto: {
+            /**
+             * @description True while the Administrator turned the Home Exit off for the
+             *     installation. The Person's choice stays, and it is in effect
+             *     again when the Administrator turns the Home Exit on.
+             */
+            administrator_turned_off: boolean;
+            /**
+             * @description False on a Local Installation, which has no Home Exit. Settings
+             *     then shows no Home Exit.
+             */
+            available: boolean;
+            chosen?: null | components["schemas"]["HomeExitHostDto"];
+            /**
+             * @description The Person's Hosts that declared `exit`: the Hosts that the Person
+             *     can choose. A Client App that is connected to the Server declares
+             *     it.
+             */
+            hosts: components["schemas"]["HomeExitHostDto"][];
+        };
+        /** @description One Host of the Person that can be their Home Exit. */
+        HomeExitHostDto: {
+            id: string;
+            /** @description The name the machine calls itself, which the exit in use shows. */
+            name: string;
+            /** @description The operating system family the client reported. */
+            platform: string;
+            /**
+             * @description True while the exit socket of the Host is open, so it carries the
+             *     connections of the Person's Computers when it is their Home Exit.
+             */
+            present: boolean;
+        };
+        /** @description The Home Exit of the People of a Server (ADR-0029). */
+        HomeExitSettingDto: {
+            /**
+             * @description The System Setting: whether the People may send their Computers'
+             *     connections through a Home Exit of their own. On by default.
+             */
+            enabled: boolean;
         };
         /** @description One machine of one Person, with whether it is connected now. */
         HostDto: {
@@ -5526,6 +5631,14 @@ export interface components {
             /** @description The full replacement rule list. */
             allow: string[];
         };
+        SetHomeExitRequest: {
+            /** @description One of the Person's own Hosts that declared `exit`. */
+            host_id: string;
+        };
+        /** @description Turn the Home Exit off or on for every Person of a Server. */
+        SetHomeExitSettingRequest: {
+            enabled: boolean;
+        };
         SetKeypadCodeRequest: {
             /** @description 6 to 8 digits. It is hashed at once and never read back. */
             code: string;
@@ -5760,6 +5873,21 @@ export interface components {
             items: components["schemas"]["SubscriptionDto"][];
             next_cursor?: string | null;
         };
+        /** @description The Home Exit after a change, and the Computers that did not switch. */
+        SwitchedHomeExitDto: {
+            home_exit: components["schemas"]["HomeExitDto"];
+            not_switched: components["schemas"]["ExitSwitchFailureDto"][];
+        };
+        /**
+         * @description The settings after the Home Exit changed, and how many awake
+         *     Computers did not switch. Each of those keeps its mode and takes the
+         *     setting at its next wake; the log of the daemon names them.
+         */
+        SwitchedHomeExitSettingDto: {
+            /** Format: int32 */
+            not_switched: number;
+            settings: components["schemas"]["SystemSettingsDto"];
+        };
         SyncConfig: {
             agent_id: string;
             connection_id: string;
@@ -5847,6 +5975,7 @@ export interface components {
             docker: components["schemas"]["DockerReportDto"];
             /** @description The Docker endpoint the user typed, or null for discovery. */
             docker_endpoint?: string | null;
+            home_exit?: null | components["schemas"]["HomeExitSettingDto"];
             /**
              * Format: int32
              * @description The product port the daemon listens on.
@@ -11422,6 +11551,127 @@ export interface operations {
             };
         };
     };
+    get_home_exit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HomeExitDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    set_home_exit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetHomeExitRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SwitchedHomeExitDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No Host of the Person has this id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description A Local Installation, or the Administrator turned the Home Exit off */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The Host declared no `exit` */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    clear_home_exit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SwitchedHomeExitDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description A Local Installation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     set_keypad_code: {
         parameters: {
             query?: never;
@@ -12773,6 +13023,54 @@ export interface operations {
                 };
             };
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    set_home_exit_setting: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetHomeExitSettingRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SwitchedHomeExitSettingDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description A Local Installation has no Home Exit */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

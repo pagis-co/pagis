@@ -2,6 +2,7 @@ import * as path from 'node:path'
 
 import { Menu, type MenuItemConstructorOptions, Tray, app } from 'electron'
 
+import type { ExitTraffic } from './exit'
 import type { UpdateState } from './updates'
 
 export interface MenuActions {
@@ -15,6 +16,11 @@ export interface MenuActions {
   update(): UpdateState | null
   checkForUpdates(): void
   restartToUpdate(): void
+  /** The exit traffic that this machine carries as its Person's Home
+   *  Exit (ADR-0029). */
+  exitTraffic(): Pick<ExitTraffic, 'connections' | 'bytes'>
+  /** Turn the Person's Home Exit off on the server. */
+  turnOffHomeExit(): void
 }
 
 /**
@@ -28,10 +34,34 @@ export function trayIcon(platform: string = process.platform): string {
   return path.join(__dirname, '..', 'static', platform === 'darwin' ? 'trayTemplate.png' : 'tray.png')
 }
 
+/** The units of a byte count, each a thousand of the one before. */
+const BYTE_UNITS = ['B', 'kB', 'MB', 'GB', 'TB']
+
+/** A byte count in the unit that fits, such as `12.4 MB`. */
+function byteCount(bytes: number): string {
+  let value = bytes
+  let unit = 0
+  while (value >= 999.95 && unit < BYTE_UNITS.length - 1) {
+    value /= 1000
+    unit += 1
+  }
+  return unit === 0 ? `${value} B` : `${value.toFixed(1)} ${BYTE_UNITS[unit]}`
+}
+
+/** What the tray says while exit traffic flows: the connections that
+ *  this machine carries now, and the bytes since the client started. */
+export function exitTrafficLabel(traffic: Pick<ExitTraffic, 'connections' | 'bytes'>): string {
+  const connections = traffic.connections === 1 ? '1 connection' : `${traffic.connections} connections`
+  return `Home Exit: ${connections}, ${byteCount(traffic.bytes)} carried`
+}
+
 /**
  * The tray item (ADR-0025), in the macOS menu bar and in the Linux
  * status area: open the window again after a close, hold "Open at
- * login", carry the Update item, and quit.
+ * login", carry the Update item, and quit. While exit traffic flows
+ * through this machine as its Person's Home Exit (ADR-0029), the first
+ * item says so with a byte count, and the next one turns the Home Exit
+ * off.
  *
  * A Linux status area shows the item through StatusNotifierItem, and
  * there a click opens the menu and sends no click event, so every action
@@ -48,7 +78,16 @@ export function createTray(actions: MenuActions): Tray {
 
 export function renderTray(tray: Tray, actions: MenuActions): void {
   const update = updateItem(actions)
-  const items: MenuItemConstructorOptions[] = [
+  const traffic = actions.exitTraffic()
+  const items: MenuItemConstructorOptions[] = []
+  if (traffic.connections > 0) {
+    items.push(
+      { label: exitTrafficLabel(traffic), enabled: false },
+      { label: 'Turn Off Home Exit', click: () => actions.turnOffHomeExit() },
+      { type: 'separator' },
+    )
+  }
+  items.push(
     { label: 'Open Pagis', click: () => actions.open() },
     { label: 'Administration', click: () => actions.openAdministration() },
     { type: 'separator' },
@@ -58,7 +97,7 @@ export function renderTray(tray: Tray, actions: MenuActions): void {
       checked: actions.isOpenAtLogin(),
       click: (item) => actions.openAtLogin(item.checked),
     },
-  ]
+  )
   if (update) items.push({ type: 'separator' }, update)
   items.push(
     { type: 'separator' },

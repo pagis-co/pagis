@@ -21,9 +21,11 @@ tree-sitter-bash.workspace = true
 
 [dev-dependencies]
 pagis-audit.workspace = true
+# The Home Exit of a Person on the two-Workspace harness (ADR-0029).
+pagis-computer.workspace = true
 pagis-storage-sqlite.workspace = true
 sqlx.workspace = true
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread"] }
 
 [[test]]
 name = "main"

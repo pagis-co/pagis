@@ -10,10 +10,11 @@ use async_trait::async_trait;
 use pagis_computer::fake::ice_check;
 use pagis_computer::fake::{FakeComputerRuntime, FakeWorkspaces};
 use pagis_computer::{
-    AwakeCaps, AwakeCeiling, BindMount, ComputerError, ComputerImage, ComputerManager,
-    ComputerManagerDeps, ComputerState, ExecOutcome, IMAGE, IMAGE_VERSION, IceCredentials,
-    ImagePullError, InputHolder, OutputCap, PLUGIN_MOUNT_ROOT, SHELL_HOME, ShellCommand,
-    TakeoverTiming, image_repository,
+    AwakeCaps, AwakeCeiling, BindMount, ComputerError, ComputerExit, ComputerImage,
+    ComputerManager, ComputerManagerDeps, ComputerState, ExecOutcome, ExitInUse, ExitMode,
+    ExitSwitchFailure, HomeExits, IMAGE, IMAGE_VERSION, IceCredentials, ImagePullError,
+    InputHolder, OutputCap, PLUGIN_MOUNT_ROOT, SHELL_HOME, ShellCommand, TakeoverTiming,
+    image_repository,
 };
 use tokio_util::sync::CancellationToken;
 
@@ -108,6 +109,9 @@ struct Harness {
     bus: Arc<RecordingBus>,
     skills: Arc<FakeSkills>,
     workspaces: Arc<FakeWorkspaces>,
+    /// The Home Exits that the manager of a Server reads. The manager of
+    /// a Local Installation reads none.
+    home_exits: Arc<HomeExits>,
     workspace_id: WorkspaceId,
     agent_id: AgentId,
     screens: tempfile::TempDir,
@@ -138,11 +142,48 @@ fn harness_with_relay(
     caps: AwakeCaps,
     relay: Arc<dyn pagis_computer::MediaRelay>,
 ) -> Harness {
+    harness_of(runtime, idle_stop, caps, relay, false)
+}
+
+/// The exit listener of the Server harness, as a Computer reaches it.
+const EXIT_DAEMON: &str = "host.docker.internal:4403";
+
+/// The harness of a Server: its Computers reach the exit listener of
+/// the daemon at [`EXIT_DAEMON`] (ADR-0029).
+fn server_harness() -> Harness {
+    server_harness_with(FakeComputerRuntime::with_image())
+}
+
+/// The same harness over a scripted runtime.
+fn server_harness_with(runtime: FakeComputerRuntime) -> Harness {
+    harness_of(
+        runtime,
+        Duration::from_secs(600),
+        AwakeCaps::default(),
+        pagis_computer::fake::loopback_relay(),
+        true,
+    )
+}
+
+/// A harness of a Server when `server`, and of a Local Installation
+/// otherwise.
+fn harness_of(
+    runtime: FakeComputerRuntime,
+    idle_stop: Duration,
+    caps: AwakeCaps,
+    relay: Arc<dyn pagis_computer::MediaRelay>,
+    server: bool,
+) -> Harness {
     let runtime = Arc::new(runtime);
     let bus = Arc::new(RecordingBus::default());
     let skills = Arc::new(FakeSkills::default());
     let workspace_id = WorkspaceId::generate();
     let workspaces = Arc::new(FakeWorkspaces::with_timezone(&workspace_id, TEST_TIMEZONE));
+    let home_exits = HomeExits::new(Arc::clone(&workspaces) as _);
+    let exit = server.then(|| ComputerExit {
+        daemon: EXIT_DAEMON.to_string(),
+        home_exits: Arc::clone(&home_exits),
+    });
     let screens = tempfile::tempdir().expect("screens dir");
     let ceiling = Arc::new(AwakeCeiling::new(caps));
     let manager = ComputerManager::new(ComputerManagerDeps {
@@ -157,6 +198,7 @@ fn harness_with_relay(
         idle_stop,
         relay,
         ceiling: Arc::clone(&ceiling),
+        exit,
     });
     Harness {
         manager,
@@ -165,6 +207,7 @@ fn harness_with_relay(
         bus,
         skills,
         workspaces,
+        home_exits,
         workspace_id,
         agent_id: AgentId::generate(),
         screens,
@@ -633,6 +676,7 @@ async fn a_stop_for_good_stops_the_computers_of_every_tenant() {
         relay: pagis_computer::fake::loopback_relay(),
         caps: AwakeCaps::default(),
         cancel: tokio_util::sync::CancellationToken::new(),
+        exit: None,
     });
     let (agent_a, agent_b) = (AgentId::generate(), AgentId::generate());
     for (tenant, agent) in [(&tenant_a, &agent_a), (&tenant_b, &agent_b)] {
@@ -1462,6 +1506,484 @@ async fn a_container_boots_with_the_workspace_timezone_and_the_locale() {
     );
 }
 
+/// Every container the daemon starts runs screend and with it the Exit
+/// Proxy (ADR-0029), so every one boots with the proxy entries: an
+/// Agent's Computer and the Plugin Computer alike. Each tool reads one
+/// case of the names, and loopback and the Docker host stay out of the
+/// proxy.
+#[tokio::test]
+async fn every_computer_boots_with_the_exit_proxy_in_its_environment() {
+    let h = harness_with(FakeComputerRuntime::with_image(), Duration::from_secs(600));
+
+    h.manager.wake(&h.agent_id).await.expect("wake");
+    wait_awake(&h).await;
+    h.manager
+        .ensure_plugin_computer(Vec::new())
+        .await
+        .expect("the plugin computer wakes");
+
+    let envs = h.runtime.start_envs();
+    assert_eq!(envs.len(), 2, "{envs:?}");
+    for env in envs {
+        for entry in [
+            "HTTP_PROXY=http://127.0.0.1:3128",
+            "HTTPS_PROXY=http://127.0.0.1:3128",
+            "http_proxy=http://127.0.0.1:3128",
+            "https_proxy=http://127.0.0.1:3128",
+            "NO_PROXY=localhost,127.0.0.1,::1,host.docker.internal",
+            "no_proxy=localhost,127.0.0.1,::1,host.docker.internal",
+        ] {
+            assert!(env.contains(&entry.to_string()), "missing {entry}: {env:?}");
+        }
+    }
+}
+
+/// The exit entries of one start environment.
+fn exit_entries(env: &[String]) -> Vec<String> {
+    env.iter()
+        .filter(|entry| entry.starts_with("PAGIS_EXIT_"))
+        .cloned()
+        .collect()
+}
+
+/// On a Server an Agent's Computer names the exit listener of the
+/// daemon, and its Exit Proxy starts in the mode of its Person's choice
+/// (ADR-0029): `home` while the Person has a Home Exit, `direct` while
+/// they have none. The choice of the store reaches the next wake.
+#[tokio::test]
+async fn an_agent_computer_on_a_server_starts_in_the_mode_of_its_persons_choice() {
+    let h = server_harness();
+
+    h.manager.wake(&h.agent_id).await.expect("wake");
+    wait_awake(&h).await;
+    let env = h.runtime.start_envs().pop().expect("one start");
+    assert_eq!(
+        exit_entries(&env),
+        [
+            format!("PAGIS_EXIT_DAEMON={EXIT_DAEMON}"),
+            "PAGIS_EXIT_MODE=direct".to_string(),
+        ]
+    );
+    h.manager.sleep(&h.agent_id).await.expect("sleep");
+
+    h.workspaces
+        .set_home_exit(&h.workspace_id, Some(&pagis_core::HostId::generate()))
+        .await
+        .expect("the Home Exit is written");
+    let second = AgentId::generate();
+    for agent_id in [&h.agent_id, &second] {
+        h.manager.wake(agent_id).await.expect("wake");
+        wait_awake_of(&h, agent_id).await;
+        let env = h.runtime.start_envs().pop().expect("a start");
+        assert_eq!(
+            exit_entries(&env),
+            [
+                format!("PAGIS_EXIT_DAEMON={EXIT_DAEMON}"),
+                "PAGIS_EXIT_MODE=home".to_string(),
+            ]
+        );
+    }
+}
+
+/// The Plugin Computer serves the Plugins of the Workspace, which call
+/// APIs and not sites that score addresses, so it stays in `Direct` mode
+/// with no exit listener, whatever the Person chose. A Computer of a
+/// Local Installation leaves from the owner's own connection, so it has
+/// no exit listener either.
+#[tokio::test]
+async fn the_plugin_computer_and_a_local_installation_start_direct_with_no_listener() {
+    let server = server_harness();
+    server
+        .workspaces
+        .set_home_exit(&server.workspace_id, Some(&pagis_core::HostId::generate()))
+        .await
+        .expect("the Home Exit is written");
+    server
+        .manager
+        .ensure_plugin_computer(Vec::new())
+        .await
+        .expect("the plugin computer wakes");
+    let env = server.runtime.start_envs().pop().expect("one start");
+    assert_eq!(exit_entries(&env), Vec::<String>::new());
+
+    let local = harness_with(FakeComputerRuntime::with_image(), Duration::from_secs(600));
+    local
+        .workspaces
+        .set_home_exit(&local.workspace_id, Some(&pagis_core::HostId::generate()))
+        .await
+        .expect("the Home Exit is written");
+    local.manager.wake(&local.agent_id).await.expect("wake");
+    wait_awake(&local).await;
+    let env = local.runtime.start_envs().pop().expect("one start");
+    assert_eq!(exit_entries(&env), Vec::<String>::new());
+}
+
+/// The exit listener knows a Computer by its token: the token of an
+/// awake Agent's Computer names that Computer, and the token of the
+/// Plugin Computer, of a Computer that sleeps, and of nobody, name
+/// nothing.
+#[tokio::test]
+async fn a_token_names_the_awake_agent_computer_that_holds_it() {
+    use pagis_computer::ComputerTokens;
+
+    let h = server_harness();
+    h.manager.wake(&h.agent_id).await.expect("wake");
+    wait_awake(&h).await;
+    let plugin = h
+        .manager
+        .ensure_plugin_computer(Vec::new())
+        .await
+        .expect("the plugin computer wakes");
+    let token = format!("fake-token-{}", h.agent_id);
+
+    assert_eq!(
+        h.manager.computer_of(&token),
+        Some(pagis_computer::ComputerOwner::new(
+            h.workspace_id.clone(),
+            h.agent_id.clone()
+        ))
+    );
+    assert_eq!(h.manager.computer_of(&plugin.token), None);
+    assert_eq!(h.manager.computer_of("fake-token-nobody"), None);
+    assert_eq!(h.manager.computer_of(""), None);
+
+    h.manager.sleep(&h.agent_id).await.expect("sleep");
+    assert_eq!(h.manager.computer_of(&token), None);
+}
+
+/// The `computer.exit_changed` events so far, as each Agent and the
+/// label it showed.
+fn exit_changes(bus: &RecordingBus) -> Vec<(AgentId, Option<String>)> {
+    bus.events()
+        .into_iter()
+        .filter(|event| event.event_type == "computer.exit_changed")
+        .map(|event| {
+            (
+                event.agent_id.expect("the event names its Agent"),
+                event.payload["exit"].as_str().map(str::to_string),
+            )
+        })
+        .collect()
+}
+
+/// Choose `host_id` as the Person's Home Exit in the store, or clear it.
+async fn choose(h: &Harness, host_id: Option<&pagis_core::HostId>) {
+    assert!(
+        h.workspaces
+            .set_home_exit(&h.workspace_id, host_id)
+            .await
+            .expect("the Home Exit is written")
+    );
+}
+
+/// Open the exit socket of `host_id`, named `name`, as the Client App of
+/// the harness's Person does. The socket lives until the task ends.
+async fn open_exit_socket(
+    home_exits: &Arc<HomeExits>,
+    workspace_id: &WorkspaceId,
+    host_id: &pagis_core::HostId,
+    name: &str,
+) -> tokio::task::JoinHandle<()> {
+    let (daemon_end, client_app_end) = pagis_computer::fake::exit_socket_pair();
+    let served = tokio::spawn({
+        let home_exits = Arc::clone(home_exits);
+        let (workspace_id, host_id, name) =
+            (workspace_id.clone(), host_id.clone(), name.to_string());
+        async move {
+            home_exits
+                .serve(workspace_id, host_id, name, daemon_end)
+                .await
+        }
+    });
+    let nowhere = "127.0.0.1:9".parse().expect("an address");
+    tokio::spawn(pagis_computer::fake::FakeHomeExit::to(nowhere).serve(client_app_end));
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while !home_exits.is_open(host_id) {
+        assert!(tokio::time::Instant::now() < deadline, "no exit socket");
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    served
+}
+
+/// The Person turns the Home Exit on: the Exit Proxy of each awake Agent's
+/// Computer switches to Home mode at once, with no restart, and each shows
+/// its new exit. The Plugin Computer stays in Direct mode. Turned off, the
+/// Computers switch back to Direct mode and show no exit.
+#[tokio::test]
+async fn a_change_of_the_choice_switches_every_awake_agent_computer_at_once() {
+    let h = server_harness();
+    let second = AgentId::generate();
+    for agent_id in [&h.agent_id, &second] {
+        h.manager.wake(agent_id).await.expect("wake");
+        wait_awake_of(&h, agent_id).await;
+    }
+    h.manager
+        .ensure_plugin_computer(Vec::new())
+        .await
+        .expect("the plugin computer wakes");
+    let plugin = AgentId::from(pagis_computer::PLUGIN_AGENT.to_string());
+    let starts = h.runtime.starts();
+
+    choose(&h, Some(&pagis_core::HostId::generate())).await;
+    let failures = h.manager.switch_exit().await;
+
+    assert_eq!(failures, Vec::<ExitSwitchFailure>::new());
+    for agent_id in [&h.agent_id, &second] {
+        assert_eq!(h.runtime.exit_mode(agent_id), Some(ExitMode::Home));
+        assert_eq!(
+            h.manager.exit_in_use(agent_id).await,
+            Some(ExitInUse::Server)
+        );
+    }
+    assert_eq!(h.runtime.exit_mode(&plugin), Some(ExitMode::Direct));
+    assert_eq!(h.manager.exit_in_use(&plugin).await, None);
+    assert_eq!(h.runtime.starts(), starts, "a switch restarted a Computer");
+    let changes = exit_changes(&h.bus);
+    assert_eq!(changes.len(), 2, "{changes:?}");
+    for agent_id in [&h.agent_id, &second] {
+        assert!(
+            changes.contains(&(agent_id.clone(), Some("exit: server".to_string()))),
+            "{changes:?}"
+        );
+    }
+
+    choose(&h, None).await;
+    let failures = h.manager.switch_exit().await;
+
+    assert_eq!(failures, Vec::<ExitSwitchFailure>::new());
+    for agent_id in [&h.agent_id, &second] {
+        assert_eq!(h.runtime.exit_mode(agent_id), Some(ExitMode::Direct));
+        assert_eq!(h.manager.exit_in_use(agent_id).await, None);
+    }
+    let cleared: Vec<_> = exit_changes(&h.bus).into_iter().skip(2).collect();
+    assert_eq!(cleared.len(), 2, "{cleared:?}");
+    assert!(
+        cleared.iter().all(|(_, label)| label.is_none()),
+        "{cleared:?}"
+    );
+}
+
+/// A choice of another Host leaves the mode as it is, and still switches
+/// each Computer, so the proxy closes the connections that the first
+/// Host carried and the next ones take the new path.
+#[tokio::test]
+async fn a_choice_of_another_host_switches_the_computers_again() {
+    let h = server_harness();
+    choose(&h, Some(&pagis_core::HostId::generate())).await;
+    h.manager.wake(&h.agent_id).await.expect("wake");
+    wait_awake(&h).await;
+
+    choose(&h, Some(&pagis_core::HostId::generate())).await;
+    let failures = h.manager.switch_exit().await;
+
+    assert_eq!(failures, Vec::<ExitSwitchFailure>::new());
+    assert_eq!(
+        h.runtime.exit_switches(),
+        [(h.agent_id.clone(), ExitMode::Home)]
+    );
+}
+
+/// A Computer whose Exit Proxy refuses the switch keeps its mode and its
+/// exit, and does not stop the others. The answer names it and says why.
+#[tokio::test]
+async fn a_computer_that_fails_its_switch_does_not_stop_the_others() {
+    let h = server_harness();
+    let second = AgentId::generate();
+    for agent_id in [&h.agent_id, &second] {
+        h.manager.wake(agent_id).await.expect("wake");
+        wait_awake_of(&h, agent_id).await;
+    }
+    h.runtime
+        .fail_exit_switch(&h.agent_id, "screend does not answer");
+
+    choose(&h, Some(&pagis_core::HostId::generate())).await;
+    let failures = h.manager.switch_exit().await;
+
+    assert_eq!(failures.len(), 1, "{failures:?}");
+    assert_eq!(failures[0].agent_id, h.agent_id);
+    assert!(
+        failures[0].error.contains("screend does not answer"),
+        "{}",
+        failures[0].error
+    );
+    assert_eq!(h.runtime.exit_mode(&h.agent_id), Some(ExitMode::Direct));
+    assert_eq!(h.manager.exit_in_use(&h.agent_id).await, None);
+    assert_eq!(h.runtime.exit_mode(&second), Some(ExitMode::Home));
+    assert_eq!(
+        exit_changes(&h.bus),
+        [(second.clone(), Some("exit: server".to_string()))]
+    );
+}
+
+/// The System Setting off puts every Computer in Direct mode: the awake
+/// ones switch at once, a wake starts in Direct mode, and the choice
+/// stays in the store. A Computer that already runs in the mode in effect
+/// is not switched. On again, the choice is back in effect.
+#[tokio::test]
+async fn the_system_setting_turns_every_computer_direct_and_back() {
+    let h = server_harness();
+    choose(&h, Some(&pagis_core::HostId::generate())).await;
+    h.manager.wake(&h.agent_id).await.expect("wake");
+    wait_awake(&h).await;
+    assert_eq!(h.runtime.exit_mode(&h.agent_id), Some(ExitMode::Home));
+
+    h.home_exits.set_enabled(false);
+    let failures = h.manager.settle_exit().await;
+
+    assert_eq!(failures, Vec::<ExitSwitchFailure>::new());
+    assert_eq!(h.runtime.exit_mode(&h.agent_id), Some(ExitMode::Direct));
+    assert_eq!(h.manager.exit_in_use(&h.agent_id).await, None);
+    let second = AgentId::generate();
+    h.manager.wake(&second).await.expect("wake");
+    wait_awake_of(&h, &second).await;
+    let env = h.runtime.start_envs().pop().expect("a start");
+    assert!(
+        env.contains(&"PAGIS_EXIT_MODE=direct".to_string()),
+        "{env:?}"
+    );
+    let stored = h.workspaces.get(&h.workspace_id).await.expect("read");
+    assert!(
+        stored
+            .and_then(|workspace| workspace.home_exit_host_id)
+            .is_some()
+    );
+    // Settled again with nothing changed, nothing switches.
+    let switches = h.runtime.exit_switches().len();
+    assert_eq!(
+        h.manager.settle_exit().await,
+        Vec::<ExitSwitchFailure>::new()
+    );
+    assert_eq!(h.runtime.exit_switches().len(), switches);
+
+    h.home_exits.set_enabled(true);
+    let failures = h.manager.settle_exit().await;
+
+    assert_eq!(failures, Vec::<ExitSwitchFailure>::new());
+    for agent_id in [&h.agent_id, &second] {
+        assert_eq!(h.runtime.exit_mode(agent_id), Some(ExitMode::Home));
+        assert_eq!(
+            h.manager.exit_in_use(agent_id).await,
+            Some(ExitInUse::Server)
+        );
+    }
+}
+
+/// The exit in use of an awake Agent's Computer: none in Direct mode, the
+/// server in Home mode while the Home Exit is absent, and the Host by its
+/// name while its exit socket is open. When the Home Exit comes or goes,
+/// each Computer in Home mode shows it. A Computer that sleeps, and a
+/// Computer of a Local Installation, show none.
+#[tokio::test]
+async fn the_exit_in_use_follows_the_mode_and_the_presence_of_the_home_exit() {
+    let h = server_harness();
+    let host_id = pagis_core::HostId::generate();
+    h.manager.wake(&h.agent_id).await.expect("wake");
+    wait_awake(&h).await;
+    assert_eq!(h.manager.exit_in_use(&h.agent_id).await, None);
+
+    choose(&h, Some(&host_id)).await;
+    h.manager.switch_exit().await;
+    assert_eq!(
+        h.manager.exit_in_use(&h.agent_id).await,
+        Some(ExitInUse::Server)
+    );
+
+    let socket = open_exit_socket(&h.home_exits, &h.workspace_id, &host_id, "MacBook Pro").await;
+    assert_eq!(
+        h.manager.exit_in_use(&h.agent_id).await,
+        Some(ExitInUse::HomeExit("MacBook Pro".to_string()))
+    );
+    h.manager.home_exit_changed().await;
+    assert_eq!(
+        exit_changes(&h.bus).last(),
+        Some(&(h.agent_id.clone(), Some("exit: MacBook Pro".to_string())))
+    );
+
+    socket.abort();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while h.home_exits.is_open(&host_id) {
+        assert!(tokio::time::Instant::now() < deadline, "the socket stays");
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    h.manager.home_exit_changed().await;
+    assert_eq!(
+        exit_changes(&h.bus).last(),
+        Some(&(h.agent_id.clone(), Some("exit: server".to_string())))
+    );
+
+    h.manager.sleep(&h.agent_id).await.expect("sleep");
+    assert_eq!(h.manager.exit_in_use(&h.agent_id).await, None);
+
+    let local = harness_with(FakeComputerRuntime::with_image(), Duration::from_secs(600));
+    local
+        .workspaces
+        .set_home_exit(&local.workspace_id, Some(&host_id))
+        .await
+        .expect("the Home Exit is written");
+    local.manager.wake(&local.agent_id).await.expect("wake");
+    wait_awake(&local).await;
+    assert_eq!(local.manager.exit_in_use(&local.agent_id).await, None);
+    assert_eq!(
+        local.manager.switch_exit().await,
+        Vec::<ExitSwitchFailure>::new()
+    );
+    assert_eq!(local.runtime.exit_switches(), []);
+}
+
+/// A Computer that downloads its image when the choice changes read the
+/// old choice at its wake, and the switch passes it by because it is not
+/// awake. It takes the choice in effect once it is awake.
+#[tokio::test]
+async fn a_choice_that_changes_while_a_computer_downloads_reaches_it_once_awake() {
+    let runtime = FakeComputerRuntime::default();
+    runtime.hold_pulls();
+    let h = server_harness_with(runtime);
+    assert_eq!(
+        h.manager.wake(&h.agent_id).await.expect("wake"),
+        ComputerState::Pulling { percent: 0 }
+    );
+
+    choose(&h, Some(&pagis_core::HostId::generate())).await;
+    assert_eq!(
+        h.manager.switch_exit().await,
+        Vec::<ExitSwitchFailure>::new()
+    );
+    h.runtime.release_pulls();
+    wait_awake(&h).await;
+
+    let env = h.runtime.start_envs().pop().expect("one start");
+    assert!(
+        env.contains(&"PAGIS_EXIT_MODE=direct".to_string()),
+        "{env:?}"
+    );
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while h.runtime.exit_mode(&h.agent_id) != Some(ExitMode::Home) {
+        assert!(tokio::time::Instant::now() < deadline, "never switched");
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    assert_eq!(
+        h.manager.exit_in_use(&h.agent_id).await,
+        Some(ExitInUse::Server)
+    );
+}
+
+/// A Computer that a restart left running reports its own mode, and the
+/// daemon that adopts it switches it to the mode in effect.
+#[tokio::test]
+async fn an_adopted_computer_takes_the_mode_in_effect() {
+    let h = server_harness();
+    h.runtime.boot_externally(&h.agent_id);
+    choose(&h, Some(&pagis_core::HostId::generate())).await;
+
+    assert_eq!(h.manager.state(&h.agent_id).await, ComputerState::Awake);
+
+    assert_eq!(h.runtime.exit_mode(&h.agent_id), Some(ExitMode::Home));
+    assert_eq!(
+        h.manager.exit_in_use(&h.agent_id).await,
+        Some(ExitInUse::Server)
+    );
+}
+
 #[tokio::test]
 async fn a_new_workspace_timezone_reaches_the_next_wake() {
     let h = harness_with(FakeComputerRuntime::with_image(), Duration::from_millis(20));
@@ -1961,6 +2483,7 @@ fn tenant_manager(
         idle_stop: Duration::from_secs(600),
         relay: pagis_computer::fake::loopback_relay(),
         ceiling: Arc::clone(ceiling),
+        exit: None,
     })
 }
 
@@ -1998,7 +2521,138 @@ fn daemon_managers(
         relay: pagis_computer::fake::loopback_relay(),
         caps,
         cancel: CancellationToken::new(),
+        exit: None,
     })
+}
+
+/// The Computer managers of a Server over `runtime`, whose People are
+/// the Workspaces of `workspaces`.
+fn server_managers(
+    runtime: &Arc<FakeComputerRuntime>,
+    workspaces: &Arc<FakeWorkspaces>,
+    home_exits: &Arc<HomeExits>,
+    bus: &Arc<RecordingBus>,
+) -> Arc<pagis_computer::ComputerManagers> {
+    pagis_computer::ComputerManagers::new(pagis_computer::ComputerManagersDeps {
+        runtime: Arc::clone(runtime) as _,
+        skills: Arc::new(FakeSkills::default()) as _,
+        workspaces: Arc::clone(workspaces) as _,
+        agents: Arc::new(pagis_computer::fake::FakeAgents::open()) as _,
+        bus: Arc::clone(bus) as _,
+        screens_dir: std::env::temp_dir().join(format!("pagis-screens-{}", AgentId::generate())),
+        idle_stop: Duration::from_secs(600),
+        relay: pagis_computer::fake::loopback_relay(),
+        caps: AwakeCaps::default(),
+        cancel: CancellationToken::new(),
+        exit: Some(ComputerExit {
+            daemon: EXIT_DAEMON.to_string(),
+            home_exits: Arc::clone(home_exits),
+        }),
+    })
+}
+
+/// Two People of one Server, each with an awake Computer in Home mode.
+struct TwoPeople {
+    runtime: Arc<FakeComputerRuntime>,
+    home_exits: Arc<HomeExits>,
+    bus: Arc<RecordingBus>,
+    managers: Arc<pagis_computer::ComputerManagers>,
+    /// Each Person's Workspace, the Host they chose, and their Agent.
+    people: [(WorkspaceId, pagis_core::HostId, AgentId); 2],
+}
+
+async fn two_people_in_home_mode() -> TwoPeople {
+    let runtime = Arc::new(FakeComputerRuntime::with_image());
+    let people = [(), ()].map(|()| {
+        (
+            WorkspaceId::generate(),
+            pagis_core::HostId::generate(),
+            AgentId::generate(),
+        )
+    });
+    let workspaces = Arc::new(FakeWorkspaces::with_timezone(&people[0].0, TEST_TIMEZONE));
+    workspaces
+        .create(&FakeWorkspaces::workspace(&people[1].0, TEST_TIMEZONE))
+        .await
+        .expect("the second Workspace is written");
+    let home_exits = HomeExits::new(Arc::clone(&workspaces) as _);
+    let bus = Arc::new(RecordingBus::default());
+    let managers = server_managers(&runtime, &workspaces, &home_exits, &bus);
+    for (workspace_id, host_id, agent_id) in &people {
+        workspaces
+            .set_home_exit(workspace_id, Some(host_id))
+            .await
+            .expect("the Home Exit is written");
+        let manager = managers.get(workspace_id);
+        manager.wake(agent_id).await.expect("wake");
+        wait_awake_of_manager(&manager, agent_id).await;
+        assert_eq!(runtime.exit_mode(agent_id), Some(ExitMode::Home));
+    }
+    TwoPeople {
+        runtime,
+        home_exits,
+        bus,
+        managers,
+        people,
+    }
+}
+
+/// The System Setting reaches the Computers of every Person of the
+/// Server: off, each one in Home mode switches to Direct mode, and on,
+/// each one switches back.
+#[tokio::test]
+async fn the_system_setting_switches_the_computers_of_every_person() {
+    let server = two_people_in_home_mode().await;
+
+    server.home_exits.set_enabled(false);
+    assert_eq!(
+        server.managers.settle_exits().await,
+        Vec::<ExitSwitchFailure>::new()
+    );
+    for (_, _, agent_id) in &server.people {
+        assert_eq!(server.runtime.exit_mode(agent_id), Some(ExitMode::Direct));
+    }
+
+    server.home_exits.set_enabled(true);
+    assert_eq!(
+        server.managers.settle_exits().await,
+        Vec::<ExitSwitchFailure>::new()
+    );
+    for (_, _, agent_id) in &server.people {
+        assert_eq!(server.runtime.exit_mode(agent_id), Some(ExitMode::Home));
+    }
+}
+
+/// When the Home Exit of one Person comes or goes, each Computer of that
+/// Person in Home mode shows its new exit, and the Computers of another
+/// Person show nothing new.
+#[tokio::test]
+async fn a_home_exit_that_comes_or_goes_shows_on_the_computers_of_its_person() {
+    let server = two_people_in_home_mode().await;
+    let (mine, my_host, my_agent) = &server.people[0];
+    let theirs = &server.people[1].2;
+
+    let socket = open_exit_socket(&server.home_exits, mine, my_host, "Air").await;
+    let came = (my_agent.clone(), Some("exit: Air".to_string()));
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while !exit_changes(&server.bus).contains(&came) {
+        assert!(tokio::time::Instant::now() < deadline, "no change shows");
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+
+    socket.abort();
+    let went = (my_agent.clone(), Some("exit: server".to_string()));
+    while !exit_changes(&server.bus).contains(&went) {
+        assert!(tokio::time::Instant::now() < deadline, "no change shows");
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    assert!(
+        exit_changes(&server.bus)
+            .iter()
+            .all(|(agent_id, _)| agent_id != theirs),
+        "{:?}",
+        exit_changes(&server.bus)
+    );
 }
 
 /// Wake one Computer of `tenant` under a daemon that then restarts:

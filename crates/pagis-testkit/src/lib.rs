@@ -7,6 +7,7 @@ pub mod browser;
 pub mod connection;
 pub mod contribution;
 pub mod evaluation;
+pub mod exit_client;
 pub mod fixture;
 pub mod grant;
 pub mod host_client;
@@ -33,6 +34,7 @@ use tokio_util::sync::CancellationToken;
 pub use brain::{Script, ScriptedBrain};
 pub use connection::MemoryConnectionStore;
 pub use contribution::MemoryContributionStore;
+pub use exit_client::ExitClient;
 pub use grant::MemoryGrantStore;
 pub use host_client::{HostAnswer, HostClient};
 pub use plugin::{MemoryPluginStore, MemoryPluginToolStore};
@@ -297,6 +299,13 @@ pub struct TestDaemon {
     /// in Remote Access; otherwise its port is only the one that the
     /// switch names to Tailscale.
     pub remote_access_turn_addr: SocketAddr,
+    /// The loopback address of the exit listener of a Server
+    /// (ADR-0029), on an ephemeral port, or `None` on a Local
+    /// Installation, which opens none.
+    pub exit_addr: Option<SocketAddr>,
+    /// The exit sockets of the Hosts of this daemon, which carry the
+    /// connections of their Person's Computers as the Home Exit.
+    pub home_exits: Arc<pagis_computer::HomeExits>,
     /// The origin a browser reaches this daemon at. It is
     /// [`TestDaemon::base_url`] unless the test named one.
     pub public_origin: String,
@@ -485,6 +494,19 @@ impl TestDaemon {
         let remote_access_turn_addr = remote_access_turn_listener
             .local_addr()
             .expect("local addr");
+        // The exit listener of a Server (ADR-0029), on loopback. A Local
+        // Installation opens none.
+        let exit_listener = match options.installation {
+            pagis::Installation::Server => Some(
+                tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+                    .await
+                    .expect("bind an ephemeral exit port"),
+            ),
+            pagis::Installation::Local => None,
+        };
+        let exit_addr = exit_listener
+            .as_ref()
+            .map(|listener| listener.local_addr().expect("local addr"));
         let live_calls = Arc::new(pagis_telephony::LiveCalls::default());
         let live_tiers = Arc::new(pagis_telephony::LiveTiers::default());
         let interfaces = pagis::app(
@@ -505,6 +527,7 @@ impl TestDaemon {
                 remote_access_turn_listener: options
                     .remote_access
                     .then_some(remote_access_turn_listener),
+                exit_listener,
                 ring: options.ring,
                 brain: Some(options.brain),
                 agents: options.agents,
@@ -595,6 +618,7 @@ impl TestDaemon {
             .id
             .to_string();
 
+        let home_exits = Arc::clone(&interfaces.home_exits);
         let server = tokio::spawn(async move {
             axum::serve(
                 listener,
@@ -645,6 +669,8 @@ impl TestDaemon {
             administration_addr,
             administration_base_url: format!("http://{administration_addr}"),
             remote_access_turn_addr,
+            exit_addr,
+            home_exits,
             public_origin,
             dm_channel_id,
             agent_id,

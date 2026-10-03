@@ -44,6 +44,18 @@
 # the tokens to read it, and an ad frame can take the focus off the
 # page. --disable-extensions-except keeps the blocker the only
 # extension the browser accepts. See third_party/ublock-origin-lite.
+#
+# Every connection of the browser goes to the Exit Proxy, which screend
+# runs on 127.0.0.1:3128 (ADR-0029, computer/screend/src/exit.rs). The
+# browser tunnels https://, wss:// and ws:// through it with CONNECT,
+# and it sends each plain http:// request to it in absolute form. The
+# proxy resolves each host name, so the name resolves where the
+# connection leaves. The daemon switches the path of the proxy on a
+# running Computer, so this flag never changes and the browser never
+# starts again for a switch. Chromium sends no loopback address through
+# a proxy, so a page on localhost or 127.0.0.1 opens directly. The
+# policy file sets QuicAllowed to false, because HTTP/3 runs over UDP
+# and an HTTP proxy carries no UDP.
 UBOL=/opt/pagis/ublock-origin-lite
 exec 3<&0 4>&1 </dev/null >&2
 exec chromium --ozone-platform=wayland --start-maximized \
@@ -51,6 +63,7 @@ exec chromium --ozone-platform=wayland --start-maximized \
     --disable-features=WaylandFractionalScaleV1 \
     --hide-crash-restore-bubble \
     --lang=en-US \
+    --proxy-server=http://127.0.0.1:3128 \
     --load-extension="$UBOL" --disable-extensions-except="$UBOL" \
     --remote-debugging-pipe \
     --disable-blink-features=AutomationControlled --test-type \

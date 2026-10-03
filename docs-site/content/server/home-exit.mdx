@@ -1,0 +1,74 @@
+---
+title: Home Exit
+description: The System Setting that turns the Home Exit off for every Person, the exit port of the server, and what a Local Installation does instead.
+icon: Route
+---
+
+The Computers of a server reach the internet from the address of the VM, a
+data-center address that many sites block. Each Person can send their own
+Agents' Computers through a computer of their own at home, which runs the
+Client App connected to the server: their **Home Exit**
+([Home Exit](/client-app/home-exit) for People). Each Person chooses it in
+**Settings → Hosts** of the Product App. A Person's Computers never go
+through the computer of another Person.
+
+A Local Installation has no Home Exit. Its Computers run on the owner's
+machine and reach the internet from the owner's own connection. Its daemon
+opens no exit port, and its System Settings show no Home Exit switch.
+
+## Turn it off for the server
+
+The Home Exit is a System Setting, on by default on a server. To turn it off
+for every Person, open **Settings** in the Administration Interface and turn
+off **Let People use a Home Exit** under **Home Exit**. The daemon writes it as
+`[computer] home_exit` in `config.toml`.
+
+The change takes effect at once, with no restart:
+
+- Every Computer reaches the internet from the VM. Each awake Computer that
+  goes through a Home Exit switches to the VM at once, and its open
+  connections close. A Computer that wakes later starts that way.
+- The Settings card of each Person says that the Administrator turned the
+  Home Exit off, and a Person cannot choose a computer.
+- Each Person's choice stays. When you turn the switch on again, each
+  choice is in effect again, and the awake Computers switch back.
+
+When a Computer does not switch, the switch says how many did not, and the
+log of the daemon names each one. That Computer keeps its path until its
+next wake.
+
+The switch only turns the Home Exit off. It never turns a Home Exit on for
+a Person. Each Person chooses their own, knowing its cost.
+
+## The exit port
+
+A Computer that goes through a Home Exit sends each connection to the exit
+listener of the daemon, on TCP port `4403` (`[computer] exit_port`,
+`PAGIS_COMPUTER_EXIT_PORT`). The daemon carries the connection over the exit
+socket of the Person's Client App, or from the VM while that computer is not
+connected ([Settings](/server/settings)).
+
+- The listener binds every interface of the VM, because Docker chooses the
+  address at which a Computer reaches the VM.
+- It answers only a connection that carries the token of an awake Agent's
+  Computer. It refuses every other one.
+- The egress rules open the port to the Computers and close it to
+  everything else: to the network, to the other containers and to the VM
+  itself ([What a Computer reaches](/server/computers#what-a-computer-reaches)).
+  `PAGIS_EXIT_PORT` of the `egress` service names the same port. One
+  address of a Computer holds at most 256 connections to it at once.
+- **A server that does not run the egress rules keeps the port closed to
+  the network in its firewall.** Do not publish it through the proxy.
+  Nobody but the Computers needs it.
+
+A daemon whose exit port is taken names the port and the two settings that
+move it. Move both at once.
+
+## What the Person sees
+
+An awake Computer that goes through a Home Exit names the exit that it uses
+beside its state: `exit: <computer name>` while that computer is connected,
+and `exit: server` while it is not. The Agent reads the same line in the
+result of each screen action. While traffic flows through a computer, the
+tray item of its Client App counts the bytes, and its menu turns the Home
+Exit off.

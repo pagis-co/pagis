@@ -330,6 +330,14 @@ struct FakeState {
     downloaded: Vec<String>,
     /// The daemon's browser tab.
     browser: FakeBrowser,
+    /// The mode of each Exit Proxy: the one its start environment named,
+    /// then the one of the last switch.
+    exit_modes: HashMap<AgentId, crate::ExitMode>,
+    /// Every switch of an Exit Proxy that took effect, in order.
+    exit_switches: Vec<(AgentId, crate::ExitMode)>,
+    /// The Computers whose Exit Proxy refuses every switch, with the
+    /// reason.
+    failing_exit_switches: HashMap<AgentId, String>,
 }
 
 /// Makes the stream of one download.
@@ -398,6 +406,9 @@ impl Default for FakeComputerRuntime {
                 downloads: HashMap::new(),
                 downloaded: Vec::new(),
                 browser: FakeBrowser::default(),
+                exit_modes: HashMap::new(),
+                exit_switches: Vec::new(),
+                failing_exit_switches: HashMap::new(),
             }),
         }
     }
@@ -806,6 +817,32 @@ impl FakeComputerRuntime {
 
     /// The server side of the streaming exec started last, so a test
     /// answers the daemon the way a real MCP server does.
+    /// The mode of the Exit Proxy of `agent_id`, as its start environment
+    /// or its last switch set it, or `None` before its first start.
+    pub fn exit_mode(&self, agent_id: &AgentId) -> Option<crate::ExitMode> {
+        self.state
+            .lock()
+            .expect("fake state")
+            .exit_modes
+            .get(agent_id)
+            .copied()
+    }
+
+    /// Every switch of an Exit Proxy that took effect, in order.
+    pub fn exit_switches(&self) -> Vec<(AgentId, crate::ExitMode)> {
+        self.state.lock().expect("fake state").exit_switches.clone()
+    }
+
+    /// Make the Exit Proxy of `agent_id` refuse every switch with
+    /// `reason`.
+    pub fn fail_exit_switch(&self, agent_id: &AgentId, reason: &str) {
+        self.state
+            .lock()
+            .expect("fake state")
+            .failing_exit_switches
+            .insert(agent_id.clone(), reason.to_string());
+    }
+
     pub fn take_server_end(&self) -> Option<tokio::io::DuplexStream> {
         self.state.lock().expect("fake state").server_ends.pop()
     }
@@ -988,6 +1025,11 @@ impl ComputerRuntime for FakeComputerRuntime {
         state.start_envs.push(env.to_vec());
         state.volumes.insert(owner.volume_name());
         state.owners.push(owner.clone());
+        let mode = match env.iter().any(|entry| entry == "PAGIS_EXIT_MODE=home") {
+            true => crate::ExitMode::Home,
+            false => crate::ExitMode::Direct,
+        };
+        state.exit_modes.insert(agent_id.clone(), mode);
         Ok(StartedComputer {
             container: owner.container_name(),
             control_addr: format!("fake:{agent_id}"),
@@ -1171,6 +1213,36 @@ impl ComputerRuntime for FakeComputerRuntime {
 
     async fn user_input_idle_ms(&self, _computer: &StartedComputer) -> Result<u64, String> {
         Ok(self.state.lock().expect("fake state").user_idle_ms)
+    }
+
+    /// A fake Computer runs no browser and no shell, so its Exit Proxy
+    /// holds no connection. Its mode is the one that its start
+    /// environment named, or the one of the last switch.
+    async fn exit_status(&self, computer: &StartedComputer) -> Result<crate::ExitStatus, String> {
+        let state = self.state.lock().expect("fake state");
+        Ok(crate::ExitStatus {
+            mode: state
+                .exit_modes
+                .get(&fake_agent(computer))
+                .copied()
+                .unwrap_or(crate::ExitMode::Direct),
+            connections: 0,
+        })
+    }
+
+    async fn set_exit_mode(
+        &self,
+        computer: &StartedComputer,
+        mode: crate::ExitMode,
+    ) -> Result<u64, String> {
+        let agent_id = fake_agent(computer);
+        let mut state = self.state.lock().expect("fake state");
+        if let Some(reason) = state.failing_exit_switches.get(&agent_id) {
+            return Err(format!("the Exit Proxy switch was refused: {reason}"));
+        }
+        state.exit_modes.insert(agent_id.clone(), mode);
+        state.exit_switches.push((agent_id, mode));
+        Ok(0)
     }
 
     async fn exec(
@@ -1368,85 +1440,255 @@ fn agent_row(workspace_id: &WorkspaceId, id: &pagis_core::AgentId) -> pagis_core
     }
 }
 
-/// One Workspace in memory, so a test can say which timezone the
-/// container boots with.
+/// Workspaces in memory, so a test can say which timezone the
+/// container boots with, and which Home Exit a Person chose.
 pub struct FakeWorkspaces {
-    workspace: Mutex<Workspace>,
+    workspaces: Mutex<Vec<Workspace>>,
 }
 
 impl FakeWorkspaces {
+    /// One Workspace with `timezone`.
     pub fn with_timezone(id: &WorkspaceId, timezone: &str) -> Self {
         Self {
-            workspace: Mutex::new(Workspace {
-                id: id.clone(),
-                user_id: pagis_core::UserId::generate(),
-                name: "test".to_string(),
-                timezone: timezone.to_string(),
-                created_at: now_ms(),
-                onboarded_at: None,
-                chief_of_staff_agent_id: None,
-                report_schedule_id: None,
-            }),
+            workspaces: Mutex::new(vec![Self::workspace(id, timezone)]),
+        }
+    }
+
+    /// One Workspace of a Person of its own, in UTC, with no Home Exit.
+    pub fn workspace(id: &WorkspaceId, timezone: &str) -> Workspace {
+        Workspace {
+            id: id.clone(),
+            user_id: pagis_core::UserId::generate(),
+            name: "test".to_string(),
+            timezone: timezone.to_string(),
+            created_at: now_ms(),
+            onboarded_at: None,
+            chief_of_staff_agent_id: None,
+            report_schedule_id: None,
+            home_exit_host_id: None,
+        }
+    }
+
+    /// Change the Workspace `id` with `change`, when it is here.
+    fn change(&self, id: &WorkspaceId, change: impl FnOnce(&mut Workspace)) -> bool {
+        let mut workspaces = self.workspaces.lock().expect("fake workspaces");
+        match workspaces.iter_mut().find(|workspace| &workspace.id == id) {
+            Some(workspace) => {
+                change(workspace);
+                true
+            }
+            None => false,
         }
     }
 }
 
 #[async_trait]
 impl WorkspaceStore for FakeWorkspaces {
+    /// A Workspace with the id of one that is here replaces it.
     async fn create(&self, workspace: &Workspace) -> Result<(), StoreError> {
-        *self.workspace.lock().expect("fake workspace") = workspace.clone();
+        let mut workspaces = self.workspaces.lock().expect("fake workspaces");
+        workspaces.retain(|held| held.id != workspace.id);
+        workspaces.push(workspace.clone());
         Ok(())
     }
 
     async fn get(&self, id: &WorkspaceId) -> Result<Option<Workspace>, StoreError> {
-        let workspace = self.workspace.lock().expect("fake workspace").clone();
-        Ok((&workspace.id == id).then_some(workspace))
+        let workspaces = self.workspaces.lock().expect("fake workspaces");
+        Ok(workspaces
+            .iter()
+            .find(|workspace| &workspace.id == id)
+            .cloned())
     }
 
     async fn for_user(
         &self,
         user_id: &pagis_core::UserId,
     ) -> Result<Option<Workspace>, StoreError> {
-        let workspace = self.workspace.lock().expect("fake workspace").clone();
-        Ok((&workspace.user_id == user_id).then_some(workspace))
+        let workspaces = self.workspaces.lock().expect("fake workspaces");
+        Ok(workspaces
+            .iter()
+            .find(|workspace| &workspace.user_id == user_id)
+            .cloned())
     }
 
     async fn list(&self) -> Result<Vec<Workspace>, StoreError> {
-        Ok(vec![self.workspace.lock().expect("fake workspace").clone()])
+        Ok(self.workspaces.lock().expect("fake workspaces").clone())
     }
 
-    async fn set_onboarded(&self, _id: &WorkspaceId, at: UnixMillis) -> Result<(), StoreError> {
-        let mut workspace = self.workspace.lock().expect("fake workspace");
-        workspace.onboarded_at.get_or_insert(at);
+    async fn set_onboarded(&self, id: &WorkspaceId, at: UnixMillis) -> Result<(), StoreError> {
+        self.change(id, |workspace| {
+            workspace.onboarded_at.get_or_insert(at);
+        });
         Ok(())
     }
 
-    async fn set_timezone(&self, _id: &WorkspaceId, timezone: &str) -> Result<(), StoreError> {
-        self.workspace.lock().expect("fake workspace").timezone = timezone.to_string();
+    async fn set_timezone(&self, id: &WorkspaceId, timezone: &str) -> Result<(), StoreError> {
+        self.change(id, |workspace| workspace.timezone = timezone.to_string());
         Ok(())
     }
 
     async fn set_chief_of_staff(
         &self,
-        _id: &WorkspaceId,
+        id: &WorkspaceId,
         agent_id: Option<&AgentId>,
     ) -> Result<(), StoreError> {
-        self.workspace
-            .lock()
-            .expect("fake workspace")
-            .chief_of_staff_agent_id = agent_id.cloned();
+        self.change(id, |workspace| {
+            workspace.chief_of_staff_agent_id = agent_id.cloned()
+        });
         Ok(())
     }
 
     async fn set_report_schedule(
         &self,
-        _id: &WorkspaceId,
+        id: &WorkspaceId,
         schedule_id: Option<&ScheduleId>,
     ) -> Result<(), StoreError> {
-        self.workspace
-            .lock()
-            .expect("fake workspace")
-            .report_schedule_id = schedule_id.cloned();
+        self.change(id, |workspace| {
+            workspace.report_schedule_id = schedule_id.cloned()
+        });
         Ok(())
+    }
+
+    /// The fake holds no Host, so it takes any Host id. The store suite
+    /// proves on both backends that a Host of another Workspace is
+    /// refused.
+    async fn set_home_exit(
+        &self,
+        id: &WorkspaceId,
+        host_id: Option<&pagis_core::HostId>,
+    ) -> Result<bool, StoreError> {
+        Ok(self.change(id, |workspace| {
+            workspace.home_exit_host_id = host_id.cloned()
+        }))
+    }
+}
+
+/// The two ends of one exit socket in memory: the daemon's end, which
+/// [`crate::HomeExits::serve`] takes, and the Client App's end, which
+/// [`FakeHomeExit::serve`] takes. They carry the bytes that the binary
+/// frames of the WebSocket carry.
+pub fn exit_socket_pair() -> (
+    tokio_util::compat::Compat<tokio::io::DuplexStream>,
+    tokio_util::compat::Compat<tokio::io::DuplexStream>,
+) {
+    use tokio_util::compat::TokioAsyncReadCompatExt;
+
+    let (daemon, client_app) = tokio::io::duplex(64 * 1024);
+    (daemon.compat(), client_app.compat())
+}
+
+/// What the fake Home Exit does with one destination.
+#[derive(Debug, Clone)]
+pub enum FakeExitAnswer {
+    /// Connect to this address and carry the bytes.
+    Connect(std::net::SocketAddr),
+    /// Answer `refused` with this reason.
+    Refuse(String),
+    /// Answer `failed` with this reason.
+    Fail(String),
+}
+
+/// The Client App's end of an exit socket, in this process. It speaks the
+/// protocol of the Client App: it accepts the yamux streams of the
+/// daemon, reads each preamble, answers one status line and copies the
+/// bytes both ways. A test reaches no site on the internet, so `route`
+/// maps each destination to an answer; the address check of the real
+/// Client App has tests of its own.
+pub struct FakeHomeExit {
+    route: Box<ExitRoute>,
+    destinations: Mutex<Vec<String>>,
+}
+
+/// What a fake Home Exit answers for each destination.
+type ExitRoute = dyn Fn(&str, u16) -> FakeExitAnswer + Send + Sync;
+
+impl FakeHomeExit {
+    pub fn new(
+        route: impl Fn(&str, u16) -> FakeExitAnswer + Send + Sync + 'static,
+    ) -> std::sync::Arc<Self> {
+        std::sync::Arc::new(Self {
+            route: Box::new(route),
+            destinations: Mutex::new(Vec::new()),
+        })
+    }
+
+    /// A Home Exit that connects every destination to `target`.
+    pub fn to(target: std::net::SocketAddr) -> std::sync::Arc<Self> {
+        Self::new(move |_, _| FakeExitAnswer::Connect(target))
+    }
+
+    /// The preambles of the streams it took, in order.
+    pub fn destinations(&self) -> Vec<String> {
+        self.destinations.lock().expect("fake destinations").clone()
+    }
+
+    /// Serve the Client App's end of one exit socket until it ends.
+    pub async fn serve<T>(self: std::sync::Arc<Self>, socket: T)
+    where
+        T: futures::AsyncRead + futures::AsyncWrite + Unpin + Send + 'static,
+    {
+        let mut connection = yamux::Connection::new(
+            socket,
+            crate::home_exit::yamux_config(),
+            yamux::Mode::Server,
+        );
+        while let Some(Ok(stream)) =
+            futures::future::poll_fn(|cx| connection.poll_next_inbound(cx)).await
+        {
+            tokio::spawn(std::sync::Arc::clone(&self).carry(stream));
+        }
+    }
+
+    /// One stream: the preamble, the answer, then the bytes.
+    async fn carry(self: std::sync::Arc<Self>, stream: yamux::Stream) {
+        use tokio::io::AsyncWriteExt;
+        use tokio_util::compat::FuturesAsyncReadCompatExt;
+
+        let mut stream = stream.compat();
+        let Ok(line) =
+            crate::home_exit::read_line(&mut stream, crate::home_exit::PREAMBLE_LIMIT).await
+        else {
+            return;
+        };
+        self.destinations
+            .lock()
+            .expect("fake destinations")
+            .push(line.clone());
+        let answer = match crate::home_exit::parse_preamble(&line) {
+            Some((host, port)) => (self.route)(&host, port),
+            None => FakeExitAnswer::Fail(format!("{line:?} is no destination")),
+        };
+        let status = |status: crate::home_exit::Status| status.line();
+        match answer {
+            FakeExitAnswer::Connect(target) => match tokio::net::TcpStream::connect(target).await {
+                Ok(mut upstream) => {
+                    if stream
+                        .write_all(status(crate::home_exit::Status::Ok).as_bytes())
+                        .await
+                        .is_ok()
+                    {
+                        let _ = tokio::io::copy_bidirectional(&mut stream, &mut upstream).await;
+                    }
+                }
+                Err(error) => {
+                    let _ = stream
+                        .write_all(
+                            status(crate::home_exit::Status::Failed(error.to_string())).as_bytes(),
+                        )
+                        .await;
+                }
+            },
+            FakeExitAnswer::Refuse(reason) => {
+                let _ = stream
+                    .write_all(status(crate::home_exit::Status::Refused(reason)).as_bytes())
+                    .await;
+            }
+            FakeExitAnswer::Fail(reason) => {
+                let _ = stream
+                    .write_all(status(crate::home_exit::Status::Failed(reason)).as_bytes())
+                    .await;
+            }
+        }
+        let _ = stream.shutdown().await;
     }
 }

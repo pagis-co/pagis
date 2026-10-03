@@ -93,6 +93,7 @@ alone reads or writes it, on the Administration Port (ADR-0024).
 | The System Settings: the ports, the Docker endpoint, the log level, the data directory | The timezone |
 | The roster, each role, each Spend Cap | The Agents, the memory, the conversations, the files, the Vault, the Software List |
 | The Awake Cap on Computers | The Retention windows |
+| The Home Exit System Setting, which turns the Home Exit off for every Person (ADR-0029) | The Home Exit: which Host of the Person their Computers reach the internet through |
 
 A Person holds and reads no provider key. The Administrator supplies one key
 for each provider, and each Person chooses what to think with.

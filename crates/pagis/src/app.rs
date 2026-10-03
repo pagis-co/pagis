@@ -60,6 +60,12 @@ pub struct AppOptions {
     /// on, and the testkit binds an ephemeral port. The daemon serves the
     /// TURN server on it, and does not run in Remote Access without it.
     pub remote_access_turn_listener: Option<tokio::net::TcpListener>,
+    /// The listener of the exit port of a Server (ADR-0029): `[computer]
+    /// exit_port`. `main` binds it on a Server, and the testkit binds a
+    /// loopback port for a Server. The Exit Proxy of each Agent's
+    /// Computer in Home mode sends its connections there. A Local
+    /// Installation has none, and its Computers run in Direct mode alone.
+    pub exit_listener: Option<tokio::net::TcpListener>,
     pub ring: RingConfig,
     /// `None` builds the production router brain over `keys`.
     pub brain: Option<Arc<dyn Brain>>,
@@ -204,6 +210,8 @@ impl AppOptions {
             remote_access_turn_port: booted.config.screen.remote_access_turn_port()?,
             // `main` binds it, after the other two listeners.
             remote_access_turn_listener: None,
+            // `main` binds it on a Server.
+            exit_listener: None,
             ring: RingConfig::default(),
             brain: None,
             agents: AgentLoopConfig::default(),
@@ -256,9 +264,12 @@ pub struct Interfaces {
     /// The Computers of every tenant, which a daemon that stops for good
     /// stops.
     pub computers: Arc<pagis_computer::ComputerManagers>,
+    /// The exit sockets of the Hosts, which carry the connections of
+    /// their Person's Computers as the Home Exit (ADR-0029).
+    pub home_exits: Arc<pagis_computer::HomeExits>,
 }
 
-pub async fn app(booted: &Booted, options: AppOptions) -> anyhow::Result<Interfaces> {
+pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Interfaces> {
     let stores = booted.stores.clone();
     // The deployment's own setup: a start that finds nobody who
     // can sign in reads `PAGIS_ADMIN_EMAIL`, `PAGIS_ADMIN_PASSWORD` and
@@ -387,6 +398,26 @@ pub async fn app(booted: &Booted, options: AppOptions) -> anyhow::Result<Interfa
             git: Arc::clone(&plugin_git),
         },
     ));
+    // The exit listener of a Server (ADR-0029). A Local Installation
+    // leaves from the owner's own connection, so it opens none, and its
+    // Computers run their Exit Proxy in Direct mode alone.
+    if booted.installation() == crate::Installation::Local && options.exit_listener.is_some() {
+        anyhow::bail!("a Local Installation opens no exit listener");
+    }
+    // The Home Exits of the People: the exit socket of each Host, the
+    // System Setting that an Administrator turns off, and on a Server the
+    // exit listener that sends a Computer's connections through them.
+    let home_exits = pagis_computer::HomeExits::new(Arc::clone(&workspaces) as _);
+    home_exits.set_enabled(booted.config.computer.home_exit);
+    let exit = options
+        .exit_listener
+        .as_ref()
+        .map(|listener| listener.local_addr())
+        .transpose()?
+        .map(|address| pagis_computer::ComputerExit {
+            daemon: pagis_computer::exit_daemon(address.port()),
+            home_exits: Arc::clone(&home_exits),
+        });
     // One Computer manager per tenant: the manager names and
     // labels every Docker object, so a container of one Workspace is
     // never a container of another. Each manager's idle sweeper starts
@@ -402,7 +433,15 @@ pub async fn app(booted: &Booted, options: AppOptions) -> anyhow::Result<Interfa
         relay: options.media_relay,
         caps: options.computer_awake_caps,
         cancel: options.cancel.clone(),
+        exit,
     });
+    if let Some(listener) = options.exit_listener.take() {
+        let address = listener.local_addr()?;
+        let exit =
+            pagis_computer::ExitListener::new(Arc::clone(&computers) as _, Arc::clone(&home_exits));
+        tokio::spawn(exit.serve(listener, options.cancel.child_token()));
+        tracing::info!(%address, "the exit listener carries the connections of the Computers");
+    }
     // The Computers that a restart left running belong to this daemon
     // now, also the Computer of a Person who does not come back: the
     // idle sweep and the stop for good include them, and the awake cap
@@ -1208,6 +1247,7 @@ pub async fn app(booted: &Booted, options: AppOptions) -> anyhow::Result<Interfa
         grants,
         hosts: stores.hosts.clone(),
         host_presence,
+        home_exits: Arc::clone(&home_exits),
         broker,
         agent_store,
         mailbox_desk,
@@ -1306,6 +1346,7 @@ pub async fn app(booted: &Booted, options: AppOptions) -> anyhow::Result<Interfa
             .administration
             .fallback(crate::spa::serve_administration),
         computers,
+        home_exits,
     };
     if this_machine_only {
         let guard = || axum::middleware::from_fn(pagis_server::forwarded::refuse_other_machines);

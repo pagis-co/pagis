@@ -26,6 +26,7 @@ pub mod gog;
 pub mod image;
 pub mod pins;
 pub mod release;
+pub mod screend;
 pub mod secrets;
 pub mod server_image;
 pub mod tools;
@@ -137,7 +138,8 @@ pub struct Lane {
 /// Where Docker is reachable the gate builds the Computer image from
 /// `computer/` once, under the tag that the workspace pins, so the image
 /// of the checked tree is what the Docker-real tests run in; the tests
-/// build nothing themselves.
+/// build nothing themselves. It also runs the tests of screend in the
+/// image that builds screend in the Computer Image ([`screend`]).
 pub fn full_lanes(root: &Path, docker_available: bool) -> Vec<Lane> {
     // The gate keeps Cargo's default incremental setting, so a step
     // reuses the artifacts of the earlier builds.
@@ -178,6 +180,7 @@ pub fn full_lanes(root: &Path, docker_available: bool) -> Vec<Lane> {
             ]),
         },
         computer_image_step(root, docker_available),
+        screend::test_step(root, docker_available),
         Step {
             name: "test",
             action: tests,
@@ -410,6 +413,10 @@ pub fn dev_lanes(
     let computer_changed = changed_paths
         .iter()
         .any(|path| path.starts_with("computer/"));
+    // The Dockerfile pins the image that the tests of screend run in.
+    let screend_changed = changed_paths
+        .iter()
+        .any(|path| path.starts_with("computer/screend/") || path == "computer/Dockerfile");
     let docs_site_changed = changed_paths
         .iter()
         .any(|path| path.starts_with("docs-site/"));
@@ -487,6 +494,9 @@ pub fn dev_lanes(
                 }));
         if docker_tests {
             cargo_steps.push(computer_image_step(root, docker_available));
+        }
+        if screend_changed {
+            cargo_steps.push(screend::test_step(root, docker_available));
         }
         let mut test_args = vec!["nextest".into(), "run".into()];
         test_args.extend(package_args);

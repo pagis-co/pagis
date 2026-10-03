@@ -7,7 +7,9 @@ mod bollard_runtime;
 pub mod browser;
 pub mod docker;
 pub mod exec;
+pub mod exit_listener;
 pub mod fake;
+pub mod home_exit;
 mod image;
 mod manager;
 mod pull_progress;
@@ -22,10 +24,12 @@ pub use docker::{
     DockerCandidate, DockerCandidateResult, DockerDiscovery, DockerReport, DockerSearch,
     DockerSource,
 };
+pub use exit_listener::{ComputerTokens, ExitListener};
+pub use home_exit::{ExitBytes, ExitError, ExitInUse, ExitStream, HomeExits};
 pub use image::{ComputerImage, ImagePullError};
 pub use manager::{
-    ComputerManager, ComputerManagerDeps, DaemonHold, Preview, SHELL_HOME, ShellCommand,
-    TakeoverTiming,
+    ComputerManager, ComputerManagerDeps, DaemonHold, ExitSwitchFailure, Preview, SHELL_HOME,
+    ShellCommand, TakeoverTiming,
 };
 pub use relay::{
     DaemonRelay, IceCredentials, IceServer, MediaForwarder, MediaPath, MediaRelay, OpenPath,
@@ -35,6 +39,7 @@ pub use remote_access_turn::{MediaRelayPeers, RemoteAccessTurn};
 pub use tenants::{AwakeCeiling, ComputerKind, ComputerManagers, ComputerManagersDeps};
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use pagis_core::{AgentId, SkillMount, WorkspaceId};
@@ -106,14 +111,81 @@ pub const DEFAULT_TIMEZONE: &str = "UTC";
 /// on a volume quota bounds the disk that one download takes.
 pub const MAX_ARCHIVE_BYTES: u64 = 1024 * 1024 * 1024;
 
-/// The environment one container boots with: the Workspace
-/// timezone and the locale of the image. The compositor, screend and
-/// Chromium are children of the entrypoint, so they inherit it. A
-/// clock and a language that disagree with the egress IP make the
+/// The Exit Proxy inside every Computer (ADR-0029). screend listens
+/// here, and `computer/browser.sh` gives Chromium the same address.
+pub const EXIT_PROXY: &str = "http://127.0.0.1:3128";
+
+/// Where the Exit Proxy of an Agent's Computer on a Server starts
+/// (ADR-0029): the exit listener of the daemon, which `Home` mode sends
+/// each connection to, and the first mode. A Computer of a Local
+/// Installation and the Plugin Computer have none, and run in `Direct`
+/// mode alone.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExitStart {
+    /// The exit listener as a Computer reaches it, such as
+    /// `host.docker.internal:4403` (see [`exit_daemon`]).
+    pub daemon: String,
+    pub mode: ExitMode,
+}
+
+/// The address at which a Computer reaches the exit listener of the
+/// daemon on `port`: the Docker host, as the Media Relay is reached.
+pub fn exit_daemon(port: u16) -> String {
+    format!("{RELAY_HOST}:{port}")
+}
+
+/// The exit of the Computers of a Server (ADR-0029): the exit listener
+/// that each Agent's Computer names at its start, and the Home Exits of
+/// the People, which say which mode is in effect for each Person. A Local
+/// Installation has none, and its Computers run in `Direct` mode alone.
+#[derive(Clone)]
+pub struct ComputerExit {
+    /// The exit listener as a Computer reaches it ([`exit_daemon`]).
+    pub daemon: String,
+    pub home_exits: Arc<HomeExits>,
+}
+
+/// The environment one container boots with: the Workspace timezone,
+/// the locale of the image, the Exit Proxy, and where the Exit Proxy
+/// starts. The compositor, screend and Chromium are children of the
+/// entrypoint, so they inherit it, and so does every `docker exec`:
+/// `computer_shell` and the servers of the Plugin Computer. The image's
+/// sudo keeps the proxy entries for the shell of the terminal.
+///
+/// A clock and a language that disagree with the egress IP make the
 /// browser look automated, and pages then render times the agent has
 /// to convert.
-pub fn locale_env(timezone: &str) -> Vec<String> {
-    vec![format!("TZ={timezone}"), format!("LANG={CONTAINER_LANG}")]
+///
+/// The proxy entries come in both cases, because a tool reads one case or
+/// the other: curl reads `http_proxy` in lower case alone. `NO_PROXY` holds
+/// loopback, which Chromium also sends to no proxy, and the Docker host
+/// ([`RELAY_HOST`]), so a connection to the daemon's machine never
+/// leaves through the Exit Proxy. Every container that the runtime
+/// starts is a Computer Image container that runs screend, the Plugin
+/// Computer too, so every container with these entries runs the proxy
+/// that they name.
+///
+/// `exit` names the exit listener of the daemon and the first mode in
+/// `PAGIS_EXIT_DAEMON` and `PAGIS_EXIT_MODE`, which screend reads at
+/// start. The address is not a secret: the listener asks for the
+/// Computer's token, which the agent's shell cannot read.
+pub fn container_env(timezone: &str, exit: Option<&ExitStart>) -> Vec<String> {
+    let no_proxy = format!("localhost,127.0.0.1,::1,{RELAY_HOST}");
+    let mut env = vec![
+        format!("TZ={timezone}"),
+        format!("LANG={CONTAINER_LANG}"),
+        format!("HTTP_PROXY={EXIT_PROXY}"),
+        format!("HTTPS_PROXY={EXIT_PROXY}"),
+        format!("http_proxy={EXIT_PROXY}"),
+        format!("https_proxy={EXIT_PROXY}"),
+        format!("NO_PROXY={no_proxy}"),
+        format!("no_proxy={no_proxy}"),
+    ];
+    if let Some(exit) = exit {
+        env.push(format!("PAGIS_EXIT_DAEMON={}", exit.daemon));
+        env.push(format!("PAGIS_EXIT_MODE={}", exit.mode.as_str()));
+    }
+    env
 }
 
 /// The in-container screend control port.
@@ -392,6 +464,38 @@ impl InputHolder {
     }
 }
 
+/// Where the Exit Proxy of a Computer opens each connection
+/// (ADR-0029).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExitMode {
+    /// Each connection leaves from the Computer.
+    Direct,
+    /// Each connection goes to the exit listener of the daemon, which
+    /// carries it through the Person's Home Exit, or from the server when
+    /// that Host is absent. A literal private address leaves from the
+    /// Computer.
+    Home,
+}
+
+impl ExitMode {
+    /// The name on the wire and in `PAGIS_EXIT_MODE`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ExitMode::Direct => "direct",
+            ExitMode::Home => "home",
+        }
+    }
+}
+
+/// What the Exit Proxy of a Computer reports.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+pub struct ExitStatus {
+    pub mode: ExitMode,
+    /// The client connections that the proxy holds now.
+    pub connections: u64,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum ComputerError {
     /// The local image under the pinned tag carries the wrong version
@@ -620,6 +724,20 @@ pub trait ComputerRuntime: Send + Sync {
     /// Milliseconds since the last user input the pipeline applied;
     /// drives the inactivity auto-handback.
     async fn user_input_idle_ms(&self, computer: &StartedComputer) -> Result<u64, String>;
+
+    /// The mode of the Computer's Exit Proxy, and the client connections
+    /// it holds now (ADR-0029).
+    async fn exit_status(&self, computer: &StartedComputer) -> Result<ExitStatus, String>;
+
+    /// Set the mode of the Computer's Exit Proxy. The proxy closes every
+    /// connection that it holds, also when the mode stays the same, so
+    /// each client opens a new connection on the path of the mode. The
+    /// answer is how many connections the proxy closed.
+    async fn set_exit_mode(
+        &self,
+        computer: &StartedComputer,
+        mode: ExitMode,
+    ) -> Result<u64, String>;
 
     /// Run one command in the agent's container and wait for it.
     /// The runtime runs `argv` as given: the caller owns the
@@ -872,6 +990,52 @@ mod tests {
     #[test]
     fn the_seccomp_profile_refuses_by_default() {
         assert_eq!(profile()["defaultAction"], "SCMP_ACT_ERRNO");
+    }
+
+    /// A container boots on the Workspace clock, in the image's locale,
+    /// with the Exit Proxy in both cases of each proxy entry, and with
+    /// loopback and the Docker host out of the proxy.
+    #[test]
+    fn the_container_environment_names_the_exit_proxy() {
+        assert_eq!(
+            super::container_env("Asia/Tokyo", None),
+            [
+                "TZ=Asia/Tokyo",
+                "LANG=en_US.UTF-8",
+                "HTTP_PROXY=http://127.0.0.1:3128",
+                "HTTPS_PROXY=http://127.0.0.1:3128",
+                "http_proxy=http://127.0.0.1:3128",
+                "https_proxy=http://127.0.0.1:3128",
+                "NO_PROXY=localhost,127.0.0.1,::1,host.docker.internal",
+                "no_proxy=localhost,127.0.0.1,::1,host.docker.internal",
+            ]
+        );
+    }
+
+    /// An Agent's Computer on a Server names the exit listener of the
+    /// daemon at the Docker host, and the mode its Exit Proxy starts in.
+    #[test]
+    fn the_container_environment_names_the_exit_listener_and_the_first_mode() {
+        for mode in [super::ExitMode::Direct, super::ExitMode::Home] {
+            let exit = super::ExitStart {
+                daemon: super::exit_daemon(4403),
+                mode,
+            };
+            let env = super::container_env("UTC", Some(&exit));
+
+            assert_eq!(
+                env[env.len() - 2..],
+                [
+                    "PAGIS_EXIT_DAEMON=host.docker.internal:4403".to_string(),
+                    format!("PAGIS_EXIT_MODE={}", mode.as_str()),
+                ]
+            );
+        }
+        assert_eq!(super::ExitMode::Home.as_str(), "home");
+        assert_eq!(
+            serde_json::to_value(super::ExitMode::Home).expect("JSON"),
+            serde_json::json!("home")
+        );
     }
 
     /// The repository of a reference has no tag and no digest. The port
