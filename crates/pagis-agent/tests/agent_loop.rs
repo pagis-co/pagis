@@ -5372,6 +5372,41 @@ async fn a_failed_action_stops_the_batch_and_skips_later_calls(pool: SqlitePool)
 }
 
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn cancel_while_the_computer_wakes_stops_the_run(pool: SqlitePool) {
+    let harness = boot(pool, AgentLoopConfig::default()).await;
+    // The image is not on the machine and its download holds, so the
+    // computer stays asleep for as long as the test runs.
+    harness.computer_runtime.set_image_version(None);
+    harness.computer_runtime.hold_pulls();
+    harness.brain.push(Script::tool_call(
+        &[],
+        "computer",
+        serde_json::json!({"action": "screenshot"}),
+    ));
+    let mut events = harness
+        .bus
+        .subscribe(EventScope::Installation, Some(0))
+        .await;
+
+    harness.send("look at the screen").await;
+    let called = next_event(&mut events, "tool.called").await;
+    let run_id = called.run_id.clone().unwrap();
+    let runtime = Arc::clone(&harness.computer_runtime);
+    wait_for("the image download", || {
+        let runtime = Arc::clone(&runtime);
+        async move { runtime.pulls() == 1 }
+    })
+    .await;
+
+    assert_eq!(
+        harness.system.cancel(&harness.workspace.id, &run_id).await,
+        CancelOutcome::Canceling
+    );
+    let ended = next_state(&mut events, "canceled").await;
+    assert_eq!(ended.payload["reason"], "canceled by user");
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
 async fn a_safety_check_parks_for_approval_and_deny_cancels(pool: SqlitePool) {
     let harness = boot(pool, AgentLoopConfig::default()).await;
     harness.computer_runtime.set_frame(&display_png());

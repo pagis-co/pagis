@@ -8,7 +8,7 @@ import { Square } from 'lucide-react'
 
 import type { ApiClient } from '../api/client'
 import { Avatar, Button } from '../primitives'
-import { useRunSteps, useScreenPreviewUrl } from '../queries'
+import { useCancelRun, useRunSteps, useScreenPreviewUrl } from '../queries'
 import type { TimelineRow } from '../timeline'
 
 import './WorkingRow.css'
@@ -57,7 +57,6 @@ export function WorkingRow({
   row,
   agentName,
   agentAppearance,
-  onStop,
   onOpenDesk,
 }: {
   api: ApiClient
@@ -65,11 +64,14 @@ export function WorkingRow({
   row: TimelineRow
   agentName: string
   agentAppearance?: import('../avatars/catalog').SpriteAppearance
-  onStop: (runId: string) => void
   /** Opens the Desk panel; absent where no panel sits beside the row. */
   onOpenDesk?: () => void
 }) {
   const steps = useRunSteps(api, row.runId)
+  // A cancel the daemon accepted holds until the Run ends and the row
+  // goes; a failed one gives Stop back.
+  const cancel = useCancelRun(api)
+  const stopping = cancel.isPending || cancel.isSuccess
   const elapsed = useElapsed(row.createdAt)
   const agentId = row.authorAgentId
   const count = steps.data?.steps.length ?? 0
@@ -112,10 +114,11 @@ export function WorkingRow({
         <Button
           size="sm"
           variant="outline"
-          onClick={() => onStop(row.runId as string)}
+          disabled={stopping}
+          onClick={() => cancel.mutate(row.runId as string)}
         >
           <Square size={14} aria-hidden focusable="false" />
-          Stop
+          {stopping ? 'Stopping…' : 'Stop'}
         </Button>
       )}
     </div>

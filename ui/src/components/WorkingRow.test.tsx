@@ -2,7 +2,7 @@
 // has worked, the desk and Stop.
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { ApiClient } from '../api/client'
@@ -58,10 +58,14 @@ const steps = {
   ],
 }
 
-function mount(progress = row()) {
-  const onStop = vi.fn()
+function mount(
+  progress = row(),
+  cancel: () => Promise<unknown> = async () => ({
+    data: { run_id: 'run-1', outcome: 'canceling', state: null },
+  }),
+) {
   const onOpenDesk = vi.fn()
-  const api = { GET: vi.fn(async () => ({ data: steps })) }
+  const api = { GET: vi.fn(async () => ({ data: steps })), POST: vi.fn(cancel) }
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
@@ -71,12 +75,11 @@ function mount(progress = row()) {
         api={api as unknown as ApiClient}
         row={progress}
         agentName="Sage"
-        onStop={onStop}
         onOpenDesk={onOpenDesk}
       />
     </QueryClientProvider>,
   )
-  return { onStop, onOpenDesk }
+  return { api, onOpenDesk }
 }
 
 describe('formatTimer', () => {
@@ -96,13 +99,40 @@ describe('WorkingRow', () => {
   })
 
   it('opens the desk and stops the Run', async () => {
-    const { onStop, onOpenDesk } = mount()
+    const { api, onOpenDesk } = mount()
 
     fireEvent.click(screen.getByLabelText('Open the desk'))
     expect(onOpenDesk).toHaveBeenCalled()
 
-    fireEvent.click(screen.getByText('Stop'))
-    expect(onStop).toHaveBeenCalledWith('run-1')
+    fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
+    await waitFor(() =>
+      expect(api.POST).toHaveBeenCalledWith('/api/v1/runs/{run_id}/cancel', {
+        params: { path: { run_id: 'run-1' } },
+      }),
+    )
+  })
+
+  it('says it is stopping until the Run ends, and takes no second click', async () => {
+    const { api } = mount()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
+
+    const stopping = await screen.findByRole('button', { name: 'Stopping…' })
+    expect((stopping as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(stopping)
+    expect(api.POST).toHaveBeenCalledTimes(1)
+  })
+
+  it('offers Stop again when the stop request fails', async () => {
+    let answer: (value: unknown) => void = () => undefined
+    mount(row(), () => new Promise((resolve) => (answer = resolve)))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
+    await screen.findByRole('button', { name: 'Stopping…' })
+    answer({ error: { error: { code: 'internal', message: 'down' } } })
+
+    const stop = await screen.findByRole('button', { name: 'Stop' })
+    expect((stop as HTMLButtonElement).disabled).toBe(false)
   })
 
   it('shows reflection without the working signals', () => {

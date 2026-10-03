@@ -12,7 +12,6 @@ import type { ApiClient } from '../api/client'
 import {
   useAgentNames,
   useAgents,
-  useCancelRun,
   useSendMessage,
   useThread,
 } from '../queries'
@@ -60,7 +59,6 @@ export function ThreadPane({
   const live = useLiveStreams(selectLiveStreams(scope))
   const progress = useRunProgress(selectRunProgress(scope))
   const send = useSendMessage(api, channelId, rootId)
-  const cancel = useCancelRun(api)
   const agentNames = useAgentNames(api)
   const agents = useAgents(api)
   const nameOf = (row: TimelineRow): string | undefined =>
@@ -122,7 +120,6 @@ export function ThreadPane({
                   row={row}
                   agentName={nameOf(row) ?? 'Sprite'}
                   agentAppearance={agents.data?.find((agent) => agent.id === row.authorAgentId)?.avatar}
-                  onStop={(runId) => cancel.mutate(runId)}
                 />
               ) : (
                 <MessageRow

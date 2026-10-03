@@ -2900,9 +2900,17 @@ async fn run_computer(
     }
 
     let computer = ctx.deps.computers.get(&run.workspace_id);
-    let outcome =
-        computer_use::execute_actions(&computer, &ctx.agent.id, &parsed.actions, ctx.computer)
-            .await;
+    // A batch can wait minutes on a computer that wakes, so Stop does
+    // not wait for it.
+    let outcome = tokio::select! {
+        outcome = computer_use::execute_actions(
+            &computer,
+            &ctx.agent.id,
+            &parsed.actions,
+            ctx.computer,
+        ) => outcome,
+        _ = ctx.cancel.cancelled() => return ToolFlow::Canceled,
+    };
     // Which exit the pages saw this Computer leave from (ADR-0029). A
     // change of the address is a signal that sites read, so every result
     // says it.
