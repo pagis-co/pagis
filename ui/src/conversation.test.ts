@@ -139,6 +139,25 @@ describe('buildConversation', () => {
     expect(completed.map((item) => item.kind)).toEqual(['day', 'message'])
   })
 
+  it('keeps the Working row of a live run after the reply it writes', () => {
+    const at = Date.parse('2026-09-05T10:00:00Z')
+    // The run wrote a reply in its first turn and works on in a tool.
+    const items = buildConversation([
+      progressRow({ key: 'p1', runId: 'run-1', text: 'Running `git status`…', createdAt: at }),
+      row({ key: 'm1', runId: 'run-1', createdAt: at + 1000, completedAt: at + 2000 }),
+      row({ key: 'm2', runId: 'run-1', createdAt: at + 3000, status: 'streaming' }),
+    ])
+
+    expect(items.map((item) => [item.kind, item.key])).toEqual([
+      ['day', 'day-' + new Date(at).toDateString()],
+      ['message', 'm1'],
+      ['message', 'm2'],
+      ['working', 'p1'],
+    ])
+    // The run has not ended, so no reply says how long it worked.
+    expect(messages(items).map((item) => item.work)).toEqual([null, null])
+  })
+
   it('drops a "Done" row that has no reply, and keeps a live line', () => {
     const items = buildConversation([
       progressRow({ key: 'p1', runId: 'run-1', text: 'Done' }),

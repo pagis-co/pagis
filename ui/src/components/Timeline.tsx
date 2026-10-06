@@ -15,7 +15,6 @@ import { Button, ReadingColumn } from '../primitives'
 import {
   useAgentNames,
   useAgents,
-  useCancelRun,
   useChannels,
   useSendMessage,
   useTimeline,
@@ -103,7 +102,6 @@ export function Timeline({
   const progress = useRunProgress(selectRunProgress(channelId))
   const query = useThreadSearch(selectThreadQuery(channelId))
   const send = useSendMessage(api, channelId)
-  const cancel = useCancelRun(api)
   const agentNames = useAgentNames(api)
   const agents = useAgents(api)
   const channels = useChannels(api)
@@ -220,7 +218,6 @@ export function Timeline({
           row={item.row}
           agentName={agentName(item.row.authorAgentId)}
           agentAppearance={agentAppearance(item.row.authorAgentId)}
-          onStop={(runId) => cancel.mutate(runId)}
           onOpenDesk={onOpenDesk}
         />
       )

@@ -604,8 +604,9 @@ export function insertReply(
   );
 }
 
-/** Cancel a run: the daemon stops generation and the partial persists
- *  as `failed`. The `message.failed` event settles the UI. */
+/** Cancel a run: the daemon stops the run and the partial persists
+ *  as `failed`. The settled progress row of the run ends the Working
+ *  row. */
 export function useCancelRun(api: ApiClient) {
   return useMutation({
     mutationFn: (runId: string) =>
