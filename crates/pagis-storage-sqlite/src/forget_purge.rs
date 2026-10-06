@@ -244,7 +244,7 @@ async fn forget_run_output(
             .await
             .map_err(db_err)?;
         // A Model Request Capture of the Run holds what the Run read
-        // (ADR-0030).
+        // (ADR-0031).
         sqlx::query("DELETE FROM model_request_captures WHERE workspace_id=? AND run_id=?")
             .bind(workspace.as_str())
             .bind(run)

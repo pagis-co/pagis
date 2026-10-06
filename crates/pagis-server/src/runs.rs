@@ -187,7 +187,7 @@ pub async fn run_events(
     }))
 }
 
-/// One Model Request Capture of a Run (ADR-0030).
+/// One Model Request Capture of a Run (ADR-0031).
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ModelRequestCaptureDto {
     pub id: String,
@@ -220,7 +220,7 @@ pub struct ModelRequestCapturesDto {
 )]
 /// The Model Request Captures of a Run, in the order the Run made the
 /// requests. A capture holds Person data, so only an Administrator reads
-/// it. A Member gets `404`, as for a Run that does not exist (ADR-0030).
+/// it. A Member gets `404`, as for a Run that does not exist (ADR-0031).
 pub async fn model_requests(
     State(app): State<Arc<AppState>>,
     tenant: Tenant,

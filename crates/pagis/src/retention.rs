@@ -4,7 +4,7 @@
 //! ADR-0020 keeps every Artifact by default. The user sets a window per
 //! class, and this sweep is the only code that deletes an Artifact for
 //! age. A class with no window is never swept. A Model Request Capture
-//! lives for the retention of its System Setting (ADR-0030).
+//! lives for the retention of its System Setting (ADR-0031).
 
 use std::sync::Arc;
 

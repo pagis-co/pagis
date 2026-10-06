@@ -1566,7 +1566,7 @@ export interface paths {
         /**
          * The Model Request Captures of a Run, in the order the Run made the
          *     requests. A capture holds Person data, so only an Administrator reads
-         *     it. A Member gets `404`, as for a Run that does not exist (ADR-0030).
+         *     it. A Member gets `404`, as for a Run that does not exist (ADR-0031).
          */
         get: operations["model_requests"];
         put?: never;
@@ -2589,7 +2589,7 @@ export interface paths {
         get?: never;
         /**
          * Turn Model Request Capture on or off, and set its retention
-         *     (ADR-0030). The agent loop reads the live setting at each model
+         *     (ADR-0031). The agent loop reads the live setting at each model
          *     request, so the change needs no restart. Turning it off deletes every
          *     capture of the installation.
          */
@@ -4699,7 +4699,7 @@ export interface components {
             preselected?: string | null;
             providers: components["schemas"]["ProviderModelsDto"][];
         };
-        /** @description One Model Request Capture of a Run (ADR-0030). */
+        /** @description One Model Request Capture of a Run (ADR-0031). */
         ModelRequestCaptureDto: {
             /** @description The outcome, and the usage or the provider's status and error body. */
             answer: unknown;
@@ -4719,7 +4719,7 @@ export interface components {
              */
             request: unknown;
         };
-        /** @description The Model Request Capture System Setting (ADR-0030). */
+        /** @description The Model Request Capture System Setting (ADR-0031). */
         ModelRequestCaptureSettingDto: {
             /**
              * @description Whether the daemon keeps a copy of each model request of a Run.
@@ -6383,7 +6383,7 @@ export interface components {
             /**
              * Format: int32
              * @description How many days Pagis keeps a copy of each model request, while an
-             *     Administrator has Model Request Capture on (ADR-0030). `null`
+             *     Administrator has Model Request Capture on (ADR-0031). `null`
              *     while it is off. Every Person learns it, because the copy holds
              *     their own requests.
              */

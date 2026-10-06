@@ -1,4 +1,4 @@
-//! The Model Request Captures of a Run (ADR-0030), on both backends.
+//! The Model Request Captures of a Run (ADR-0031), on both backends.
 //!
 //! Name every new body in `store_suite_model_request_captures!` below; the
 //! guard test of the parent module fails while one is missing.

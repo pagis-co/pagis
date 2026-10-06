@@ -98,7 +98,7 @@ pub trait SystemConfigFile: Send + Sync {
     /// Funnel and the owner's Client App reach the daemon.
     fn set_remote_access(&self, public_origin: Option<&str>) -> Result<(), String>;
     /// The Model Request Capture setting as the file records it
-    /// (ADR-0030): whether it is on, and its retention in days.
+    /// (ADR-0031): whether it is on, and its retention in days.
     fn model_request_capture(&self) -> Result<(bool, u32), String>;
     /// Write the Model Request Capture setting.
     fn set_model_request_capture(&self, enabled: bool, retention_days: u32) -> Result<(), String>;
@@ -239,7 +239,7 @@ pub struct AnalyticsDto {
     pub blocked: Option<AnalyticsBlockedDto>,
 }
 
-/// The Model Request Capture System Setting (ADR-0030).
+/// The Model Request Capture System Setting (ADR-0031).
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ModelRequestCaptureSettingDto {
     /// Whether the daemon keeps a copy of each model request of a Run.
@@ -575,7 +575,7 @@ pub async fn set_analytics(
     )
 )]
 /// Turn Model Request Capture on or off, and set its retention
-/// (ADR-0030). The agent loop reads the live setting at each model
+/// (ADR-0031). The agent loop reads the live setting at each model
 /// request, so the change needs no restart. Turning it off deletes every
 /// capture of the installation.
 pub async fn set_model_request_capture(

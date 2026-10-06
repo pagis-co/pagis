@@ -98,7 +98,7 @@ pub struct Config {
     /// Whether a release build sends anonymous analytics (ADR-0026). On
     /// by default; an Administrator turns it off in System Settings.
     pub analytics: bool,
-    /// Model Request Capture (ADR-0030). Off by default; an
+    /// Model Request Capture (ADR-0031). Off by default; an
     /// Administrator turns it on in System Settings.
     pub model_request_capture: ModelRequestCapture,
     pub screen: Screen,
@@ -107,7 +107,7 @@ pub struct Config {
     pub secrets: Secrets,
 }
 
-/// The Model Request Capture System Setting (ADR-0030): whether the
+/// The Model Request Capture System Setting (ADR-0031): whether the
 /// daemon keeps a copy of each model request of a Run, and for how many
 /// days. A retention out of range reads as the nearest bound.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -848,7 +848,7 @@ mod tests {
     }
 
     /// Model Request Capture is off, with a retention of 7 days, until an
-    /// Administrator turns it on (ADR-0030). A retention out of range
+    /// Administrator turns it on (ADR-0031). A retention out of range
     /// reads as the nearest bound.
     #[test]
     fn model_request_capture_is_off_by_default() {

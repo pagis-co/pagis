@@ -4,7 +4,7 @@
 //! `model.completed` after it, with the same phase and request number
 //! (ADR-0010). The answer also writes the Usage Record of the call and,
 //! while the Model Request Capture setting is on, the capture of the
-//! request and its answer (ADR-0030). Every exit path of a call goes
+//! request and its answer (ADR-0031). Every exit path of a call goes
 //! through [`ModelCall::finish`], so none of the three is left out.
 
 use std::time::Instant;

@@ -229,7 +229,7 @@ Local Installation, the Analytics, the Model Request Capture, and the Home
 Exit of a Server, which an Administrator turns off for every Person and
 never on for one. An Administrator changes it in the Administration
 Interface, and the daemon writes `config.toml` (ADR-0024, ADR-0026,
-ADR-0029, ADR-0030).
+ADR-0029, ADR-0031).
 The timezone is not one: it belongs to each Person (ADR-0006).
 
 ### Trusted Proxy
@@ -425,7 +425,7 @@ A copy of one model request of a Run and of the provider's answer, which
 the daemon keeps while an Administrator has the Model Request Capture
 System Setting on. Each image in it is a hash and a size. Only an
 Administrator reads it, and it expires after the retention of the setting.
-Forget deletes it, and a Backup leaves it out (ADR-0030).
+Forget deletes it, and a Backup leaves it out (ADR-0031).
 _Avoid_: request log, trace, prompt log
 
 ### Model Preference
@@ -608,7 +608,7 @@ and history derived from it, and each message, tool result and Model
 Request Capture of a Run that read it. It also blocks a new retrieval of
 that source until the Person opts in again. The block holds only a keyed
 hash of the item's id, and the key derives from the Tenant Data Key
-(ADR-0008, ADR-0030).
+(ADR-0008, ADR-0031).
 _Avoid_: unlearn
 
 ### Front Matter

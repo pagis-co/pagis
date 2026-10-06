@@ -220,7 +220,7 @@ async fn a_window_that_returns_to_keep_for_ever_stops_the_sweep(pool: SqlitePool
 }
 
 /// A Model Request Capture lives for the retention of the setting
-/// (ADR-0030), whatever the Artifact windows say.
+/// (ADR-0031), whatever the Artifact windows say.
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
 async fn the_sweep_removes_the_model_request_captures_past_their_retention(pool: SqlitePool) {
     let fixture = fixture(pool.clone()).await;

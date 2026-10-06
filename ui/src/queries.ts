@@ -1224,7 +1224,7 @@ export function useRuns(
   });
 }
 
-/** The Model Request Captures of a Run (ADR-0030). Only an
+/** The Model Request Captures of a Run (ADR-0031). Only an
  *  Administrator reads them, so a Member's page never asks. */
 export function useRunModelRequests(api: ApiClient, runId: string, enabled: boolean) {
   return useQuery({
@@ -2890,7 +2890,7 @@ export function useSetAnalytics(api: ApiClient) {
 }
 
 /** Turn Model Request Capture on or off and set its retention
- *  (ADR-0030). The agent loop reads the live setting, so no restart is
+ *  (ADR-0031). The agent loop reads the live setting, so no restart is
  *  needed. Turning it off deletes every capture. */
 export function useSetModelRequestCapture(api: ApiClient) {
   const queryClient = useQueryClient();

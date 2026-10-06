@@ -409,7 +409,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     // exit listener that sends a Computer's connections through them.
     let home_exits = pagis_computer::HomeExits::new(Arc::clone(&workspaces) as _);
     home_exits.set_enabled(booted.config.computer.home_exit);
-    // The Model Request Capture System Setting (ADR-0030). The agent loop
+    // The Model Request Capture System Setting (ADR-0031). The agent loop
     // reads it at each model request, and its route changes it.
     let capture = Arc::new(pagis_core::CaptureSetting::new(
         booted.config.model_request_capture.enabled,

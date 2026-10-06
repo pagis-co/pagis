@@ -1,4 +1,4 @@
-//! Model Request Capture (ADR-0030): the System Setting, the captures a
+//! Model Request Capture (ADR-0031): the System Setting, the captures a
 //! Run keeps while it is on, and who reads them.
 
 use std::sync::Arc;

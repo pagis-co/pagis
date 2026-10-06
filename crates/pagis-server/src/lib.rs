@@ -223,7 +223,7 @@ pub struct AppState {
     /// What each model call spent. The Administrator reads spend
     /// per person, and each person reads their own.
     pub usage: Arc<dyn pagis_core::UsageStore>,
-    /// The live Model Request Capture setting (ADR-0030), which the
+    /// The live Model Request Capture setting (ADR-0031), which the
     /// agent loop also reads.
     pub capture: Arc<pagis_core::CaptureSetting>,
     /// The captures an Administrator reads on the page of a Run.

@@ -1,4 +1,4 @@
-// Model Request Capture (ADR-0030): one switch, off by default, and the
+// Model Request Capture (ADR-0031): one switch, off by default, and the
 // number of days Pagis keeps each copy. A change takes effect with no
 // restart, and turning the switch off deletes every copy.
 

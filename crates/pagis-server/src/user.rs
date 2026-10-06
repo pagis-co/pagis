@@ -46,7 +46,7 @@ pub struct UserDto {
     /// own. `null` for a Member.
     pub administration: Option<AdministrationAddress>,
     /// How many days Pagis keeps a copy of each model request, while an
-    /// Administrator has Model Request Capture on (ADR-0030). `null`
+    /// Administrator has Model Request Capture on (ADR-0031). `null`
     /// while it is off. Every Person learns it, because the copy holds
     /// their own requests.
     pub model_request_capture_days: Option<u32>,

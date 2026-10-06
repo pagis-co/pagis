@@ -1,4 +1,4 @@
--- The Model Request Capture (ADR-0030): one model request of a Run and
+-- The Model Request Capture (ADR-0031): one model request of a Run and
 -- the provider's answer, kept only while an Administrator has the System
 -- Setting on. `request` and `answer` are JSON text. The retention sweep
 -- deletes by `created_at` across every Workspace, Forget deletes by Run,

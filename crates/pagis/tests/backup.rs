@@ -239,7 +239,7 @@ async fn a_postgres_installation_comes_back_with_its_person_and_its_memory() {
     prove(&restored).await;
 }
 
-/// A Backup holds no Model Request Capture (ADR-0030): the archive's
+/// A Backup holds no Model Request Capture (ADR-0031): the archive's
 /// copy of the database has no row of the table and no byte of a
 /// capture, also not in a free page or in the write-ahead log.
 #[tokio::test]

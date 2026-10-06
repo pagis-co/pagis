@@ -2580,7 +2580,7 @@ pub async fn an_account_forget_deletes_the_tool_results_and_the_reads_of_its_con
 
 /// A Model Request Capture of a Run that read a forgotten source holds
 /// what the Run read, so Forget deletes it with the tool results of the
-/// Run (ADR-0030).
+/// Run (ADR-0031).
 pub async fn a_forget_deletes_the_model_request_captures_of_a_run_that_read_it(backend: &Backend) {
     let (store, state) = setup(backend).await;
     let key = state.key();

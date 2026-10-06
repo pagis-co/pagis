@@ -31,7 +31,7 @@
 //!   `deploy/backup.sh` captures them beside the archive this module
 //!   writes.
 //! - **The Model Request Captures.** They are short-lived copies of Person
-//!   data for debugging (ADR-0030). On SQLite the backup deletes them from
+//!   data for debugging (ADR-0031). On SQLite the backup deletes them from
 //!   the archive's copy of the database and rebuilds the file; on
 //!   Postgres `pg_dump` skips the rows of their table.
 //!
@@ -291,7 +291,7 @@ fn configured_database(path: &Path) -> Result<Option<String>> {
 const SQLITE_FILE: &str = "pagis.db";
 
 /// Delete every Model Request Capture from the archive's copy of a SQLite
-/// database (ADR-0030), then rebuild the file and empty its write-ahead
+/// database (ADR-0031), then rebuild the file and empty its write-ahead
 /// log, so no free page and no log frame keeps the bytes of a capture.
 /// A database of a release before the table has nothing to delete.
 fn drop_captures(database: &Path) -> Result<()> {
@@ -351,7 +351,7 @@ fn pg_dump(program: &Path, url: &str, out: &Path) -> Result<()> {
                 "--format=custom",
                 "--no-owner",
                 "--no-privileges",
-                // A Backup holds no Model Request Capture (ADR-0030).
+                // A Backup holds no Model Request Capture (ADR-0031).
                 "--exclude-table-data=model_request_captures",
                 url,
             ])

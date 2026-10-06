@@ -5786,7 +5786,7 @@
         "tags": [
           "runs"
         ],
-        "summary": "The Model Request Captures of a Run, in the order the Run made the\nrequests. A capture holds Person data, so only an Administrator reads\nit. A Member gets `404`, as for a Run that does not exist (ADR-0030).",
+        "summary": "The Model Request Captures of a Run, in the order the Run made the\nrequests. A capture holds Person data, so only an Administrator reads\nit. A Member gets `404`, as for a Run that does not exist (ADR-0031).",
         "operationId": "model_requests",
         "parameters": [
           {
@@ -9053,7 +9053,7 @@
         "tags": [
           "system"
         ],
-        "summary": "Turn Model Request Capture on or off, and set its retention\n(ADR-0030). The agent loop reads the live setting at each model\nrequest, so the change needs no restart. Turning it off deletes every\ncapture of the installation.",
+        "summary": "Turn Model Request Capture on or off, and set its retention\n(ADR-0031). The agent loop reads the live setting at each model\nrequest, so the change needs no restart. Turning it off deletes every\ncapture of the installation.",
         "operationId": "set_model_request_capture",
         "requestBody": {
           "content": {
@@ -14866,7 +14866,7 @@
       },
       "ModelRequestCaptureDto": {
         "type": "object",
-        "description": "One Model Request Capture of a Run (ADR-0030).",
+        "description": "One Model Request Capture of a Run (ADR-0031).",
         "required": [
           "id",
           "phase",
@@ -14902,7 +14902,7 @@
       },
       "ModelRequestCaptureSettingDto": {
         "type": "object",
-        "description": "The Model Request Capture System Setting (ADR-0030).",
+        "description": "The Model Request Capture System Setting (ADR-0031).",
         "required": [
           "enabled",
           "retention_days"
@@ -19330,7 +19330,7 @@
               "null"
             ],
             "format": "int32",
-            "description": "How many days Pagis keeps a copy of each model request, while an\nAdministrator has Model Request Capture on (ADR-0030). `null`\nwhile it is off. Every Person learns it, because the copy holds\ntheir own requests.",
+            "description": "How many days Pagis keeps a copy of each model request, while an\nAdministrator has Model Request Capture on (ADR-0031). `null`\nwhile it is off. Every Person learns it, because the copy holds\ntheir own requests.",
             "minimum": 0
           },
           "name": {
