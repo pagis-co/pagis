@@ -184,7 +184,9 @@ one sounds.
 - Every value comes from `tokens.css`. A screen reads a surface or text
   alias, never a ramp step, and a font stack or a shell width only
   through its token.
-- The layout works at 390 px: the conversation list goes off-canvas at
+- The Product App shows in a browser, in the product window of the Client
+  App, and in the browser of a phone. Its layout follows ADR-0022 "Layout
+  rules" and works at 390 px: the conversation list goes off-canvas at
   760 px and below, where an inspector is a sheet. Above 760 px an
   inspector is a column that never covers the composer, and at 1100 px
   and below the person opens and closes the Desk Panel. A master-detail

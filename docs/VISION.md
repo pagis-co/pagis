@@ -52,6 +52,10 @@ time.
 - **One product for one person and for a team.** The same daemon runs on a
   laptop and on a server. One installation is one Org, and each person in
   it keeps a private Workspace.
+- **The phone is a pager and a remote.** The person answers Requests,
+  gives work, reads the Report, watches a Desk and follows a Call from a
+  phone. The work runs in the daemon and on the Agents' Computers, never
+  on the phone.
 - **Open source.** The daemon, the interface, the Client App and the
   Computer Image are open source.
 - **Grow in layers.** Each capability is built on a product that already
@@ -71,8 +75,15 @@ time.
   harness, such as Claude Code or Codex, with the person's own
   subscription, is not built. It would sit on top of the Software List,
   watched from a Thread and deployed into the Computer of the parent Agent.
+- **The phone as a pager.** A phone opens the Product App in its browser
+  through Remote Access and signs in with a Sign-In Link (ADR-0028).
+  Notifications through Web Push, the Product App as an installed web
+  app, the Push Relay, and the Mobile App for iOS and Android are not
+  built.
 
 ## Non-goals
 
 - Several people working inside one Workspace.
 - A marketplace for Agents.
+- An Agent, a model or a Computer that runs on the phone.
+- A text message from Pagis to the person as a way to notify them.
