@@ -59,7 +59,8 @@
 //! User input arrives over each viewer's WebRTC data channel and
 //! is dropped unless the user holds the switch; its keyboard events
 //! inject through zwp_virtual_keyboard_v1 with a fixed US keymap and a
-//! static code→evdev map.
+//! static code→evdev map. Its text, from an on-screen keyboard or an
+//! IME, goes through the typing keyboard, as `InputOp::Text` does.
 //!
 //! screend also runs the Exit Proxy on loopback, on a runtime thread of
 //! its own (see `exit`). Every connection of the browser and of the
@@ -180,7 +181,9 @@ struct HolderState {
 
 type SharedHolder = Arc<Mutex<HolderState>>;
 
-/// One user input event from a viewer's data channel.
+/// One user input event from a viewer's data channel: `move`,
+/// `button`, `scroll`, `key`, or `text` with at most
+/// [`USER_TEXT_LIMIT`] characters.
 #[derive(Debug, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum UserInput {
@@ -189,6 +192,53 @@ pub enum UserInput {
     Scroll { dx: f64, dy: f64 },
     /// One raw key transition, as a browser `KeyboardEvent.code`.
     Key { code: String, down: bool },
+    /// Text from an on-screen keyboard or an IME, which gives
+    /// characters and no reliable key code: `{"op": "text", "text":
+    /// "hé"}`. screend types it as `InputOp::Text` does.
+    Text { text: UserText },
+}
+
+/// The most characters that one `text` user input holds. The limit
+/// keeps one data channel message small and bounds the work of one
+/// `type_text` call.
+const USER_TEXT_LIMIT: usize = 1024;
+
+/// The text of one `text` user input: at most [`USER_TEXT_LIMIT`]
+/// characters. A longer text does not parse, and the refusal does not
+/// hold the text, because the Person can type a secret.
+#[derive(Debug, Deserialize)]
+#[serde(try_from = "String")]
+pub struct UserText(String);
+
+impl UserText {
+    fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl TryFrom<String> for UserText {
+    type Error = String;
+
+    fn try_from(text: String) -> Result<Self, Self::Error> {
+        let count = text.chars().count();
+        if count > USER_TEXT_LIMIT {
+            return Err(format!(
+                "a text of {count} characters is more than the limit of {USER_TEXT_LIMIT}"
+            ));
+        }
+        Ok(UserText(text))
+    }
+}
+
+/// The switch check of the viewer input: all of it goes through while
+/// the user holds the switch, and none of it while the Agent or the
+/// daemon holds it.
+fn admit_user_input(holder: Holder, inputs: Vec<UserInput>) -> Vec<UserInput> {
+    if holder == Holder::User {
+        inputs
+    } else {
+        Vec::new()
+    }
 }
 
 /// One open window, as the compositor reports it.
@@ -342,14 +392,15 @@ impl App {
     /// every event is dropped unless the user holds the switch, so a
     /// watching viewer can never accidentally drive the screen.
     fn apply_user_input(&mut self, inputs: Vec<UserInput>) {
-        for input in inputs {
-            {
-                let mut holder = self.holder.lock().expect("holder lock");
-                if holder.holder != Holder::User {
-                    continue;
-                }
+        let inputs = {
+            let mut holder = self.holder.lock().expect("holder lock");
+            let admitted = admit_user_input(holder.holder, inputs);
+            if !admitted.is_empty() {
                 holder.last_input = std::time::Instant::now();
             }
+            admitted
+        };
+        for input in inputs {
             let result = match input {
                 UserInput::Move { x, y } => self.pointer_op(&InputOp::Move { x, y }),
                 UserInput::Button { button, down } => {
@@ -357,6 +408,7 @@ impl App {
                 }
                 UserInput::Scroll { dx, dy } => self.pointer_op(&InputOp::Scroll { dx, dy }),
                 UserInput::Key { code, down } => self.user_key(&code, down),
+                UserInput::Text { text } => self.type_text(text.as_str()),
             };
             if let Err(error) = result {
                 eprintln!("[screend] user input dropped: {error}");
@@ -1239,5 +1291,47 @@ impl Dispatch<ExtImageCopyCaptureFrameV1, ()> for App {
             }
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(message: &serde_json::Value) -> Result<UserInput, serde_json::Error> {
+        serde_json::from_str(&message.to_string())
+    }
+
+    fn text(text: &str) -> UserInput {
+        parse(&serde_json::json!({"op": "text", "text": text})).expect("a text input")
+    }
+
+    #[test]
+    fn a_text_message_parses_to_a_text_input() {
+        let input = text("hé");
+        assert!(
+            matches!(&input, UserInput::Text { text } if text.as_str() == "hé"),
+            "{input:?}"
+        );
+    }
+
+    #[test]
+    fn the_switch_drops_a_text_input_while_the_agent_or_the_daemon_holds_it() {
+        assert!(admit_user_input(Holder::Agent, vec![text("a")]).is_empty());
+        assert!(admit_user_input(Holder::Daemon, vec![text("a")]).is_empty());
+        assert_eq!(admit_user_input(Holder::User, vec![text("a")]).len(), 1);
+    }
+
+    #[test]
+    fn a_text_of_more_than_the_limit_is_refused_and_the_refusal_holds_no_text() {
+        let at_limit = "é".repeat(USER_TEXT_LIMIT);
+        assert!(parse(&serde_json::json!({"op": "text", "text": at_limit})).is_ok());
+
+        let over = "a".repeat(USER_TEXT_LIMIT + 1);
+        let error = parse(&serde_json::json!({"op": "text", "text": over}))
+            .expect_err("a text of 1025 characters is refused");
+        let message = error.to_string();
+        assert!(message.contains("1025"), "{message}");
+        assert!(!message.contains("aaaa"), "{message}");
     }
 }
