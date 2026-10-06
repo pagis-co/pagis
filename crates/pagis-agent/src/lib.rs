@@ -12,6 +12,7 @@ mod hub;
 mod image_tokens;
 mod memory;
 mod mention;
+mod model_call;
 mod model_catalog;
 mod progress;
 mod recover;

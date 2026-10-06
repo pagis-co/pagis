@@ -27,6 +27,9 @@ pub enum Script {
     FailAfter(Vec<String>, String),
     /// The provider refuses the installation's key.
     RefuseKey(String),
+    /// Fail the call as a provider that answered with an error status:
+    /// the status, the error body and the message.
+    ProviderError(u16, serde_json::Value, String),
     /// Stream these deltas, then stay open until canceled.
     Hang(Vec<String>),
     /// Announce that the request started, wait for release, then reply.
@@ -103,6 +106,10 @@ impl Script {
 
     pub fn refuse_key(error: &str) -> Self {
         Script::RefuseKey(error.to_string())
+    }
+
+    pub fn provider_error(status: u16, body: serde_json::Value, message: &str) -> Self {
+        Script::ProviderError(status, body, message.to_string())
     }
 
     pub fn hang(deltas: &[&str]) -> Self {
@@ -274,6 +281,9 @@ impl Brain for ScriptedBrain {
                 .chain(stream::iter([Err(BrainError::new(error))]))
                 .boxed(),
             Script::RefuseKey(error) => stream::iter([Err(BrainError::refused_key(error))]).boxed(),
+            Script::ProviderError(status, body, message) => {
+                stream::iter([Err(BrainError::provider(message, status, Some(body)))]).boxed()
+            }
             Script::Hang(texts) => deltas(texts).chain(stream::pending()).boxed(),
             Script::GateReply(texts, entered, release) => stream::once(async move {
                 entered.notify_one();

@@ -46,7 +46,7 @@ fn tiles(width: f64, height: f64, base: f64, per_tile: f64) -> f64 {
 }
 
 /// The pixel size from the image header of a base64 `data:` URI.
-fn dimensions(data_uri: &str) -> Option<(u32, u32)> {
+pub(crate) fn dimensions(data_uri: &str) -> Option<(u32, u32)> {
     use base64::Engine as _;
     let (_, encoded) = data_uri.strip_prefix("data:")?.split_once(";base64,")?;
     let bytes = base64::engine::general_purpose::STANDARD

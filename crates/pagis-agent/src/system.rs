@@ -96,6 +96,10 @@ pub struct AgentDeps {
     /// What each model call spent. The loop writes one row per
     /// call and reads the month's total back for the Spend Cap.
     pub usage: Arc<dyn pagis_core::UsageStore>,
+    /// The live Model Request Capture setting (ADR-0030).
+    pub capture: Arc<pagis_core::CaptureSetting>,
+    /// Where the loop keeps a capture while the setting is on.
+    pub model_request_captures: Arc<dyn pagis_core::ModelRequestCaptureStore>,
     pub participants: Arc<dyn ParticipantStore>,
     pub requests: Arc<dyn RequestStore>,
     pub grants: Arc<dyn GrantStore>,

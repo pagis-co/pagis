@@ -12,7 +12,6 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, LazyLock};
-use std::time::Instant;
 
 use futures::StreamExt;
 use pagis_broker::{InvokeOutcome, ToolCall};
@@ -32,10 +31,9 @@ use crate::brain::{
 };
 use crate::briefing::{Briefing, Colleague, Delegation, USER_DM, mail_tier_lines};
 use crate::computer_use::{self, ComputerCtx, Vocabulary};
-use crate::context_budget::{
-    RequestBudget, RequestEstimate, RequestSummary, estimate_message_tokens,
-};
+use crate::context_budget::{RequestBudget, RequestEstimate, estimate_message_tokens};
 use crate::memory::MemoryOverlay;
+use crate::model_call::{ModelCall, Outcome};
 use crate::model_catalog::ModelCatalog;
 use crate::progress;
 use crate::speaker::Speakers;
@@ -2685,47 +2683,24 @@ async fn collect_turn(
     request: &TurnRequest,
     cancel: &CancellationToken,
 ) -> Result<(String, Vec<ToolInvocation>), TurnError> {
-    let started = Instant::now();
-    publish_model_requested(deps, run, phase, phase_request, request).await;
+    let call = ModelCall::start(deps, run, phase, phase_request, request).await;
     if let Some(error) = request_budget_error(request, &deps.models) {
-        publish_model_completed(
-            deps,
-            run,
-            phase,
-            phase_request,
-            "rejected",
-            Some(0),
-            None,
-            started,
-            Some(&error.message),
-        )
-        .await;
+        call.finish(Outcome::Rejected, Some(0), None, Some(&error))
+            .await;
         return Err(TurnError::Brain(error));
     }
     let mut stream = match tokio::select! {
         started = deps.brain.turn(request.clone()) => started,
         _ = cancel.cancelled() => {
-            publish_model_completed(
-                deps, run, phase, phase_request, "canceled", None, None, started, None,
-            ).await;
+            call.finish(Outcome::Canceled, None, None, None).await;
             return Err(TurnError::Canceled);
         },
     } {
         Ok(stream) => stream,
         Err(error) => {
             let attempts = Some(error.model_attempts());
-            publish_model_completed(
-                deps,
-                run,
-                phase,
-                phase_request,
-                "failed",
-                attempts,
-                None,
-                started,
-                Some(&error.message),
-            )
-            .await;
+            call.finish(Outcome::Failed, attempts, None, Some(&error))
+                .await;
             return Err(TurnError::Brain(error));
         }
     };
@@ -2737,17 +2712,7 @@ async fn collect_turn(
         let delta = tokio::select! {
             delta = stream.next() => delta,
             _ = cancel.cancelled() => {
-                publish_model_completed(
-                    deps,
-                    run,
-                    phase,
-                    phase_request,
-                    "canceled",
-                    retries.map(|count| count + 1),
-                    None,
-                    started,
-                    None,
-                ).await;
+                call.finish(Outcome::Canceled, retries.map(|count| count + 1), None, None).await;
                 return Err(TurnError::Canceled);
             },
         };
@@ -2756,46 +2721,31 @@ async fn collect_turn(
             Some(Ok(TurnDelta::ToolCall(call))) => tool_calls.push(call),
             Some(Ok(TurnDelta::ModelRetries(count))) => retries = Some(count),
             Some(Ok(TurnDelta::Finish(end))) => {
-                publish_model_completed(
-                    deps,
-                    run,
-                    phase,
-                    phase_request,
-                    "completed",
+                call.finish(
+                    Outcome::Completed,
                     Some(retries.unwrap_or_default() + 1),
                     Some(&end),
-                    started,
                     None,
                 )
                 .await;
                 return Ok((text, tool_calls));
             }
             None => {
-                publish_model_completed(
-                    deps,
-                    run,
-                    phase,
-                    phase_request,
-                    "completed",
+                call.finish(
+                    Outcome::Completed,
                     Some(retries.unwrap_or_default() + 1),
                     None,
-                    started,
                     None,
                 )
                 .await;
                 return Ok((text, tool_calls));
             }
             Some(Err(error)) => {
-                publish_model_completed(
-                    deps,
-                    run,
-                    phase,
-                    phase_request,
-                    "failed",
+                call.finish(
+                    Outcome::Failed,
                     Some(retries.unwrap_or_default() + 1),
                     None,
-                    started,
-                    Some(&error.message),
+                    Some(&error),
                 )
                 .await;
                 return Err(TurnError::Brain(error));
@@ -3373,49 +3323,26 @@ async fn stream_turn(
     reply: &mut Reply,
     cancel: &CancellationToken,
 ) -> Streamed {
-    let started = Instant::now();
     let mut text = String::new();
     let mut tool_calls = Vec::new();
-    publish_model_requested(deps, run, phase, phase_request, request).await;
+    let call = ModelCall::start(deps, run, phase, phase_request, request).await;
     if let Some(error) = request_budget_error(request, &deps.models) {
-        publish_model_completed(
-            deps,
-            run,
-            phase,
-            phase_request,
-            "rejected",
-            Some(0),
-            None,
-            started,
-            Some(&error.message),
-        )
-        .await;
+        call.finish(Outcome::Rejected, Some(0), None, Some(&error))
+            .await;
         return Streamed::Errored { text, error };
     }
     let mut stream = match tokio::select! {
         started = deps.brain.turn(request.clone()) => started,
         _ = cancel.cancelled() => {
-            publish_model_completed(
-                deps, run, phase, phase_request, "canceled", None, None, started, None,
-            ).await;
+            call.finish(Outcome::Canceled, None, None, None).await;
             return Streamed::Canceled { text };
         },
     } {
         Ok(stream) => stream,
         Err(error) => {
             let attempts = Some(error.model_attempts());
-            publish_model_completed(
-                deps,
-                run,
-                phase,
-                phase_request,
-                "failed",
-                attempts,
-                None,
-                started,
-                Some(&error.message),
-            )
-            .await;
+            call.finish(Outcome::Failed, attempts, None, Some(&error))
+                .await;
             return Streamed::Errored { text, error };
         }
     };
@@ -3425,17 +3352,7 @@ async fn stream_turn(
         let delta = tokio::select! {
             delta = stream.next() => delta,
             _ = cancel.cancelled() => {
-                publish_model_completed(
-                    deps,
-                    run,
-                    phase,
-                    phase_request,
-                    "canceled",
-                    retries.map(|count| count + 1),
-                    None,
-                    started,
-                    None,
-                ).await;
+                call.finish(Outcome::Canceled, retries.map(|count| count + 1), None, None).await;
                 return Streamed::Canceled { text };
             },
         };
@@ -3447,15 +3364,10 @@ async fn stream_turn(
             Some(Ok(TurnDelta::ToolCall(call))) => tool_calls.push(call),
             Some(Ok(TurnDelta::ModelRetries(count))) => retries = Some(count),
             Some(Ok(TurnDelta::Finish(end))) => {
-                publish_model_completed(
-                    deps,
-                    run,
-                    phase,
-                    phase_request,
-                    "completed",
+                call.finish(
+                    Outcome::Completed,
                     Some(retries.unwrap_or_default() + 1),
                     Some(&end),
-                    started,
                     None,
                 )
                 .await;
@@ -3466,30 +3378,20 @@ async fn stream_turn(
                 };
             }
             Some(Err(error)) => {
-                publish_model_completed(
-                    deps,
-                    run,
-                    phase,
-                    phase_request,
-                    "failed",
+                call.finish(
+                    Outcome::Failed,
                     Some(retries.unwrap_or_default() + 1),
                     None,
-                    started,
-                    Some(&error.message),
+                    Some(&error),
                 )
                 .await;
                 return Streamed::Errored { text, error };
             }
             None => {
-                publish_model_completed(
-                    deps,
-                    run,
-                    phase,
-                    phase_request,
-                    "completed",
+                call.finish(
+                    Outcome::Completed,
                     Some(retries.unwrap_or_default() + 1),
                     None,
-                    started,
                     None,
                 )
                 .await;
@@ -3501,73 +3403,6 @@ async fn stream_turn(
             }
         }
     }
-}
-
-/// One `model.requested` event for each logical model request, before
-/// the call: the counts and token bounds of the request, and no content.
-/// Its `phase` and `phase_request` match the `model.completed` event of
-/// the same request.
-async fn publish_model_requested(
-    deps: &AgentDeps,
-    run: &Run,
-    phase: &str,
-    phase_request: usize,
-    request: &TurnRequest,
-) {
-    let mut payload = serde_json::to_value(RequestSummary::of(request, &deps.models))
-        .expect("a request summary serializes");
-    payload["phase"] = phase.into();
-    payload["phase_request"] = phase_request.into();
-    publish(deps, run, "model.requested", payload).await;
-}
-
-#[expect(
-    clippy::too_many_arguments,
-    reason = "the model audit event keeps every accounting input explicit"
-)]
-async fn publish_model_completed(
-    deps: &AgentDeps,
-    run: &Run,
-    phase: &str,
-    phase_request: usize,
-    outcome: &str,
-    router_attempts: Option<u32>,
-    end: Option<&TurnEnd>,
-    started: Instant,
-    error: Option<&str>,
-) {
-    let duration_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
-    let usage = end.and_then(|end| end.usage);
-    // One Usage Record per model call. This is the one place that
-    // holds the Run and the router's own accounting of the call, so it
-    // is where the record is written.
-    if let Some(end) = end {
-        crate::spend::record(deps, run, end).await;
-    }
-    publish(
-        deps,
-        run,
-        "model.completed",
-        serde_json::json!({
-            "phase": phase,
-            "phase_request": phase_request,
-            "outcome": outcome,
-            "logical_requests": 1,
-            "router_attempts": router_attempts,
-            "retries": router_attempts.map(|attempts| attempts.saturating_sub(1)),
-            "duration_ms": duration_ms,
-            "provider": end.and_then(|end| end.provider.as_deref()),
-            "model": end.and_then(|end| end.model.as_deref()),
-            "usage": usage,
-            "estimated_final_attempt_cost_usd": end.and_then(|end| end.estimated_cost_usd),
-            "estimated_total_cost_usd": match router_attempts {
-                Some(1) => end.and_then(|end| end.estimated_cost_usd),
-                _ => None,
-            },
-            "error": error,
-        }),
-    )
-    .await;
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -5888,7 +5723,12 @@ async fn publish_message_row(
     }
 }
 
-async fn publish(deps: &AgentDeps, run: &Run, event_type: &str, payload: serde_json::Value) {
+pub(crate) async fn publish(
+    deps: &AgentDeps,
+    run: &Run,
+    event_type: &str,
+    payload: serde_json::Value,
+) {
     let event = NewEvent {
         workspace_id: run.workspace_id.clone(),
         event_type: event_type.to_string(),

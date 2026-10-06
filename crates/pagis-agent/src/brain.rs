@@ -38,6 +38,20 @@ impl BrainError {
         }
     }
 
+    /// A failure where a provider answered with an error status and,
+    /// when it was JSON, an error body.
+    pub fn provider(
+        message: impl Into<String>,
+        status: u16,
+        body: Option<serde_json::Value>,
+    ) -> Self {
+        Self {
+            provider_status: Some(status),
+            provider_body: body,
+            ..Self::new(message)
+        }
+    }
+
     /// A failure where the provider refused the installation's key.
     pub fn refused_key(message: impl Into<String>) -> Self {
         Self {
