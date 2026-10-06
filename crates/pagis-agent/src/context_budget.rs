@@ -122,6 +122,46 @@ impl RequestEstimate {
     }
 }
 
+/// What one model request holds, in counts and token bounds only. The
+/// Run records it before the call, so a request that fails still shows
+/// its size. It never holds message text, a tool result or an image.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub(crate) struct RequestSummary {
+    pub model_alias: String,
+    pub model_candidates: Vec<String>,
+    /// `None` when the route has no budget, which also refuses the call.
+    pub estimated_input_tokens: Option<u64>,
+    pub input_allowance: Option<u64>,
+    /// The output limit the request sends; `None` sends no limit.
+    pub max_output_tokens: Option<u32>,
+    pub messages: usize,
+    pub tools: usize,
+    pub images: usize,
+}
+
+impl RequestSummary {
+    pub fn of(request: &TurnRequest, models: &ModelCatalog) -> Self {
+        Self {
+            model_alias: request.model_alias.clone(),
+            model_candidates: request.model_candidates.clone(),
+            estimated_input_tokens: RequestEstimate::of(request, models)
+                .ok()
+                .map(|estimate| estimate.input_tokens),
+            input_allowance: RequestBudget::for_candidates(&request.model_candidates, models)
+                .ok()
+                .map(|budget| budget.input_allowance),
+            max_output_tokens: request.max_output_tokens,
+            messages: request.messages.len(),
+            tools: request.tools.len(),
+            images: request
+                .messages
+                .iter()
+                .map(|message| message.images.len())
+                .sum(),
+        }
+    }
+}
+
 pub(crate) fn estimate_message_tokens(message: &crate::brain::TurnMessage) -> u64 {
     let calls = message.tool_calls.iter().fold(0_u64, |total, call| {
         total

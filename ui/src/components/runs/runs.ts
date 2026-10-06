@@ -295,6 +295,90 @@ export function runSteps(events: readonly RunEventDto[]): RunStep[] {
   return steps
 }
 
+/** One model request of the run: its size, and the error when it failed. */
+export interface ModelRequest {
+  event: RunEventDto
+  label: string
+  summary: string
+  /** The call failed, or the budget check rejected it before the call. */
+  failed: boolean
+  error: string | null
+}
+
+const PHASE_LABEL: Record<string, string> = {
+  reply: 'Turn',
+  compaction: 'Compaction',
+  reflection: 'Reflection',
+}
+
+function count(value: unknown, noun: string): string | null {
+  if (typeof value !== 'number') return null
+  return `${value.toLocaleString()} ${noun}${value === 1 ? '' : 's'}`
+}
+
+function requestSummary(
+  requested: Record<string, unknown>,
+  completed: Record<string, unknown> | null,
+): string {
+  const candidates = Array.isArray(requested.model_candidates)
+    ? requested.model_candidates.filter((candidate) => typeof candidate === 'string')
+    : []
+  const served =
+    completed !== null && typeof completed.provider === 'string' && typeof completed.model === 'string'
+      ? `${completed.provider}/${completed.model}`
+      : null
+  const route =
+    served ?? (candidates.length === 1 ? candidates[0] : String(requested.model_alias ?? 'model'))
+  const estimate = requested.estimated_input_tokens
+  const allowance = requested.input_allowance
+  const output = requested.max_output_tokens
+  const parts = [
+    route,
+    typeof estimate === 'number' && typeof allowance === 'number'
+      ? `about ${estimate.toLocaleString()} of ${allowance.toLocaleString()} input tokens`
+      : null,
+    typeof output === 'number' ? `max output ${output.toLocaleString()}` : 'max output not set',
+    count(requested.messages, 'message'),
+    count(requested.tools, 'tool'),
+    typeof requested.images === 'number' && requested.images > 0
+      ? count(requested.images, 'image')
+      : null,
+  ]
+  return parts.filter((part) => part !== null).join(' · ')
+}
+
+/**
+ * Every model request of the run, joined to its completion.
+ *
+ * The daemon records `model.requested` before the call and
+ * `model.completed` after it, with the same phase and request number.
+ */
+export function modelRequests(events: readonly RunEventDto[]): ModelRequest[] {
+  const completions = new Map<string, Record<string, unknown>>()
+  for (const event of events) {
+    if (event.event_type !== 'model.completed') continue
+    const payload = payloadOf(event)
+    completions.set(`${String(payload.phase)}:${String(payload.phase_request)}`, payload)
+  }
+  return events
+    .filter((event) => event.event_type === 'model.requested')
+    .map((event) => {
+      const payload = payloadOf(event)
+      const phase = String(payload.phase)
+      const number = typeof payload.phase_request === 'number' ? payload.phase_request + 1 : 1
+      const completed = completions.get(`${phase}:${String(payload.phase_request)}`) ?? null
+      return {
+        event,
+        label: `${PHASE_LABEL[phase] ?? phase} ${number}`,
+        summary: requestSummary(payload, completed),
+        failed:
+          completed !== null &&
+          (completed.outcome === 'failed' || completed.outcome === 'rejected'),
+        error: completed !== null && typeof completed.error === 'string' ? completed.error : null,
+      }
+    })
+}
+
 /** How long one step took. */
 export function stepDuration(step: RunStep): string {
   if (step.durationMs === null) return '—'

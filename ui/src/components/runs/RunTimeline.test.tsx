@@ -7,7 +7,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
-import type { ApiClient } from '../../api/client'
+import type { ApiClient, RunEventDto } from '../../api/client'
 import { RunTimeline } from './RunTimeline'
 
 const run = {
@@ -96,7 +96,11 @@ const events = [
   },
 ]
 
-function stubApi(runValue = run, eventValues = events, memoryItems: unknown[] | null = null) {
+function stubApi(
+  runValue = run,
+  eventValues: readonly RunEventDto[] = events,
+  memoryItems: unknown[] | null = null,
+) {
   return {
     GET: vi.fn(async (path: string) => {
       if (path === '/api/v1/agents') {
@@ -246,6 +250,70 @@ describe('the run timeline', () => {
       }),
     )
     expect((await screen.findByRole('status')).textContent).toContain('Memory review queued again')
+  })
+
+  it('shows the recorded error without a hover', async () => {
+    mount()
+
+    const footer = within(await screen.findByRole('contentinfo'))
+    expect(footer.getByText('unrelated detail')).toBeTruthy()
+    expect(footer.getByText('Ended because a tool failed').getAttribute('title')).toBeNull()
+  })
+
+  it('lists each model request with its size, and marks the one that failed', async () => {
+    mount(
+      stubApi(
+        { ...run, failure_kind: 'model_failed', error: 'status 402: needs more credits' },
+        [
+          {
+            id: 'm1',
+            event_type: 'model.requested',
+            agent_id: 'agent-1',
+            channel_id: 'channel-1',
+            created_at: 1_000,
+            payload: {
+              phase: 'reply',
+              phase_request: 0,
+              model_alias: 'default',
+              model_candidates: ['openrouter/qwen/qwen3.8-27b'],
+              estimated_input_tokens: 900,
+              input_allowance: 112_000,
+              max_output_tokens: null,
+              messages: 3,
+              tools: 5,
+              images: 0,
+            },
+          },
+          {
+            id: 'm2',
+            event_type: 'model.completed',
+            agent_id: 'agent-1',
+            channel_id: 'channel-1',
+            created_at: 1_100,
+            payload: {
+              phase: 'reply',
+              phase_request: 0,
+              outcome: 'failed',
+              error: 'status 402: needs more credits',
+            },
+          },
+        ],
+      ),
+    )
+
+    const request = await screen.findByTestId('model-request')
+    expect(within(request).getByText('Turn 1')).toBeTruthy()
+    expect(
+      within(request).getByText(
+        'openrouter/qwen/qwen3.8-27b · about 900 of 112,000 input tokens · max output not set · 3 messages · 5 tools',
+      ),
+    ).toBeTruthy()
+    // The card marks the failure, and the error reads once, in the footer.
+    expect(within(request).getByText('Failed')).toBeTruthy()
+    expect(within(request).queryByText('status 402: needs more credits')).toBeNull()
+    expect(
+      within(screen.getByRole('contentinfo')).getByText('status 402: needs more credits'),
+    ).toBeTruthy()
   })
 
   it('goes back to the record', async () => {

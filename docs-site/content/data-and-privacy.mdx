@@ -177,6 +177,13 @@ the daemon fills a Credential ([ADR-0013](https://github.com/pagis-co/pagis/blob
 model ([ADR-0021](https://github.com/pagis-co/pagis/blob/main/docs/adr/0021-caller-id-proposes-a-tier-and-a-keypad-code-confirms-it.md)). The provider decides what it keeps from a request, and
 for how long.
 
+Pagis keeps the size of each model request on its Run, and not the
+content. The record holds the Model Alias and its models, the estimated
+input tokens and the limit of the route, the output limit that the
+request sends, and the number of messages, tools and images. The page of
+a Run shows one line for each model request, with the provider's error
+when the request failed.
+
 On a server, and on a local installation in Remote Access, the
 Administrator stores the provider keys for the whole Org. The providers of
 these keys get the model requests of every Person.

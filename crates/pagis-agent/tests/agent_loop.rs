@@ -1795,6 +1795,88 @@ async fn failed_model_accounting_keeps_usage_unknown(pool: SqlitePool) {
 }
 
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn each_model_request_records_its_summary_before_the_call(pool: SqlitePool) {
+    let harness = boot(pool, AgentLoopConfig::default()).await;
+    harness.brain.push(Script::reply(&["Hello!"]));
+    let mut events = harness
+        .bus
+        .subscribe(EventScope::Installation, Some(0))
+        .await;
+
+    harness.send("hi").await;
+
+    let requested = next_event(&mut events, "model.requested").await;
+    let payload = &requested.payload;
+    assert_eq!(payload["phase"], "reply");
+    assert_eq!(payload["phase_request"], 0);
+    assert_eq!(payload["model_alias"], "default");
+    assert!(
+        payload["model_candidates"]
+            .as_array()
+            .is_some_and(|c| !c.is_empty())
+    );
+    let estimated = payload["estimated_input_tokens"]
+        .as_u64()
+        .expect("estimate");
+    let allowance = payload["input_allowance"].as_u64().expect("allowance");
+    assert!(estimated > 0 && estimated <= allowance);
+    assert!(payload["max_output_tokens"].is_null());
+    assert_eq!(payload["messages"], 1);
+    assert!(payload["tools"].as_u64().is_some_and(|tools| tools > 0));
+    assert_eq!(payload["images"], 0);
+    // The summary comes first, so a call that never answers still
+    // leaves it on the Run.
+    let completed = next_event(&mut events, "model.completed").await;
+    assert!(completed.seq > requested.seq);
+    next_state(&mut events, "completed").await;
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_failed_model_request_keeps_its_summary(pool: SqlitePool) {
+    let harness = boot(pool, AgentLoopConfig::default()).await;
+    harness
+        .brain
+        .push(Script::fail_after(&[], "provider refused the request"));
+    let mut events = harness
+        .bus
+        .subscribe(EventScope::Installation, Some(0))
+        .await;
+
+    harness.send("hi").await;
+
+    let requested = next_event(&mut events, "model.requested").await;
+    assert_eq!(requested.payload["phase"], "reply");
+    let failed = next_event(&mut events, "model.completed").await;
+    assert_eq!(
+        failed.payload["phase_request"],
+        requested.payload["phase_request"]
+    );
+    assert_eq!(failed.payload["outcome"], "failed");
+    next_state(&mut events, "failed").await;
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_model_request_summary_holds_no_content(pool: SqlitePool) {
+    let harness = boot(pool, AgentLoopConfig::default()).await;
+    harness.brain.push(Script::reply(&["Hello!"]));
+    let mut events = harness
+        .bus
+        .subscribe(EventScope::Installation, Some(0))
+        .await;
+
+    harness.send("the vault code is 7713-marker").await;
+
+    let requested = next_event(&mut events, "model.requested").await;
+    let payload = requested.payload.to_string();
+    assert!(!payload.contains("7713-marker"), "{payload}");
+    assert!(
+        !payload.contains(&harness.brain.requests()[0].system),
+        "{payload}"
+    );
+    next_state(&mut events, "completed").await;
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
 async fn canceled_model_accounting_does_not_invent_attempts(pool: SqlitePool) {
     let harness = boot(pool, AgentLoopConfig::default()).await;
     harness.brain.push(Script::hang(&["working"]));
