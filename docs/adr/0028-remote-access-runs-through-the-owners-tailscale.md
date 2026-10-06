@@ -145,6 +145,12 @@ or its Session ended, gets the field for a pasted link there. The trust
 statement of ADR-0015 stays: a client that connects runs what the
 installation dispatches.
 
+The Mobile App signs in with a Sign-In Link too (ADR-0032). It scans the
+QR code and opens the link in its web view, where the page of the link
+trades the secret for a `browser` Session. The Sessions list names that
+Session "Pagis on iPhone", "Pagis on iPad" or "Pagis on Android". Not
+built.
+
 ### The live screen reaches another machine through TURN over the Funnel
 
 The Funnel carries TCP alone, and the Media Relay sends the screen over UDP
