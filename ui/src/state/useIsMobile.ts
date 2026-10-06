@@ -14,7 +14,8 @@ function query(media: string): MediaQueryList | null {
   return typeof window.matchMedia === 'function' ? window.matchMedia(media) : null
 }
 
-function useMediaQuery(media: string): boolean {
+/** Whether the media query matches now, kept live across changes. */
+export function useMediaQuery(media: string): boolean {
   const subscribe = useCallback(
     (onChange: () => void) => {
       const list = query(media)

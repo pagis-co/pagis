@@ -20,3 +20,32 @@
   gap: var(--space-2);
   padding: var(--space-2);
 }
+
+/* The Keyboard button of a touch screen. The keyboard shows only during
+   a Takeover, which is in the expanded view, so the full-page overlay
+   holds the position. The overlay's padding does not move an absolute
+   child, so the button adds the safe insets of its own edges. */
+.computer-live-keyboard {
+  position: absolute;
+  right: calc(var(--space-3) + var(--safe-right));
+  bottom: calc(var(--space-3) + var(--safe-bottom));
+}
+
+/* The textarea must take the focus, so it stays in the layout, too small
+   and clear to see. The selector is stronger than the one of the field
+   primitive, so these values replace its values. */
+.computer-live-keyboard .computer-live-keyboard-input {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 1px;
+  height: 1px;
+  min-height: 0;
+  opacity: 0;
+  resize: none;
+  overflow: hidden;
+  pointer-events: none;
+  /* iOS zooms the page to a field with text under 16px when the field
+     takes the focus. --text-lg is 18px. */
+  font-size: var(--text-lg);
+}
