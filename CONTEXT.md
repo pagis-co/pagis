@@ -34,7 +34,8 @@ _Avoid_: telemetry, tracking, diagnostics
 A consistent copy of one installation, taken while the daemon is stopped:
 the State Directory and the records, and on a Headless Server one tarball
 for each Computer volume. A Backup never holds the Installation Key, the
-Client Credential or the access token of a Computer. It restores onto a new
+Client Credential, the access token of a Computer or a Model Request
+Capture. It restores onto a new
 State Directory and an empty database, on the same Storage Backend, for its
 own release or a newer one (ADR-0024).
 _Avoid_: database dump
@@ -224,10 +225,11 @@ start without one. The files stay on the disk either way (ADR-0024).
 ### System Setting
 A setting of the installation rather than of a Workspace: the port, the
 Docker endpoint, the log level, the data directory, Remote Access of a
-Local Installation, the Analytics, and the Home Exit of a Server, which an
-Administrator turns off for every Person and never on for one. An
-Administrator changes it in the Administration Interface, and the daemon
-writes `config.toml` (ADR-0024, ADR-0026, ADR-0029).
+Local Installation, the Analytics, the Model Request Capture, and the Home
+Exit of a Server, which an Administrator turns off for every Person and
+never on for one. An Administrator changes it in the Administration
+Interface, and the daemon writes `config.toml` (ADR-0024, ADR-0026,
+ADR-0029, ADR-0030).
 The timezone is not one: it belongs to each Person (ADR-0006).
 
 ### Trusted Proxy
@@ -418,6 +420,14 @@ belongs to the Org. The `default` alias starts as the one model the Person
 picks at Onboarding from the Provider Model List (ADR-0023, ADR-0025).
 _Avoid_: model group, route list
 
+### Model Request Capture
+A copy of one model request of a Run and of the provider's answer, which
+the daemon keeps while an Administrator has the Model Request Capture
+System Setting on. Each image in it is a hash and a size. Only an
+Administrator reads it, and it expires after the retention of the setting.
+Forget deletes it, and a Backup leaves it out (ADR-0030).
+_Avoid_: request log, trace, prompt log
+
 ### Model Preference
 The models the product prefers for a well-known Model Alias, best first,
 grouped by provider. A route takes the preferred models of the first
@@ -594,10 +604,11 @@ turn, a Compaction or a Reflection. A bad row does not hide a good one
 ### Forget
 The Person's order to remove one source item, or everything from one
 account, from what Pagis holds: the structured records, the memory paths
-and history derived from it, and each message and tool result of a Run that
-read it. It also blocks a new retrieval of that source until the Person
-opts in again. The block holds only a keyed hash of the item's id, and the
-key derives from the Tenant Data Key (ADR-0008).
+and history derived from it, and each message, tool result and Model
+Request Capture of a Run that read it. It also blocks a new retrieval of
+that source until the Person opts in again. The block holds only a keyed
+hash of the item's id, and the key derives from the Tenant Data Key
+(ADR-0008, ADR-0030).
 _Avoid_: unlearn
 
 ### Front Matter
