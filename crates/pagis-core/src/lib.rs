@@ -1,6 +1,8 @@
 //! I/O-free domain types, ids, event types, errors, and the trait seams
 //! (storage repositories, event bus) shared across all daemon modules.
 
+pub mod address;
+pub use address::is_public_unicast;
 pub mod avatar;
 pub use avatar::AvatarAppearance;
 pub mod block;

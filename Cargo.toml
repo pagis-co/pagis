@@ -17,6 +17,7 @@ members = [
     "crates/pagis-plugin",
     "crates/pagis-plugins",
     "crates/pagis-mcp-fixture",
+    "crates/pagis-push",
     "crates/pagis-push-relay",
     "crates/pagis-storage-postgres",
     "crates/pagis-storage-sqlite",
@@ -52,6 +53,7 @@ pagis-memory = { path = "crates/pagis-memory" }
 pagis-knowledge = { path = "crates/pagis-knowledge" }
 pagis-plugin = { path = "crates/pagis-plugin" }
 pagis-plugins = { path = "crates/pagis-plugins" }
+pagis-push = { path = "crates/pagis-push" }
 pagis-mcp-fixture = { path = "crates/pagis-mcp-fixture" }
 pagis-storage-postgres = { path = "crates/pagis-storage-postgres" }
 pagis-storage-sqlite = { path = "crates/pagis-storage-sqlite" }
@@ -100,6 +102,13 @@ sha2 = "0.10"
 # Key that the Push Relay binds to a registration. The same version as
 # `web-push-native` 0.5 and `rustrtc`, so the lockfile holds one copy.
 p256 = "0.13"
+# The body and the VAPID token of each Web Push (ADR-0030): RFC 8291
+# `aes128gcm` and the ES256 signature of RFC 8292, with RustCrypto and
+# `jwt-simple` in its pure Rust mode. It has no HTTP client and links no
+# OpenSSL; the `web-push` crate needs OpenSSL through `ece`.
+web-push-native = "0.5"
+# The HTTP-date form of the `Retry-After` header of a push service.
+httpdate = "1"
 hex = "0.4"
 hmac = "0.12"
 # The Forget suppression key derives from the Tenant Data Key (ADR-0008).

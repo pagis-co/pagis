@@ -60,10 +60,48 @@ endpoints, so a store app gets Web Push through the Push Relay, as a
 browser gets it from its push service. The daemon holds no APNs or FCM
 code and no APNs or FCM key.
 
-The `web-push-native` 0.5 crate builds the encrypted body and the VAPID
-header with pure RustCrypto and no OpenSSL. The workspace `reqwest`, with
-`rustls-tls`, sends it. The `web-push` crate is not used, because it
-needs OpenSSL through `ece`.
+The `web-push-native` 0.5 crate encrypts the body, and the `jwt-simple`
+crate that it brings signs the VAPID token, with pure RustCrypto and no
+OpenSSL. The workspace `reqwest`, with `rustls-tls`, sends it. The
+`web-push` crate is not used, because it needs OpenSSL through `ece`.
+
+### The sender
+
+The crate `pagis-push` holds the Web Push protocol, and only it. It
+depends on `pagis-core` and on no other daemon crate. The daemon holds
+the Push Subscriptions, the payload and the retry rules.
+
+`WebPush::send` takes a `Subscription` (the endpoint, `p256dh` and
+`auth`), the plaintext and the `Options` (`TTL`, `Urgency` and an
+optional `Topic`), and answers an `Outcome`:
+
+- `Delivered` for a `2xx` answer;
+- `Gone` for `404` or `410`;
+- `TooLarge` for `413`;
+- `RateLimited` for `429`, with the delay of its `Retry-After` header,
+  in seconds or as an HTTP-date;
+- `Failed` for every other answer, a refused endpoint and a transport
+  error, with the status when an answer came.
+
+A plaintext over 2048 bytes gets `TooLarge` before the encryption, and
+nothing goes. The body is one `aes128gcm` record: the plaintext and 103
+bytes.
+
+The VAPID token is an ES256 JWT. `aud` is the origin of the endpoint,
+with its port when the port is not the default one. `exp` is 12 hours
+after the send, apart from the `TTL`. `sub` is the Public Origin when it
+is `https`, and `https://github.com/pagis-co/pagis` when it is not,
+because Apple refuses a token with no `sub`. The sender signs the claims
+with the `jwt-simple` key itself: `VapidSignature::sign` of
+`web-push-native` drops the port from `aud`, and `WebPushBuilder::build`
+ties `exp` to the `TTL`.
+
+Each Web Push carries `Content-Encoding: aes128gcm`,
+`Content-Type: application/octet-stream` and
+`Authorization: vapid t=…, k=…`, where `k` is the public half of the
+VAPID Key. A `Topic` is 1 to 32 characters of the URL-safe base64
+alphabet, and the sender refuses every other. The client waits at most
+10 s for each send, follows no redirect and uses no proxy.
 
 No text message from Pagis to the Person is a notification channel.
 
@@ -185,10 +223,17 @@ after a restart goes at once.
 
 ### Endpoint guard
 
-The daemon posts only to an `https` endpoint with a DNS name. Each address
-of the name must be public at the time of the send, by the test of
-`is_public_unicast` (ADR-0029). The daemon connects to an address that it
-checked, and does not resolve the name a second time.
+The daemon posts only to an `https` endpoint with a DNS name. The DNS
+resolver of the sender's HTTP client resolves the name at the time of the
+send and keeps only the addresses that `is_public_unicast` of
+`pagis-core` accepts (ADR-0029). A name with no such address fails, and
+nothing goes. The client connects to an address that the resolver
+answered, and does not resolve the name a second time. A name that moves
+to a private address after the registration therefore gets nothing.
+
+A test sender has the policy `AllowLoopback`, which also takes `http` and
+the loopback addresses, so a test reaches a push service on its own
+machine.
 
 ### The Push Relay
 
@@ -250,8 +295,10 @@ and the endpoint `<origin>/v1/push/<id>`:
 ## Not built
 
 - The derivation of the Needs-You Queue in the daemon. The UI derives it.
-- The sender: the payload, the headers, the endpoint guard and the end of
-  a Push Subscription on `404` or `410`.
+- The Notifications of the daemon: the payload, the `Urgency` and the
+  `Topic` of each kind, and the end of a Push Subscription on `404` or
+  `410`. The crate `pagis-push` sends a Web Push, and no part of the
+  daemon calls it.
 - The hold while active, and the `activity` frame.
 - The service worker of the Product App.
 - The Push Relay takes no Web Push: the push route, the check of the
