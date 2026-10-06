@@ -81,17 +81,11 @@ fn page(uri: Uri, entry: &str) -> Response {
             .into_response();
     }
 
-    // Hashed build assets are immutable; an entry page must revalidate
-    // so a new build reaches the browser.
     if let Some(asset) = Assets::get(path) {
-        let mime = mime_guess::from_path(path).first_or_octet_stream();
         return (
             [
-                (header::CONTENT_TYPE, mime.as_ref().to_string()),
-                (
-                    header::CACHE_CONTROL,
-                    "public, max-age=31536000, immutable".to_string(),
-                ),
+                (header::CONTENT_TYPE, content_type(path)),
+                (header::CACHE_CONTROL, cache_control(path).to_string()),
             ],
             asset.data.into_owned(),
         )
@@ -99,10 +93,68 @@ fn page(uri: Uri, entry: &str) -> Response {
     }
     match Assets::get(entry) {
         Some(index) => (
-            [(header::CACHE_CONTROL, "no-cache".to_string())],
+            [(header::CACHE_CONTROL, cache_control(entry))],
             Html(index.data.into_owned()),
         )
             .into_response(),
         None => Html(UNBUILT).into_response(),
+    }
+}
+
+/// The media type of a file of `ui/dist`, from its extension.
+fn content_type(path: &str) -> String {
+    mime_guess::from_path(path)
+        .first_or_octet_stream()
+        .as_ref()
+        .to_string()
+}
+
+/// The cache rule of a file of `ui/dist`. Only Vite's `assets/`
+/// directory holds names with a content hash, so only those files are
+/// immutable. Every other file, such as `sw.js`, the web app manifest,
+/// an icon or an entry page, keeps its name from build to build, so the
+/// browser revalidates it and a new build reaches the browser.
+fn cache_control(path: &str) -> &'static str {
+    if path.starts_with("assets/") {
+        "public, max-age=31536000, immutable"
+    } else {
+        "no-cache"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_hashed_build_asset_is_immutable() {
+        assert_eq!(
+            cache_control("assets/index-B2x9kQ1z.js"),
+            "public, max-age=31536000, immutable"
+        );
+    }
+
+    /// A file with no hash in its name keeps its name from build to
+    /// build, so the browser asks the daemon again before it uses a
+    /// stored copy.
+    #[test]
+    fn a_file_with_a_fixed_name_revalidates() {
+        for path in [
+            "sw.js",
+            "manifest.webmanifest",
+            "icon-192.png",
+            "apple-touch-icon.png",
+            "index.html",
+        ] {
+            assert_eq!(cache_control(path), "no-cache", "{path}");
+        }
+    }
+
+    #[test]
+    fn the_web_app_manifest_has_its_media_type() {
+        assert_eq!(
+            content_type("manifest.webmanifest"),
+            "application/manifest+json"
+        );
     }
 }

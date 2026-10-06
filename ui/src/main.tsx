@@ -3,6 +3,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 
 import { App } from './App'
+import { registerServiceWorker } from './push/register'
 import { createQueryClient } from './queries'
 // The self-hosted variable face, then the tokens that name it, then the
 // application styles that read the tokens.
@@ -19,3 +20,5 @@ createRoot(document.getElementById('root')!).render(
     </QueryClientProvider>
   </StrictMode>,
 )
+
+registerServiceWorker()

@@ -4,8 +4,8 @@
   "license": "MIT",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
-    "typecheck": "tsc --noEmit",
+    "build": "vite build && vite build -c vite.sw.config.ts",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p sw",
     "test": "vitest run",
     "api:generate": "cargo run -q -p pagis-server --bin openapi > openapi.json && openapi-typescript openapi.json -o src/api/schema.d.ts",
     "api:check": "npm run -s api:generate && git diff --exit-code -- openapi.json src/api/schema.d.ts"

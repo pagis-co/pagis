@@ -20,6 +20,19 @@ describe('the entry pages', () => {
     expect(title('index.html')).toBe('Pagis')
     expect(title('administration.html')).toBe('Administration · Pagis')
   })
+
+  // The Product App installs as a web app. The Administration Interface
+  // does not install, so its page links no manifest and no touch icon.
+  it('link the web app manifest and the touch icon on the product page only', () => {
+    const product = readFileSync(resolve(uiDir, 'index.html'), 'utf8')
+    const administration = readFileSync(resolve(uiDir, 'administration.html'), 'utf8')
+    const manifest = /<link rel="manifest" href="\/manifest\.webmanifest" \/>/
+    const touchIcon = /<link rel="apple-touch-icon" href="\/apple-touch-icon\.png" \/>/
+    expect(product).toMatch(manifest)
+    expect(product).toMatch(touchIcon)
+    expect(administration).not.toMatch(/rel="manifest"/)
+    expect(administration).not.toMatch(/rel="apple-touch-icon"/)
+  })
 })
 
 // The Product App on a phone. The page draws under the notch and the
