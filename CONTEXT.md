@@ -130,6 +130,12 @@ Remote Access sets it to the public name of the owner's Tailscale Funnel.
 The CORS answer names it (ADR-0024, ADR-0028).
 _Avoid_: base URL, external URL, site address
 
+### Push Relay
+The service that the project runs for its store apps. It takes a Web Push
+for an installation of the Mobile App and forwards the ciphertext to APNs
+or FCM. It holds the APNs and FCM keys and never a key that decrypts a
+payload. Not built (ADR-0030).
+
 ### Release Marker
 The file `runtime-release` in the State Directory, which holds the newest
 release that opened the data. A server older than the marker refuses to
@@ -776,6 +782,10 @@ the key of the Forget blocks. It is an entry of `secrets.enc` (ADR-0013,
 ADR-0008).
 _Avoid_: vault data key, workspace key
 
+### VAPID Key
+The one P-256 key pair that signs each Web Push of the installation. Its
+private half is an entry of `secrets.enc`. Not built (ADR-0030).
+
 ### Vault
 The store of a Workspace's Credentials. It has no export: a secret leaves
 it only into a verified field of its own `https` site, through a browser
@@ -1159,13 +1169,24 @@ _Avoid_: side panel
 ### Needs-You Queue
 What waits for the Person: approvals, questions, failed Runs, missed
 Calls, the Keypad Code delay after too many failed attempts, and the rules
-that wait for an approval (ADR-0022, ADR-0021). A failed Run or a missed
-Call leaves the queue when the Person acts on it or dismisses it; the
-record keeps the time of the dismissal.
+that wait for an approval. The daemon derives it, and Home, the sidebar
+count, the app badge and each Notification read it. A failed Run or a
+missed Call leaves the queue when the Person acts on it or dismisses it;
+the record keeps the time of the dismissal. Not built: the derivation in
+the daemon. The UI derives the queue (ADR-0022, ADR-0021, ADR-0030).
+
+### Notification
+A Web Push to each Push Subscription of the Person when an item enters the
+Needs-You Queue. Not built (ADR-0030).
+_Avoid_: alert, push message
 
 ### Progress
 The daemon's derived line for one Run: what it does now, from the Run
 state and the tool call in flight (ADR-0004).
+
+### Push Subscription
+The push endpoint and the keys of one client. It belongs to one Session
+and ends with it. Not built (ADR-0030).
 
 ### Report
 The message that the Chief of Staff writes for Home in its DM Channel: what

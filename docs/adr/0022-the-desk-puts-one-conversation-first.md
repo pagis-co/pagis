@@ -99,7 +99,10 @@ alone, until the user approves it.
 
 A Connection that needs reauthorization, a blocked collector and a rule that
 waits for approval appear in the Automations Needs-You Queue and on their own
-records. The queue is a view, never a second source of truth. A pending
+records. The daemon derives the Needs-You Queue, and Home, the sidebar
+count, the app badge and each Notification read that one derivation
+(ADR-0030). Not built: the derivation in the daemon. The UI derives the
+queue. The queue is a view, never a second source of truth. A pending
 Wake-up appears on its rule and makes no timeline row; once it claims Run
 capacity, the timeline uses the daemon's progress block.
 

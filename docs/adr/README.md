@@ -46,3 +46,4 @@ records that touch an area before you change it.
 - [0027](0027-the-client-app-installs-updates-and-upgrades-its-installation.md): The Client App installs Updates, and its Local Installation upgrades with it
 - [0028](0028-remote-access-runs-through-the-owners-tailscale.md): Remote Access runs through the owner's Tailscale, and a client signs in with a Sign-In Link
 - [0029](0029-a-computer-can-exit-through-its-persons-host.md): A Computer on a server can exit to the internet through its Person's Host
+- [0030](0030-a-notification-is-a-web-push-to-each-push-subscription.md): A Notification is a Web Push to each Push Subscription of the Person
