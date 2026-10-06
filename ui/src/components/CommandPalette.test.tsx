@@ -6,7 +6,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryHistory, type RouterHistory } from '@tanstack/react-router'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ApiClient } from '../api/client'
 import { App } from '../App'
@@ -251,6 +251,57 @@ describe('the command palette', () => {
 
     expect(document.documentElement.getAttribute('data-theme')).toBe('dark')
     expect(window.localStorage.getItem('pagis-theme')).toBe('dark')
+  })
+
+  // The browser paints its bars from the two `theme-color` metas of
+  // `index.html`, one for each system theme. A theme that the Person
+  // chose wins over the system theme, so both metas take its ground.
+  describe('the browser bars', () => {
+    // jsdom does not substitute var(), so each ground is a literal.
+    const grounds = { light: '#f7f6f2', dark: '#141417' }
+    let head: HTMLElement[] = []
+
+    beforeEach(() => {
+      const style = document.createElement('style')
+      style.textContent = `:root { --ground: ${grounds.light}; } :root[data-theme='dark'] { --ground: ${grounds.dark}; }`
+      const metas = (['light', 'dark'] as const).map((scheme) => {
+        const meta = document.createElement('meta')
+        meta.name = 'theme-color'
+        meta.media = `(prefers-color-scheme: ${scheme})`
+        meta.content = grounds[scheme]
+        return meta
+      })
+      head = [style, ...metas]
+      document.head.append(...head)
+    })
+
+    afterEach(() => {
+      for (const element of head) element.remove()
+    })
+
+    const barColors = () =>
+      [...document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')].map(
+        (meta) => meta.content,
+      )
+
+    it('take the ground of the stored theme', async () => {
+      window.localStorage.setItem('pagis-theme', 'light')
+      mount()
+      await screen.findByRole('heading', { name: 'Sage' })
+
+      expect(barColors()).toEqual([grounds.light, grounds.light])
+    })
+
+    it('take the ground of the theme the Person changes to', async () => {
+      mount()
+      await screen.findByRole('heading', { name: 'Sage' })
+
+      await openPalette()
+      fireEvent.change(search(), { target: { value: 'Toggle theme' } })
+      fireEvent.keyDown(search(), { key: 'Enter' })
+
+      expect(barColors()).toEqual([grounds.dark, grounds.dark])
+    })
   })
 
   it('moves the selection with the arrow keys', async () => {

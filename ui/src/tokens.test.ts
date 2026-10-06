@@ -3,6 +3,8 @@ import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
+import { stripComments, themes, value } from './test/tokens'
+
 // The design tokens are the single source of every color, type size,
 // radius and shadow (docs/UI-DESIGN.md). These tests read the
 // stylesheets and fail on a literal that belongs in
@@ -10,10 +12,6 @@ import { describe, expect, it } from 'vitest'
 
 const styleDir = dirname(fileURLToPath(import.meta.url))
 const tokensFile = 'tokens.css'
-
-function stripComments(css: string): string {
-  return css.replace(/\/\*[\s\S]*?\*\//g, '')
-}
 
 /** Every stylesheet under `src`, at any depth: the per-component sheets
  * beside the primitives are held to the same rule as `styles.css`. */
@@ -92,45 +90,6 @@ describe('design tokens', () => {
 // contrast in both themes"). The test reads the token values, so a
 // change to a ramp step or a hue that puts a text pair under the
 // threshold fails here and not in an audit.
-
-/** The declarations of one rule of `tokens.css`, by token name. */
-function ruleTokens(css: string, selector: string): Record<string, string> {
-  const start = css.indexOf(selector)
-  if (start < 0) throw new Error(`tokens.css has no rule ${selector}`)
-  const open = css.indexOf('{', start)
-  let depth = 0
-  let end = open
-  for (; end < css.length; end += 1) {
-    if (css[end] === '{') depth += 1
-    else if (css[end] === '}' && (depth -= 1) === 0) break
-  }
-  const body = css.slice(open + 1, end)
-  return Object.fromEntries(
-    [...body.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)].map((m) => [m[1], m[2].trim()]),
-  )
-}
-
-/** The two themes. The dark rule redefines the primitive tokens only,
- * so it reads on top of the light rule, exactly as the browser does. */
-function themes(): { name: string; tokens: Record<string, string> }[] {
-  const css = stripComments(readFileSync(join(styleDir, tokensFile), 'utf8'))
-  const light = ruleTokens(css, ':root {')
-  return [
-    { name: 'light', tokens: light },
-    { name: 'dark', tokens: { ...light, ...ruleTokens(css, ":root[data-theme='dark']") } },
-  ]
-}
-
-function value(tokens: Record<string, string>, name: string): string {
-  let color = tokens[name]
-  if (color === undefined) throw new Error(`tokens.css has no ${name}`)
-  for (let alias = /^var\((--[\w-]+)\)$/.exec(color); alias !== null; ) {
-    color = tokens[alias[1]]
-    if (color === undefined) throw new Error(`tokens.css has no ${alias[1]}`)
-    alias = /^var\((--[\w-]+)\)$/.exec(color)
-  }
-  return color
-}
 
 function channels(color: string): [number, number, number] {
   const hex = /^#([0-9a-f]{6})$/i.exec(color)
@@ -352,4 +311,26 @@ describe('the scales hold every weight, leading, tracking, opacity and space', (
       expect(offenders).toEqual([])
     })
   }
+})
+
+// The safe area. The page draws under the notch, the rounded corners
+// and the home indicator of a phone (`viewport-fit=cover` in
+// `index.html`), so the root and each fixed layer pad themselves by
+// these four insets. A screen that has no such parts gives 0px.
+
+describe('the safe area', () => {
+  it('names each inset of the screen, and 0px where the screen has none', () => {
+    const [light] = themes()
+    expect({
+      top: light.tokens['--safe-top'],
+      right: light.tokens['--safe-right'],
+      bottom: light.tokens['--safe-bottom'],
+      left: light.tokens['--safe-left'],
+    }).toEqual({
+      top: 'env(safe-area-inset-top, 0px)',
+      right: 'env(safe-area-inset-right, 0px)',
+      bottom: 'env(safe-area-inset-bottom, 0px)',
+      left: 'env(safe-area-inset-left, 0px)',
+    })
+  })
 })

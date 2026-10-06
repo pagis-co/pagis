@@ -2,8 +2,8 @@
 
 .ui-toast-viewport {
   position: fixed;
-  right: 1rem;
-  bottom: 1rem;
+  right: calc(1rem + var(--safe-right));
+  bottom: calc(1rem + var(--safe-bottom));
   display: flex;
   flex-direction: column;
   gap: var(--space-2);

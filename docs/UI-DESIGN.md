@@ -193,6 +193,13 @@ one sounds.
   body becomes two steps with a back control. A stylesheet breaks only
   at 760 px and at 460 px, the narrow phone; 1100 px is the one
   breakpoint the code reads.
+- The root and each fixed layer stay inside the safe area. The page
+  draws under the notch and the home indicator of a phone. The shell
+  root, the sign-in page, the drawer, the sheet, the expanded live
+  screen and the toast viewport add the `--safe-*` tokens to their
+  padding or their offsets. A dialog is never taller than the safe
+  area of the visible page (`100dvh`). No rule reads `100vh`, which is
+  the height with the browser bars hidden.
 - Copy follows ASD-STE100 and the user's own vocabulary. It never shows
   an internal name, such as a tool identifier, a protocol or an alias.
 - An empty state explains its kind in one line and offers one action.

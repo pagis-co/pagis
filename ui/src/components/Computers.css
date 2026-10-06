@@ -76,6 +76,7 @@
   background: var(--stage-veil);
   display: flex;
   flex-direction: column;
+  padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
 }
 
 .screen-expanded .screen-frame {

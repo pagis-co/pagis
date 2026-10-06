@@ -13,7 +13,7 @@
   left: 50%;
   transform: translate(-50%, -50%);
   width: min(32rem, calc(100vw - 2rem));
-  max-height: calc(100vh - 4rem);
+  max-height: calc(100dvh - 4rem - var(--safe-top) - var(--safe-bottom));
   overflow: hidden auto;
   background: var(--panel);
   border: 1px solid var(--border);
