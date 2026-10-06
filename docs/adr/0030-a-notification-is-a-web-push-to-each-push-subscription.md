@@ -175,6 +175,33 @@ registers. For each Web Push it checks the VAPID token, the size and the
 rate, and forwards the ciphertext to APNs or FCM. It never holds a key
 that decrypts a payload.
 
+The relay is the crate `pagis-push-relay`, a library and a binary. It
+depends on no daemon crate. It reads its own `PUSH_RELAY_*` settings and
+keeps its registrations in its own SQLite file, because it runs apart
+from every Pagis installation.
+
+An installation registers with `POST /v1/registrations` and sends its
+platform (`ios` with an APNs environment, or `android`), its device token
+and the VAPID Key of its server. The relay answers a random id, a secret
+and the endpoint `<origin>/v1/push/<id>`:
+
+- The endpoint holds the random id and never the device token, so a
+  leaked endpoint names no phone. Mastodon's `webpush-apn-relay` puts
+  the device token in the URL, and the relay does not copy that.
+- One registration binds one VAPID Key, as Mozilla autopush binds a
+  subscription to the key that made it.
+- The relay keeps only the SHA-256 of the secret. The secret changes the
+  token when APNs or FCM rotates it, and removes the registration. A
+  wrong secret and an unknown id get the same `404`, so a caller cannot
+  find which ids exist.
+- One client address makes at most 20 registrations in each hour. The
+  relay counts in process, in a fixed window. It reads the last entry of
+  `X-Forwarded-For` only from the proxy address that
+  `PUSH_RELAY_TRUSTED_PROXY` names, by the rule of the daemon's Trusted
+  Proxy.
+- A log line holds the route, the id and the status, and never a token,
+  a secret or a VAPID Key.
+
 ## Consequences
 
 - A Person reads a Request on a phone with no tab open.
@@ -204,5 +231,7 @@ that decrypts a payload.
   a Push Subscription on `404` or `410`.
 - The hold while active, and the `activity` frame.
 - The service worker of the Product App.
-- The Push Relay.
+- The Push Relay takes no Web Push: the push route, the check of the
+  VAPID token, the size and the rate, and the forward to APNs and FCM.
+  The relay registers an installation and gives it an endpoint.
 - The Mobile App (ADR-0032).
