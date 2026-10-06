@@ -474,6 +474,8 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
             policies: Arc::clone(&retention_policies) as _,
             artifacts: Arc::clone(&artifacts) as _,
             blobs: Arc::clone(&blobs),
+            capture: Arc::clone(&capture),
+            captures: stores.model_request_captures.clone(),
         },
         options.cancel.clone(),
     );

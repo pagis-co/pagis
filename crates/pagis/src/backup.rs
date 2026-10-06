@@ -8,7 +8,7 @@
 //! one without the other restores nothing: the records name files that
 //! are not there, or the files belong to people who are not there.
 //!
-//! Four things are deliberately outside a backup, and
+//! Five things are deliberately outside a backup, and
 //! https://docs.pagis.co/server/backup says so where an administrator reads
 //! it:
 //!
@@ -30,6 +30,10 @@
 //!   belongs to the Docker host, not to this process, so
 //!   `deploy/backup.sh` captures them beside the archive this module
 //!   writes.
+//! - **The Model Request Captures.** They are short-lived copies of Person
+//!   data for debugging (ADR-0030). On SQLite the backup deletes them from
+//!   the archive's copy of the database and rebuilds the file; on
+//!   Postgres `pg_dump` skips the rows of their table.
 //!
 //! **Quiesce is enforced, not advised.** A file copied while the daemon
 //! writes it is not a backup, so the backup takes the same instance
@@ -174,7 +178,10 @@ impl Installation {
                 pg_dump(&self.tools.pg_dump, url, &out.join(DATABASE_DUMP))?;
                 DatabaseKind::Postgres
             }
-            None => DatabaseKind::Sqlite,
+            None => {
+                drop_captures(&out.join(STATE_DIR).join(SQLITE_FILE))?;
+                DatabaseKind::Sqlite
+            }
         };
         let manifest = Manifest {
             schema: SCHEMA,
@@ -280,6 +287,59 @@ fn configured_database(path: &Path) -> Result<Option<String>> {
     Ok(config.database.url().map(str::to_string))
 }
 
+/// The SQLite file of the state directory.
+const SQLITE_FILE: &str = "pagis.db";
+
+/// Delete every Model Request Capture from the archive's copy of a SQLite
+/// database (ADR-0030), then rebuild the file and empty its write-ahead
+/// log, so no free page and no log frame keeps the bytes of a capture.
+/// A database of a release before the table has nothing to delete.
+fn drop_captures(database: &Path) -> Result<()> {
+    if !database.exists() {
+        return Ok(());
+    }
+    // The backup is a blocking call, and a caller may run inside a Tokio
+    // runtime, so the database work runs on a thread of its own.
+    std::thread::scope(|scope| {
+        scope
+            .spawn(|| -> Result<()> {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()?;
+                runtime.block_on(async {
+                    use sqlx::Connection as _;
+                    let options = sqlx::sqlite::SqliteConnectOptions::new().filename(database);
+                    let mut db = sqlx::SqliteConnection::connect_with(&options).await?;
+                    let tables: i64 = sqlx::query_scalar(
+                        "SELECT COUNT(*) FROM sqlite_master \
+                         WHERE type = 'table' AND name = 'model_request_captures'",
+                    )
+                    .fetch_one(&mut db)
+                    .await?;
+                    if tables > 0 {
+                        sqlx::query("DELETE FROM model_request_captures")
+                            .execute(&mut db)
+                            .await?;
+                    }
+                    sqlx::query("VACUUM").execute(&mut db).await?;
+                    sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
+                        .execute(&mut db)
+                        .await?;
+                    db.close().await?;
+                    Ok(())
+                })
+            })
+            .join()
+            .map_err(|_| anyhow::anyhow!("the capture cleanup of the backup panicked"))?
+    })
+    .with_context(|| {
+        format!(
+            "leave the model request captures out of {}",
+            database.display()
+        )
+    })
+}
+
 fn pg_dump(program: &Path, url: &str, out: &Path) -> Result<()> {
     let file = new_file(out, 0o600).with_context(|| format!("create {}", out.display()))?;
     // The custom format, because `pg_restore` reads it selectively and
@@ -287,7 +347,14 @@ fn pg_dump(program: &Path, url: &str, out: &Path) -> Result<()> {
     // its own roles.
     run(
         std::process::Command::new(program)
-            .args(["--format=custom", "--no-owner", "--no-privileges", url])
+            .args([
+                "--format=custom",
+                "--no-owner",
+                "--no-privileges",
+                // A Backup holds no Model Request Capture (ADR-0030).
+                "--exclude-table-data=model_request_captures",
+                url,
+            ])
             .stdout(file),
         program,
     )

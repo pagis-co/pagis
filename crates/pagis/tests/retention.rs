@@ -39,8 +39,12 @@ async fn fixture(pool: SqlitePool) -> Fixture {
         deps: pagis::retention::RetentionDeps {
             workspaces,
             policies: Arc::new(SqliteRetentionPolicyStore::new(pool.clone())),
-            artifacts: Arc::new(SqliteArtifactStore::new(pool)),
+            artifacts: Arc::new(SqliteArtifactStore::new(pool.clone())),
             blobs: Arc::new(object_store::memory::InMemory::new()),
+            capture: Arc::new(pagis_core::CaptureSetting::new(true, 7)),
+            captures: Arc::new(pagis_storage_sqlite::SqliteModelRequestCaptureStore::new(
+                pool.clone(),
+            )),
         },
         workspace_id: workspace.id,
     }
@@ -213,4 +217,61 @@ async fn a_window_that_returns_to_keep_for_ever_stops_the_sweep(pool: SqlitePool
             .unwrap()
             .is_some()
     );
+}
+
+/// A Model Request Capture lives for the retention of the setting
+/// (ADR-0030), whatever the Artifact windows say.
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn the_sweep_removes_the_model_request_captures_past_their_retention(pool: SqlitePool) {
+    let fixture = fixture(pool.clone()).await;
+    let agent = pagis_testkit::fixture::agent(&fixture.workspace_id);
+    pagis_core::AgentStore::create(
+        &pagis_storage_sqlite::SqliteAgentStore::new(pool.clone()),
+        &agent,
+    )
+    .await
+    .unwrap();
+    let channel = pagis_testkit::fixture::channel(&fixture.workspace_id);
+    pagis_core::ChannelStore::create(
+        &pagis_storage_sqlite::SqliteChannelStore::new(pool.clone()),
+        &channel,
+    )
+    .await
+    .unwrap();
+    let run = pagis_testkit::fixture::queued_run(&fixture.workspace_id, &agent.id, &channel.id);
+    pagis_core::RunStore::create(
+        &pagis_storage_sqlite::SqliteRunStore::new(pool.clone()),
+        &run,
+    )
+    .await
+    .unwrap();
+    let now = now_ms();
+    for (phase_request, age_days) in [(0, 8), (1, 6)] {
+        fixture
+            .deps
+            .captures
+            .record(&pagis_core::ModelRequestCapture {
+                id: pagis_core::ModelRequestCaptureId::generate(),
+                workspace_id: fixture.workspace_id.clone(),
+                run_id: run.id.clone(),
+                phase: "reply".into(),
+                phase_request,
+                request: serde_json::json!({}),
+                answer: serde_json::json!({}),
+                created_at: now - age_days * DAY_MS,
+            })
+            .await
+            .unwrap();
+    }
+
+    pagis::retention::sweep(&fixture.deps, now).await.unwrap();
+
+    let left = fixture
+        .deps
+        .captures
+        .list_for_run(&fixture.workspace_id, &run.id)
+        .await
+        .unwrap();
+    assert_eq!(left.len(), 1);
+    assert_eq!(left[0].phase_request, 1);
 }

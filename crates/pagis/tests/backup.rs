@@ -239,6 +239,78 @@ async fn a_postgres_installation_comes_back_with_its_person_and_its_memory() {
     prove(&restored).await;
 }
 
+/// A Backup holds no Model Request Capture (ADR-0030): the archive's
+/// copy of the database has no row of the table and no byte of a
+/// capture, also not in a free page or in the write-ahead log.
+#[tokio::test]
+async fn a_backup_leaves_the_model_request_captures_out() {
+    const MARKER: &str = "captured-7713-marker";
+    let source = TempDir::new().expect("a state directory");
+    let daemon = TestDaemon::start_on(source, TestDaemonOptions::default()).await;
+    let mut channel = pagis_testkit::fixture::channel(&daemon.workspace_id);
+    channel.title = Some("captures".into());
+    daemon.stores().channels.create(&channel).await.unwrap();
+    let run = pagis_testkit::fixture::queued_run(
+        &daemon.workspace_id,
+        &pagis_core::AgentId::from(daemon.agent_id.clone()),
+        &channel.id,
+    );
+    daemon.stores().runs.create(&run).await.unwrap();
+    daemon
+        .stores()
+        .model_request_captures
+        .record(&pagis_core::ModelRequestCapture {
+            id: pagis_core::ModelRequestCaptureId::generate(),
+            workspace_id: daemon.workspace_id.clone(),
+            run_id: run.id.clone(),
+            phase: "reply".into(),
+            phase_request: 0,
+            request: serde_json::json!({ "system": MARKER }),
+            answer: serde_json::json!({ "outcome": "completed" }),
+            created_at: pagis_core::now_ms(),
+        })
+        .await
+        .unwrap();
+    let source = daemon.stop().await;
+
+    let archive = TempDir::new().expect("a directory for the archive");
+    Installation::at(source.path())
+        .expect("read the installation")
+        .back_up(&archive.path().join("pagis"))
+        .expect("back the installation up");
+
+    let state = archive.path().join("pagis/state");
+    for entry in std::fs::read_dir(&state).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_file() {
+            let bytes = std::fs::read(&path).unwrap();
+            assert!(
+                !bytes
+                    .windows(MARKER.len())
+                    .any(|window| window == MARKER.as_bytes()),
+                "{} holds a capture",
+                path.display()
+            );
+        }
+    }
+    // The installation itself keeps its capture.
+    let fresh = TempDir::new().expect("a fresh state directory");
+    Installation::from_archive(&archive.path().join("pagis"), fresh.path())
+        .expect("read the archive")
+        .restore(&archive.path().join("pagis"))
+        .expect("restore the installation");
+    let restored = TestDaemon::start_on(fresh, TestDaemonOptions::default()).await;
+    assert!(
+        restored
+            .stores()
+            .model_request_captures
+            .list_for_run(&restored.workspace_id, &run.id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}
+
 /// A Backup holds no Computer token. The daemon writes a new token at
 /// each start of a Computer, so a restored token opens nothing. While
 /// its Computer runs, the token is live, and an archive is copied and
@@ -252,7 +324,8 @@ fn a_backup_leaves_the_computer_tokens_behind() {
     for (name, contents) in [
         ("config.toml", ""),
         ("runtime-release", "0.1.0\n"),
-        ("pagis.db", "records"),
+        // An empty file is an empty SQLite database.
+        ("pagis.db", ""),
         ("memory/w1/note.md", "remembered"),
         ("computer-tokens/w1/a1.token", "a live token"),
     ] {
@@ -298,7 +371,8 @@ fn a_backup_under_umask_022_is_private() {
     for (name, contents) in [
         ("config.toml", ""),
         ("runtime-release", "0.1.0\n"),
-        ("pagis.db", "records"),
+        // An empty file is an empty SQLite database.
+        ("pagis.db", ""),
         ("memory/w1/note.md", "remembered"),
     ] {
         std::fs::write(home.join(name), contents).expect("a file of the state directory");

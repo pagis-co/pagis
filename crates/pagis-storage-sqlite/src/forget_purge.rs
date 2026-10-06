@@ -199,8 +199,8 @@ pub(crate) async fn purge(
 }
 
 /// Forget what each Run that read a forgotten source item wrote: each
-/// message of the Run that can hold what the Run read, and each tool
-/// result that the Run kept. A message is forgotten as a whole
+/// message of the Run that can hold what the Run read, each tool result
+/// that the Run kept, and each Model Request Capture of the Run. A message is forgotten as a whole
 /// (ADR-0008). An account Forget also deletes each tool result that a
 /// Grant of its Connection read.
 async fn forget_run_output(
@@ -238,6 +238,14 @@ async fn forget_run_output(
         .await
         .map_err(db_err)?;
         sqlx::query("DELETE FROM conversation_tool_evidence WHERE workspace_id=? AND run_id=?")
+            .bind(workspace.as_str())
+            .bind(run)
+            .execute(&mut *tx)
+            .await
+            .map_err(db_err)?;
+        // A Model Request Capture of the Run holds what the Run read
+        // (ADR-0030).
+        sqlx::query("DELETE FROM model_request_captures WHERE workspace_id=? AND run_id=?")
             .bind(workspace.as_str())
             .bind(run)
             .execute(&mut *tx)
