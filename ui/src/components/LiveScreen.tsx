@@ -8,6 +8,9 @@
 // over the session's data channel; the pipeline drops them unless the
 // user holds the switch. On a touch screen a Keyboard button opens the
 // on-screen keyboard, whose text goes over the same channel as text.
+// The expanded view zooms and pans the video with two fingers, and a
+// point maps to the capture pixel under it through the bars of
+// `object-fit: contain` and through the zoom (screenView, screenGestures).
 
 import {
   type ReactNode,
@@ -21,12 +24,22 @@ import {
 import type { ApiClient } from '../api/client'
 import { Button, Textarea } from '../primitives'
 import { useMediaQuery } from '../state/useIsMobile'
+import {
+  type GestureEvent,
+  type GestureOutput,
+  initialGestureState,
+  stepGestures,
+} from './screenGestures'
+import {
+  IDENTITY_VIEW,
+  type Rect,
+  type View,
+  applyViewChange,
+  capturePerPixel,
+  capturePoint,
+} from './screenView'
 
 import './LiveScreen.css'
-
-/** The capture surface, fixed by the pipeline. */
-const CAPTURE_WIDTH = 1280
-const CAPTURE_HEIGHT = 800
 
 /** A touch screen, where a phone or a tablet gives an on-screen keyboard. */
 const COARSE_POINTER_QUERY = '(pointer: coarse)'
@@ -42,6 +55,33 @@ const TEXT_LIMIT = 1024
 const SENTINEL = '\u200b'.repeat(4)
 
 type Op = Record<string, unknown>
+
+/** The live screen in the tile, in the expanded view, or in the expanded
+ * view while the Person holds the switch. */
+export type ScreenMode = 'compact' | 'expanded' | 'takeover'
+
+/** The pixels of a wheel delta that make one wheel click of a `scroll`
+ * op. */
+const PIXELS_PER_CLICK = 120
+
+/** The data channel op of a gesture's input output. */
+function inputOp(
+  output: Exclude<GestureOutput, { kind: 'view' }>,
+  box: Rect,
+  view: View,
+): Op {
+  switch (output.kind) {
+    case 'move':
+      return { op: 'move', ...capturePoint(output.point, box, view) }
+    case 'button':
+      return { op: 'button', button: output.button, down: output.down }
+    case 'scroll': {
+      // The page moves as far as the finger, in capture pixels.
+      const clicks = capturePerPixel(box, view) / PIXELS_PER_CLICK
+      return { op: 'scroll', dx: output.dx * clicks, dy: output.dy * clicks }
+    }
+  }
+}
 
 /** The `text` ops of a text, each of at most `TEXT_LIMIT` characters.
  * screend counts code points, so a split never cuts a surrogate pair. */
@@ -194,23 +234,41 @@ export function LiveScreen({
   api,
   agentId,
   agentName,
-  interactive,
+  mode,
   fallback,
 }: {
   api: ApiClient
   agentId: string
   agentName: string
-  /** The user holds the input switch: forward mouse + keyboard. */
-  interactive: boolean
+  /** In a Takeover the input goes to the Computer. The expanded view
+   * zooms and pans. */
+  mode: ScreenMode
   /** Shown while the session is down: connect failed or was refused. */
   fallback: ReactNode
 }) {
   const videoRef = useRef<HTMLVideoElement>(null)
+  const viewportRef = useRef<HTMLDivElement>(null)
   const channelRef = useRef<RTCDataChannel | null>(null)
   const keyboardRef = useRef<HTMLTextAreaElement>(null)
   const coarsePointer = useMediaQuery(COARSE_POINTER_QUERY)
   const [failed, setFailed] = useState(false)
   const [attempt, setAttempt] = useState(0)
+  const interactive = mode === 'takeover'
+  // The gesture state and the view change on each pointer event. The
+  // refs hold the current values for the next event, and the state
+  // draws the view.
+  const gesturesRef = useRef(initialGestureState)
+  const viewRef = useRef<View>(IDENTITY_VIEW)
+  const [view, setView] = useState<View>(IDENTITY_VIEW)
+
+  // The tile shows the whole screen, and the next expanded view starts
+  // with no zoom.
+  useEffect(() => {
+    if (mode !== 'compact') return
+    gesturesRef.current = initialGestureState
+    viewRef.current = IDENTITY_VIEW
+    setView(IDENTITY_VIEW)
+  }, [mode])
 
   useEffect(() => {
     setFailed(false)
@@ -260,39 +318,69 @@ export function LiveScreen({
     }
   }, [])
 
-  /** Element coordinates -> capture pixels. */
-  const capturePoint = useCallback((event: React.PointerEvent) => {
-    const rect = (event.target as HTMLElement).getBoundingClientRect()
-    return {
-      x: ((event.clientX - rect.left) / rect.width) * CAPTURE_WIDTH,
-      y: ((event.clientY - rect.top) / rect.height) * CAPTURE_HEIGHT,
+  /** One pointer event through the gestures. The view changes in every
+   * expanded view, and the input goes out only in a Takeover. A point
+   * maps through the box of the viewport, which the transform of the
+   * video does not change. */
+  const gesture = (type: GestureEvent['type']) => (event: React.PointerEvent) => {
+    const viewport = viewportRef.current
+    if (viewport === null) return
+    const [next, outputs] = stepGestures(gesturesRef.current, {
+      type,
+      id: event.pointerId,
+      pointerType: event.pointerType,
+      point: { x: event.clientX, y: event.clientY },
+      time: event.timeStamp,
+      button: event.button,
+    })
+    gesturesRef.current = next
+    const box = viewport.getBoundingClientRect()
+    let current = viewRef.current
+    for (const output of outputs) {
+      if (output.kind === 'view') {
+        current = applyViewChange(current, output.change, box)
+      } else if (interactive) {
+        send(inputOp(output, box, current))
+      }
     }
-  }, [])
+    if (current !== viewRef.current) {
+      viewRef.current = current
+      setView(current)
+    }
+  }
 
-  const button = (event: React.PointerEvent) =>
-    event.button === 2 ? 'right' : event.button === 1 ? 'middle' : 'left'
+  const gestureHandlers = mode === 'compact'
+    ? {}
+    : {
+        onPointerDown: (event: React.PointerEvent) => {
+          if (interactive) {
+            // While the on-screen keyboard is open, a tap keeps the
+            // focus in its textarea, so the keyboard stays open.
+            const keyboard = keyboardRef.current
+            if (keyboard !== null && document.activeElement === keyboard) {
+              event.preventDefault()
+            } else {
+              ;(event.target as HTMLElement).focus()
+            }
+          }
+          gesture('down')(event)
+        },
+        onPointerMove: gesture('move'),
+        onPointerUp: gesture('up'),
+        onPointerCancel: gesture('cancel'),
+        // A hold is a right click, so the browser shows no menu.
+        onContextMenu: (event: React.MouseEvent) => event.preventDefault(),
+      }
 
   const inputHandlers = interactive
     ? {
         tabIndex: 0,
-        onPointerMove: (event: React.PointerEvent) =>
-          send({ op: 'move', ...capturePoint(event) }),
-        onPointerDown: (event: React.PointerEvent) => {
-          // While the on-screen keyboard is open, a tap keeps the focus
-          // in its textarea, so the keyboard stays open.
-          const keyboard = keyboardRef.current
-          if (keyboard !== null && document.activeElement === keyboard) {
-            event.preventDefault()
-          } else {
-            ;(event.target as HTMLElement).focus()
-          }
-          send({ op: 'move', ...capturePoint(event) })
-          send({ op: 'button', button: button(event), down: true })
-        },
-        onPointerUp: (event: React.PointerEvent) =>
-          send({ op: 'button', button: button(event), down: false }),
         onWheel: (event: React.WheelEvent) =>
-          send({ op: 'scroll', dx: event.deltaX / 120, dy: event.deltaY / 120 }),
+          send({
+            op: 'scroll',
+            dx: event.deltaX / PIXELS_PER_CLICK,
+            dy: event.deltaY / PIXELS_PER_CLICK,
+          }),
         onKeyDown: (event: React.KeyboardEvent) => {
           event.preventDefault()
           send({ op: 'key', code: event.code, down: true })
@@ -301,7 +389,6 @@ export function LiveScreen({
           event.preventDefault()
           send({ op: 'key', code: event.code, down: false })
         },
-        onContextMenu: (event: React.MouseEvent) => event.preventDefault(),
       }
     : {}
 
@@ -317,19 +404,30 @@ export function LiveScreen({
       </div>
     )
   }
+  const className = [
+    'computer-live',
+    mode !== 'compact' && 'computer-live-zoomable',
+    interactive && 'computer-live-driving',
+  ].filter(Boolean).join(' ')
   // The video keeps its place in the tree when the keyboard comes and
   // goes, so its stream survives the change.
   return (
     <>
-      <video
-        ref={videoRef}
-        className={interactive ? 'computer-live computer-live-driving' : 'computer-live'}
-        autoPlay
-        muted
-        playsInline
-        aria-label={`${agentName}'s live screen`}
-        {...inputHandlers}
-      />
+      <div ref={viewportRef} className="computer-live-viewport">
+        <video
+          ref={videoRef}
+          className={className}
+          style={mode === 'compact' ? undefined : {
+            transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})`,
+          }}
+          autoPlay
+          muted
+          playsInline
+          aria-label={`${agentName}'s live screen`}
+          {...gestureHandlers}
+          {...inputHandlers}
+        />
+      </div>
       {interactive && coarsePointer && (
         <ScreenKeyboard agentName={agentName} inputRef={keyboardRef} send={send} />
       )}

@@ -4,10 +4,29 @@
    full-page overlay. The video stays mounted across the toggle so the
    WebRTC session survives. */
 .computer-live {
+  display: block;
   width: 100%;
   background: var(--stage);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
+}
+
+/* The frame of the video. It clips the zoomed video, and a point maps
+   through its box, which the transform of the video does not change. */
+.computer-live-viewport {
+  position: relative;
+  overflow: hidden;
+}
+
+/* The expanded view: the gestures of the live screen take every touch,
+   so the browser does not scroll or zoom the page and shows no callout
+   on a hold. The view zooms about the top left of the video. */
+.computer-live-zoomable {
+  touch-action: none;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  transform-origin: 0 0;
 }
 
 .computer-live-driving {

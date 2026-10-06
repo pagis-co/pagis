@@ -6,7 +6,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ApiClient } from '../api/client'
-import { LiveScreen } from './LiveScreen'
+import { LiveScreen, type ScreenMode } from './LiveScreen'
 
 class FakeDataChannel {
   readyState = 'open'
@@ -50,6 +50,15 @@ class FakePeerConnection {
   })
 }
 
+/** The video fills the frame, whose box the live screen measures. jsdom
+ * has no layout, so a test gives the box. */
+function stubBox(
+  video: HTMLElement,
+  box: { left: number; top: number; width: number; height: number },
+) {
+  video.parentElement!.getBoundingClientRect = () => box as DOMRect
+}
+
 /** The relay answers no ICE server unless a test says otherwise. */
 function stubApi(
   offer: () => Promise<{ data?: unknown; error?: unknown }>,
@@ -74,7 +83,7 @@ describe('LiveScreen', () => {
     const api = stubApi(async () => ({ data: { sdp: 'v=0 answer' } }))
     render(
       <LiveScreen api={api} agentId="ag1" agentName="Sage"
-        interactive={false} fallback={<span>Last screen</span>} />,
+        mode="compact" fallback={<span>Last screen</span>} />,
     )
     await waitFor(() => expect(FakePeerConnection.instances).toHaveLength(1))
     const pc = FakePeerConnection.instances[0]
@@ -106,7 +115,7 @@ describe('LiveScreen', () => {
         api={api}
         agentId="ag1"
         agentName="Sage"
-        interactive={false}
+        mode="compact"
         fallback={<span>fallback</span>}
       />,
     )
@@ -152,7 +161,7 @@ describe('LiveScreen', () => {
     )
     render(
       <LiveScreen api={api} agentId="ag1" agentName="Sage"
-        interactive={false} fallback={<span>fallback</span>} />,
+        mode="compact" fallback={<span>fallback</span>} />,
     )
 
     await waitFor(() => expect(FakePeerConnection.instances.length).toBe(1))
@@ -175,7 +184,7 @@ describe('LiveScreen', () => {
     )
     render(
       <LiveScreen api={api} agentId="ag1" agentName="Sage"
-        interactive={false} fallback={<span>Last screen</span>} />,
+        mode="compact" fallback={<span>Last screen</span>} />,
     )
 
     expect(await screen.findByRole('status')).toHaveProperty(
@@ -192,7 +201,7 @@ describe('LiveScreen', () => {
         api={api}
         agentId="ag1"
         agentName="Sage"
-        interactive={false}
+        mode="compact"
         fallback={<span>fallback</span>}
       />,
     )
@@ -210,7 +219,7 @@ describe('LiveScreen', () => {
         api={api}
         agentId="ag1"
         agentName="Sage"
-        interactive={false}
+        mode="compact"
         fallback={<span>fallback</span>}
       />,
     )
@@ -228,13 +237,12 @@ describe('LiveScreen', () => {
         api={api}
         agentId="ag1"
         agentName="Sage"
-        interactive={true}
+        mode="takeover"
         fallback={<span>fallback</span>}
       />,
     )
     const video = await screen.findByLabelText("Sage's live screen")
-    video.getBoundingClientRect = () =>
-      ({ left: 0, top: 0, width: 1280, height: 800 }) as DOMRect
+    stubBox(video, { left: 0, top: 0, width: 1280, height: 800 })
 
     fireEvent.pointerDown(video, { clientX: 640, clientY: 400, button: 0 })
     fireEvent.pointerUp(video, { clientX: 640, clientY: 400, button: 0 })
@@ -257,7 +265,7 @@ describe('LiveScreen', () => {
         api={api}
         agentId="ag1"
         agentName="Sage"
-        interactive={false}
+        mode="compact"
         fallback={<span>fallback</span>}
       />,
     )
@@ -281,11 +289,11 @@ describe('LiveScreen', () => {
       }))
     }
 
-    function renderScreen(interactive: boolean) {
+    function renderScreen(mode: ScreenMode) {
       const api = stubApi(async () => ({ data: { sdp: 'v=0 answer' } }))
       render(
         <LiveScreen api={api} agentId="ag1" agentName="Sage"
-          interactive={interactive} fallback={<span>fallback</span>} />,
+          mode={mode} fallback={<span>fallback</span>} />,
       )
     }
 
@@ -293,7 +301,7 @@ describe('LiveScreen', () => {
      * textarea and the ops that left over the data channel. */
     async function openKeyboard() {
       coarsePointer()
-      renderScreen(true)
+      renderScreen('takeover')
       await waitFor(() => expect(FakePeerConnection.instances[0]?.channel).toBeTruthy())
       fireEvent.click(screen.getByRole('button', { name: 'Keyboard' }))
       const textarea = screen.getByLabelText("Text for Sage's screen") as HTMLTextAreaElement
@@ -319,19 +327,19 @@ describe('LiveScreen', () => {
 
     it('shows the Keyboard button on a touch screen during a Takeover only', async () => {
       coarsePointer()
-      renderScreen(false)
+      renderScreen('expanded')
       await screen.findByLabelText("Sage's live screen")
       expect(screen.queryByRole('button', { name: 'Keyboard' })).toBeNull()
       cleanup()
 
       coarsePointer()
-      renderScreen(true)
+      renderScreen('takeover')
       expect(await screen.findByRole('button', { name: 'Keyboard' })).toBeTruthy()
       cleanup()
 
       vi.unstubAllGlobals()
       vi.stubGlobal('RTCPeerConnection', FakePeerConnection)
-      renderScreen(true)
+      renderScreen('takeover')
       await screen.findByLabelText("Sage's live screen")
       expect(screen.queryByRole('button', { name: 'Keyboard' })).toBeNull()
     })
@@ -432,8 +440,7 @@ describe('LiveScreen', () => {
     it('keeps the focus in the textarea when the screen is tapped, so the keyboard stays open', async () => {
       const { textarea, ops } = await openKeyboard()
       const video = screen.getByLabelText("Sage's live screen")
-      video.getBoundingClientRect = () =>
-        ({ left: 0, top: 0, width: 1280, height: 800 }) as DOMRect
+      stubBox(video, { left: 0, top: 0, width: 1280, height: 800 })
 
       fireEvent.pointerDown(video, { clientX: 640, clientY: 400, button: 0 })
 
@@ -455,6 +462,111 @@ describe('LiveScreen', () => {
     })
   })
 
+  describe('touch, zoom and the capture pixel', () => {
+    async function renderScreen(mode: ScreenMode) {
+      const api = stubApi(async () => ({ data: { sdp: 'v=0 answer' } }))
+      render(
+        <LiveScreen api={api} agentId="ag1" agentName="Sage"
+          mode={mode} fallback={<span>fallback</span>} />,
+      )
+      const video = await screen.findByLabelText("Sage's live screen")
+      await waitFor(() => expect(FakePeerConnection.instances[0]?.channel).toBeTruthy())
+      const channel = FakePeerConnection.instances[0].channel!
+      return { video, ops: () => channel.sent.map((payload) => JSON.parse(payload)) }
+    }
+
+    function finger(
+      type: 'Down' | 'Move' | 'Up',
+      video: HTMLElement,
+      id: number,
+      x: number,
+      y: number,
+    ) {
+      fireEvent[`pointer${type}`](video, {
+        pointerId: id, pointerType: 'touch', clientX: x, clientY: y,
+      })
+    }
+
+    /** Two fingers spread from 200 px to 400 px apart about (500, 400). */
+    function pinchTo2x(video: HTMLElement) {
+      finger('Down', video, 1, 400, 400)
+      finger('Down', video, 2, 600, 400)
+      finger('Move', video, 1, 300, 400)
+      finger('Move', video, 2, 700, 400)
+      finger('Up', video, 1, 300, 400)
+      finger('Up', video, 2, 700, 400)
+    }
+
+    /** The zoom of the transform on the video. */
+    function scaleOf(video: HTMLElement): number {
+      const match = /scale\(([\d.]+)\)/.exec(video.style.transform)
+      return match === null ? 1 : Number(match[1])
+    }
+
+    it('sends a tap as a move, then the left button down and up', async () => {
+      const { video, ops } = await renderScreen('takeover')
+      stubBox(video, { left: 0, top: 0, width: 1280, height: 800 })
+
+      finger('Down', video, 1, 640, 400)
+      finger('Up', video, 1, 640, 400)
+
+      expect(ops()).toEqual([
+        { op: 'move', x: 640, y: 400 },
+        { op: 'button', button: 'left', down: true },
+        { op: 'button', button: 'left', down: false },
+      ])
+    })
+
+    it('zooms with a pinch and sends no input', async () => {
+      const { video, ops } = await renderScreen('takeover')
+      stubBox(video, { left: 0, top: 0, width: 1280, height: 800 })
+
+      pinchTo2x(video)
+
+      expect(scaleOf(video)).toBeCloseTo(2)
+      expect(ops()).toEqual([])
+    })
+
+    it('sends the capture pixel under a mouse click on a frame with bars on the sides', async () => {
+      const { video, ops } = await renderScreen('takeover')
+      // The content is 640 × 400 at x 180 in a frame of 1000 × 400.
+      stubBox(video, { left: 0, top: 0, width: 1000, height: 400 })
+
+      fireEvent.pointerDown(video, { pointerType: 'mouse', clientX: 340, clientY: 100, button: 0 })
+      fireEvent.pointerUp(video, { pointerType: 'mouse', clientX: 340, clientY: 100, button: 0 })
+
+      expect(ops()).toEqual([
+        { op: 'move', x: 320, y: 200 },
+        { op: 'button', button: 'left', down: true },
+        { op: 'button', button: 'left', down: false },
+      ])
+    })
+
+    it('zooms the expanded screen outside a Takeover and sends no input', async () => {
+      const { video, ops } = await renderScreen('expanded')
+      stubBox(video, { left: 0, top: 0, width: 1280, height: 800 })
+
+      pinchTo2x(video)
+      finger('Down', video, 3, 640, 400)
+      finger('Up', video, 3, 640, 400)
+      fireEvent.pointerDown(video, { pointerType: 'mouse', clientX: 10, clientY: 10, button: 0 })
+      fireEvent.pointerUp(video, { pointerType: 'mouse', clientX: 10, clientY: 10, button: 0 })
+
+      expect(scaleOf(video)).toBeCloseTo(2)
+      expect(ops()).toEqual([])
+    })
+
+    it('neither zooms nor sends input in the tile', async () => {
+      const { video, ops } = await renderScreen('compact')
+      stubBox(video, { left: 0, top: 0, width: 1280, height: 800 })
+
+      pinchTo2x(video)
+
+      expect(video.style.transform).toBe('')
+      expect(ops()).toEqual([])
+    })
+  })
+
   it('a refused offer falls back', async () => {
     const api = stubApi(async () => ({
       error: { error: { code: 'computer_asleep', message: 'asleep' } },
@@ -464,7 +576,7 @@ describe('LiveScreen', () => {
         api={api}
         agentId="ag1"
         agentName="Sage"
-        interactive={false}
+        mode="compact"
         fallback={<span>fallback</span>}
       />,
     )
