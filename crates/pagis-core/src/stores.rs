@@ -16,6 +16,7 @@ use crate::identity::{OrgStore, SessionStore, SignInLinkStore, UserStore};
 use crate::keypad::KeypadFailureStore;
 use crate::knowledge::KnowledgeStore;
 use crate::memory::MemoryPageIndex;
+use crate::model_request_capture::ModelRequestCaptureStore;
 use crate::usage::UsageStore;
 
 use crate::store::{
@@ -54,6 +55,7 @@ pub struct Stores {
     pub memory_pages: Arc<dyn MemoryPageIndex>,
     pub messages: Arc<dyn MessageStore>,
     pub model_aliases: Arc<dyn ModelAliasStore>,
+    pub model_request_captures: Arc<dyn ModelRequestCaptureStore>,
     pub onboarding: Arc<dyn OnboardingStore>,
     pub orgs: Arc<dyn OrgStore>,
     pub participants: Arc<dyn ParticipantStore>,

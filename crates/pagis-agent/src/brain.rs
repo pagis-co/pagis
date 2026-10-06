@@ -23,6 +23,8 @@ pub struct BrainError {
     pub message: String,
     model_attempts: u32,
     refused_key: bool,
+    provider_status: Option<u16>,
+    provider_body: Option<serde_json::Value>,
 }
 
 impl BrainError {
@@ -31,6 +33,8 @@ impl BrainError {
             message: message.into(),
             model_attempts: 0,
             refused_key: false,
+            provider_status: None,
+            provider_body: None,
         }
     }
 
@@ -43,10 +47,13 @@ impl BrainError {
     }
 
     fn from_router(error: llm_router::Error) -> Self {
+        let response = error.provider_response();
         Self {
             message: error.to_string(),
             model_attempts: error.attempts(),
             refused_key: error.refuses_key(),
+            provider_status: response.map(|(status, _)| status),
+            provider_body: response.and_then(|(_, body)| body.cloned()),
         }
     }
 
@@ -54,6 +61,17 @@ impl BrainError {
     /// an Administrator can change.
     pub fn is_refused_key(&self) -> bool {
         self.refused_key
+    }
+
+    /// The HTTP status of the provider answer that ended the call, or
+    /// `None` when no provider answered with an error status.
+    pub fn provider_status(&self) -> Option<u16> {
+        self.provider_status
+    }
+
+    /// The provider's error body when it was JSON, capped by the router.
+    pub fn provider_body(&self) -> Option<&serde_json::Value> {
+        self.provider_body.as_ref()
     }
 
     /// Router attempts made before this error reached the agent loop.
@@ -910,6 +928,37 @@ mod tests {
             .unwrap();
         assert_eq!(sent["model"], "openai/gpt-6-astra");
         assert_eq!(sent["tools"][0], json!({"type": "computer"}));
+    }
+
+    #[tokio::test]
+    async fn a_refused_request_keeps_the_status_and_the_error_body_of_the_provider() {
+        let server = MockServer::start().await;
+        let body = json!({"error": {"message": "This request requires more credits", "code": 402}});
+        Mock::given(method("POST"))
+            .and(path("/responses"))
+            .respond_with(ResponseTemplate::new(402).set_body_json(body.clone()))
+            .mount(&server)
+            .await;
+        let keys = keys();
+        keys.set(Provider::OpenAi, "sk-openai").unwrap();
+        let brain = RouterBrain::new(keys, catalog()).with_base_url(Provider::OpenAi, server.uri());
+        let mut request = request();
+        request.model_candidates = vec!["openai/gpt-6-luna".to_string()];
+
+        let err = brain.turn(request).await.err().expect("turn fails");
+
+        assert_eq!(err.provider_status(), Some(402));
+        assert_eq!(err.provider_body(), Some(&body));
+    }
+
+    #[tokio::test]
+    async fn an_error_before_any_provider_answer_has_no_status() {
+        let brain = RouterBrain::new(keys(), catalog());
+
+        let err = brain.turn(request()).await.err().expect("turn fails");
+
+        assert_eq!(err.provider_status(), None);
+        assert_eq!(err.provider_body(), None);
     }
 
     #[tokio::test]

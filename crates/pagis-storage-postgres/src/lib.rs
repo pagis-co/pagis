@@ -34,6 +34,7 @@ mod knowledge_store;
 mod memory_page_index;
 mod message_store;
 mod model_alias_store;
+mod model_request_capture_store;
 mod onboarding_store;
 mod participant_store;
 mod pending_evidence_store;
@@ -78,6 +79,7 @@ pub use knowledge_store::PostgresKnowledgeStore;
 pub use memory_page_index::PostgresMemoryPageIndex;
 pub use message_store::PostgresMessageStore;
 pub use model_alias_store::PostgresModelAliasStore;
+pub use model_request_capture_store::PostgresModelRequestCaptureStore;
 pub use onboarding_store::PostgresOnboardingStore;
 pub use participant_store::PostgresParticipantStore;
 pub use pending_evidence_store::PostgresPendingEvidenceStore;
@@ -138,6 +140,7 @@ pub fn stores(pool: PgPool) -> pagis_core::Stores {
         knowledge: Arc::new(PostgresKnowledgeStore::new(pool.clone())),
         memory_pages: Arc::new(PostgresMemoryPageIndex::new(pool.clone())),
         messages: Arc::new(PostgresMessageStore::new(pool.clone())),
+        model_request_captures: Arc::new(PostgresModelRequestCaptureStore::new(pool.clone())),
         model_aliases: Arc::new(PostgresModelAliasStore::new(pool.clone())),
         onboarding: Arc::new(PostgresOnboardingStore::new(pool.clone())),
         orgs: Arc::new(PostgresOrgStore::new(pool.clone())),
