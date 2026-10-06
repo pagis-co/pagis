@@ -328,6 +328,11 @@ pub const ADMINISTRATION_ROUTES: &[Route] = &[
         authenticated: true,
     },
     Route {
+        path: "/api/v1/settings/system/model-request-capture",
+        methods: &["put"],
+        authenticated: true,
+    },
+    Route {
         path: "/api/v1/settings/system/home-exit",
         methods: &["put"],
         authenticated: true,
@@ -603,6 +608,11 @@ pub const ROUTES: &[Route] = &[
     },
     Route {
         path: "/api/v1/runs/{run_id}/steps",
+        methods: &["get"],
+        authenticated: true,
+    },
+    Route {
+        path: "/api/v1/runs/{run_id}/model-requests",
         methods: &["get"],
         authenticated: true,
     },

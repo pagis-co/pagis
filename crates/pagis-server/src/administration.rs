@@ -1174,6 +1174,10 @@ pub fn router(state: Arc<AppState>) -> Router {
             put(crate::system::set_analytics),
         )
         .route(
+            "/api/v1/settings/system/model-request-capture",
+            put(crate::system::set_model_request_capture),
+        )
+        .route(
             "/api/v1/settings/system/home-exit",
             put(crate::system::set_home_exit_setting),
         )

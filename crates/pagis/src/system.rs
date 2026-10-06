@@ -75,6 +75,22 @@ impl SystemConfigFile for FileSystemConfig {
         config.save(&path).map_err(|error| error.to_string())
     }
 
+    fn model_request_capture(&self) -> Result<(bool, u32), String> {
+        let config = Config::read_file(&self.path()).map_err(|error| error.to_string())?;
+        Ok((
+            config.model_request_capture.enabled,
+            config.model_request_capture.retention_days,
+        ))
+    }
+
+    fn set_model_request_capture(&self, enabled: bool, retention_days: u32) -> Result<(), String> {
+        let path = self.path();
+        let mut config = Config::read_file(&path).map_err(|error| error.to_string())?;
+        config.model_request_capture.enabled = enabled;
+        config.model_request_capture.retention_days = retention_days;
+        config.save(&path).map_err(|error| error.to_string())
+    }
+
     fn data_directory(&self) -> PathBuf {
         self.home.clone()
     }
@@ -174,6 +190,19 @@ mod tests {
         assert!(message.contains("tailscale funnel --tls-terminated-tcp=8443 off"));
         assert!(message.contains("turn on Remote Access again"));
         assert!(!message.contains("--port"));
+    }
+
+    #[test]
+    fn the_model_request_capture_goes_to_the_config_file_and_comes_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = FileSystemConfig::new(dir.path());
+        assert_eq!(file.model_request_capture().unwrap(), (false, 7));
+
+        file.set_model_request_capture(true, 12).unwrap();
+
+        assert_eq!(file.model_request_capture().unwrap(), (true, 12));
+        // The rest of the file stays as it was.
+        assert!(file.read().unwrap().analytics);
     }
 
     #[test]

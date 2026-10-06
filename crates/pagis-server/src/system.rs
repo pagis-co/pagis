@@ -97,6 +97,11 @@ pub trait SystemConfigFile: Send + Sync {
     /// it off and clears both. Both directions bind loopback, where the
     /// Funnel and the owner's Client App reach the daemon.
     fn set_remote_access(&self, public_origin: Option<&str>) -> Result<(), String>;
+    /// The Model Request Capture setting as the file records it
+    /// (ADR-0030): whether it is on, and its retention in days.
+    fn model_request_capture(&self) -> Result<(bool, u32), String>;
+    /// Write the Model Request Capture setting.
+    fn set_model_request_capture(&self, enabled: bool, retention_days: u32) -> Result<(), String>;
     /// The data directory. The user reads it and never sets it.
     fn data_directory(&self) -> PathBuf;
 }
@@ -234,6 +239,24 @@ pub struct AnalyticsDto {
     pub blocked: Option<AnalyticsBlockedDto>,
 }
 
+/// The Model Request Capture System Setting (ADR-0030).
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ModelRequestCaptureDto {
+    /// Whether the daemon keeps a copy of each model request of a Run.
+    /// Off by default.
+    pub enabled: bool,
+    /// How many days the daemon keeps a capture, from 1 to 30.
+    pub retention_days: u32,
+}
+
+/// Turn Model Request Capture on or off, and set its retention.
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct SetModelRequestCaptureRequest {
+    pub enabled: bool,
+    /// From 1 to 30.
+    pub retention_days: u32,
+}
+
 /// The Home Exit of the People of a Server (ADR-0029).
 #[derive(Debug, Serialize, ToSchema)]
 pub struct HomeExitSettingDto {
@@ -273,6 +296,7 @@ pub struct SystemSettingsDto {
     /// through. A change to `[screen]` takes effect at the next start.
     pub screen: ScreenDto,
     pub analytics: AnalyticsDto,
+    pub model_request_capture: ModelRequestCaptureDto,
     /// The Home Exit of a Server, or null on a Local Installation, which
     /// has no Home Exit.
     pub home_exit: Option<HomeExitSettingDto>,
@@ -349,6 +373,10 @@ fn settings_dto(state: &AppState, config: SystemConfig, report: DockerReport) ->
         analytics: AnalyticsDto {
             enabled: config.analytics,
             blocked: state.analytics_blocked.map(Into::into),
+        },
+        model_request_capture: ModelRequestCaptureDto {
+            enabled: state.capture.is_enabled(),
+            retention_days: state.capture.retention_days(),
         },
         home_exit: (!is_local(state)).then_some(HomeExitSettingDto {
             enabled: config.home_exit,
@@ -528,6 +556,61 @@ pub async fn set_analytics(
         enabled = request.enabled,
         "the administrator switched the analytics"
     );
+    let report = state.docker_discovery.probe().await;
+    Ok(Json(SavedSystemSettingsDto {
+        settings: settings_dto(&state, config, report),
+        restart_required: false,
+    }))
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/v1/settings/system/model-request-capture",
+    request_body = SetModelRequestCaptureRequest,
+    responses(
+        (status = 200, body = SavedSystemSettingsDto),
+        (status = 401, body = crate::error::ErrorBody),
+        (status = 403, body = crate::error::ErrorBody),
+        (status = 422, body = crate::error::ErrorBody),
+    )
+)]
+/// Turn Model Request Capture on or off, and set its retention
+/// (ADR-0030). The agent loop reads the live setting at each model
+/// request, so the change needs no restart. Turning it off deletes every
+/// capture of the installation.
+pub async fn set_model_request_capture(
+    State(state): State<Arc<AppState>>,
+    _administrator: Administrator,
+    Json(request): Json<SetModelRequestCaptureRequest>,
+) -> Result<Json<SavedSystemSettingsDto>, ApiError> {
+    let days = request.retention_days;
+    if !(1..=pagis_core::MAX_CAPTURE_RETENTION_DAYS).contains(&days) {
+        return Err(ApiError::validation(format!(
+            "the retention must be from 1 to {} days",
+            pagis_core::MAX_CAPTURE_RETENTION_DAYS
+        )));
+    }
+    state
+        .system
+        .set_model_request_capture(request.enabled, days)
+        .map_err(|error| {
+            tracing::error!(%error, "cannot write the config file");
+            ApiError::internal()
+        })?;
+    state.capture.set(request.enabled, days);
+    if !request.enabled {
+        let deleted = state.model_request_captures.delete_all().await?;
+        tracing::info!(deleted, "turning the capture off deleted every capture");
+    }
+    tracing::info!(
+        enabled = request.enabled,
+        retention_days = days,
+        "the administrator switched the model request capture"
+    );
+    let config = state.system.read().map_err(|error| {
+        tracing::error!(%error, "cannot read the config file");
+        ApiError::internal()
+    })?;
     let report = state.docker_discovery.probe().await;
     Ok(Json(SavedSystemSettingsDto {
         settings: settings_dto(&state, config, report),

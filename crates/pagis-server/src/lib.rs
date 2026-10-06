@@ -503,6 +503,10 @@ fn product_router(state: Arc<AppState>) -> Router {
         .route("/api/v1/runs/{run_id}/retry", post(runs::retry_review))
         .route("/api/v1/runs/{run_id}/events", get(runs::run_events))
         .route("/api/v1/runs/{run_id}/steps", get(runs::run_steps))
+        .route(
+            "/api/v1/runs/{run_id}/model-requests",
+            get(runs::model_requests),
+        )
         .route("/api/v1/runs", get(runs::list_runs))
         .route(
             "/api/v1/schedules",

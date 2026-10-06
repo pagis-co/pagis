@@ -187,6 +187,70 @@ pub async fn run_events(
     }))
 }
 
+/// One Model Request Capture of a Run (ADR-0030).
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ModelRequestCaptureDto {
+    pub id: String,
+    /// `reply`, `compaction` or `reflection`, as on `model.requested`.
+    pub phase: String,
+    /// The number of the request inside its phase, from 0.
+    pub phase_request: i64,
+    /// The request as the Agent sent it, after Compaction. Each image is
+    /// its media type, its sizes and its SHA-256.
+    pub request: serde_json::Value,
+    /// The outcome, and the usage or the provider's status and error body.
+    pub answer: serde_json::Value,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ModelRequestCapturesDto {
+    pub items: Vec<ModelRequestCaptureDto>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/runs/{run_id}/model-requests",
+    params(("run_id" = String, Path)),
+    responses(
+        (status = 200, body = ModelRequestCapturesDto),
+        (status = 401, body = crate::error::ErrorBody),
+        (status = 404, description = "No such Run, or the reader is not an Administrator", body = crate::error::ErrorBody),
+    )
+)]
+/// The Model Request Captures of a Run, in the order the Run made the
+/// requests. A capture holds Person data, so only an Administrator reads
+/// it. A Member gets `404`, as for a Run that does not exist (ADR-0030).
+pub async fn model_requests(
+    State(app): State<Arc<AppState>>,
+    tenant: Tenant,
+    Path(run_id): Path<String>,
+) -> Result<Json<ModelRequestCapturesDto>, ApiError> {
+    if tenant.role != pagis_core::UserRole::Administrator {
+        return Err(ApiError::not_found("run"));
+    }
+    let run_id = RunId::from(run_id);
+    app.runs
+        .get(&tenant.workspace_id, &run_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("run"))?;
+    let items = app
+        .model_request_captures
+        .list_for_run(&tenant.workspace_id, &run_id)
+        .await?
+        .into_iter()
+        .map(|capture| ModelRequestCaptureDto {
+            id: capture.id.to_string(),
+            phase: capture.phase,
+            phase_request: capture.phase_request,
+            request: capture.request,
+            answer: capture.answer,
+            created_at: capture.created_at,
+        })
+        .collect();
+    Ok(Json(ModelRequestCapturesDto { items }))
+}
+
 #[utoipa::path(
     get,
     path = "/api/v1/runs/{run_id}/steps",
