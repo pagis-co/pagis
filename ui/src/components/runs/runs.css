@@ -263,6 +263,17 @@
   font-size: var(--text-xs);
 }
 
+/* A captured request runs to thousands of lines, so it scrolls in its
+ * own box instead of making the page long. */
+.runs-request .runs-raw {
+  max-height: 32rem;
+  overflow: auto;
+}
+
+.runs-request .ui-button {
+  justify-self: start;
+}
+
 .runs-shot {
   width: 12rem;
   max-height: 8rem;
