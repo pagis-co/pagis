@@ -123,7 +123,7 @@ hashes.
 | Store | What it holds | Encrypted |
 | --- | --- | --- |
 | `secrets.enc` | The provider keys, the other secrets of the installation and of each Workspace, and the Tenant Data Key of each Workspace. | Yes, with the Installation Key. |
-| `pagis.db`, or the Postgres database of a server | The records of every Person: the People, the conversations with their tool results, the Runs, the Connections, the Source Items that a Sync copies (for example mail and calendar events), the Grants and the Vault. | Partly. The Tenant Data Keys seal the Credential secrets, the one-time code seeds and the `brokered` refresh tokens. Sessions, Sign-In Links and passwords are hashes. |
+| `pagis.db`, or the Postgres database of a server | The records of every Person: the People, the conversations with their tool results, the Runs, the Connections, the Source Items that a Sync copies (for example mail and calendar events), the Grants, the Vault, and the Model Request Captures while that setting is on. | Partly. The Tenant Data Keys seal the Credential secrets, the one-time code seeds and the `brokered` refresh tokens. Sessions, Sign-In Links and passwords are hashes. |
 | `memory/<workspace_id>/` | The memory of each Workspace, with its full git history. | No. |
 | `artifacts/`, `recordings/` | The Artifacts: the files that the Agents made, the files that People attach, the screenshots and the call recordings. | No. |
 | `screens/` | The last screenshot of each Computer. | No. |
@@ -183,6 +183,20 @@ input tokens and the limit of the route, the output limit that the
 request sends, and the number of messages, tools and images. The page of
 a Run shows one line for each model request, with the provider's error
 when the request failed.
+
+The content of a model request stays out of the records unless an
+Administrator turns on **Model Request Capture** in the Settings view of
+the Administration Interface. While it is on, the daemon keeps a copy of
+each model request of a Run: the system prompt, the messages, the memory
+and the tool results that the request sent, and the answer or the error
+of the provider. Each image in the copy is its type, its size and its
+SHA-256. Each Person sees in the sidebar that Pagis keeps their requests,
+and for how many days. Only an Administrator reads a copy, on the page of
+the Run. The daemon deletes a copy after the retention of the setting, 7
+days by default and 30 days at most. Turning the setting off deletes every
+copy, Forget deletes the copies of a Run that read the forgotten source,
+and a Backup holds none
+([ADR-0030](https://github.com/pagis-co/pagis/blob/main/docs/adr/0030-an-administrator-can-capture-the-model-requests-of-a-run.md)).
 
 On a server, and on a local installation in Remote Access, the
 Administrator stores the provider keys for the whole Org. The providers of

@@ -61,6 +61,8 @@ export const screenPreviewKey = (agentId: string) =>
   ["screen-preview", agentId] as const;
 export const runsKey = (agentId: string, channelId: string, state: string) =>
   ["runs", agentId, channelId, state] as const;
+export const runModelRequestsKey = (runId: string) =>
+  ["runs", runId, "model-requests"] as const;
 export const runTranscriptKey = (runId: string) =>
   ["run-transcript", runId] as const;
 export const runStepsKey = (runId: string) => ["run-steps", runId] as const;
@@ -1219,6 +1221,21 @@ export function useRuns(
           },
         }),
       ).then((page) => page.items),
+  });
+}
+
+/** The Model Request Captures of a Run (ADR-0030). Only an
+ *  Administrator reads them, so a Member's page never asks. */
+export function useRunModelRequests(api: ApiClient, runId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: runModelRequestsKey(runId),
+    queryFn: () =>
+      unwrap(
+        api.GET("/api/v1/runs/{run_id}/model-requests", {
+          params: { path: { run_id: runId } },
+        }),
+      ),
+    enabled,
   });
 }
 
@@ -2868,6 +2885,21 @@ export function useSetAnalytics(api: ApiClient) {
       unwrap(api.PUT("/api/v1/settings/system/analytics", { body: { enabled } })),
     onSuccess: (saved) => {
       queryClient.setQueryData(systemSettingsKey, saved.settings);
+    },
+  });
+}
+
+/** Turn Model Request Capture on or off and set its retention
+ *  (ADR-0030). The agent loop reads the live setting, so no restart is
+ *  needed. Turning it off deletes every capture. */
+export function useSetModelRequestCapture(api: ApiClient) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { enabled: boolean; retention_days: number }) =>
+      unwrap(api.PUT("/api/v1/settings/system/model-request-capture", { body })),
+    onSuccess: (saved) => {
+      queryClient.setQueryData(systemSettingsKey, saved.settings);
+      void queryClient.invalidateQueries({ queryKey: userKey });
     },
   });
 }

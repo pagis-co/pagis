@@ -298,6 +298,9 @@ export function runSteps(events: readonly RunEventDto[]): RunStep[] {
 /** One model request of the run: its size, and the error when it failed. */
 export interface ModelRequest {
   event: RunEventDto
+  /** `phase:phase_request`, the key that joins the request to its
+   *  completion and to its capture. */
+  key: string
   label: string
   summary: string
   /** The call failed, or the budget check rejected it before the call. */
@@ -366,9 +369,11 @@ export function modelRequests(events: readonly RunEventDto[]): ModelRequest[] {
       const payload = payloadOf(event)
       const phase = String(payload.phase)
       const number = typeof payload.phase_request === 'number' ? payload.phase_request + 1 : 1
-      const completed = completions.get(`${phase}:${String(payload.phase_request)}`) ?? null
+      const key = `${phase}:${String(payload.phase_request)}`
+      const completed = completions.get(key) ?? null
       return {
         event,
+        key,
         label: `${PHASE_LABEL[phase] ?? phase} ${number}`,
         summary: requestSummary(payload, completed),
         failed:

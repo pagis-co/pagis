@@ -1556,6 +1556,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/model-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The Model Request Captures of a Run, in the order the Run made the
+         *     requests. A capture holds Person data, so only an Administrator reads
+         *     it. A Member gets `404`, as for a Run that does not exist (ADR-0030).
+         */
+        get: operations["model_requests"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{run_id}/retry": {
         parameters: {
             query?: never;
@@ -2551,6 +2572,28 @@ export interface paths {
          *     whose mode changes switches at once, with no restart.
          */
         put: operations["set_home_exit_setting"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/system/model-request-capture": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Turn Model Request Capture on or off, and set its retention
+         *     (ADR-0030). The agent loop reads the live setting at each model
+         *     request, so the change needs no restart. Turning it off deletes every
+         *     capture of the installation.
+         */
+        put: operations["set_model_request_capture"];
         post?: never;
         delete?: never;
         options?: never;
@@ -4656,6 +4699,42 @@ export interface components {
             preselected?: string | null;
             providers: components["schemas"]["ProviderModelsDto"][];
         };
+        /** @description One Model Request Capture of a Run (ADR-0030). */
+        ModelRequestCaptureDto: {
+            /** @description The outcome, and the usage or the provider's status and error body. */
+            answer: unknown;
+            /** Format: int64 */
+            created_at: number;
+            id: string;
+            /** @description `reply`, `compaction` or `reflection`, as on `model.requested`. */
+            phase: string;
+            /**
+             * Format: int64
+             * @description The number of the request inside its phase, from 0.
+             */
+            phase_request: number;
+            /**
+             * @description The request as the Agent sent it, after Compaction. Each image is
+             *     its media type, its sizes and its SHA-256.
+             */
+            request: unknown;
+        };
+        /** @description The Model Request Capture System Setting (ADR-0030). */
+        ModelRequestCaptureSettingDto: {
+            /**
+             * @description Whether the daemon keeps a copy of each model request of a Run.
+             *     Off by default.
+             */
+            enabled: boolean;
+            /**
+             * Format: int32
+             * @description How many days the daemon keeps a capture, from 1 to 30.
+             */
+            retention_days: number;
+        };
+        ModelRequestCapturesDto: {
+            items: components["schemas"]["ModelRequestCaptureDto"][];
+        };
         /** @description One Session of the signed-in Person, for their Sessions list. */
         MySessionDto: {
             /** @description `browser` or `desktop`. */
@@ -5643,6 +5722,15 @@ export interface components {
             /** @description 6 to 8 digits. It is hashed at once and never read back. */
             code: string;
         };
+        /** @description Turn Model Request Capture on or off, and set its retention. */
+        SetModelRequestCaptureRequest: {
+            enabled: boolean;
+            /**
+             * Format: int32
+             * @description From 1 to 30.
+             */
+            retention_days: number;
+        };
         SetOnboardingDefaultModelRequest: {
             /**
              * @description The `provider/model` candidate, e.g. `anthropic/claude-sonnet-5-5`.
@@ -5982,6 +6070,7 @@ export interface components {
              */
             listening_port: number;
             log_level: string;
+            model_request_capture: components["schemas"]["ModelRequestCaptureSettingDto"];
             /**
              * Format: int32
              * @description The product port that `config.toml` names.
@@ -6291,6 +6380,14 @@ export interface components {
              */
             email?: string | null;
             id: string;
+            /**
+             * Format: int32
+             * @description How many days Pagis keeps a copy of each model request, while an
+             *     Administrator has Model Request Capture on (ADR-0030). `null`
+             *     while it is off. Every Person learns it, because the copy holds
+             *     their own requests.
+             */
+            model_request_capture_days?: number | null;
             /**
              * @description The name the agents call the person by; `null` until onboarding
              *     records one.
@@ -10580,6 +10677,44 @@ export interface operations {
             };
         };
     };
+    model_requests: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelRequestCapturesDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such Run, or the reader is not an Administrator */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     retry_review: {
         parameters: {
             query?: never;
@@ -13071,6 +13206,53 @@ export interface operations {
             };
             /** @description A Local Installation has no Home Exit */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    set_model_request_capture: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetModelRequestCaptureRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedSystemSettingsDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

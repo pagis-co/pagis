@@ -460,7 +460,7 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         system::AnalyticsDto,
         system::AnalyticsBlockedDto,
         system::SetAnalyticsRequest,
-        system::ModelRequestCaptureDto,
+        system::ModelRequestCaptureSettingDto,
         system::SetModelRequestCaptureRequest,
         system::HomeExitSettingDto,
         system::SetHomeExitSettingRequest,

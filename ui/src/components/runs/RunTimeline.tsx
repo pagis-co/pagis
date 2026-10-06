@@ -13,6 +13,7 @@ import {
   type ApiClient,
   type MemoryFeedItem,
   type RunEventDto,
+  type RunModelRequestCaptureDto,
 } from '../../api/client'
 import { Avatar, Badge, Button } from '../../primitives'
 import {
@@ -21,6 +22,8 @@ import {
   useMemoryFeed,
   useRetryReview,
   useRevertCommit,
+  useIsAdministrator,
+  useRunModelRequests,
   useRunTranscript,
 } from '../../queries'
 import {
@@ -31,6 +34,7 @@ import {
   runSteps,
   stepDuration,
   triggerSentence,
+  type ModelRequest,
   type RunStep,
 } from './runs'
 
@@ -98,6 +102,68 @@ function StepCard({ step, index }: { step: RunStep; index: number }) {
           {shots.map((artifactId) => (
             <Screenshot key={artifactId} artifactId={artifactId} />
           ))}
+        </>
+      )}
+    </article>
+  )
+}
+
+/** Save a capture as a JSON file, named after its Run and request. */
+function download(capture: RunModelRequestCaptureDto, runId: string) {
+  const json = JSON.stringify({ request: capture.request, answer: capture.answer }, null, 2)
+  const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }))
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `${runId}-${capture.phase}-${capture.phase_request + 1}.json`
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
+function ModelRequestCard({
+  request,
+  runError,
+  runId,
+  capture,
+}: {
+  request: ModelRequest
+  runError: string | null | undefined
+  runId: string
+  capture: RunModelRequestCaptureDto | undefined
+}) {
+  const [open, setOpen] = useState(false)
+  return (
+    <article className="runs-request" data-testid="model-request">
+      <div className="runs-request-head">
+        <strong>{request.label}</strong>
+        {request.failed && <Badge tone="failed">Failed</Badge>}
+      </div>
+      <span>{request.summary}</span>
+      {/* The error of the Run reads once, in the footer. */}
+      {request.error !== null && request.error !== runError && (
+        <p className="runs-request-error">{request.error}</p>
+      )}
+      {capture !== undefined && (
+        <>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="runs-step-raw-toggle"
+            aria-expanded={open}
+            onClick={() => setOpen(!open)}
+          >
+            {open ? <ChevronDown size={14} aria-hidden /> : <ChevronRight size={14} aria-hidden />}
+            Show request
+          </Button>
+          {open && (
+            <>
+              <pre className="runs-raw">
+                {JSON.stringify({ request: capture.request, answer: capture.answer }, null, 2)}
+              </pre>
+              <Button size="sm" variant="ghost" onClick={() => download(capture, runId)}>
+                Download JSON
+              </Button>
+            </>
+          )}
         </>
       )}
     </article>
@@ -198,6 +264,8 @@ export function RunTimeline({
   onBack: () => void
 }) {
   const transcript = useRunTranscript(api, runId)
+  const isAdministrator = useIsAdministrator(api)
+  const captures = useRunModelRequests(api, runId, isAdministrator)
   const agents = useAgents(api)
   const channels = useChannels(api)
   const memory = useMemoryFeed(api)
@@ -227,6 +295,12 @@ export function RunTimeline({
   const failure = failureText(run)
   const steps = runSteps(events)
   const requests = modelRequests(events)
+  const captureOf = new Map(
+    (captures.data?.items ?? []).map((capture) => [
+      `${capture.phase}:${capture.phase_request}`,
+      capture,
+    ]),
+  )
   const learningEvents = events.filter((event) =>
     ['memory.review_pending', 'context.compacted', 'memory.committed'].includes(event.event_type),
   )
@@ -265,17 +339,13 @@ export function RunTimeline({
         <section className="runs-requests" aria-label="Model requests">
           <h3>Model requests</h3>
           {requests.map((request) => (
-            <article key={request.event.id} className="runs-request" data-testid="model-request">
-              <div className="runs-request-head">
-                <strong>{request.label}</strong>
-                {request.failed && <Badge tone="failed">Failed</Badge>}
-              </div>
-              <span>{request.summary}</span>
-              {/* The error of the Run reads once, in the footer. */}
-              {request.error !== null && request.error !== run.error && (
-                <p className="runs-request-error">{request.error}</p>
-              )}
-            </article>
+            <ModelRequestCard
+              key={request.event.id}
+              request={request}
+              runError={run.error}
+              runId={run.id}
+              capture={captureOf.get(request.key)}
+            />
           ))}
         </section>
       )}

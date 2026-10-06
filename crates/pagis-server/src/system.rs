@@ -241,7 +241,7 @@ pub struct AnalyticsDto {
 
 /// The Model Request Capture System Setting (ADR-0030).
 #[derive(Debug, Serialize, ToSchema)]
-pub struct ModelRequestCaptureDto {
+pub struct ModelRequestCaptureSettingDto {
     /// Whether the daemon keeps a copy of each model request of a Run.
     /// Off by default.
     pub enabled: bool,
@@ -296,7 +296,7 @@ pub struct SystemSettingsDto {
     /// through. A change to `[screen]` takes effect at the next start.
     pub screen: ScreenDto,
     pub analytics: AnalyticsDto,
-    pub model_request_capture: ModelRequestCaptureDto,
+    pub model_request_capture: ModelRequestCaptureSettingDto,
     /// The Home Exit of a Server, or null on a Local Installation, which
     /// has no Home Exit.
     pub home_exit: Option<HomeExitSettingDto>,
@@ -374,7 +374,7 @@ fn settings_dto(state: &AppState, config: SystemConfig, report: DockerReport) ->
             enabled: config.analytics,
             blocked: state.analytics_blocked.map(Into::into),
         },
-        model_request_capture: ModelRequestCaptureDto {
+        model_request_capture: ModelRequestCaptureSettingDto {
             enabled: state.capture.is_enabled(),
             retention_days: state.capture.retention_days(),
         },

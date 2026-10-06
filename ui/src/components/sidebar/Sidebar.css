@@ -173,6 +173,17 @@
 
 /* The profile row sits on the floor of the column and reads from the
    start, like a place. The sign-out control sits at its end. */
+.sidebar-capture-notice {
+  margin: auto 0 0;
+  padding: 0 var(--space-2);
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.sidebar-capture-notice + .sidebar-profile {
+  margin-top: var(--space-2);
+}
+
 .sidebar-profile {
   display: flex;
   align-items: center;

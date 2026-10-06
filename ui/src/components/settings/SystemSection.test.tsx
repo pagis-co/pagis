@@ -28,6 +28,7 @@ const settings = {
     media_port_last: 50099,
   },
   analytics: { enabled: true, blocked: null },
+  model_request_capture: { enabled: false, retention_days: 7 },
   port: 4400,
   listening_port: 4400,
   port_override: null,
@@ -161,6 +162,67 @@ describe('SystemSection', () => {
     expect(
       await screen.findByText('DO_NOT_TRACK is set, so Pagis sends no analytics.'),
     ).toBeTruthy()
+  })
+
+  it('shows the model request capture off, with its retention', async () => {
+    mount(stubApi())
+
+    expect(
+      (await screen.findByRole('switch', { name: /Keep a copy of each model request/ })).getAttribute(
+        'aria-checked',
+      ),
+    ).toBe('false')
+    expect((screen.getByLabelText('Days to keep a copy') as HTMLInputElement).value).toBe('7')
+    expect(screen.getByText('Pagis keeps no copy of a model request.')).toBeTruthy()
+  })
+
+  it('turns the model request capture on with its retention', async () => {
+    const api = stubApi({
+      PUT: vi.fn(async () => ({
+        data: {
+          settings: { ...settings, model_request_capture: { enabled: true, retention_days: 7 } },
+          restart_required: false,
+        },
+      })),
+    })
+    mount(api)
+
+    fireEvent.click(
+      await screen.findByRole('switch', { name: /Keep a copy of each model request/ }),
+    )
+
+    await waitFor(() =>
+      expect(api.PUT).toHaveBeenCalledWith('/api/v1/settings/system/model-request-capture', {
+        body: { enabled: true, retention_days: 7 },
+      }),
+    )
+    expect(await screen.findByText(/keeps a copy of each model request for 7 days/)).toBeTruthy()
+  })
+
+  it('saves a new retention of the model request capture', async () => {
+    const api = stubApi({
+      PUT: vi.fn(async () => ({
+        data: {
+          settings: { ...settings, model_request_capture: { enabled: false, retention_days: 14 } },
+          restart_required: false,
+        },
+      })),
+    })
+    mount(api)
+
+    const days = await screen.findByLabelText('Days to keep a copy')
+    fireEvent.change(days, { target: { value: '31' } })
+    expect(
+      (screen.getByRole('button', { name: 'Save the retention' }) as HTMLButtonElement).disabled,
+    ).toBe(true)
+    fireEvent.change(days, { target: { value: '14' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save the retention' }))
+
+    await waitFor(() =>
+      expect(api.PUT).toHaveBeenCalledWith('/api/v1/settings/system/model-request-capture', {
+        body: { enabled: false, retention_days: 14 },
+      }),
+    )
   })
 
   /** A local installation has no Home Exit (ADR-0029): its Computers
