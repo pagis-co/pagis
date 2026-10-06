@@ -183,6 +183,16 @@
   --page-width: 72rem;
   --page-padding: clamp(1.25rem, 3vw, 2.5rem);
 
+  /* The safe area: the part of a phone screen that no notch, rounded
+   * corner or home indicator covers. The page draws under those parts
+   * (`viewport-fit=cover`), so the root and each fixed layer pad
+   * themselves by these insets. A screen that has no such parts
+   * gives 0px. */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+
   /* State, then panels, then the slowest ambient loop. */
   --duration-fast: 150ms;
   --duration-panel: 250ms;

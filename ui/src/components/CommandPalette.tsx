@@ -28,8 +28,19 @@ function storedTheme(): Theme | null {
   }
 }
 
+/** Put the theme on the root. `index.html` gives the browser bars the
+ * ground of each system theme; a chosen theme gives both its own. */
+function showTheme(theme: Theme) {
+  const root = document.documentElement
+  root.setAttribute('data-theme', theme)
+  const ground = getComputedStyle(root).getPropertyValue('--ground').trim()
+  for (const meta of document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')) {
+    meta.content = ground
+  }
+}
+
 function setTheme(theme: Theme) {
-  document.documentElement.setAttribute('data-theme', theme)
+  showTheme(theme)
   try {
     window.localStorage.setItem(THEME_KEY, theme)
   } catch {
@@ -40,7 +51,7 @@ function setTheme(theme: Theme) {
 /** Put the stored theme on the root when the shell starts. */
 export function applyStoredTheme() {
   const theme = storedTheme()
-  if (theme !== null) document.documentElement.setAttribute('data-theme', theme)
+  if (theme !== null) showTheme(theme)
 }
 
 /** Flip the theme and remember it. `data-theme` drives `tokens.css`. */

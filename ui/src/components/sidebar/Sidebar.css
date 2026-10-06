@@ -200,6 +200,12 @@
     transform: translateX(-102%);
     transition: transform var(--duration-fast) ease;
     box-shadow: var(--shadow-raised);
+    /* The drawer touches the top, the bottom and the left edge of the
+       screen. It adds the inset of each one to the padding of the
+       Sidebar layout primitive. */
+    padding-top: calc(var(--space-4) + var(--safe-top));
+    padding-bottom: calc(var(--space-4) + var(--safe-bottom));
+    padding-left: calc(var(--space-3) + var(--safe-left));
   }
 
   .sidebar-open {

@@ -5,7 +5,8 @@
   align-items: center;
   justify-content: center;
   min-height: 100%;
-  padding: var(--space-8) var(--space-4);
+  padding: calc(var(--space-8) + var(--safe-top)) calc(var(--space-4) + var(--safe-right))
+    calc(var(--space-8) + var(--safe-bottom)) calc(var(--space-4) + var(--safe-left));
   background: var(--ground);
   overflow: hidden auto;
 }

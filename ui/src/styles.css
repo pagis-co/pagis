@@ -61,10 +61,13 @@ body {
   font-weight: var(--weight-regular);
 }
 
+/* The shell root holds every screen. It keeps them inside the safe
+   area, and its own ground fills the parts of the screen around it. */
 .app {
   display: flex;
   flex-direction: column;
   height: 100%;
+  padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
   background: var(--panel);
 }
 
