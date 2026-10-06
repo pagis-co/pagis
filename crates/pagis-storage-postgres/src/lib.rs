@@ -42,6 +42,7 @@ mod phone_number_store;
 mod plugin_store;
 mod plugin_tool_store;
 mod pool;
+mod push_subscription_store;
 mod request_store;
 mod resource_store;
 mod retention_policy_store;
@@ -87,6 +88,7 @@ pub use phone_number_store::PostgresPhoneNumberStore;
 pub use plugin_store::PostgresPluginStore;
 pub use plugin_tool_store::PostgresPluginToolStore;
 pub use pool::{begin_write, connect};
+pub use push_subscription_store::PostgresPushSubscriptionStore;
 pub use request_store::PostgresRequestStore;
 pub use resource_store::{PostgresConnectionStore, PostgresCredentialStore};
 pub use retention_policy_store::PostgresRetentionPolicyStore;
@@ -149,6 +151,7 @@ pub fn stores(pool: PgPool) -> pagis_core::Stores {
         phone_numbers: Arc::new(PostgresPhoneNumberStore::new(pool.clone())),
         plugin_tools: Arc::new(PostgresPluginToolStore::new(pool.clone())),
         plugins: Arc::new(PostgresPluginStore::new(pool.clone())),
+        push_subscriptions: Arc::new(PostgresPushSubscriptionStore::new(pool.clone())),
         requests: Arc::new(PostgresRequestStore::new(pool.clone())),
         retention_policies: Arc::new(PostgresRetentionPolicyStore::new(pool.clone())),
         runs: Arc::new(PostgresRunStore::new(pool.clone())),

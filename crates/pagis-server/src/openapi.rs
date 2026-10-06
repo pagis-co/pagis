@@ -24,6 +24,7 @@ use crate::model_lists;
 use crate::phone_numbers;
 use crate::plugins;
 use crate::providers;
+use crate::push_subscriptions;
 use crate::remote_access;
 use crate::requests;
 use crate::run_steps;
@@ -143,6 +144,10 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         requests::get_request,
         requests::decide_request,
         hosts::list_hosts,
+        push_subscriptions::get_vapid_key,
+        push_subscriptions::list_push_subscriptions,
+        push_subscriptions::subscribe,
+        push_subscriptions::remove_push_subscription,
         home_exit::get_home_exit,
         home_exit::set_home_exit,
         home_exit::clear_home_exit,
@@ -269,6 +274,11 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         administration::AdministrationHostsDto,
         hosts::HostDto,
         hosts::HostsDto,
+        push_subscriptions::VapidKeyDto,
+        push_subscriptions::SubscribeRequest,
+        push_subscriptions::PushSubscriptionKeys,
+        push_subscriptions::PushSubscriptionDto,
+        push_subscriptions::PushSubscriptionsDto,
         home_exit::HomeExitDto,
         home_exit::HomeExitHostDto,
         home_exit::SetHomeExitRequest,

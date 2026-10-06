@@ -370,3 +370,53 @@ async fn each_person_reads_the_plugin_log_of_their_own_workspace() {
     assert_eq!(b_status, 200);
     assert_eq!(b_text, "");
 }
+
+/// The ids of the Push Subscriptions that `cookie` lists.
+async fn push_subscription_ids(world: &TwoTenants, cookie: &str) -> Vec<String> {
+    let response = reqwest::Client::new()
+        .get(format!(
+            "{}/api/v1/push-subscriptions",
+            world.daemon.base_url
+        ))
+        .header("cookie", cookie)
+        .send()
+        .await
+        .expect("list the push subscriptions");
+    assert_eq!(response.status(), 200);
+    let body: serde_json::Value = response.json().await.expect("the list");
+    body["items"]
+        .as_array()
+        .expect("the items")
+        .iter()
+        .map(|item| item["id"].as_str().expect("an id").to_string())
+        .collect()
+}
+
+/// Person B neither lists nor removes person A's Push Subscription
+/// (ADR-0030): B's list holds none of A's, and A's id reads as absent.
+#[tokio::test]
+async fn person_b_cannot_read_or_delete_person_as_push_subscription() {
+    let world = TwoTenants::start().await;
+    let a_subscription = world.a_id("push_subscription_id").to_string();
+
+    assert!(
+        push_subscription_ids(&world, &world.b.cookie)
+            .await
+            .is_empty()
+    );
+    let removal = reqwest::Client::new()
+        .delete(format!(
+            "{}/api/v1/push-subscriptions/{a_subscription}",
+            world.daemon.base_url
+        ))
+        .header("cookie", &world.b.cookie)
+        .send()
+        .await
+        .expect("delete as B");
+    assert_eq!(removal.status(), 404);
+
+    assert_eq!(
+        push_subscription_ids(&world, &world.a.cookie).await,
+        vec![a_subscription]
+    );
+}

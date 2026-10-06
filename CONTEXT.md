@@ -810,7 +810,7 @@ _Avoid_: vault data key, workspace key
 
 ### VAPID Key
 The one P-256 key pair that signs each Web Push of the installation. Its
-private half is an entry of `secrets.enc`. Not built (ADR-0030).
+private half is an entry of `secrets.enc` (ADR-0030).
 
 ### Vault
 The store of a Workspace's Credentials. It has no export: a secret leaves
@@ -1212,7 +1212,7 @@ state and the tool call in flight (ADR-0004).
 
 ### Push Subscription
 The push endpoint and the keys of one client. It belongs to one Session
-and ends with it. Not built (ADR-0030).
+and ends with it (ADR-0030).
 
 ### Report
 The message that the Chief of Staff writes for Home in its DM Channel: what

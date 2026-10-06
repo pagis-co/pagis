@@ -80,6 +80,11 @@ id_type!(
     /// there and never in the daemon.
     HostId
 );
+id_type!(
+    /// One Push Subscription: the push endpoint of one client of one
+    /// Session (ADR-0030).
+    PushSubscriptionId
+);
 id_type!(WorkspaceId);
 id_type!(AgentId);
 id_type!(ChannelId);

@@ -1439,6 +1439,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/push-subscriptions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The Push Subscriptions of the signed-in Person, oldest first, each
+         *     named by the client of its Session.
+         */
+        get: operations["list_push_subscriptions"];
+        put?: never;
+        /**
+         * Subscribe the client of the asking Session to Web Push. A known
+         *     endpoint moves to this Session and takes the new keys.
+         */
+        post: operations["subscribe"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/push-subscriptions/{push_subscription_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove one Push Subscription of the signed-in Person. A Push
+         *     Subscription of another Person reads as absent.
+         */
+        delete: operations["remove_push_subscription"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/push/key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The public half of the installation's VAPID Key, which a client
+         *     subscribes with.
+         */
+        get: operations["get_vapid_key"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/requests": {
         parameters: {
             query?: never;
@@ -5240,6 +5304,43 @@ export interface components {
         ProviderSetupPage: {
             items: components["schemas"]["ProviderSetupDto"][];
         };
+        /**
+         * @description One Push Subscription of the signed-in Person, named by the client of
+         *     its Session. The endpoint and the keys stay in the daemon.
+         */
+        PushSubscriptionDto: {
+            /** @description The kind of client of the Session: `browser` or `desktop`. */
+            client_kind: string;
+            /**
+             * @description The client of the Session, such as "Safari on iPhone". `null`
+             *     where the client said none.
+             */
+            client_name?: string | null;
+            /** Format: int64 */
+            created_at: number;
+            /** @description True for the Push Subscription of the Session that asks. */
+            current: boolean;
+            id: string;
+            /**
+             * Format: int64
+             * @description When the daemon last sent a Web Push to it. `null` until the
+             *     first one.
+             */
+            last_sent_at?: number | null;
+        };
+        /**
+         * @description The keys of a Push Subscription, as `PushSubscription.toJSON()`
+         *     writes them.
+         */
+        PushSubscriptionKeys: {
+            /** @description The client's 16-byte auth secret, as base64url. */
+            auth: string;
+            /** @description The client's P-256 public key: an uncompressed point, as base64url. */
+            p256dh: string;
+        };
+        PushSubscriptionsDto: {
+            items: components["schemas"]["PushSubscriptionDto"][];
+        };
         ReflectionFilter: {
             default: components["schemas"]["Verdict"];
             rules: components["schemas"]["Rule"][];
@@ -5921,6 +6022,18 @@ export interface components {
             resource: string;
             workspace_id: string;
         };
+        /**
+         * @description The body of `PushSubscription.toJSON()`. Other members, such as
+         *     `expirationTime`, are ignored.
+         */
+        SubscribeRequest: {
+            /**
+             * @description The `https` URL of the push service, with a DNS name and at most
+             *     2048 characters.
+             */
+            endpoint: string;
+            keys: components["schemas"]["PushSubscriptionKeys"];
+        };
         /** @description The subscription with everything a detail view needs beside it. */
         SubscriptionDetailDto: components["schemas"]["SubscriptionDto"] & {
             last_collection?: null | components["schemas"]["SourceBatchDto"];
@@ -6431,6 +6544,14 @@ export interface components {
             format: components["schemas"]["ListFormat"];
             /** @enum {string} */
             kind: "list";
+        };
+        /** @description The public half of the VAPID Key. */
+        VapidKeyDto: {
+            /**
+             * @description The uncompressed P-256 point as base64url with no padding: the
+             *     `applicationServerKey` of `PushManager.subscribe`.
+             */
+            vapid_public_key: string;
         };
         /** @enum {string} */
         Verdict: "reflect" | "skip";
@@ -10376,6 +10497,136 @@ export interface operations {
                 };
             };
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_push_subscriptions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PushSubscriptionsDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    subscribe: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SubscribeRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PushSubscriptionDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    remove_push_subscription: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description One Push Subscription of the signed-in Person */
+                push_subscription_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The Push Subscription ended */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_vapid_key: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VapidKeyDto"];
+                };
+            };
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

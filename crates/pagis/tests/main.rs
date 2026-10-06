@@ -62,6 +62,7 @@ mod phone_numbers;
 mod plugin_mcp;
 mod plugins;
 mod progress;
+mod push_subscriptions;
 mod reflection_filter;
 mod release_evaluation;
 mod remote_access;

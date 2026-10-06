@@ -30,6 +30,7 @@ mod phone_number_store;
 mod plugin_store;
 mod plugin_tool_store;
 mod pool;
+mod push_subscription_store;
 mod request_store;
 mod resource_store;
 mod retention_policy_store;
@@ -74,6 +75,7 @@ pub use phone_number_store::SqlitePhoneNumberStore;
 pub use plugin_store::SqlitePluginStore;
 pub use plugin_tool_store::SqlitePluginToolStore;
 pub use pool::{begin_write, connect, connect_memory};
+pub use push_subscription_store::SqlitePushSubscriptionStore;
 pub use request_store::SqliteRequestStore;
 pub use resource_store::{SqliteConnectionStore, SqliteCredentialStore};
 pub use retention_policy_store::SqliteRetentionPolicyStore;
@@ -153,6 +155,7 @@ pub fn stores(pool: sqlx::SqlitePool) -> pagis_core::Stores {
         phone_numbers: Arc::new(SqlitePhoneNumberStore::new(pool.clone())),
         plugin_tools: Arc::new(SqlitePluginToolStore::new(pool.clone())),
         plugins: Arc::new(SqlitePluginStore::new(pool.clone())),
+        push_subscriptions: Arc::new(SqlitePushSubscriptionStore::new(pool.clone())),
         requests: Arc::new(SqliteRequestStore::new(pool.clone())),
         retention_policies: Arc::new(SqliteRetentionPolicyStore::new(pool.clone())),
         runs: Arc::new(SqliteRunStore::new(pool.clone())),

@@ -30,6 +30,7 @@ mod phone_numbers;
 mod plugins;
 mod providers;
 pub mod provisioning;
+mod push_subscriptions;
 pub mod remote_access;
 mod requests;
 mod ring;
@@ -230,6 +231,9 @@ pub struct AppState {
     pub model_request_captures: Arc<dyn pagis_core::ModelRequestCaptureStore>,
     /// What every signed-in client holds.
     pub sessions: Arc<dyn SessionStore>,
+    /// The Push Subscriptions of each Session (ADR-0030). Each one ends
+    /// with its Session.
+    pub push_subscriptions: Arc<dyn pagis_core::PushSubscriptionStore>,
     /// The signal of each Session that holds a live connection. A
     /// sign-out and an Administrator who ends every Session of a Person
     /// fire it, and so does the expiry of the Session, and every socket
@@ -746,6 +750,17 @@ fn product_router(state: Arc<AppState>) -> Router {
         .route(
             "/api/v1/settings/sign-in-links",
             post(sign_in_links::make_client_link),
+        )
+        // The VAPID Key of the installation, and the Push Subscriptions
+        // of the Person's Sessions (ADR-0030).
+        .route("/api/v1/push/key", get(push_subscriptions::get_vapid_key))
+        .route(
+            "/api/v1/push-subscriptions",
+            get(push_subscriptions::list_push_subscriptions).post(push_subscriptions::subscribe),
+        )
+        .route(
+            "/api/v1/push-subscriptions/{push_subscription_id}",
+            delete(push_subscriptions::remove_push_subscription),
         )
         // The Person's own Home Exit (ADR-0029).
         .route(
