@@ -32,7 +32,9 @@ use crate::brain::{
 };
 use crate::briefing::{Briefing, Colleague, Delegation, USER_DM, mail_tier_lines};
 use crate::computer_use::{self, ComputerCtx, Vocabulary};
-use crate::context_budget::{RequestBudget, RequestEstimate, estimate_message_tokens};
+use crate::context_budget::{
+    RequestBudget, RequestEstimate, RequestSummary, estimate_message_tokens,
+};
 use crate::memory::MemoryOverlay;
 use crate::model_catalog::ModelCatalog;
 use crate::progress;
@@ -2684,6 +2686,7 @@ async fn collect_turn(
     cancel: &CancellationToken,
 ) -> Result<(String, Vec<ToolInvocation>), TurnError> {
     let started = Instant::now();
+    publish_model_requested(deps, run, phase, phase_request, request).await;
     if let Some(error) = request_budget_error(request, &deps.models) {
         publish_model_completed(
             deps,
@@ -3365,6 +3368,7 @@ async fn stream_turn(
     let started = Instant::now();
     let mut text = String::new();
     let mut tool_calls = Vec::new();
+    publish_model_requested(deps, run, phase, phase_request, request).await;
     if let Some(error) = request_budget_error(request, &deps.models) {
         publish_model_completed(
             deps,
@@ -3489,6 +3493,24 @@ async fn stream_turn(
             }
         }
     }
+}
+
+/// One `model.requested` event for each logical model request, before
+/// the call: the counts and token bounds of the request, and no content.
+/// Its `phase` and `phase_request` match the `model.completed` event of
+/// the same request.
+async fn publish_model_requested(
+    deps: &AgentDeps,
+    run: &Run,
+    phase: &str,
+    phase_request: usize,
+    request: &TurnRequest,
+) {
+    let mut payload = serde_json::to_value(RequestSummary::of(request, &deps.models))
+        .expect("a request summary serializes");
+    payload["phase"] = phase.into();
+    payload["phase_request"] = phase_request.into();
+    publish(deps, run, "model.requested", payload).await;
 }
 
 #[expect(

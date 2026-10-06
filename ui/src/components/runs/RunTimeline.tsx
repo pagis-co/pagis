@@ -25,6 +25,7 @@ import {
 } from '../../queries'
 import {
   failureText,
+  modelRequests,
   runDuration,
   runStateBadge,
   runSteps,
@@ -225,6 +226,7 @@ export function RunTimeline({
   const badge = runStateBadge(run.state)
   const failure = failureText(run)
   const steps = runSteps(events)
+  const requests = modelRequests(events)
   const learningEvents = events.filter((event) =>
     ['memory.review_pending', 'context.compacted', 'memory.committed'].includes(event.event_type),
   )
@@ -259,6 +261,25 @@ export function RunTimeline({
         ))}
       </section>
 
+      {requests.length > 0 && (
+        <section className="runs-requests" aria-label="Model requests">
+          <h3>Model requests</h3>
+          {requests.map((request) => (
+            <article key={request.event.id} className="runs-request" data-testid="model-request">
+              <div className="runs-request-head">
+                <strong>{request.label}</strong>
+                {request.failed && <Badge tone="failed">Failed</Badge>}
+              </div>
+              <span>{request.summary}</span>
+              {/* The error of the Run reads once, in the footer. */}
+              {request.error !== null && request.error !== run.error && (
+                <p className="runs-request-error">{request.error}</p>
+              )}
+            </article>
+          ))}
+        </section>
+      )}
+
       {learningEvents.length > 0 && (
         <section className="runs-learning" aria-label="Conversation and memory">
           <h3>Conversation and memory</h3>
@@ -290,9 +311,10 @@ export function RunTimeline({
 
       <footer className="runs-footer">
         {failure !== null && (
-          <p className="runs-run-failure" title={run.error ?? undefined}>
-            {failure}
-          </p>
+          <div className="runs-run-failure">
+            <p>{failure}</p>
+            {run.error != null && <p className="runs-run-error">{run.error}</p>}
+          </div>
         )}
         {run.trigger_kind === 'review' && run.state === 'failed' && (
           <span className="runs-review-retry">

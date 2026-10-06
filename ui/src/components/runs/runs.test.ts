@@ -6,6 +6,7 @@ import {
   dayLabel,
   failureText,
   groupByDay,
+  modelRequests,
   runDuration,
   runStateBadge,
   runSteps,
@@ -232,5 +233,84 @@ describe('a step summarises to a line', () => {
     const steps = runSteps([event({ id: 'a', payload: { name: 'computer' } })])
     expect(steps[0].result).toBe('No result')
     expect(stepDuration(steps[0])).toBe('—')
+  })
+})
+
+describe('a model request summarises to a line', () => {
+  const requested = (phase: string, phaseRequest: number, fields: Record<string, unknown> = {}) =>
+    event({
+      id: `${phase}-${phaseRequest}`,
+      event_type: 'model.requested',
+      payload: {
+        phase,
+        phase_request: phaseRequest,
+        model_alias: 'default',
+        model_candidates: ['openrouter/qwen/qwen3.8-27b'],
+        estimated_input_tokens: 41_200,
+        input_allowance: 112_000,
+        max_output_tokens: null,
+        messages: 14,
+        tools: 23,
+        images: 0,
+        ...fields,
+      },
+    })
+  const completed = (phase: string, phaseRequest: number, fields: Record<string, unknown>) =>
+    event({
+      id: `${phase}-${phaseRequest}-done`,
+      event_type: 'model.completed',
+      payload: { phase, phase_request: phaseRequest, ...fields },
+    })
+
+  it('reads the route, the size, the output limit and the counts', () => {
+    const [request] = modelRequests([requested('reply', 0)])
+    expect(request.label).toBe('Turn 1')
+    expect(request.summary).toBe(
+      'openrouter/qwen/qwen3.8-27b · about 41,200 of 112,000 input tokens · max output not set · 14 messages · 23 tools',
+    )
+    expect(request.error).toBeNull()
+    expect(request.failed).toBe(false)
+  })
+
+  it('marks a request that the budget check rejected as failed', () => {
+    const [request] = modelRequests([
+      requested('reply', 0),
+      completed('reply', 0, { outcome: 'rejected', error: 'model request needs at most 9 tokens' }),
+    ])
+    expect(request.failed).toBe(true)
+  })
+
+  it('names the serving model, the output limit and the images when there are some', () => {
+    const [request] = modelRequests([
+      requested('compaction', 0, { max_output_tokens: 16_384, images: 2, model_candidates: ['a/x', 'b/y'] }),
+      completed('compaction', 0, { outcome: 'completed', provider: 'b', model: 'y' }),
+    ])
+    expect(request.label).toBe('Compaction 1')
+    expect(request.summary).toBe(
+      'b/y · about 41,200 of 112,000 input tokens · max output 16,384 · 14 messages · 23 tools · 2 images',
+    )
+  })
+
+  it('joins each request to the completion of the same phase and number', () => {
+    const requests = modelRequests([
+      requested('reply', 0),
+      completed('reply', 0, { outcome: 'completed' }),
+      requested('reply', 1),
+      requested('reflection', 0),
+      completed('reflection', 0, { outcome: 'completed' }),
+      completed('reply', 1, { outcome: 'failed', error: 'status 402: needs more credits' }),
+    ])
+    expect(requests.map((request) => request.label)).toEqual(['Turn 1', 'Turn 2', 'Reflection 1'])
+    expect(requests.map((request) => request.failed)).toEqual([false, true, false])
+    expect(requests[0].error).toBeNull()
+    expect(requests[1].error).toBe('status 402: needs more credits')
+    expect(requests[2].error).toBeNull()
+  })
+
+  it('names the alias when several candidates could serve and none answered', () => {
+    const [request] = modelRequests([
+      requested('reply', 0, { model_candidates: ['a/x', 'b/y'], estimated_input_tokens: null, input_allowance: null }),
+    ])
+    expect(request.summary).toBe('default · max output not set · 14 messages · 23 tools')
   })
 })

@@ -132,14 +132,65 @@
 }
 
 .runs-run-failure {
+  display: grid;
   flex-basis: 100%;
-  margin: 0;
+  gap: var(--space-1);
   border: 1px solid var(--border);
   border-left: 3px solid var(--failed);
   border-radius: var(--radius-sm);
   background: var(--failed-soft);
   color: var(--failed-ink);
   padding: var(--space-2) var(--space-3);
+}
+
+.runs-run-failure p {
+  margin: 0;
+}
+
+/* The provider's own words: copyable, and wrapped at any character so
+ * a long URL in the error never widens the page. */
+.runs-run-error,
+.runs-request-error {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.runs-requests {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.runs-requests > h3 {
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.runs-request {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--raised);
+}
+
+.runs-request-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.runs-request > span {
+  color: var(--muted);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.runs-request-error {
+  margin: 0;
+  color: var(--failed-ink);
 }
 
 .runs-steps {
