@@ -258,6 +258,10 @@ impl MessageStore for RecordingMessages {
 
 struct Loop {
     system: Arc<AgentSystem>,
+    /// The live Model Request Capture setting, off as on a new
+    /// installation.
+    capture: Arc<pagis_core::CaptureSetting>,
+    captures: Arc<pagis_storage_sqlite::SqliteModelRequestCaptureStore>,
     agents: Arc<SqliteAgentStore>,
     artifacts: Arc<SqliteArtifactStore>,
     brain: Arc<ScriptedBrain>,
@@ -498,6 +502,10 @@ where
         hosts: Arc::new(pagis_storage_sqlite::SqliteHostStore::new(pool.clone())),
         presence: Arc::clone(&host_presence),
     }));
+    let capture = Arc::new(pagis_core::CaptureSetting::default());
+    let captures = Arc::new(pagis_storage_sqlite::SqliteModelRequestCaptureStore::new(
+        pool.clone(),
+    ));
     let system = AgentSystem::start(AgentDeps {
         forget: Arc::new(pagis_storage_sqlite::SqliteForgetStore::new(pool.clone())),
         workspaces: Arc::new(SqliteWorkspaceStore::new(pool.clone())),
@@ -508,6 +516,8 @@ where
         model_aliases,
         users: Arc::new(pagis_storage_sqlite::SqliteUserStore::new(pool.clone())),
         usage: Arc::new(pagis_storage_sqlite::SqliteUsageStore::new(pool.clone())),
+        capture: Arc::clone(&capture),
+        model_request_captures: Arc::clone(&captures) as _,
         participants: Arc::clone(&participants) as _,
         requests: Arc::clone(&requests) as _,
         grants: Arc::clone(&grants) as _,
@@ -550,6 +560,8 @@ where
     .unwrap();
     let _host_client = FakeHostClient::answering(Arc::clone(&host_presence), host.id.clone());
     Loop {
+        capture,
+        captures,
         host,
         hosts: Arc::new(pagis_storage_sqlite::SqliteHostStore::new(pool.clone())),
         host_presence: Arc::clone(&host_presence),
@@ -1874,6 +1886,106 @@ async fn a_model_request_summary_holds_no_content(pool: SqlitePool) {
         "{payload}"
     );
     next_state(&mut events, "completed").await;
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn with_the_setting_off_a_run_keeps_no_model_request_capture(pool: SqlitePool) {
+    let harness = boot(pool, AgentLoopConfig::default()).await;
+    harness.brain.push(Script::reply(&["Hello!"]));
+    let mut events = harness
+        .bus
+        .subscribe(EventScope::Installation, Some(0))
+        .await;
+
+    harness.send("hi").await;
+
+    let ended = next_state(&mut events, "completed").await;
+    let run_id = ended.run_id.expect("run id");
+    let captures = pagis_core::ModelRequestCaptureStore::list_for_run(
+        harness.captures.as_ref(),
+        &harness.workspace.id,
+        &run_id,
+    )
+    .await
+    .unwrap();
+    assert!(captures.is_empty());
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn with_the_setting_on_a_run_keeps_each_request_and_its_answer(pool: SqlitePool) {
+    let harness = boot(pool, AgentLoopConfig::default()).await;
+    harness.capture.set(true, 7);
+    harness.brain.push(Script::reply(&["Hello!"]));
+    let mut events = harness
+        .bus
+        .subscribe(EventScope::Installation, Some(0))
+        .await;
+
+    harness.send("the vault code is 7713").await;
+
+    let ended = next_state(&mut events, "completed").await;
+    let run_id = ended.run_id.expect("run id");
+    let captures = pagis_core::ModelRequestCaptureStore::list_for_run(
+        harness.captures.as_ref(),
+        &harness.workspace.id,
+        &run_id,
+    )
+    .await
+    .unwrap();
+    assert_eq!(captures.len(), 1);
+    let capture = &captures[0];
+    assert_eq!(capture.phase, "reply");
+    assert_eq!(capture.phase_request, 0);
+    // The request the Agent sent, after Compaction.
+    let sent = &harness.brain.requests()[0];
+    assert_eq!(capture.request["system"], sent.system.as_str());
+    assert_eq!(capture.request["model_alias"], "default");
+    assert!(
+        capture.request["messages"][0]["text"]
+            .as_str()
+            .is_some_and(|text| text.contains("the vault code is 7713"))
+    );
+    assert_eq!(
+        capture.request["tools"].as_array().map(Vec::len),
+        Some(sent.tools.len())
+    );
+    // The answer of a request that completed.
+    assert_eq!(capture.answer["outcome"], "completed");
+    assert_eq!(capture.answer["usage"]["input_tokens"], 7);
+    assert!(capture.answer.get("status").is_none());
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_capture_of_a_refused_request_keeps_the_status_and_the_error_body(pool: SqlitePool) {
+    let harness = boot(pool, AgentLoopConfig::default()).await;
+    harness.capture.set(true, 7);
+    let body = serde_json::json!({"error": {"message": "requires more credits", "code": 402}});
+    harness.brain.push(Script::provider_error(
+        402,
+        body.clone(),
+        "provider `openrouter` returned status 402",
+    ));
+    let mut events = harness
+        .bus
+        .subscribe(EventScope::Installation, Some(0))
+        .await;
+
+    harness.send("hi").await;
+
+    let ended = next_state(&mut events, "failed").await;
+    let captures = pagis_core::ModelRequestCaptureStore::list_for_run(
+        harness.captures.as_ref(),
+        &harness.workspace.id,
+        &ended.run_id.expect("run id"),
+    )
+    .await
+    .unwrap();
+    assert_eq!(captures.len(), 1);
+    let answer = &captures[0].answer;
+    assert_eq!(answer["outcome"], "failed");
+    assert_eq!(answer["status"], 402);
+    assert_eq!(answer["body"], body);
+    assert_eq!(answer["error"], "provider `openrouter` returned status 402");
 }
 
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]

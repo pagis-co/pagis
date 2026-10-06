@@ -100,9 +100,16 @@ function stubApi(
   runValue = run,
   eventValues: readonly RunEventDto[] = events,
   memoryItems: unknown[] | null = null,
+  viewer: { role?: string; captures?: unknown[] } = {},
 ) {
   return {
     GET: vi.fn(async (path: string) => {
+      if (path === '/api/v1/user') {
+        return { data: { id: 'user-1', role: viewer.role ?? 'member' } }
+      }
+      if (path === '/api/v1/runs/{run_id}/model-requests') {
+        return { data: { items: viewer.captures ?? [] } }
+      }
       if (path === '/api/v1/agents') {
         return {
           data: { items: [{ id: 'agent-1', name: 'Sage', job: 'a', status: 'active' }] },
@@ -146,6 +153,41 @@ function stubApi(
     POST: vi.fn(async () => ({ data: { sha: 'revert-1' } })),
   } as unknown as ApiClient
 }
+
+const modelRequestEvents: RunEventDto[] = [
+  {
+    id: 'm1',
+    event_type: 'model.requested',
+    agent_id: 'agent-1',
+    channel_id: 'channel-1',
+    created_at: 1_000,
+    payload: {
+      phase: 'reply',
+      phase_request: 0,
+      model_alias: 'default',
+      model_candidates: ['openrouter/qwen/qwen3.8-27b'],
+      estimated_input_tokens: 900,
+      input_allowance: 112_000,
+      max_output_tokens: null,
+      messages: 3,
+      tools: 5,
+      images: 0,
+    },
+  },
+  {
+    id: 'm2',
+    event_type: 'model.completed',
+    agent_id: 'agent-1',
+    channel_id: 'channel-1',
+    created_at: 1_100,
+    payload: {
+      phase: 'reply',
+      phase_request: 0,
+      outcome: 'failed',
+      error: 'status 402: needs more credits',
+    },
+  },
+]
 
 function mount(api = stubApi()) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -264,40 +306,7 @@ describe('the run timeline', () => {
     mount(
       stubApi(
         { ...run, failure_kind: 'model_failed', error: 'status 402: needs more credits' },
-        [
-          {
-            id: 'm1',
-            event_type: 'model.requested',
-            agent_id: 'agent-1',
-            channel_id: 'channel-1',
-            created_at: 1_000,
-            payload: {
-              phase: 'reply',
-              phase_request: 0,
-              model_alias: 'default',
-              model_candidates: ['openrouter/qwen/qwen3.8-27b'],
-              estimated_input_tokens: 900,
-              input_allowance: 112_000,
-              max_output_tokens: null,
-              messages: 3,
-              tools: 5,
-              images: 0,
-            },
-          },
-          {
-            id: 'm2',
-            event_type: 'model.completed',
-            agent_id: 'agent-1',
-            channel_id: 'channel-1',
-            created_at: 1_100,
-            payload: {
-              phase: 'reply',
-              phase_request: 0,
-              outcome: 'failed',
-              error: 'status 402: needs more credits',
-            },
-          },
-        ],
+        modelRequestEvents,
       ),
     )
 
@@ -314,6 +323,47 @@ describe('the run timeline', () => {
     expect(
       within(screen.getByRole('contentinfo')).getByText('status 402: needs more credits'),
     ).toBeTruthy()
+  })
+
+  it('shows an Administrator the captured request of a model request', async () => {
+    const api = stubApi(run, modelRequestEvents, null, {
+      role: 'administrator',
+      captures: [
+        {
+          id: 'c1',
+          phase: 'reply',
+          phase_request: 0,
+          request: { system: 'Follow the user.', messages: [{ role: 'user', text: 'hi' }] },
+          answer: { outcome: 'failed', status: 402, body: { error: 'credits' } },
+          created_at: 1_000,
+        },
+      ],
+    })
+    mount(api)
+
+    const request = await screen.findByTestId('model-request')
+    const toggle = await within(request).findByRole('button', { name: /Show request/ })
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    expect(within(request).queryByText(/Follow the user/)).toBeNull()
+
+    fireEvent.click(toggle)
+
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    expect(within(request).getByText(/Follow the user/)).toBeTruthy()
+    expect(within(request).getByText(/"status": 402/)).toBeTruthy()
+    expect(within(request).getByRole('button', { name: 'Download JSON' })).toBeTruthy()
+  })
+
+  it('shows a Member no captured request, and does not ask for one', async () => {
+    const api = stubApi(run, modelRequestEvents)
+    mount(api)
+
+    await screen.findByTestId('model-request')
+    expect(screen.queryByRole('button', { name: /Show request/ })).toBeNull()
+    expect(api.GET).not.toHaveBeenCalledWith(
+      '/api/v1/runs/{run_id}/model-requests',
+      expect.anything(),
+    )
   })
 
   it('goes back to the record', async () => {

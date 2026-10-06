@@ -2578,6 +2578,80 @@ pub async fn an_account_forget_deletes_the_tool_results_and_the_reads_of_its_con
     );
 }
 
+/// A Model Request Capture of a Run that read a forgotten source holds
+/// what the Run read, so Forget deletes it with the tool results of the
+/// Run (ADR-0031).
+pub async fn a_forget_deletes_the_model_request_captures_of_a_run_that_read_it(backend: &Backend) {
+    let (store, state) = setup(backend).await;
+    let key = state.key();
+    let agent = state.config.agent_id.clone();
+    acquire(store.as_ref(), backend.keys(), &key, vec![kept()]).await;
+    let words = format!("The {FORGOTTEN_WORD} invoice is due on Friday.");
+    let run = quoting_run(
+        backend,
+        &key,
+        &agent,
+        &[SourceRead::Item {
+            resource: key.resource.clone(),
+            id: FORGOTTEN.into(),
+        }],
+        &words,
+    )
+    .await;
+    let run_id = run.reply.run_id.clone().expect("the reply names its Run");
+    backend
+        .stores()
+        .model_request_captures
+        .record(&pagis_core::ModelRequestCapture {
+            id: pagis_core::ModelRequestCaptureId::generate(),
+            workspace_id: key.workspace_id.clone(),
+            run_id: run_id.clone(),
+            phase: "reply".into(),
+            phase_request: 1,
+            request: serde_json::json!({"messages": [{"role": "tool", "text": words}]}),
+            answer: serde_json::json!({"outcome": "completed"}),
+            created_at: 17,
+        })
+        .await
+        .unwrap();
+
+    let forget = &backend.stores().forget;
+    let target = ForgetTarget::Account {
+        connection_id: key.connection_id.clone(),
+    };
+    let preview = forget.preview(&key.workspace_id, &target).await.unwrap();
+    let operation = forget
+        .begin(
+            &key.workspace_id,
+            &target,
+            &preview.revision,
+            30,
+            backend.keys(),
+        )
+        .await
+        .unwrap();
+    forget
+        .purge_structured(&key.workspace_id, &operation.id)
+        .await
+        .unwrap();
+
+    assert!(
+        backend
+            .stores()
+            .model_request_captures
+            .list_for_run(&key.workspace_id, &run_id)
+            .await
+            .unwrap()
+            .is_empty(),
+        "a capture of the Run that read the account stays"
+    );
+    assert_eq!(
+        holding(backend, FORGOTTEN_WORD).await,
+        Vec::<String>::new(),
+        "a value of the database holds the words of the forgotten account"
+    );
+}
+
 /// A read that a Run makes while a Forget blocks the Connection has no
 /// record, so the broker keeps its result from the model. A call that
 /// was in flight when the Forget began then cannot leave the words of
@@ -3501,6 +3575,7 @@ macro_rules! store_suite_knowledge {
     ($emit:path) => {
         $emit!(
             knowledge,
+            a_forget_deletes_the_model_request_captures_of_a_run_that_read_it,
             a_new_filter_bumps_the_revision_and_starts_its_own_counts,
             a_later_pass_replaces_the_decision_of_the_same_revision,
             page_signals_read_the_metadata_of_one_thread,

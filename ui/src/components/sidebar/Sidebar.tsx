@@ -19,7 +19,7 @@ import {
   Sidebar as SidebarShell,
   cx,
 } from '../../primitives'
-import { useAgents, useChannels, useUserName, useWorkspace } from '../../queries'
+import { useAgents, useChannels, useUser, useUserName, useWorkspace } from '../../queries'
 import { useIsMobile } from '../../state/useIsMobile'
 import { useQueue } from '../home/useQueue'
 import { ConversationRow } from './ConversationRow'
@@ -57,6 +57,7 @@ export function Sidebar({
   const roster = useAgents(api)
   const workspace = useWorkspace(api)
   const userName = useUserName(api)
+  const captureDays = useUser(api).data?.model_request_capture_days ?? null
   const queue = useQueue(api)
   const [creating, setCreating] = useState(false)
   const isMobile = useIsMobile()
@@ -145,6 +146,12 @@ export function Sidebar({
           <p className="sidebar-empty">No conversations yet.</p>
         )}
       </nav>
+
+      {captureDays !== null && (
+        <p className="sidebar-capture-notice" role="note">
+          Pagis keeps a copy of your model requests for {captureDays} days.
+        </p>
+      )}
 
       <div className="sidebar-profile">
         <Button

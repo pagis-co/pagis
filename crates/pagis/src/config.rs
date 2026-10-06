@@ -98,10 +98,40 @@ pub struct Config {
     /// Whether a release build sends anonymous analytics (ADR-0026). On
     /// by default; an Administrator turns it off in System Settings.
     pub analytics: bool,
+    /// Model Request Capture (ADR-0031). Off by default; an
+    /// Administrator turns it on in System Settings.
+    pub model_request_capture: ModelRequestCapture,
     pub screen: Screen,
     pub providers: Providers,
     pub database: Database,
     pub secrets: Secrets,
+}
+
+/// The Model Request Capture System Setting (ADR-0031): whether the
+/// daemon keeps a copy of each model request of a Run, and for how many
+/// days. A retention out of range reads as the nearest bound.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ModelRequestCapture {
+    pub enabled: bool,
+    #[serde(deserialize_with = "capture_retention_days")]
+    pub retention_days: u32,
+}
+
+impl Default for ModelRequestCapture {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            retention_days: pagis_core::DEFAULT_CAPTURE_RETENTION_DAYS,
+        }
+    }
+}
+
+fn capture_retention_days<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<u32, D::Error> {
+    let days = u32::deserialize(deserializer)?;
+    Ok(days.clamp(1, pagis_core::MAX_CAPTURE_RETENTION_DAYS))
 }
 
 /// Remote Access (ADR-0028): the installation serves other machines at
@@ -545,6 +575,7 @@ impl Default for Config {
             docker_endpoint: String::new(),
             log_level: DEFAULT_LOG_LEVEL.to_string(),
             analytics: true,
+            model_request_capture: ModelRequestCapture::default(),
             screen: Screen::default(),
             providers: Providers::default(),
             database: Database::default(),
@@ -814,6 +845,50 @@ mod tests {
 
         std::fs::write(&path, "analytics = false\n").unwrap();
         assert!(!Config::read_file(&path).unwrap().analytics);
+    }
+
+    /// Model Request Capture is off, with a retention of 7 days, until an
+    /// Administrator turns it on (ADR-0031). A retention out of range
+    /// reads as the nearest bound.
+    #[test]
+    fn model_request_capture_is_off_by_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+
+        let config = Config::load_or_init(&path).unwrap();
+        assert!(!config.model_request_capture.enabled);
+        assert_eq!(config.model_request_capture.retention_days, 7);
+        assert!(
+            std::fs::read_to_string(&path)
+                .unwrap()
+                .contains("[model_request_capture]")
+        );
+
+        std::fs::write(
+            &path,
+            "[model_request_capture]\nenabled = true\nretention_days = 30\n",
+        )
+        .unwrap();
+        let config = Config::read_file(&path).unwrap();
+        assert!(config.model_request_capture.enabled);
+        assert_eq!(config.model_request_capture.retention_days, 30);
+
+        std::fs::write(&path, "[model_request_capture]\nretention_days = 90\n").unwrap();
+        assert_eq!(
+            Config::read_file(&path)
+                .unwrap()
+                .model_request_capture
+                .retention_days,
+            30
+        );
+        std::fs::write(&path, "[model_request_capture]\nretention_days = 0\n").unwrap();
+        assert_eq!(
+            Config::read_file(&path)
+                .unwrap()
+                .model_request_capture
+                .retention_days,
+            1
+        );
     }
 
     /// The Home Exit of a Server is on until an Administrator turns it

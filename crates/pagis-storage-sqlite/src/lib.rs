@@ -22,6 +22,7 @@ mod knowledge_store;
 mod memory_page_index;
 mod message_store;
 mod model_alias_store;
+mod model_request_capture_store;
 mod onboarding_store;
 mod participant_store;
 mod pending_evidence_store;
@@ -65,6 +66,7 @@ pub use knowledge_store::SqliteKnowledgeStore;
 pub use memory_page_index::SqliteMemoryPageIndex;
 pub use message_store::SqliteMessageStore;
 pub use model_alias_store::SqliteModelAliasStore;
+pub use model_request_capture_store::SqliteModelRequestCaptureStore;
 pub use onboarding_store::SqliteOnboardingStore;
 pub use participant_store::SqliteParticipantStore;
 pub use pending_evidence_store::SqlitePendingEvidenceStore;
@@ -142,6 +144,7 @@ pub fn stores(pool: sqlx::SqlitePool) -> pagis_core::Stores {
         knowledge: Arc::new(SqliteKnowledgeStore::new(pool.clone())),
         memory_pages: Arc::new(SqliteMemoryPageIndex::new(pool.clone())),
         messages: Arc::new(SqliteMessageStore::new(pool.clone())),
+        model_request_captures: Arc::new(SqliteModelRequestCaptureStore::new(pool.clone())),
         model_aliases: Arc::new(SqliteModelAliasStore::new(pool.clone())),
         onboarding: Arc::new(SqliteOnboardingStore::new(pool.clone())),
         orgs: Arc::new(SqliteOrgStore::new(pool.clone())),

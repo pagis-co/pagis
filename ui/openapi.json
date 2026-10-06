@@ -5781,6 +5781,57 @@
         }
       }
     },
+    "/api/v1/runs/{run_id}/model-requests": {
+      "get": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "The Model Request Captures of a Run, in the order the Run made the\nrequests. A capture holds Person data, so only an Administrator reads\nit. A Member gets `404`, as for a Run that does not exist (ADR-0031).",
+        "operationId": "model_requests",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelRequestCapturesDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such Run, or the reader is not an Administrator",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/runs/{run_id}/retry": {
       "post": {
         "tags": [
@@ -8986,6 +9037,67 @@
           },
           "409": {
             "description": "A Local Installation has no Home Exit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/settings/system/model-request-capture": {
+      "put": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Turn Model Request Capture on or off, and set its retention\n(ADR-0031). The agent loop reads the live setting at each model\nrequest, so the change needs no restart. Turning it off deletes every\ncapture of the installation.",
+        "operationId": "set_model_request_capture",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetModelRequestCaptureRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedSystemSettingsDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
             "content": {
               "application/json": {
                 "schema": {
@@ -14752,6 +14864,76 @@
           }
         }
       },
+      "ModelRequestCaptureDto": {
+        "type": "object",
+        "description": "One Model Request Capture of a Run (ADR-0031).",
+        "required": [
+          "id",
+          "phase",
+          "phase_request",
+          "request",
+          "answer",
+          "created_at"
+        ],
+        "properties": {
+          "answer": {
+            "description": "The outcome, and the usage or the provider's status and error body."
+          },
+          "created_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "id": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string",
+            "description": "`reply`, `compaction` or `reflection`, as on `model.requested`."
+          },
+          "phase_request": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The number of the request inside its phase, from 0."
+          },
+          "request": {
+            "description": "The request as the Agent sent it, after Compaction. Each image is\nits media type, its sizes and its SHA-256."
+          }
+        }
+      },
+      "ModelRequestCaptureSettingDto": {
+        "type": "object",
+        "description": "The Model Request Capture System Setting (ADR-0031).",
+        "required": [
+          "enabled",
+          "retention_days"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether the daemon keeps a copy of each model request of a Run.\nOff by default."
+          },
+          "retention_days": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How many days the daemon keeps a capture, from 1 to 30.",
+            "minimum": 0
+          }
+        }
+      },
+      "ModelRequestCapturesDto": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModelRequestCaptureDto"
+            }
+          }
+        }
+      },
       "MySessionDto": {
         "type": "object",
         "description": "One Session of the signed-in Person, for their Sessions list.",
@@ -17319,6 +17501,25 @@
           }
         }
       },
+      "SetModelRequestCaptureRequest": {
+        "type": "object",
+        "description": "Turn Model Request Capture on or off, and set its retention.",
+        "required": [
+          "enabled",
+          "retention_days"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "retention_days": {
+            "type": "integer",
+            "format": "int32",
+            "description": "From 1 to 30.",
+            "minimum": 0
+          }
+        }
+      },
       "SetOnboardingDefaultModelRequest": {
         "type": "object",
         "properties": {
@@ -18221,7 +18422,8 @@
           "version",
           "docker",
           "screen",
-          "analytics"
+          "analytics",
+          "model_request_capture"
         ],
         "properties": {
           "analytics": {
@@ -18260,6 +18462,9 @@
           },
           "log_level": {
             "type": "string"
+          },
+          "model_request_capture": {
+            "$ref": "#/components/schemas/ModelRequestCaptureSettingDto"
           },
           "port": {
             "type": "integer",
@@ -19118,6 +19323,15 @@
           },
           "id": {
             "type": "string"
+          },
+          "model_request_capture_days": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "How many days Pagis keeps a copy of each model request, while an\nAdministrator has Model Request Capture on (ADR-0031). `null`\nwhile it is off. Every Person learns it, because the copy holds\ntheir own requests.",
+            "minimum": 0
           },
           "name": {
             "type": [

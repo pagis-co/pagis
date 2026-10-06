@@ -43,6 +43,7 @@ const TABLES: &[&str] = &[
     "message_exposures",
     "messages",
     "model_aliases",
+    "model_request_captures",
     "onboarding_model_verifications",
     "orgs",
     "page_reflections",

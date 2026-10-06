@@ -23,6 +23,8 @@ for the run and is never written back into the file.
 | `[screen] media_port_first`, `media_port_last` | `PAGIS_SCREEN_MEDIA_PORT_FIRST`, `PAGIS_SCREEN_MEDIA_PORT_LAST` | `50000`, `50099` | The Media Relay's UDP range. |
 | `[screen] remote_access_turn_port` | None | `4402` | The loopback TCP port of the TURN server that carries the live screen through the Funnel in Remote Access. `deploy/tailscale-serve.json` names `4402`. |
 | `[computer] exit_port` | `PAGIS_COMPUTER_EXIT_PORT` | `4403` | The TCP port of the exit listener. The Exit Proxy of each Agent's Computer in Home mode sends its connections there, and the daemon carries them through the Person's Home Exit. It binds every interface and answers a Computer's token alone. The egress rules open it to the Computers and close it to everything else (`PAGIS_EXIT_PORT` of `deploy/egress.sh`). A server without those rules keeps the port closed in its firewall. A Local Installation opens no exit listener. |
+| `[model_request_capture] enabled` | None | `false` | The Model Request Capture System Setting: whether the daemon keeps a copy of each model request of a Run and the answer of the provider ([ADR-0031](https://github.com/pagis-co/pagis/blob/main/docs/adr/0031-an-administrator-can-capture-the-model-requests-of-a-run.md)). Only an Administrator reads a copy, on the page of the Run. Turning it off deletes every copy. A Backup holds none. |
+| `[model_request_capture] retention_days` | None | `7` | How many days the daemon keeps a copy, from 1 to 30. The daily retention sweep deletes an older copy. |
 | `[computer] home_exit` | None | `true` | The Home Exit System Setting: whether the People of the server may send their Computers' connections through a [Home Exit](/server/home-exit). An Administrator turns it off in the Settings view of the Administration Interface. |
 
 ```toml
@@ -43,7 +45,8 @@ network allows it. The daemon then answers the proxy alone, and a firewall
 rule is a second line of defence rather than the only one.
 
 An Administrator changes the port, the Docker endpoint, the log level, the
-anonymous analytics and the Home Exit in the Settings view of the
+anonymous analytics, the Model Request Capture and the Home Exit in the
+Settings view of the
 Administration Interface, and the daemon writes `config.toml` itself. The timezone is each Person's own: their browser or
 Client App reports it at their first sign-in, and they change it in
 **Settings → Timezone** of the Product App. The clock of the server is

@@ -74,7 +74,7 @@ volumes yourself. On a Local Installation of the Client App,
 [Back up and restore](/client-app/backup) of the Client App names the
 `pagis` command and the steps.
 
-Three things are never in the archive:
+Four things are never in the archive:
 
 - **The Installation Key**, which seals `secrets.enc`. Keep the key where
   you keep your other secrets. The Key File that a local installation
@@ -89,6 +89,9 @@ Three things are never in the archive:
   start of a Computer. After a restore, it does not adopt a running
   Computer that has no token on the disk, and it starts that Computer
   again at its next wake.
+- **The Model Request Captures.** They are short-lived copies of model
+  requests for debugging. `pg_dump` skips the rows of their table, and on
+  SQLite the backup deletes them from its copy of the database.
 
 To restore onto a new host, put `compose.yaml`, `egress.sh`, `Caddyfile`,
 `tailscale-serve.json` and `.env` in `deploy/` and the Key File in

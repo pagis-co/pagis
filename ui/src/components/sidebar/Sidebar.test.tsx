@@ -70,7 +70,7 @@ const pendingRequests = [
   { id: 'req-2', agent_id: 'ag-1', kind: 'tool_action', state: 'pending', payload: {}, created_at: 2 },
 ]
 
-function stubApi(userName: string | null) {
+function stubApi(userName: string | null, captureDays: number | null = null) {
   return {
     GET: vi.fn(async (path: string) => {
       if (path === '/api/v1/channels') return { data: { items: channels } }
@@ -85,7 +85,9 @@ function stubApi(userName: string | null) {
           },
         }
       }
-      if (path === '/api/v1/user') return { data: { name: userName } }
+      if (path === '/api/v1/user') {
+        return { data: { name: userName, model_request_capture_days: captureDays } }
+      }
       if (path === '/api/v1/requests') return { data: { items: pendingRequests } }
       return { data: { items: [] } }
     }),
@@ -109,6 +111,8 @@ function mount(props: {
   selectedId: string | null
   /** The name the wizard recorded, or `null` for a wizard that took none. */
   userName?: string | null
+  /** The retention of Model Request Capture, or `null` while it is off. */
+  captureDays?: number | null
 }) {
   const onSelectPlace = vi.fn()
   const onSelectChannel = vi.fn()
@@ -118,7 +122,7 @@ function mount(props: {
   render(
     <QueryClientProvider client={queryClient}>
       <Sidebar
-        api={stubApi(props.userName ?? null) as unknown as ApiClient}
+        api={stubApi(props.userName ?? null, props.captureDays ?? null) as unknown as ApiClient}
         pathname={props.pathname}
         selectedId={props.selectedId}
         onSelectPlace={onSelectPlace}
@@ -185,6 +189,21 @@ describe('Sidebar', () => {
       selectedChannelId: null,
       seeded: false,
     })
+  })
+
+  it('tells the Person when Pagis keeps a copy of their model requests', async () => {
+    mount({ pathname: '/', selectedId: null, captureDays: 7 })
+
+    expect(
+      await screen.findByText('Pagis keeps a copy of your model requests for 7 days.'),
+    ).toBeTruthy()
+  })
+
+  it('says nothing about model requests while the capture is off', async () => {
+    mount({ pathname: '/', selectedId: null })
+
+    await screen.findByText('Sage')
+    expect(screen.queryByText(/keeps a copy of your model requests/)).toBeNull()
   })
 
   it('lists the six places, with the Needs-You count on Home', async () => {

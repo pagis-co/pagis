@@ -1,14 +1,19 @@
-//! The retention sweep: one workflow for every Artifact class.
+//! The retention sweep: one workflow for every Artifact class, and for
+//! the Model Request Captures.
 //!
 //! ADR-0020 keeps every Artifact by default. The user sets a window per
 //! class, and this sweep is the only code that deletes an Artifact for
-//! age. A class with no window is never swept.
+//! age. A class with no window is never swept. A Model Request Capture
+//! lives for the retention of its System Setting (ADR-0031).
 
 use std::sync::Arc;
 
 use object_store::ObjectStore;
 use object_store::ObjectStoreExt as _;
-use pagis_core::{ArtifactStore, RetentionPolicyStore, UnixMillis, WorkspaceStore, now_ms};
+use pagis_core::{
+    ArtifactStore, CaptureSetting, ModelRequestCaptureStore, RetentionPolicyStore, UnixMillis,
+    WorkspaceStore, now_ms,
+};
 use tokio_util::sync::CancellationToken;
 
 const SWEEP_BATCH: u32 = 500;
@@ -21,12 +26,20 @@ pub struct RetentionDeps {
     pub policies: Arc<dyn RetentionPolicyStore>,
     pub artifacts: Arc<dyn ArtifactStore>,
     pub blobs: Arc<dyn ObjectStore>,
+    /// The live Model Request Capture setting, whose retention the sweep
+    /// reads at each pass.
+    pub capture: Arc<CaptureSetting>,
+    pub captures: Arc<dyn ModelRequestCaptureStore>,
 }
 
-/// Delete every expired Artifact in every Workspace. Returns the number
-/// of rows deleted.
+const DAY_MS: i64 = 24 * 60 * 60 * 1000;
+
+/// Delete every expired Artifact in every Workspace, and every Model
+/// Request Capture past its retention. Returns the number of rows
+/// deleted.
 pub async fn sweep(deps: &RetentionDeps, now: UnixMillis) -> anyhow::Result<u64> {
-    let mut deleted = 0;
+    let days = i64::from(deps.capture.retention_days());
+    let mut deleted = deps.captures.delete_before(now - days * DAY_MS).await?;
     for workspace in deps.workspaces.list().await? {
         for policy in deps.policies.list(&workspace.id).await? {
             let Some(cutoff) = policy.cutoff(now) else {
@@ -93,7 +106,7 @@ pub fn spawn_sweeper(deps: RetentionDeps, cancel: CancellationToken) {
         while cancel.run_until_cancelled(tick.tick()).await.is_some() {
             match sweep(&deps, now_ms()).await {
                 Ok(0) => {}
-                Ok(deleted) => tracing::info!(deleted, "retention sweep removed artifacts"),
+                Ok(deleted) => tracing::info!(deleted, "retention sweep removed expired rows"),
                 Err(err) => tracing::error!(error = %err, "retention sweep failed"),
             }
         }

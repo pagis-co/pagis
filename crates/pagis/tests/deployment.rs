@@ -394,7 +394,8 @@ exec "$PAGIS_BINARY" "$1" "${mount%%:*}${2#/backup}"
     for (name, contents) in [
         ("config.toml", ""),
         ("runtime-release", "0.1.0\n"),
-        ("pagis.db", "records"),
+        // An empty file is an empty SQLite database.
+        ("pagis.db", ""),
         ("memory/w1/note.md", "remembered"),
         ("computer-tokens/w1/a1.token", "a live token"),
     ] {

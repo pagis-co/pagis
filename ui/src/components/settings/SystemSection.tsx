@@ -19,6 +19,7 @@ import {
 } from '../../queries'
 import { dockerSourceName } from '../dockerSource'
 import { Analytics } from './Analytics'
+import { ModelRequestCapture } from './ModelRequestCapture'
 import { HomeExitSetting } from './HomeExitSetting'
 import { RemoteAccess } from './RemoteAccess'
 import { restartMessage, useDaemonRestart } from './restart'
@@ -160,6 +161,9 @@ function SystemForm({ api, settings }: { api: ApiClient; settings: SystemSetting
 
       <SectionLabel>Analytics</SectionLabel>
       <Analytics api={api} analytics={settings.analytics} />
+
+      <SectionLabel>Model requests</SectionLabel>
+      <ModelRequestCapture api={api} capture={settings.model_request_capture} />
 
       {settings.home_exit && (
         <>

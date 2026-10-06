@@ -71,6 +71,11 @@ id_type!(
     UsageId
 );
 id_type!(
+    /// One Model Request Capture: one model request of a Run and the
+    /// provider's answer.
+    ModelRequestCaptureId
+);
+id_type!(
     /// One machine a Person's client runs on. A host action runs
     /// there and never in the daemon.
     HostId

@@ -107,6 +107,17 @@ impl Error {
         }
     }
 
+    /// The HTTP status and the parsed error body of the provider answer
+    /// that ended the call, through an exhausted route to its last error.
+    /// `None` when no provider answered with an error status.
+    pub fn provider_response(&self) -> Option<(u16, Option<&Value>)> {
+        match self {
+            Error::Provider { status, raw, .. } => Some((*status, raw.as_ref())),
+            Error::Exhausted { last, .. } => last.provider_response(),
+            _ => None,
+        }
+    }
+
     /// Provider calls made before this error reached the caller.
     pub fn attempts(&self) -> u32 {
         match self {

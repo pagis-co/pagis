@@ -50,6 +50,7 @@ mod mail_events;
 mod mail_run_loop;
 mod mail_tools;
 mod memory;
+mod model_request_capture;
 mod needs_you;
 mod network;
 mod onboarding;

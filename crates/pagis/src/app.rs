@@ -409,6 +409,12 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     // exit listener that sends a Computer's connections through them.
     let home_exits = pagis_computer::HomeExits::new(Arc::clone(&workspaces) as _);
     home_exits.set_enabled(booted.config.computer.home_exit);
+    // The Model Request Capture System Setting (ADR-0031). The agent loop
+    // reads it at each model request, and its route changes it.
+    let capture = Arc::new(pagis_core::CaptureSetting::new(
+        booted.config.model_request_capture.enabled,
+        booted.config.model_request_capture.retention_days,
+    ));
     let exit = options
         .exit_listener
         .as_ref()
@@ -468,6 +474,8 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
             policies: Arc::clone(&retention_policies) as _,
             artifacts: Arc::clone(&artifacts) as _,
             blobs: Arc::clone(&blobs),
+            capture: Arc::clone(&capture),
+            captures: stores.model_request_captures.clone(),
         },
         options.cancel.clone(),
     );
@@ -1089,6 +1097,8 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         model_aliases: Arc::clone(&model_aliases) as _,
         users: stores.users.clone(),
         usage: stores.usage.clone(),
+        capture: Arc::clone(&capture),
+        model_request_captures: stores.model_request_captures.clone(),
         participants: Arc::clone(&participants) as _,
         requests: Arc::clone(&requests) as _,
         grants: Arc::clone(&grants) as _,
@@ -1237,6 +1247,8 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         model_aliases,
         schedules: stores.schedules.clone(),
         usage: stores.usage.clone(),
+        capture: Arc::clone(&capture),
+        model_request_captures: stores.model_request_captures.clone(),
         onboarding,
         retention_policies,
         connections,

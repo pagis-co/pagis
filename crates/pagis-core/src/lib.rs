@@ -17,6 +17,7 @@ pub mod keypad;
 pub mod knowledge;
 pub mod memory;
 pub mod memory_page;
+pub mod model_request_capture;
 pub mod pending_evidence;
 pub mod reflection_filter;
 pub mod seal;
@@ -65,10 +66,10 @@ pub use host::{EXIT_CAPABILITY, Host, HostStore, SHELL_CAPABILITY};
 pub use id::{
     AgentId, AgentMailboxId, ArtifactId, CallId, ChannelId, ConnectionId, ContributionId,
     CredentialId, EventId, EventSubscriptionId, GrantId, HostId, IncomingEventId, MessageId,
-    ModelAliasId, OrgId, ParticipantId, PendingEvidenceId, PhoneNumberId, PluginId,
-    PurchaseIntentId, RequestId, RunId, ScheduleId, ScheduleOccurrenceId, SessionId, SignInLinkId,
-    SoftwarePackageId, SourceBatchId, TextRecordId, TrustEntryId, UsageId, UserId, WakeupId,
-    WorkspaceId,
+    ModelAliasId, ModelRequestCaptureId, OrgId, ParticipantId, PendingEvidenceId, PhoneNumberId,
+    PluginId, PurchaseIntentId, RequestId, RunId, ScheduleId, ScheduleOccurrenceId, SessionId,
+    SignInLinkId, SoftwarePackageId, SourceBatchId, TextRecordId, TrustEntryId, UsageId, UserId,
+    WakeupId, WorkspaceId,
 };
 pub use identity::{
     CLIENT_LINK_LIFETIME_MS, ClientKind, GOOGLE_WEB_CLIENT_SECRET, INVITE_LINK_LIFETIME_MS, Org,
@@ -83,6 +84,10 @@ pub use memory::{
     MemoryPageEntry, MemoryPageIndex, MemoryPageList, MemoryScope, MemorySearchHit, MemoryStore,
     PageCursor, PageIndexHead, PageIndexUpdate, PageListQuery, PageSearchHit, ScopedPath,
     VolatilePageIndex, validate_content,
+};
+pub use model_request_capture::{
+    CaptureSetting, DEFAULT_CAPTURE_RETENTION_DAYS, MAX_CAPTURE_RETENTION_DAYS,
+    ModelRequestCapture, ModelRequestCaptureStore,
 };
 pub use pending_evidence::{
     PendingEvidence, PendingEvidenceRecord, PendingEvidenceState, PendingReviewClaim,
