@@ -248,6 +248,13 @@ identity (ADR-0019). One set of mail tools serves the Agent's mailbox and
 the Person's own mail accounts. A Standing Mail Rule wakes the Agent on each
 inbound mail.
 
+### Notifications
+
+A Notification is a Web Push from the daemon to each Push Subscription of
+the Person, when an item enters the Needs-You Queue (ADR-0030). It goes
+through the push service of a browser, or through the Push Relay to the
+Mobile App, and only the client decrypts it. It is not built.
+
 ### Audit
 
 Append-only event log across all components. Every Run step, Grant use,
