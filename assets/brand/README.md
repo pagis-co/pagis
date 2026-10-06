@@ -13,11 +13,25 @@ the bottom right, stays open.
 | `pagis-mark-mono.svg` | The mark in one ink (`#272521`), for print and for a place that takes one color. |
 | `pagis-favicon.svg` | The browser tab icon of the Product App and the Administration Interface. It changes to the dark colors when the system is dark. |
 | `pagis-app-icon.svg` | The source of the Client App icon, `desktop/build/icon.png`. |
+| `mark.mjs` | Draws the mark from its construction into PNG files, with no library. The scripts that make the tray icons and the web app icons use it. |
 
 The tray icons of the Client App are the mark in `desktop/static`. The macOS
 ones, `trayTemplate.png` at 16 px and `trayTemplate@2x.png` at 32 px, are
 template images in black, so the menu bar can tint them. The Linux one,
 `tray.png`, is the mark in its light colors at 22 px.
+
+The icons of the Product App web app are the mark in `ui/public`, and
+`ui/public/manifest.webmanifest` names them:
+
+- `icon-192.png` and `icon-512.png` show the Client App icon: the mark on
+  a white rounded tile with a transparent margin.
+- `icon-maskable-512.png` holds the mark inside the safe zone, the circle
+  of 80 % of the width, on a full `ground`. A launcher cuts it to its own
+  shape.
+- `apple-touch-icon.png`, at 180 px, has the same layout and no
+  transparent pixel, because iOS draws a transparent pixel black.
+- `badge-96.png` is the mark in one ink on a transparent ground, for the
+  Android status bar.
 
 ## Construction
 
@@ -65,10 +79,18 @@ macOS `sips` renders the app icon from its SVG source:
 sips -s format png assets/brand/pagis-app-icon.svg --out desktop/build/icon.png
 ```
 
-A script draws the tray icons from the construction above, with no
-library, and a test in `desktop/src/menus.test.ts` fails on a tray icon of
-the wrong size or a template image that is not black:
+Two scripts draw the PNG files of the mark from the construction above,
+with `mark.mjs`. A test in `desktop/src/menus.test.ts` fails on a tray icon
+of the wrong size or a template image that is not black:
 
 ```bash
 node desktop/scripts/draw-tray-icons.mjs
+```
+
+A test in `ui/src/web-app.test.ts` fails on a web app icon of the wrong
+size, a maskable icon with the mark outside the safe zone, or a touch icon
+with a transparent pixel:
+
+```bash
+node ui/scripts/draw-web-app-icons.mjs
 ```

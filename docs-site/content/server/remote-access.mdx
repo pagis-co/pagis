@@ -143,6 +143,21 @@ ssh -L 4401:127.0.0.1:4401 <the machine at home>
 
 Then open `http://127.0.0.1:4401/`.
 
+## Add Pagis to the Home Screen of your phone
+
+The Product App installs as a web app. From the Home Screen, it opens in a
+window of its own, with no address bar. First sign in the browser of the
+phone with a Sign-In Link. The web app gets the Session of that browser
+when you add it.
+
+- **iPhone or iPad, in Safari:** open the public name of the server, tap
+  **Share**, then **Add to Home Screen**, and then **Add**.
+- **Android, in Chrome:** open the public name of the server, tap the menu
+  (**⋮**), then **Add to Home screen**, and then **Install**.
+
+If the web app shows the sign-in page, remove it from the Home Screen, sign
+in Safari or Chrome again, and add it again.
+
 ## How the Funnel reaches the daemon
 
 `deploy/tailscale-serve.json` is the Funnel of the server. The official
