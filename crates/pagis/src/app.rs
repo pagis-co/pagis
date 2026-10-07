@@ -1133,6 +1133,17 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         Arc::clone(&options.clock),
         options.cancel.clone(),
     );
+    // The Needs-You Queue publishes each item that enters or leaves it
+    // (ADR-0030). The task reads the baseline of each Workspace before
+    // the daemon serves.
+    let needs_you = Arc::new(pagis_server::NeedsYou::new(&stores));
+    pagis_server::spawn_needs_you(
+        Arc::clone(&needs_you),
+        Arc::clone(&bus),
+        Arc::clone(&options.clock),
+        options.cancel.clone(),
+    )
+    .await?;
     // The Trust List answers the mail collector and the `sender_trust`
     // Page Signal alike (ADR-0011).
     let sender_trust = Arc::new(pagis_mail::ListedSenders::new(
@@ -1268,7 +1279,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         live_tiers,
         secrets: Arc::clone(&options.secrets),
         keypad_failures: stores.keypad_failures.clone(),
-        needs_you: Arc::new(pagis_server::NeedsYou::new(&stores)),
+        needs_you,
         live_calls,
         calls: calls as _,
         texts: texts as _,

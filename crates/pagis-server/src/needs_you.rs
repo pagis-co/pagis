@@ -4,18 +4,23 @@
 //! stores no copy of it, so it stays a view. The reader [`NeedsYou`]
 //! reads the records of one Workspace, and [`queue`] holds the rules:
 //! which records join, in which order, and what each line says.
+//! [`spawn_needs_you`] publishes an event when an item enters or leaves
+//! the queue.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::State;
+use futures::StreamExt;
 use pagis_core::{
-    AgentId, AgentStore, Call, CallDirection, CallOutcome, CallState, CallStore, FailureKind,
-    KeypadFailureStore, KeypadFailures, Request, RequestState, RequestStore, Run, RunId, RunState,
-    RunStore, StoreError, Stores, UnixMillis, WorkspaceId, WorkspaceStore, local_date,
+    AgentId, AgentStore, Call, CallDirection, CallOutcome, CallState, CallStore, Clock, EventBus,
+    EventScope, FailureKind, KeypadFailureStore, KeypadFailures, NewEvent, Request, RequestState,
+    RequestStore, Run, RunId, RunState, RunStore, StoreError, Stores, UnixMillis, WorkspaceId,
+    WorkspaceStore, local_date,
 };
 use serde::Serialize;
+use tokio_util::sync::CancellationToken;
 use utoipa::ToSchema;
 
 use crate::AppState;
@@ -128,6 +133,17 @@ impl NeedsYouItem {
             Self::Keypad(_) => 2,
             Self::Call(_) => 3,
             Self::Failed(_) => 4,
+        }
+    }
+
+    /// The stable id that names the kind and the record.
+    pub fn id(&self) -> &str {
+        match self {
+            Self::Approval(item) => &item.id,
+            Self::Waiting(item) => &item.id,
+            Self::Keypad(item) => &item.id,
+            Self::Call(item) => &item.id,
+            Self::Failed(item) => &item.id,
         }
     }
 
@@ -504,6 +520,132 @@ pub async fn get_needs_you(
         .derive(&tenant.workspace_id, state.clock.now_ms())
         .await?;
     Ok(Json(queue))
+}
+
+/// An item entered the Needs-You Queue: `{item, count}`.
+const NEEDS_YOU_ADDED: &str = "needs_you.added";
+/// An item left the Needs-You Queue: `{item_id, count}`.
+const NEEDS_YOU_REMOVED: &str = "needs_you.removed";
+
+/// The events that can change the Needs-You Queue. The task ignores
+/// every other event, and so it ignores its own `needs_you.*` events.
+/// A cancel or a recovery expires the pending Requests of a Run, and a
+/// `run.state_changed` follows.
+const QUEUE_EVENTS: [&str; 9] = [
+    "request.created",
+    "request.decided",
+    "request.superseded",
+    "run.state_changed",
+    "run.dismissed",
+    "call.ended",
+    "call.dismissed",
+    "call.keypad_failed",
+    "keypad.cleared",
+];
+
+/// Start the task that publishes `needs_you.added` when an item enters
+/// the Needs-You Queue of a Workspace and `needs_you.removed` when an
+/// item leaves it. Each event goes in the Workspace of its item, so the
+/// event socket carries it to each client of the Person.
+///
+/// The task subscribes first, and then derives the queue of each
+/// Workspace once as its baseline, which publishes nothing. So an item
+/// that entered while the daemon was down publishes no event, and no
+/// event between the two steps is lost. A Workspace made later starts
+/// with an empty queue. After each event of `QUEUE_EVENTS`, the task
+/// derives the whole queue of that Workspace again and compares its item
+/// ids with the last set. It keeps that set in memory and no record.
+/// The task stops on `cancel`.
+pub async fn spawn_needs_you(
+    needs_you: Arc<NeedsYou>,
+    bus: Arc<dyn EventBus>,
+    clock: Arc<dyn Clock>,
+    cancel: CancellationToken,
+) -> Result<(), StoreError> {
+    let mut events = bus.subscribe(EventScope::Installation, None).await;
+    let mut known: HashMap<WorkspaceId, BTreeSet<String>> = HashMap::new();
+    for workspace in needs_you.workspaces.list().await? {
+        let queue = needs_you.derive(&workspace.id, clock.now_ms()).await?;
+        known.insert(workspace.id, item_ids(&queue));
+    }
+    tokio::spawn(async move {
+        loop {
+            let event = tokio::select! {
+                () = cancel.cancelled() => return,
+                event = events.next() => match event {
+                    Some(event) => event,
+                    None => return,
+                },
+            };
+            if !QUEUE_EVENTS.contains(&event.event_type.as_str()) {
+                continue;
+            }
+            let workspace_id = event.workspace_id;
+            let queue = match needs_you.derive(&workspace_id, clock.now_ms()).await {
+                Ok(queue) => queue,
+                Err(error) => {
+                    tracing::error!(%error, %workspace_id, "the Needs-You Queue was not derived");
+                    continue;
+                }
+            };
+            let last = known.entry(workspace_id.clone()).or_default();
+            for change in changes(&workspace_id, last, &queue) {
+                if let Err(error) = bus.publish(change).await {
+                    tracing::error!(%error, %workspace_id, "a Needs-You Queue change was not published");
+                }
+            }
+            *last = item_ids(&queue);
+        }
+    });
+    Ok(())
+}
+
+fn item_ids(queue: &NeedsYouQueue) -> BTreeSet<String> {
+    queue
+        .items
+        .iter()
+        .map(|item| item.id().to_string())
+        .collect()
+}
+
+/// The events that take the queue of one Workspace from the item ids
+/// `last` to `queue`: a `needs_you.removed` for each item that left, then
+/// a `needs_you.added` for each new item, in the order of the queue.
+/// Each event carries the count of `queue`.
+fn changes(
+    workspace_id: &WorkspaceId,
+    last: &BTreeSet<String>,
+    queue: &NeedsYouQueue,
+) -> Vec<NewEvent> {
+    let now: HashSet<&str> = queue.items.iter().map(NeedsYouItem::id).collect();
+    let event = |event_type: &str, payload: serde_json::Value| NewEvent {
+        workspace_id: workspace_id.clone(),
+        event_type: event_type.to_string(),
+        agent_id: None,
+        run_id: None,
+        channel_id: None,
+        payload,
+    };
+    let removed = last
+        .iter()
+        .filter(|id| !now.contains(id.as_str()))
+        .map(|id| {
+            event(
+                NEEDS_YOU_REMOVED,
+                serde_json::json!({ "item_id": id, "count": queue.count }),
+            )
+        });
+    let added = queue
+        .items
+        .iter()
+        .filter(|item| !last.contains(item.id()))
+        .map(|item| {
+            event(
+                NEEDS_YOU_ADDED,
+                serde_json::json!({ "item": item, "count": queue.count }),
+            )
+        });
+    removed.chain(added).collect()
 }
 
 #[cfg(test)]

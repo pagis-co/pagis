@@ -1197,7 +1197,8 @@ _Avoid_: side panel
 What waits for the Person: approvals, questions, failed Runs, missed
 Calls, the Keypad Code delay after too many failed attempts, and the rules
 that wait for an approval. The daemon derives it, and Home, the sidebar
-count, the app badge and each Notification read it. A failed Run or a
+count, the app badge and each Notification read it. The daemon publishes
+an event when an item enters or leaves the queue. A failed Run or a
 missed Call leaves the queue when the Person acts on it or dismisses it;
 the record keeps the time of the dismissal. Not built: the read of
 the daemon's queue by Home and the sidebar count. The UI derives its own

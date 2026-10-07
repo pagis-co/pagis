@@ -54,6 +54,22 @@ in the Product App that answers it, and the time `at` that orders it
 inside its kind. "Today", for a missed Call and a failed Run, is the day
 of the Workspace in its time zone.
 
+The daemon publishes an event when an item enters or leaves the queue. A
+daemon-lifetime task reads the events that can change the queue: a
+Request that opens, is decided or is superseded, a Run that changes state
+or is dismissed, a Call that ends or is dismissed, a wrong Keypad Code,
+and `keypad.cleared`, which a correct code and the clear in Settings
+publish. After each one, the task derives the whole queue of that
+Workspace again and compares the item ids with the last set that it holds
+in memory. It publishes `needs_you.added` with `{item, count}` for each
+new item and `needs_you.removed` with `{item_id, count}` for each item
+that left, in the Workspace of the item, so the event socket carries them
+to each client of the Person. The task keeps no record. When the daemon
+starts, the task derives the queue of each Workspace as its baseline and
+publishes nothing, so an item that entered while the daemon was down
+publishes no event. A "today" item that leaves at midnight leaves on the
+next event of its Workspace, not on a timer.
+
 ### The ring rule decides what sends a Notification
 
 A ring calls, and a caption reports (`docs/UI-DESIGN.md`). A

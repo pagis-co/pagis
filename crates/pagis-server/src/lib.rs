@@ -72,7 +72,7 @@ use pagis_core::{
 pub use auth::{SESSION_COOKIE, Tenant, hash_secret};
 pub use forwarded::TrustedProxy;
 pub use live_connections::LiveConnections;
-pub use needs_you::NeedsYou;
+pub use needs_you::{NeedsYou, spawn_needs_you};
 pub use openapi::ApiDoc;
 pub use remote_access::{
     FUNNEL_PROXY, FUNNEL_TURN_PORT, FunnelPort, FunnelTargets, RemoteAccessSwitch, Tailscale,
