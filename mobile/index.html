@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Pagis</title>
+  </head>
+  <body>
+    <main class="connect">
+      <h1>Connect to a Pagis server</h1>
+      <form id="connect" novalidate>
+        <label for="address">Server address or sign-in link</label>
+        <input
+          id="address"
+          name="address"
+          type="url"
+          inputmode="url"
+          autocomplete="url"
+          autocapitalize="none"
+          autocorrect="off"
+          spellcheck="false"
+          placeholder="pagis.example.com"
+          aria-describedby="problem"
+        />
+        <p id="problem" class="problem" role="alert" hidden></p>
+        <button type="submit">Connect</button>
+      </form>
+    </main>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

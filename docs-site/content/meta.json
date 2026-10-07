@@ -6,6 +6,8 @@
     "quickstart",
     "---Client App---",
     "...client-app",
+    "---Mobile App---",
+    "...mobile-app",
     "---Headless Server---",
     "...server",
     "---Extend Pagis---",

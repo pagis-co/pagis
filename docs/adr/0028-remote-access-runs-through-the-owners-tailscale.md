@@ -149,7 +149,7 @@ The Mobile App signs in with a Sign-In Link too (ADR-0032). It scans the
 QR code and opens the link in its web view, where the page of the link
 trades the secret for a `browser` Session. The Sessions list names that
 Session "Pagis on iPhone", "Pagis on iPad" or "Pagis on Android". Not
-built.
+built: the scan of the QR code. The Connect screen takes a pasted link.
 
 ### The live screen reaches another machine through TURN over the Funnel
 

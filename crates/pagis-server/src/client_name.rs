@@ -152,6 +152,33 @@ mod tests {
         }
     }
 
+    /// The web view of the Mobile App appends `Pagis/<version>` to the
+    /// `User-Agent` of the system web view. On an iPad, WKWebView sends
+    /// the `User-Agent` of Safari on macOS, so the app also appends `iPad`.
+    #[test]
+    fn the_mobile_app_is_named_pagis_with_its_system() {
+        for (agent, name) in [
+            (
+                "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 \
+                 (KHTML, like Gecko) Mobile/15E148 Pagis/0.2.0",
+                "Pagis on iPhone",
+            ),
+            (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, \
+                 like Gecko) Pagis/0.2.0 iPad",
+                "Pagis on iPad",
+            ),
+            (
+                "Mozilla/5.0 (Linux; Android 15; Pixel 9 Build/AP4A.250105.002; wv) \
+                 AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/139.0.7258.143 \
+                 Mobile Safari/537.36 Pagis/0.2.0",
+                "Pagis on Android",
+            ),
+        ] {
+            assert_eq!(name_of(agent).as_deref(), Some(name), "{agent}");
+        }
+    }
+
     #[test]
     fn a_browser_or_a_system_alone_keeps_the_part_that_is_known() {
         assert_eq!(
