@@ -350,6 +350,40 @@ iOS runs the app in the background, with no scene and no bridge, and
    suspend the app, and then ends the background task. When iOS ends the
    time of the app first, the task ends at once.
 
+On Android, `PushNotifier` adds **Approve once** and **Deny** to a
+Notification whose `request` has the actions `approve_once` and `deny`.
+Each action is an immutable broadcast `PendingIntent` to the receiver
+`ApprovalReceiver`, with the Request id, the item, the kind, the title and
+the `navigate` of the Notification. Each action has
+`setAuthenticationRequired(true)` on Android 12 and later. Neither action
+opens the app.
+
+1. `ApprovalReceiver` gives the answer to WorkManager as the unique work
+   of the Request, with `ExistingWorkPolicy.KEEP`. So a second touch, also
+   on the other action, posts nothing while the first answer waits. The
+   work is expedited with `OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST`,
+   and it waits for a network.
+2. `ApprovalWorker` reads the server and the copy of the Session, and
+   `ApprovalAnswer` posts the decision with the header
+   `Cookie: pagis_session=<copy>`, with no `Origin` and no `scope`, and
+   with a 20 second limit.
+3. A `2xx` answer removes the Notification. When no answer comes,
+   WorkManager tries again after its backoff, three attempts at most. A
+   `401`, a `404`, a `409`, each other status, no copy of the Session and
+   the last failed attempt replace the Notification with one that has the
+   same tag, title, channel and group, no actions, the text above, and the
+   `navigate` of the item. A `401` also deletes the copy of the Session.
+
+`ApprovalAnswer` sends the post with OkHttp, which has no cookie store.
+The `HttpURLConnection` of Android is not used for it, because it reads
+the default `CookieHandler` of the process. Capacitor sets that handler to
+the cookie store of the web view, so the request would get a second
+`Cookie` header, and the web view would get each cookie of the answer.
+
+Before Android 12, WorkManager runs expedited work in a foreground
+service. That service shows "Pagis sends your answer." in the channel
+`answers` ("Answers", low importance), which makes no sound.
+
 The app keeps no record of the answer. The daemon records the decision
 (ADR-0004).
 
@@ -358,7 +392,10 @@ Widget answer or a question) opens the app at the place of the Request.
 
 An answer needs no step-up sign-in. The Session is the authority, as on
 every client. Each action needs an unlocked phone (`.authenticationRequired`
-on iOS), so a person who holds a locked phone answers nothing.
+on iOS, and `setAuthenticationRequired(true)` on Android 12 and later), so
+a person who holds a locked phone answers nothing. Android 11 and earlier
+have no such setting: there, an action runs from the lock screen when the
+lock screen shows the content of the Notification.
 
 ### A tap opens the place of a Notification
 
@@ -502,6 +539,5 @@ Other ways were considered:
 
 ## Not built
 
-- The Mobile App: the inline answers on Android.
 - The lower bound on the server version is 0.2.0, not the first release
   that serves Notifications.

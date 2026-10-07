@@ -71,9 +71,14 @@ dependencies {
     }
     implementation "com.google.firebase:firebase-messaging:$firebaseMessagingVersion"
     implementation "com.google.android.gms:play-services-tasks:$playServicesTasksVersion"
+    // The answer of a notification action: WorkManager runs the post, and
+    // OkHttp sends it with no cookie store (ADR-0032).
+    implementation "androidx.work:work-runtime:$workVersion"
+    implementation "com.squareup.okhttp3:okhttp:$okhttpVersion"
     implementation project(':capacitor-android')
     testImplementation "junit:junit:$junitVersion"
-    testImplementation "com.squareup.okhttp3:mockwebserver:$mockWebServerVersion"
+    testImplementation "com.squareup.okhttp3:mockwebserver:$okhttpVersion"
+    testImplementation "androidx.work:work-testing:$workVersion"
     // Android gives `org.json` only on a device; a JVM test needs the library.
     testImplementation "org.json:json:$orgJsonVersion"
     testImplementation "org.robolectric:robolectric:$robolectricVersion"

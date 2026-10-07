@@ -9,4 +9,9 @@
     <string name="channel_needs_you">Needs you</string>
     <string name="channel_activity">Activity</string>
     <string name="notification_fallback">Something needs you</string>
+    <string name="action_approve_once">Approve once</string>
+    <string name="action_deny">Deny</string>
+    <string name="answer_failed">Pagis did not take this answer. Open Pagis to see the request.</string>
+    <string name="channel_answers">Answers</string>
+    <string name="answer_sending">Pagis sends your answer.</string>
 </resources>

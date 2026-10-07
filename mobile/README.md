@@ -121,7 +121,8 @@ gives in the system property `pagis.webPushFixture`. To check the service
 on a phone, run the app on the phone with the `google-services.json` of
 the Firebase project of the relay, turn on Notifications in the app, and
 make a Request on the server. `adb logcat -s Pagis` shows why a push shows
-"Something needs you" in place of its text.
+"Something needs you" in place of its text, and why the daemon did not take
+an answer from **Approve once** or **Deny**.
 
 ## Run the app against a local daemon
 

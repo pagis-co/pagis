@@ -3,11 +3,13 @@ package app.pagis.mobile;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 import static org.robolectric.Shadows.shadowOf;
 
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.service.notification.StatusBarNotification;
@@ -17,6 +19,8 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.RuntimeEnvironment;
+import org.robolectric.annotation.Config;
+import org.robolectric.shadows.ShadowPendingIntent;
 
 /**
  * {@link PushNotifier} shows the Notification of a push: the payload of
@@ -109,6 +113,73 @@ public class PushNotifierTest {
         notifier.show(new PushPayload("Pagis", "Notifications work here.", ORIGIN + "/settings/notifications", null, "test", "test", null));
 
         assertEquals(0, onlyNotification().getNotification().number);
+    }
+
+    @Test
+    public void anApprovalShowsApproveOnceAndDenyThatEachSendABroadcast() {
+        notifier.show(approval("request:r-1", 3));
+
+        Notification.Action[] actions = onlyNotification().getNotification().actions;
+        assertEquals(2, actions.length);
+        assertEquals("Approve once", actions[0].title.toString());
+        assertEquals("Deny", actions[1].title.toString());
+        String[] names = { "approve_once", "deny" };
+        for (int index = 0; index < names.length; index++) {
+            ShadowPendingIntent pending = shadowOf(actions[index].actionIntent);
+            assertTrue(names[index], pending.isBroadcastIntent());
+            assertTrue(names[index], (pending.getFlags() & PendingIntent.FLAG_IMMUTABLE) != 0);
+            Intent intent = pending.getSavedIntent();
+            assertEquals(ApprovalReceiver.class.getName(), intent.getComponent().getClassName());
+            assertEquals(names[index], intent.getAction());
+            assertEquals("r-1", intent.getStringExtra(ApprovalReceiver.EXTRA_REQUEST));
+            assertEquals("request:r-1", intent.getStringExtra(ApprovalReceiver.EXTRA_ITEM));
+            assertEquals("approval", intent.getStringExtra(ApprovalReceiver.EXTRA_KIND));
+            assertEquals("Robin", intent.getStringExtra(ApprovalReceiver.EXTRA_TITLE));
+            assertEquals("https://pagis.example.com/c/ch-1", intent.getStringExtra(PushNotifier.EXTRA_NAVIGATE));
+        }
+    }
+
+    @Test
+    @Config(sdk = { 31, 36 })
+    public void bothActionsRequireAnUnlockedPhone() {
+        notifier.show(approval("request:r-1", 3));
+
+        for (Notification.Action action : onlyNotification().getNotification().actions) {
+            assertTrue(action.title.toString(), action.isAuthenticationRequired());
+        }
+    }
+
+    @Test
+    public void eachApprovalAnswersItsOwnRequest() {
+        notifier.show(approval("request:r-1", 3));
+        notifier.show(new PushPayload(
+            "Sam", "Sam needs your approval", ORIGIN + "/c/ch-2", 4, "request:r-2", "approval",
+            new PushPayload.Request("r-2", Arrays.asList("approve_once", "deny"))
+        ));
+
+        for (StatusBarNotification shown : manager.getActiveNotifications()) {
+            String expected = shown.getTag().equals("request:r-1") ? "r-1" : "r-2";
+            for (Notification.Action action : shown.getNotification().actions) {
+                assertEquals(expected, shadowOf(action.actionIntent).getSavedIntent().getStringExtra(ApprovalReceiver.EXTRA_REQUEST));
+            }
+        }
+    }
+
+    @Test
+    public void aKindOtherThanAnApprovalGetsNoAction() {
+        notifier.show(new PushPayload("Robin", "Robin waits for you", ORIGIN + "/c/ch-1", 3, "run:r-1", "waiting", null));
+
+        assertNull(onlyNotification().getNotification().actions);
+    }
+
+    @Test
+    public void aRequestWithOtherActionsGetsNoAction() {
+        notifier.show(new PushPayload(
+            "Robin", "Robin asks a question", ORIGIN + "/c/ch-1", 3, "request:r-1", "approval",
+            new PushPayload.Request("r-1", Arrays.asList("approve_once"))
+        ));
+
+        assertNull(onlyNotification().getNotification().actions);
     }
 
     @Test
