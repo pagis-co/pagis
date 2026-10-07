@@ -344,6 +344,69 @@ A log line holds the route, the id and the status, and for a push the
 `Urgency` and the size of the body. It never holds a device token, a
 secret, a VAPID Key, a VAPID token or a body.
 
+### The APNs transport
+
+The relay sends to APNs with its own small client on `reqwest`, with its
+`http2` feature, and on `p256`. `apns-h2` is not used, because it needs
+`aws-lc-rs` or OpenSSL and the workspace uses ring. `a2` has had no
+release since 2024. The client is one request and one JWT, and the relay
+verifies ES256 with the same `p256` crate.
+
+The relay serves `ios` when these four variables are set:
+
+- `PUSH_RELAY_APNS_KEY_PATH`: the `.p8` file of the APNs key;
+- `PUSH_RELAY_APNS_KEY_ID`;
+- `PUSH_RELAY_APNS_TEAM_ID`;
+- `PUSH_RELAY_APNS_TOPIC`: the bundle id, `app.pagis.mobile` (ADR-0032).
+
+With none of them, the relay serves no `ios` registration. With some of
+them, the relay stops at start with a message that names each missing
+variable. A key file that is not a P-256 private key in PKCS#8 PEM also
+stops it.
+
+The provider token is an ES256 JWT with `alg` and `kid` (the key id) in
+its header, and `iss` (the team id) and `iat` in its claims. APNs refuses
+a token older than one hour, and a new token more often than once in 20
+minutes. So the relay keeps one token for 50 minutes and then makes a new
+one. After a `403` with `ExpiredProviderToken` or `InvalidProviderToken`,
+the relay drops the token, and the next push makes a new one.
+
+Each push is one `POST /3/device/<device token>` over HTTP/2, to
+`https://api.push.apple.com` or `https://api.sandbox.push.apple.com`, as
+the APNs environment of the registration says. The body is:
+
+```json
+{"aps": {"alert": {"title": "Pagis", "body": "Something needs you"},
+         "mutable-content": 1, "sound": "default"},
+ "p": "<the push body as unpadded base64url>"}
+```
+
+The relay cannot read the content, so the alert is a fixed placeholder.
+`mutable-content` starts the Notification Service Extension of the
+Mobile App, which decrypts `p` and replaces the placeholder with the
+decrypted text. iOS shows the placeholder when the extension fails. A
+push body of 2800 bytes gives a JSON of less than the 4096 bytes that
+APNs takes.
+
+The headers of the request are:
+
+- `authorization: bearer <provider token>`;
+- `apns-push-type: alert`;
+- `apns-topic` from the settings;
+- `apns-priority: 10` for `Urgency: high`, and `5` for each other
+  urgency;
+- `apns-expiration`: the time of the forward plus the `TTL`, in seconds
+  since the epoch;
+- `apns-collapse-id`: the `Topic`, when the push has one.
+
+The answer of APNs gives the delivery:
+
+- `200`: Delivered.
+- `410`, or `400` with the reason `BadDeviceToken` or
+  `DeviceTokenNotForTopic`: Gone.
+- Each other answer, and no answer: Failed. The reason of the failure
+  holds the status and the APNs `reason`, and never the device token.
+
 ## Consequences
 
 - A Person reads a Request on a phone with no tab open.
@@ -372,7 +435,6 @@ secret, a VAPID Key, a VAPID token or a body.
   daemon calls it.
 - The hold while active, and the `activity` frame.
 - The service worker of the Product App.
-- The forward of the Push Relay to APNs and FCM. The relay takes and
-  checks a Web Push, but the binary has no transport for a platform, so
-  it refuses each registration.
+- The forward of the Push Relay to FCM. The binary has no transport for
+  `android`, so it refuses each `android` registration.
 - The Mobile App (ADR-0032).

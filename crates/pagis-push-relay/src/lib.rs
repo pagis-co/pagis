@@ -9,6 +9,7 @@
 //! and it depends on no daemon crate.
 
 mod api;
+mod apns;
 mod clock;
 mod forwarded;
 mod limit;
@@ -20,9 +21,10 @@ mod transport;
 mod vapid;
 
 pub use api::router;
+pub use apns::{ApnsBaseUrls, ApnsError, ApnsTransport};
 pub use clock::{Clock, SystemClock};
 pub use forwarded::TrustedProxy;
 pub use registration::{Environment, Platform};
-pub use settings::{PublicOrigin, Settings, SettingsError};
+pub use settings::{ApnsSettings, PublicOrigin, Settings, SettingsError};
 pub use store::{connect, connect_memory};
 pub use transport::{Delivery, Message, Registration, Transport, Transports, Urgency};

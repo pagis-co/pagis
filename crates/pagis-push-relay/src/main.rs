@@ -6,7 +6,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use anyhow::Context;
-use pagis_push_relay::{Settings, SystemClock, Transports};
+use pagis_push_relay::{ApnsBaseUrls, ApnsTransport, Clock, Settings, SystemClock, Transports};
 use tokio::signal::unix::{SignalKind, signal};
 use tracing_subscriber::EnvFilter;
 
@@ -20,6 +20,17 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let settings = Settings::from_var(&|name| std::env::var(name).ok())?;
+    let clock: Arc<dyn Clock> = Arc::new(SystemClock);
+    let mut transports = Transports::default();
+    match &settings.apns {
+        Some(apns) => {
+            let apns = ApnsTransport::new(apns, ApnsBaseUrls::apple(), clock.clone())?;
+            transports = transports.with_ios(Arc::new(apns));
+        }
+        None => tracing::info!(
+            "no PUSH_RELAY_APNS_* variable is set, so the relay serves no ios registration"
+        ),
+    }
     let mut interrupt = signal(SignalKind::interrupt())?;
     let mut terminate = signal(SignalKind::terminate())?;
     let pool = pagis_push_relay::connect(&settings.database)
@@ -41,14 +52,13 @@ async fn main() -> anyhow::Result<()> {
     let address = listener.local_addr()?;
     tracing::info!("the Push Relay listens on http://{address}");
 
-    // The APNs and FCM transports are not built, so the relay serves no
-    // platform and refuses each registration.
+    // The FCM transport is not built, so the relay serves no android.
     let router = pagis_push_relay::router(
         pool,
         settings.public_origin,
         settings.trusted_proxy,
-        Transports::default(),
-        Arc::new(SystemClock),
+        transports,
+        clock,
     );
     axum::serve(
         listener,
