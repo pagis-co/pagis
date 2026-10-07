@@ -2,6 +2,7 @@
 //! in-memory SQLite, and the binary with a SQLite file.
 
 mod apns;
+mod fcm;
 mod push;
 
 use std::io::{BufRead, BufReader};
@@ -778,4 +779,51 @@ async fn the_binary_with_an_apns_key_serves_ios_and_no_other_platform() {
         android.expect("the relay answers").status(),
         StatusCode::UNPROCESSABLE_ENTITY
     );
+}
+
+#[test]
+fn a_partial_fcm_setting_stops_the_binary_and_names_the_missing_variable() {
+    let directory = tempfile::tempdir().expect("a temporary directory");
+
+    let output = relay_command(
+        directory.path(),
+        &[("PUSH_RELAY_FCM_PROJECT_ID", "pagis-mobile")],
+    )
+    .output()
+    .expect("the relay runs");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("PUSH_RELAY_FCM_CREDENTIALS_PATH"),
+        "{stderr}"
+    );
+    assert!(!directory.path().join("relay.sqlite").exists());
+}
+
+#[test]
+fn fcm_credentials_that_do_not_parse_stop_the_binary() {
+    let directory = tempfile::tempdir().expect("a temporary directory");
+    let credentials = directory.path().join("fcm.json");
+    std::fs::write(&credentials, r#"{"type": "service_account"}"#).expect("write the file");
+    let credentials = credentials.to_str().expect("a UTF-8 path");
+
+    let output = relay_command(
+        directory.path(),
+        &[
+            ("PUSH_RELAY_FCM_CREDENTIALS_PATH", credentials),
+            ("PUSH_RELAY_FCM_PROJECT_ID", "pagis-mobile"),
+        ],
+    )
+    .output()
+    .expect("the relay runs");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("PUSH_RELAY_FCM_CREDENTIALS_PATH"),
+        "{stderr}"
+    );
+    assert!(stderr.contains(credentials), "{stderr}");
+    assert!(!directory.path().join("relay.sqlite").exists());
 }

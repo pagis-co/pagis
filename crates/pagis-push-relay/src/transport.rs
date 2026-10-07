@@ -109,3 +109,15 @@ impl Transports {
         transport.as_deref()
     }
 }
+
+/// `error` and each error under it, joined by `: `.
+pub(crate) fn error_chain(error: &dyn std::error::Error) -> String {
+    let mut text = error.to_string();
+    let mut source = error.source();
+    while let Some(error) = source {
+        text.push_str(": ");
+        text.push_str(&error.to_string());
+        source = error.source();
+    }
+    text
+}

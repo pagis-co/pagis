@@ -22,7 +22,7 @@ use serde_json::{Value, json};
 use crate::clock::Clock;
 use crate::registration::{Environment, Platform};
 use crate::settings::ApnsSettings;
-use crate::transport::{Delivery, Message, Registration, Transport, Urgency};
+use crate::transport::{Delivery, Message, Registration, Transport, Urgency, error_chain};
 
 /// How long the transport keeps one provider token. APNs refuses a token
 /// older than one hour, and a new token more often than once in 20
@@ -204,18 +204,6 @@ impl Transport for ApnsTransport {
         }
         delivery
     }
-}
-
-/// `error` and each error under it, joined by `: `.
-fn error_chain(error: &dyn std::error::Error) -> String {
-    let mut text = error.to_string();
-    let mut source = error.source();
-    while let Some(error) = source {
-        text.push_str(": ");
-        text.push_str(&error.to_string());
-        source = error.source();
-    }
-    text
 }
 
 fn read_key(path: &Path) -> Result<SigningKey, ApnsError> {

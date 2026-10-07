@@ -109,6 +109,11 @@ p256 = "0.13"
 web-push-native = "0.5"
 # The HTTP-date form of the `Retry-After` header of a push service.
 httpdate = "1"
+# The OAuth 2 access token that the Push Relay sends to FCM with
+# (ADR-0030). It reads the JSON key of a service account, keeps the token
+# and makes a new one before it expires. Its default crypto is ring, as
+# in the rest of the workspace, so it brings no aws-lc-rs.
+gcp_auth = "0.12"
 hex = "0.4"
 hmac = "0.12"
 # The Forget suppression key derives from the Tenant Data Key (ADR-0008).

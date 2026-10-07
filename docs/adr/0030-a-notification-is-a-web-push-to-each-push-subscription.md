@@ -407,6 +407,63 @@ The answer of APNs gives the delivery:
 - Each other answer, and no answer: Failed. The reason of the failure
   holds the status and the APNs `reason`, and never the device token.
 
+### The FCM transport
+
+The relay sends to FCM with the HTTP v1 API, on `reqwest`. The legacy FCM
+API is shut down. The `gcp_auth` crate gives the OAuth 2 access token of
+a service account for the scope
+`https://www.googleapis.com/auth/firebase.messaging`. It reads the JSON
+key of the service account, keeps the token, and makes a new one before
+it expires. Its crypto is ring, so it brings no `aws-lc-rs`. It reads the
+root certificates of the system, so the host of the relay must have them.
+The transport reads the token through a small trait, so a test gives a
+fixed token.
+
+The relay serves `android` when these two variables are set:
+
+- `PUSH_RELAY_FCM_CREDENTIALS_PATH`: the JSON key of the service account;
+- `PUSH_RELAY_FCM_PROJECT_ID`: the Firebase project of the Mobile App.
+
+With none of them, the relay serves no `android` registration. With one
+of them, the relay stops at start with a message that names the missing
+variable. A key file that does not parse also stops it.
+
+Each push is one
+`POST https://fcm.googleapis.com/v1/projects/<project>/messages:send`
+with the access token as a bearer token. The body is a data message:
+
+```json
+{"message": {"token": "<device token>",
+             "data": {"p": "<the push body as unpadded base64url>"},
+             "android": {"priority": "HIGH", "ttl": "86400s",
+                         "collapse_key": "<Topic>"}}}
+```
+
+- `priority` is `HIGH` for `Urgency: high`, and `NORMAL` for each other
+  urgency.
+- `ttl` is the `TTL` in seconds, at most the four weeks that FCM takes.
+- `collapse_key` is the `Topic`, and it is present only when the push
+  has one.
+- The message has no `notification` member. The Android messaging
+  service of the Mobile App decrypts the body and shows the
+  Notification.
+
+FCM takes at most 4096 bytes of data, keys and values. A push body of
+2800 bytes is 3734 characters of unpadded base64url, so the data fits.
+
+The answer of FCM gives the delivery. The error code is the `errorCode`
+of the `FcmError` detail of the error, or else its `status`.
+
+- `200`: Delivered.
+- `404` with the error code `UNREGISTERED`: Gone.
+- `400` with `INVALID_ARGUMENT` and a `google.rpc.BadRequest` field
+  violation on `message.token`: Gone. FCM sends the same code for a bad
+  payload, and a fault in the relay must not remove every registration,
+  so `INVALID_ARGUMENT` on another field is not Gone.
+- Each other answer, no answer, and no access token: Failed. The reason
+  of the failure holds the status and the error code, and never the
+  device token.
+
 ## Consequences
 
 - A Person reads a Request on a phone with no tab open.
@@ -435,6 +492,4 @@ The answer of APNs gives the delivery:
   daemon calls it.
 - The hold while active, and the `activity` frame.
 - The service worker of the Product App.
-- The forward of the Push Relay to FCM. The binary has no transport for
-  `android`, so it refuses each `android` registration.
 - The Mobile App (ADR-0032).
