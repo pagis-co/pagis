@@ -17,6 +17,7 @@ members = [
     "crates/pagis-plugin",
     "crates/pagis-plugins",
     "crates/pagis-mcp-fixture",
+    "crates/pagis-push-relay",
     "crates/pagis-storage-postgres",
     "crates/pagis-storage-sqlite",
     "crates/pagis-telephony",
@@ -94,6 +95,11 @@ jsonschema = { version = "0.52", default-features = false }
 mime_guess = "2"
 object_store = "0.14"
 sha2 = "0.10"
+# The P-256 keys of Web Push: the VAPID Key that signs a push, and the
+# VAPID key that the Push Relay binds to a registration (ADR-0030). The
+# same version as `web-push-native` and the crates in the lockfile, so
+# the lockfile holds one copy.
+p256 = "0.13"
 hex = "0.4"
 hmac = "0.12"
 # The Forget suppression key derives from the Tenant Data Key (ADR-0008).
