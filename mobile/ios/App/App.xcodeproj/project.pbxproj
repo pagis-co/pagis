@@ -37,9 +37,32 @@
 		7A6E150000000000000000F9 /* PushSubscriber.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E150000000000000000F8 /* PushSubscriber.swift */; };
 		7A6E150000000000000000FB /* PagisPushPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E150000000000000000FA /* PagisPushPlugin.swift */; };
 		7A6E150000000000000000FD /* NotificationResponder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E150000000000000000FC /* NotificationResponder.swift */; };
+		7A6E15010000000000000012 /* RFC8291Vector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E15010000000000000011 /* RFC8291Vector.swift */; };
+		7A6E15010000000000000014 /* WebPushDecryptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E15010000000000000013 /* WebPushDecryptTests.swift */; };
+		7A6E15010000000000000016 /* PushPayloadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E15010000000000000015 /* PushPayloadTests.swift */; };
+		7A6E15010000000000000018 /* NotificationContentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E15010000000000000017 /* NotificationContentTests.swift */; };
+		7A6E1501000000000000001A /* web-push.json in Resources */ = {isa = PBXBuildFile; fileRef = 7A6E15010000000000000019 /* web-push.json */; };
+		7A6E15010000000000000031 /* WebPushDecrypt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E15010000000000000021 /* WebPushDecrypt.swift */; };
+		7A6E15010000000000000032 /* PushPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E15010000000000000022 /* PushPayload.swift */; };
+		7A6E15010000000000000033 /* NotificationContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E15010000000000000023 /* NotificationContent.swift */; };
+		7A6E15010000000000000034 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E15010000000000000024 /* NotificationService.swift */; };
+		7A6E15010000000000000035 /* WebPushDecrypt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E15010000000000000021 /* WebPushDecrypt.swift */; };
+		7A6E15010000000000000036 /* PushPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E15010000000000000022 /* PushPayload.swift */; };
+		7A6E15010000000000000037 /* NotificationContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E15010000000000000023 /* NotificationContent.swift */; };
+		7A6E15010000000000000038 /* PushKeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E150000000000000000F4 /* PushKeys.swift */; };
+		7A6E15010000000000000039 /* ServerStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E15000000000000000005 /* ServerStore.swift */; };
+		7A6E1501000000000000003A /* WebOrigin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E15000000000000000001 /* WebOrigin.swift */; };
+		7A6E1501000000000000003B /* PagisNotificationService.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 7A6E15010000000000000027 /* PagisNotificationService.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		7A6E15010000000000000047 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 504EC2FC1FED79650016851F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 7A6E15010000000000000045;
+			remoteInfo = PagisNotificationService;
+		};
 		7A6E1500000000000000006D /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 504EC2FC1FED79650016851F /* Project object */;
@@ -48,6 +71,20 @@
 			remoteInfo = App;
 		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		7A6E15010000000000000044 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				7A6E1501000000000000003B /* PagisNotificationService.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		2FAD9762203C412B000D30F8 /* config.xml */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = config.xml; sourceTree = "<group>"; };
@@ -84,6 +121,18 @@
 		7A6E150000000000000000F8 /* PushSubscriber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushSubscriber.swift; sourceTree = "<group>"; };
 		7A6E150000000000000000FA /* PagisPushPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PagisPushPlugin.swift; sourceTree = "<group>"; };
 		7A6E150000000000000000FC /* NotificationResponder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationResponder.swift; sourceTree = "<group>"; };
+		7A6E15010000000000000011 /* RFC8291Vector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RFC8291Vector.swift; sourceTree = "<group>"; };
+		7A6E15010000000000000013 /* WebPushDecryptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebPushDecryptTests.swift; sourceTree = "<group>"; };
+		7A6E15010000000000000015 /* PushPayloadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushPayloadTests.swift; sourceTree = "<group>"; };
+		7A6E15010000000000000017 /* NotificationContentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationContentTests.swift; sourceTree = "<group>"; };
+		7A6E15010000000000000019 /* web-push.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = "web-push.json"; path = "../../../fixtures/web-push.json"; sourceTree = SOURCE_ROOT; };
+		7A6E15010000000000000021 /* WebPushDecrypt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebPushDecrypt.swift; sourceTree = "<group>"; };
+		7A6E15010000000000000022 /* PushPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushPayload.swift; sourceTree = "<group>"; };
+		7A6E15010000000000000023 /* NotificationContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationContent.swift; sourceTree = "<group>"; };
+		7A6E15010000000000000024 /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
+		7A6E15010000000000000025 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		7A6E15010000000000000026 /* PagisNotificationService.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PagisNotificationService.entitlements; sourceTree = "<group>"; };
+		7A6E15010000000000000027 /* PagisNotificationService.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = PagisNotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -102,6 +151,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		7A6E15010000000000000042 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -111,6 +167,7 @@
 				958DCC722DB07C7200EA8C5F /* debug.xcconfig */,
 				504EC3061FED79650016851F /* App */,
 				7A6E15000000000000000065 /* AppTests */,
+				7A6E15010000000000000046 /* PagisNotificationService */,
 				504EC3051FED79650016851F /* Products */,
 			);
 			sourceTree = "<group>";
@@ -120,6 +177,7 @@
 			children = (
 				504EC3041FED79650016851F /* App.app */,
 				7A6E15000000000000000064 /* AppTests.xctest */,
+				7A6E15010000000000000027 /* PagisNotificationService.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -151,6 +209,9 @@
 				7A6E150000000000000000F8 /* PushSubscriber.swift */,
 				7A6E150000000000000000FA /* PagisPushPlugin.swift */,
 				7A6E150000000000000000FC /* NotificationResponder.swift */,
+				7A6E15010000000000000021 /* WebPushDecrypt.swift */,
+				7A6E15010000000000000022 /* PushPayload.swift */,
+				7A6E15010000000000000023 /* NotificationContent.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -165,8 +226,23 @@
 				7A6E150000000000000000E0 /* MediaGuardTests.swift */,
 				7A6E150000000000000000F0 /* PushSubscriberTests.swift */,
 				7A6E150000000000000000F2 /* PushKeysTests.swift */,
+				7A6E15010000000000000011 /* RFC8291Vector.swift */,
+				7A6E15010000000000000013 /* WebPushDecryptTests.swift */,
+				7A6E15010000000000000015 /* PushPayloadTests.swift */,
+				7A6E15010000000000000017 /* NotificationContentTests.swift */,
+				7A6E15010000000000000019 /* web-push.json */,
 			);
 			path = AppTests;
+			sourceTree = "<group>";
+		};
+		7A6E15010000000000000046 /* PagisNotificationService */ = {
+			isa = PBXGroup;
+			children = (
+				7A6E15010000000000000024 /* NotificationService.swift */,
+				7A6E15010000000000000025 /* Info.plist */,
+				7A6E15010000000000000026 /* PagisNotificationService.entitlements */,
+			);
+			path = PagisNotificationService;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -179,10 +255,12 @@
 				504EC3001FED79650016851F /* Sources */,
 				504EC3011FED79650016851F /* Frameworks */,
 				504EC3021FED79650016851F /* Resources */,
+				7A6E15010000000000000044 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				7A6E15010000000000000048 /* PBXTargetDependency */,
 			);
 			name = App;
 			packageProductDependencies = (
@@ -210,6 +288,23 @@
 			productReference = 7A6E15000000000000000064 /* AppTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		7A6E15010000000000000045 /* PagisNotificationService */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7A6E15010000000000000049 /* Build configuration list for PBXNativeTarget "PagisNotificationService" */;
+			buildPhases = (
+				7A6E15010000000000000041 /* Sources */,
+				7A6E15010000000000000042 /* Frameworks */,
+				7A6E15010000000000000043 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = PagisNotificationService;
+			productName = PagisNotificationService;
+			productReference = 7A6E15010000000000000027 /* PagisNotificationService.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -226,6 +321,9 @@
 					};
 					7A6E15000000000000000066 = {
 						TestTargetID = 504EC3031FED79650016851F;
+					};
+					7A6E15010000000000000045 = {
+						CreatedOnToolsVersion = 26.3;
 					};
 				};
 			};
@@ -247,6 +345,7 @@
 			targets = (
 				504EC3031FED79650016851F /* App */,
 				7A6E15000000000000000066 /* AppTests */,
+				7A6E15010000000000000045 /* PagisNotificationService */,
 			);
 		};
 /* End PBXProject section */
@@ -266,6 +365,14 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		7A6E15000000000000000069 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7A6E1501000000000000001A /* web-push.json in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7A6E15010000000000000043 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -295,6 +402,9 @@
 				7A6E150000000000000000F9 /* PushSubscriber.swift in Sources */,
 				7A6E150000000000000000FB /* PagisPushPlugin.swift in Sources */,
 				7A6E150000000000000000FD /* NotificationResponder.swift in Sources */,
+				7A6E15010000000000000031 /* WebPushDecrypt.swift in Sources */,
+				7A6E15010000000000000032 /* PushPayload.swift in Sources */,
+				7A6E15010000000000000033 /* NotificationContent.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -309,6 +419,24 @@
 				7A6E150000000000000000E1 /* MediaGuardTests.swift in Sources */,
 				7A6E150000000000000000F1 /* PushSubscriberTests.swift in Sources */,
 				7A6E150000000000000000F3 /* PushKeysTests.swift in Sources */,
+				7A6E15010000000000000012 /* RFC8291Vector.swift in Sources */,
+				7A6E15010000000000000014 /* WebPushDecryptTests.swift in Sources */,
+				7A6E15010000000000000016 /* PushPayloadTests.swift in Sources */,
+				7A6E15010000000000000018 /* NotificationContentTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7A6E15010000000000000041 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7A6E15010000000000000034 /* NotificationService.swift in Sources */,
+				7A6E15010000000000000035 /* WebPushDecrypt.swift in Sources */,
+				7A6E15010000000000000036 /* PushPayload.swift in Sources */,
+				7A6E15010000000000000037 /* NotificationContent.swift in Sources */,
+				7A6E15010000000000000038 /* PushKeys.swift in Sources */,
+				7A6E15010000000000000039 /* ServerStore.swift in Sources */,
+				7A6E1501000000000000003A /* WebOrigin.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -319,6 +447,11 @@
 			isa = PBXTargetDependency;
 			target = 504EC3031FED79650016851F /* App */;
 			targetProxy = 7A6E1500000000000000006D /* PBXContainerItemProxy */;
+		};
+		7A6E15010000000000000048 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 7A6E15010000000000000045 /* PagisNotificationService */;
+			targetProxy = 7A6E15010000000000000047 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -538,6 +671,58 @@
 			};
 			name = Release;
 		};
+		7A6E1501000000000000004A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = PagisNotificationService/PagisNotificationService.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = PagisNotificationService/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = PagisNotificationService;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 0.2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.pagis.mobile.PagisNotificationService;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		7A6E1501000000000000004B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = PagisNotificationService/PagisNotificationService.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = PagisNotificationService/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = PagisNotificationService;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 0.2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.pagis.mobile.PagisNotificationService;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -564,6 +749,15 @@
 			buildConfigurations = (
 				7A6E1500000000000000006B /* Debug */,
 				7A6E1500000000000000006C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		7A6E15010000000000000049 /* Build configuration list for PBXNativeTarget "PagisNotificationService" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7A6E1501000000000000004A /* Debug */,
+				7A6E1501000000000000004B /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

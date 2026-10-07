@@ -215,6 +215,56 @@ The iOS Notification Service Extension decrypts the payload with CryptoKit.
 The Android messaging service decrypts it with the `apps-webpush` module of
 Tink. The Push Relay, APNs and FCM see only ciphertext.
 
+### The Notification Service Extension shows a Notification on iOS
+
+The app embeds the Notification Service Extension `PagisNotificationService`.
+APNs starts it for each push of the Push Relay, because the push has
+`mutable-content` (ADR-0030). The extension has about 30 seconds and a small
+memory limit. When it fails or runs out of time, iOS shows the placeholder
+of the relay.
+
+The app and the extension share these sources, and the extension has no
+copy of them:
+
+- `PushKeys.swift`: the keys of the Push Subscription. The extension reads
+  the keys and never makes them.
+- `WebPushDecrypt.swift`: `decrypt(body:privateKey:auth:)`, one pure
+  function after RFC 8291 and RFC 8188. It reads the salt, the record size
+  and the key of the sender from the header, makes the ECDH secret with
+  `P256.KeyAgreement`, makes the key and the nonce of the content with
+  `HKDF<SHA256>`, and opens the record with AES-128-GCM. The body is one
+  record that ends with the delimiter `0x02` and zero bytes of padding. A
+  short body, a bad header, a second record, a record that does not open
+  and another delimiter are each an error.
+- `PushPayload.swift`: the parser of the JSON of ADR-0030. A field of the
+  wrong type is an error. An unknown field is ignored.
+- `NotificationContent.swift`: the content of the Notification.
+- `ServerStore.swift`: the origin of the server, in the `UserDefaults` of
+  the App Group `group.app.pagis.mobile`.
+
+The extension has the Keychain access group and the App Group of the app.
+For each push, it decodes `p`, decrypts it with the keys in the Keychain,
+and parses the payload. The Notification then has:
+
+- the `title` and the `body` of the payload;
+- the `kind` as its thread identifier, so iOS groups the Notifications of
+  one kind;
+- `app_badge` as the badge, when the payload has one;
+- `navigate`, `item`, `kind` and `request` in its `userInfo`;
+- the category `approval` when the `actions` of `request` are
+  `approve_once` and `deny`, and no category for each other payload.
+
+When the app holds no keys, when the push does not decrypt or does not
+parse, and when `data.v` is not `1`, the extension delivers the
+placeholder of the relay as it is, with the server origin as `navigate`.
+When iOS ends the time of the extension, it delivers the same placeholder.
+
+The file `fixtures/web-push.json` holds the keys of a Push Subscription,
+one body that `pagis-push` encrypted for them, and its plaintext. A test
+of `pagis-push` decrypts the body with `web-push-native`, and the XCTest
+tests of the app decrypt it with `decrypt`. So the sender and the
+clients agree on one encryption.
+
 ### Inline answers are Approve once and Deny
 
 A Notification of a pending tool action or credential action Approval
@@ -328,7 +378,7 @@ Other ways were considered:
 ## Not built
 
 - The Mobile App: the native requests that use the copy of the Session,
-  the Notification Service Extension, the decryption in the Android
-  messaging service and the inline answers.
+  the decryption in the Android messaging service and the inline answers.
+  No code registers the category `approval`.
 - The lower bound on the server version is 0.2.0, not the first release
   that serves Notifications.

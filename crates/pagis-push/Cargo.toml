@@ -17,4 +17,5 @@ web-push-native.workspace = true
 
 [dev-dependencies]
 rand.workspace = true
+serde_json.workspace = true
 wiremock.workspace = true

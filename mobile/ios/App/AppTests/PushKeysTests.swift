@@ -39,4 +39,22 @@ final class PushKeysTests: XCTestCase {
         XCTAssertEqual(Data([0xfb, 0xff]).base64URLEncodedString(), "-_8")
         XCTAssertEqual(Data(repeating: 0, count: 16).base64URLEncodedString(), "AAAAAAAAAAAAAAAAAAAAAA")
     }
+
+    func testBase64URLDecodesWithAndWithoutPadding() {
+        XCTAssertEqual(Data(base64URLEncoded: "-_8"), Data([0xfb, 0xff]))
+        XCTAssertEqual(Data(base64URLEncoded: "-_8="), Data([0xfb, 0xff]))
+        XCTAssertEqual(Data(base64URLEncoded: "AAAAAAAAAAAAAAAAAAAAAA"), Data(repeating: 0, count: 16))
+        XCTAssertNil(Data(base64URLEncoded: "+/8"))
+        XCTAssertNil(Data(base64URLEncoded: "%%%"))
+    }
+
+    func testStoredIsNilWhenTheAppHoldsNoKeys() throws {
+        let items = MemoryItems()
+
+        XCTAssertNil(try PushKeyStore(items: items).stored())
+        XCTAssertNil(try items.read(PushKeyStore.item), "Reading the stored keys makes no keys.")
+
+        let keys = try PushKeyStore(items: items).keys()
+        XCTAssertEqual(try PushKeyStore(items: items).stored()?.auth, keys.auth)
+    }
 }

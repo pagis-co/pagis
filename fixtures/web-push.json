@@ -1,0 +1,9 @@
+{
+  "body": "QT-lHQHvy3UHFfO6xOfphAAAASxBBIG12h34u9pFGfs590UdTxO6GQ9sQtcNGRyh3dF9oPJtqbsjPiFqlKyaoCyW-s2q9y_zhRgK63V29Jkq1Q2ZcZ1R_C25orjHFe0j3ZNfdA1bX-I4-SRzWdfG981Trog20hMB5tRR3STZ1fQ9f54fn6CVAdOEiU9RSG49IcePICBh_k7BguFcv-B5pTBhXRAzfuea0UUASWRoil9fqH2M4vBDGLr2imALYIB91yHtCM8dp0uqjriigVLHdBZlb6SLh7spdqT3BZij20w1NrcaJdOwbiFP4xZi3Ik4-uVE--r5jO-94OHGnPo1qotRIZIfX_jA1uAI6HstBxEqTgWWxWq1ioOPnmt8MGf9wzCuWdGlkLCrK0iLRp-Em_1M1XxbTapy5d-VVaTGFpNYPNu5RrZOGM0rIcnXdcpAvA0HDktuSpk809zWSyoEma0-apdW643R2vqgCYzL-A-733yZCLUqlKIhVJZOHrKdaMo",
+  "plaintext": "{\"web_push\":8030,\"notification\":{\"title\":\"Robin\",\"body\":\"Robin needs your approval\\nhost_shell\",\"navigate\":\"https://pagis.example.com/c/ch-1\",\"data\":{\"v\":1,\"item\":\"request:r-1\",\"kind\":\"approval\",\"request\":{\"id\":\"r-1\",\"actions\":[\"approve_once\",\"deny\"]}}},\"app_badge\":3,\"mutable\":true}",
+  "subscription": {
+    "auth": "ud6WW_0IDiuUf_V_kB7sdA",
+    "p256dh": "BKQbb70TxUVqX_bC7-UMQYgxFmgNOcQf2RsTe7_pkEawsqzXLQQyeOfIgGHGF7wxId7OBvLIac4zJr7nW3SXZwg",
+    "private_key": "_joKwFeSwDlhDfJ4zdyYTm0cDmt8KjS_aN4OdkZJQd8"
+  }
+}

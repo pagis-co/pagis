@@ -117,7 +117,8 @@ The Pagis app for iOS and Android. It shows the server's own Product App,
 signs in with a Sign-In Link, and shows Notifications with **Approve once**
 and **Deny** for an Approval. It connects to a Server, or to a Local
 Installation in Remote Access, over `https://`. It installs nothing, and it
-is not a Host. Not built: Notifications (ADR-0032).
+is not a Host. Not built: Notifications on Android, and **Approve once**
+and **Deny** on a Notification (ADR-0032).
 _Avoid_: phone app, mobile client, native app
 
 ### Onboarding
