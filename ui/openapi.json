@@ -7514,7 +7514,7 @@
         "tags": [
           "trust_list"
         ],
-        "summary": "Clear the failed-attempt count of the signed-in person's Workspace,\nand end its delay (ADR-0021). A correct code clears it too. The\nperson is the only other party who can know that the wrong codes\nwere not an attack, so no tool reaches this.",
+        "summary": "Clear the failed-attempt count of the signed-in person's Workspace,\nand end its delay (ADR-0021). A correct code clears it too. The\nperson is the only other party who can know that the wrong codes\nwere not an attack, so no tool reaches this. The clear publishes\n`keypad.cleared`, so the keypad item leaves the Needs-You Queue.",
         "operationId": "clear_keypad_failures",
         "responses": {
           "204": {

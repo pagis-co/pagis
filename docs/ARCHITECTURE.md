@@ -104,7 +104,10 @@ same as the Person's own Channel (ADR-0003). Messages carry blocks: a
 curated, typed vocabulary the UI renders natively. A block that asks views
 a Request, so an approval card is an approval API (ADR-0004). The daemon
 derives the Needs-You Queue on each read from the records, and stores no
-copy of it (ADR-0022, ADR-0030).
+copy of it. A daemon-lifetime task derives the queue again after each
+event that can change it, and publishes `needs_you.added` or
+`needs_you.removed` for each item that enters or leaves it (ADR-0022,
+ADR-0030).
 
 ### Runtime
 

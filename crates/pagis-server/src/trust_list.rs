@@ -249,7 +249,8 @@ pub async fn delete_keypad_code(
 /// Clear the failed-attempt count of the signed-in person's Workspace,
 /// and end its delay (ADR-0021). A correct code clears it too. The
 /// person is the only other party who can know that the wrong codes
-/// were not an attack, so no tool reaches this.
+/// were not an attack, so no tool reaches this. The clear publishes
+/// `keypad.cleared`, so the keypad item leaves the Needs-You Queue.
 #[utoipa::path(delete, path = "/api/v1/settings/keypad-code/failures", responses(
     (status = 204),
     (status = 401, body = crate::error::ErrorBody),
@@ -259,5 +260,16 @@ pub async fn clear_keypad_failures(
     tenant: Tenant,
 ) -> Result<StatusCode, ApiError> {
     state.keypad_failures.clear(&tenant.workspace_id).await?;
+    state
+        .bus
+        .publish(pagis_core::NewEvent {
+            workspace_id: tenant.workspace_id.clone(),
+            event_type: "keypad.cleared".into(),
+            agent_id: None,
+            run_id: None,
+            channel_id: None,
+            payload: serde_json::json!({}),
+        })
+        .await?;
     Ok(StatusCode::NO_CONTENT)
 }

@@ -153,10 +153,15 @@ impl WorkspaceCode {
         failures.suspended_at(now)
     }
 
-    /// A correct code clears the count of the Workspace.
+    /// A correct code clears the count of the Workspace, and audits the
+    /// clear.
     async fn succeeded(&self) {
         if let Err(error) = self.keypad.failures.clear(&self.workspace_id).await {
             tracing::error!(%error, workspace_id = %self.workspace_id, "the keypad failures were not cleared");
+            return;
+        }
+        if let Err(error) = self.log.keypad_cleared().await {
+            tracing::error!(%error, "the keypad clear did not reach the audit log");
         }
     }
 }

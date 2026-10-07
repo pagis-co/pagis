@@ -757,6 +757,20 @@ async fn each_failed_attempt_writes_an_event_without_the_digits() {
     }
 }
 
+/// A correct code writes `keypad.cleared` after it clears the count, so
+/// the keypad item leaves the Needs-You Queue.
+#[tokio::test(start_paused = true)]
+async fn a_correct_code_writes_the_clear_of_the_count() {
+    let guard = Guard::new(Code::set(CODE));
+    guard.fail(5).await;
+
+    late_entry(&guard.gate(TrustTier::Trusted), CODE).await;
+
+    let cleared = guard.bus.payloads_of("keypad.cleared");
+    assert_eq!(cleared.len(), 1, "{cleared:?}");
+    assert_eq!(guard.count().await, KeypadFailures::default());
+}
+
 /// The failure that starts a delay says when the delay ends.
 #[tokio::test(start_paused = true)]
 async fn the_failure_that_starts_a_delay_names_its_end() {

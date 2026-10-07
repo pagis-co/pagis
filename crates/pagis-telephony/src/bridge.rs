@@ -211,6 +211,12 @@ impl CallLog {
         .await
     }
 
+    /// A correct Keypad Code cleared the failed-attempt count of the
+    /// Workspace and ended its delay (ADR-0021).
+    pub async fn keypad_cleared(&self) -> Result<(), StoreError> {
+        self.publish("keypad.cleared", serde_json::json!({})).await
+    }
+
     async fn publish(
         &self,
         event_type: &str,

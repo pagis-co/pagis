@@ -2115,7 +2115,8 @@ export interface paths {
          * Clear the failed-attempt count of the signed-in person's Workspace,
          *     and end its delay (ADR-0021). A correct code clears it too. The
          *     person is the only other party who can know that the wrong codes
-         *     were not an attack, so no tool reaches this.
+         *     were not an attack, so no tool reaches this. The clear publishes
+         *     `keypad.cleared`, so the keypad item leaves the Needs-You Queue.
          */
         delete: operations["clear_keypad_failures"];
         options?: never;
