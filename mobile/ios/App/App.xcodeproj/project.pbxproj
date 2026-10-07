@@ -25,6 +25,9 @@
 		7A6E1500000000000000000E /* BridgeGuardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E1500000000000000000D /* BridgeGuardTests.swift */; };
 		7A6E150000000000000000C9 /* NavigationGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E150000000000000000C8 /* NavigationGuard.swift */; };
 		7A6E150000000000000000CB /* NavigationGuardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E150000000000000000CA /* NavigationGuardTests.swift */; };
+		7A6E150000000000000000D1 /* SessionCopyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E150000000000000000D0 /* SessionCopyTests.swift */; };
+		7A6E150000000000000000D3 /* SessionCopy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E150000000000000000D2 /* SessionCopy.swift */; };
+		7A6E150000000000000000D5 /* SessionCookies.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E150000000000000000D4 /* SessionCookies.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -59,6 +62,10 @@
 		7A6E15000000000000000064 /* AppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		7A6E150000000000000000C8 /* NavigationGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationGuard.swift; sourceTree = "<group>"; };
 		7A6E150000000000000000CA /* NavigationGuardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationGuardTests.swift; sourceTree = "<group>"; };
+		7A6E150000000000000000D0 /* SessionCopyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionCopyTests.swift; sourceTree = "<group>"; };
+		7A6E150000000000000000D2 /* SessionCopy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionCopy.swift; sourceTree = "<group>"; };
+		7A6E150000000000000000D4 /* SessionCookies.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionCookies.swift; sourceTree = "<group>"; };
+		7A6E150000000000000000D6 /* App.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = App.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -115,8 +122,11 @@
 				504EC30E1FED79650016851F /* Assets.xcassets */,
 				504EC3101FED79650016851F /* LaunchScreen.storyboard */,
 				504EC3131FED79650016851F /* Info.plist */,
+				7A6E150000000000000000D6 /* App.entitlements */,
 				2FAD9762203C412B000D30F8 /* config.xml */,
 				50B271D01FEDC1A000F3C39B /* public */,
+				7A6E150000000000000000D2 /* SessionCopy.swift */,
+				7A6E150000000000000000D4 /* SessionCookies.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -127,6 +137,7 @@
 				7A6E1500000000000000000B /* WebOriginTests.swift */,
 				7A6E1500000000000000000D /* BridgeGuardTests.swift */,
 				7A6E150000000000000000CA /* NavigationGuardTests.swift */,
+				7A6E150000000000000000D0 /* SessionCopyTests.swift */,
 			);
 			path = AppTests;
 			sourceTree = "<group>";
@@ -249,6 +260,8 @@
 				7A6E15000000000000000006 /* ServerStore.swift in Sources */,
 				7A6E15000000000000000008 /* PagisShellPlugin.swift in Sources */,
 				7A6E1500000000000000000A /* PagisViewController.swift in Sources */,
+				7A6E150000000000000000D3 /* SessionCopy.swift in Sources */,
+				7A6E150000000000000000D5 /* SessionCookies.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -259,6 +272,7 @@
 				7A6E1500000000000000000C /* WebOriginTests.swift in Sources */,
 				7A6E1500000000000000000E /* BridgeGuardTests.swift in Sources */,
 				7A6E150000000000000000CB /* NavigationGuardTests.swift in Sources */,
+				7A6E150000000000000000D1 /* SessionCopyTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -410,6 +424,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				INFOPLIST_FILE = App/Info.plist;
 				INFOPLIST_OTHER_PREPROCESSOR_FLAGS = "-traditional";
+				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				INFOPLIST_PREPROCESS = YES;
 				INFOPLIST_PREPROCESSOR_DEFINITIONS = "PAGIS_DEBUG=1";
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
@@ -435,6 +450,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				INFOPLIST_FILE = App/Info.plist;
 				INFOPLIST_OTHER_PREPROCESSOR_FLAGS = "-traditional";
+				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				INFOPLIST_PREPROCESS = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (

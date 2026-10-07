@@ -22,14 +22,23 @@ import com.getcapacitor.BridgeWebViewClient;
 class PagisWebViewClient extends BridgeWebViewClient {
 
     private final ServerOrigin shown;
+    private final Runnable onPageLoaded;
 
     /**
      * @param shown The origin that the bridge shows: the server, or the
      *     app's own origin on the Connect screen.
+     * @param onPageLoaded Runs after each main-frame page load.
      */
-    PagisWebViewClient(Bridge bridge, ServerOrigin shown) {
+    PagisWebViewClient(Bridge bridge, ServerOrigin shown, Runnable onPageLoaded) {
         super(bridge);
         this.shown = shown;
+        this.onPageLoaded = onPageLoaded;
+    }
+
+    @Override
+    public void onPageFinished(WebView view, String url) {
+        super.onPageFinished(view, url);
+        onPageLoaded.run();
     }
 
     @Override

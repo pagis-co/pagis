@@ -1,7 +1,7 @@
 import type { HttpOptions, HttpResponse } from '@capacitor/core'
 import { describe, expect, it, vi } from 'vitest'
 
-import { connectToServer, type HttpRequest } from './connect'
+import { connectToServer, connectWithScannedLink, type HttpRequest } from './connect'
 import { MINIMUM_SERVER_VERSION } from './serverVersion'
 
 const RELEASE = { debug: false }
@@ -170,5 +170,57 @@ describe('the Connect screen checks a server', () => {
       origin: 'https://pagis.example.com/',
       opens: 'https://pagis.example.com/',
     })
+  })
+})
+
+describe('the Connect screen checks a scanned sign-in link', () => {
+  function scan(text: string, request: ReturnType<typeof server>) {
+    return connectWithScannedLink(text, { ...RELEASE, request: request as HttpRequest })
+  }
+
+  /** The web view opens the link, and the page of the link spends the
+   *  secret. The app keeps the origin alone. */
+  it('opens the scanned link and keeps its origin alone', async () => {
+    const request = server({ '/api/v1/health': healthy('link'), '/api/v1/setup': setUp() })
+
+    const address = await scan('https://a.example/sign-in#abc', request)
+
+    expect(address).toEqual({ origin: 'https://a.example/', opens: 'https://a.example/sign-in#abc' })
+    expect(paths(request)).toEqual(['/api/v1/health', '/api/v1/setup'])
+    for (const [options] of request.mock.calls) expect(JSON.stringify(options)).not.toContain('abc')
+  })
+
+  it('refuses a scanned link over http://, with the words of the field', async () => {
+    const request = server({ '/api/v1/health': healthy('link'), '/api/v1/setup': setUp() })
+
+    await expect(scan('http://a.example/sign-in#abc', request)).rejects.toThrow(/only over https:\/\//)
+    expect(request).not.toHaveBeenCalled()
+  })
+
+  it('refuses a scanned link with an empty fragment, with the words of the field', async () => {
+    const request = server({ '/api/v1/health': healthy('link'), '/api/v1/setup': setUp() })
+
+    for (const text of ['https://a.example/sign-in#', 'https://a.example/sign-in']) {
+      await expect(scan(text, request), text).rejects.toThrow(
+        'This sign-in link is not complete. Copy the whole link, then paste it again.',
+      )
+    }
+    expect(request).not.toHaveBeenCalled()
+  })
+
+  /** A QR code that holds an address, or other text, holds no secret, so
+   *  it signs nobody in. */
+  it('refuses a scanned address and plain text', async () => {
+    const request = server({ '/api/v1/health': healthy('password'), '/api/v1/setup': setUp() })
+    const message =
+      'This QR code holds no sign-in link of a Pagis server. Scan the QR code in Settings → Sessions ' +
+      'on a browser or app that is signed in.'
+
+    for (const text of ['https://a.example/', 'a.example', 'hello']) {
+      await expect(scan(text, request), text).rejects.toThrow(message)
+    }
+    await expect(scan('hello world', request)).rejects.toThrow('hello world is not a server address.')
+    await expect(scan('', request)).rejects.toThrow(message)
+    expect(request).not.toHaveBeenCalled()
   })
 })

@@ -70,6 +70,21 @@ export function serverAddress(typed: string, build: BuildType): ServerAddress {
   return { origin, opens: `${url.protocol}//${url.host}${SIGN_IN_PATH}${url.hash}` }
 }
 
+/**
+ * Read the text of a scanned QR code. Only a Sign-In Link signs the app
+ * in from a scan: an address or other text holds no secret. A link that
+ * the field refuses gets the words of the field.
+ */
+export function scannedSignInLink(scanned: string, build: BuildType): ServerAddress {
+  const noLink =
+    'This QR code holds no sign-in link of a Pagis server. Scan the QR code in Settings → Sessions ' +
+    'on a browser or app that is signed in.'
+  if (scanned.trim().length === 0) throw new Error(noLink)
+  const address = serverAddress(scanned, build)
+  if (address.opens === address.origin) throw new Error(noLink)
+  return address
+}
+
 /** What the Person typed, as a URL of a server that the app trusts, or
  *  an error in words for the Person. */
 function serverUrl(typed: string, build: BuildType): URL {

@@ -95,6 +95,14 @@ body {
   font-weight: var(--weight-semibold);
 }
 
+.connect button.secondary {
+  margin-top: 0;
+  border: var(--space-px) solid var(--border-control);
+  background: var(--panel);
+  color: var(--text);
+  font-weight: var(--weight-medium);
+}
+
 .connect button:disabled {
   opacity: var(--opacity-disabled);
 }

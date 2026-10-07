@@ -117,8 +117,7 @@ The Pagis app for iOS and Android. It shows the server's own Product App,
 signs in with a Sign-In Link, and shows Notifications with **Approve once**
 and **Deny** for an Approval. It connects to a Server, or to a Local
 Installation in Remote Access, over `https://`. It installs nothing, and it
-is not a Host. Not built: the scan of the QR code of a Sign-In Link, and
-Notifications (ADR-0032).
+is not a Host. Not built: Notifications (ADR-0032).
 _Avoid_: phone app, mobile client, native app
 
 ### Onboarding
@@ -347,7 +346,7 @@ installation, good for five minutes. Its page posts the secret, so opening
 the link spends nothing. In Remote Access it is the one way in for another
 machine, and the sign-in page there takes a pasted link (ADR-0028). The
 Mobile App scans the QR code, or takes a pasted link, and spends the link
-in its web view. Not built: the scan of the QR code (ADR-0032).
+in its web view (ADR-0032).
 _Avoid_: pairing code, magic link, invite token
 
 ### Spend Cap

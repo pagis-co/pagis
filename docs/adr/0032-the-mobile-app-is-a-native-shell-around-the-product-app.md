@@ -109,9 +109,13 @@ The shell reads the Session cookie, `pagis_session`, from the cookie store
 of the web view: `WKHTTPCookieStore` on iOS and `CookieManager` on Android.
 Both give an `HttpOnly` cookie to native code. The shell keeps the copy:
 
-- On iOS, in a Keychain access group that the Notification Service
-  Extension shares, with `kSecAttrAccessibleAfterFirstUnlock`.
-- On Android, in storage that a key of the Android Keystore encrypts.
+- On iOS, in a Keychain item with `kSecAttrAccessibleAfterFirstUnlock`, in
+  the Keychain access group `<team>.app.pagis.mobile`, which the
+  Notification Service Extension shares.
+- On Android, in a file that a Tink AEAD encrypts. The keyset comes from
+  `AndroidKeysetManager`, with a master key in the Android Keystore. Tink
+  is also the library of the messaging service, and the deprecated Jetpack
+  Security library is not used.
 
 A native request sends the copy as a `Cookie` header, with no `Origin` and
 no `Sec-Fetch-Site`. The cross-origin check of the daemon
@@ -119,8 +123,24 @@ no `Sec-Fetch-Site`. The cross-origin check of the daemon
 Session check as a request from a program. The Host socket of the Client
 App goes through the check in the same way.
 
-The copy follows the web view. A new Session replaces it, and a sign-out
-or a `401` removes it.
+The copy follows the web view. On iOS a `WKHTTPCookieStoreObserver` reads
+the cookie at each change of the store. Android has no such event, so the
+shell reads `CookieManager` after each main-frame page load and when the
+activity pauses, and flushes the store when it pauses. `CookieManager` gives
+no expiry, so on Android the copy lasts 30 days from its last read, which
+is the life of a Session from its last use. A new Session replaces the
+copy, and a removed cookie deletes it.
+
+At launch, when the cookie store holds no Session cookie of the server and
+the copy is live, the shell writes the copy back into the store before the
+first load, with the attributes that the daemon gives the cookie. So a
+Session that native requests kept alive stays signed in in the web view
+too.
+
+When a Session ends, the Product App calls `PagisShell.sessionEnded()`
+through the bridge. The shell deletes the copy, forgets the server and
+opens the Connect screen. **Change server** also deletes the copy. A native
+request that gets a `401` deletes the copy.
 
 ### Push goes through the Push Relay
 
@@ -237,9 +257,8 @@ Other ways were considered:
 
 ## Not built
 
-- The Mobile App: the scan of the QR code of a Sign-In Link on the Connect
-  screen, the copy of the Session, the Push Subscription through the Push
-  Relay, the Notification Service Extension, the Android messaging
-  service and the inline answers.
+- The Mobile App: the native requests that use the copy of the Session,
+  the Push Subscription through the Push Relay, the Notification Service
+  Extension, the Android messaging service and the inline answers.
 - The lower bound on the server version is 0.2.0, not the first release
   that serves Notifications.

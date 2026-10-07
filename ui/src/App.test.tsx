@@ -24,6 +24,18 @@ vi.mock('./api/client', async () => {
   return { ...actual, createApiClient: () => api as unknown as ApiClient }
 })
 
+/** The Capacitor runtime that the Mobile App puts in the page, and its
+ *  `PagisShell` plugin. A browser has neither. */
+const { shell } = vi.hoisted(() => ({
+  shell: { native: false, sessionEnded: vi.fn(async () => {}) },
+}))
+
+vi.mock('@capacitor/core', () => ({
+  Capacitor: { isNativePlatform: () => shell.native },
+  registerPlugin: (name: string) =>
+    name === 'PagisShell' ? { sessionEnded: shell.sessionEnded } : {},
+}))
+
 vi.mock('./ws/socket', () => ({
   PagisSocket: class {
     constructor(options: SocketOptions) {
@@ -47,6 +59,8 @@ function mount(path = '/c/channel-1') {
 }
 
 beforeEach(() => {
+  shell.native = false
+  shell.sessionEnded.mockClear()
   useCallInspector.setState({ callId: null })
   api.GET.mockReset()
   api.GET.mockImplementation(async (path: string) => shellResponse(path))
@@ -255,5 +269,56 @@ describe('the sign-in page', () => {
 
     expect(await screen.findByLabelText('Password')).toBeTruthy()
     expect(screen.queryByLabelText('Paste a sign-in link')).toBeNull()
+  })
+})
+
+describe('the end of a Session in the Mobile App', () => {
+  /** The daemon closes the event socket with 1008 when the Session
+   *  ended, and from then on refuses the read of the Person. */
+  async function endTheSession() {
+    await screen.findByText('Say hello to Sage')
+    api.GET.mockImplementation(async (path: string) =>
+      path === '/api/v1/user'
+        ? { error: { error: { code: 'unauthorized', message: 'no session' } } }
+        : shellResponse(path),
+    )
+    act(() => socket.handlers!.onSignedOut())
+  }
+
+  it('tells the Mobile App that the Session ended, so it opens the Connect screen', async () => {
+    shell.native = true
+    mount()
+
+    await endTheSession()
+
+    await vi.waitFor(() => expect(shell.sessionEnded).toHaveBeenCalledTimes(1))
+  })
+
+  it('tells nobody in a browser, which shows its sign-in page', async () => {
+    mount()
+
+    await endTheSession()
+
+    expect(await screen.findByLabelText('Password')).toBeTruthy()
+    expect(shell.sessionEnded).not.toHaveBeenCalled()
+  })
+
+  /** An address opens the sign-in page of the server in the Mobile App,
+   *  and the Person signs in there. No Session ended. */
+  it('tells the Mobile App nothing when a page opens with no Session', async () => {
+    shell.native = true
+    api.GET.mockImplementation(async (path: string) => {
+      if (path === '/api/v1/user') {
+        return { error: { error: { code: 'unauthorized', message: 'no session' } } }
+      }
+      if (path === '/api/v1/health') {
+        return { data: { status: 'ok', version: '0.1.1', sign_in: 'password' } }
+      }
+      return shellResponse(path)
+    })
+    mount('/')
+
+    expect(await screen.findByLabelText('Password')).toBeTruthy()
+    expect(shell.sessionEnded).not.toHaveBeenCalled()
   })
 })

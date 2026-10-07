@@ -22,8 +22,8 @@ The app refuses an `http://` address before it sends a request.
 
 ## Connect
 
-The Connect screen shows one field, **Server address or sign-in link**, and
-**Connect**. The field takes the address of the server, such as
+The Connect screen shows one field, **Server address or sign-in link**,
+**Connect**, and **Scan a sign-in link**. The field takes the address of the server, such as
 `pagis.example.com`, or a sign-in link of the server,
 `https://<host>/sign-in#<secret>`. An address with no scheme means
 `https://`. When you select **Connect**, the app does these checks in this
@@ -61,8 +61,25 @@ The Sessions list names the Session "Pagis on iPhone", "Pagis on iPad" or
 "Pagis on Android". Remove a Session of the app in **Settings → Sessions**,
 as any other Session.
 
-The Connect screen does not scan the QR code of a sign-in link. This is not
-built. Paste the link in the field.
+## Scan a sign-in link
+
+On a browser or app that is signed in, open **Settings → Sessions** and
+select **Sign in another browser or app**. Then select **Scan a sign-in link**
+on the Connect screen, and point the camera at the QR code. At the first
+scan, the phone asks to let Pagis use the camera.
+
+The app does the checks of a link that you paste, from step 2. A QR code
+that holds no sign-in link, such as the address of a server or other text,
+gets a message, and the app opens nothing. Scan the QR code in the app, and
+not with the camera of the phone: the camera opens the link in the system
+browser, which signs in the browser and not the app.
+
+## Stay signed in
+
+The app keeps a copy of the Session, encrypted, for the notifications of
+the app. The copy follows the Session in the app. When you sign out, or when
+the server ends the Session, the app deletes the copy and opens the Connect
+screen. Scan a new sign-in link to sign in again.
 
 ## Start the app again
 
@@ -72,7 +89,8 @@ lasts.
 ## Change server
 
 Touch and hold the Pagis icon on the Home Screen, then select **Change
-server**. The app forgets the server and opens the Connect screen.
+server**. The app forgets the server and the copy of the Session, and opens
+the Connect screen.
 
 ## What the app gives a page
 

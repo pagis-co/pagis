@@ -13,10 +13,11 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
         if connectionOptions.shortcutItem?.type == SceneDelegate.changeServer {
             ServerStore().server = nil
+            KeychainSessionCopy().delete()
         }
-        window = UIWindow(windowScene: windowScene)
-        window?.rootViewController = PagisViewController()
-        window?.makeKeyAndVisible()
+        let window = UIWindow(windowScene: windowScene)
+        self.window = window
+        PagisViewController.launch(in: window)
 
         SceneDelegateProxy.shared.scene(scene, willConnectTo: session, options: connectionOptions)
     }
