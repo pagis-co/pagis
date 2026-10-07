@@ -31,6 +31,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         registerPlugin(PagisShellPlugin.class);
+        registerPlugin(PagisPushPlugin.class);
         sessionCopy = SessionCopy.open(this);
         if (ACTION_CHANGE_SERVER.equals(getIntent().getAction())) {
             new ServerStore(this).forget();

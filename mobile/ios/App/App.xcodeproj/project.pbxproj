@@ -30,6 +30,13 @@
 		7A6E150000000000000000D5 /* SessionCookies.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E150000000000000000D4 /* SessionCookies.swift */; };
 		7A6E150000000000000000E1 /* MediaGuardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E150000000000000000E0 /* MediaGuardTests.swift */; };
 		7A6E150000000000000000E3 /* MediaGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E150000000000000000E2 /* MediaGuard.swift */; };
+		7A6E150000000000000000F1 /* PushSubscriberTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E150000000000000000F0 /* PushSubscriberTests.swift */; };
+		7A6E150000000000000000F3 /* PushKeysTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E150000000000000000F2 /* PushKeysTests.swift */; };
+		7A6E150000000000000000F5 /* PushKeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E150000000000000000F4 /* PushKeys.swift */; };
+		7A6E150000000000000000F7 /* PushRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E150000000000000000F6 /* PushRelay.swift */; };
+		7A6E150000000000000000F9 /* PushSubscriber.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E150000000000000000F8 /* PushSubscriber.swift */; };
+		7A6E150000000000000000FB /* PagisPushPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E150000000000000000FA /* PagisPushPlugin.swift */; };
+		7A6E150000000000000000FD /* NotificationResponder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E150000000000000000FC /* NotificationResponder.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -70,6 +77,13 @@
 		7A6E150000000000000000D6 /* App.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = App.entitlements; sourceTree = "<group>"; };
 		7A6E150000000000000000E0 /* MediaGuardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaGuardTests.swift; sourceTree = "<group>"; };
 		7A6E150000000000000000E2 /* MediaGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaGuard.swift; sourceTree = "<group>"; };
+		7A6E150000000000000000F0 /* PushSubscriberTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushSubscriberTests.swift; sourceTree = "<group>"; };
+		7A6E150000000000000000F2 /* PushKeysTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushKeysTests.swift; sourceTree = "<group>"; };
+		7A6E150000000000000000F4 /* PushKeys.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushKeys.swift; sourceTree = "<group>"; };
+		7A6E150000000000000000F6 /* PushRelay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushRelay.swift; sourceTree = "<group>"; };
+		7A6E150000000000000000F8 /* PushSubscriber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushSubscriber.swift; sourceTree = "<group>"; };
+		7A6E150000000000000000FA /* PagisPushPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PagisPushPlugin.swift; sourceTree = "<group>"; };
+		7A6E150000000000000000FC /* NotificationResponder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationResponder.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -132,6 +146,11 @@
 				7A6E150000000000000000D2 /* SessionCopy.swift */,
 				7A6E150000000000000000D4 /* SessionCookies.swift */,
 				7A6E150000000000000000E2 /* MediaGuard.swift */,
+				7A6E150000000000000000F4 /* PushKeys.swift */,
+				7A6E150000000000000000F6 /* PushRelay.swift */,
+				7A6E150000000000000000F8 /* PushSubscriber.swift */,
+				7A6E150000000000000000FA /* PagisPushPlugin.swift */,
+				7A6E150000000000000000FC /* NotificationResponder.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -144,6 +163,8 @@
 				7A6E150000000000000000CA /* NavigationGuardTests.swift */,
 				7A6E150000000000000000D0 /* SessionCopyTests.swift */,
 				7A6E150000000000000000E0 /* MediaGuardTests.swift */,
+				7A6E150000000000000000F0 /* PushSubscriberTests.swift */,
+				7A6E150000000000000000F2 /* PushKeysTests.swift */,
 			);
 			path = AppTests;
 			sourceTree = "<group>";
@@ -269,6 +290,11 @@
 				7A6E150000000000000000D3 /* SessionCopy.swift in Sources */,
 				7A6E150000000000000000D5 /* SessionCookies.swift in Sources */,
 				7A6E150000000000000000E3 /* MediaGuard.swift in Sources */,
+				7A6E150000000000000000F5 /* PushKeys.swift in Sources */,
+				7A6E150000000000000000F7 /* PushRelay.swift in Sources */,
+				7A6E150000000000000000F9 /* PushSubscriber.swift in Sources */,
+				7A6E150000000000000000FB /* PagisPushPlugin.swift in Sources */,
+				7A6E150000000000000000FD /* NotificationResponder.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -281,6 +307,8 @@
 				7A6E150000000000000000CB /* NavigationGuardTests.swift in Sources */,
 				7A6E150000000000000000D1 /* SessionCopyTests.swift in Sources */,
 				7A6E150000000000000000E1 /* MediaGuardTests.swift in Sources */,
+				7A6E150000000000000000F1 /* PushSubscriberTests.swift in Sources */,
+				7A6E150000000000000000F3 /* PushKeysTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -444,6 +472,7 @@
 				OTHER_SWIFT_FLAGS = "$(inherited) \"-D\" \"COCOAPODS\" \"-DDEBUG\"";
 				PRODUCT_BUNDLE_IDENTIFIER = app.pagis.mobile;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PUSH_RELAY_ORIGIN = "https://push-relay.invalid";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -468,6 +497,7 @@
 				MARKETING_VERSION = 0.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = app.pagis.mobile;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PUSH_RELAY_ORIGIN = "https://push-relay.invalid";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";

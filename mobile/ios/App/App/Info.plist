@@ -28,6 +28,8 @@
 	<string>Pagis uses the microphone when you hold the button to dictate a message.</string>
 	<key>PagisKeychainAccessGroup</key>
 	<string>$(AppIdentifierPrefix)app.pagis.mobile</string>
+	<key>PagisPushRelayOrigin</key>
+	<string>$(PUSH_RELAY_ORIGIN)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>

@@ -1,6 +1,7 @@
 // The Notifications section: the state of this browser, the turn-on and
-// the turn-off with a fake Push API, and the list of every Push
-// Subscription of the Person with a fake daemon.
+// the turn-off with a fake Push API or a fake `PagisPush` plugin of the
+// Mobile App, and the list of every Push Subscription of the Person with
+// a fake daemon.
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
@@ -9,6 +10,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ApiClient, PushSubscriptionDto } from '../../api/client'
 import { Notifications } from './Notifications'
+
+/** The fake `PagisPush` plugin of the Mobile App. */
+const { pagisPush } = vi.hoisted(() => ({
+  pagisPush: { state: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() },
+}))
+
+vi.mock('../../push/pagisPush', () => ({ PagisPush: pagisPush }))
 
 /** The daemon's VAPID public key: an uncompressed P-256 point. */
 const KEY_BYTES = Uint8Array.from([4, ...Array.from({ length: 64 }, (_, index) => index)])
@@ -170,17 +178,6 @@ describe('Notifications', () => {
     expect(screen.getByText('This browser gets notifications.')).toBeTruthy()
   })
 
-  // The Mobile App turns on its notifications in the native shell.
-  it('shows no control in the Mobile App', async () => {
-    vi.stubGlobal('Capacitor', { isNativePlatform: () => true })
-    vi.stubGlobal('PushManager', undefined)
-    mount(stubApi([PHONE]))
-
-    await screen.findAllByTestId('push-subscription-row')
-    expect(screen.queryByRole('button', { name: 'Turn on' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Turn off' })).toBeNull()
-  })
-
   // A network wait inside the click can end the user gesture in Safari,
   // and then `subscribe()` fails. So the key loads before the click, and
   // the click calls `subscribe()` before it returns.
@@ -269,6 +266,133 @@ describe('Notifications', () => {
       { params: { path: { push_subscription_id: 'ps-phone' } } },
     )
     expect(await screen.findByText('Sent.')).toBeTruthy()
+  })
+
+  describe('in the Mobile App', () => {
+    /** The Push Subscription of the Session of the app. */
+    const THIS_APP: PushSubscriptionDto = { ...PHONE, id: 'ps-app', current: true }
+
+    /** What `PagisPush.subscribe` answers: the endpoint of the Push Relay
+     *  and the public keys of the app. */
+    const APP_SUBSCRIPTION = {
+      endpoint: 'https://push-relay.example/v1/push/abc',
+      keys: { p256dh: 'BCVxsr7N', auth: 'c2VjcmV0' },
+    }
+
+    const steps: string[] = []
+    /** The service worker registration. The Mobile App has none, so the
+     *  section must not wait for it. */
+    const ready = vi.fn()
+
+    /** A daemon that lists the Push Subscription of the app as current
+     *  after the app posts it. */
+    function appApi(items: PushSubscriptionDto[]) {
+      let rows = items
+      const api = stubApi(items)
+      api.GET.mockImplementation(async (path: string) => {
+        if (path === '/api/v1/push/key') return { data: { vapid_public_key: KEY } }
+        if (path === '/api/v1/push-subscriptions') return { data: { items: rows } }
+        throw new Error(`unexpected GET ${path}`)
+      })
+      api.POST.mockImplementation(async (path: string) => {
+        if (path !== '/api/v1/push-subscriptions') throw new Error(`unexpected POST ${path}`)
+        rows = [...rows.filter((row) => !row.current), THIS_APP]
+        return { data: THIS_APP }
+      })
+      api.DELETE.mockImplementation(async (_path, init) => {
+        steps.push('delete the Push Subscription')
+        rows = rows.filter((row) => row.id !== init.params.path.push_subscription_id)
+        return { response: new Response(null, { status: 204 }) }
+      })
+      return api
+    }
+
+    beforeEach(() => {
+      steps.length = 0
+      vi.stubGlobal('Capacitor', { isNativePlatform: () => true })
+      vi.stubGlobal('PushManager', undefined)
+      setNavigator('serviceWorker', {
+        get ready() {
+          ready()
+          return new Promise(() => {})
+        },
+      })
+      pagisPush.state.mockResolvedValue({ permission: 'prompt' })
+      pagisPush.subscribe.mockResolvedValue(APP_SUBSCRIPTION)
+      pagisPush.unsubscribe.mockImplementation(async () => {
+        steps.push('unsubscribe')
+      })
+    })
+
+    it('posts the answer of PagisPush.subscribe to the daemon', async () => {
+      const api = appApi([PHONE])
+      mount(api)
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Turn on' }))
+
+      expect(pagisPush.subscribe).toHaveBeenCalledExactlyOnceWith({ vapidKey: KEY })
+      await waitFor(() =>
+        expect(api.POST).toHaveBeenCalledWith('/api/v1/push-subscriptions', {
+          body: APP_SUBSCRIPTION,
+        }),
+      )
+      expect(await screen.findByRole('button', { name: 'Turn off' })).toBeTruthy()
+      expect(screen.getByText('This app gets notifications.')).toBeTruthy()
+      expect(ready).not.toHaveBeenCalled()
+      expect(pushManager.subscribe).not.toHaveBeenCalled()
+      expect(pushManager.getSubscription).not.toHaveBeenCalled()
+    })
+
+    it('deletes the Push Subscription of the daemon, then unsubscribes the app', async () => {
+      const api = appApi([PHONE, THIS_APP])
+      mount(api)
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Turn off' }))
+
+      await waitFor(() => expect(steps).toEqual(['delete the Push Subscription', 'unsubscribe']))
+      expect(api.DELETE).toHaveBeenCalledExactlyOnceWith(
+        '/api/v1/push-subscriptions/{push_subscription_id}',
+        { params: { path: { push_subscription_id: 'ps-app' } } },
+      )
+      expect(await screen.findByRole('button', { name: 'Turn on' })).toBeTruthy()
+      expect(ready).not.toHaveBeenCalled()
+    })
+
+    // A new Session has no Push Subscription. The app keeps its
+    // registration with the Push Relay, and Turn on uses it again.
+    it('shows Off when the daemon lists no Push Subscription of this Session', async () => {
+      mount(appApi([PHONE]))
+
+      expect(await screen.findByRole('button', { name: 'Turn on' })).toBeTruthy()
+      expect(screen.getByText('This app does not get notifications.')).toBeTruthy()
+      expect(pagisPush.unsubscribe).not.toHaveBeenCalled()
+    })
+
+    it('names the Push Subscription of the app so in the list', async () => {
+      mount(appApi([PHONE, THIS_APP]))
+
+      const rows = await screen.findAllByTestId('push-subscription-row')
+      expect(within(rows[1]).getByText('This app')).toBeTruthy()
+    })
+
+    it('tells how to allow notifications when the phone blocks them', async () => {
+      pagisPush.state.mockResolvedValue({ permission: 'denied' })
+      mount(appApi([]))
+
+      expect(await screen.findByText(/This phone blocks notifications from Pagis/)).toBeTruthy()
+      expect(screen.queryByRole('button', { name: 'Turn on' })).toBeNull()
+    })
+
+    it('shows the words of the app when subscribe fails', async () => {
+      pagisPush.subscribe.mockRejectedValue(new Error('The Push Relay did not answer.'))
+      const api = appApi([])
+      mount(api)
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Turn on' }))
+
+      expect((await screen.findByRole('alert')).textContent).toBe('The Push Relay did not answer.')
+      expect(api.POST).not.toHaveBeenCalled()
+    })
   })
 
   it('removes one Push Subscription and reads the list again', async () => {

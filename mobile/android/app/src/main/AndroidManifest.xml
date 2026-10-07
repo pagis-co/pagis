@@ -28,6 +28,16 @@
 
         </activity>
 
+        <!-- Receives the FCM token. No Capacitor plugin owns the messaging
+             service of the app (ADR-0032). -->
+        <service
+            android:name=".PagisMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -45,4 +55,6 @@
     <!-- Dictation in the Product App of the server. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <!-- Notifications, on Android 13 and later. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 </manifest>

@@ -64,3 +64,10 @@ The PostgreSQL client scripts of the Headless Server image run Perl, and \
 libperl package. Their names and constants are code, not secrets."""
 targetRules = ["generic-api-key"]
 paths = ['''^dist/image-fs/server/linux_(?:amd64|arm64)/usr/lib/(?:x86_64|aarch64)-linux-gnu/perl/[^/]+/CORE/''']
+
+[[allowlists]]
+description = """\
+`P256.KeyAgreement.PrivateKey` is the name of a CryptoKit type in the \
+Swift code of the Mobile App, not a key."""
+targetRules = ["generic-api-key"]
+regexes = ['''^P256\.KeyAgreement\.PrivateKey$''']

@@ -1,13 +1,13 @@
 ---
 title: Notifications
-description: How to turn on Notifications in a browser and in a Home Screen web app on iOS, and how to remove a Push Subscription.
+description: How to turn on Notifications in a browser, in a Home Screen web app on iOS and in the Mobile App, and how to remove a Push Subscription.
 icon: Bell
 ---
 
 A Notification tells you that something needs you: an approval, a
 question, a failed Run or a missed Call. Pagis sends it as a Web Push to
-each browser where you turn on Notifications, also when no Pagis window is
-open. Each of these browsers holds a Push Subscription.
+each browser and app where you turn on Notifications, also when no Pagis
+window is open. Each of these browsers and apps holds a Push Subscription.
 [ADR-0030](https://github.com/pagis-co/pagis/blob/main/docs/adr/0030-a-notification-is-a-web-push-to-each-push-subscription.md)
 holds the decision.
 
@@ -41,6 +41,29 @@ these steps:
 4. Open **Settings → Notifications** and select **Turn on**. Then select
    **Allow**.
 
+## Turn on Notifications in the Mobile App
+
+1. In the Mobile App, open **Settings → Notifications** and select
+   **Turn on**.
+2. The phone asks if Pagis can send notifications. Select **Allow**.
+
+The page then shows **On**, and the list shows the app as "This app". In
+a browser, the list names it "Pagis on iPhone", "Pagis on iPad" or "Pagis
+on Android".
+
+The app gets each Notification through the Pagis Push Relay, which
+forwards it to Apple or Google. The Push Relay, Apple and Google see only
+the encrypted Notification. Only the phone holds the key that decrypts
+it.
+
+When you select **Don't Allow**, the page shows that the phone blocks
+notifications from Pagis. Open the Settings app of the phone, find Pagis,
+and turn on its notifications. Then open the page again.
+
+Not built: the app does not decrypt a Notification. On an iPhone or an
+iPad, a Notification shows "Something needs you" in place of its text. On
+Android, no Notification shows.
+
 ## Allow notifications that the browser blocks
 
 When you select **Block** at the question of the browser, the page shows
@@ -61,7 +84,9 @@ again:
 ## Turn off Notifications
 
 Select **Turn off** in **Settings → Notifications**. The browser ends its
-Push Subscription, and Pagis deletes it.
+Push Subscription, and Pagis deletes it. In the Mobile App, Pagis deletes
+the Push Subscription, and the app deletes its registration with the Push
+Relay.
 
 ## The list of Push Subscriptions
 
@@ -84,15 +109,13 @@ subscription ended.
 The list of the server is the truth. When this browser holds a Push
 Subscription that the server does not list, the page ends the subscription
 in the browser and shows **Off**. This occurs after you sign in again, for
-example. Select **Turn on** to get Notifications again.
+example. Select **Turn on** to get Notifications again. The Mobile App also
+shows **Off** after you sign in again, and **Turn on** uses its
+registration with the Push Relay again.
 
-## The Client App and the Mobile App
+## The Client App
 
 The Client App gets no Notification, because Electron gives no push
 service. Its **Settings → Notifications** tells you to turn on
 Notifications in a browser. The Client App shows the Needs-You Queue on
 Home, the count in the sidebar and the sound cues.
-
-Not built: Notifications in the Mobile App. **Settings → Notifications** in
-the Mobile App shows no control. It lists the Push Subscriptions of your
-browsers, and **Send a test** and **Remove** work there.
