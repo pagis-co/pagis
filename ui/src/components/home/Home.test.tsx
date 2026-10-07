@@ -6,7 +6,7 @@
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 
 import type { ApiClient, CallSummaryDto, EventRow, RunDto } from '../../api/client'
 import { useComposerDraft } from '../../state/composerDraft'
@@ -385,7 +385,12 @@ describe('Needs you', () => {
   })
 
   it('tells the reader when a keypad delay starts, and clears the count', async () => {
-    const until = NOW + 60_000
+    // Noon, so the end of the delay falls on the same day and reads as a
+    // clock time with no date.
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(2026, 0, 15, 12, 0))
+    onTestFinished(() => { vi.useRealTimers() })
+    const until = Date.now() + 60_000
     const { api, remove } = stubApi({
       keypad: { failed_attempts: 6, suspended_until: until },
     })
