@@ -21,6 +21,7 @@ use crate::mail;
 use crate::mailboxes;
 use crate::memory;
 use crate::model_lists;
+use crate::needs_you;
 use crate::phone_numbers;
 use crate::plugins;
 use crate::providers;
@@ -140,6 +141,7 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         memory::list_pages,
         memory::count_pages,
         memory::commit_diff,
+        needs_you::get_needs_you,
         requests::list_requests,
         requests::get_request,
         requests::decide_request,
@@ -409,6 +411,13 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         memory::MemoryHunkDto,
         memory::MemoryFileDiffDto,
         memory::MemoryCommitDiffDto,
+        needs_you::NeedsYouQueue,
+        needs_you::NeedsYouItem,
+        needs_you::NeedsYouApproval,
+        needs_you::NeedsYouWaiting,
+        needs_you::NeedsYouKeypad,
+        needs_you::NeedsYouCall,
+        needs_you::NeedsYouFailed,
         requests::RequestDto,
         requests::RequestPage,
         requests::DecisionRequest,

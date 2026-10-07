@@ -1268,6 +1268,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         live_tiers,
         secrets: Arc::clone(&options.secrets),
         keypad_failures: stores.keypad_failures.clone(),
+        needs_you: Arc::new(pagis_server::NeedsYou::new(&stores)),
         live_calls,
         calls: calls as _,
         texts: texts as _,

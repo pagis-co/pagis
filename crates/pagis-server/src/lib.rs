@@ -25,6 +25,7 @@ mod mailboxes;
 mod memory;
 pub mod model_lists;
 pub mod model_preference;
+mod needs_you;
 mod openapi;
 mod phone_numbers;
 mod plugins;
@@ -71,6 +72,7 @@ use pagis_core::{
 pub use auth::{SESSION_COOKIE, Tenant, hash_secret};
 pub use forwarded::TrustedProxy;
 pub use live_connections::LiveConnections;
+pub use needs_you::NeedsYou;
 pub use openapi::ApiDoc;
 pub use remote_access::{
     FUNNEL_PROXY, FUNNEL_TURN_PORT, FunnelPort, FunnelTargets, RemoteAccessSwitch, Tailscale,
@@ -172,6 +174,9 @@ pub struct AppState {
     /// The failed-attempt count of each Workspace's Keypad Code
     /// (ADR-0021). The person reads it and clears it here.
     pub keypad_failures: Arc<dyn pagis_core::KeypadFailureStore>,
+    /// The reader of the Needs-You Queue (ADR-0030). It derives the
+    /// queue on each read and stores no copy of it.
+    pub needs_you: Arc<NeedsYou>,
     /// The voice seam (ADR-0020): dictation in, spoken blocks
     /// out. Nothing it handles is stored.
     pub voice: Arc<dyn pagis_voice::VoiceProvider>,
@@ -556,6 +561,7 @@ fn product_router(state: Arc<AppState>) -> Router {
             "/api/v1/event-subscriptions/{subscription_id}/wakeups",
             get(subscriptions::list_subscription_wakeups),
         )
+        .route("/api/v1/needs-you", get(needs_you::get_needs_you))
         .route("/api/v1/requests", get(requests::list_requests))
         .route("/api/v1/requests/{request_id}", get(requests::get_request))
         .route(

@@ -4827,6 +4827,37 @@
         }
       }
     },
+    "/api/v1/needs-you": {
+      "get": {
+        "tags": [
+          "needs_you"
+        ],
+        "summary": "The Needs-You Queue of the Person's Workspace.",
+        "operationId": "get_needs_you",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NeedsYouQueue"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/plugins": {
       "get": {
         "tags": [
@@ -15198,6 +15229,358 @@
             "type": "string"
           },
           "value": {
+            "type": "string"
+          }
+        }
+      },
+      "NeedsYouApproval": {
+        "type": "object",
+        "description": "A pending decision. The row carries the Approve and the Deny.",
+        "required": [
+          "id",
+          "agent_id",
+          "line",
+          "url",
+          "at",
+          "request_id",
+          "request_kind",
+          "title",
+          "body"
+        ],
+        "properties": {
+          "agent_id": {
+            "type": "string"
+          },
+          "at": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The time that orders the item inside its kind."
+          },
+          "body": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "description": "`request:<request_id>`."
+          },
+          "line": {
+            "type": "string",
+            "description": "What the item asks of the Person, in one line."
+          },
+          "request_id": {
+            "type": "string"
+          },
+          "request_kind": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string",
+            "description": "The Product App path that answers the item."
+          }
+        }
+      },
+      "NeedsYouCall": {
+        "type": "object",
+        "description": "An inbound Call of today that nobody answered.",
+        "required": [
+          "id",
+          "agent_id",
+          "line",
+          "url",
+          "at",
+          "call_id",
+          "remote_e164",
+          "left_message"
+        ],
+        "properties": {
+          "agent_id": {
+            "type": "string"
+          },
+          "at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "call_id": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "description": "`call:<call_id>`."
+          },
+          "left_message": {
+            "type": "boolean",
+            "description": "The caller left a voicemail message."
+          },
+          "line": {
+            "type": "string"
+          },
+          "remote_e164": {
+            "type": "string",
+            "description": "The Remote Party, in E.164."
+          },
+          "url": {
+            "type": "string"
+          }
+        }
+      },
+      "NeedsYouFailed": {
+        "type": "object",
+        "description": "A Run that failed today.",
+        "required": [
+          "id",
+          "agent_id",
+          "line",
+          "url",
+          "at",
+          "run_id"
+        ],
+        "properties": {
+          "agent_id": {
+            "type": "string"
+          },
+          "at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "channel_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "failure_kind": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/FailureKind"
+              }
+            ]
+          },
+          "id": {
+            "type": "string",
+            "description": "`run:<run_id>`."
+          },
+          "line": {
+            "type": "string"
+          },
+          "run_id": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        }
+      },
+      "NeedsYouItem": {
+        "oneOf": [
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NeedsYouApproval"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "approval"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NeedsYouWaiting"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "waiting"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NeedsYouKeypad"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "keypad"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NeedsYouCall"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "call"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NeedsYouFailed"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "failed"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "description": "One item of the Needs-You Queue. The variants are in the order of\nthe queue: a decision first, then a question, then the keypad delay,\nthen a missed Call, then a failure."
+      },
+      "NeedsYouKeypad": {
+        "type": "object",
+        "description": "Callers entered so many wrong keypad codes that a delay started\n(ADR-0021). It belongs to the Workspace and to no Agent, and it stays\nuntil a correct code or the Person clears the count.",
+        "required": [
+          "id",
+          "line",
+          "url",
+          "at",
+          "failed_attempts",
+          "suspended_until"
+        ],
+        "properties": {
+          "at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "failed_attempts": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "id": {
+            "type": "string",
+            "description": "`keypad`."
+          },
+          "line": {
+            "type": "string"
+          },
+          "suspended_until": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The end of the latest delay."
+          },
+          "url": {
+            "type": "string"
+          }
+        }
+      },
+      "NeedsYouQueue": {
+        "type": "object",
+        "description": "The Needs-You Queue of one Workspace.",
+        "required": [
+          "items",
+          "count"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "description": "The count of `items`.",
+            "minimum": 0
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NeedsYouItem"
+            }
+          }
+        }
+      },
+      "NeedsYouWaiting": {
+        "type": "object",
+        "description": "A Run that waits for an answer of the Person.",
+        "required": [
+          "id",
+          "agent_id",
+          "line",
+          "url",
+          "at",
+          "run_id"
+        ],
+        "properties": {
+          "agent_id": {
+            "type": "string"
+          },
+          "at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "channel_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "description": "`run:<run_id>`."
+          },
+          "line": {
+            "type": "string"
+          },
+          "run_id": {
+            "type": "string"
+          },
+          "url": {
             "type": "string"
           }
         }

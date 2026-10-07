@@ -102,7 +102,9 @@ more Agents, or Agents with each other. Channels and Threads are the only
 agent-to-agent protocol inside a Workspace: observable, persistent, and the
 same as the Person's own Channel (ADR-0003). Messages carry blocks: a
 curated, typed vocabulary the UI renders natively. A block that asks views
-a Request, so an approval card is an approval API (ADR-0004).
+a Request, so an approval card is an approval API (ADR-0004). The daemon
+derives the Needs-You Queue on each read from the records, and stores no
+copy of it (ADR-0022, ADR-0030).
 
 ### Runtime
 

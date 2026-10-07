@@ -45,6 +45,15 @@ kinds that the UI holds, in the same order: `approval`, `waiting`,
 each Notification read this one derivation. The UI derives nothing, and
 the queue stays a view, never a second source of truth (ADR-0022).
 
+The daemon derives the queue on each read from the records, and stores no
+copy of it. `GET /api/v1/needs-you` answers `{items, count}` for the
+Workspace of the Session. Each item is tagged by its `kind` and has a
+stable `id` that names the kind and the record (`request:<id>`,
+`run:<id>`, `call:<id>` or `keypad`), its `line`, the `url` of the place
+in the Product App that answers it, and the time `at` that orders it
+inside its kind. "Today", for a missed Call and a failed Run, is the day
+of the Workspace in its time zone.
+
 ### The ring rule decides what sends a Notification
 
 A ring calls, and a caption reports (`docs/UI-DESIGN.md`). A
@@ -294,7 +303,8 @@ and the endpoint `<origin>/v1/push/<id>`:
 
 ## Not built
 
-- The derivation of the Needs-You Queue in the daemon. The UI derives it.
+- The read of the daemon's queue by Home and the sidebar count. The UI
+  derives its own copy with the same rules.
 - The Notifications of the daemon: the payload, the `Urgency` and the
   `Topic` of each kind, and the end of a Push Subscription on `404` or
   `410`. The crate `pagis-push` sends a Web Push, and no part of the
