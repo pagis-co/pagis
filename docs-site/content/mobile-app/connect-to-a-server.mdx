@@ -103,6 +103,13 @@ another origin opens in the system browser, also a link to another port or
 another scheme of the same host, such as `https://pagis.example.com:444` or
 `http://pagis.example.com`.
 
+The app gives the microphone only to the server's exact origin, for
+Dictation. A Widget frame and each other origin get no microphone, and no
+page gets the camera. The phone asks to let Pagis use the microphone once,
+at the first use of Dictation, and not again. The live screen and
+Listen-Live work as in a browser. On an iPhone, Listen-Live plays also when
+the ring/silent switch is on silent.
+
 On Android, the app needs an Android System WebView that has a web message
 listener. On an older web view, the app shows a message to update Android
 System WebView in Google Play, and it opens no server.

@@ -20,6 +20,8 @@ final class PagisViewController: CAPBridgeViewController {
     private var navigationGuard: NavigationGuard?
     /// The cookie store holds its observers weakly.
     private var sessionFollower: SessionFollower?
+    /// The web view holds its UI delegate weakly.
+    private var mediaGuard: MediaGuard?
 
     init(firstPage: URL? = nil) {
         self.server = store.server
@@ -54,6 +56,8 @@ final class PagisViewController: CAPBridgeViewController {
         // origin on the Connect screen.
         guard let shown = WebOrigin(url: bridge.config.serverURL) else { return }
         BridgeGuard(allowing: shown, next: bridge.webViewDelegationHandler).install(in: webView)
+        // In front of the bridge guard, which is the UI delegate now.
+        mediaGuard = MediaGuard.install(in: webView, server: server)
         let navigationGuard = NavigationGuard(allowing: shown, next: bridge.webViewDelegationHandler)
         navigationGuard.install(in: webView)
         self.navigationGuard = navigationGuard
