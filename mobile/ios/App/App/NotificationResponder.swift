@@ -17,4 +17,24 @@ final class NotificationResponder: NSObject, UNUserNotificationCenterDelegate {
     ) {
         completionHandler([.banner, .list, .sound])
     }
+
+    /// **Approve once** or **Deny** on a Notification of an Approval posts
+    /// the decision. iOS can suspend the app after `completionHandler`, so
+    /// the answer calls it after the request ends.
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        let request = response.notification.request
+        guard request.content.categoryIdentifier == NotificationContent.approvalCategory,
+              let decision = ApprovalDecision(action: response.actionIdentifier)
+        else {
+            completionHandler()
+            return
+        }
+        Task { @MainActor in
+            await InlineAnswer.app.answer(decision, to: request, completion: completionHandler)
+        }
+    }
 }

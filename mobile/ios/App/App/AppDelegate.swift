@@ -9,6 +9,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         UNUserNotificationCenter.current().delegate = NotificationResponder.shared
+        UNUserNotificationCenter.current().setNotificationCategories([InlineAnswer.category])
         // APNs can change the token, so the app asks for it at each launch.
         // A token that changed goes to the Push Relay.
         application.registerForRemoteNotifications()

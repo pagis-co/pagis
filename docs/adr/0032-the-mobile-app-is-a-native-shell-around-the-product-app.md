@@ -330,8 +330,28 @@ never writes an Allow Rule.
 
 When the answer fails for any reason, the app shows one Notification:
 "Pagis did not take this answer. Open Pagis to see the request." A failure
-is no network, a `401`, a `409` for a Request that is already decided, or
-a timeout.
+is no network, a `401`, a `404`, a `409` for a Request that is already
+decided, or no answer in 20 seconds, as in the service worker (ADR-0030).
+
+On iOS, the app registers the category `approval` at launch, with the
+actions `approve_once` and `deny`. Each action has `.authenticationRequired`,
+**Deny** also has `.destructive`, and neither action has `.foreground`. So
+iOS runs the app in the background, with no scene and no bridge, and
+`NotificationResponder` gives the action to `InlineAnswer`:
+
+1. It starts a background task with `UIApplication.beginBackgroundTask`.
+2. `ApprovalAnswer` posts the decision with the header
+   `Cookie: pagis_session=<copy>`, and with no `Origin` and no `scope`.
+3. A `2xx` answer removes the Notification. A failure replaces the
+   Notification with one that has the same identifier, title and thread,
+   no actions, the text above, and the `navigate` of the item. A `401`
+   also deletes the copy of the Session.
+4. It calls the completion handler of the delegate, after which iOS can
+   suspend the app, and then ends the background task. When iOS ends the
+   time of the app first, the task ends at once.
+
+The app keeps no record of the answer. The daemon records the decision
+(ADR-0004).
 
 A tap on a Notification of every other Request (a form, a choice, a
 Widget answer or a question) opens the app at the place of the Request.
@@ -426,8 +446,7 @@ Other ways were considered:
 
 ## Not built
 
-- The Mobile App: the native requests that use the copy of the Session,
-  and the inline answers.
-  No code registers the category `approval`.
+- The Mobile App: the native requests that use the copy of the Session
+  on Android, and the inline answers on Android.
 - The lower bound on the server version is 0.2.0, not the first release
   that serves Notifications.
