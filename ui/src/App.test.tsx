@@ -33,7 +33,9 @@ const { shell } = vi.hoisted(() => ({
 vi.mock('@capacitor/core', () => ({
   Capacitor: { isNativePlatform: () => shell.native },
   registerPlugin: (name: string) =>
-    name === 'PagisShell' ? { sessionEnded: shell.sessionEnded } : {},
+    name === 'PagisShell'
+      ? { sessionEnded: shell.sessionEnded, addListener: async () => ({ remove: async () => {} }) }
+      : {},
 }))
 
 vi.mock('./ws/socket', () => ({

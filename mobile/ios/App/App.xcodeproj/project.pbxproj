@@ -56,6 +56,11 @@
 		7A6E15010000000000000039 /* ServerStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E15000000000000000005 /* ServerStore.swift */; };
 		7A6E1501000000000000003A /* WebOrigin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E15000000000000000001 /* WebOrigin.swift */; };
 		7A6E1501000000000000003B /* PagisNotificationService.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 7A6E15010000000000000027 /* PagisNotificationService.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		7A6E15030000000000000002 /* StaleNotificationsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E15030000000000000001 /* StaleNotificationsTests.swift */; };
+		7A6E15030000000000000004 /* NotificationTapTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E15030000000000000003 /* NotificationTapTests.swift */; };
+		7A6E15030000000000000006 /* NeedsYouRead.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E15030000000000000005 /* NeedsYouRead.swift */; };
+		7A6E15030000000000000008 /* StaleNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E15030000000000000007 /* StaleNotifications.swift */; };
+		7A6E1503000000000000000A /* NotificationTap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E15030000000000000009 /* NotificationTap.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -139,6 +144,11 @@
 		7A6E15010000000000000025 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		7A6E15010000000000000026 /* PagisNotificationService.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PagisNotificationService.entitlements; sourceTree = "<group>"; };
 		7A6E15010000000000000027 /* PagisNotificationService.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = PagisNotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		7A6E15030000000000000001 /* StaleNotificationsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StaleNotificationsTests.swift; sourceTree = "<group>"; };
+		7A6E15030000000000000003 /* NotificationTapTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationTapTests.swift; sourceTree = "<group>"; };
+		7A6E15030000000000000005 /* NeedsYouRead.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NeedsYouRead.swift; sourceTree = "<group>"; };
+		7A6E15030000000000000007 /* StaleNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StaleNotifications.swift; sourceTree = "<group>"; };
+		7A6E15030000000000000009 /* NotificationTap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationTap.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -220,6 +230,9 @@
 				7A6E15010000000000000023 /* NotificationContent.swift */,
 				7A6E15020000000000000003 /* InlineAnswer.swift */,
 				7A6E15020000000000000001 /* ApprovalAnswer.swift */,
+				7A6E15030000000000000005 /* NeedsYouRead.swift */,
+				7A6E15030000000000000007 /* StaleNotifications.swift */,
+				7A6E15030000000000000009 /* NotificationTap.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -240,6 +253,8 @@
 				7A6E15010000000000000017 /* NotificationContentTests.swift */,
 				7A6E15020000000000000005 /* InlineAnswerTests.swift */,
 				7A6E15010000000000000019 /* web-push.json */,
+				7A6E15030000000000000001 /* StaleNotificationsTests.swift */,
+				7A6E15030000000000000003 /* NotificationTapTests.swift */,
 			);
 			path = AppTests;
 			sourceTree = "<group>";
@@ -416,6 +431,9 @@
 				7A6E15010000000000000033 /* NotificationContent.swift in Sources */,
 				7A6E15020000000000000004 /* InlineAnswer.swift in Sources */,
 				7A6E15020000000000000002 /* ApprovalAnswer.swift in Sources */,
+				7A6E15030000000000000006 /* NeedsYouRead.swift in Sources */,
+				7A6E15030000000000000008 /* StaleNotifications.swift in Sources */,
+				7A6E1503000000000000000A /* NotificationTap.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -435,6 +453,8 @@
 				7A6E15010000000000000016 /* PushPayloadTests.swift in Sources */,
 				7A6E15010000000000000018 /* NotificationContentTests.swift in Sources */,
 				7A6E15020000000000000006 /* InlineAnswerTests.swift in Sources */,
+				7A6E15030000000000000002 /* StaleNotificationsTests.swift in Sources */,
+				7A6E15030000000000000004 /* NotificationTapTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

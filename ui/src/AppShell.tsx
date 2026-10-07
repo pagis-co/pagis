@@ -67,6 +67,7 @@ import {
   useWorkspace,
 } from './queries'
 import { useNotificationSync } from './push/useNotificationSync'
+import { useShellNavigation } from './mobileShell'
 import { createSpeaker } from './speech'
 import {
   useCallInspector,
@@ -183,6 +184,7 @@ export function AppShell() {
   // Presence is right before the first frame.
   usePresenceSeed(api)
   useNotificationSync(api)
+  useShellNavigation()
   const mobileNavOpen = useMobileNav((state) => state.isOpen)
   const closeMobileNav = useMobileNav((state) => state.close)
   // The call inspector: transient, and open across navigation.

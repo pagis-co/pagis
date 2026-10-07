@@ -113,4 +113,30 @@ public class ServerOriginTest {
         assertNull(server.startPath("not a url"));
         assertNull(server.startPath(null));
     }
+
+    /** A tap on a Notification opens the path, the query and the fragment
+     *  of a place on the server: the rule of {@code mobile/src/navigate.ts},
+     *  with its cases. */
+    @Test
+    public void aTapOpensThePathQueryAndFragmentOfAPlaceOnTheServer() {
+        assertEquals("/c/abc?x=1", server.place("https://a.example/c/abc?x=1"));
+        assertEquals("/c/abc#card", server.place("https://a.example/c/abc#card"));
+        assertEquals("/c/abc", server.place("https://A.Example:443/c/abc"));
+        assertEquals("/", server.place("https://a.example"));
+    }
+
+    @Test
+    public void aTapOnAPlaceOfAnotherOriginOpensTheRoot() {
+        assertEquals("/", server.place("https://evil.example/c/abc"));
+        assertEquals("/", server.place("http://a.example/c/abc"));
+        assertEquals("/", server.place("https://a.example:8443/c/abc"));
+    }
+
+    @Test
+    public void aTapOnAValueThatIsNotAnHttpUrlOpensTheRoot() {
+        assertEquals("/", server.place("javascript:x"));
+        assertEquals("/", server.place("not a url"));
+        assertEquals("/", server.place("/c/abc"));
+        assertEquals("/", server.place(null));
+    }
 }

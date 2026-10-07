@@ -8,11 +8,13 @@ import WebKit
 /// Capacitor reads the server URL once, when it makes the bridge. So to
 /// open another server the app makes a new view controller, and with it a
 /// new bridge.
-final class PagisViewController: CAPBridgeViewController {
+final class PagisViewController: CAPBridgeViewController, PlaceShell {
     private let store = ServerStore()
     private let sessionCopy: SessionCopy = KeychainSessionCopy()
     /// The server that this bridge shows, read at launch.
-    private let server: WebOrigin?
+    let server: WebOrigin?
+    /// The plugin that sends the Product App the place of a tap.
+    private let shell = PagisShellPlugin()
     /// The page that the bridge opens first in place of the origin, such
     /// as a Sign-In Link. Nothing stores it.
     private let firstPage: URL?
@@ -51,7 +53,8 @@ final class PagisViewController: CAPBridgeViewController {
 
     override func capacitorDidLoad() {
         guard let bridge = bridge as? CapacitorBridge, let webView else { return }
-        bridge.registerPluginInstance(PagisShellPlugin())
+        bridge.registerPluginInstance(shell)
+        NotificationTap.shared.shell = self
         bridge.registerPluginInstance(PagisPushPlugin())
         // The origin that the bridge shows: the server, or the app's own
         // origin on the Connect screen.
@@ -75,6 +78,10 @@ final class PagisViewController: CAPBridgeViewController {
         if let firstPage {
             webView?.load(URLRequest(url: firstPage))
         }
+    }
+
+    func navigate(to place: String) {
+        shell.navigate(to: place)
     }
 
     /// Keep the server, and start the bridge again at it.
@@ -107,17 +114,21 @@ final class PagisViewController: CAPBridgeViewController {
 
     /// Show the bridge in `window`. Before the first load, the copy of the
     /// Session goes back into the cookie store when the store lost the
-    /// cookie, so the bridge opens the server signed in.
+    /// cookie, so the bridge opens the server signed in. With no other
+    /// first page, the bridge opens the place of a tap on a Notification
+    /// that came before it.
     static func launch(in window: UIWindow, firstPage: URL? = nil) {
         Task { @MainActor in
-            if let server = ServerStore().server {
+            let server = ServerStore().server
+            if let server {
                 await SessionRestore.restore(
                     origin: server,
                     copy: KeychainSessionCopy(),
                     jar: WKWebsiteDataStore.default().httpCookieStore
                 )
             }
-            window.rootViewController = PagisViewController(firstPage: firstPage)
+            let tapped = NotificationTap.shared.takeFirstPage(on: server)
+            window.rootViewController = PagisViewController(firstPage: firstPage ?? tapped)
             window.makeKeyAndVisible()
         }
     }

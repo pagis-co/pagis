@@ -1,5 +1,6 @@
 import UIKit
 import Capacitor
+import UserNotifications
 
 class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     /// The type of the **Change server** item in the menu of the app icon
@@ -14,6 +15,12 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         if connectionOptions.shortcutItem?.type == SceneDelegate.changeServer {
             ServerStore().server = nil
             KeychainSessionCopy().delete()
+        }
+        // A tap on a Notification that starts the app: the bridge opens its
+        // place first.
+        if let response = connectionOptions.notificationResponse,
+           response.actionIdentifier == UNNotificationDefaultActionIdentifier {
+            NotificationTap.shared.open(response.notification)
         }
         let window = UIWindow(windowScene: windowScene)
         self.window = window
@@ -35,6 +42,15 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         }
         bridge.changeServer()
         completionHandler(true)
+    }
+
+    /// The daemon sends no push when an item leaves the Needs-You Queue, so
+    /// the app removes the stale Notifications when it comes to the
+    /// foreground, and sets the badge to the count of the queue.
+    func sceneWillEnterForeground(_ scene: UIScene) {
+        Task { @MainActor in
+            await StaleNotifications.app.clean()
+        }
     }
 
     func sceneDidBecomeActive(_ scene: UIScene) {

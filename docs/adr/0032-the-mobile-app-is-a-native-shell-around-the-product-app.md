@@ -360,6 +360,62 @@ An answer needs no step-up sign-in. The Session is the authority, as on
 every client. Each action needs an unlocked phone (`.authenticationRequired`
 on iOS), so a person who holds a locked phone answers nothing.
 
+### A tap opens the place of a Notification
+
+A Notification holds `navigate`: the absolute URL of the place of its item
+on the Public Origin. On iOS it is in the `userInfo`. On Android it is the
+extra `navigate` of the content intent. A Notification that the app posts
+itself, such as the failure of an inline answer, holds `navigate` too, and
+the same rule applies to it.
+
+One rule decides the place. `mobile/src/navigate.ts` holds it, and
+`WebOrigin.place(of:)` on iOS and `ServerOrigin.place` on Android apply
+it, with the same test cases. The app opens a `navigate` URL only when its
+origin is the stored origin of the server: the scheme, the host and the
+port. The app then opens the path, the query and the fragment of the URL.
+Each other value opens `/`: a URL of another origin, a `javascript:` URL,
+and a value that is not a URL. So a Notification never takes the web view
+to another origin.
+
+- A tap on a cold start starts the bridge at `<origin><place>` in place of
+  `<origin>/`. On iOS the scene reads the tap from its connection options,
+  and the next bridge opens the place as its first page. The delegate of
+  the notification center then gets the same tap, and the app opens it one
+  time only. On Android `MainActivity` gives the place to `CapConfig` as
+  the start path. An intent that Android gives again when the Person opens
+  the app from the recent apps is no new tap.
+- A tap while the web view is open sends the Product App the event
+  `navigate` of `PagisShell`, with `{path}`. No page loads again. The
+  event waits for its first listener, so a tap that comes before the
+  Product App listens is not lost. Where `Capacitor.isNativePlatform()` is
+  true, the Product App listens for the event (`useShellNavigation` in
+  `ui/src/mobileShell.ts`) and gives the path to its router. A browser adds
+  no listener. The event does in the Mobile App what the `navigate`
+  message of the service worker does in a browser (ADR-0030).
+
+### The app clears stale Notifications when it opens
+
+The daemon sends no dismissal push (ADR-0030). So when the app comes to
+the foreground with a stored server and a copy of the Session, it reads
+`GET /api/v1/needs-you` with the copy, from native code:
+
+1. It lists its delivered Notifications first. A Notification that
+   arrives during the read is not in the list, so it stays, because its
+   item can be newer than the answer.
+2. It removes each listed Notification whose `item` is not an item of the
+   queue, also one with no `item`, such as the placeholder. iOS uses
+   `removeDeliveredNotifications(withIdentifiers:)`. Android uses
+   `NotificationManager.cancel(tag, id)`, where the tag is the item.
+3. On iOS it sets the badge to the count of the queue with
+   `setBadgeCount(_:)`. On Android the launcher shows the count of the
+   Notifications that stay, so the app sets no badge.
+
+A `401` deletes the copy of the Session, as each native request does.
+Each other failure changes nothing: no network, another status, or an
+answer that is not a queue. On iOS the scene starts the clean-up in
+`sceneWillEnterForeground`. On Android `MainActivity` starts it in
+`onResume`, off the main thread.
+
 ### The phone is not a Host
 
 The Mobile App opens no Host socket, and no host action runs on a phone
@@ -446,7 +502,6 @@ Other ways were considered:
 
 ## Not built
 
-- The Mobile App: the native requests that use the copy of the Session
-  on Android, and the inline answers on Android.
+- The Mobile App: the inline answers on Android.
 - The lower bound on the server version is 0.2.0, not the first release
   that serves Notifications.

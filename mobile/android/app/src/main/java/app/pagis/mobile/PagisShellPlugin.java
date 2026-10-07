@@ -7,8 +7,9 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
 /**
- * {@code PagisShell}, the plugin of the app target that the Connect screen
- * calls ({@code mobile/src/shell.ts}).
+ * {@code PagisShell}, the plugin of the app target. The Connect screen calls
+ * it ({@code mobile/src/shell.ts}), and so does the Product App
+ * ({@code ui/src/mobileShell.ts}).
  */
 @CapacitorPlugin(name = "PagisShell")
 public class PagisShellPlugin extends Plugin {
@@ -40,6 +41,18 @@ public class PagisShellPlugin extends Plugin {
         call.resolve();
         MainActivity activity = (MainActivity) getActivity();
         activity.runOnUiThread(() -> activity.open(server, opens));
+    }
+
+    /**
+     * Send the Product App the event {@code navigate} with the place of a
+     * tap on a Notification, and the Product App moves its router. The page
+     * does not load again. An event that comes before the Product App
+     * listens waits for its first listener.
+     */
+    void navigate(String place) {
+        JSObject data = new JSObject();
+        data.put("path", place);
+        notifyListeners("navigate", data, true);
     }
 
     /**
