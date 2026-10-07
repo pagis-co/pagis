@@ -193,7 +193,7 @@ export function ComputerTile({
             api={api}
             agentId={agent.id}
             agentName={agent.name}
-            interactive={expanded && holder === 'user'}
+            mode={!expanded ? 'compact' : holder === 'user' ? 'takeover' : 'expanded'}
             fallback={<PreviewImage agent={agent} />}
           />
         </ScreenFrame>
