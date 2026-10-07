@@ -28,6 +28,7 @@ pub mod gog;
 pub mod image;
 pub mod mobile;
 pub mod pins;
+pub mod relay_image;
 pub mod release;
 pub mod screend;
 pub mod secrets;

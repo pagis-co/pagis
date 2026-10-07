@@ -82,7 +82,7 @@ pub fn published_advisory_lane(root: &Path, target_dir: &Path) -> Lane {
 /// reports an ignored advisory that its lockfile does not hold, so a
 /// stale exception shows. The lockfile of `computer/screend` holds only
 /// some of the ignored advisories, so its check allows the others.
-fn cargo_deny_step(root: &Path, target_dir: &Path) -> Step {
+pub(crate) fn cargo_deny_step(root: &Path, target_dir: &Path) -> Step {
     // cargo-deny falls back to its default configuration when the file
     // is missing, and that has no reviewed exception.
     let body = format!(

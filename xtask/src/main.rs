@@ -52,6 +52,7 @@ fn main() -> Result<()> {
         Some("server-image") => {
             run_server_image(&workspace_root(), args.iter().any(|a| a == "--dry-run"))
         }
+        Some("relay-image") => run_relay_image(&workspace_root(), &args),
         Some("release") if args.len() > 1 => run_release(
             xtask::ReleaseStage::parse(&args[1])?,
             flag_value(&args, "--platform"),
@@ -68,7 +69,7 @@ fn main() -> Result<()> {
         }
         _ => bail!(
             "usage: cargo xtask <dev | full | step <name>... | advisories | image [--dry-run] | \
-             server-image [--dry-run] | release <advisories | computer-image | computer-manifest | server-image | server-manifest | linux | macos | draft> \
+             server-image [--dry-run] | relay-image [--platform <amd64 | arm64> | --manifest] [--tag <tag>] [--dry-run] | release <advisories | computer-image | computer-manifest | server-image | server-manifest | linux | macos | draft> \
              [--platform <amd64 | arm64>] [--tag <tag>] [--dry-run] | desktop [--linux] [--tag <tag>] [--prepare | --publish-existing] [--dry-run] | \
              emergency-numbers [--check] | pins --check>"
         ),
@@ -196,6 +197,41 @@ fn run_server_image(root: &Path, dry_run: bool) -> Result<()> {
     println!("\n{}", summary(&results));
     if !all_green(&results) {
         bail!("the server image publish failed");
+    }
+    println!("pushed {image}");
+    Ok(())
+}
+
+/// `cargo xtask relay-image`: check the advisories of the Cargo lockfile,
+/// build the Push Relay image for each architecture, scan its filesystem
+/// for secrets and for known vulnerabilities, push it by digest, and join
+/// both digests under the crate version on GHCR. `--platform` builds and
+/// pushes one architecture, and `--manifest` joins the digests only, as
+/// the jobs of `.github/workflows/push-relay.yml` do. `--tag` names the
+/// tag the workflow runs on, which must name the crate version. The push
+/// needs a Docker login to GHCR with `write:packages`.
+fn run_relay_image(root: &Path, args: &[String]) -> Result<()> {
+    use xtask::relay_image::{RelayImageScope, publish_plan};
+    let scope = RelayImageScope::from_flags(
+        flag_value(args, "--platform").as_deref(),
+        args.iter().any(|a| a == "--manifest"),
+    )?;
+    let tag = flag_value(args, "--tag");
+    let (image, steps) = publish_plan(root, scope, tag.as_deref(), &xtask::target_dir(root))?;
+
+    if args.iter().any(|a| a == "--dry-run") {
+        println!("{image}");
+        println!("{}", xtask::plan_summary(&steps));
+        return Ok(());
+    }
+
+    if !docker_available() {
+        bail!("Docker is unreachable; the image build and the push need it");
+    }
+    let results = execute_until_failure(&steps);
+    println!("\n{}", summary(&results));
+    if !all_green(&results) {
+        bail!("the Push Relay image publish failed");
     }
     println!("pushed {image}");
     Ok(())

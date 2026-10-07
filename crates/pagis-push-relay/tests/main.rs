@@ -1,7 +1,9 @@
 //! The Push Relay over real HTTP: the router on a loopback port with an
-//! in-memory SQLite, and the binary with a SQLite file.
+//! in-memory SQLite, and the binary with a SQLite file. The deployment of
+//! `deploy/push-relay/` as Docker Compose reads it.
 
 mod apns;
+mod deployment;
 mod fcm;
 mod push;
 

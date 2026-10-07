@@ -1,0 +1,17 @@
+# The TLS end of the Push Relay.
+#
+# Caddy obtains and renews the certificate of PUSH_RELAY_DOMAIN, and
+# writes the address of the client in `X-Forwarded-For`. The relay reads
+# that header only from the fixed address of Caddy
+# (`PUSH_RELAY_TRUSTED_PROXY` in `compose.yaml`).
+#
+# The admin API of Caddy is off. Nothing in the deployment uses it, and
+# a request to it can stop the proxy. Caddy reads this file only when it
+# starts, so a change takes effect after `docker compose restart proxy`.
+{
+	admin off
+}
+
+{$PUSH_RELAY_DOMAIN} {
+	reverse_proxy relay:8080
+}

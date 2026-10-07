@@ -448,6 +448,51 @@ fn dev_plan_checks_the_pins_for_a_change_to_the_computer_dockerfile() {
     }
 }
 
+/// A change to the Dockerfile of the Push Relay image checks the relay
+/// crate and the pins with it. Another change to the relay does not
+/// check the pins.
+#[test]
+fn dev_plan_checks_the_pins_for_a_change_to_the_push_relay_dockerfile() {
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::write(
+        tmp.path().join("Cargo.toml"),
+        "[workspace]\nresolver = \"2\"\nmembers = [\"crates/pagis-push-relay\"]\n",
+    )
+    .unwrap();
+    let package = tmp.path().join("crates/pagis-push-relay");
+    std::fs::create_dir_all(package.join("src")).unwrap();
+    std::fs::write(package.join("src/lib.rs"), "").unwrap();
+    std::fs::write(
+        package.join("Cargo.toml"),
+        "[package]\nname = \"pagis-push-relay\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    let names = |path: &str| {
+        step_names(&dev_lanes(tmp.path(), &[path.into()], false, NO_TOOLCHAINS).unwrap())
+    };
+
+    let dockerfile = names("crates/pagis-push-relay/Dockerfile");
+    assert_eq!(
+        dockerfile.iter().filter(|name| **name == "pins").count(),
+        1,
+        "{dockerfile:?}"
+    );
+    assert!(dockerfile.contains(&"test"), "{dockerfile:?}");
+    let source = names("crates/pagis-push-relay/src/lib.rs");
+    assert!(!source.contains(&"pins"), "{source:?}");
+    assert_eq!(
+        dev_lanes(
+            tmp.path(),
+            &["deploy/push-relay/compose.yaml".into()],
+            false,
+            NO_TOOLCHAINS
+        )
+        .unwrap(),
+        full_lanes(tmp.path(), false, NO_TOOLCHAINS),
+        "the Compose file of the relay selects the full gate"
+    );
+}
+
 /// A change to screend, or to the Dockerfile that pins its builder image,
 /// runs the tests of screend after the Computer Image build. Another
 /// change to the Computer does not.

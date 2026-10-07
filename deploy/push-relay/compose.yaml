@@ -1,0 +1,92 @@
+# One Push Relay on one Linux host: the relay, and Caddy in front of it
+# for TLS. `docs/PUSH-RELAY.md` holds the deployment.
+#
+#   cp .env.example .env      # and fill it in
+#   mkdir -p secrets          # and put the two key files in it
+#   docker compose up -d
+#
+# Every setting is stated once, in `.env`. Nothing here is edited for a
+# deployment.
+#
+# Caddy is pinned by tag and digest, so a relay runs the bytes that were
+# tested. Dependabot moves the digest. The relay image takes its tag from
+# `PUSH_RELAY_VERSION`.
+#
+# The two services share one network with a fixed subnet, and each one
+# has a fixed address on it. The relay believes `X-Forwarded-For` only
+# from the address that `PUSH_RELAY_TRUSTED_PROXY` names, so the
+# registration limit counts the address of each phone and not the
+# address of Caddy. Docker gives a dynamic address from the start of the
+# subnet, so a service with no fixed address could take the address of
+# Caddy before Caddy starts.
+name: pagis-push-relay
+
+services:
+  # The relay. It listens on 8080 on the network of the deployment and
+  # publishes no port: only Caddy reaches it.
+  relay:
+    image: ghcr.io/pagis-co/pagis-push-relay:${PUSH_RELAY_VERSION:?set PUSH_RELAY_VERSION in .env}
+    restart: unless-stopped
+    environment:
+      # The origin of each endpoint that the relay gives a Mobile App.
+      # The VAPID token of each Web Push names it in `aud`.
+      PUSH_RELAY_PUBLIC_ORIGIN: https://${PUSH_RELAY_DOMAIN:?set PUSH_RELAY_DOMAIN in .env}
+      # The fixed address of Caddy below.
+      PUSH_RELAY_TRUSTED_PROXY: 10.231.0.2
+      PUSH_RELAY_APNS_KEY_PATH: /run/secrets/apns-key
+      PUSH_RELAY_APNS_KEY_ID: ${PUSH_RELAY_APNS_KEY_ID:?set PUSH_RELAY_APNS_KEY_ID in .env}
+      PUSH_RELAY_APNS_TEAM_ID: ${PUSH_RELAY_APNS_TEAM_ID:?set PUSH_RELAY_APNS_TEAM_ID in .env}
+      PUSH_RELAY_APNS_TOPIC: ${PUSH_RELAY_APNS_TOPIC:?set PUSH_RELAY_APNS_TOPIC in .env}
+      PUSH_RELAY_FCM_CREDENTIALS_PATH: /run/secrets/fcm-credentials
+      PUSH_RELAY_FCM_PROJECT_ID: ${PUSH_RELAY_FCM_PROJECT_ID:?set PUSH_RELAY_FCM_PROJECT_ID in .env}
+    secrets:
+      # Compose outside Swarm mounts each file read only, with its owner
+      # and its mode on the host. The relay runs as the user 10001, so
+      # each file on the host has the owner 10001 and the mode 400.
+      - apns-key
+      - fcm-credentials
+    volumes:
+      # The state directory: the SQLite file of the registrations.
+      - relay-data:/var/lib/pagis-push-relay
+    networks:
+      relay:
+        ipv4_address: 10.231.0.3
+
+  # The TLS end. Caddy obtains and renews the certificate of
+  # PUSH_RELAY_DOMAIN, and writes the address of each client in
+  # `X-Forwarded-For`. It is the one service that publishes a port.
+  proxy:
+    image: caddy:2-alpine@sha256:6aeddd44c3078b0f9a35206472a11420648a79c184603ef95957d0a20044cb2b
+    restart: unless-stopped
+    depends_on:
+      relay:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      PUSH_RELAY_DOMAIN: ${PUSH_RELAY_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      relay:
+        ipv4_address: 10.231.0.2
+
+networks:
+  relay:
+    ipam:
+      config:
+        - subnet: 10.231.0.0/24
+
+secrets:
+  apns-key:
+    file: ./secrets/apns-key.p8
+  fcm-credentials:
+    file: ./secrets/fcm-credentials.json
+
+volumes:
+  relay-data:
+  caddy-data:
+  caddy-config:
