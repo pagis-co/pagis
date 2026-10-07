@@ -29,7 +29,9 @@ function when(at: number): string {
 
 /** What the list calls a Session: the browser and its system, or the
  *  Client App and its machine. */
-export function sessionLabel(session: MySessionDto): string {
+export function sessionLabel(
+  session: Pick<MySessionDto, 'client_kind' | 'client_name'>,
+): string {
   if (session.client_kind === 'desktop') {
     return session.client_name ? `Client App on ${session.client_name}` : 'Client App'
   }

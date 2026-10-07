@@ -6,6 +6,7 @@ import { Connections } from './Connections'
 import { HomeExit } from './settings/HomeExit'
 import { Hosts } from './settings/Hosts'
 import { ModelsSettings } from './ModelsSettings'
+import { Notifications } from './settings/Notifications'
 import { Retention } from './settings/Retention'
 import { Sessions } from './settings/Sessions'
 import { Usage } from './settings/Usage'
@@ -31,6 +32,7 @@ export type SettingsSection =
   | 'retention'
   | 'timezone'
   | 'sound'
+  | 'notifications'
   | 'administration'
 
 export interface SettingsGroup {
@@ -64,6 +66,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
       { value: 'retention', label: 'Retention' },
       { value: 'timezone', label: 'Timezone' },
       { value: 'sound', label: 'Sound' },
+      { value: 'notifications', label: 'Notifications' },
       { value: 'administration', label: 'Administration' },
     ],
   },
@@ -174,6 +177,7 @@ export function SettingsPanel({
       {section === 'retention' && <Retention api={api} />}
       {section === 'timezone' && <TimezoneSection api={api} />}
       {section === 'sound' && <SoundSection />}
+      {section === 'notifications' && <Notifications api={api} />}
       {section === 'administration' && isAdministrator && <AdministrationLink api={api} />}
     </SettingsShell>
   )

@@ -1,7 +1,7 @@
 // The settings nav: the three groups on the 220 px shell, the
 // open section marked as the page, and a click that opens another.
 
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -23,6 +23,19 @@ describe('SettingsNav', () => {
     expect(
       screen.getByRole('button', { name: 'Connections' }).getAttribute('aria-current'),
     ).toBeNull()
+  })
+
+  it('lists Notifications in the System group, after Sound', () => {
+    render(<SettingsNav section="vault" onSelectSection={() => {}} isAdministrator />)
+
+    const system = within(screen.getByRole('group', { name: 'System' }))
+    expect(system.getAllByRole('button').map((button) => button.textContent)).toEqual([
+      'Retention',
+      'Timezone',
+      'Sound',
+      'Notifications',
+      'Administration',
+    ])
   })
 
   it('opens the section the user clicks', async () => {

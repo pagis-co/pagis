@@ -77,6 +77,10 @@ export const installationUsageKey = (period: string) =>
 export const liveSessionsKey = ["administration", "sessions"] as const;
 /** The signed-in person's own Sessions. */
 export const mySessionsKey = ["sessions"] as const;
+/** The public half of the VAPID Key, which a browser subscribes with. */
+export const vapidKeyKey = ["push", "key"] as const;
+/** The signed-in person's own Push Subscriptions. */
+export const pushSubscriptionsKey = ["push-subscriptions"] as const;
 /** The person's own machines. */
 export const hostsKey = ["hosts"] as const;
 /** The person's own Home Exit (ADR-0029). */
@@ -1092,6 +1096,72 @@ export function useEndMySession(api: ApiClient) {
         }),
       ),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: mySessionsKey }),
+  });
+}
+
+/** The public half of the VAPID Key: the `applicationServerKey` that
+ *  `PushManager.subscribe` takes. It does not change, so it is read once. */
+export function useVapidKey(api: ApiClient, enabled: boolean) {
+  return useQuery({
+    queryKey: vapidKeyKey,
+    queryFn: async () =>
+      (await unwrap(api.GET("/api/v1/push/key"))).vapid_public_key,
+    enabled,
+    staleTime: Infinity,
+  });
+}
+
+/** The signed-in person's own Push Subscriptions, each named by the
+ *  client of its Session, with the one of this Session marked. */
+export function usePushSubscriptions(api: ApiClient) {
+  return useQuery({
+    queryKey: pushSubscriptionsKey,
+    queryFn: async () =>
+      (await unwrap(api.GET("/api/v1/push-subscriptions"))).items,
+  });
+}
+
+/** Give the daemon the Push Subscription of this browser: the body of
+ *  `PushSubscription.toJSON()`. */
+export function useSubscribeToPush(api: ApiClient) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: components["schemas"]["SubscribeRequest"]) =>
+      unwrap(api.POST("/api/v1/push-subscriptions", { body })),
+    onSettled: () =>
+      queryClient.invalidateQueries({ queryKey: pushSubscriptionsKey }),
+  });
+}
+
+/** Remove one of the person's own Push Subscriptions. */
+export function useRemovePushSubscription(api: ApiClient) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (pushSubscriptionId: string) =>
+      expectNoContent(
+        api.DELETE("/api/v1/push-subscriptions/{push_subscription_id}", {
+          params: { path: { push_subscription_id: pushSubscriptionId } },
+        }),
+      ),
+    onSettled: () =>
+      queryClient.invalidateQueries({ queryKey: pushSubscriptionsKey }),
+  });
+}
+
+/** Send a test Notification to one Push Subscription. The answer is
+ *  what the push service answered; a `gone` answer means the daemon
+ *  deleted the Push Subscription, so the list is read again. */
+export function useSendTestNotification(api: ApiClient) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (pushSubscriptionId: string) =>
+      unwrap(
+        api.POST("/api/v1/push-subscriptions/{push_subscription_id}/test", {
+          params: { path: { push_subscription_id: pushSubscriptionId } },
+        }),
+      ),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: pushSubscriptionsKey }),
   });
 }
 
