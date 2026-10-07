@@ -65,7 +65,8 @@ final class NavigationGuardTests: XCTestCase {
 
         guardian.install(in: webView)
         webView.loadHTMLString(html, baseURL: URL(string: page)!)
-        wait(for: [navigated], timeout: 10)
+        // The first web content process of a CI runner starts slowly.
+        wait(for: [navigated], timeout: 60)
 
         return Run(outside: outside, next: next.urls)
     }

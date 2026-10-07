@@ -71,7 +71,8 @@ final class BridgeGuardTests: XCTestCase {
 
         BridgeGuard(allowing: server, next: next).install(in: webView)
         webView.loadHTMLString(html, baseURL: URL(string: baseURL)!)
-        wait(for: [done.expectation], timeout: 10)
+        // The first web content process of a CI runner starts slowly.
+        wait(for: [done.expectation], timeout: 60)
 
         webView.configuration.userContentController.removeAllScriptMessageHandlers()
         return Run(next: next, done: done.messages)
