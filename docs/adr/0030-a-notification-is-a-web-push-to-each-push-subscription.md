@@ -238,6 +238,31 @@ the page again and the page loses its state. With no open window, the
 worker opens a window at the place. The Product App shows no Notification
 itself.
 
+The service worker shows **Approve once** and **Deny** on a Notification
+whose payload has `request`, when `Notification.maxActions` is 2 or more.
+Chrome, Edge and Firefox show notification actions, on Android and on the
+desktop.
+Safari on iOS and on macOS shows none and has no `maxActions`, so there the
+Notification has no buttons, and a tap opens the item.
+
+A click on **Approve once** posts `{"decision": "approved"}`, and a click
+on **Deny** posts `{"decision": "denied"}`, to
+`POST /api/v1/requests/{request_id}/decision` with
+`credentials: "same-origin"`. The post has no `scope`, so the decision is
+`once` and writes no Allow Rule. The worker sends the Session cookie of
+the browser, and the cross-origin check passes the request because the
+browser sends `Sec-Fetch-Site: same-origin` (ADR-0024). The worker holds
+no copy of the Session and asks for no new sign-in.
+
+A `2xx` answer closes the Notification. Another answer, such as `409` for
+a Request that is decided already or `401` for a Session that ended, a
+network failure, or no answer in 20 seconds shows a Notification with the
+same `tag` in its place. Its text is "Pagis did not take this answer. Open
+Pagis to see the request.", and a tap on it opens the place of the item.
+The worker keeps no record of the answer. The daemon records the decision
+(ADR-0004), and its `needs_you.removed` event clears the item on every
+client.
+
 ### Headers
 
 Each Web Push carries:
@@ -535,5 +560,4 @@ of the `FcmError` detail of the error, or else its `status`.
 
 ## Not built
 
-- **Approve once** and **Deny** on a Notification of the service worker.
 - The Mobile App (ADR-0032).
