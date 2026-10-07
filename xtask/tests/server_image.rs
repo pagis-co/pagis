@@ -247,7 +247,7 @@ fn the_published_name_is_the_repository_and_the_release() {
 
 #[test]
 fn a_publish_whose_label_is_not_the_release_names_both() {
-    let file = "LABEL org.pagis.server.version=\"0.0.9\"\n";
+    let file = "LABEL co.pagis.server.version=\"0.0.9\"\n";
 
     let reason = check_pin(file, DOCKERFILE, VERSION_LABEL, "1.2.3").unwrap_err();
 

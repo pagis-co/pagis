@@ -52,8 +52,8 @@ only over `https://`, so it reaches a Server, or a Local Installation in
 Remote Access.
 
 The iOS app is universal: it runs on an iPhone and on an iPad. The app
-identifier is `app.pagis.mobile` on both platforms. The owner can change
-it before the first store release.
+identifier is `co.pagis.mobile` on both platforms, after the project
+domain `pagis.co`. The first store release makes it permanent.
 
 ### The bridge serves the main frame of the server's exact origin only
 
@@ -110,7 +110,7 @@ of the web view: `WKHTTPCookieStore` on iOS and `CookieManager` on Android.
 Both give an `HttpOnly` cookie to native code. The shell keeps the copy:
 
 - On iOS, in a Keychain item with `kSecAttrAccessibleAfterFirstUnlock`, in
-  the Keychain access group `<team>.app.pagis.mobile`, which the
+  the Keychain access group `<team>.co.pagis.mobile`, which the
   Notification Service Extension shares.
 - On Android, in a file that a Tink AEAD encrypts. The keyset comes from
   `AndroidKeysetManager`, with a master key in the Android Keystore. Tink
@@ -240,7 +240,7 @@ copy of them:
   wrong type is an error. An unknown field is ignored.
 - `NotificationContent.swift`: the content of the Notification.
 - `ServerStore.swift`: the origin of the server, in the `UserDefaults` of
-  the App Group `group.app.pagis.mobile`.
+  the App Group `group.co.pagis.mobile`.
 
 The extension has the Keychain access group and the App Group of the app.
 For each push, it decodes `p`, decrypts it with the keys in the Keychain,

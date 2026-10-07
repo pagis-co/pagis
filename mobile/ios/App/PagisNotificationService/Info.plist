@@ -10,6 +10,6 @@
 		<string>$(PRODUCT_MODULE_NAME).NotificationService</string>
 	</dict>
 	<key>PagisKeychainAccessGroup</key>
-	<string>$(AppIdentifierPrefix)app.pagis.mobile</string>
+	<string>$(AppIdentifierPrefix)co.pagis.mobile</string>
 </dict>
 </plist>

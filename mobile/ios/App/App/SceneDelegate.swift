@@ -5,7 +5,7 @@ import UserNotifications
 class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     /// The type of the **Change server** item in the menu of the app icon
     /// (`UIApplicationShortcutItems` in `Info.plist`).
-    static let changeServer = "app.pagis.mobile.change-server"
+    static let changeServer = "co.pagis.mobile.change-server"
 
     var window: UIWindow?
 

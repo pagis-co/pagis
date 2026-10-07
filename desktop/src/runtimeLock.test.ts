@@ -21,8 +21,8 @@ function macLock(release = '0.1.0'): Record<string, unknown> {
       team_id: 'ABCDE12345',
     },
     entries: [
-      { path: 'pagis', kind: 'executable', codesign_id: 'com.pagis.server', size: 10, sha256: SHA, mode: 0o755 },
-      { path: 'gog', kind: 'executable', codesign_id: 'com.pagis.gog', size: 11, sha256: SHA, mode: 0o755 },
+      { path: 'pagis', kind: 'executable', codesign_id: 'co.pagis.server', size: 10, sha256: SHA, mode: 0o755 },
+      { path: 'gog', kind: 'executable', codesign_id: 'co.pagis.gog', size: 11, sha256: SHA, mode: 0o755 },
       { path: 'LICENSE', kind: 'file', size: 12, sha256: SHA, mode: 0o644 },
       { path: 'LICENSE.gog', kind: 'file', size: 12, sha256: SHA, mode: 0o644 },
       { path: 'THIRD_PARTY_NOTICES', kind: 'file', size: 13, sha256: SHA, mode: 0o644 },
@@ -127,7 +127,7 @@ describe('the Linux Runtime Lock', () => {
     expect(() => parseRuntimeLock(JSON.stringify(team), '0.1.0', LINUX)).toThrow(/field/)
 
     const identity = linuxLock() as { entries: Array<Record<string, unknown>> }
-    identity.entries[0].codesign_id = 'com.pagis.server'
+    identity.entries[0].codesign_id = 'co.pagis.server'
     expect(() => parseRuntimeLock(JSON.stringify(identity), '0.1.0', LINUX)).toThrow(/field/)
   })
 

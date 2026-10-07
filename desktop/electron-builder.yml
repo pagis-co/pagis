@@ -1,4 +1,4 @@
-appId: com.pagis.desktop
+appId: co.pagis.desktop
 # The product name comes from `productName` in package.json, which Electron
 # also reads for `app.name`: the `userData` directory and the app menu.
 copyright: Pagis

@@ -63,7 +63,7 @@ final class InlineAnswer {
         backgroundTasks: AppBackgroundTasks()
     )
 
-    private static let log = Logger(subsystem: "app.pagis.mobile", category: "answer")
+    private static let log = Logger(subsystem: "co.pagis.mobile", category: "answer")
 
     private let approvalAnswer: ApprovalAnswer
     private let servers: ServerStore

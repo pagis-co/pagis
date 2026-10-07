@@ -46,11 +46,11 @@ use pagis_core::{AgentId, SkillMount, WorkspaceId};
 use serde::Serialize;
 
 /// The pinned computer image. The tag and the image's
-/// `org.pagis.computer.version` label move together; see
+/// `co.pagis.computer.version` label move together; see
 /// `computer/Dockerfile`.
 pub use pagis_versions::{COMPUTER_IMAGE as IMAGE, COMPUTER_IMAGE_VERSION as IMAGE_VERSION};
 /// The image label the daemon verifies before booting a container.
-pub const VERSION_LABEL: &str = "org.pagis.computer.version";
+pub const VERSION_LABEL: &str = "co.pagis.computer.version";
 
 /// The repository of an image reference: the reference without its tag
 /// and without its digest. `ghcr.io/pagis-co/pagis-computer@sha256:…`
@@ -95,7 +95,7 @@ pub const SECCOMP_PROFILE: &str = include_str!("../seccomp/chromium.json");
 /// with. A container whose set does not match the wanted set is
 /// replaced at the next wake, so a Grant, an update or an uninstall
 /// reaches the agent's next Run.
-pub const MOUNTS_LABEL: &str = "org.pagis.computer.mounts";
+pub const MOUNTS_LABEL: &str = "co.pagis.computer.mounts";
 /// Where a granted Plugin's `skills/` directory appears inside the
 /// container (ADR-0017). The image ships its own Skills at
 /// `/opt/pagis/skills/`.
@@ -298,14 +298,14 @@ pub struct TenantResources {
 /// The Docker label that names the tenant a container, a volume or a
 /// Tenant Network belongs to. One tenant's Docker objects are
 /// listed, measured and reaped by this label alone.
-pub const WORKSPACE_LABEL: &str = "org.pagis.workspace";
+pub const WORKSPACE_LABEL: &str = "co.pagis.workspace";
 /// The Docker label that names the Agent inside the tenant.
-pub const AGENT_LABEL: &str = "org.pagis.agent";
+pub const AGENT_LABEL: &str = "co.pagis.agent";
 /// The Docker label that marks a container, a volume or a Tenant
 /// Network that a test created (see [`test_docker::TestDocker`]). The
 /// daemon never puts it on an object, and a sweep of test objects
 /// removes only objects that carry it.
-pub const TEST_LABEL: &str = "org.pagis.test";
+pub const TEST_LABEL: &str = "co.pagis.test";
 
 /// Who owns one container and one volume: the tenant, and the
 /// Agent inside it. Every name and every label a Docker object carries
@@ -548,10 +548,10 @@ pub enum ComputerError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunningComputer {
     pub computer: StartedComputer,
-    /// The container's `org.pagis.computer.version` label, inherited
+    /// The container's `co.pagis.computer.version` label, inherited
     /// from the image it booted from; `None` when the label is absent.
     pub version: Option<String>,
-    /// The container's `org.pagis.computer.mounts` label: the
+    /// The container's `co.pagis.computer.mounts` label: the
     /// fingerprint of the mount set it booted with.
     pub mounts: Option<String>,
     /// Whether Docker resolved the running container to the exact

@@ -19,7 +19,7 @@ enum NotificationContent {
     /// The actions of a Request that the `approval` category shows.
     static let approvalActions = ["approve_once", "deny"]
 
-    private static let log = Logger(subsystem: "app.pagis.mobile", category: "push")
+    private static let log = Logger(subsystem: "co.pagis.mobile", category: "push")
 
     /// The content of the Notification of `placeholder`, the content that
     /// APNs gives: the decrypted payload, or the placeholder with the

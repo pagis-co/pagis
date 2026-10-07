@@ -71,7 +71,7 @@ HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=5 \
 
 # The version in this image, which `cargo xtask relay-image` checks
 # against the version of the crate before it pushes.
-LABEL org.pagis.push-relay.version="0.1.0"
+LABEL co.pagis.push-relay.version="0.1.0"
 # GHCR reads this to link the package to the repository it was built
 # from, which is where a reader goes for the source and the license.
 LABEL org.opencontainers.image.source="https://github.com/pagis-co/pagis"

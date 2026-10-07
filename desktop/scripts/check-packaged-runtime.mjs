@@ -26,8 +26,8 @@ try {
   const tree = path.join(root, 'fixture-tree')
   fs.mkdirSync(tree)
   const files = [
-    ['pagis', 'server', 0o755, 'executable', 'com.pagis.server'],
-    ['gog', 'helper', 0o755, 'executable', 'com.pagis.gog'],
+    ['pagis', 'server', 0o755, 'executable', 'co.pagis.server'],
+    ['gog', 'helper', 0o755, 'executable', 'co.pagis.gog'],
     ['LICENSE', 'pagis license', 0o644, 'file', undefined],
     ['LICENSE.gog', 'license', 0o644, 'file', undefined],
     ['THIRD_PARTY_NOTICES', 'notices', 0o644, 'file', undefined],

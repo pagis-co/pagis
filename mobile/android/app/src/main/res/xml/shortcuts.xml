@@ -7,8 +7,8 @@
         android:icon="@mipmap/ic_launcher"
         android:shortcutShortLabel="@string/change_server">
         <intent
-            android:action="app.pagis.mobile.CHANGE_SERVER"
-            android:targetPackage="app.pagis.mobile"
-            android:targetClass="app.pagis.mobile.MainActivity" />
+            android:action="co.pagis.mobile.CHANGE_SERVER"
+            android:targetPackage="co.pagis.mobile"
+            android:targetClass="co.pagis.mobile.MainActivity" />
     </shortcut>
 </shortcuts>

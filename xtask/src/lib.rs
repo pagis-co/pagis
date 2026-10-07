@@ -797,7 +797,7 @@ fn npm_script_action(root: &Path, package: &str, script: &str) -> Action {
 /// `pagis_computer::TEST_LABEL`. Its value is `<pid>-<nonce>`: the
 /// process id of the test that owns the object, and a nonce that makes
 /// one test's objects separate from another's in the same process.
-pub const TEST_LABEL: &str = "org.pagis.test";
+pub const TEST_LABEL: &str = "co.pagis.test";
 
 /// The test-labelled Docker objects to remove, by name.
 #[derive(Debug, Default, PartialEq, Eq)]

@@ -102,7 +102,7 @@ The signed Client App embeds the Runtime Lock of its platform as
     "team_id": "<team identifier read from the signing certificate>"
   },
   "entries": [
-    { "path": "pagis", "kind": "executable", "codesign_id": "com.pagis.server", "size": 123, "sha256": "<sha256>", "mode": 493 }
+    { "path": "pagis", "kind": "executable", "codesign_id": "co.pagis.server", "size": 123, "sha256": "<sha256>", "mode": 493 }
   ],
   "computer_image": "<image>@sha256:<64 lowercase hexadecimal characters>"
 }

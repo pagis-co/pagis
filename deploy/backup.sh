@@ -60,7 +60,7 @@ echo "== the Computer volumes"
 # installation on this Docker host has a label that is not in the list.
 workspaces=$(docker compose exec -T db psql -U pagis -d pagis -Atc 'SELECT id FROM workspaces')
 for workspace in $workspaces; do
-	for volume in $(docker volume ls --quiet --filter "label=org.pagis.workspace=$workspace"); do
+	for volume in $(docker volume ls --quiet --filter "label=co.pagis.workspace=$workspace"); do
 		echo "   $volume"
 		docker run --rm \
 			-v "$volume:/volume:ro" \

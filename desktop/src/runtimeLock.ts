@@ -63,8 +63,8 @@ export interface ClientPlatform {
 export const thisPlatform: ClientPlatform = { platform: process.platform, arch: process.arch }
 
 const layout: Array<{ path: string; kind: LockedEntry['kind']; codesignId?: string; mode: number }> = [
-  { path: 'pagis', kind: 'executable', codesignId: 'com.pagis.server', mode: 0o755 },
-  { path: 'gog', kind: 'executable', codesignId: 'com.pagis.gog', mode: 0o755 },
+  { path: 'pagis', kind: 'executable', codesignId: 'co.pagis.server', mode: 0o755 },
+  { path: 'gog', kind: 'executable', codesignId: 'co.pagis.gog', mode: 0o755 },
   { path: 'LICENSE', kind: 'file', mode: 0o644 },
   { path: 'LICENSE.gog', kind: 'file', mode: 0o644 },
   { path: 'THIRD_PARTY_NOTICES', kind: 'file', mode: 0o644 },
