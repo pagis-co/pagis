@@ -6,10 +6,13 @@ import static org.junit.Assert.assertNull;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.CookieHandler;
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import okhttp3.mockwebserver.Dispatcher;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
@@ -85,6 +88,33 @@ public class StaleNotificationsTest {
         assertEquals("pagis_session=s1", sent.getHeader("Cookie"));
         assertNull(sent.getHeader("Origin"));
         assertNull(sent.getHeader("Sec-Fetch-Site"));
+    }
+
+    /**
+     * Capacitor sets the cookie store of the web view as the default
+     * {@link CookieHandler} of the process. The read does not use it, so it
+     * sends the copy of the Session alone.
+     */
+    @Test
+    public void theDefaultCookieHandlerOfTheProcessIsNotRead() {
+        CookieHandler before = CookieHandler.getDefault();
+        CookieHandler.setDefault(new CookieHandler() {
+            @Override
+            public Map<String, List<String>> get(URI uri, Map<String, List<String>> headers) {
+                return Collections.singletonMap("Cookie", Collections.singletonList("pagis_session=web"));
+            }
+
+            @Override
+            public void put(URI uri, Map<String, List<String>> headers) {}
+        });
+        try {
+            clean();
+        } finally {
+            CookieHandler.setDefault(before);
+        }
+
+        assertNull(failure);
+        assertEquals(Collections.singletonList("pagis_session=s1"), requests.get(0).getHeaders().values("Cookie"));
     }
 
     /**

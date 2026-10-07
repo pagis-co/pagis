@@ -6,6 +6,8 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.drawable.Icon;
+import android.os.Build;
 import android.util.Log;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
@@ -25,6 +27,12 @@ final class PushNotifier {
     static final String CHANNEL_NEEDS_YOU = "needs_you";
     /** The channel of each other kind. */
     static final String CHANNEL_ACTIVITY = "activity";
+    /**
+     * The channel of the Notification of the foreground service that sends
+     * an answer before Android 12. It has low importance, so it makes no
+     * sound.
+     */
+    static final String CHANNEL_ANSWERS = "answers";
     /** The extra of the content intent that holds the place of the Notification. */
     static final String EXTRA_NAVIGATE = "navigate";
 
@@ -35,6 +43,8 @@ final class PushNotifier {
     private static final int ITEM_ID = 1;
     /** The id of the fallback Notification, which has no tag. A new one replaces the old one. */
     private static final int FALLBACK_ID = 2;
+    /** The id of the Notification of the foreground service that sends an answer. */
+    static final int SENDING_ID = 3;
 
     private final Context context;
     private final NotificationManager manager;
@@ -65,14 +75,84 @@ final class PushNotifier {
 
     /**
      * Show {@code payload}. The tag is the item, so a new push for the same
-     * item replaces the old Notification.
+     * item replaces the old Notification. A payload whose Request has the
+     * actions {@code approve_once} and {@code deny} shows the actions
+     * Approve once and Deny.
      */
     void show(PushPayload payload) {
-        String channel = NEEDS_YOU_KINDS.contains(payload.kind) ? CHANNEL_NEEDS_YOU : CHANNEL_ACTIVITY;
-        Notification.Builder builder = builder(channel, payload.title, payload.body, payload.navigate, payload.item.hashCode())
-            .setGroup(payload.kind);
+        Notification.Builder builder = itemBuilder(payload.item, payload.kind, payload.title, payload.body, payload.navigate);
         if (payload.badge != null) builder.setNumber(payload.badge);
+        if (payload.request != null && payload.request.actions.equals(ApprovalDecision.actions())) {
+            for (ApprovalDecision decision : ApprovalDecision.values()) {
+                builder.addAction(answerAction(decision, payload));
+            }
+        }
         notify(payload.item, ITEM_ID, builder.build());
+    }
+
+    /** Remove the Notification of {@code item}. */
+    void cancel(String item) {
+        manager.cancel(item, ITEM_ID);
+    }
+
+    /**
+     * Replace the Notification of {@code item}, whose answer did not go
+     * through, with one that has the same tag, title, channel, group and
+     * place, no actions, and the text "Pagis did not take this answer.
+     * Open Pagis to see the request."
+     */
+    void showAnswerFailed(String item, String kind, String title, String navigate) {
+        String text = context.getString(R.string.answer_failed);
+        notify(item, ITEM_ID, itemBuilder(item, kind, title, text, navigate).build());
+    }
+
+    /**
+     * The Notification of the foreground service that sends an answer.
+     * WorkManager shows it before Android 12 only, where it runs expedited
+     * work in a foreground service.
+     */
+    Notification sending() {
+        manager.createNotificationChannel(
+            new NotificationChannel(CHANNEL_ANSWERS, context.getString(R.string.channel_answers), NotificationManager.IMPORTANCE_LOW)
+        );
+        return new Notification.Builder(context, CHANNEL_ANSWERS)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(context.getString(R.string.answer_sending))
+            .build();
+    }
+
+    private Notification.Builder itemBuilder(String item, String kind, String title, String text, String navigate) {
+        String channel = NEEDS_YOU_KINDS.contains(kind) ? CHANNEL_NEEDS_YOU : CHANNEL_ACTIVITY;
+        return builder(channel, title, text, navigate, item.hashCode()).setGroup(kind);
+    }
+
+    /**
+     * The action of {@code decision}: an immutable broadcast to
+     * {@link ApprovalReceiver}. The intent action is the name of the action,
+     * so the two actions of one Notification have two pending intents. Each
+     * action asks the Person to unlock the phone, on Android 12 and later.
+     */
+    private Notification.Action answerAction(ApprovalDecision decision, PushPayload payload) {
+        Intent answer = new Intent(context, ApprovalReceiver.class)
+            .setAction(decision.action)
+            .putExtra(ApprovalReceiver.EXTRA_REQUEST, payload.request.id)
+            .putExtra(ApprovalReceiver.EXTRA_ITEM, payload.item)
+            .putExtra(ApprovalReceiver.EXTRA_KIND, payload.kind)
+            .putExtra(ApprovalReceiver.EXTRA_TITLE, payload.title)
+            .putExtra(EXTRA_NAVIGATE, payload.navigate);
+        PendingIntent broadcast = PendingIntent.getBroadcast(
+            context,
+            payload.item.hashCode(),
+            answer,
+            PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT
+        );
+        Notification.Action.Builder action = new Notification.Action.Builder(
+            Icon.createWithResource(context, R.drawable.ic_notification),
+            context.getString(decision.title),
+            broadcast
+        );
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) action.setAuthenticationRequired(true);
+        return action.build();
     }
 
     private void showFallback(boolean high, String origin) {

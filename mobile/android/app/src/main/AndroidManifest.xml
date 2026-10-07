@@ -38,6 +38,12 @@
             </intent-filter>
         </service>
 
+        <!-- Gets Approve once and Deny of a Notification of an Approval.
+             Only the pending intents of the app reach it (ADR-0032). -->
+        <receiver
+            android:name=".ApprovalReceiver"
+            android:exported="false" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
