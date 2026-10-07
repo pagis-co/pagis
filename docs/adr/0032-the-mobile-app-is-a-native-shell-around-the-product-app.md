@@ -197,9 +197,25 @@ answers that no computer is connected.
 
 The live screen, Listen-Live and Dictation run in the web view, as in a
 browser. The live screen reaches the phone through the TURN server of
-Remote Access (ADR-0028). The shell grants the microphone only to the main
-frame of the server's origin, as the Client App does
-(`desktop/src/webPermissions.ts`).
+Remote Access (ADR-0028), and needs no other transport. The shell grants
+the microphone only to the main frame of the server's origin, as the Client
+App does (`desktop/src/webPermissions.ts`). A Widget frame or a page of
+another origin gets no microphone, and no page gets the camera.
+
+- On iOS, Capacitor grants each request of each frame. So the shell puts
+  `MediaGuard` in front of the UI delegate. It decides
+  `requestMediaCapturePermissionFor`: it grants `.microphone` to the main
+  frame of the stored origin, and denies every other request. WebKit then
+  shows the Person the system prompt alone, one time.
+- On Android, Capacitor grants each requested resource, also the camera,
+  after the permission of the system. So the shell sets `PagisChromeClient`
+  on the web view. It grants `RESOURCE_AUDIO_CAPTURE` to the stored origin
+  alone, after the app holds `RECORD_AUDIO`, and asks for `RECORD_AUDIO` at
+  the first request. A request of the Android web view names an origin and
+  no frame.
+- On iOS, the audio session category is `.playAndRecord` with
+  `.defaultToSpeaker` while the app is active, so Listen-Live plays with
+  the ring/silent switch on.
 
 ### Compatibility is a lower bound
 

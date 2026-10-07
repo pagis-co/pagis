@@ -75,6 +75,8 @@ public class MainActivity extends BridgeActivity {
         if (shown != null) {
             bridge.setWebViewClient(new PagisWebViewClient(bridge, shown, this::followSession));
         }
+        // The microphone goes to the main frame of the server alone.
+        bridge.getWebView().setWebChromeClient(new PagisChromeClient(bridge, server));
     }
 
     @Override

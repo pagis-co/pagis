@@ -24,6 +24,8 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Pagis uses the camera to scan the QR code of a sign-in link.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Pagis uses the microphone when you hold the button to dictate a message.</string>
 	<key>PagisKeychainAccessGroup</key>
 	<string>$(AppIdentifierPrefix)app.pagis.mobile</string>
 	<key>LSRequiresIPhoneOS</key>

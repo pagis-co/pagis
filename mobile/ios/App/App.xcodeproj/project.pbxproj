@@ -28,6 +28,8 @@
 		7A6E150000000000000000D1 /* SessionCopyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E150000000000000000D0 /* SessionCopyTests.swift */; };
 		7A6E150000000000000000D3 /* SessionCopy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E150000000000000000D2 /* SessionCopy.swift */; };
 		7A6E150000000000000000D5 /* SessionCookies.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E150000000000000000D4 /* SessionCookies.swift */; };
+		7A6E150000000000000000E1 /* MediaGuardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E150000000000000000E0 /* MediaGuardTests.swift */; };
+		7A6E150000000000000000E3 /* MediaGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E150000000000000000E2 /* MediaGuard.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -66,6 +68,8 @@
 		7A6E150000000000000000D2 /* SessionCopy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionCopy.swift; sourceTree = "<group>"; };
 		7A6E150000000000000000D4 /* SessionCookies.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionCookies.swift; sourceTree = "<group>"; };
 		7A6E150000000000000000D6 /* App.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = App.entitlements; sourceTree = "<group>"; };
+		7A6E150000000000000000E0 /* MediaGuardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaGuardTests.swift; sourceTree = "<group>"; };
+		7A6E150000000000000000E2 /* MediaGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaGuard.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -127,6 +131,7 @@
 				50B271D01FEDC1A000F3C39B /* public */,
 				7A6E150000000000000000D2 /* SessionCopy.swift */,
 				7A6E150000000000000000D4 /* SessionCookies.swift */,
+				7A6E150000000000000000E2 /* MediaGuard.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -138,6 +143,7 @@
 				7A6E1500000000000000000D /* BridgeGuardTests.swift */,
 				7A6E150000000000000000CA /* NavigationGuardTests.swift */,
 				7A6E150000000000000000D0 /* SessionCopyTests.swift */,
+				7A6E150000000000000000E0 /* MediaGuardTests.swift */,
 			);
 			path = AppTests;
 			sourceTree = "<group>";
@@ -262,6 +268,7 @@
 				7A6E1500000000000000000A /* PagisViewController.swift in Sources */,
 				7A6E150000000000000000D3 /* SessionCopy.swift in Sources */,
 				7A6E150000000000000000D5 /* SessionCookies.swift in Sources */,
+				7A6E150000000000000000E3 /* MediaGuard.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -273,6 +280,7 @@
 				7A6E1500000000000000000E /* BridgeGuardTests.swift in Sources */,
 				7A6E150000000000000000CB /* NavigationGuardTests.swift in Sources */,
 				7A6E150000000000000000D1 /* SessionCopyTests.swift in Sources */,
+				7A6E150000000000000000E1 /* MediaGuardTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

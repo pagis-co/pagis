@@ -37,6 +37,14 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         completionHandler(true)
     }
 
+    func sceneDidBecomeActive(_ scene: UIScene) {
+        do {
+            try AudioSessionSetup.configure()
+        } catch {
+            NSLog("Pagis did not set the audio session: %@", String(describing: error))
+        }
+    }
+
     func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
         SceneDelegateProxy.shared.scene(scene, openURLContexts: URLContexts)
     }
