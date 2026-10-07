@@ -13,7 +13,10 @@
 
 use std::sync::Arc;
 
+use pagis_core::{AgentId, ChannelId, RequestStore, RunStore};
 use pagis_server::{ADMINISTRATION_ROUTES, ROUTES, Route};
+use pagis_storage_sqlite::{SqliteRequestStore, SqliteRunStore};
+use pagis_testkit::fixture::{pending_request, queued_run};
 use pagis_testkit::{Script, ScriptedBrain, TestDaemon, TestDaemonOptions};
 use reqwest::StatusCode;
 use tokio_tungstenite::connect_async;
@@ -435,6 +438,53 @@ async fn same_origin_and_none_pass_to_the_session_check() {
         .await;
         assert_eq!(status, StatusCode::CREATED, "{site} POST with a Session");
     }
+}
+
+/// The service worker answers an Approval from a Notification with a
+/// `fetch` to its own origin. The browser sends the Session cookie,
+/// `Origin` and `Sec-Fetch-Site: same-origin` with it, and the request
+/// decides the Request.
+#[tokio::test]
+async fn a_decision_from_the_service_worker_decides_the_request() {
+    let daemon = TestDaemon::start_with(options()).await;
+    let agent_id = AgentId::from(daemon.agent_id.clone());
+    let channel_id = ChannelId::from(daemon.dm_channel_id.clone());
+    let parked = queued_run(&daemon.workspace_id, &agent_id, &channel_id);
+    SqliteRunStore::new(daemon.pool().clone())
+        .create(&parked)
+        .await
+        .expect("write the parked Run");
+    let pending = pending_request(&daemon.workspace_id, &agent_id, &parked.id, "echo hi");
+    let requests = SqliteRequestStore::new(daemon.pool().clone());
+    requests
+        .create(&pending)
+        .await
+        .expect("write the pending Request");
+
+    let (status, _) = send(
+        request(
+            "post",
+            &format!(
+                "{}/api/v1/requests/{}/decision",
+                daemon.base_url, pending.id
+            ),
+            &[
+                ("cookie", daemon.cookie()),
+                ("origin", PUBLIC_ORIGIN),
+                ("sec-fetch-site", "same-origin"),
+            ],
+        )
+        .json(&serde_json::json!({ "decision": "approved" })),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    let decided = requests
+        .get(&daemon.workspace_id, &pending.id)
+        .await
+        .expect("read the Request")
+        .expect("the Request exists");
+    assert_eq!(decided.state.as_str(), "approved");
 }
 
 /// A POST from the Public Origin works, as the Product App makes it.
