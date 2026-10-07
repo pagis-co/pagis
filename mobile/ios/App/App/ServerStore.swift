@@ -31,6 +31,17 @@ enum AppBuild {
         #endif
     }
 
+    /// The origin of the Push Relay: the build setting `PUSH_RELAY_ORIGIN`,
+    /// which `Info.plist` gives as `PagisPushRelayOrigin`.
+    static var pushRelayOrigin: URL {
+        guard let text = Bundle.main.object(forInfoDictionaryKey: "PagisPushRelayOrigin") as? String,
+              let url = URL(string: text), url.scheme == "https", url.host != nil
+        else {
+            preconditionFailure("PUSH_RELAY_ORIGIN of this build is not an https origin.")
+        }
+        return url
+    }
+
     /// The token that the app appends to the `User-Agent` of the web view.
     /// The daemon reads `Pagis/` first and names the Session "Pagis on
     /// iPhone" or "Pagis on iPad". On an iPad, WKWebView sends the

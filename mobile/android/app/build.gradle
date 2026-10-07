@@ -1,4 +1,6 @@
 apply plugin: 'com.android.application'
+// Reads `google-services.json`, the Firebase project of the Push Relay.
+apply plugin: 'com.google.gms.google-services'
 
 // The version of the app is the version of `mobile/package.json`, which is
 // the workspace version.
@@ -14,6 +16,9 @@ android {
         versionCode 1
         versionName mobilePackage.version
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        // The origin of the Push Relay that registers the Push Subscription
+        // of the app (ADR-0032).
+        buildConfigField "String", "PUSH_RELAY_ORIGIN", '"https://push-relay.invalid"'
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
              // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
@@ -44,20 +49,16 @@ dependencies {
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation "androidx.webkit:webkit:$androidxWebkitVersion"
     implementation "com.google.crypto.tink:tink-android:$tinkVersion"
+    implementation "com.google.firebase:firebase-messaging:$firebaseMessagingVersion"
+    implementation "com.google.android.gms:play-services-tasks:$playServicesTasksVersion"
     implementation project(':capacitor-android')
     testImplementation "junit:junit:$junitVersion"
+    testImplementation "com.squareup.okhttp3:mockwebserver:$mockWebServerVersion"
+    // Android gives `org.json` only on a device; a JVM test needs the library.
+    testImplementation "org.json:json:$orgJsonVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
     implementation project(':capacitor-cordova-android-plugins')
 }
 
 apply from: 'capacitor.build.gradle'
-
-try {
-    def servicesJSON = file('google-services.json')
-    if (servicesJSON.text) {
-        apply plugin: 'com.google.gms.google-services'
-    }
-} catch(Exception e) {
-    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
-}

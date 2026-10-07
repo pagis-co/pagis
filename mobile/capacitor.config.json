@@ -1,5 +1,8 @@
 {
   "appId": "app.pagis.mobile",
   "appName": "Pagis",
-  "webDir": "dist"
+  "webDir": "dist",
+  "ios": {
+    "handleApplicationNotifications": false
+  }
 }

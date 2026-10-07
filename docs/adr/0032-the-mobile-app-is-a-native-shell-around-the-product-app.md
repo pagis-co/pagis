@@ -149,13 +149,67 @@ present (`ui/src/push/register.ts`). WKWebView gives no service worker to
 a remote origin without App-Bound Domains, and the Android System WebView
 has no Push API. So the native side receives each Notification.
 
-1. The shell gets an APNs token on iOS or an FCM token on Android.
-2. The Push Relay gives that token a Web Push endpoint (ADR-0030).
-3. The app makes its own P-256 key pair and auth secret (RFC 8291). It
-   keeps them beside the copy of the Session.
-4. The app registers a Push Subscription with the daemon through the
-   route that a browser uses. So the Push Subscription belongs to the
-   Session of the Mobile App.
+The plugin `PagisPush` of the app target has `state()`,
+`subscribe({vapidKey})` and `unsubscribe()`. Where
+`Capacitor.isNativePlatform()` is true, the Notifications section of
+Settings uses it in place of `PushManager`. `subscribe` does these steps
+in this order:
+
+1. It asks the phone for the permission to show notifications:
+   `UNUserNotificationCenter.requestAuthorization` on iOS, and
+   `POST_NOTIFICATIONS` on Android 13 and later.
+2. It gets the token: an APNs token from
+   `registerForRemoteNotifications()` on iOS, or an FCM token from
+   `FirebaseMessaging` on Android.
+3. It registers the token and the VAPID Key of the server with the Push
+   Relay, which gives the token a Web Push endpoint (ADR-0030). A debug
+   build on iOS registers the APNs environment `sandbox`, and a release
+   build `production`. The origin of the relay is the build constant
+   `PUSH_RELAY_ORIGIN`.
+4. It makes the keys of the subscription (RFC 8291): a P-256 key pair
+   and 16 random bytes of auth secret.
+5. It answers the shape of `PushSubscription.toJSON()`: the endpoint of
+   the relay, the 65-byte uncompressed public point as `p256dh`, and the
+   auth secret, both as base64url with no padding.
+
+The Product App posts the answer to the daemon through the route that a
+browser uses. So the Push Subscription belongs to the Session of the
+Mobile App.
+
+The app keeps the registration (its id, secret and endpoint, the VAPID
+Key and the token) and the keys beside the copy of the Session: in the
+Keychain access group with `kSecAttrAccessibleAfterFirstUnlock` on iOS,
+and in files that the Tink AEAD of the app encrypts on Android. The
+private key never leaves native code.
+
+- A second `subscribe` with the same VAPID Key registers nothing, and it
+  answers the stored values. A `subscribe` with another VAPID Key deletes
+  the earlier registration and its keys first.
+- A new token goes to the relay with `PUT`, so the endpoint and the Push
+  Subscription of the daemon stay the same. On iOS the app asks for the
+  token at each launch, and it sends the token only when it changed. On
+  Android `PagisMessagingService` gets a new token in `onNewToken`. When
+  the relay does not know the registration, the app forgets it and its
+  keys, and the next `subscribe` registers again.
+- To turn Notifications off, the Product App deletes the Push
+  Subscription of the daemon, and then calls `unsubscribe()`. That
+  deletes the registration with the relay, and then the keys.
+- A new Session has no Push Subscription. The section then shows
+  Notifications as off, and **Turn on** uses the registration that the
+  app holds.
+
+The app does not use `@capacitor/push-notifications`. That plugin owns the
+Android `FirebaseMessagingService` of the app, and on iOS it handles a
+push through the `NotificationRouter` of Capacitor, which calls the
+completion handler at once. The decryption, the tap and the inline answer
+need both of these paths, so the app owns them:
+
+- On iOS, `ios.handleApplicationNotifications` is `false` in
+  `capacitor.config.json`, and `NotificationResponder` of the app is the
+  delegate of `UNUserNotificationCenter`.
+- On Android, `PagisMessagingService` is the `FirebaseMessagingService`
+  of the app. `google-services.json` names the Firebase project of the
+  Push Relay.
 
 The iOS Notification Service Extension decrypts the payload with CryptoKit.
 The Android messaging service decrypts it with the `apps-webpush` module of
@@ -274,7 +328,7 @@ Other ways were considered:
 ## Not built
 
 - The Mobile App: the native requests that use the copy of the Session,
-  the Push Subscription through the Push Relay, the Notification Service
-  Extension, the Android messaging service and the inline answers.
+  the Notification Service Extension, the decryption in the Android
+  messaging service and the inline answers.
 - The lower bound on the server version is 0.2.0, not the first release
   that serves Notifications.

@@ -52,6 +52,7 @@ final class PagisViewController: CAPBridgeViewController {
     override func capacitorDidLoad() {
         guard let bridge = bridge as? CapacitorBridge, let webView else { return }
         bridge.registerPluginInstance(PagisShellPlugin())
+        bridge.registerPluginInstance(PagisPushPlugin())
         // The origin that the bridge shows: the server, or the app's own
         // origin on the Connect screen.
         guard let shown = WebOrigin(url: bridge.config.serverURL) else { return }

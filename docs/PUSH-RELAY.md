@@ -23,7 +23,10 @@ The store apps use the relay that the project runs. A person who builds
 the Mobile App with their own APNs key and Firebase project deploys a
 relay of their own with this guide.
 
-The registration of the Mobile App with the relay is not built.
+A build of the Mobile App names its relay in the build constant
+`PUSH_RELAY_ORIGIN`, and the Firebase project in
+`mobile/android/app/google-services.json`. `mobile/README.md` tells how to
+set them.
 
 The relay is the crate `crates/pagis-push-relay`, a library and the
 binary `pagis-push-relay`. It is not an artifact of the Release Matrix.

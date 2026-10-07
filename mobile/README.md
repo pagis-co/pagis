@@ -58,6 +58,36 @@ The gate runs the same tests:
 | `mobile-android-test` | `npm run build`, `npx cap sync android`, then `./gradlew testDebugUnitTest` |
 | `mobile-ios-test` | `npm run build`, `npx cap sync ios`, then `xcodebuild test` on the first available iPhone simulator |
 
+## Push
+
+The app registers its Push Subscription through the Push Relay
+([ADR-0032](../docs/adr/0032-the-mobile-app-is-a-native-shell-around-the-product-app.md),
+[the Push Relay guide](../docs/PUSH-RELAY.md)). Two values of the build
+name the relay and its Firebase project. The repository holds a
+placeholder for each, so a build is the same as a production build, but
+no push arrives:
+
+- `PUSH_RELAY_ORIGIN`: the `https` origin of the Push Relay. The
+  placeholder is `https://push-relay.invalid`, a reserved name that never
+  resolves.
+  - iOS: the build setting `PUSH_RELAY_ORIGIN` of the `App` target in
+    `ios/App/App.xcodeproj`. `Info.plist` gives it to the app as
+    `PagisPushRelayOrigin`. Change the value in **Build Settings** in
+    Xcode for each configuration, or give it to one build:
+    `xcodebuild PUSH_RELAY_ORIGIN=https://<relay host> ...`.
+  - Android: the `buildConfigField` `PUSH_RELAY_ORIGIN` in
+    `android/app/build.gradle`.
+- `android/app/google-services.json`: the Firebase project of the Push
+  Relay. In the Firebase console, add an Android app with the package name
+  `app.pagis.mobile` to the project that `PUSH_RELAY_FCM_PROJECT_ID` of the
+  relay names. Download its `google-services.json`, and put it in place of
+  the placeholder.
+
+On iOS, the entitlement `aps-environment` lets the app get an APNs token.
+A debug build registers the APNs environment `sandbox` with the relay, and
+a release build registers `production`. The APNs key of the relay must
+belong to the team that signs the app.
+
 ## Run the app against a local daemon
 
 A debug build of the app takes `http://` on a loopback host. A release build
