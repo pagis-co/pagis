@@ -278,8 +278,55 @@ and the endpoint `<origin>/v1/push/<id>`:
   `X-Forwarded-For` only from the proxy address that
   `PUSH_RELAY_TRUSTED_PROXY` names, by the rule of the daemon's Trusted
   Proxy.
-- A log line holds the route, the id and the status, and never a token,
-  a secret or a VAPID Key.
+- The relay holds one transport for each platform that it serves. A
+  registration for a platform with no transport gets `422`.
+
+A server posts a Web Push to `POST /v1/push/<id>`. The relay does these
+checks in this order:
+
+1. An unknown id gets `404`.
+2. A `Content-Encoding` that is not `aes128gcm` gets `415`.
+3. No `Authorization: vapid t=…, k=…` gets `401` with
+   `WWW-Authenticate: vapid` (RFC 8292).
+4. A VAPID token that is not valid gets `403`. The token is valid only
+   when `k` is the VAPID Key of the registration, the JWT header is
+   `{"typ": "JWT", "alg": "ES256"}` or `{"alg": "ES256"}`, the signature
+   verifies with `k`, `aud` is the origin of the relay, and `exp` is in
+   the future and at most 24 hours ahead. One pure function checks it
+   with `p256`, `base64` and `serde_json`. The relay links no JWT crate.
+5. A body over 2800 bytes gets `413`. The relay reads the body with this
+   limit, so it never holds a larger body. RFC 8030 asks a push service
+   to take 4096 bytes, but the envelopes of APNs and FCM cannot hold that
+   after base64, and a server sends at most 2800 bytes.
+6. No `TTL`, a `TTL` that is not a number, an `Urgency` outside
+   `very-low`, `low`, `normal` and `high`, or a `Topic` that is not 1 to
+   32 URL-safe base64 characters gets `400`. No `Urgency` is `normal`.
+7. A push over 1000 on one registration in one UTC day gets `429`, with
+   `Retry-After` until the next UTC midnight. The columns `pushes_today`
+   and `day` hold the count, so a restart keeps it.
+
+The relay then gives the body, unchanged, and the `TTL`, the `Urgency`
+and the `Topic` to the transport of the platform. The transport answers:
+
+- Delivered: `201 Created` with
+  `Location: <origin>/v1/messages/<random id>` and the `TTL` of the
+  request (RFC 8030 section 5). The relay keeps the time in
+  `last_push_at`. It stores no message, so the `Location` gets `404`.
+- Gone: the relay removes the registration and answers `410`, and
+  `pagis-push` reports the subscription as gone.
+- Failed: `502`. The push does not count against the day.
+
+`pagis-push` takes `401` and `403` as a failure, and not as a gone
+subscription.
+
+`PUSH_RELAY_PUBLIC_ORIGIN` is an `https` origin, or an `http` origin on
+a loopback address, which a browser also takes as a secure context. A
+test sender with the policy `AllowLoopback` reaches a relay on its own
+machine through it, and the `aud` of its token is the relay's origin.
+
+A log line holds the route, the id and the status, and for a push the
+`Urgency` and the size of the body. It never holds a device token, a
+secret, a VAPID Key, a VAPID token or a body.
 
 ## Consequences
 
@@ -311,7 +358,7 @@ and the endpoint `<origin>/v1/push/<id>`:
   daemon calls it.
 - The hold while active, and the `activity` frame.
 - The service worker of the Product App.
-- The Push Relay takes no Web Push: the push route, the check of the
-  VAPID token, the size and the rate, and the forward to APNs and FCM.
-  The relay registers an installation and gives it an endpoint.
+- The forward of the Push Relay to APNs and FCM. The relay takes and
+  checks a Web Push, but the binary has no transport for a platform, so
+  it refuses each registration.
 - The Mobile App (ADR-0032).

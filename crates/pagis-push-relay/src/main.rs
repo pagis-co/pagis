@@ -3,9 +3,10 @@
 //! SIGINT or SIGTERM.
 
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 use anyhow::Context;
-use pagis_push_relay::Settings;
+use pagis_push_relay::{Settings, SystemClock, Transports};
 use tokio::signal::unix::{SignalKind, signal};
 use tracing_subscriber::EnvFilter;
 
@@ -40,7 +41,15 @@ async fn main() -> anyhow::Result<()> {
     let address = listener.local_addr()?;
     tracing::info!("the Push Relay listens on http://{address}");
 
-    let router = pagis_push_relay::router(pool, settings.public_origin, settings.trusted_proxy);
+    // The APNs and FCM transports are not built, so the relay serves no
+    // platform and refuses each registration.
+    let router = pagis_push_relay::router(
+        pool,
+        settings.public_origin,
+        settings.trusted_proxy,
+        Transports::default(),
+        Arc::new(SystemClock),
+    );
     axum::serve(
         listener,
         router.into_make_service_with_connect_info::<SocketAddr>(),

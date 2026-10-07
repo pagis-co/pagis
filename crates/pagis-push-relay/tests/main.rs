@@ -1,23 +1,29 @@
 //! The Push Relay over real HTTP: the router on a loopback port with an
 //! in-memory SQLite, and the binary with a SQLite file.
 
+mod push;
+
 use std::io::{BufRead, BufReader};
 use std::net::{IpAddr, SocketAddr};
 use std::process::{Child, Command, Stdio};
-use std::sync::mpsc;
-use std::time::Duration;
+use std::sync::{Arc, Mutex, mpsc};
+use std::time::{Duration, SystemTime};
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use pagis_push_relay::{PublicOrigin, TrustedProxy};
+use pagis_push_relay::{
+    Clock, Delivery, Message, PublicOrigin, Registration, Transport, Transports, TrustedProxy,
+};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
 
+/// The public origin of the binary in its tests.
 const PUBLIC_ORIGIN: &str = "https://push.example.test";
 
 /// The generator of P-256 as an uncompressed point: a valid public key.
+/// It is the public key of the scalar 1, [`VAPID_SECRET`].
 const GENERATOR: [u8; 65] = [
     0x04, 0x6b, 0x17, 0xd1, 0xf2, 0xe1, 0x2c, 0x42, 0x47, 0xf8, 0xbc, 0xe6, 0xe5, 0x63, 0xa4, 0x40,
     0xf2, 0x77, 0x03, 0x7d, 0x81, 0x2d, 0xeb, 0x33, 0xa0, 0xf4, 0xa1, 0x39, 0x45, 0xd8, 0x98, 0xc2,
@@ -26,27 +32,115 @@ const GENERATOR: [u8; 65] = [
     0xf5,
 ];
 
+/// The scalar 1: the VAPID secret key whose public key is [`GENERATOR`].
+const VAPID_SECRET: [u8; 32] = {
+    let mut scalar = [0u8; 32];
+    scalar[31] = 1;
+    scalar
+};
+
 const APNS_TOKEN: &str = "6a1f0c9e2b7d4e8f6a1f0c9e2b7d4e8f6a1f0c9e2b7d4e8f6a1f0c9e2b7d4e8f";
 const FCM_TOKEN: &str = "dX3k9:APA91bH-q_7rT2";
 
-/// A relay that serves on a loopback port, and the pool behind it.
+/// A transport that keeps each message it gets and answers the delivery
+/// that the test sets.
+struct FakeTransport {
+    answer: Mutex<Delivery>,
+    sent: Mutex<Vec<(Registration, Message)>>,
+}
+
+impl FakeTransport {
+    fn new() -> Arc<Self> {
+        Arc::new(Self {
+            answer: Mutex::new(Delivery::Delivered),
+            sent: Mutex::new(Vec::new()),
+        })
+    }
+
+    fn answer(&self, delivery: Delivery) {
+        *self.answer.lock().unwrap() = delivery;
+    }
+
+    fn sent(&self) -> Vec<(Registration, Message)> {
+        self.sent.lock().unwrap().clone()
+    }
+}
+
+#[async_trait::async_trait]
+impl Transport for FakeTransport {
+    async fn send(&self, registration: &Registration, message: &Message) -> Delivery {
+        self.sent
+            .lock()
+            .unwrap()
+            .push((registration.clone(), message.clone()));
+        self.answer.lock().unwrap().clone()
+    }
+}
+
+/// A clock that reads the system time until a test sets it.
+#[derive(Default)]
+struct TestClock(Mutex<Option<SystemTime>>);
+
+impl TestClock {
+    fn set(&self, now: SystemTime) {
+        *self.0.lock().unwrap() = Some(now);
+    }
+}
+
+impl Clock for TestClock {
+    fn now(&self) -> SystemTime {
+        self.0.lock().unwrap().unwrap_or_else(SystemTime::now)
+    }
+}
+
+/// Which platforms the relay of a test serves.
+#[derive(Clone, Copy)]
+enum Serves {
+    Both,
+    IosOnly,
+}
+
+/// A relay that serves on a loopback port, and the pool behind it. Its
+/// public origin is the loopback origin, so a Web Push of `pagis-push`
+/// to its endpoint carries the `aud` that the relay checks.
 struct Relay {
     origin: String,
     pool: SqlitePool,
     client: reqwest::Client,
+    transport: Arc<FakeTransport>,
+    clock: Arc<TestClock>,
 }
 
 impl Relay {
     async fn start(proxy: TrustedProxy) -> Self {
+        Self::start_serving(proxy, Serves::Both).await
+    }
+
+    async fn start_serving(proxy: TrustedProxy, serves: Serves) -> Self {
         let pool = pagis_push_relay::connect_memory()
             .await
             .expect("an in-memory SQLite");
-        let public_origin = PublicOrigin::parse(PUBLIC_ORIGIN).expect("the public origin");
-        let router = pagis_push_relay::router(pool.clone(), public_origin, proxy);
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
             .expect("a loopback port");
         let address = listener.local_addr().expect("the bound address");
+        let origin = format!("http://{address}");
+        let public_origin = PublicOrigin::parse(&origin).expect("the loopback origin");
+        let transport = FakeTransport::new();
+        let transports = match serves {
+            Serves::Both => Transports::default()
+                .with_ios(transport.clone())
+                .with_android(transport.clone()),
+            Serves::IosOnly => Transports::default().with_ios(transport.clone()),
+        };
+        let clock = Arc::new(TestClock::default());
+        let router = pagis_push_relay::router(
+            pool.clone(),
+            public_origin,
+            proxy,
+            transports,
+            clock.clone(),
+        );
         tokio::spawn(async move {
             axum::serve(
                 listener,
@@ -56,9 +150,11 @@ impl Relay {
             .expect("serve");
         });
         Self {
-            origin: format!("http://{address}"),
+            origin,
             pool,
             client: reqwest::Client::new(),
+            transport,
+            clock,
         }
     }
 
@@ -134,7 +230,7 @@ async fn a_registration_answers_an_id_a_secret_and_an_endpoint_on_the_public_ori
     let endpoint = body["endpoint"].as_str().expect("an endpoint");
     assert_eq!(decoded_len(id), 16, "the id is 128 bits");
     assert_eq!(decoded_len(secret), 32, "the secret is 256 bits");
-    assert_eq!(endpoint, format!("{PUBLIC_ORIGIN}/v1/push/{id}"));
+    assert_eq!(endpoint, format!("{}/v1/push/{id}", relay.origin));
     assert!(!endpoint.contains(APNS_TOKEN));
 }
 
@@ -413,6 +509,22 @@ async fn a_body_that_is_not_a_json_object_answers_unprocessable() {
         .expect("the relay answers");
 
     assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[tokio::test]
+async fn a_platform_with_no_transport_answers_unprocessable_and_names_the_platform() {
+    let relay = Relay::start_serving(TrustedProxy::none(), Serves::IosOnly).await;
+
+    let message = refusal(&relay, android_body()).await;
+    let ios = relay.register(ios_body()).await;
+
+    assert!(message.contains("android"), "{message}");
+    assert_eq!(ios.status(), StatusCode::CREATED);
+    let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM registrations")
+        .fetch_one(&relay.pool)
+        .await
+        .expect("count the registrations");
+    assert_eq!(rows, 1, "the refused registration is not kept");
 }
 
 const PROXY: IpAddr = IpAddr::V4(std::net::Ipv4Addr::LOCALHOST);

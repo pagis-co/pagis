@@ -47,7 +47,8 @@ pub(crate) fn secret_hash(secret: &str) -> [u8; 32] {
     Sha256::digest(secret.as_bytes()).into()
 }
 
-fn random_base64url<const N: usize>() -> String {
+/// `N` random bytes as base64url.
+pub(crate) fn random_base64url<const N: usize>() -> String {
     let mut bytes = [0u8; N];
     rand::rng().fill_bytes(&mut bytes);
     URL_SAFE_NO_PAD.encode(bytes)
@@ -55,7 +56,7 @@ fn random_base64url<const N: usize>() -> String {
 
 /// The push service of a registration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Platform {
+pub enum Platform {
     /// APNs, in its production or its sandbox environment.
     Ios(Environment),
     /// FCM.
@@ -77,11 +78,22 @@ impl Platform {
             Self::Android => None,
         }
     }
+
+    /// The platform of a [`name`](Self::name) and an
+    /// [`environment`](Self::environment), or `None` for another pair.
+    pub(crate) fn from_names(name: &str, environment: Option<&str>) -> Option<Self> {
+        match (name, environment) {
+            ("ios", Some("production")) => Some(Self::Ios(Environment::Production)),
+            ("ios", Some("sandbox")) => Some(Self::Ios(Environment::Sandbox)),
+            ("android", None) => Some(Self::Android),
+            _ => None,
+        }
+    }
 }
 
 /// The APNs environment that the app build talks to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Environment {
+pub enum Environment {
     Production,
     Sandbox,
 }
@@ -112,7 +124,13 @@ pub(crate) struct VapidKey([u8; 65]);
 
 impl VapidKey {
     fn parse(value: &str) -> Option<Self> {
-        let bytes: [u8; 65] = URL_SAFE_NO_PAD.decode(value).ok()?.try_into().ok()?;
+        Self::from_bytes(&URL_SAFE_NO_PAD.decode(value).ok()?)
+    }
+
+    /// The key of 65 bytes, or `None` when they are not an uncompressed
+    /// P-256 point.
+    pub(crate) fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        let bytes: [u8; 65] = bytes.try_into().ok()?;
         // A 65-byte SEC1 encoding is the uncompressed form; the parse
         // checks that the point is on the curve.
         p256::PublicKey::from_sec1_bytes(&bytes).ok()?;

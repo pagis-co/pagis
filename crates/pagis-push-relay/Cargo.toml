@@ -9,6 +9,7 @@ autotests = false
 
 [dependencies]
 anyhow.workspace = true
+async-trait.workspace = true
 axum.workspace = true
 base64.workspace = true
 p256.workspace = true
@@ -24,8 +25,10 @@ tracing-subscriber.workspace = true
 url.workspace = true
 
 [dev-dependencies]
+pagis-push.workspace = true
 reqwest.workspace = true
 tempfile.workspace = true
+web-push-native.workspace = true
 
 [[test]]
 name = "main"
