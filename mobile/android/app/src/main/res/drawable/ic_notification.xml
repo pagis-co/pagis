@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The small icon of a Notification: the Pagis mark in one ink
+     (assets/brand/pagis-mark-mono.svg). The status bar shows only its
+     shape. The view keeps 2 of its 24 points clear on each side, as
+     ui/public/badge-96.png does. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="144"
+    android:viewportHeight="144">
+    <group
+        android:translateX="-8"
+        android:translateY="-8">
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M30,20H66A10,10 0,0 1,76,30V66A10,10 0,0 1,66,76H30A10,10 0,0 1,20,66V30A10,10 0,0 1,30,20Z" />
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M94,20H112A28,28 0,0 1,112,76H94A10,10 0,0 1,84,66V30A10,10 0,0 1,94,20Z" />
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M30,84H66A10,10 0,0 1,76,94V130A10,10 0,0 1,66,140H30A10,10 0,0 1,20,130V94A10,10 0,0 1,30,84Z" />
+    </group>
+</vector>

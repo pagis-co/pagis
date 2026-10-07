@@ -28,6 +28,21 @@ android {
     buildFeatures {
         buildConfig = true
     }
+    testOptions {
+        unitTests {
+            includeAndroidResources = true
+            all {
+                // A body that `pagis-push` encrypted, which the tests of
+                // `WebPushDecrypt` read (ADR-0032).
+                def webPushFixture = rootProject.file('../../fixtures/web-push.json')
+                inputs.file(webPushFixture).withPathSensitivity(PathSensitivity.NONE)
+                systemProperty 'pagis.webPushFixture', webPushFixture.path
+                // Robolectric sets up the shared memory of an SDK 36 app
+                // through an internal class of the JDK.
+                jvmArgs '--add-exports=java.base/jdk.internal.access=ALL-UNNAMED'
+            }
+        }
+    }
     buildTypes {
         release {
             minifyEnabled false
@@ -49,6 +64,11 @@ dependencies {
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation "androidx.webkit:webkit:$androidxWebkitVersion"
     implementation "com.google.crypto.tink:tink-android:$tinkVersion"
+    // Web Push decryption (RFC 8291). `tink-android` holds the classes of
+    // `tink`, so the module takes them from there.
+    implementation("com.google.crypto.tink:apps-webpush:$tinkWebPushVersion") {
+        exclude group: 'com.google.crypto.tink', module: 'tink'
+    }
     implementation "com.google.firebase:firebase-messaging:$firebaseMessagingVersion"
     implementation "com.google.android.gms:play-services-tasks:$playServicesTasksVersion"
     implementation project(':capacitor-android')
@@ -56,6 +76,7 @@ dependencies {
     testImplementation "com.squareup.okhttp3:mockwebserver:$mockWebServerVersion"
     // Android gives `org.json` only on a device; a JVM test needs the library.
     testImplementation "org.json:json:$orgJsonVersion"
+    testImplementation "org.robolectric:robolectric:$robolectricVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
     implementation project(':capacitor-cordova-android-plugins')
