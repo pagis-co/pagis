@@ -1,8 +1,8 @@
 # Contributing to Pagis
 
 Pagis is a Rust workspace (`crates/`), a React interface (`ui/`), an
-Electron Client App (`desktop/`), a Computer Image (`computer/`) and a
-documentation site (`docs-site/`).
+Electron Client App (`desktop/`), a Capacitor Mobile App (`mobile/`), a
+Computer Image (`computer/`) and a documentation site (`docs-site/`).
 `xtask/` holds the checks and the release commands, which you run as
 `cargo xtask <command>`.
 
@@ -14,10 +14,13 @@ glossary, and [docs/adr/](docs/adr) holds the architecture decisions.
 
 - Rust stable, with `rustfmt` and `clippy`.
 - [cargo-nextest](https://nexte.st), which runs the tests.
-- Node.js at the version in [`.nvmrc`](.nvmrc), for `ui/`, `desktop/` and
-  `docs-site/`.
+- Node.js at the version in [`.nvmrc`](.nvmrc), for `ui/`, `desktop/`,
+  `mobile/` and `docs-site/`.
 - Docker, for the Computer Image and the tests that start containers.
   Without Docker, the checks skip these tests.
+- A JDK 21 and the Android SDK 36, with `ANDROID_HOME` set, for the Android
+  tests of the Mobile App. Xcode 26 or later on macOS, for its iOS tests.
+  Without one of them, the checks skip the tests that need it.
 
 ## Build and run
 
@@ -30,7 +33,9 @@ cargo run -p pagis -- --local
 a one-time sign-in link and opens the browser on it. A debug build reads
 `ui/dist` from disk, so a rebuilt interface shows without a new compile of
 the daemon. A release build embeds it. [desktop/README.md](desktop/README.md)
-tells how to build and run the Client App.
+tells how to build and run the Client App, and
+[mobile/README.md](mobile/README.md) tells how to build and run the Mobile
+App.
 
 ## Tests
 
@@ -63,8 +68,8 @@ second container. The named volumes `pagis-screend-registry` and
 `pagis-screend-target` keep the Cargo downloads and builds of these
 containers.
 
-In `ui/`, `desktop/` and `docs-site/`, `npm run typecheck` and `npm test`
-check the TypeScript code. In `docs-site/`, `npm run build` compiles and
+In `ui/`, `desktop/`, `mobile/` and `docs-site/`, `npm run typecheck` and
+`npm test` check the TypeScript code. In `docs-site/`, `npm run build` compiles and
 exports each page, and `npm run test:export` serves the export as Cloudflare
 does. [docs-site/README.md](docs-site/README.md) tells how to write a page. After a change to the HTTP API of `pagis-server`, run
 `npm run api:generate` in `ui/` to write `openapi.json` and the API types
@@ -107,14 +112,16 @@ cargo xtask advisories         # the dependency advisories
 
 `dev` compares the branch with `origin/main`. It runs fmt, clippy and the
 tests for each changed Rust package and each package that depends on it,
-and the UI, desktop, Computer and documentation site checks for a change
-in those parts. A
+and the UI, desktop, Mobile App, Computer and documentation site checks for
+a change in those parts. A change in `mobile/android/` or `mobile/ios/`
+runs the native tests of that platform alone. A
 change to shared build configuration, such as `Cargo.toml` or a workflow,
 or to an unknown path, selects every gate step. A change to documents
 only runs `git diff --check`. Each change also runs the secret scan.
 
 `full` runs every gate step. `step` runs the gate steps that you name; an
-unknown name prints the list. The gate steps are:
+unknown name prints the list. `dev` and `full` skip a native test of the
+Mobile App whose toolchain is absent, and `step` fails it. The gate steps are:
 
 | Step | What it checks |
 | --- | --- |
@@ -130,6 +137,8 @@ unknown name prints the list. The gate steps are:
 | `ui-deps`, `ui-typecheck`, `ui-test` | The UI |
 | `desktop-deps`, `desktop-typecheck`, `desktop-test` | The Client App |
 | `docs-site-deps`, `docs-site-typecheck`, `docs-site-test`, `docs-site-build`, `docs-site-export` | The documentation site, and its export as Cloudflare serves it |
+| `mobile-deps`, `mobile-typecheck`, `mobile-test` | The web part of the Mobile App |
+| `mobile-android-test`, `mobile-ios-test` | The JUnit tests and the XCTest tests of the Mobile App, after `npx cap sync` |
 | `secret-scan` | gitleaks over the tracked files |
 
 The checks download the pinned gitleaks, `gog`, cargo-deny and Trivy
@@ -137,7 +146,7 @@ into the Cargo target directory, and check the SHA-256 of each archive.
 `.gitleaks.toml` holds each secret scan exception with its reason.
 
 `advisories` runs cargo-deny over the Cargo lockfiles, npm audit over the
-npm lockfiles, and Trivy over the images of the latest release. The gate
+npm lockfiles (the Mobile App included), and Trivy over the images of the latest release. The gate
 does not run these checks, so a newly published advisory does not block
 an unrelated pull request. A daily workflow and each release run them.
 `deny.toml` and `.trivyignore` hold each reviewed exception with its
@@ -161,6 +170,8 @@ gate steps with `cargo xtask step`:
 | UI | `ui-deps ui-typecheck ui-test` |
 | desktop | `desktop-deps desktop-typecheck desktop-test` |
 | docs site | `docs-site-deps docs-site-typecheck docs-site-test docs-site-build docs-site-export` |
+| Mobile App | `mobile-deps mobile-typecheck mobile-test mobile-android-test`, with a JDK 21 and the Android SDK of the runner |
+| Mobile App (iOS) | `mobile-deps mobile-ios-test`, on macOS with Xcode 26 or later |
 | pins, secrets and generated tables | `pins emergency-drift secret-scan pagis-apt` |
 | packaging smoke (macOS), packaging smoke (Linux) | `cargo xtask desktop` with a fixture Runtime Lock |
 

@@ -6,6 +6,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use pagis_versions::COMPUTER_IMAGE;
+use xtask::mobile::Toolchains;
 use xtask::{
     Action, Cmd, Lane, Outcome, StepResult, TestObjects, all_green, dev_lanes, execute,
     execute_lanes, execute_until_failure, full_lanes, named_steps, orphaned_test_objects,
@@ -15,13 +16,26 @@ use xtask::{
 use crate::support::workspace_root;
 
 /// The steps of the advisory checks.
-const ADVISORY_STEPS: [&str; 5] = [
+const ADVISORY_STEPS: [&str; 6] = [
     "cargo-deny",
     "ui-npm-audit",
     "desktop-npm-audit",
     "docs-site-npm-audit",
+    "mobile-npm-audit",
     "image-scan",
 ];
+
+/// A host with no native toolchain of the Mobile App.
+const NO_TOOLCHAINS: Toolchains = Toolchains {
+    android: false,
+    ios: false,
+};
+
+/// A host with the JDK 21, the Android SDK and Xcode.
+const EVERY_TOOLCHAIN: Toolchains = Toolchains {
+    android: true,
+    ios: true,
+};
 
 fn step_names(lanes: &[Lane]) -> Vec<&'static str> {
     lanes
@@ -31,7 +45,7 @@ fn step_names(lanes: &[Lane]) -> Vec<&'static str> {
 }
 
 fn plan(root: &Path, docker_available: bool) -> Vec<xtask::Step> {
-    full_lanes(root, docker_available)
+    full_lanes(root, docker_available, NO_TOOLCHAINS)
         .into_iter()
         .flat_map(|lane| lane.steps)
         .collect()
@@ -101,7 +115,13 @@ fn write_computer_workspace(root: &Path) {
 fn dev_plan_tests_a_changed_crate_and_its_reverse_dependants() {
     let tmp = tempfile::tempdir().unwrap();
     write_rust_workspace(tmp.path());
-    let lanes = dev_lanes(tmp.path(), &["crates/base/src/lib.rs".into()], false).unwrap();
+    let lanes = dev_lanes(
+        tmp.path(),
+        &["crates/base/src/lib.rs".into()],
+        false,
+        NO_TOOLCHAINS,
+    )
+    .unwrap();
     let steps: Vec<_> = lanes.into_iter().flat_map(|lane| lane.steps).collect();
     let test = steps.iter().find(|step| step.name == "test").unwrap();
     let Action::Run(cmds) = &test.action else {
@@ -116,7 +136,7 @@ fn dev_plan_tests_a_changed_crate_and_its_reverse_dependants() {
 fn dev_plan_runs_the_ui_checks_and_the_secret_scan_for_a_ui_change() {
     let tmp = tempfile::tempdir().unwrap();
     write_ui_package_json(tmp.path(), &["typecheck", "test"]);
-    let lanes = dev_lanes(tmp.path(), &["ui/src/App.tsx".into()], false).unwrap();
+    let lanes = dev_lanes(tmp.path(), &["ui/src/App.tsx".into()], false, NO_TOOLCHAINS).unwrap();
     let names: Vec<_> = lanes
         .iter()
         .flat_map(|lane| lane.steps.iter().map(|step| step.name))
@@ -134,7 +154,13 @@ fn dev_plan_runs_the_docs_site_checks_and_the_secret_scan_for_a_docs_site_change
         "docs-site",
         &["typecheck", "test", "build", "test:export"],
     );
-    let lanes = dev_lanes(tmp.path(), &["docs-site/content/index.mdx".into()], false).unwrap();
+    let lanes = dev_lanes(
+        tmp.path(),
+        &["docs-site/content/index.mdx".into()],
+        false,
+        NO_TOOLCHAINS,
+    )
+    .unwrap();
     assert_eq!(
         step_names(&lanes),
         [
@@ -148,12 +174,249 @@ fn dev_plan_runs_the_docs_site_checks_and_the_secret_scan_for_a_docs_site_change
     );
 }
 
+/// The steps of the Mobile App, in the order of the gate.
+const MOBILE_STEPS: [&str; 5] = [
+    "mobile-deps",
+    "mobile-typecheck",
+    "mobile-test",
+    "mobile-android-test",
+    "mobile-ios-test",
+];
+
+fn mobile_step_names(lanes: &[Lane]) -> Vec<&'static str> {
+    step_names(lanes)
+        .into_iter()
+        .filter(|name| name.starts_with("mobile-"))
+        .collect()
+}
+
+/// A change to the web part of the Mobile App runs each mobile step and
+/// the secret scan, and not the full gate.
+#[test]
+fn dev_plan_runs_the_mobile_checks_and_the_secret_scan_for_a_mobile_change() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_package_json(tmp.path(), "mobile", &["build", "typecheck", "test"]);
+    let lanes = dev_lanes(
+        tmp.path(),
+        &["mobile/src/connect.ts".into()],
+        false,
+        NO_TOOLCHAINS,
+    )
+    .unwrap();
+    let mut expected = MOBILE_STEPS.to_vec();
+    expected.push("secret-scan");
+    assert_eq!(step_names(&lanes), expected);
+    assert_ne!(lanes, full_lanes(tmp.path(), false, NO_TOOLCHAINS));
+}
+
+/// A change to one native project runs the native tests of that platform
+/// alone.
+#[test]
+fn dev_plan_runs_the_native_tests_of_the_changed_platform_only() {
+    let tmp = tempfile::tempdir().unwrap();
+    let names = |paths: &[&str]| {
+        let paths: Vec<String> = paths.iter().map(|path| path.to_string()).collect();
+        mobile_step_names(&dev_lanes(tmp.path(), &paths, false, NO_TOOLCHAINS).unwrap())
+    };
+    assert_eq!(
+        names(&["mobile/android/app/src/main/java/app/pagis/mobile/MainActivity.java"]),
+        ["mobile-deps", "mobile-android-test"]
+    );
+    assert_eq!(
+        names(&["mobile/ios/App/App/PagisViewController.swift"]),
+        ["mobile-deps", "mobile-ios-test"]
+    );
+    assert_eq!(
+        names(&[
+            "mobile/android/app/build.gradle",
+            "mobile/ios/App/App/Info.plist"
+        ]),
+        ["mobile-deps", "mobile-android-test", "mobile-ios-test"]
+    );
+    assert_eq!(
+        names(&["mobile/ios/App/App/Info.plist", "mobile/package.json"]),
+        MOBILE_STEPS
+    );
+}
+
+#[test]
+fn dev_plan_runs_no_mobile_step_for_a_ui_change() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_ui_package_json(tmp.path(), &["typecheck", "test"]);
+    let lanes = dev_lanes(tmp.path(), &["ui/src/App.tsx".into()], false, NO_TOOLCHAINS).unwrap();
+    assert!(mobile_step_names(&lanes).is_empty(), "{lanes:?}");
+}
+
+/// The mobile lane runs no Cargo, so it runs beside the other lanes.
+#[test]
+fn the_mobile_steps_run_no_cargo() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_package_json(tmp.path(), "mobile", &["build", "typecheck", "test"]);
+    let lanes = full_lanes(tmp.path(), true, EVERY_TOOLCHAIN);
+    let mobile = lanes.iter().find(|lane| lane.name == "mobile").unwrap();
+    for step in &mobile.steps {
+        let Action::Run(cmds) = &step.action else {
+            panic!("{} must run, got {:?}", step.name, step.action);
+        };
+        assert!(
+            cmds.iter().all(|cmd| cmd.program != "cargo"),
+            "{}: {cmds:?}",
+            step.name
+        );
+    }
+}
+
+/// The web checks of the Mobile App are its npm scripts, in `mobile/`.
+#[test]
+fn plan_runs_the_mobile_web_checks_in_the_mobile_package() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_package_json(tmp.path(), "mobile", &["build", "typecheck", "test"]);
+    let steps = plan(tmp.path(), false);
+    let mobile = tmp.path().join("mobile");
+    for (name, args) in [
+        ("mobile-deps", vec!["ci"]),
+        ("mobile-typecheck", vec!["run", "typecheck"]),
+        ("mobile-test", vec!["run", "test"]),
+    ] {
+        let step = steps.iter().find(|s| s.name == name).unwrap();
+        let Action::Run(cmds) = &step.action else {
+            panic!("{name} must run, got {:?}", step.action);
+        };
+        assert_eq!(cmds.len(), 1, "{name}");
+        assert_eq!(cmds[0].program, "npm", "{name}");
+        assert_eq!(cmds[0].args, args, "{name}");
+        assert_eq!(cmds[0].cwd.as_deref(), Some(mobile.as_path()), "{name}");
+    }
+}
+
+/// A native step builds the web part and syncs it into the native project
+/// before the tests, so no test runs against stale generated files.
+#[test]
+fn a_native_step_syncs_the_native_project_before_its_tests() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_package_json(tmp.path(), "mobile", &["build", "typecheck", "test"]);
+    let steps: Vec<_> = full_lanes(tmp.path(), false, EVERY_TOOLCHAIN)
+        .into_iter()
+        .flat_map(|lane| lane.steps)
+        .collect();
+    let mobile = tmp.path().join("mobile");
+    let commands = |name: &str| {
+        let step = steps.iter().find(|s| s.name == name).unwrap();
+        let Action::Run(cmds) = &step.action else {
+            panic!("{name} must run, got {:?}", step.action);
+        };
+        cmds.clone()
+    };
+
+    let android = commands("mobile-android-test");
+    assert_eq!(android.len(), 3, "{android:?}");
+    assert_eq!(
+        (android[0].program.as_str(), &android[0].args[..]),
+        ("npm", &["run".to_string(), "build".into()][..])
+    );
+    assert_eq!(android[1].program, "npx");
+    assert_eq!(android[1].args, ["cap", "sync", "android"]);
+    assert_eq!(android[2].program, "./gradlew");
+    assert_eq!(android[2].args, ["testDebugUnitTest"]);
+    assert_eq!(android[0].cwd.as_deref(), Some(mobile.as_path()));
+    assert_eq!(android[1].cwd.as_deref(), Some(mobile.as_path()));
+    assert_eq!(
+        android[2].cwd.as_deref(),
+        Some(mobile.join("android").as_path())
+    );
+
+    let ios = commands("mobile-ios-test");
+    assert_eq!(ios.len(), 3, "{ios:?}");
+    assert_eq!(ios[0].args, ["run", "build"]);
+    assert_eq!(ios[1].args, ["cap", "sync", "ios"]);
+    let test = ios[2].args.join(" ");
+    assert!(
+        test.contains("xcrun simctl list devices available --json"),
+        "{test}"
+    );
+    assert!(test.contains("iPhone"), "{test}");
+    assert!(
+        test.contains("xcodebuild test -project App/App.xcodeproj -scheme App"),
+        "{test}"
+    );
+    assert_eq!(ios[2].cwd.as_deref(), Some(mobile.join("ios").as_path()));
+}
+
+/// The skip message of each native step in `full`, and the refusal of
+/// `cargo xtask step` with the same message. A CI job names its steps,
+/// so CI never passes a native step that did not run.
+#[test]
+fn a_native_step_without_its_toolchain_skips_in_the_gate_and_fails_when_named() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_package_json(tmp.path(), "mobile", &["build", "typecheck", "test"]);
+    let android = "no JDK 21 (java) and Android SDK (ANDROID_HOME)";
+    let ios = "no Xcode (xcodebuild) on a macOS host";
+
+    let steps = plan(tmp.path(), false);
+    for (name, reason) in [("mobile-android-test", android), ("mobile-ios-test", ios)] {
+        let step = steps.iter().find(|s| s.name == name).unwrap();
+        assert_eq!(step.action, Action::Skip(reason.into()), "{name}");
+
+        let named = named_steps(tmp.path(), &[name.into()], false, NO_TOOLCHAINS).unwrap();
+        assert_eq!(
+            named[0].action,
+            Action::Run(vec![Cmd::refusal(&format!("{name}: {reason}"))]),
+            "{name}"
+        );
+        let results = execute(&named);
+        assert_eq!(results[0].outcome, Outcome::Failed, "{name}");
+    }
+
+    // With its toolchain, a named native step is the step of the gate.
+    let named = named_steps(
+        tmp.path(),
+        &["mobile-android-test".into(), "mobile-ios-test".into()],
+        false,
+        EVERY_TOOLCHAIN,
+    )
+    .unwrap();
+    let gate: Vec<_> = full_lanes(tmp.path(), false, EVERY_TOOLCHAIN)
+        .into_iter()
+        .flat_map(|lane| lane.steps)
+        .collect();
+    for step in &named {
+        assert_eq!(Some(step), gate.iter().find(|s| s.name == step.name));
+    }
+}
+
+/// The probe reads the major version from the first line of
+/// `java -version`, which a JDK prints on stderr.
+#[test]
+fn the_android_probe_reads_the_major_version_of_java() {
+    use xtask::mobile::java_major_version;
+    assert_eq!(
+        java_major_version(
+            "openjdk version \"21.0.8\" 2025-07-15 LTS\nOpenJDK Runtime Environment"
+        ),
+        Some(21)
+    );
+    assert_eq!(
+        java_major_version("openjdk version \"25\" 2025-09-16"),
+        Some(25)
+    );
+    assert_eq!(java_major_version("java version \"1.8.0_461\""), Some(8));
+    assert_eq!(
+        java_major_version("java version \"17.0.16\" 2025-07-15 LTS"),
+        Some(17)
+    );
+    assert_eq!(
+        java_major_version("The operation couldn’t be completed. Unable to locate a Java Runtime."),
+        None
+    );
+    assert_eq!(java_major_version(""), None);
+}
+
 #[test]
 fn dev_plan_falls_back_to_full_for_shared_build_configuration() {
     let tmp = tempfile::tempdir().unwrap();
     write_rust_workspace(tmp.path());
-    let dev = dev_lanes(tmp.path(), &["Cargo.toml".into()], false).unwrap();
-    assert_eq!(dev, full_lanes(tmp.path(), false));
+    let dev = dev_lanes(tmp.path(), &["Cargo.toml".into()], false, NO_TOOLCHAINS).unwrap();
+    assert_eq!(dev, full_lanes(tmp.path(), false, NO_TOOLCHAINS));
 }
 
 /// The other files of the pin rules select the full gate. A change to
@@ -164,7 +427,7 @@ fn dev_plan_checks_the_pins_for_a_change_to_the_computer_dockerfile() {
     let tmp = tempfile::tempdir().unwrap();
     write_computer_workspace(tmp.path());
     let names = |path: &str| {
-        step_names(&dev_lanes(tmp.path(), &[path.into()], false).unwrap())
+        step_names(&dev_lanes(tmp.path(), &[path.into()], false, NO_TOOLCHAINS).unwrap())
             .into_iter()
             .filter(|name| *name == "pins")
             .count()
@@ -178,8 +441,8 @@ fn dev_plan_checks_the_pins_for_a_change_to_the_computer_dockerfile() {
         "deploy/compose.yaml",
     ] {
         assert_eq!(
-            dev_lanes(tmp.path(), &[path.into()], false).unwrap(),
-            full_lanes(tmp.path(), false),
+            dev_lanes(tmp.path(), &[path.into()], false, NO_TOOLCHAINS).unwrap(),
+            full_lanes(tmp.path(), false, NO_TOOLCHAINS),
             "{path}"
         );
     }
@@ -192,7 +455,9 @@ fn dev_plan_checks_the_pins_for_a_change_to_the_computer_dockerfile() {
 fn dev_plan_tests_screend_for_a_change_to_screend_or_its_dockerfile() {
     let tmp = tempfile::tempdir().unwrap();
     write_computer_workspace(tmp.path());
-    let names = |path: &str| step_names(&dev_lanes(tmp.path(), &[path.into()], true).unwrap());
+    let names = |path: &str| {
+        step_names(&dev_lanes(tmp.path(), &[path.into()], true, NO_TOOLCHAINS).unwrap())
+    };
 
     for path in ["computer/screend/src/exit.rs", "computer/Dockerfile"] {
         let steps = names(path);
@@ -248,7 +513,9 @@ fn write_google_workspace(root: &Path) {
 fn dev_plan_checks_the_google_adapter_against_the_pinned_gog() {
     let tmp = tempfile::tempdir().unwrap();
     write_google_workspace(tmp.path());
-    let names = |path: &str| step_names(&dev_lanes(tmp.path(), &[path.into()], false).unwrap());
+    let names = |path: &str| {
+        step_names(&dev_lanes(tmp.path(), &[path.into()], false, NO_TOOLCHAINS).unwrap())
+    };
 
     for path in [
         "crates/pagis-google/src/lib.rs",
@@ -273,6 +540,7 @@ fn dev_plan_leaves_the_pinned_gog_tests_to_the_contract_check() {
         tmp.path(),
         &["crates/pagis-computer/src/lib.rs".into()],
         true,
+        NO_TOOLCHAINS,
     )
     .unwrap();
     let test = lanes
@@ -291,7 +559,7 @@ fn dev_plan_leaves_the_pinned_gog_tests_to_the_contract_check() {
 #[test]
 fn dev_plan_uses_a_cheap_whitespace_check_for_docs_only() {
     let tmp = tempfile::tempdir().unwrap();
-    let lanes = dev_lanes(tmp.path(), &["docs/guide.md".into()], false).unwrap();
+    let lanes = dev_lanes(tmp.path(), &["docs/guide.md".into()], false, NO_TOOLCHAINS).unwrap();
     let names: Vec<(&str, Vec<&str>)> = lanes
         .iter()
         .map(|l| (l.name, l.steps.iter().map(|s| s.name).collect()))
@@ -316,7 +584,7 @@ fn dev_plan_uses_a_cheap_whitespace_check_for_docs_only() {
 fn dev_plan_scans_for_secrets_when_a_path_changed() {
     let tmp = tempfile::tempdir().unwrap();
     let scans = |paths: &[String]| {
-        dev_lanes(tmp.path(), paths, false)
+        dev_lanes(tmp.path(), paths, false, NO_TOOLCHAINS)
             .unwrap()
             .iter()
             .flat_map(|lane| lane.steps.iter().map(|step| step.name))
@@ -335,7 +603,7 @@ fn dev_plan_scans_for_secrets_when_a_path_changed() {
 fn the_full_gate_runs_no_advisory_check() {
     let tmp = tempfile::tempdir().unwrap();
     for docker_available in [true, false] {
-        let names = step_names(&full_lanes(tmp.path(), docker_available));
+        let names = step_names(&full_lanes(tmp.path(), docker_available, NO_TOOLCHAINS));
         for advisory in ADVISORY_STEPS {
             assert!(!names.contains(&advisory), "the gate runs {advisory}");
         }
@@ -349,8 +617,8 @@ fn a_shared_configuration_change_runs_no_advisory_check() {
     let tmp = tempfile::tempdir().unwrap();
     write_rust_workspace(tmp.path());
     for path in ["Cargo.toml", "Cargo.lock", "deny.toml", ".trivyignore"] {
-        let lanes = dev_lanes(tmp.path(), &[path.into()], true).unwrap();
-        assert_eq!(lanes, full_lanes(tmp.path(), true), "{path}");
+        let lanes = dev_lanes(tmp.path(), &[path.into()], true, NO_TOOLCHAINS).unwrap();
+        assert_eq!(lanes, full_lanes(tmp.path(), true, NO_TOOLCHAINS), "{path}");
         let names = step_names(&lanes);
         for advisory in ADVISORY_STEPS {
             assert!(!names.contains(&advisory), "{path} runs {advisory}");
@@ -387,6 +655,11 @@ fn plan_lists_every_gate_step_in_order() {
             "docs-site-test",
             "docs-site-build",
             "docs-site-export",
+            "mobile-deps",
+            "mobile-typecheck",
+            "mobile-test",
+            "mobile-android-test",
+            "mobile-ios-test",
             "secret-scan",
         ]
     );
@@ -398,7 +671,7 @@ fn plan_lists_every_gate_step_in_order() {
 fn the_gate_scans_the_tracked_tree_for_secrets() {
     let tmp = tempfile::tempdir().unwrap();
     for docker_available in [true, false] {
-        let lanes = full_lanes(tmp.path(), docker_available);
+        let lanes = full_lanes(tmp.path(), docker_available, NO_TOOLCHAINS);
         let lane = lanes
             .iter()
             .find(|lane| lane.name == "secrets")
@@ -935,7 +1208,7 @@ fn the_test_object_sweep_of_nothing_runs_nothing() {
 #[test]
 fn full_lanes_keep_every_cargo_consumer_in_one_lane() {
     let tmp = tempfile::tempdir().unwrap();
-    let lanes = full_lanes(tmp.path(), true);
+    let lanes = full_lanes(tmp.path(), true, NO_TOOLCHAINS);
     let names: Vec<(&str, Vec<&str>)> = lanes
         .iter()
         .map(|l| (l.name, l.steps.iter().map(|s| s.name).collect()))
@@ -972,6 +1245,16 @@ fn full_lanes_keep_every_cargo_consumer_in_one_lane() {
                     "docs-site-test",
                     "docs-site-build",
                     "docs-site-export",
+                ]
+            ),
+            (
+                "mobile",
+                vec![
+                    "mobile-deps",
+                    "mobile-typecheck",
+                    "mobile-test",
+                    "mobile-android-test",
+                    "mobile-ios-test",
                 ]
             ),
             ("secrets", vec!["secret-scan"]),
@@ -1036,7 +1319,7 @@ fn execute_lanes_keeps_a_failed_lane_going_and_reports_it() {
 fn contract_check_shares_the_cargo_lane_and_compiles_incrementally() {
     let tmp = tempfile::tempdir().unwrap();
     write_package_json(tmp.path(), "ui", &["api:check"]);
-    let lanes = full_lanes(tmp.path(), false);
+    let lanes = full_lanes(tmp.path(), false, NO_TOOLCHAINS);
     let cargo = lanes.iter().find(|lane| lane.name == "cargo").unwrap();
     let contract = cargo.steps.last().unwrap();
     assert_eq!(contract.name, "contract-drift");
@@ -1057,7 +1340,7 @@ fn contract_check_shares_the_cargo_lane_and_compiles_incrementally() {
 fn named_steps_are_the_gate_steps_in_the_order_of_the_names() {
     let tmp = tempfile::tempdir().unwrap();
     let names: Vec<String> = ["test", "computer-image", "fmt"].map(String::from).into();
-    let steps = named_steps(tmp.path(), &names, true).unwrap();
+    let steps = named_steps(tmp.path(), &names, true, NO_TOOLCHAINS).unwrap();
     let gate = plan(tmp.path(), true);
     for (step, name) in steps.iter().zip(&names) {
         assert_eq!(step.name, name);
@@ -1069,9 +1352,14 @@ fn named_steps_are_the_gate_steps_in_the_order_of_the_names() {
 #[test]
 fn a_name_that_is_not_a_gate_step_is_refused_with_the_step_names() {
     let tmp = tempfile::tempdir().unwrap();
-    let error = named_steps(tmp.path(), &["fmt".into(), "lint".into()], false)
-        .unwrap_err()
-        .to_string();
+    let error = named_steps(
+        tmp.path(),
+        &["fmt".into(), "lint".into()],
+        false,
+        NO_TOOLCHAINS,
+    )
+    .unwrap_err()
+    .to_string();
     assert!(error.contains("no step `lint`"), "{error}");
     assert!(
         error.contains("fmt, clippy, computer-image, screend-test, test"),
@@ -1104,7 +1392,7 @@ fn the_ci_workflow_runs_each_gate_step() {
         .expect("read .github/workflows/ci.yml");
     let mut run: Vec<String> = ci_step_runs(&workflow).into_iter().flatten().collect();
     let tmp = tempfile::tempdir().unwrap();
-    let mut gate: Vec<String> = step_names(&full_lanes(tmp.path(), true))
+    let mut gate: Vec<String> = step_names(&full_lanes(tmp.path(), true, NO_TOOLCHAINS))
         .into_iter()
         .map(String::from)
         .collect();

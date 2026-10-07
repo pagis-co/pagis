@@ -96,7 +96,8 @@ fn the_advisory_lane_checks_the_lockfiles_that_a_release_ships() {
 }
 
 /// The daily workflow scans what people run: the images of the latest
-/// release.
+/// release. It also checks the lockfile of the Mobile App, which the `v*`
+/// release does not ship.
 #[test]
 fn the_published_advisory_lane_scans_the_images_of_the_latest_release() {
     let tmp = tempfile::tempdir().unwrap();
@@ -109,6 +110,7 @@ fn the_published_advisory_lane_scans_the_images_of_the_latest_release() {
             "ui-npm-audit",
             "desktop-npm-audit",
             "docs-site-npm-audit",
+            "mobile-npm-audit",
             "release-image-scan"
         ]
     );
@@ -180,7 +182,7 @@ fn cargo_deny_checks_the_two_lockfiles_with_the_pinned_binary() {
 #[test]
 fn npm_audit_reads_each_lockfile_at_the_high_level() {
     let tmp = tempfile::tempdir().unwrap();
-    for package in ["ui", "desktop", "docs-site"] {
+    for package in ["ui", "desktop", "docs-site", "mobile"] {
         write(tmp.path(), &format!("{package}/package.json"), "{}");
         write(tmp.path(), &format!("{package}/package-lock.json"), "{}");
     }
@@ -190,6 +192,7 @@ fn npm_audit_reads_each_lockfile_at_the_high_level() {
         ("ui-npm-audit", "ui"),
         ("desktop-npm-audit", "desktop"),
         ("docs-site-npm-audit", "docs-site"),
+        ("mobile-npm-audit", "mobile"),
     ] {
         let Action::Run(cmds) = &step(&lane, name).action else {
             panic!("{name} must run");
@@ -213,7 +216,12 @@ fn npm_audit_reads_each_lockfile_at_the_high_level() {
 fn npm_audit_skips_a_package_without_a_lockfile() {
     let tmp = tempfile::tempdir().unwrap();
     let lane = published_advisory_lane(tmp.path(), target());
-    for name in ["ui-npm-audit", "desktop-npm-audit", "docs-site-npm-audit"] {
+    for name in [
+        "ui-npm-audit",
+        "desktop-npm-audit",
+        "docs-site-npm-audit",
+        "mobile-npm-audit",
+    ] {
         assert!(
             matches!(step(&lane, name).action, Action::Skip(_)),
             "{name} must skip without a lockfile"

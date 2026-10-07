@@ -224,6 +224,70 @@ jobs:
       # of Cloudflare and reads each address.
       - run: cargo xtask step docs-site-deps docs-site-typecheck docs-site-test docs-site-build docs-site-export
 
+  # The JUnit tests of the Mobile App run with the Android SDK of the
+  # runner image, which sets ANDROID_HOME. A named native step fails when
+  # its toolchain is absent, so the job never passes a test that did not
+  # run.
+  mobile:
+    name: Mobile App
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: stable
+
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - run: cargo xtask step mobile-deps mobile-typecheck mobile-test mobile-android-test
+
+  mobile-ios:
+    name: Mobile App (iOS)
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: stable
+
+      # Capacitor 8 builds with Xcode 26 or later. The runner image holds
+      # several Xcode releases, and the newest one is selected.
+      - name: select Xcode 26 or later
+        run: |
+          xcode=$(ls -d /Applications/Xcode_2[6-9]*.app 2>/dev/null | sort -V | tail -n 1)
+          if [ -z "$xcode" ]; then
+            echo "the runner has no Xcode 26 or later:" >&2
+            ls -d /Applications/Xcode*.app >&2
+            exit 1
+          fi
+          sudo xcode-select --switch "$xcode"
+          xcodebuild -version
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - run: cargo xtask step mobile-deps mobile-ios-test
+
   checks:
     name: pins, secrets and generated tables
     runs-on: ubuntu-latest
@@ -351,6 +415,8 @@ jobs:
       - ui
       - desktop
       - docs-site
+      - mobile
+      - mobile-ios
       - checks
       - packaging-macos
       - packaging-linux

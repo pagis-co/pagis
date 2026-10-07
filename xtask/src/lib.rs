@@ -8,8 +8,10 @@
 //!
 //! Steps no-op gracefully until the parts they check exist: the Docker
 //! tests skip while Docker is unreachable, the UI steps skip until
-//! `ui/package.json` declares the script the step runs, and the contract
-//! check with the pinned `gog` ([`gog`]) skips on a host that has no pin.
+//! `ui/package.json` declares the script the step runs, the contract
+//! check with the pinned `gog` ([`gog`]) skips on a host that has no pin,
+//! and a native test of the Mobile App ([`mobile`]) skips on a host that
+//! has no toolchain for it.
 
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
@@ -24,6 +26,7 @@ pub mod desktop_linux;
 pub mod emergency;
 pub mod gog;
 pub mod image;
+pub mod mobile;
 pub mod pins;
 pub mod release;
 pub mod screend;
@@ -35,6 +38,7 @@ pub use image::{
     ImagePlatform, VERSION_LABEL, anonymous_pull_step, builder_step, check_pin, image_plan,
     image_published, inspect_answer, labelled_version,
 };
+pub use mobile::Toolchains;
 pub use release::{ReleaseContext, ReleaseStage, gog_asset_name, release_plan};
 pub use server_image::{
     SERVER_IMAGE_REPOSITORY, server_image, server_image_plan, server_image_steps,
@@ -127,12 +131,14 @@ pub struct Lane {
     pub steps: Vec<Step>,
 }
 
-/// Plan the full gate for the workspace at `root` as three lanes that
+/// Plan the full gate for the workspace at `root` as four lanes that
 /// run at the same time:
 ///
 /// - `cargo`: every command that can invoke Cargo, in sequence. This
 ///   avoids competing Cargo build graphs in one target directory.
 /// - `node`: shell, UI, desktop and documentation site checks.
+/// - `mobile`: the checks of the Mobile App ([`mobile`]). A native step
+///   whose toolchain is absent skips.
 /// - `secrets`: the gitleaks scan of the tracked files.
 ///
 /// Where Docker is reachable the gate builds the Computer image from
@@ -140,7 +146,16 @@ pub struct Lane {
 /// of the checked tree is what the Docker-real tests run in; the tests
 /// build nothing themselves. It also runs the tests of screend in the
 /// image that builds screend in the Computer Image ([`screend`]).
-pub fn full_lanes(root: &Path, docker_available: bool) -> Vec<Lane> {
+pub fn full_lanes(root: &Path, docker_available: bool, toolchains: Toolchains) -> Vec<Lane> {
+    gate_lanes(root, docker_available, toolchains, mobile::Absent::Skip)
+}
+
+fn gate_lanes(
+    root: &Path,
+    docker_available: bool,
+    toolchains: Toolchains,
+    absent: mobile::Absent,
+) -> Vec<Lane> {
     // The gate keeps Cargo's default incremental setting, so a step
     // reuses the artifacts of the earlier builds.
     let cargo = |args: &[&str]| Action::Run(vec![Cmd::new("cargo", args).in_dir(root)]);
@@ -243,14 +258,21 @@ pub fn full_lanes(root: &Path, docker_available: bool) -> Vec<Lane> {
             name: "node",
             steps: node,
         },
+        mobile::lane(root, toolchains, absent),
         secrets_lane(root),
     ]
 }
 
 /// The steps of the full gate named in `names`, in the order of `names`.
-/// An unknown name is an error that lists each step name of the gate.
-pub fn named_steps(root: &Path, names: &[String], docker_available: bool) -> Result<Vec<Step>> {
-    let steps: Vec<Step> = full_lanes(root, docker_available)
+/// An unknown name is an error that lists each step name of the gate. A
+/// named native step of the Mobile App whose toolchain is absent fails.
+pub fn named_steps(
+    root: &Path,
+    names: &[String],
+    docker_available: bool,
+    toolchains: Toolchains,
+) -> Result<Vec<Step>> {
+    let steps: Vec<Step> = gate_lanes(root, docker_available, toolchains, mobile::Absent::Refuse)
         .into_iter()
         .flat_map(|lane| lane.steps)
         .collect();
@@ -383,6 +405,7 @@ pub fn dev_lanes(
     root: &Path,
     changed_paths: &[String],
     docker_available: bool,
+    toolchains: Toolchains,
 ) -> Result<Vec<Lane>> {
     let full_trigger = changed_paths.iter().any(|path| {
         matches!(
@@ -396,10 +419,11 @@ pub fn dev_lanes(
                 && !path.starts_with("computer/")
                 && !path.starts_with("docs-site/")
                 && !path.starts_with("docs/")
+                && !path.starts_with("mobile/")
                 && !path.ends_with(".md"))
     });
     if full_trigger {
-        return Ok(full_lanes(root, docker_available));
+        return Ok(full_lanes(root, docker_available, toolchains));
     }
 
     let rust_paths: Vec<_> = changed_paths
@@ -441,7 +465,7 @@ pub fn dev_lanes(
             affected.push("pagis-computer".into());
         }
         if affected.is_empty() {
-            return Ok(full_lanes(root, docker_available));
+            return Ok(full_lanes(root, docker_available, toolchains));
         }
         loop {
             let before = affected.len();
@@ -589,6 +613,13 @@ pub fn dev_lanes(
         lanes.push(Lane {
             name: "node",
             steps: node_steps,
+        });
+    }
+    let mobile_steps = mobile::dev_steps(root, changed_paths, toolchains);
+    if !mobile_steps.is_empty() {
+        lanes.push(Lane {
+            name: "mobile",
+            steps: mobile_steps,
         });
     }
     if lanes.is_empty() {

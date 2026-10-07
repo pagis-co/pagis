@@ -3,9 +3,9 @@ use std::path::{Path, PathBuf};
 use anyhow::{Result, bail};
 use xtask::desktop;
 use xtask::{
-    all_green, dev_lanes, docker_available, execute, execute_lanes, execute_until_failure,
-    full_lanes, local_orphaned_test_objects, named_steps, run_cmds, summary, target_dir,
-    test_object_sweep,
+    Toolchains, all_green, dev_lanes, docker_available, execute, execute_lanes,
+    execute_until_failure, full_lanes, local_orphaned_test_objects, named_steps, run_cmds, summary,
+    target_dir, test_object_sweep,
 };
 
 fn workspace_root() -> PathBuf {
@@ -24,11 +24,21 @@ fn main() -> Result<()> {
             println!("checking {} changed path(s)", paths.len());
             let docker = docker_available();
             sweep_test_objects(docker);
-            exit_on_red(run_lanes(dev_lanes(&root, &paths, docker)?))
+            exit_on_red(run_lanes(dev_lanes(
+                &root,
+                &paths,
+                docker,
+                Toolchains::probe(),
+            )?))
         }
         Some("full") => exit_on_red(run_full()),
         Some("step") if args.len() > 1 => {
-            let steps = named_steps(&workspace_root(), &args[1..], docker_available())?;
+            let steps = named_steps(
+                &workspace_root(),
+                &args[1..],
+                docker_available(),
+                Toolchains::probe(),
+            )?;
             let results = execute(&steps);
             println!("\n{}", summary(&results));
             exit_on_red(all_green(&results))
@@ -384,7 +394,7 @@ fn run_full() -> bool {
     let root = workspace_root();
     let docker = docker_available();
     sweep_test_objects(docker);
-    run_lanes(full_lanes(&root, docker))
+    run_lanes(full_lanes(&root, docker, Toolchains::probe()))
 }
 
 /// Remove the Docker objects of test processes that no longer run. A
