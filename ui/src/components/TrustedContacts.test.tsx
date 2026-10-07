@@ -10,7 +10,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 
 import type { ApiClient } from "../api/client";
 import { formatClock } from "../timeline";
@@ -225,6 +225,11 @@ describe("TrustedContacts", () => {
   });
 
   it("shows the failed attempts and the end of the delay, and clears them", async () => {
+    // Noon, so the end of the delay falls on the same day and reads as a
+    // clock time with no date.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 0, 15, 12, 0));
+    onTestFinished(() => { vi.useRealTimers() });
     const until = Date.now() + 120_000;
     const api = stubApi({
       GET: vi.fn(async () => ({
