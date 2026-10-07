@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		7A6E15020000000000000006 /* InlineAnswerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E15020000000000000005 /* InlineAnswerTests.swift */; };
+		7A6E15020000000000000004 /* InlineAnswer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E15020000000000000003 /* InlineAnswer.swift */; };
+		7A6E15020000000000000002 /* ApprovalAnswer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E15020000000000000001 /* ApprovalAnswer.swift */; };
 		2FAD9763203C412B000D30F8 /* config.xml in Resources */ = {isa = PBXBuildFile; fileRef = 2FAD9762203C412B000D30F8 /* config.xml */; };
 		4D22ABE92AF431CB00220026 /* CapApp-SPM in Frameworks */ = {isa = PBXBuildFile; productRef = 4D22ABE82AF431CB00220026 /* CapApp-SPM */; };
 		50379B232058CBB4000EE86E /* capacitor.config.json in Resources */ = {isa = PBXBuildFile; fileRef = 50379B222058CBB4000EE86E /* capacitor.config.json */; };
@@ -87,6 +90,9 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		7A6E15020000000000000005 /* InlineAnswerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InlineAnswerTests.swift; sourceTree = "<group>"; };
+		7A6E15020000000000000003 /* InlineAnswer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InlineAnswer.swift; sourceTree = "<group>"; };
+		7A6E15020000000000000001 /* ApprovalAnswer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApprovalAnswer.swift; sourceTree = "<group>"; };
 		2FAD9762203C412B000D30F8 /* config.xml */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = config.xml; sourceTree = "<group>"; };
 		50379B222058CBB4000EE86E /* capacitor.config.json */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.json; path = capacitor.config.json; sourceTree = "<group>"; };
 		504EC3041FED79650016851F /* App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = App.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -212,6 +218,8 @@
 				7A6E15010000000000000021 /* WebPushDecrypt.swift */,
 				7A6E15010000000000000022 /* PushPayload.swift */,
 				7A6E15010000000000000023 /* NotificationContent.swift */,
+				7A6E15020000000000000003 /* InlineAnswer.swift */,
+				7A6E15020000000000000001 /* ApprovalAnswer.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -230,6 +238,7 @@
 				7A6E15010000000000000013 /* WebPushDecryptTests.swift */,
 				7A6E15010000000000000015 /* PushPayloadTests.swift */,
 				7A6E15010000000000000017 /* NotificationContentTests.swift */,
+				7A6E15020000000000000005 /* InlineAnswerTests.swift */,
 				7A6E15010000000000000019 /* web-push.json */,
 			);
 			path = AppTests;
@@ -405,6 +414,8 @@
 				7A6E15010000000000000031 /* WebPushDecrypt.swift in Sources */,
 				7A6E15010000000000000032 /* PushPayload.swift in Sources */,
 				7A6E15010000000000000033 /* NotificationContent.swift in Sources */,
+				7A6E15020000000000000004 /* InlineAnswer.swift in Sources */,
+				7A6E15020000000000000002 /* ApprovalAnswer.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -423,6 +434,7 @@
 				7A6E15010000000000000014 /* WebPushDecryptTests.swift in Sources */,
 				7A6E15010000000000000016 /* PushPayloadTests.swift in Sources */,
 				7A6E15010000000000000018 /* NotificationContentTests.swift in Sources */,
+				7A6E15020000000000000006 /* InlineAnswerTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
