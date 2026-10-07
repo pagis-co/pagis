@@ -3,22 +3,31 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-type Listener = (event: { waitUntil: (promise: Promise<unknown>) => void }) => void
+type Event = { waitUntil: (promise: Promise<unknown>) => void } & Record<string, unknown>
+type Listener = (event: Event) => void
 
 function fakeScope() {
   const listeners = new Map<string, Listener[]>()
   return {
     listeners,
     skipWaiting: vi.fn(() => Promise.resolve()),
-    clients: { claim: vi.fn(() => Promise.resolve()) },
+    clients: {
+      claim: vi.fn(() => Promise.resolve()),
+      matchAll: vi.fn(() => Promise.resolve([])),
+      openWindow: vi.fn(() => Promise.resolve(null)),
+    },
+    registration: { showNotification: vi.fn(() => Promise.resolve()) },
+    navigator: {},
+    location: { origin: 'https://pagis.example' },
     addEventListener(type: string, listener: Listener) {
       listeners.set(type, [...(listeners.get(type) ?? []), listener])
     },
-    /** Run each listener of `type`, and return what it waits for. */
-    dispatch(type: string): Promise<unknown>[] {
+    /** Run each listener of `type` with the members of `event`, and
+     * return what it waits for. */
+    dispatch(type: string, event: Record<string, unknown> = {}): Promise<unknown>[] {
       const waits: Promise<unknown>[] = []
       for (const listener of listeners.get(type) ?? []) {
-        listener({ waitUntil: (promise) => waits.push(promise) })
+        listener({ ...event, waitUntil: (promise) => waits.push(promise) })
       }
       return waits
     },
@@ -57,8 +66,20 @@ describe('the service worker', () => {
     expect(scope.listeners.has('fetch')).toBe(false)
   })
 
-  it('listens for push and for a click on a notification', () => {
-    expect(scope.listeners.get('push')).toHaveLength(1)
-    expect(scope.listeners.get('notificationclick')).toHaveLength(1)
+  it('shows a Notification for a push, and waits for it', async () => {
+    const waits = scope.dispatch('push', { data: null })
+    expect(waits).toHaveLength(1)
+    await Promise.all(waits)
+    expect(scope.registration.showNotification).toHaveBeenCalledOnce()
+  })
+
+  it('opens the place of a tapped Notification, and waits for it', async () => {
+    const notification = { data: { navigate: '/runs/run-1' }, close: vi.fn() }
+    const waits = scope.dispatch('notificationclick', { notification })
+    expect(waits).toHaveLength(1)
+    await Promise.all(waits)
+    expect(scope.clients.openWindow).toHaveBeenCalledExactlyOnceWith(
+      'https://pagis.example/runs/run-1',
+    )
   })
 })
