@@ -59,11 +59,14 @@ pub fn advisory_lane(root: &Path, target_dir: &Path) -> Lane {
 }
 
 /// `cargo xtask advisories`, which the daily workflow runs: the
-/// dependency checks, the docs site included, and the scan of the Computer Image and the Headless
-/// Server image of the latest release, which is what people run.
+/// dependency checks, the docs site and the Mobile App included, and the
+/// scan of the Computer Image and the Headless Server image of the latest
+/// release, which is what people run. The `v*` release does not ship the
+/// Mobile App, so [`advisory_lane`] does not check it.
 pub fn published_advisory_lane(root: &Path, target_dir: &Path) -> Lane {
     let mut steps = advisory_lane(root, target_dir).steps;
     steps.push(npm_audit_step(root, "docs-site", "docs-site-npm-audit"));
+    steps.push(npm_audit_step(root, "mobile", "mobile-npm-audit"));
     steps.push(release_image_scan_step(root, target_dir));
     Lane {
         name: "advisories",
