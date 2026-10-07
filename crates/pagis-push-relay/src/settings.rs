@@ -13,6 +13,8 @@ const APNS_KEY_PATH: &str = "PUSH_RELAY_APNS_KEY_PATH";
 const APNS_KEY_ID: &str = "PUSH_RELAY_APNS_KEY_ID";
 const APNS_TEAM_ID: &str = "PUSH_RELAY_APNS_TEAM_ID";
 const APNS_TOPIC: &str = "PUSH_RELAY_APNS_TOPIC";
+const FCM_CREDENTIALS_PATH: &str = "PUSH_RELAY_FCM_CREDENTIALS_PATH";
+const FCM_PROJECT_ID: &str = "PUSH_RELAY_FCM_PROJECT_ID";
 
 const PUBLIC_ORIGIN_FORM: &str = "the https origin of the relay, such as https://push.pagis.co";
 const DATABASE_FORM: &str = "the path of the SQLite file of the relay, such as /data/relay.sqlite";
@@ -84,6 +86,9 @@ pub struct Settings {
     /// The APNs key and the app, or `None` when the relay serves no
     /// `ios` registration.
     pub apns: Option<ApnsSettings>,
+    /// The service account and the Firebase project, or `None` when the
+    /// relay serves no `android` registration.
+    pub fcm: Option<FcmSettings>,
 }
 
 /// What the relay needs to send to APNs with a token-based connection.
@@ -97,6 +102,15 @@ pub struct ApnsSettings {
     pub team_id: String,
     /// The bundle id of the Mobile App, `app.pagis.mobile` (ADR-0032).
     pub topic: String,
+}
+
+/// What the relay needs to send to FCM with the HTTP v1 API.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FcmSettings {
+    /// The JSON key file of the service account that sends.
+    pub credentials_path: PathBuf,
+    /// The id of the Firebase project of the Mobile App.
+    pub project_id: String,
 }
 
 /// A setting that stops the relay at start. The message names the
@@ -165,12 +179,23 @@ impl Settings {
             team_id,
             topic,
         });
+        let fcm = all_or_none(
+            &read,
+            [FCM_CREDENTIALS_PATH, FCM_PROJECT_ID],
+            "FCM",
+            "android",
+        )?
+        .map(|[credentials_path, project_id]| FcmSettings {
+            credentials_path: PathBuf::from(credentials_path),
+            project_id,
+        });
         Ok(Self {
             public_origin,
             database,
             bind,
             trusted_proxy,
             apns,
+            fcm,
         })
     }
 }
@@ -398,6 +423,47 @@ mod tests {
              PUSH_RELAY_APNS_TOPIC, or remove each APNs variable so that the \
              relay serves no ios registration",
             "an empty value is not set"
+        );
+    }
+
+    const FCM: [(&str, &str); 2] = [
+        ("PUSH_RELAY_FCM_CREDENTIALS_PATH", "/run/secrets/fcm.json"),
+        ("PUSH_RELAY_FCM_PROJECT_ID", "pagis-mobile"),
+    ];
+
+    #[test]
+    fn no_fcm_variable_serves_no_android() {
+        let settings = read(&[ORIGIN, DATABASE]).expect("the settings");
+
+        assert_eq!(settings.fcm, None);
+    }
+
+    #[test]
+    fn the_two_fcm_variables_make_the_fcm_settings() {
+        let settings = read(&[ORIGIN, DATABASE, FCM[0], FCM[1]]).expect("the settings");
+
+        assert_eq!(
+            settings.fcm,
+            Some(FcmSettings {
+                credentials_path: PathBuf::from("/run/secrets/fcm.json"),
+                project_id: "pagis-mobile".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn a_partial_fcm_setting_names_the_missing_variable() {
+        assert_eq!(
+            message(&[ORIGIN, DATABASE, FCM[0]]),
+            "some FCM variables are set and some are not; set \
+             PUSH_RELAY_FCM_PROJECT_ID, or remove each FCM variable so that the \
+             relay serves no android registration"
+        );
+        assert_eq!(
+            message(&[ORIGIN, DATABASE, FCM[1]]),
+            "some FCM variables are set and some are not; set \
+             PUSH_RELAY_FCM_CREDENTIALS_PATH, or remove each FCM variable so \
+             that the relay serves no android registration"
         );
     }
 

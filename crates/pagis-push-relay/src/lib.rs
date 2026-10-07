@@ -11,6 +11,7 @@
 mod api;
 mod apns;
 mod clock;
+mod fcm;
 mod forwarded;
 mod limit;
 mod push;
@@ -23,8 +24,9 @@ mod vapid;
 pub use api::router;
 pub use apns::{ApnsBaseUrls, ApnsError, ApnsTransport};
 pub use clock::{Clock, SystemClock};
+pub use fcm::{FCM_BASE_URL, FcmError, FcmTransport, ServiceAccount, TokenSource};
 pub use forwarded::TrustedProxy;
 pub use registration::{Environment, Platform};
-pub use settings::{ApnsSettings, PublicOrigin, Settings, SettingsError};
+pub use settings::{ApnsSettings, FcmSettings, PublicOrigin, Settings, SettingsError};
 pub use store::{connect, connect_memory};
 pub use transport::{Delivery, Message, Registration, Transport, Transports, Urgency};
