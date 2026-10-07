@@ -103,6 +103,7 @@ its own tree, and a manual run of the Docs workflow deploys `main`. The document
 | The interface design system | [docs/UI-DESIGN.md](docs/UI-DESIGN.md) |
 | The LLM router: usage, design, modalities | [docs/USAGE.md](docs/USAGE.md), [docs/DESIGN.md](docs/DESIGN.md), [docs/MODALITIES.md](docs/MODALITIES.md) |
 | Release the server and the Client App | [docs/RELEASING-SERVER.md](docs/RELEASING-SERVER.md), [docs/RELEASING-CLIENT.md](docs/RELEASING-CLIENT.md) |
+| Deploy and release the Push Relay | [docs/PUSH-RELAY.md](docs/PUSH-RELAY.md) |
 | Write and deploy the documentation site | [docs-site/README.md](docs-site/README.md) |
 
 ## Contributing

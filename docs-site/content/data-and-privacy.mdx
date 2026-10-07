@@ -202,6 +202,39 @@ On a server, and on a local installation in Remote Access, the
 Administrator stores the provider keys for the whole Org. The providers of
 these keys get the model requests of every Person.
 
+### What the Push Relay receives
+
+A Notification goes to the Mobile App from the App Store or Google Play
+through the Push Relay, a service that the Pagis project runs. Only the
+publisher of an app can send to it through APNs and FCM, so the relay
+holds the keys of the publisher. A browser gets its Notifications from
+its own push service and not from the relay. The registration of the
+Mobile App with the Push Relay is not built.
+
+The server encrypts each Notification for the phone, and only the phone
+decrypts it. The relay receives:
+
+- **When the Mobile App registers**: the device token of the phone, its
+  platform, the public half of the VAPID Key of the server, and the
+  network address of the phone. The relay keeps these with the time of
+  the registration.
+- **For each Notification**: the encrypted content, its size and its
+  time, the network address of the server, and the VAPID token of the
+  server. The token names the Public Origin of the server when that
+  origin is `https`. The relay keeps the count of the pushes of the day
+  and the time of the last push.
+
+The relay forwards the encrypted content to APNs or FCM with the device
+token. On iOS, Apple also gets a fixed alert, "Something needs you". The
+Mobile App decrypts the content on the phone and shows it in place of
+that alert.
+
+A person who controls the relay can drop, delay or count the
+Notifications of a phone, and can see its device token and the time of
+each Notification. That person cannot read a Notification.
+[The Push Relay guide](https://github.com/pagis-co/pagis/blob/main/docs/PUSH-RELAY.md)
+states what the relay stores and its limits.
+
 ## The trust of a connected Client App
 
 When a Client App connects to a server, its machine becomes a Host of that

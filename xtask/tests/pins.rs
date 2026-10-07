@@ -8,7 +8,7 @@
 use std::path::{Path, PathBuf};
 
 use xtask::pins::{
-    DOCKERFILES, Violation, compose_violations, dockerfile_violations, violations,
+    COMPOSE, DOCKERFILES, Violation, compose_violations, dockerfile_violations, violations,
     workflow_violations,
 };
 
@@ -299,6 +299,18 @@ fn the_headless_server_image_takes_its_tag_from_the_release() {
     assert!(found.is_empty(), "{}", listed(&found));
 }
 
+/// The tag of the Push Relay image is the crate version that the
+/// deployment sets in `PUSH_RELAY_VERSION`, so the check skips it too.
+/// Another image of the same Compose file is still checked.
+#[test]
+fn the_push_relay_image_takes_its_tag_from_the_crate_version() {
+    let text = "services:\n  relay:\n    image: ghcr.io/pagis-co/pagis-push-relay:${PUSH_RELAY_VERSION:?set PUSH_RELAY_VERSION in .env}\n  proxy:\n    image: caddy:2-alpine\n";
+
+    let found = compose_violations("deploy/push-relay/compose.yaml", text);
+
+    assert_eq!(lines(&found), [5], "{}", listed(&found));
+}
+
 // --- the files the check reads ---
 
 fn write_tree(dir: &Path) {
@@ -321,13 +333,23 @@ fn write_tree(dir: &Path) {
     write(dir, "computer/Dockerfile", "FROM debian:trixie-slim\n");
     write(
         dir,
+        "crates/pagis-push-relay/Dockerfile",
+        "FROM rust:1-trixie AS build\n",
+    );
+    write(
+        dir,
         "deploy/compose.yaml",
         "services:\n  db:\n    image: postgres:18-alpine\n",
+    );
+    write(
+        dir,
+        "deploy/push-relay/compose.yaml",
+        "services:\n  proxy:\n    image: caddy:2-alpine\n",
     );
 }
 
 #[test]
-fn the_check_reads_each_workflow_both_dockerfiles_and_the_compose_file() {
+fn the_check_reads_each_workflow_the_three_dockerfiles_and_both_compose_files() {
     let tmp = tempfile::tempdir().unwrap();
     write_tree(tmp.path());
 
@@ -337,7 +359,18 @@ fn the_check_reads_each_workflow_both_dockerfiles_and_the_compose_file() {
         .map(|violation| violation.file.as_str())
         .collect();
 
-    assert_eq!(DOCKERFILES, ["Dockerfile", "computer/Dockerfile"]);
+    assert_eq!(
+        DOCKERFILES,
+        [
+            "Dockerfile",
+            "computer/Dockerfile",
+            "crates/pagis-push-relay/Dockerfile"
+        ]
+    );
+    assert_eq!(
+        COMPOSE,
+        ["deploy/compose.yaml", "deploy/push-relay/compose.yaml"]
+    );
     assert_eq!(
         files,
         [
@@ -345,7 +378,9 @@ fn the_check_reads_each_workflow_both_dockerfiles_and_the_compose_file() {
             ".github/workflows/b.yaml",
             "Dockerfile",
             "computer/Dockerfile",
+            "crates/pagis-push-relay/Dockerfile",
             "deploy/compose.yaml",
+            "deploy/push-relay/compose.yaml",
         ],
         "{}",
         listed(&found)
@@ -359,7 +394,9 @@ fn a_missing_file_is_an_error() {
         ".github/workflows",
         "Dockerfile",
         "computer/Dockerfile",
+        "crates/pagis-push-relay/Dockerfile",
         "deploy/compose.yaml",
+        "deploy/push-relay/compose.yaml",
     ] {
         let tmp = tempfile::tempdir().unwrap();
         write_tree(tmp.path());
@@ -504,7 +541,8 @@ fn each_archive_of_the_computer_image_is_extracted_as_root() {
 // --- the updates ---
 
 /// Dependabot opens the pull requests that move each pin: the actions,
-/// the base images of both Dockerfiles and the Compose images.
+/// the base images of the three Dockerfiles and the images of both
+/// Compose files.
 #[test]
 fn dependabot_updates_the_actions_the_base_images_and_the_compose_images() {
     let config = read(".github/dependabot.yml");
@@ -533,9 +571,16 @@ fn dependabot_updates_the_actions_the_base_images_and_the_compose_images() {
             ("github-actions".to_string(), vec!["/".to_string()]),
             (
                 "docker".to_string(),
-                vec!["/".to_string(), "/computer".to_string()]
+                vec![
+                    "/".to_string(),
+                    "/computer".to_string(),
+                    "/crates/pagis-push-relay".to_string()
+                ]
             ),
-            ("docker-compose".to_string(), vec!["/deploy".to_string()]),
+            (
+                "docker-compose".to_string(),
+                vec!["/deploy".to_string(), "/deploy/push-relay".to_string()]
+            ),
         ]
     );
 }

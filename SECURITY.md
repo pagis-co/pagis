@@ -9,12 +9,15 @@ update to the latest release.
 | --- | --- |
 | The Client App, Server Package and Headless Server image of the latest release | Yes |
 | The Computer Image version that the latest release pins | Yes |
-| Each earlier release, and each other Computer Image version | No |
+| The Push Relay image of the latest `push-relay-v*` tag | Yes |
+| Each earlier release, each other Computer Image version, and each earlier Push Relay image | No |
 
 The Client App, the Server Package and the Headless Server image of a
 release carry one version. Thus the latest release covers each
 installation method. The Computer Image has a version of its own, and
-each release pins one Computer Image version.
+each release pins one Computer Image version. The Push Relay has a
+version of its own, and each `push-relay-v*` tag publishes one Push
+Relay image.
 
 ## Reporting a vulnerability
 
@@ -36,6 +39,7 @@ Put this information in the report:
   the defect is in a Computer.
 - The installation method: the Headless Server, a Local Installation
   with Remote Access on or off, or a Client App connected to a Server.
+  For a defect in the Push Relay, its version.
 - The steps to reproduce the defect.
 - The impact: what an attacker can read, change or run.
 
@@ -58,7 +62,17 @@ that are built from it:
 - the Server Package;
 - the Headless Server image;
 - the Computer Image;
-- the deployment files in `deploy/`.
+- the Push Relay and its image;
+- the deployment files in `deploy/`, which hold the Push Relay
+  deployment in `deploy/push-relay/`.
+
+The Push Relay forwards each Notification to the Mobile App in
+encrypted form, and only the phone decrypts it. A person who controls a
+relay can drop, delay or count pushes, and can see the device token of
+each registration and the time of each push. That person cannot read a
+push. A defect that lets a person read a push, push to a registration
+without its VAPID Key, or change or remove a registration without its
+secret is in scope.
 
 These are out of scope:
 

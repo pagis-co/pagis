@@ -182,6 +182,8 @@ runs `cargo xtask advisories` each day. For a `v*` tag,
 after it publishes the release it calls `.github/workflows/docs.yml`,
 which deploys the documentation site. A manual run of the docs workflow
 deploys the site from `main`. That workflow also uploads a preview of the site for a pull request that changes it.
+For a `push-relay-v*` tag, `.github/workflows/push-relay.yml` runs the
+gate and publishes the Push Relay image (`docs/PUSH-RELAY.md`).
 
 ## Pull requests
 

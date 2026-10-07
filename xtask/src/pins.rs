@@ -13,12 +13,13 @@
 //! - an `actions/checkout` step that does not set
 //!   `persist-credentials: false`. Without it, the job token stays in the
 //!   git configuration for each later step;
-//! - a `FROM` in `Dockerfile` or `computer/Dockerfile`, or an `image:` in
-//!   `deploy/compose.yaml`, that does not name its image by tag and digest
-//!   (`image:tag@sha256:<digest>`). The tag shows the version to a reader,
-//!   and Dependabot uses it to find the next digest. The check skips the
-//!   Headless Server image in the Compose file, because its tag is the
-//!   release that the deployment sets in `PAGIS_VERSION`.
+//! - a `FROM` in a Dockerfile of [`DOCKERFILES`], or an `image:` in a
+//!   Compose file of [`COMPOSE`], that does not name its image by tag and
+//!   digest (`image:tag@sha256:<digest>`). The tag shows the version to a
+//!   reader, and Dependabot uses it to find the next digest. The check
+//!   skips the Headless Server image and the Push Relay image in the
+//!   Compose files, because their tags are the versions that a deployment
+//!   sets in `PAGIS_VERSION` and `PUSH_RELAY_VERSION`.
 //!
 //! The check reads the files line by line, in the block style that they
 //! use, and does not parse YAML. It fails on a form that it does not read,
@@ -30,17 +31,28 @@ use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 
+use crate::relay_image::RELAY_IMAGE_REPOSITORY;
 use crate::server_image::SERVER_IMAGE_REPOSITORY;
 
 /// The directory of the workflows. The check reads each `.yml` and
 /// `.yaml` file in it.
 pub const WORKFLOWS: &str = ".github/workflows";
 
-/// The Dockerfiles of the Headless Server image and the Computer Image.
-pub const DOCKERFILES: [&str; 2] = ["Dockerfile", "computer/Dockerfile"];
+/// The Dockerfiles of the Headless Server image, the Computer Image and
+/// the Push Relay image.
+pub const DOCKERFILES: [&str; 3] = [
+    "Dockerfile",
+    "computer/Dockerfile",
+    "crates/pagis-push-relay/Dockerfile",
+];
 
-/// The Compose file of a Headless Server deployment.
-pub const COMPOSE: &str = "deploy/compose.yaml";
+/// The Compose files of a Headless Server deployment and of a Push Relay
+/// deployment.
+pub const COMPOSE: [&str; 2] = ["deploy/compose.yaml", "deploy/push-relay/compose.yaml"];
+
+/// The images whose tag is a version that a deployment sets, and not a
+/// pin.
+const DEPLOYED_IMAGES: [&str; 2] = [SERVER_IMAGE_REPOSITORY, RELAY_IMAGE_REPOSITORY];
 
 /// One reference that breaks a pin rule.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -78,7 +90,7 @@ pub fn run(root: &Path) -> Result<()> {
     Ok(())
 }
 
-/// The violations of each workflow, of both Dockerfiles and of the
+/// The violations of each workflow, of each Dockerfile and of each
 /// Compose file of the repository at `root`. A file that is missing is an
 /// error, so a file that moves does not leave the check.
 pub fn violations(root: &Path) -> Result<Vec<Violation>> {
@@ -89,7 +101,9 @@ pub fn violations(root: &Path) -> Result<Vec<Violation>> {
     for file in DOCKERFILES {
         found.extend(dockerfile_violations(file, &read(root, file)?));
     }
-    found.extend(compose_violations(COMPOSE, &read(root, COMPOSE)?));
+    for file in COMPOSE {
+        found.extend(compose_violations(file, &read(root, file)?));
+    }
     Ok(found)
 }
 
@@ -202,14 +216,18 @@ pub fn dockerfile_violations(file: &str, text: &str) -> Vec<Violation> {
 
 /// The violations of one Compose file, `text`, at `file`.
 pub fn compose_violations(file: &str, text: &str) -> Vec<Violation> {
-    let release_image = format!("{SERVER_IMAGE_REPOSITORY}:");
     let mut found = Vec::new();
     for (at, line) in text.lines().enumerate() {
         let Some((_, value)) = key_value(line, "image") else {
             continue;
         };
         let image = unquote(split_comment(value).0);
-        if image.starts_with(&release_image) {
+        let deployed = DEPLOYED_IMAGES.iter().any(|repository| {
+            image
+                .strip_prefix(repository)
+                .is_some_and(|rest| rest.starts_with(':'))
+        });
+        if deployed {
             continue;
         }
         if let Some(reason) = image_problem(image) {

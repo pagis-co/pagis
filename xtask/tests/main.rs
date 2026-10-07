@@ -9,6 +9,7 @@ mod gate;
 mod gog;
 mod image;
 mod pins;
+mod relay_image;
 mod release;
 mod screend;
 mod secrets;

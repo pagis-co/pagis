@@ -1,9 +1,9 @@
-// What Pagis encrypts at rest, and what a model provider receives: the
-// "What Pagis encrypts" section of the Data and privacy page, and the links
-// to it from the backup pages of the Headless Server and the Client App. An
-// operator reads these sections before they keep a Backup or select a disk,
-// so a change that deletes the section, drops a store from it or unlinks it
-// fails here.
+// What Pagis encrypts at rest, and what a model provider and the Push Relay
+// receive: the "What Pagis encrypts" section of the Data and privacy page,
+// and the links to it from the backup pages of the Headless Server and the
+// Client App. An operator reads these sections before they keep a Backup or
+// select a disk, so a change that deletes the section, drops a store from it
+// or unlinks it fails here.
 
 import { describe, expect, it } from 'vitest';
 import { source } from '@/lib/source';
@@ -11,6 +11,7 @@ import { source } from '@/lib/source';
 const PRIVACY = ['data-and-privacy'];
 const ENCRYPTION = 'What Pagis encrypts';
 const MODEL_PROVIDER = 'What the model provider receives';
+const PUSH_RELAY = 'What the Push Relay receives';
 const ENCRYPTION_URL = '/data-and-privacy#what-pagis-encrypts';
 const MODEL_PROVIDER_URL = '/data-and-privacy#what-the-model-provider-receives';
 
@@ -120,6 +121,16 @@ describe('the Data and privacy page', () => {
   it('says what the model provider receives', async () => {
     const encryption = requiredSection(await text(PRIVACY), 2, ENCRYPTION);
     expect(section(encryption, 3, MODEL_PROVIDER)).toBeDefined();
+  });
+
+  it('says what the Push Relay receives, after what the model provider receives', async () => {
+    const encryption = requiredSection(await text(PRIVACY), 2, ENCRYPTION);
+    const relay = section(encryption, 3, PUSH_RELAY);
+    expect(relay).toBeDefined();
+    expect(encryption.indexOf(`### ${PUSH_RELAY}`)).toBeGreaterThan(
+      encryption.indexOf(`### ${MODEL_PROVIDER}`),
+    );
+    expect(relay).toContain('cannot read a Notification');
   });
 
   it('links the part on several People to what the model provider receives', async () => {
