@@ -22,6 +22,10 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Pagis uses the camera to scan the QR code of a sign-in link.</string>
+	<key>PagisKeychainAccessGroup</key>
+	<string>$(AppIdentifierPrefix)app.pagis.mobile</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>

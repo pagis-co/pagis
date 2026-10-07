@@ -59,6 +59,11 @@ final class ServerOrigin {
         return port == -1 ? scheme + "://" + name : scheme + "://" + name + ":" + port;
     }
 
+    /** Whether the server answers over TLS. */
+    boolean isHttps() {
+        return scheme.equals("https");
+    }
+
     /** Whether the URL in this text is on this origin. */
     boolean matches(String text) {
         URI uri = uri(text);

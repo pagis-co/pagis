@@ -2,6 +2,7 @@ package app.pagis.mobile;
 
 import android.content.Intent;
 import android.os.Bundle;
+import android.webkit.CookieManager;
 import androidx.webkit.WebViewFeature;
 import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.CapConfig;
@@ -23,11 +24,17 @@ public class MainActivity extends BridgeActivity {
      *  as a Sign-In Link. Nothing stores it. */
     private static final String EXTRA_FIRST_PAGE = "app.pagis.mobile.FIRST_PAGE";
 
+    /** The server that this bridge shows, or null on the Connect screen. */
+    private ServerOrigin server;
+    private SessionCopy sessionCopy;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         registerPlugin(PagisShellPlugin.class);
+        sessionCopy = SessionCopy.open(this);
         if (ACTION_CHANGE_SERVER.equals(getIntent().getAction())) {
             new ServerStore(this).forget();
+            sessionCopy.delete();
         }
         super.onCreate(savedInstanceState);
     }
@@ -48,11 +55,14 @@ public class MainActivity extends BridgeActivity {
         CapConfig.Builder builder = new CapConfig.Builder(this)
             .setUseLegacyBridge(false)
             .setAppendedUserAgentString("Pagis/" + BuildConfig.VERSION_NAME);
-        ServerOrigin server = new ServerStore(this).server();
+        server = new ServerStore(this).server();
         if (server != null) {
             builder.setServerUrl(server.serverUrl());
             String startPath = server.startPath(getIntent().getStringExtra(EXTRA_FIRST_PAGE));
             if (startPath != null) builder.setStartPath(startPath);
+            // The copy goes back into the cookie store before the first
+            // load, so the bridge opens the server signed in.
+            SessionCookies.restore(server, cookieJar(), sessionCopy, System.currentTimeMillis());
         }
         getIntent().removeExtra(EXTRA_FIRST_PAGE);
         config = builder.create();
@@ -63,8 +73,26 @@ public class MainActivity extends BridgeActivity {
         // run on the main thread.
         ServerOrigin shown = ServerOrigin.parse(bridge.getLocalUrl(), BuildConfig.DEBUG);
         if (shown != null) {
-            bridge.setWebViewClient(new PagisWebViewClient(bridge, shown));
+            bridge.setWebViewClient(new PagisWebViewClient(bridge, shown, this::followSession));
         }
+    }
+
+    @Override
+    public void onPause() {
+        super.onPause();
+        CookieManager.getInstance().flush();
+        followSession();
+    }
+
+    /** Keep the copy of the Session equal to the Session cookie of the server. */
+    private void followSession() {
+        if (server != null) {
+            SessionCookies.follow(server, cookieJar(), sessionCopy, System.currentTimeMillis());
+        }
+    }
+
+    private static CookieJar cookieJar() {
+        return CookieJar.of(CookieManager.getInstance());
     }
 
     @Override
@@ -81,10 +109,23 @@ public class MainActivity extends BridgeActivity {
         restart(new Intent(this, MainActivity.class).putExtra(EXTRA_FIRST_PAGE, firstPage));
     }
 
-    /** Forget the server, and start the bridge again on the Connect screen. */
+    /**
+     * Forget the server and the copy of the Session, and start the bridge
+     * again on the Connect screen.
+     */
     void changeServer() {
         new ServerStore(this).forget();
+        sessionCopy.delete();
+        server = null;
         restart(new Intent(this, MainActivity.class));
+    }
+
+    /**
+     * The Session ended: the Person signed out, or the daemon refused the
+     * Session. The app opens the Connect screen.
+     */
+    void sessionEnded() {
+        changeServer();
     }
 
     private void restart(Intent intent) {

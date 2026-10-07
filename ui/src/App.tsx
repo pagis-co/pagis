@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef } from 'react'
 
 import { createApiClient } from './api/client'
 import type { ApiClient } from './api/client'
+import { reportSessionEnded } from './mobileShell'
 import { useSetupState, useSignInMethod, useUser } from './queries'
 import { createAppRouter } from './routes'
 import { SignIn } from './SignIn'
@@ -21,7 +22,9 @@ export function App({ history }: { history?: RouterHistory }) {
   // ends, the address goes back to Home, so the next sign-in opens Home
   // and not the last person's conversation. A page that opens with no
   // session keeps its address: the sign-in opens it, and a conversation
-  // that is not the person's says that it does not exist.
+  // that is not the person's says that it does not exist. In the Mobile
+  // App the end of a Session opens its Connect screen, where the Person
+  // scans a new Sign-In Link.
   const hadSession = useRef(false)
   useEffect(() => {
     if (signedIn) {
@@ -29,6 +32,7 @@ export function App({ history }: { history?: RouterHistory }) {
     } else if (hadSession.current) {
       hadSession.current = false
       void router.navigate({ to: '/', replace: true })
+      reportSessionEnded()
     }
   }, [signedIn, router])
   // A Sign-In Link opens its own page, also in a browser that is signed

@@ -41,4 +41,15 @@ public class PagisShellPlugin extends Plugin {
         MainActivity activity = (MainActivity) getActivity();
         activity.runOnUiThread(() -> activity.open(server, opens));
     }
+
+    /**
+     * The Product App says that the Session ended. The shell deletes the
+     * copy of the Session and opens the Connect screen.
+     */
+    @PluginMethod
+    public void sessionEnded(PluginCall call) {
+        call.resolve();
+        MainActivity activity = (MainActivity) getActivity();
+        activity.runOnUiThread(activity::sessionEnded);
+    }
 }

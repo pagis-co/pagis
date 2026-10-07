@@ -18,7 +18,7 @@
 
 import type { HttpOptions, HttpResponse } from '@capacitor/core'
 
-import { type BuildType, type ServerAddress, serverAddress } from './address'
+import { type BuildType, type ServerAddress, scannedSignInLink, serverAddress } from './address'
 import { serverVersionProblem } from './serverVersion'
 
 /** One HTTP request through the native client: `CapacitorHttp.request`. */
@@ -33,16 +33,27 @@ const WHERE_TO_GET_A_LINK =
   'Make a new link in Settings → Sessions on a browser or app that is signed in. Or ask ' +
   'an Administrator for a new invite, or run "pagis pair" on the machine of the server.'
 
+/** What a check of a server needs. */
+export type ConnectOptions = BuildType & { request: HttpRequest }
+
 /**
  * Check the server at the address or the Sign-In Link that the Person
  * typed. Answer the origin to keep and the address that the web view
  * opens.
  */
-export async function connectToServer(
-  typed: string,
-  options: BuildType & { request: HttpRequest },
-): Promise<ServerAddress> {
-  const address = serverAddress(typed, options)
+export async function connectToServer(typed: string, options: ConnectOptions): Promise<ServerAddress> {
+  return checkServer(serverAddress(typed, options), options)
+}
+
+/**
+ * Check the server of a scanned Sign-In Link, with the checks of a typed
+ * one. A scan that holds no Sign-In Link is refused before any request.
+ */
+export async function connectWithScannedLink(scanned: string, options: ConnectOptions): Promise<ServerAddress> {
+  return checkServer(scannedSignInLink(scanned, options), options)
+}
+
+async function checkServer(address: ServerAddress, options: ConnectOptions): Promise<ServerAddress> {
   const { origin } = address
   const health = await readHealth(origin, options.request)
   const problem = serverVersionProblem(health.version)

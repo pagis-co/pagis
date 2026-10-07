@@ -9,7 +9,8 @@ final class PagisShellPlugin: CAPPlugin, CAPBridgedPlugin {
     let jsName = "PagisShell"
     let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "buildType", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "open", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "open", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "sessionEnded", returnType: CAPPluginReturnPromise)
     ]
 
     @objc func buildType(_ call: CAPPluginCall) {
@@ -31,6 +32,15 @@ final class PagisShellPlugin: CAPPlugin, CAPBridgedPlugin {
         call.resolve()
         DispatchQueue.main.async { [weak self] in
             (self?.bridge?.viewController as? PagisViewController)?.open(server: server, firstPage: firstPage)
+        }
+    }
+
+    /// The Product App says that the Session ended. The shell deletes the
+    /// copy of the Session and opens the Connect screen.
+    @objc func sessionEnded(_ call: CAPPluginCall) {
+        call.resolve()
+        DispatchQueue.main.async { [weak self] in
+            (self?.bridge?.viewController as? PagisViewController)?.sessionEnded()
         }
     }
 }

@@ -6,7 +6,7 @@ import WebKit
 /// The port is 0 for the default port of the scheme, as `WKSecurityOrigin`
 /// gives it, so an origin from a URL and the origin of a frame compare
 /// equal when they name the same server.
-struct WebOrigin: Equatable {
+struct WebOrigin: Hashable {
     let scheme: String
     let host: String
     let port: Int

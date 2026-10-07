@@ -10,6 +10,7 @@ import WebKit
 /// new bridge.
 final class PagisViewController: CAPBridgeViewController {
     private let store = ServerStore()
+    private let sessionCopy: SessionCopy = KeychainSessionCopy()
     /// The server that this bridge shows, read at launch.
     private let server: WebOrigin?
     /// The page that the bridge opens first in place of the origin, such
@@ -17,6 +18,8 @@ final class PagisViewController: CAPBridgeViewController {
     private let firstPage: URL?
     /// The web view holds its navigation delegate weakly.
     private var navigationGuard: NavigationGuard?
+    /// The cookie store holds its observers weakly.
+    private var sessionFollower: SessionFollower?
 
     init(firstPage: URL? = nil) {
         self.server = store.server
@@ -54,6 +57,11 @@ final class PagisViewController: CAPBridgeViewController {
         let navigationGuard = NavigationGuard(allowing: shown, next: bridge.webViewDelegationHandler)
         navigationGuard.install(in: webView)
         self.navigationGuard = navigationGuard
+        if let server {
+            let follower = SessionFollower(origin: server, copy: sessionCopy)
+            follower.install(in: webView.configuration.websiteDataStore.httpCookieStore)
+            sessionFollower = follower
+        }
     }
 
     override func viewDidLoad() {
@@ -70,13 +78,42 @@ final class PagisViewController: CAPBridgeViewController {
         restart(firstPage: firstPage)
     }
 
-    /// Forget the server, and start the bridge again on the Connect screen.
+    /// Forget the server and the copy of the Session, and start the bridge
+    /// again on the Connect screen.
     func changeServer() {
         store.server = nil
+        sessionCopy.delete()
         restart(firstPage: nil)
     }
 
+    /// The Session ended: the Person signed out, or the daemon refused the
+    /// Session. The app opens the Connect screen.
+    func sessionEnded() {
+        changeServer()
+    }
+
     private func restart(firstPage: URL?) {
-        view.window?.rootViewController = PagisViewController(firstPage: firstPage)
+        if let sessionFollower {
+            webView?.configuration.websiteDataStore.httpCookieStore.remove(sessionFollower)
+        }
+        guard let window = view.window else { return }
+        PagisViewController.launch(in: window, firstPage: firstPage)
+    }
+
+    /// Show the bridge in `window`. Before the first load, the copy of the
+    /// Session goes back into the cookie store when the store lost the
+    /// cookie, so the bridge opens the server signed in.
+    static func launch(in window: UIWindow, firstPage: URL? = nil) {
+        Task { @MainActor in
+            if let server = ServerStore().server {
+                await SessionRestore.restore(
+                    origin: server,
+                    copy: KeychainSessionCopy(),
+                    jar: WKWebsiteDataStore.default().httpCookieStore
+                )
+            }
+            window.rootViewController = PagisViewController(firstPage: firstPage)
+            window.makeKeyAndVisible()
+        }
     }
 }
