@@ -149,6 +149,21 @@ describe('PagisSocket', () => {
     h.socket.stop()
   })
 
+  it('sends an activity frame only while it is online', () => {
+    const h = harness()
+    h.socket.start()
+    const ws = h.ws(0)
+    ws.open()
+
+    expect(h.socket.activity()).toBe(false)
+    expect(ws.sent.map((s) => JSON.parse(s).type)).toEqual(['auth'])
+
+    ws.frame({ type: 'ready' })
+    expect(h.socket.activity()).toBe(true)
+    expect(JSON.parse(ws.sent[ws.sent.length - 1])).toEqual({ type: 'activity' })
+    h.socket.stop()
+  })
+
   it('routes message.delta frames to onDelta without touching last_seq', () => {
     const h = harness()
     h.socket.start()

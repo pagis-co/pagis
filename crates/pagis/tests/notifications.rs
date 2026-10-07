@@ -7,6 +7,11 @@
 //! loopback endpoint, so each test writes its Push Subscription through
 //! the stores. Only the client decrypts a Web Push, so each test holds
 //! the client keys and decrypts the body.
+//!
+//! A new item waits while the Person is active in a client: the tests
+//! here show that an `activity` frame holds a push and that nothing else
+//! does. The release of a held item after 120 s is a unit test of the
+//! task, on paused time.
 
 use std::time::Duration;
 
@@ -234,6 +239,40 @@ async fn wait_for_added(socket: &mut Socket, item_id: &str) {
 /// The time a queue task and a sender take for an event that sends
 /// nothing, before a test says that nothing went.
 const SETTLE: Duration = Duration::from_millis(500);
+
+/// Send `frame` and then a `ping`, and wait for the `pong`. The daemon
+/// reads the frames of one socket in order, so it read `frame` first.
+async fn send_then_ping(socket: &mut Socket, frame: serde_json::Value) {
+    use futures::SinkExt as _;
+
+    for frame in [frame, serde_json::json!({"type": "ping"})] {
+        socket
+            .send(Message::text(frame.to_string()))
+            .await
+            .expect("the frame goes out");
+    }
+    loop {
+        let frame = tokio::time::timeout(Duration::from_secs(10), futures::StreamExt::next(socket))
+            .await
+            .expect("a frame before the timeout")
+            .expect("the socket stays open")
+            .expect("a readable frame");
+        let Message::Text(text) = frame else { continue };
+        let frame: serde_json::Value = serde_json::from_str(&text).expect("the frame is JSON");
+        assert_ne!(
+            frame["type"], "error",
+            "the daemon refused a frame: {frame}"
+        );
+        if frame["type"] == "pong" {
+            return;
+        }
+    }
+}
+
+/// The Person uses the client of `socket` now.
+async fn activity(socket: &mut Socket) {
+    send_then_ping(socket, serde_json::json!({"type": "activity"})).await;
+}
 
 async fn subscriptions(daemon: &TestDaemon, workspace_id: &WorkspaceId) -> Vec<PushSubscription> {
     daemon
@@ -500,4 +539,80 @@ async fn the_test_route_reads_a_push_subscription_of_another_person_as_absent() 
     .await;
 
     assert_eq!(status, 404);
+}
+
+#[tokio::test]
+async fn an_activity_frame_holds_the_push_of_a_new_request() {
+    let daemon = daemon().await;
+    let service = PushService::answering(ResponseTemplate::new(201)).await;
+    service
+        .subscribe(&daemon, &daemon.user_id, &daemon.workspace_id)
+        .await;
+    let mut socket = daemon.event_socket(daemon.cookie()).await;
+    activity(&mut socket).await;
+
+    let request_id = plant_pending_request(&daemon, &daemon.workspace_id).await;
+    clear_keypad_failures(&daemon, daemon.cookie()).await;
+    wait_for_added(&mut socket, &format!("request:{request_id}")).await;
+    tokio::time::sleep(SETTLE).await;
+
+    assert!(service.received().await.is_empty());
+}
+
+#[tokio::test]
+async fn a_client_that_only_pings_holds_no_push() {
+    let daemon = daemon().await;
+    let service = PushService::answering(ResponseTemplate::new(201)).await;
+    service
+        .subscribe(&daemon, &daemon.user_id, &daemon.workspace_id)
+        .await;
+    let mut socket = daemon.event_socket(daemon.cookie()).await;
+    send_then_ping(&mut socket, serde_json::json!({"type": "ping"})).await;
+
+    let request_id = plant_pending_request(&daemon, &daemon.workspace_id).await;
+    clear_keypad_failures(&daemon, daemon.cookie()).await;
+
+    let received = service.wait_for(1).await;
+    assert_eq!(
+        service.decrypt(&received[0])["notification"]["data"]["item"],
+        format!("request:{request_id}")
+    );
+}
+
+#[tokio::test]
+async fn an_activity_frame_of_one_workspace_holds_nothing_of_another() {
+    let world = TwoTenants::on(daemon().await).await;
+    let daemon = &world.daemon;
+    let b_service = PushService::answering(ResponseTemplate::new(201)).await;
+    b_service
+        .subscribe(daemon, &world.b.user_id, &world.b.workspace_id)
+        .await;
+    let mut a_socket = daemon.event_socket(&world.a.cookie).await;
+    activity(&mut a_socket).await;
+
+    let b_run = plant_failed_run(daemon, &world.b.workspace_id).await;
+    clear_keypad_failures(daemon, &world.b.cookie).await;
+
+    let received = b_service.wait_for(1).await;
+    assert_eq!(
+        b_service.decrypt(&received[0])["notification"]["data"]["item"],
+        format!("run:{b_run}")
+    );
+}
+
+#[tokio::test]
+async fn an_activity_frame_does_not_hold_the_test_notification() {
+    let daemon = daemon().await;
+    let service = PushService::answering(ResponseTemplate::new(201)).await;
+    let row = service
+        .subscribe(&daemon, &daemon.user_id, &daemon.workspace_id)
+        .await;
+    let mut socket = daemon.event_socket(daemon.cookie()).await;
+    activity(&mut socket).await;
+
+    let (status, body) = send_test(&daemon, daemon.cookie(), row.id.as_str()).await;
+
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body, serde_json::json!({"outcome": "delivered"}));
+    assert_eq!(service.received().await.len(), 1);
 }

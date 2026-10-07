@@ -11508,6 +11508,21 @@
                 ]
               }
             }
+          },
+          {
+            "type": "object",
+            "description": "The Person used this client: it is visible and had input. A new\nNeeds-You item waits while the Person is active (ADR-0030). A\n`ping` does not count, because a hidden client sends it too.",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "activity"
+                ]
+              }
+            }
           }
         ],
         "description": "Frames the client sends. The first frame must be `auth`. It carries\nno credential: the session cookie authenticated the upgrade."

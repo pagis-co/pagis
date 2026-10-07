@@ -111,6 +111,17 @@ export class PagisSocket {
     }
   }
 
+  /**
+   * Tell the daemon that the Person used this client, so a new
+   * Needs-You item waits (ADR-0030). Answers whether the frame went:
+   * a socket that is not online sends nothing.
+   */
+  activity(): boolean {
+    if (!this.online || this.socket === null) return false
+    this.socket.send(JSON.stringify({ type: 'activity' }))
+    return true
+  }
+
   private connect(): void {
     this.options.handlers.onStatus('connecting')
     const create =

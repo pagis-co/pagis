@@ -83,6 +83,7 @@ import { cueForFrame, playCue } from './state/sound'
 import { useIsCompact, useIsMobile } from './state/useIsMobile'
 import { usePresence, usePresenceSeed } from './state/presence'
 import { threadScope } from './timeline'
+import { watchActivity } from './ws/activity'
 import { PagisSocket, type ServerFrame } from './ws/socket'
 import { Button } from './primitives'
 
@@ -573,7 +574,10 @@ export function AppShell() {
     })
     socketRef.current = socket
     socket.start()
+    // Input in this visible client holds a new Notification (ADR-0030).
+    const stopActivity = watchActivity(() => socket.activity())
     return () => {
+      stopActivity()
       socketRef.current = null
       socket.stop()
     }

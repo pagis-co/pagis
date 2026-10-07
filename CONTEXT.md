@@ -1205,7 +1205,8 @@ ADR-0030).
 
 ### Notification
 A Web Push to each Push Subscription of the Person when an item enters the
-Needs-You Queue (ADR-0030).
+Needs-You Queue. It waits while the Person is active in a client: a
+visible client had input in the last 120 s (ADR-0030).
 _Avoid_: alert, push message
 
 ### Progress

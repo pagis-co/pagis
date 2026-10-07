@@ -569,7 +569,7 @@ pub async fn get_needs_you(
 /// An item entered the Needs-You Queue: `{item, count}`.
 pub(crate) const NEEDS_YOU_ADDED: &str = "needs_you.added";
 /// An item left the Needs-You Queue: `{item_id, count}`.
-const NEEDS_YOU_REMOVED: &str = "needs_you.removed";
+pub(crate) const NEEDS_YOU_REMOVED: &str = "needs_you.removed";
 
 /// The events that can change the Needs-You Queue. The task ignores
 /// every other event, and so it ignores its own `needs_you.*` events.

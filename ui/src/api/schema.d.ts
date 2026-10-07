@@ -3417,6 +3417,9 @@ export interface components {
         } | {
             /** @enum {string} */
             type: "ping";
+        } | {
+            /** @enum {string} */
+            type: "activity";
         };
         /**
          * @description The optional onboarding extras: the user's name seeds shared

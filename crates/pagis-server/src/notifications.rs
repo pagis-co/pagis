@@ -8,6 +8,7 @@
 //! the item, never the content of a message, a tool input or a
 //! Credential.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -15,8 +16,8 @@ use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use futures::StreamExt;
 use pagis_core::{
-    AgentId, AgentStore, Clock, EventBus, EventScope, PushSubscription, PushSubscriptionStore,
-    Request, SecretStore, WorkspaceId,
+    AgentId, AgentStore, Clock, EventBus, EventScope, EventStream, PushSubscription,
+    PushSubscriptionStore, Request, SecretStore, UnixMillis, WorkspaceId,
 };
 use pagis_push::{MAX_PLAINTEXT, Options, Outcome, Policy, Subscription, Topic, Urgency, WebPush};
 use serde::Deserialize;
@@ -24,7 +25,8 @@ use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 use tokio_util::sync::CancellationToken;
 
-use crate::needs_you::{NEEDS_YOU_ADDED, NeedsYouItem};
+use crate::needs_you::{NEEDS_YOU_ADDED, NEEDS_YOU_REMOVED, NeedsYou, NeedsYouItem};
+use crate::person_activity::PersonActivity;
 
 /// The version of the payload format. A change that breaks the format
 /// raises it (ADR-0030).
@@ -218,6 +220,8 @@ pub struct Notifications {
     public_origin: String,
     push_subscriptions: Arc<dyn PushSubscriptionStore>,
     agents: Arc<dyn AgentStore>,
+    /// The Needs-You Queue, which a held item reads again before it goes.
+    needs_you: Arc<NeedsYou>,
     clock: Arc<dyn Clock>,
 }
 
@@ -231,6 +235,7 @@ impl Notifications {
         policy: Policy,
         push_subscriptions: Arc<dyn PushSubscriptionStore>,
         agents: Arc<dyn AgentStore>,
+        needs_you: Arc<NeedsYou>,
         clock: Arc<dyn Clock>,
     ) -> anyhow::Result<Self> {
         let vapid_key = crate::push_subscriptions::vapid_key(secrets)?;
@@ -240,6 +245,7 @@ impl Notifications {
             public_origin,
             push_subscriptions,
             agents,
+            needs_you,
             clock,
         })
     }
@@ -250,45 +256,6 @@ impl Notifications {
     pub(crate) async fn send_test(&self, row: &PushSubscription) -> Outcome {
         self.send(row, &test_payload(&self.public_origin), test_options())
             .await
-    }
-
-    /// Send the Notification of `item` to each Push Subscription of its
-    /// Workspace, each in its own task.
-    async fn notify(
-        self: &Arc<Self>,
-        workspace_id: &WorkspaceId,
-        item: &NeedsYouItem,
-        count: usize,
-        cancel: &CancellationToken,
-    ) {
-        let rows = match self.push_subscriptions.list(workspace_id).await {
-            Ok(rows) => rows,
-            Err(error) => {
-                tracing::error!(%error, %workspace_id, "the Push Subscriptions were not read");
-                return;
-            }
-        };
-        if rows.is_empty() {
-            return;
-        }
-        let agent_name = match item.agent_id() {
-            Some(agent_id) => self.agent_name(workspace_id, agent_id).await,
-            None => None,
-        };
-        let plaintext: Arc<[u8]> =
-            payload(item, agent_name.as_deref(), count, &self.public_origin).into();
-        let options = options(item);
-        for row in rows {
-            let notifications = Arc::clone(self);
-            let plaintext = Arc::clone(&plaintext);
-            let options = options.clone();
-            let cancel = cancel.clone();
-            tokio::spawn(async move {
-                cancel
-                    .run_until_cancelled(notifications.deliver(&row, &plaintext, options))
-                    .await;
-            });
-        }
     }
 
     /// The name of the Agent of an item, or `None` when the store holds
@@ -376,49 +343,239 @@ impl Notifications {
     }
 }
 
-/// The payload of `needs_you.added`.
+/// An item as the Needs-You Queue holds it, with the count of the
+/// queue: the payload of `needs_you.added`, and the answer of
+/// [`Notifier::queued`].
 #[derive(Deserialize)]
-struct Added {
+pub(crate) struct QueuedItem {
     item: NeedsYouItem,
     count: usize,
 }
 
+/// The payload of `needs_you.removed`.
+#[derive(Deserialize)]
+struct Removed {
+    item_id: String,
+}
+
+/// What the Notification task reads and does: the item as the Needs-You
+/// Queue holds it now, and the send. [`Notifications`] is the one of the
+/// daemon.
+pub(crate) trait Notifier: Send + Sync + 'static {
+    /// The item `item_id` in the Needs-You Queue of `workspace_id` now,
+    /// or `None` when the item left the queue.
+    fn queued(
+        &self,
+        workspace_id: &WorkspaceId,
+        item_id: &str,
+    ) -> impl Future<Output = Option<QueuedItem>> + Send;
+
+    /// Send the Notification of `item` to each Push Subscription of
+    /// `workspace_id`. `count` is the count of the queue, and `cancel`
+    /// stops each send.
+    fn notify(
+        self: &Arc<Self>,
+        workspace_id: &WorkspaceId,
+        item: &NeedsYouItem,
+        count: usize,
+        cancel: &CancellationToken,
+    ) -> impl Future<Output = ()> + Send;
+}
+
+impl Notifier for Notifications {
+    async fn queued(&self, workspace_id: &WorkspaceId, item_id: &str) -> Option<QueuedItem> {
+        match self
+            .needs_you
+            .derive(workspace_id, self.clock.now_ms())
+            .await
+        {
+            Ok(queue) => {
+                let count = queue.count;
+                queue
+                    .items
+                    .into_iter()
+                    .find(|item| item.id() == item_id)
+                    .map(|item| QueuedItem { item, count })
+            }
+            Err(error) => {
+                tracing::error!(%error, %workspace_id, item_id, "the Needs-You Queue was not derived, so a held Notification does not go");
+                None
+            }
+        }
+    }
+
+    /// Each Push Subscription gets its Web Push in a task of its own.
+    async fn notify(
+        self: &Arc<Self>,
+        workspace_id: &WorkspaceId,
+        item: &NeedsYouItem,
+        count: usize,
+        cancel: &CancellationToken,
+    ) {
+        let rows = match self.push_subscriptions.list(workspace_id).await {
+            Ok(rows) => rows,
+            Err(error) => {
+                tracing::error!(%error, %workspace_id, "the Push Subscriptions were not read");
+                return;
+            }
+        };
+        if rows.is_empty() {
+            return;
+        }
+        let agent_name = match item.agent_id() {
+            Some(agent_id) => self.agent_name(workspace_id, agent_id).await,
+            None => None,
+        };
+        let plaintext: Arc<[u8]> =
+            payload(item, agent_name.as_deref(), count, &self.public_origin).into();
+        let options = options(item);
+        for row in rows {
+            let notifications = Arc::clone(self);
+            let plaintext = Arc::clone(&plaintext);
+            let options = options.clone();
+            let cancel = cancel.clone();
+            tokio::spawn(async move {
+                cancel
+                    .run_until_cancelled(notifications.deliver(&row, &plaintext, options))
+                    .await;
+            });
+        }
+    }
+}
+
 /// Start the task that sends a Notification for each item that enters
 /// the Needs-You Queue: on each `needs_you.added`, to each Push
-/// Subscription of the Workspace of the item. No push goes when an item
+/// Subscription of the Workspace of the item. A new item waits while the
+/// Person is active in a client, by the rule of
+/// [`crate::person_activity::hold_until`]. No push goes when an item
 /// leaves the queue. The task subscribes before it answers, so no event
 /// after the start is lost, and it stops on `cancel`.
 pub async fn spawn_notifications(
     notifications: Arc<Notifications>,
+    activity: Arc<PersonActivity>,
     bus: Arc<dyn EventBus>,
     cancel: CancellationToken,
 ) {
-    let mut events = bus.subscribe(EventScope::Installation, None).await;
-    tokio::spawn(async move {
-        loop {
-            let event = tokio::select! {
-                () = cancel.cancelled() => return,
-                event = events.next() => match event {
-                    Some(event) => event,
-                    None => return,
-                },
-            };
-            if event.event_type != NEEDS_YOU_ADDED {
-                continue;
-            }
-            let workspace_id = event.workspace_id;
-            match serde_json::from_value::<Added>(event.payload) {
-                Ok(added) => {
-                    notifications
+    let events = bus.subscribe(EventScope::Installation, None).await;
+    let clock = Arc::clone(&notifications.clock);
+    tokio::spawn(serve(notifications, activity, clock, events, cancel));
+}
+
+/// The loop of the Notification task over the events of the
+/// installation. A `needs_you.added` sends at once, or starts a hold of
+/// its item when the Person is active. A `needs_you.removed` ends the
+/// hold of its item.
+async fn serve<N: Notifier>(
+    notifier: Arc<N>,
+    activity: Arc<PersonActivity>,
+    clock: Arc<dyn Clock>,
+    mut events: EventStream,
+    cancel: CancellationToken,
+) {
+    // The hold of each held item, by Workspace and item id. A hold that
+    // ended cancels its own token, and the loop then forgets it.
+    let mut holds: HashMap<(WorkspaceId, String), CancellationToken> = HashMap::new();
+    loop {
+        let event = tokio::select! {
+            () = cancel.cancelled() => return,
+            event = events.next() => match event {
+                Some(event) => event,
+                None => return,
+            },
+        };
+        holds.retain(|_, hold| !hold.is_cancelled());
+        let workspace_id = event.workspace_id;
+        match event.event_type.as_str() {
+            NEEDS_YOU_ADDED => {
+                let added = match serde_json::from_value::<QueuedItem>(event.payload) {
+                    Ok(added) => added,
+                    Err(error) => {
+                        tracing::error!(%error, %workspace_id, "a needs_you.added event was not read");
+                        continue;
+                    }
+                };
+                let Some(until) = activity.hold_until(&workspace_id, clock.now_ms()) else {
+                    notifier
                         .notify(&workspace_id, &added.item, added.count, &cancel)
                         .await;
+                    continue;
+                };
+                let item_id = added.item.id().to_string();
+                let hold = cancel.child_token();
+                holds.insert((workspace_id.clone(), item_id.clone()), hold.clone());
+                tokio::spawn(release(
+                    Arc::clone(&notifier),
+                    Arc::clone(&activity),
+                    Arc::clone(&clock),
+                    Held {
+                        workspace_id,
+                        item_id,
+                        until,
+                    },
+                    hold,
+                    cancel.clone(),
+                ));
+            }
+            NEEDS_YOU_REMOVED => match serde_json::from_value::<Removed>(event.payload) {
+                Ok(removed) => {
+                    if let Some(hold) = holds.remove(&(workspace_id, removed.item_id)) {
+                        hold.cancel();
+                    }
                 }
                 Err(error) => {
-                    tracing::error!(%error, %workspace_id, "a needs_you.added event was not read");
+                    tracing::error!(%error, %workspace_id, "a needs_you.removed event was not read");
                 }
-            }
+            },
+            _ => {}
         }
-    });
+    }
+}
+
+/// One item that waits, and until when.
+struct Held {
+    workspace_id: WorkspaceId,
+    item_id: String,
+    until: UnixMillis,
+}
+
+/// Wait until the hold of one item ends, and then check again: the
+/// Person was active again, so the item waits again by the same rule;
+/// the item left the queue, so nothing goes; else the item goes, as the
+/// queue holds it now. `hold` ends the wait at once, and the end of the
+/// wait cancels `hold`.
+async fn release<N: Notifier>(
+    notifier: Arc<N>,
+    activity: Arc<PersonActivity>,
+    clock: Arc<dyn Clock>,
+    held: Held,
+    hold: CancellationToken,
+    cancel: CancellationToken,
+) {
+    let _ended = hold.clone().drop_guard();
+    let Held {
+        workspace_id,
+        item_id,
+        mut until,
+    } = held;
+    loop {
+        let wait = u64::try_from(until - clock.now_ms()).unwrap_or(0);
+        let waited = hold
+            .run_until_cancelled(tokio::time::sleep(Duration::from_millis(wait)))
+            .await;
+        if waited.is_none() {
+            return;
+        }
+        if let Some(next) = activity.hold_until(&workspace_id, clock.now_ms()) {
+            until = next;
+            continue;
+        }
+        if let Some(queued) = notifier.queued(&workspace_id, &item_id).await {
+            notifier
+                .notify(&workspace_id, &queued.item, queued.count, &cancel)
+                .await;
+        }
+        return;
+    }
 }
 
 #[cfg(test)]
@@ -723,5 +880,254 @@ mod tests {
                 "mutable": true,
             })
         );
+    }
+
+    /// The Notification task on paused tokio time: the hold of ADR-0030.
+    mod task {
+        use std::sync::Mutex;
+
+        use futures::channel::mpsc;
+        use pagis_core::{Event, EventId, UnixMillis};
+        use tokio::time::Instant;
+
+        use super::*;
+
+        /// 2026-09-25 12:00 UTC.
+        const NOW: UnixMillis = 1_790_337_600_000;
+
+        fn workspace() -> WorkspaceId {
+            WorkspaceId::from("w-1".to_string())
+        }
+
+        fn secs(seconds: u64) -> Duration {
+            Duration::from_secs(seconds)
+        }
+
+        /// A clock on tokio's time, which `start_paused` controls.
+        struct TokioClock {
+            start: Instant,
+        }
+
+        impl Clock for TokioClock {
+            fn now_ms(&self) -> UnixMillis {
+                NOW + UnixMillis::try_from(self.start.elapsed().as_millis()).expect("a short test")
+            }
+        }
+
+        /// A Needs-You Queue that the test sets, and the sends.
+        #[derive(Default)]
+        struct FakeNotifier {
+            queue: Mutex<Vec<NeedsYouItem>>,
+            queue_reads: Mutex<usize>,
+            sent: Mutex<Vec<(String, usize)>>,
+        }
+
+        impl Notifier for FakeNotifier {
+            async fn queued(&self, _: &WorkspaceId, item_id: &str) -> Option<QueuedItem> {
+                *self.queue_reads.lock().expect("lock") += 1;
+                let queue = self.queue.lock().expect("lock");
+                queue
+                    .iter()
+                    .find(|item| item.id() == item_id)
+                    .map(|item| QueuedItem {
+                        item: item.clone(),
+                        count: queue.len(),
+                    })
+            }
+
+            async fn notify(
+                self: &Arc<Self>,
+                _: &WorkspaceId,
+                item: &NeedsYouItem,
+                count: usize,
+                _: &CancellationToken,
+            ) {
+                self.sent
+                    .lock()
+                    .expect("lock")
+                    .push((item.id().to_string(), count));
+            }
+        }
+
+        /// The task over a stream of events that the test writes.
+        struct Harness {
+            start: Instant,
+            clock: Arc<TokioClock>,
+            notifier: Arc<FakeNotifier>,
+            activity: Arc<PersonActivity>,
+            events: mpsc::UnboundedSender<Event>,
+        }
+
+        impl Harness {
+            fn start() -> Self {
+                let start = Instant::now();
+                let clock = Arc::new(TokioClock { start });
+                let notifier = Arc::new(FakeNotifier::default());
+                let activity = Arc::new(PersonActivity::new());
+                let (events, stream) = mpsc::unbounded();
+                tokio::spawn(serve(
+                    Arc::clone(&notifier),
+                    Arc::clone(&activity),
+                    Arc::clone(&clock) as Arc<dyn Clock>,
+                    stream.boxed(),
+                    CancellationToken::new(),
+                ));
+                Self {
+                    start,
+                    clock,
+                    notifier,
+                    activity,
+                    events,
+                }
+            }
+
+            /// The Person uses a client now.
+            fn active(&self) {
+                self.activity.record(&workspace(), self.clock.now_ms());
+            }
+
+            /// `item` enters the queue, and the task reads its event.
+            async fn added(&self, item: NeedsYouItem) {
+                let count = {
+                    let mut queue = self.notifier.queue.lock().expect("lock");
+                    queue.push(item.clone());
+                    queue.len()
+                };
+                self.publish(NEEDS_YOU_ADDED, json!({"item": item, "count": count}))
+                    .await;
+            }
+
+            /// `item_id` leaves the queue, and the task reads its event.
+            async fn removed(&self, item_id: &str) {
+                let count = self.leave(item_id);
+                self.publish(
+                    NEEDS_YOU_REMOVED,
+                    json!({"item_id": item_id, "count": count}),
+                )
+                .await;
+            }
+
+            /// `item_id` leaves the queue, and the task reads no event.
+            fn leave(&self, item_id: &str) -> usize {
+                let mut queue = self.notifier.queue.lock().expect("lock");
+                queue.retain(|item| item.id() != item_id);
+                queue.len()
+            }
+
+            async fn publish(&self, event_type: &str, payload: Value) {
+                self.events
+                    .unbounded_send(Event {
+                        id: EventId::generate(),
+                        seq: 0,
+                        workspace_id: workspace(),
+                        event_type: event_type.to_string(),
+                        agent_id: None,
+                        run_id: None,
+                        channel_id: None,
+                        payload,
+                        created_at: self.clock.now_ms(),
+                    })
+                    .expect("the task reads events");
+                // The task reads the event before the paused clock moves.
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+
+            /// Wait until `after` passed since the start.
+            async fn at(&self, after: Duration) {
+                tokio::time::sleep_until(self.start + after).await;
+            }
+
+            fn sent(&self) -> Vec<(String, usize)> {
+                self.notifier.sent.lock().expect("lock").clone()
+            }
+
+            fn queue_reads(&self) -> usize {
+                *self.notifier.queue_reads.lock().expect("lock")
+            }
+        }
+
+        #[tokio::test(start_paused = true)]
+        async fn an_item_goes_at_once_when_the_person_is_not_active() {
+            let task = Harness::start();
+
+            task.added(failed()).await;
+
+            assert_eq!(task.sent(), [("run:run-2".to_string(), 1)]);
+        }
+
+        #[tokio::test(start_paused = true)]
+        async fn an_item_waits_while_the_person_is_active_and_goes_120_s_after_the_activity() {
+            let task = Harness::start();
+            task.active();
+
+            task.added(approval("tool_action")).await;
+            task.at(secs(60)).await;
+            assert_eq!(task.sent(), []);
+            // The send reads the queue again, so it carries the count of
+            // the queue at the send.
+            task.notifier.queue.lock().expect("lock").push(waiting());
+            task.at(secs(120) - Duration::from_millis(1)).await;
+            assert_eq!(task.sent(), []);
+            task.at(secs(120) + Duration::from_millis(1)).await;
+
+            assert_eq!(task.sent(), [("request:r-1".to_string(), 2)]);
+        }
+
+        #[tokio::test(start_paused = true)]
+        async fn new_activity_during_the_hold_holds_the_item_again() {
+            let task = Harness::start();
+            task.active();
+            task.added(failed()).await;
+
+            task.at(secs(100)).await;
+            task.active();
+            task.at(secs(121)).await;
+            assert_eq!(task.sent(), []);
+            task.at(secs(220) - Duration::from_millis(1)).await;
+            assert_eq!(task.sent(), []);
+            task.at(secs(220) + Duration::from_millis(1)).await;
+
+            assert_eq!(task.sent(), [("run:run-2".to_string(), 1)]);
+        }
+
+        #[tokio::test(start_paused = true)]
+        async fn needs_you_removed_drops_a_held_item_at_once() {
+            let task = Harness::start();
+            task.active();
+            task.added(failed()).await;
+
+            task.at(secs(60)).await;
+            task.removed("run:run-2").await;
+            task.at(secs(600)).await;
+
+            assert_eq!(task.sent(), []);
+            // The hold ended on the event, so it never read the queue.
+            assert_eq!(task.queue_reads(), 0);
+        }
+
+        #[tokio::test(start_paused = true)]
+        async fn an_item_that_left_the_queue_during_the_hold_is_dropped() {
+            let task = Harness::start();
+            task.active();
+            task.added(failed()).await;
+
+            task.at(secs(60)).await;
+            task.leave("run:run-2");
+            task.at(secs(600)).await;
+
+            assert_eq!(task.sent(), []);
+            assert_eq!(task.queue_reads(), 1);
+        }
+
+        #[tokio::test(start_paused = true)]
+        async fn an_item_after_the_hold_ended_goes_at_once() {
+            let task = Harness::start();
+            task.active();
+
+            task.at(secs(120)).await;
+            task.added(failed()).await;
+
+            assert_eq!(task.sent(), [("run:run-2".to_string(), 1)]);
+        }
     }
 }
