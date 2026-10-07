@@ -1,0 +1,20 @@
+[package]
+name = "pagis-push"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+base64.workspace = true
+httpdate.workspace = true
+p256.workspace = true
+pagis-core.workspace = true
+reqwest.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["net"] }
+url.workspace = true
+web-push-native.workspace = true
+
+[dev-dependencies]
+rand.workspace = true
+wiremock.workspace = true
