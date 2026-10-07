@@ -13,5 +13,5 @@
     "noEmit": true,
     "types": []
   },
-  "include": ["sw.ts", "sw.test.ts"]
+  "include": ["sw.ts", "sw.test.ts", "handlers.ts", "handlers.test.ts"]
 }

@@ -220,6 +220,24 @@ it raises `v`, and a Mobile App release that reads the new `v` ships
 before a server sends it. A client that does not know `v` shows a
 placeholder Notification, and a tap on it opens the app.
 
+### The service worker
+
+The service worker of the Product App shows a Notification for each push,
+because a browser can end a subscription whose push shows none. A payload
+that it cannot read shows the placeholder "Pagis", "Something needs you",
+and a tap on it opens `/`. The `tag` of a Notification is the item id, so
+a newer push of one item replaces the Notification of the older push. The
+worker sets the app badge to `app_badge` where the browser has the Badging
+API.
+
+A tap opens the place in `navigate` when it is on the origin of the
+worker, and `/` when it is not. When a window of the Product App is open,
+the worker focuses it and sends it a `navigate` message, and the page
+moves its router. `WindowClient.navigate()` is not used, because it loads
+the page again and the page loses its state. With no open window, the
+worker opens a window at the place. The Product App shows no Notification
+itself.
+
 ### Headers
 
 Each Web Push carries:
@@ -517,5 +535,5 @@ of the `FcmError` detail of the error, or else its `status`.
 
 ## Not built
 
-- The service worker of the Product App.
+- **Approve once** and **Deny** on a Notification of the service worker.
 - The Mobile App (ADR-0032).
