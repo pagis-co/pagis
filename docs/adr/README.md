@@ -48,3 +48,4 @@ records that touch an area before you change it.
 - [0029](0029-a-computer-can-exit-through-its-persons-host.md): A Computer on a server can exit to the internet through its Person's Host
 - [0030](0030-a-notification-is-a-web-push-to-each-push-subscription.md): A Notification is a Web Push to each Push Subscription of the Person
 - [0031](0031-an-administrator-can-capture-the-model-requests-of-a-run.md): An Administrator can capture the model requests of a Run
+- [0032](0032-the-mobile-app-is-a-native-shell-around-the-product-app.md): The Mobile App is a native shell around the server's Product App

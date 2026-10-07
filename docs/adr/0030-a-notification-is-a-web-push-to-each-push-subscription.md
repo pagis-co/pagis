@@ -102,8 +102,8 @@ The Pagis fields are in `notification.data`:
   are `approve_once` and `deny`.
 
 The service worker of the Product App, the iOS Notification Service
-Extension and the Android messaging service of the Mobile App parse the
-same JSON. A client shows **Approve once** and **Deny** where it can: the
+Extension and the Android messaging service of the Mobile App (ADR-0032) parse
+the same JSON. A client shows **Approve once** and **Deny** where it can: the
 Mobile App on iOS and Android, and the service worker where the browser
 shows notification actions, as Chrome and Edge do. Safari shows no
 actions, so there a tap opens the item. An answer from a Notification
@@ -205,4 +205,4 @@ that decrypts a payload.
 - The hold while active, and the `activity` frame.
 - The service worker of the Product App.
 - The Push Relay.
-- The Mobile App.
+- The Mobile App (ADR-0032).
