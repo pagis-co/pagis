@@ -53,6 +53,7 @@ mod memory;
 mod model_request_capture;
 mod needs_you;
 mod network;
+mod notifications;
 mod onboarding;
 mod ops;
 mod org_records;

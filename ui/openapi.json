@@ -5512,6 +5512,58 @@
         }
       }
     },
+    "/api/v1/push-subscriptions/{push_subscription_id}/test": {
+      "post": {
+        "tags": [
+          "push_subscriptions"
+        ],
+        "summary": "Send a test Notification to one Push Subscription of the signed-in\nPerson, and answer what the push service answered. A Push\nSubscription of another Person reads as absent.",
+        "operationId": "send_test_notification",
+        "parameters": [
+          {
+            "name": "push_subscription_id",
+            "in": "path",
+            "description": "One Push Subscription of the signed-in Person",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushOutcomeDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/push/key": {
       "get": {
         "tags": [
@@ -16666,6 +16718,106 @@
             }
           }
         }
+      },
+      "PushOutcomeDto": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "The push service took it.",
+            "required": [
+              "outcome"
+            ],
+            "properties": {
+              "outcome": {
+                "type": "string",
+                "enum": [
+                  "delivered"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "The push service ended the Push Subscription, and the daemon\ndeleted it.",
+            "required": [
+              "outcome"
+            ],
+            "properties": {
+              "outcome": {
+                "type": "string",
+                "enum": [
+                  "gone"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "The push service refused the size of the body.",
+            "required": [
+              "outcome"
+            ],
+            "properties": {
+              "outcome": {
+                "type": "string",
+                "enum": [
+                  "too_large"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "The push service asks the daemon to wait, for\n`retry_after_seconds` when it says how long.",
+            "required": [
+              "outcome"
+            ],
+            "properties": {
+              "outcome": {
+                "type": "string",
+                "enum": [
+                  "rate_limited"
+                ]
+              },
+              "retry_after_seconds": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "minimum": 0
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Every other answer, a refused endpoint and a transport error.\n`status` is `null` when no answer came.",
+            "required": [
+              "error",
+              "outcome"
+            ],
+            "properties": {
+              "error": {
+                "type": "string"
+              },
+              "outcome": {
+                "type": "string",
+                "enum": [
+                  "failed"
+                ]
+              },
+              "status": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32",
+                "minimum": 0
+              }
+            }
+          }
+        ],
+        "description": "What the push service answered to a test Notification."
       },
       "PushSubscriptionDto": {
         "type": "object",

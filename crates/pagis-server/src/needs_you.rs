@@ -19,7 +19,7 @@ use pagis_core::{
     RequestStore, Run, RunId, RunState, RunStore, StoreError, Stores, UnixMillis, WorkspaceId,
     WorkspaceStore, local_date,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 use utoipa::ToSchema;
 
@@ -28,7 +28,7 @@ use crate::auth::Tenant;
 use crate::error::ApiError;
 
 /// A pending decision. The row carries the Approve and the Deny.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct NeedsYouApproval {
     /// `request:<request_id>`.
     pub id: String,
@@ -46,7 +46,7 @@ pub struct NeedsYouApproval {
 }
 
 /// A Run that waits for an answer of the Person.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct NeedsYouWaiting {
     /// `run:<run_id>`.
     pub id: String,
@@ -61,7 +61,7 @@ pub struct NeedsYouWaiting {
 /// Callers entered so many wrong keypad codes that a delay started
 /// (ADR-0021). It belongs to the Workspace and to no Agent, and it stays
 /// until a correct code or the Person clears the count.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct NeedsYouKeypad {
     /// `keypad`.
     pub id: String,
@@ -74,7 +74,7 @@ pub struct NeedsYouKeypad {
 }
 
 /// An inbound Call of today that nobody answered.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct NeedsYouCall {
     /// `call:<call_id>`.
     pub id: String,
@@ -90,7 +90,7 @@ pub struct NeedsYouCall {
 }
 
 /// A Run that failed today.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct NeedsYouFailed {
     /// `run:<run_id>`.
     pub id: String,
@@ -106,7 +106,7 @@ pub struct NeedsYouFailed {
 /// One item of the Needs-You Queue. The variants are in the order of
 /// the queue: a decision first, then a question, then the keypad delay,
 /// then a missed Call, then a failure.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum NeedsYouItem {
     Approval(NeedsYouApproval),
@@ -144,6 +144,50 @@ impl NeedsYouItem {
             Self::Keypad(item) => &item.id,
             Self::Call(item) => &item.id,
             Self::Failed(item) => &item.id,
+        }
+    }
+
+    /// The kind of the item, as its `kind` tag names it.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::Approval(_) => "approval",
+            Self::Waiting(_) => "waiting",
+            Self::Keypad(_) => "keypad",
+            Self::Call(_) => "call",
+            Self::Failed(_) => "failed",
+        }
+    }
+
+    /// The Agent of the item. The keypad item belongs to no Agent.
+    pub fn agent_id(&self) -> Option<&str> {
+        match self {
+            Self::Approval(item) => Some(&item.agent_id),
+            Self::Waiting(item) => Some(&item.agent_id),
+            Self::Keypad(_) => None,
+            Self::Call(item) => Some(&item.agent_id),
+            Self::Failed(item) => Some(&item.agent_id),
+        }
+    }
+
+    /// What the item asks of the Person, in one line.
+    pub fn line(&self) -> &str {
+        match self {
+            Self::Approval(item) => &item.line,
+            Self::Waiting(item) => &item.line,
+            Self::Keypad(item) => &item.line,
+            Self::Call(item) => &item.line,
+            Self::Failed(item) => &item.line,
+        }
+    }
+
+    /// The Product App path that answers the item.
+    pub fn url(&self) -> &str {
+        match self {
+            Self::Approval(item) => &item.url,
+            Self::Waiting(item) => &item.url,
+            Self::Keypad(item) => &item.url,
+            Self::Call(item) => &item.url,
+            Self::Failed(item) => &item.url,
         }
     }
 
@@ -523,7 +567,7 @@ pub async fn get_needs_you(
 }
 
 /// An item entered the Needs-You Queue: `{item, count}`.
-const NEEDS_YOU_ADDED: &str = "needs_you.added";
+pub(crate) const NEEDS_YOU_ADDED: &str = "needs_you.added";
 /// An item left the Needs-You Queue: `{item_id, count}`.
 const NEEDS_YOU_REMOVED: &str = "needs_you.removed";
 

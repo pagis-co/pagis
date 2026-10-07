@@ -28,6 +28,8 @@ pagis-google.workspace = true
 pagis-core.workspace = true
 pagis-plugin.workspace = true
 pagis-plugins.workspace = true
+# The Web Push of each Notification (ADR-0030).
+pagis-push.workspace = true
 pagis-software.workspace = true
 pagis-mail.workspace = true
 pagis-telephony.workspace = true

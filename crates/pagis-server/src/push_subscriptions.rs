@@ -262,6 +262,71 @@ pub async fn remove_push_subscription(
     }
 }
 
+/// What the push service answered to a test Notification.
+#[derive(Debug, PartialEq, Eq, Serialize, ToSchema)]
+#[serde(tag = "outcome", rename_all = "snake_case")]
+pub enum PushOutcomeDto {
+    /// The push service took it.
+    Delivered,
+    /// The push service ended the Push Subscription, and the daemon
+    /// deleted it.
+    Gone,
+    /// The push service refused the size of the body.
+    TooLarge,
+    /// The push service asks the daemon to wait, for
+    /// `retry_after_seconds` when it says how long.
+    RateLimited { retry_after_seconds: Option<u64> },
+    /// Every other answer, a refused endpoint and a transport error.
+    /// `status` is `null` when no answer came.
+    Failed { status: Option<u16>, error: String },
+}
+
+impl From<pagis_push::Outcome> for PushOutcomeDto {
+    fn from(outcome: pagis_push::Outcome) -> Self {
+        match outcome {
+            pagis_push::Outcome::Delivered => Self::Delivered,
+            pagis_push::Outcome::Gone => Self::Gone,
+            pagis_push::Outcome::TooLarge => Self::TooLarge,
+            pagis_push::Outcome::RateLimited { retry_after } => Self::RateLimited {
+                retry_after_seconds: retry_after.map(|delay| delay.as_secs()),
+            },
+            pagis_push::Outcome::Failed { status, error } => Self::Failed {
+                status: status.map(|status| status.as_u16()),
+                error,
+            },
+        }
+    }
+}
+
+/// Send a test Notification to one Push Subscription of the signed-in
+/// Person, and answer what the push service answered. A Push
+/// Subscription of another Person reads as absent.
+#[utoipa::path(
+    post,
+    path = "/api/v1/push-subscriptions/{push_subscription_id}/test",
+    params(("push_subscription_id" = String, Path, description = "One Push Subscription of the signed-in Person")),
+    responses(
+        (status = 200, body = PushOutcomeDto),
+        (status = 401, body = crate::error::ErrorBody),
+        (status = 404, body = crate::error::ErrorBody),
+    )
+)]
+pub async fn send_test_notification(
+    State(state): State<Arc<AppState>>,
+    tenant: Tenant,
+    Path(push_subscription_id): Path<String>,
+) -> Result<Json<PushOutcomeDto>, ApiError> {
+    let row = state
+        .push_subscriptions
+        .list(&tenant.workspace_id)
+        .await?
+        .into_iter()
+        .find(|row| row.id.as_str() == push_subscription_id)
+        .ok_or_else(|| ApiError::not_found("that push subscription"))?;
+    let outcome = state.notifications.send_test(&row).await;
+    Ok(Json(outcome.into()))
+}
+
 fn dto(
     row: PushSubscription,
     session: &pagis_core::Session,

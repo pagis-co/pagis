@@ -26,6 +26,7 @@ mod memory;
 pub mod model_lists;
 pub mod model_preference;
 mod needs_you;
+mod notifications;
 mod openapi;
 mod phone_numbers;
 mod plugins;
@@ -73,6 +74,7 @@ pub use auth::{SESSION_COOKIE, Tenant, hash_secret};
 pub use forwarded::TrustedProxy;
 pub use live_connections::LiveConnections;
 pub use needs_you::{NeedsYou, spawn_needs_you};
+pub use notifications::{Notifications, spawn_notifications};
 pub use openapi::ApiDoc;
 pub use remote_access::{
     FUNNEL_PROXY, FUNNEL_TURN_PORT, FunnelPort, FunnelTargets, RemoteAccessSwitch, Tailscale,
@@ -239,6 +241,9 @@ pub struct AppState {
     /// The Push Subscriptions of each Session (ADR-0030). Each one ends
     /// with its Session.
     pub push_subscriptions: Arc<dyn pagis_core::PushSubscriptionStore>,
+    /// The Notification sender of the installation (ADR-0030): one Web
+    /// Push sender with the VAPID Key.
+    pub notifications: Arc<Notifications>,
     /// The signal of each Session that holds a live connection. A
     /// sign-out and an Administrator who ends every Session of a Person
     /// fire it, and so does the expiry of the Session, and every socket
@@ -767,6 +772,10 @@ fn product_router(state: Arc<AppState>) -> Router {
         .route(
             "/api/v1/push-subscriptions/{push_subscription_id}",
             delete(push_subscriptions::remove_push_subscription),
+        )
+        .route(
+            "/api/v1/push-subscriptions/{push_subscription_id}/test",
+            post(push_subscriptions::send_test_notification),
         )
         // The Person's own Home Exit (ADR-0029).
         .route(

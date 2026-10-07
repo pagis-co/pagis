@@ -213,6 +213,10 @@ pub struct TestDaemonOptions {
     /// The default is the machine's wall clock; the evaluation
     /// driver injects the fixture clock of the chronology it replays.
     pub clock: Arc<dyn pagis_core::Clock>,
+    /// Which endpoints a Notification may go to. The default is the
+    /// production policy; a test that runs a push service on loopback
+    /// sets `Policy::AllowLoopback`.
+    pub push_policy: pagis_push::Policy,
     /// Where the daemon sends analytics. The default sends nothing, as a
     /// build from source does; the analytics test points it at a fake
     /// PostHog.
@@ -278,6 +282,7 @@ impl Default for TestDaemonOptions {
             ))),
             password_verifier: Arc::new(pagis_server::PasswordVerifier::argon2()),
             clock: Arc::new(pagis_core::SystemClock),
+            push_policy: pagis_push::Policy::Public,
             analytics: pagis::AnalyticsOptions::off(),
         }
     }
@@ -580,6 +585,7 @@ impl TestDaemon {
                 password_verifier: options.password_verifier,
                 clock: options.clock,
                 cancel: cancel.clone(),
+                push_policy: options.push_policy,
                 analytics: options.analytics,
             },
         )

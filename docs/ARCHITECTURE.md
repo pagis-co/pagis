@@ -258,7 +258,25 @@ inbound mail.
 A Notification is a Web Push from the daemon to each Push Subscription of
 the Person, when an item enters the Needs-You Queue (ADR-0030). It goes
 through the push service of a browser, or through the Push Relay to the
-Mobile App, and only the client decrypts it. It is not built.
+Mobile App, and only the client decrypts it.
+
+A daemon-lifetime task reads each `needs_you.added` event and sends the
+Notification of its item to each Push Subscription of that Workspace,
+each in a task of its own. No push goes when an item leaves the queue.
+The plaintext is the Declarative Web Push JSON: the name of the Agent,
+the line of the item, its place on the Public Origin, the queue count as
+the badge, and the Pagis fields `{v, item, kind, request?}`. It holds no
+content of a message, a tool input or a Credential. An Approval of a
+tool action or a credential action carries its Request, with the answers
+Approve once and Deny. Each push has `TTL: 86400`, `Urgency: high` for
+`approval`, `waiting` and `keypad` and `normal` for the other kinds, and
+a `Topic` from the hash of the item id.
+
+A push service that answers `404` or `410` ends the Push Subscription,
+and the daemon deletes it. A `429` gets one more send after its
+`Retry-After`, at most 300 s later. A delivery keeps the time of the
+send. The Person sends a test Notification to one Push Subscription from
+Settings, and the route answers what the push service answered.
 
 ### Audit
 
