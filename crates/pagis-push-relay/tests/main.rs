@@ -1,6 +1,7 @@
 //! The Push Relay over real HTTP: the router on a loopback port with an
 //! in-memory SQLite, and the binary with a SQLite file.
 
+mod apns;
 mod push;
 
 use std::io::{BufRead, BufReader};
@@ -677,4 +678,104 @@ fn the_binary_stops_at_start_and_names_a_missing_variable() {
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("PUSH_RELAY_PUBLIC_ORIGIN"), "{stderr}");
+}
+
+/// The binary with the required variables and `extra`, on a free port
+/// with a SQLite file in `directory`.
+fn relay_command(directory: &std::path::Path, extra: &[(&str, &str)]) -> Command {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_pagis-push-relay"));
+    command
+        .env_clear()
+        .env("PUSH_RELAY_PUBLIC_ORIGIN", PUBLIC_ORIGIN)
+        .env("PUSH_RELAY_DATABASE", directory.join("relay.sqlite"))
+        .env("PUSH_RELAY_BIND", "127.0.0.1:0")
+        .envs(extra.iter().copied())
+        .stdin(Stdio::null());
+    command
+}
+
+/// The four APNs variables, with the key in `key_path`.
+fn apns_variables(key_path: &str) -> [(&'static str, &str); 4] {
+    [
+        ("PUSH_RELAY_APNS_KEY_PATH", key_path),
+        ("PUSH_RELAY_APNS_KEY_ID", "ABC123DEFG"),
+        ("PUSH_RELAY_APNS_TEAM_ID", "DEF123GHIJ"),
+        ("PUSH_RELAY_APNS_TOPIC", "app.pagis.mobile"),
+    ]
+}
+
+#[test]
+fn a_partial_apns_setting_stops_the_binary_and_names_the_missing_variable() {
+    let directory = tempfile::tempdir().expect("a temporary directory");
+    let all = apns_variables("/run/secrets/apns.p8");
+    let partial = [all[0], all[1], all[3]];
+
+    let output = relay_command(directory.path(), &partial)
+        .output()
+        .expect("the relay runs");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("PUSH_RELAY_APNS_TEAM_ID"), "{stderr}");
+    assert!(!directory.path().join("relay.sqlite").exists());
+}
+
+#[test]
+fn an_apns_key_that_does_not_parse_stops_the_binary() {
+    let directory = tempfile::tempdir().expect("a temporary directory");
+    let key_path = directory.path().join("apns.p8");
+    std::fs::write(&key_path, "this is not a PEM key").expect("write the file");
+    let key_path = key_path.to_str().expect("a UTF-8 path");
+
+    let output = relay_command(directory.path(), &apns_variables(key_path))
+        .output()
+        .expect("the relay runs");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("PUSH_RELAY_APNS_KEY_PATH"), "{stderr}");
+    assert!(stderr.contains(key_path), "{stderr}");
+    assert!(!directory.path().join("relay.sqlite").exists());
+}
+
+#[tokio::test]
+async fn the_binary_with_an_apns_key_serves_ios_and_no_other_platform() {
+    use p256::pkcs8::{EncodePrivateKey, LineEnding};
+
+    let directory = tempfile::tempdir().expect("a temporary directory");
+    let key_path = directory.path().join("apns.p8");
+    let key = p256::SecretKey::from_slice(&[3; 32]).expect("a P-256 scalar");
+    let pem = key.to_pkcs8_pem(LineEnding::LF).expect("a PKCS#8 PEM");
+    std::fs::write(&key_path, pem.as_bytes()).expect("write the key");
+    let mut child = relay_command(
+        directory.path(),
+        &apns_variables(key_path.to_str().expect("a UTF-8 path")),
+    )
+    .stdout(Stdio::piped())
+    .stderr(Stdio::null())
+    .spawn()
+    .expect("the relay starts");
+    let lines = output_lines(&mut child);
+    let origin = listening_origin(&lines);
+    let client = reqwest::Client::new();
+    let register = |body: Value| {
+        client
+            .post(format!("{origin}/v1/registrations"))
+            .json(&body)
+            .send()
+    };
+
+    let ios = register(ios_body()).await;
+    let android = register(android_body()).await;
+
+    let _ = child.kill();
+    let _ = child.wait();
+    assert_eq!(
+        ios.expect("the relay answers").status(),
+        StatusCode::CREATED
+    );
+    assert_eq!(
+        android.expect("the relay answers").status(),
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
 }

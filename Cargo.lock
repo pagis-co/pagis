@@ -4574,6 +4574,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "web-push-native",
+ "wiremock",
 ]
 
 [[package]]

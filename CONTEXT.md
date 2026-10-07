@@ -148,8 +148,8 @@ for an installation of the Mobile App and forwards the ciphertext to APNs
 or FCM. It holds the APNs and FCM keys and never a key that decrypts a
 payload. It registers an installation and gives it an endpoint that
 holds a random id and never the device token. For each Web Push it
-checks the VAPID token, the size and the rate. The forward to APNs and
-FCM is not built (ADR-0030).
+checks the VAPID token, the size and the rate, and forwards it to APNs
+with its own provider token. The forward to FCM is not built (ADR-0030).
 
 ### Release Marker
 The file `runtime-release` in the State Directory, which holds the newest

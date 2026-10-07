@@ -14,6 +14,8 @@ axum.workspace = true
 base64.workspace = true
 p256.workspace = true
 rand.workspace = true
+# APNs takes only HTTP/2.
+reqwest = { workspace = true, features = ["http2"] }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
@@ -26,9 +28,9 @@ url.workspace = true
 
 [dev-dependencies]
 pagis-push.workspace = true
-reqwest.workspace = true
 tempfile.workspace = true
 web-push-native.workspace = true
+wiremock.workspace = true
 
 [[test]]
 name = "main"

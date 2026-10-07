@@ -9,6 +9,10 @@ const PUBLIC_ORIGIN: &str = "PUSH_RELAY_PUBLIC_ORIGIN";
 const DATABASE: &str = "PUSH_RELAY_DATABASE";
 const BIND: &str = "PUSH_RELAY_BIND";
 const TRUSTED_PROXY: &str = "PUSH_RELAY_TRUSTED_PROXY";
+const APNS_KEY_PATH: &str = "PUSH_RELAY_APNS_KEY_PATH";
+const APNS_KEY_ID: &str = "PUSH_RELAY_APNS_KEY_ID";
+const APNS_TEAM_ID: &str = "PUSH_RELAY_APNS_TEAM_ID";
+const APNS_TOPIC: &str = "PUSH_RELAY_APNS_TOPIC";
 
 const PUBLIC_ORIGIN_FORM: &str = "the https origin of the relay, such as https://push.pagis.co";
 const DATABASE_FORM: &str = "the path of the SQLite file of the relay, such as /data/relay.sqlite";
@@ -77,6 +81,22 @@ pub struct Settings {
     pub database: PathBuf,
     pub bind: SocketAddr,
     pub trusted_proxy: TrustedProxy,
+    /// The APNs key and the app, or `None` when the relay serves no
+    /// `ios` registration.
+    pub apns: Option<ApnsSettings>,
+}
+
+/// What the relay needs to send to APNs with a token-based connection.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApnsSettings {
+    /// The `.p8` file of the APNs key: a P-256 private key in PKCS#8 PEM.
+    pub key_path: PathBuf,
+    /// The 10-character id of the APNs key.
+    pub key_id: String,
+    /// The 10-character id of the Apple developer team.
+    pub team_id: String,
+    /// The bundle id of the Mobile App, `app.pagis.mobile` (ADR-0032).
+    pub topic: String,
 }
 
 /// A setting that stops the relay at start. The message names the
@@ -94,6 +114,25 @@ pub enum SettingsError {
         value: String,
         expected: &'static str,
     },
+    #[error(
+        "some {service} variables are set and some are not; set {}, or remove \
+         each {service} variable so that the relay serves no {platform} registration",
+        names(.missing)
+    )]
+    Partial {
+        service: &'static str,
+        platform: &'static str,
+        missing: Vec<&'static str>,
+    },
+}
+
+/// `A`, `A and B`, or `A, B and C`.
+fn names(names: &[&str]) -> String {
+    match names {
+        [] => String::new(),
+        [only] => (*only).to_string(),
+        [first @ .., last] => format!("{} and {last}", first.join(", ")),
+    }
 }
 
 impl Settings {
@@ -114,13 +153,55 @@ impl Settings {
             Some(value) => TrustedProxy::at(parsed(TRUSTED_PROXY, value, TRUSTED_PROXY_FORM)?),
             None => TrustedProxy::none(),
         };
+        let apns = all_or_none(
+            &read,
+            [APNS_KEY_PATH, APNS_KEY_ID, APNS_TEAM_ID, APNS_TOPIC],
+            "APNs",
+            "ios",
+        )?
+        .map(|[key_path, key_id, team_id, topic]| ApnsSettings {
+            key_path: PathBuf::from(key_path),
+            key_id,
+            team_id,
+            topic,
+        });
         Ok(Self {
             public_origin,
             database,
             bind,
             trusted_proxy,
+            apns,
         })
     }
+}
+
+/// The values of the variables of one push service: all of them, or
+/// `None` when none is set. Some but not all is an error that names each
+/// missing variable.
+fn all_or_none<const N: usize>(
+    read: &dyn Fn(&str) -> Option<String>,
+    names: [&'static str; N],
+    service: &'static str,
+    platform: &'static str,
+) -> Result<Option<[String; N]>, SettingsError> {
+    let values = names.map(read);
+    let missing: Vec<&'static str> = names
+        .iter()
+        .zip(&values)
+        .filter(|(_, value)| value.is_none())
+        .map(|(name, _)| *name)
+        .collect();
+    if missing.len() == N {
+        return Ok(None);
+    }
+    if !missing.is_empty() {
+        return Err(SettingsError::Partial {
+            service,
+            platform,
+            missing,
+        });
+    }
+    Ok(Some(values.map(|value| value.unwrap_or_default())))
 }
 
 fn parsed<T: std::str::FromStr>(
@@ -255,6 +336,68 @@ mod tests {
             message(&[ORIGIN, DATABASE, ("PUSH_RELAY_BIND", "localhost")]),
             "PUSH_RELAY_BIND is \"localhost\", which is not an IP address and a \
              port, such as 127.0.0.1:8080"
+        );
+    }
+
+    const APNS: [(&str, &str); 4] = [
+        ("PUSH_RELAY_APNS_KEY_PATH", "/run/secrets/apns.p8"),
+        ("PUSH_RELAY_APNS_KEY_ID", "ABC123DEFG"),
+        ("PUSH_RELAY_APNS_TEAM_ID", "DEF123GHIJ"),
+        ("PUSH_RELAY_APNS_TOPIC", "app.pagis.mobile"),
+    ];
+
+    #[test]
+    fn no_apns_variable_serves_no_ios() {
+        let settings = read(&[ORIGIN, DATABASE]).expect("the settings");
+
+        assert_eq!(settings.apns, None);
+    }
+
+    #[test]
+    fn the_four_apns_variables_make_the_apns_settings() {
+        let settings = read(&[&[ORIGIN, DATABASE][..], &APNS[..]].concat()).expect("the settings");
+
+        assert_eq!(
+            settings.apns,
+            Some(ApnsSettings {
+                key_path: PathBuf::from("/run/secrets/apns.p8"),
+                key_id: "ABC123DEFG".to_string(),
+                team_id: "DEF123GHIJ".to_string(),
+                topic: "app.pagis.mobile".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn a_partial_apns_setting_names_each_missing_variable() {
+        let partial = [ORIGIN, DATABASE, APNS[0], APNS[2]];
+
+        assert_eq!(
+            message(&partial),
+            "some APNs variables are set and some are not; set \
+             PUSH_RELAY_APNS_KEY_ID and PUSH_RELAY_APNS_TOPIC, or remove each \
+             APNs variable so that the relay serves no ios registration"
+        );
+        assert_eq!(
+            message(&[ORIGIN, DATABASE, APNS[3]]),
+            "some APNs variables are set and some are not; set \
+             PUSH_RELAY_APNS_KEY_PATH, PUSH_RELAY_APNS_KEY_ID and \
+             PUSH_RELAY_APNS_TEAM_ID, or remove each APNs variable so that the \
+             relay serves no ios registration"
+        );
+        assert_eq!(
+            message(&[
+                ORIGIN,
+                DATABASE,
+                APNS[0],
+                APNS[1],
+                APNS[2],
+                ("PUSH_RELAY_APNS_TOPIC", " ")
+            ]),
+            "some APNs variables are set and some are not; set \
+             PUSH_RELAY_APNS_TOPIC, or remove each APNs variable so that the \
+             relay serves no ios registration",
+            "an empty value is not set"
         );
     }
 
