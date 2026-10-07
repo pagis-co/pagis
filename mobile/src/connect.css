@@ -16,6 +16,11 @@ body {
   background: var(--ground);
   color: var(--text);
   font-family: var(--font-sans);
+}
+
+/* Body text is 15 px. The root keeps the browser default, as in the
+ * Product App, so the rem tokens stay at their intended pixel sizes. */
+body {
   font-size: var(--text-md);
   line-height: var(--leading-normal);
 }
@@ -55,6 +60,8 @@ body {
   background: var(--panel);
   color: var(--text);
   font: inherit;
+  /* WebKit on iOS zooms the page into a field with text under 16px. */
+  font-size: 1rem;
 }
 
 .connect input:hover {
