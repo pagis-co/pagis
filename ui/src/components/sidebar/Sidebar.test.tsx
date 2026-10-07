@@ -65,10 +65,22 @@ const channels = [
   },
 ]
 
-const pendingRequests = [
-  { id: 'req-1', agent_id: 'ag-1', kind: 'tool_action', state: 'pending', payload: {}, created_at: 1 },
-  { id: 'req-2', agent_id: 'ag-1', kind: 'tool_action', state: 'pending', payload: {}, created_at: 2 },
-]
+// The daemon's Needs-You Queue: two decisions wait.
+const needsYou = {
+  items: ['req-1', 'req-2'].map((requestId, index) => ({
+    kind: 'approval',
+    id: `request:${requestId}`,
+    agent_id: 'ag-1',
+    line: 'Sage needs your approval',
+    url: '/',
+    at: index,
+    request_id: requestId,
+    request_kind: 'tool_action',
+    title: 'An action',
+    body: '',
+  })),
+  count: 2,
+}
 
 function stubApi(userName: string | null, captureDays: number | null = null) {
   return {
@@ -88,7 +100,7 @@ function stubApi(userName: string | null, captureDays: number | null = null) {
       if (path === '/api/v1/user') {
         return { data: { name: userName, model_request_capture_days: captureDays } }
       }
-      if (path === '/api/v1/requests') return { data: { items: pendingRequests } }
+      if (path === '/api/v1/needs-you') return { data: needsYou }
       return { data: { items: [] } }
     }),
     POST: vi.fn(async () => ({

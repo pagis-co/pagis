@@ -90,6 +90,7 @@ export function shellResponse(path: string): { data: unknown } {
     return { data: { state: 'off', percent: null, holder: 'agent' } }
   }
   if (path === '/api/v1/memory/feed') return { data: { items: [] } }
+  if (path === '/api/v1/needs-you') return { data: { items: [], count: 0 } }
   if (path === '/api/v1/calls/{call_id}') {
     return {
       data: {

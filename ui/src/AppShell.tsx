@@ -36,6 +36,7 @@ import {
   agentsKey,
   workspaceKey,
   callKey,
+  needsYouKey,
   pendingRequestsKey,
   pluginKey,
   pluginsKey,
@@ -347,6 +348,12 @@ export function AppShell() {
               })
             }
           }
+          // The daemon derives the Needs-You Queue, and tells each client
+          // when an item enters or leaves it (ADR-0030). Home and the
+          // sidebar count read the queue again.
+          if (frame.type === 'needs_you.added' || frame.type === 'needs_you.removed') {
+            void queryClient.invalidateQueries({ queryKey: needsYouKey })
+          }
           if (frame.type.startsWith('request.')) {
             void queryClient.invalidateQueries({ queryKey: pendingRequestsKey })
           }
@@ -376,17 +383,10 @@ export function AppShell() {
           // truth, so a call event that changes it refetches it; a
           // transcript line is buffered until the next read carries it.
           if (frame.type.startsWith('call.')) {
-            // Home's missed-call queue reads the calls list, so a call
-            // that starts or ends drops that cache. A
-            // transcript line changes no Call record and comes once
-            // per spoken line, so it drops nothing.
-            if (frame.type !== 'call.transcript') {
-              void queryClient.invalidateQueries({ queryKey: ['calls'] })
-            }
             // A wrong keypad code moves the failed-attempt count of the
             // Workspace, and a correct one clears it before the call is
-            // answered or while it runs (ADR-0021). The keypad notice
-            // and the Keypad Code card read that count.
+            // answered or while it runs (ADR-0021). The Keypad Code card
+            // reads that count.
             if (
               frame.type === 'call.keypad_failed' ||
               frame.type === 'call.answered' ||

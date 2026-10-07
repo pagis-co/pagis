@@ -19,9 +19,15 @@ import {
   Sidebar as SidebarShell,
   cx,
 } from '../../primitives'
-import { useAgents, useChannels, useUser, useUserName, useWorkspace } from '../../queries'
+import {
+  useAgents,
+  useChannels,
+  useNeedsYou,
+  useUser,
+  useUserName,
+  useWorkspace,
+} from '../../queries'
 import { useIsMobile } from '../../state/useIsMobile'
-import { useQueue } from '../home/useQueue'
 import { ConversationRow } from './ConversationRow'
 import { conversationRows } from './conversations'
 import { NewGroupForm } from './NewGroupForm'
@@ -58,7 +64,7 @@ export function Sidebar({
   const workspace = useWorkspace(api)
   const userName = useUserName(api)
   const captureDays = useUser(api).data?.model_request_capture_days ?? null
-  const queue = useQueue(api)
+  const needsYou = useNeedsYou(api).data?.count ?? 0
   const [creating, setCreating] = useState(false)
   const isMobile = useIsMobile()
   // A conversation holds the mark, so no place does.
@@ -103,9 +109,9 @@ export function Sidebar({
           >
             <place.icon size={16} aria-hidden />
             <span>{place.label}</span>
-            {place.id === 'home' && !queue.isPending && queue.items.length > 0 && (
-              <span className="place-count" aria-label={`${queue.items.length} need you`}>
-                {queue.items.length}
+            {place.id === 'home' && needsYou > 0 && (
+              <span className="place-count" aria-label={`${needsYou} need you`}>
+                {needsYou}
               </span>
             )}
           </Button>

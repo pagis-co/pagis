@@ -1201,9 +1201,8 @@ that wait for an approval. The daemon derives it, and Home, the sidebar
 count, the app badge and each Notification read it. The daemon publishes
 an event when an item enters or leaves the queue. A failed Run or a
 missed Call leaves the queue when the Person acts on it or dismisses it;
-the record keeps the time of the dismissal. Not built: the read of
-the daemon's queue by Home and the sidebar count. The UI derives its own
-copy with the same rules (ADR-0022, ADR-0021, ADR-0030).
+the record keeps the time of the dismissal (ADR-0022, ADR-0021,
+ADR-0030).
 
 ### Notification
 A Web Push to each Push Subscription of the Person when an item enters the

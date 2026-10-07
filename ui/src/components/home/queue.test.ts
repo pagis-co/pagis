@@ -1,296 +1,157 @@
-// The rules Home reads: what joins the queue, in which order,
-// what each line says, and which agents get a thumbnail.
+// What Home adds to an item of the daemon's Needs-You Queue: the
+// detail that depends on the reader's locale, the action of each kind,
+// and the message that the Call back action writes.
 
 import { describe, expect, it } from 'vitest'
 
-import type { CallSummaryDto, KeypadCodeDto, RequestDto, RunDto } from '../../api/client'
-import type { LiveRun } from '../../state/presence'
+import type { NeedsYouItem } from '../../api/client'
 import { formatClock } from '../../timeline'
-import {
-  buildQueue,
-  callBackDraft,
-  missedCallItem,
-  queueAction,
-  queueLine,
-  type KeypadItem,
-  type QueueItem,
-} from './queue'
+import { callBackDraft, isDismissible, queueAction, queueDetail, type QueueItem } from './queue'
 
 const NOW = Date.UTC(2026, 8, 5, 12, 0, 0)
-const YESTERDAY = NOW - 86_400_000
 
-function run(fields: Partial<RunDto>): RunDto {
-  return {
-    id: 'run-1',
-    agent_id: 'agent-1',
-    channel_id: 'channel-1',
-    root_message_id: null,
-    trigger_kind: 'message',
-    trigger_ref: null,
-    hop_count: 0,
-    state: 'completed',
-    error: null,
-    started_at: NOW,
-    ended_at: NOW,
-    created_at: NOW,
-    duration_ms: 600,
-    ...fields,
-  }
+type Item<Kind extends NeedsYouItem['kind']> = Extract<NeedsYouItem, { kind: Kind }>
+
+const approval: Item<'approval'> = {
+  kind: 'approval',
+  id: 'request:request-1',
+  agent_id: 'agent-1',
+  line: 'Sage needs your approval',
+  url: '/c/channel-1',
+  at: NOW,
+  request_id: 'request-1',
+  request_kind: 'tool_action',
+  title: 'Open a file',
+  body: 'host__read',
 }
 
-function call(fields: Partial<CallSummaryDto>): CallSummaryDto {
+const waiting: Item<'waiting'> = {
+  kind: 'waiting',
+  id: 'run:run-9',
+  agent_id: 'agent-1',
+  line: 'Sage waits for your answer',
+  url: '/c/channel-1',
+  at: NOW,
+  run_id: 'run-9',
+  channel_id: 'channel-1',
+}
+
+function call(fields: Partial<Item<'call'>> = {}): Item<'call'> {
   return {
-    id: 'call-1',
+    kind: 'call',
+    id: 'call:call-1',
     agent_id: 'agent-1',
-    agent_name: 'Sage',
-    own_e164: '+14155550123',
-    direction: 'inbound',
+    line: 'Sage missed a call from +14155550199',
+    url: '/',
+    at: NOW,
+    call_id: 'call-1',
     remote_e164: '+14155550199',
-    purpose: '',
-    tier: 'unknown',
-    state: 'ended',
-    outcome: 'no_answer',
-    ended_reason: 'no_answer',
-    classification: null,
-    message_left: false,
-    recording_artifact_id: null,
-    created_at: NOW,
-    answered_at: null,
-    ended_at: NOW,
+    left_message: false,
     ...fields,
   }
 }
 
-function request(fields: Partial<RequestDto>): RequestDto {
+function failed(fields: Partial<Item<'failed'>> = {}): Item<'failed'> {
   return {
-    id: 'request-1',
+    kind: 'failed',
+    id: 'run:run-2',
     agent_id: 'agent-1',
-    run_id: 'run-1',
-    kind: 'tool_action',
-    state: 'pending',
-    payload: { action_title: 'Open a file', body: 'host__read' },
-    created_at: NOW,
-    decided_at: null,
+    line: 'Sage could not finish the work',
+    url: '/runs/run-2',
+    at: NOW,
+    run_id: 'run-2',
+    channel_id: 'channel-1',
+    failure_kind: null,
     ...fields,
   }
 }
 
-function live(fields: Partial<LiveRun>): LiveRun {
+function keypad(suspendedUntil: number): Item<'keypad'> {
   return {
-    runId: 'run-9',
-    agentId: 'agent-1',
-    channelId: 'channel-1',
-    originChannelId: null,
-    state: 'waiting_for_user',
-    caption: 'Working on your message',
-    ...fields,
+    kind: 'keypad',
+    id: 'keypad',
+    line: 'Callers entered a wrong keypad code 6 times',
+    url: '/',
+    at: suspendedUntil,
+    failed_attempts: 6,
+    suspended_until: suspendedUntil,
   }
 }
 
-
-describe('buildQueue', () => {
-  it('takes the pending approvals, the waiting runs and the failures of today', () => {
-    const queue = buildQueue({
-      requests: [request({}), request({ id: 'request-2', state: 'approved' })],
-      liveRuns: [live({}), live({ runId: 'run-8', state: 'running' })],
-      failedRuns: [
-        run({ id: 'run-2', state: 'failed', error: 'the request timed out' }),
-        run({ id: 'run-3', state: 'completed' }),
-      ],
-      calls: [],
-      now: NOW,
-    })
-
-    expect(queue.map((item) => `${item.kind}:${item.id}`)).toEqual([
-      'approval:request-1',
-      'waiting:run-9',
-      'failed:run-2',
-    ])
-  })
-
-  it('leaves out a failure from an earlier day', () => {
-    const queue = buildQueue({
-      requests: [],
-      liveRuns: [],
-      failedRuns: [
-        run({ id: 'old', state: 'failed', ended_at: YESTERDAY, created_at: YESTERDAY }),
-      ],
-      calls: [],
-      now: NOW,
-    })
-
-    expect(queue).toEqual([])
-  })
-
-  it('takes the inbound calls of today that nobody answered, before the failures', () => {
-    const queue = buildQueue({
-      requests: [],
-      liveRuns: [],
-      failedRuns: [run({ id: 'plain', state: 'failed', error: 'the request timed out' })],
-      calls: [
-        call({ id: 'missed', outcome: 'no_answer' }),
-        call({ id: 'voicemail', outcome: 'voicemail', ended_at: NOW - 1000 }),
-        call({ id: 'answered', outcome: 'answered' }),
-        call({ id: 'outbound', direction: 'outbound', outcome: 'busy' }),
-        call({ id: 'live', state: 'live', outcome: null, ended_at: null }),
-        call({ id: 'old', outcome: 'failed', ended_at: YESTERDAY }),
-      ],
-      now: NOW,
-    })
-
-    expect(queue.map((item) => `${item.kind}:${item.id}`)).toEqual([
-      'call:missed',
-      'call:voicemail',
-      'failed:plain',
-    ])
-  })
-
-  it('leaves out a failure and a missed call the reader dismissed', () => {
-    const queue = buildQueue({
-      requests: [],
-      liveRuns: [],
-      failedRuns: [
-        run({ id: 'dismissed', state: 'failed', dismissed_at: NOW }),
-        run({ id: 'open', state: 'failed' }),
-      ],
-      calls: [call({ id: 'dismissed', dismissed_at: NOW }), call({ id: 'open' })],
-      now: NOW,
-    })
-
-    expect(queue.map((item) => `${item.kind}:${item.id}`)).toEqual(['call:open', 'failed:open'])
-  })
-
-  it('does not read a failed run with a call trigger as a missed call', () => {
-    const queue = buildQueue({
-      requests: [],
-      liveRuns: [],
-      failedRuns: [
-        run({ id: 'call-run', state: 'failed', trigger_kind: 'call', error: 'no_answer' }),
-      ],
-      calls: [],
-      now: NOW,
-    })
-
-    expect(queue.map((item) => item.kind)).toEqual(['failed'])
-  })
-})
-
-function keypad(fields: Partial<KeypadCodeDto>): KeypadCodeDto {
-  return { configured: true, failed_attempts: 0, suspended_until: null, ...fields }
-}
-
-/** The keypad notice of a queue, which the test expects there. */
-function keypadNotice(queue: QueueItem[]): KeypadItem {
-  const notice = queue.find((item): item is KeypadItem => item.kind === 'keypad')
-  if (notice === undefined) throw new Error('the queue holds no keypad notice')
-  return notice
-}
-
-describe('the keypad notice', () => {
-  it('joins the queue when a delay starts, and says when the delay ends', () => {
+describe('queueDetail', () => {
+  it('says when a keypad delay ends', () => {
     const until = NOW + 60_000
-    const queue = buildQueue({
-      requests: [request({})],
-      liveRuns: [],
-      failedRuns: [],
-      calls: [call({})],
-      keypad: keypad({ failed_attempts: 6, suspended_until: until }),
-      now: NOW,
-    })
 
-    expect(queue.map((item) => item.kind)).toEqual(['approval', 'keypad', 'call'])
-    const notice = keypadNotice(queue)
-    expect(queueLine(notice, 'Sage')).toBe('Callers entered a wrong keypad code 6 times')
-    expect(notice.detail).toBe(
+    expect(queueDetail(keypad(until), NOW)).toBe(
       `Pagis checks no keypad code until ${formatClock(until)}. Calls are still answered, as Unknown.`,
     )
-    expect(queueAction(notice)).toBe('Clear the count')
   })
 
-  it('names the day of a delay that ends on another day', () => {
+  it('names the day of a keypad delay that ends on another day', () => {
     // Thirty hours ends on another day in every time zone.
     const until = NOW + 30 * 3_600_000
-    const notice = keypadNotice(
-      buildQueue({
-        requests: [],
-        liveRuns: [],
-        failedRuns: [],
-        calls: [],
-        keypad: keypad({ failed_attempts: 17, suspended_until: until }),
-        now: NOW,
-      }),
-    )
 
     const day = new Date(until).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-    expect(notice.detail).toBe(
+    expect(queueDetail(keypad(until), NOW)).toBe(
       `Pagis checks no keypad code until ${day}, ${formatClock(until)}. Calls are still answered, as Unknown.`,
     )
   })
 
-  it('stays after the delay ends, until the count is cleared', () => {
+  it('says when a keypad delay ended, while the count stays', () => {
     const until = NOW - 60_000
-    const notice = keypadNotice(
-      buildQueue({
-        requests: [],
-        liveRuns: [],
-        failedRuns: [],
-        calls: [],
-        keypad: keypad({ failed_attempts: 7, suspended_until: until }),
-        now: NOW,
-      }),
-    )
 
-    expect(notice.detail).toBe(
+    expect(queueDetail(keypad(until), NOW)).toBe(
       `The delay ended at ${formatClock(until)}. The next wrong code starts a longer delay.`,
     )
   })
 
-  it('stays out of the queue while no delay has started', () => {
-    const queue = buildQueue({
-      requests: [],
-      liveRuns: [],
-      failedRuns: [],
-      calls: [],
-      keypad: keypad({ failed_attempts: 5 }),
-      now: NOW,
-    })
+  it('says why a run failed, from the kind of the failure', () => {
+    expect(queueDetail(failed({ failure_kind: 'call_failed' }), NOW)).toBe(
+      'Ended because the phone call failed',
+    )
+    expect(queueDetail(failed({ failure_kind: null }), NOW)).toBe('Ended with an error')
+  })
 
-    expect(queue).toEqual([])
+  it('says whether the caller of a missed call left a message', () => {
+    expect(queueDetail(call(), NOW)).toBe('Nobody answered.')
+    expect(queueDetail(call({ left_message: true }), NOW)).toBe('They left a message.')
+  })
+
+  it('gives a run that waits no caption', () => {
+    expect(queueDetail(waiting, NOW)).toBeNull()
   })
 })
 
-describe('queueLine', () => {
-  it('says what each kind asks of the reader', () => {
-    const [approval, waiting, missed, failed] = buildQueue({
-      requests: [request({})],
-      liveRuns: [live({})],
-      failedRuns: [run({ id: 'run-2', state: 'failed' })],
-      calls: [call({})],
-      now: NOW,
-    })
+describe('queueAction', () => {
+  it('names the control that settles each kind', () => {
+    const items: QueueItem[] = [waiting, keypad(NOW), call(), failed()]
 
-    expect(queueLine(approval, 'Sage')).toBe('Sage needs your approval')
-    expect(queueLine(waiting, 'Sage')).toBe('Sage waits for your answer')
-    expect(queueLine(missed, 'Sage')).toBe('Sage missed a call from +14155550199')
-    expect(queueLine(failed, 'Sage')).toBe('Sage could not finish the work')
-    expect(queueAction(waiting)).toBe('Open conversation')
-    expect(queueAction(missed)).toBe('Call back')
-    expect(queueAction(failed)).toBe('Open run')
+    expect(items.map(queueAction)).toEqual([
+      'Open conversation',
+      'Clear the count',
+      'Call back',
+      'Open run',
+    ])
+  })
+})
+
+describe('isDismissible', () => {
+  it('lets the reader dismiss only a missed call and a failure', () => {
+    const items: QueueItem[] = [approval, waiting, keypad(NOW), call(), failed()]
+
+    expect(items.filter(isDismissible).map((item) => item.kind)).toEqual(['call', 'failed'])
   })
 })
 
 describe('callBackDraft', () => {
   it('asks the agent to call the number back, in the words of the reader', () => {
-    expect(callBackDraft(missedCallItem(call({})))).toBe(
+    expect(callBackDraft(call())).toBe(
       'Please call +14155550199 back. They called and nobody answered.',
     )
   })
 
   it('says the caller left a message, so the draft agrees with the row', () => {
-    const item = missedCallItem(call({ outcome: 'voicemail' }))
-
-    expect(item.detail).toBe('They left a message.')
-    expect(callBackDraft(item)).toBe(
+    expect(callBackDraft(call({ left_message: true }))).toBe(
       'Please call +14155550199 back. They called and left a message.',
     )
   })

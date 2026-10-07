@@ -91,9 +91,12 @@ const FAILURE_TEXT: Record<NonNullable<RunDto['failure_kind']>, string> = {
 
 export function failureText(run: RunDto): string | null {
   if (run.state !== 'failed') return null
-  return run.failure_kind == null
-    ? 'Ended with an error'
-    : FAILURE_TEXT[run.failure_kind]
+  return failureKindText(run.failure_kind)
+}
+
+/** The recorded cause of a failed run in plain words. */
+export function failureKindText(kind: RunDto['failure_kind']): string {
+  return kind == null ? 'Ended with an error' : FAILURE_TEXT[kind]
 }
 
 /** How long the run took, or what it is doing instead. */

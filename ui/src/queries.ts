@@ -18,10 +18,9 @@ import type {
   ApiClient,
   AgentDto,
   BindingValueRequest,
-  CallSummaryDto,
   MessageDto,
+  NeedsYouQueue,
   PluginSourceRequest,
-  RunDto,
   SystemSettingsBody,
   ThreadDto,
   TimelineItem,
@@ -102,8 +101,6 @@ export const mailboxNameKey = (connectionId: string, localPart: string) =>
   ["mailbox-name", connectionId, localPart] as const;
 export const trustListKey = ["trust-list"] as const;
 export const callKey = (callId: string) => ["call", callId] as const;
-export const callsKey = (agentId: string, direction: string, state: string) =>
-  ["calls", agentId, direction, state] as const;
 export const mailMessageKey = (mailbox: string, messageId: string) =>
   ["mail-message", mailbox, messageId] as const;
 export const availableNumbersKey = (
@@ -119,6 +116,7 @@ export const widgetPageKey = (
 export const widgetViewKey = (toolCallId: string) =>
   ["widget-view", toolCallId] as const;
 export const pendingRequestsKey = ["requests", "pending"] as const;
+export const needsYouKey = ["needs-you"] as const;
 export const schedulesKey = ["schedules"] as const;
 export const scheduleKey = (scheduleId: string) =>
   ["schedule", scheduleId] as const;
@@ -1252,10 +1250,9 @@ export function useRunTranscript(api: ApiClient, runId: string | null) {
   });
 }
 
-/** The reader dismisses a Run from the Needs-You Queue. Every cached
- *  runs list marks it at once, so the item leaves the queue before the
- *  daemon answers; the `run.dismissed` WS event refreshes the other
- *  clients. */
+/** The reader dismisses a failed Run from the Needs-You Queue. The
+ *  item leaves the cached queue at once, before the daemon answers; the
+ *  `needs_you.removed` WS event refreshes the other clients. */
 export function useDismissRun(api: ApiClient) {
   const queryClient = useQueryClient();
   return useMutation({
@@ -1265,15 +1262,8 @@ export function useDismissRun(api: ApiClient) {
           params: { path: { run_id: runId } },
         }),
       ),
-    onMutate: (runId) => {
-      const at = Date.now();
-      queryClient.setQueriesData<RunDto[]>({ queryKey: ["runs"] }, (runs) =>
-        runs?.map((run) =>
-          run.id === runId ? { ...run, dismissed_at: run.dismissed_at ?? at } : run,
-        ),
-      );
-    },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: ["runs"] }),
+    onMutate: (runId) => dropNeedsYouItem(queryClient, `run:${runId}`),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: needsYouKey }),
   });
 }
 
@@ -2106,6 +2096,28 @@ export function usePendingRequests(api: ApiClient) {
   });
 }
 
+/** The Needs-You Queue, as the daemon derives it (ADR-0022, ADR-0030):
+ *  the items in the order of the queue, and their count. Home and the
+ *  sidebar count read it. The `needs_you.*` WS events invalidate it. */
+export function useNeedsYou(api: ApiClient) {
+  return useQuery({
+    queryKey: needsYouKey,
+    queryFn: () => unwrap(api.GET("/api/v1/needs-you")),
+    staleTime: Infinity,
+  });
+}
+
+/** Takes one item out of the cached Needs-You Queue, so a dismissed
+ *  item leaves Home and the sidebar count before the daemon answers. */
+async function dropNeedsYouItem(queryClient: QueryClient, itemId: string) {
+  await queryClient.cancelQueries({ queryKey: needsYouKey });
+  queryClient.setQueryData<NeedsYouQueue>(needsYouKey, (queue) => {
+    if (queue === undefined) return queue;
+    const items = queue.items.filter((item) => item.id !== itemId);
+    return { items, count: items.length };
+  });
+}
+
 export function useSchedules(api: ApiClient) {
   return useQuery({
     queryKey: schedulesKey,
@@ -2366,33 +2378,6 @@ export function useCall(api: ApiClient, callId: string) {
   });
 }
 
-/** One page of Call records, newest first. Home reads the
- *  inbound calls that ended, so it can name the ones nobody answered.
- *  The `call.*` firehose frames drop this cache, so a call that ends
- *  reaches the queue with no reload. */
-export function useCalls(
-  api: ApiClient,
-  agentId: string,
-  direction: string,
-  state: string,
-) {
-  return useQuery({
-    queryKey: callsKey(agentId, direction, state),
-    queryFn: () =>
-      unwrap(
-        api.GET("/api/v1/calls", {
-          params: {
-            query: {
-              agent_id: agentId || undefined,
-              direction: direction || undefined,
-              state: state || undefined,
-            },
-          },
-        }),
-      ).then((page) => page.items),
-  });
-}
-
 /** One message, read live through the daemon for the mail inspector
  *  (ADR-0019). Nothing is stored, so the answer is not cached
  *  beyond the open inspector, and a message the host no longer holds
@@ -2415,10 +2400,9 @@ export function useMailMessage(
   });
 }
 
-/** The reader dismisses a missed Call from the Needs-You Queue. Every
- *  cached calls list marks it at once, so the item leaves the queue
- *  before the daemon answers; the `call.dismissed` WS event refreshes
- *  the other clients. */
+/** The reader dismisses a missed Call from the Needs-You Queue. The
+ *  item leaves the cached queue at once, before the daemon answers; the
+ *  `needs_you.removed` WS event refreshes the other clients. */
 export function useDismissCall(api: ApiClient) {
   const queryClient = useQueryClient();
   return useMutation({
@@ -2428,15 +2412,8 @@ export function useDismissCall(api: ApiClient) {
           params: { path: { call_id: callId } },
         }),
       ),
-    onMutate: (callId) => {
-      const at = Date.now();
-      queryClient.setQueriesData<CallSummaryDto[]>({ queryKey: ["calls"] }, (calls) =>
-        calls?.map((call) =>
-          call.id === callId ? { ...call, dismissed_at: call.dismissed_at ?? at } : call,
-        ),
-      );
-    },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: ["calls"] }),
+    onMutate: (callId) => dropNeedsYouItem(queryClient, `call:${callId}`),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: needsYouKey }),
   });
 }
 
@@ -2535,7 +2512,11 @@ export function useClearKeypadFailures(api: ApiClient) {
   return useMutation({
     mutationFn: () =>
       expectNoContent(api.DELETE("/api/v1/settings/keypad-code/failures")),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: trustListKey }),
+    onSuccess: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: trustListKey }),
+        queryClient.invalidateQueries({ queryKey: needsYouKey }),
+      ]),
   });
 }
 

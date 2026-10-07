@@ -1,14 +1,13 @@
 // Home, the Report of the Chief of Staff (ADR-0022): the date
-// and the brief line head the page, the queue carries the decision, a
-// frame that puts a run in front of the reader lands in the queue with
-// no reload, the Report prose reads under it, and the composer speaks
-// to the Chief of Staff.
+// and the brief line head the page, the daemon's Needs-You Queue
+// carries the decisions with an inline action on each row, the Report
+// prose reads under it, and the composer speaks to the Chief of Staff.
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 
-import type { ApiClient, CallSummaryDto, EventRow, RunDto } from '../../api/client'
+import type { ApiClient, EventRow, NeedsYouItem, RunDto } from '../../api/client'
 import { useComposerDraft } from '../../state/composerDraft'
 import { usePresence } from '../../state/presence'
 import { formatClock } from '../../timeline'
@@ -46,25 +45,77 @@ const pendingRequest = {
   decided_at: null,
 }
 
-function missedCall(fields: Partial<CallSummaryDto> = {}): CallSummaryDto {
+type Item<Kind extends NeedsYouItem['kind']> = Extract<NeedsYouItem, { kind: Kind }>
+
+function approval(fields: Partial<Item<'approval'>> = {}): Item<'approval'> {
   return {
-    id: 'call-1',
+    kind: 'approval',
+    id: 'request:request-1',
     agent_id: 'agent-1',
-    agent_name: 'Sage',
-    own_e164: '+14155550123',
-    direction: 'inbound',
+    line: 'Sage needs your approval',
+    url: '/c/channel-1',
+    at: NOW,
+    request_id: 'request-1',
+    request_kind: 'tool_action',
+    title: 'Open a file',
+    body: 'host__read',
+    ...fields,
+  }
+}
+
+function waiting(fields: Partial<Item<'waiting'>> = {}): Item<'waiting'> {
+  return {
+    kind: 'waiting',
+    id: 'run:run-7',
+    agent_id: 'agent-1',
+    line: 'Sage waits for your answer',
+    url: '/c/channel-1',
+    at: NOW,
+    run_id: 'run-7',
+    channel_id: 'channel-1',
+    ...fields,
+  }
+}
+
+function keypad(fields: Partial<Item<'keypad'>> = {}): Item<'keypad'> {
+  return {
+    kind: 'keypad',
+    id: 'keypad',
+    line: 'Callers entered a wrong keypad code 6 times',
+    url: '/',
+    at: NOW + 60_000,
+    failed_attempts: 6,
+    suspended_until: NOW + 60_000,
+    ...fields,
+  }
+}
+
+function missedCall(fields: Partial<Item<'call'>> = {}): Item<'call'> {
+  return {
+    kind: 'call',
+    id: 'call:call-1',
+    agent_id: 'agent-1',
+    line: 'Sage missed a call from +14155550199',
+    url: '/',
+    at: NOW,
+    call_id: 'call-1',
     remote_e164: '+14155550199',
-    purpose: '',
-    tier: 'unknown',
-    state: 'ended',
-    outcome: 'no_answer',
-    ended_reason: 'no_answer',
-    classification: null,
-    message_left: false,
-    recording_artifact_id: null,
-    created_at: NOW,
-    answered_at: null,
-    ended_at: NOW,
+    left_message: false,
+    ...fields,
+  }
+}
+
+function failure(fields: Partial<Item<'failed'>> = {}): Item<'failed'> {
+  return {
+    kind: 'failed',
+    id: 'run:run-2',
+    agent_id: 'agent-1',
+    line: 'Sage could not finish the work',
+    url: '/runs/run-2',
+    at: NOW,
+    run_id: 'run-2',
+    channel_id: 'channel-1',
+    failure_kind: 'tool_failed',
     ...fields,
   }
 }
@@ -86,17 +137,21 @@ const reportMessage = {
 
 function stubApi(
   options: {
-    requests?: unknown[]
-    calls?: CallSummaryDto[]
-    failRequests?: boolean
+    /** The items of the daemon's Needs-You Queue, in its order. */
+    queue?: NeedsYouItem[]
+    failQueue?: boolean
     chief?: string | null
     report?: unknown
     writingRunId?: string | null
-    keypad?: { failed_attempts: number; suspended_until: number | null }
-    failedRuns?: RunDto[]
+    /** The daemon holds the answer to a dismissal. */
+    holdDismissals?: boolean
   } = {},
 ) {
-  const post = vi.fn(async () => ({ data: { ok: true } }))
+  const post = vi.fn(async (path: string) =>
+    options.holdDismissals === true && path.endsWith('/dismiss')
+      ? new Promise<never>(() => undefined)
+      : { data: { ok: true } },
+  )
   const remove = vi.fn(async () => ({ error: undefined, response: { ok: true } }))
   const api = {
     GET: vi.fn(async (path: string, init?: { params?: { query?: { state?: string } } }) => {
@@ -141,26 +196,10 @@ function stubApi(
           },
         }
       }
-      if (path === '/api/v1/calls') {
-        return { data: { items: options.calls ?? [] } }
-      }
-      if (path === '/api/v1/settings/trust-list') {
-        return {
-          data: {
-            items: [],
-            own_addresses: [],
-            keypad_code: {
-              configured: true,
-              failed_attempts: 0,
-              suspended_until: null,
-              ...options.keypad,
-            },
-          },
-        }
-      }
-      if (path === '/api/v1/requests') {
-        if (options.failRequests) throw new Error('Unavailable')
-        return { data: { items: options.requests ?? [] } }
+      if (path === '/api/v1/needs-you') {
+        if (options.failQueue) throw new Error('Unavailable')
+        const items = options.queue ?? []
+        return { data: { items, count: items.length } }
       }
       if (path === '/api/v1/requests/{request_id}') {
         return { data: pendingRequest }
@@ -168,7 +207,6 @@ function stubApi(
       if (path === '/api/v1/runs') {
         const state = init?.params?.query?.state
         if (state === 'completed') return { data: { items: [run({ id: 'done-1' })] } }
-        if (state === 'failed') return { data: { items: options.failedRuns ?? [] } }
         return { data: { items: [] } }
       }
       return { data: { items: [] } }
@@ -225,16 +263,28 @@ beforeEach(() => {
   )
 })
 
-it('does not report an empty queue when approvals fail to load', async () => {
-  const options = { failRequests: true }
+it('does not report an empty queue when the queue fails to load', async () => {
+  const options = { failQueue: true }
   const { api } = stubApi(options)
   mount(api)
   expect(await screen.findByText('Could not load your decisions')).toBeTruthy()
   expect(screen.queryByText('Nothing needs you.')).toBeNull()
-  options.failRequests = false
+  options.failQueue = false
   fireEvent.click(within(screen.getByRole('region', { name: 'Needs you' })).getByRole('button', { name: 'Try again' }))
   expect(await screen.findByText('Nothing needs you.')).toBeTruthy()
 })
+
+/** The row of the queue that shows `line`. */
+async function queueRow(line: string): Promise<HTMLElement> {
+  return (await screen.findByText(line)).closest('li') as HTMLElement
+}
+
+/** The names of the buttons of one row. */
+function actions(row: HTMLElement): string[] {
+  return within(row)
+    .getAllByRole('button')
+    .map((button) => button.textContent ?? '')
+}
 
 describe('Needs you', () => {
   it('says plainly when nothing needs the reader', async () => {
@@ -244,8 +294,50 @@ describe('Needs you', () => {
     expect(await screen.findByText('Nothing needs you.')).toBeTruthy()
   })
 
+  it('renders the items of the daemon in its order, each with its inline action', async () => {
+    const { api } = stubApi({
+      queue: [approval(), waiting(), keypad(), missedCall(), failure()],
+    })
+    mount(api)
+
+    const section = screen.getByRole('region', { name: 'Needs you' })
+    await within(section).findByText('Sage could not finish the work')
+    const rows = within(section).getAllByRole('listitem')
+    expect(rows.map((row) => row.getAttribute('data-kind'))).toEqual([
+      'approval',
+      'waiting',
+      'keypad',
+      'call',
+      'failed',
+    ])
+    expect(within(section).getByText('5')).toBeTruthy()
+    expect(within(rows[0]).getByText('Sage needs your approval')).toBeTruthy()
+    expect(within(rows[0]).getByText('Open a file')).toBeTruthy()
+    // The approval card reads its Request before it shows the decision.
+    expect(await within(rows[0]).findByRole('button', { name: 'Approve' })).toBeTruthy()
+    expect(within(rows[0]).getByRole('button', { name: 'Deny' })).toBeTruthy()
+    expect(actions(rows[1])).toEqual(['Open conversation'])
+    expect(actions(rows[2])).toEqual(['Clear the count'])
+    expect(actions(rows[3])).toEqual(['Call back', 'Dismiss'])
+    expect(actions(rows[4])).toEqual(['Open run', 'Dismiss'])
+  })
+
+  it('keeps the order of the daemon inside one kind', async () => {
+    const { api } = stubApi({
+      queue: [
+        failure({ id: 'run:early', run_id: 'early', line: 'Nova could not finish the work', at: NOW - 60_000 }),
+        failure({ id: 'run:late', run_id: 'late', line: 'Sage could not finish the work', at: NOW }),
+      ],
+    })
+    mount(api)
+
+    await screen.findByText('Sage could not finish the work')
+    const lines = [...document.querySelectorAll('.home-queue-line')].map((line) => line.textContent)
+    expect(lines).toEqual(['Nova could not finish the work', 'Sage could not finish the work'])
+  })
+
   it('renders a pending approval with a working Approve', async () => {
-    const { api, post } = stubApi({ requests: [pendingRequest] })
+    const { api, post } = stubApi({ queue: [approval()] })
     mount(api)
 
     expect(await screen.findByText('Sage needs your approval')).toBeTruthy()
@@ -260,7 +352,7 @@ describe('Needs you', () => {
   })
 
   it('renders a pending approval with a working Deny', async () => {
-    const { api, post } = stubApi({ requests: [pendingRequest] })
+    const { api, post } = stubApi({ queue: [approval()] })
     mount(api)
 
     fireEvent.click(await screen.findByRole('button', { name: 'Deny' }))
@@ -273,36 +365,17 @@ describe('Needs you', () => {
     )
   })
 
-  it('adds a queue item from a run that waits for the user, with no reload', async () => {
-    const { api } = stubApi()
+  it('opens the conversation of a run that waits for the reader', async () => {
+    const { api } = stubApi({ queue: [waiting()] })
     const opened = mount(api)
-    expect(await screen.findByText('Nothing needs you.')).toBeTruthy()
 
-    frame('run.state_changed', {
-      run_id: 'run-7',
-      agent_id: 'agent-1',
-      channel_id: 'channel-1',
-      payload: { to: 'waiting_for_user', trigger_kind: 'message' },
-    })
-
-    expect(await screen.findByText('Sage waits for your answer')).toBeTruthy()
-    expect(screen.queryByText('Nothing needs you.')).toBeNull()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Open conversation' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Open conversation' }))
     expect(opened.channel).toEqual(['channel-1'])
   })
 
   it('draws a queue row in the one card frame, with one action in the footer', async () => {
-    const { api } = stubApi()
+    const { api } = stubApi({ queue: [waiting()] })
     mount(api)
-    expect(await screen.findByText('Nothing needs you.')).toBeTruthy()
-
-    frame('run.state_changed', {
-      run_id: 'run-7',
-      agent_id: 'agent-1',
-      channel_id: 'channel-1',
-      payload: { to: 'waiting_for_user', trigger_kind: 'message' },
-    })
 
     const line = await screen.findByText('Sage waits for your answer')
     const card = line.closest('.ui-frame')!
@@ -310,13 +383,15 @@ describe('Needs you', () => {
     expect(card.className).toContain('home-queue-card')
     expect(card.getAttribute('data-kind')).toBe('waiting')
     expect(card.querySelector('.home-queue-dot')).not.toBeNull()
+    // A run that waits shows its line and no caption.
+    expect(card.querySelector('.home-queue-detail')).toBeNull()
     const footer = card.querySelector('.block-card-footer')!
     expect(footer.querySelectorAll('button')).toHaveLength(1)
     expect(footer.textContent).toContain('Open conversation')
   })
 
   it('lands a missed call on the agent DM with the call back message written', async () => {
-    const { api } = stubApi({ calls: [missedCall()] })
+    const { api } = stubApi({ queue: [missedCall()] })
     const opened = mount(api)
 
     expect(await screen.findByText('Sage missed a call from +14155550199')).toBeTruthy()
@@ -330,10 +405,16 @@ describe('Needs you', () => {
     )
   })
 
+  it('says why a run failed, from the kind of the failure', async () => {
+    const { api } = stubApi({ queue: [failure({ failure_kind: 'tool_failed' })] })
+    mount(api)
+
+    const row = await queueRow('Sage could not finish the work')
+    expect(within(row).getByText('Ended because a tool failed')).toBeTruthy()
+  })
+
   it('dismisses a failure when the reader opens its run', async () => {
-    const { api, post } = stubApi({
-      failedRuns: [run({ id: 'run-2', state: 'failed', error: 'the request timed out' })],
-    })
+    const { api, post } = stubApi({ queue: [failure()] })
     const opened = mount(api)
 
     fireEvent.click(await screen.findByRole('button', { name: 'Open run' }))
@@ -347,14 +428,11 @@ describe('Needs you', () => {
   })
 
   it('dismisses a failure with no visit to its run', async () => {
-    const { api, post } = stubApi({
-      failedRuns: [run({ id: 'run-2', state: 'failed', error: 'the request timed out' })],
-    })
+    const { api, post } = stubApi({ queue: [failure()] })
     const opened = mount(api)
 
-    const line = await screen.findByText('Sage could not finish the work')
-    const card = line.closest('.ui-frame') as HTMLElement
-    fireEvent.click(within(card).getByRole('button', { name: 'Dismiss' }))
+    const row = await queueRow('Sage could not finish the work')
+    fireEvent.click(within(row).getByRole('button', { name: 'Dismiss' }))
 
     expect(opened.run).toEqual([])
     await waitFor(() =>
@@ -366,13 +444,21 @@ describe('Needs you', () => {
 
   it('dismisses a missed call when the reader calls back, or dismisses it alone', async () => {
     const { api, post } = stubApi({
-      calls: [missedCall(), missedCall({ id: 'call-2', remote_e164: '+14155550188' })],
+      queue: [
+        missedCall(),
+        missedCall({
+          id: 'call:call-2',
+          call_id: 'call-2',
+          remote_e164: '+14155550188',
+          line: 'Sage missed a call from +14155550188',
+        }),
+      ],
     })
     mount(api)
 
     fireEvent.click((await screen.findAllByRole('button', { name: 'Call back' }))[0])
-    const second = screen.getByText('Sage missed a call from +14155550188').closest('.ui-frame')
-    fireEvent.click(within(second as HTMLElement).getByRole('button', { name: 'Dismiss' }))
+    const second = await queueRow('Sage missed a call from +14155550188')
+    fireEvent.click(within(second).getByRole('button', { name: 'Dismiss' }))
 
     await waitFor(() => {
       expect(post).toHaveBeenCalledWith('/api/v1/calls/{call_id}/dismiss', {
@@ -384,6 +470,18 @@ describe('Needs you', () => {
     })
   })
 
+  it('takes a dismissed item out of the queue before the daemon answers', async () => {
+    const { api } = stubApi({ queue: [missedCall(), failure()], holdDismissals: true })
+    mount(api)
+
+    const call = await queueRow('Sage missed a call from +14155550199')
+    fireEvent.click(within(call).getByRole('button', { name: 'Dismiss' }))
+    const run = await queueRow('Sage could not finish the work')
+    fireEvent.click(within(run).getByRole('button', { name: 'Dismiss' }))
+
+    expect(await screen.findByText('Nothing needs you.')).toBeTruthy()
+  })
+
   it('tells the reader when a keypad delay starts, and clears the count', async () => {
     // Noon, so the end of the delay falls on the same day and reads as a
     // clock time with no date.
@@ -392,7 +490,7 @@ describe('Needs you', () => {
     onTestFinished(() => { vi.useRealTimers() })
     const until = Date.now() + 60_000
     const { api, remove } = stubApi({
-      keypad: { failed_attempts: 6, suspended_until: until },
+      queue: [keypad({ at: until, suspended_until: until })],
     })
     mount(api)
 
@@ -406,13 +504,6 @@ describe('Needs you', () => {
     await waitFor(() =>
       expect(remove).toHaveBeenCalledWith('/api/v1/settings/keypad-code/failures'),
     )
-  })
-
-  it('leaves an answered inbound call out of the queue', async () => {
-    const { api } = stubApi({ calls: [missedCall({ outcome: 'answered' })] })
-    mount(api)
-
-    expect(await screen.findByText('Nothing needs you.')).toBeTruthy()
   })
 })
 
