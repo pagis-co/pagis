@@ -18,6 +18,7 @@ final class NotificationResponder: NSObject, UNUserNotificationCenterDelegate {
         completionHandler([.banner, .list, .sound])
     }
 
+    /// A tap on the body of a Notification opens the place of its item.
     /// **Approve once** or **Deny** on a Notification of an Approval posts
     /// the decision. iOS can suspend the app after `completionHandler`, so
     /// the answer calls it after the request ends.
@@ -26,6 +27,13 @@ final class NotificationResponder: NSObject, UNUserNotificationCenterDelegate {
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
+        if response.actionIdentifier == UNNotificationDefaultActionIdentifier {
+            Task { @MainActor in
+                NotificationTap.shared.open(response.notification)
+                completionHandler()
+            }
+            return
+        }
         let request = response.notification.request
         guard request.content.categoryIdentifier == NotificationContent.approvalCategory,
               let decision = ApprovalDecision(action: response.actionIdentifier)

@@ -97,6 +97,23 @@ final class ServerOrigin {
         return path.toString();
     }
 
+    /**
+     * The place that a tap on a Notification opens on this origin: the
+     * path, the query and the fragment of {@code navigate} when it is a URL
+     * of this origin, and {@code /} for each other value. It is the rule of
+     * {@code mobile/src/navigate.ts}, so a Notification never takes the web
+     * view to another origin.
+     */
+    String place(String navigate) {
+        URI uri = uri(navigate);
+        if (uri == null || !equals(of(uri))) return "/";
+        String path = uri.getRawPath();
+        StringBuilder place = new StringBuilder(path == null || path.isEmpty() ? "/" : path);
+        if (uri.getRawQuery() != null) place.append('?').append(uri.getRawQuery());
+        if (uri.getRawFragment() != null) place.append('#').append(uri.getRawFragment());
+        return place.toString();
+    }
+
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof ServerOrigin)) return false;

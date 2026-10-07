@@ -70,4 +70,34 @@ final class WebOriginTests: XCTestCase {
         XCTAssertNil(server.page("https://ada@a.example/"))
         XCTAssertNil(server.page("not a url"))
     }
+
+    // MARK: - The place of a tap on a Notification
+
+    /// The rule of `mobile/src/navigate.ts`, with its cases.
+    func testATapOpensThePathQueryAndFragmentOfAPlaceOnTheServer() throws {
+        let server = try XCTUnwrap(WebOrigin.server("https://a.example", debug: false))
+
+        XCTAssertEqual(server.place(of: "https://a.example/c/abc?x=1"), "/c/abc?x=1")
+        XCTAssertEqual(server.place(of: "https://a.example/c/abc#card"), "/c/abc#card")
+        XCTAssertEqual(server.place(of: "https://A.Example:443/c/abc"), "/c/abc")
+        XCTAssertEqual(server.place(of: "https://a.example"), "/")
+    }
+
+    func testATapOnAPlaceOfAnotherOriginOpensTheRoot() throws {
+        let server = try XCTUnwrap(WebOrigin.server("https://a.example", debug: false))
+
+        XCTAssertEqual(server.place(of: "https://evil.example/c/abc"), "/")
+        XCTAssertEqual(server.place(of: "http://a.example/c/abc"), "/")
+        XCTAssertEqual(server.place(of: "https://a.example:8443/c/abc"), "/")
+    }
+
+    func testATapOnAValueThatIsNotAnHttpURLOpensTheRoot() throws {
+        let server = try XCTUnwrap(WebOrigin.server("https://a.example", debug: false))
+
+        XCTAssertEqual(server.place(of: "javascript:x"), "/")
+        XCTAssertEqual(server.place(of: "not a url"), "/")
+        XCTAssertEqual(server.place(of: "/c/abc"), "/")
+        XCTAssertEqual(server.place(of: nil), "/")
+        XCTAssertEqual(server.place(of: 7), "/")
+    }
 }

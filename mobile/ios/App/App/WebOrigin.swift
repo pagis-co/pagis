@@ -70,4 +70,25 @@ struct WebOrigin: Hashable {
         else { return nil }
         return url
     }
+
+    /// The place that a tap on a Notification opens on this origin: the
+    /// path, the query and the fragment of `navigate` when it is a URL of
+    /// this origin, and `/` for each other value. It is the rule of
+    /// `mobile/src/navigate.ts`, so a Notification never takes the web view
+    /// to another origin.
+    func place(of navigate: Any?) -> String {
+        guard let text = navigate as? String,
+              let components = URLComponents(string: text),
+              let url = components.url,
+              WebOrigin(url: url) == self
+        else { return "/" }
+        var place = components.percentEncodedPath.isEmpty ? "/" : components.percentEncodedPath
+        if let query = components.percentEncodedQuery {
+            place += "?\(query)"
+        }
+        if let fragment = components.percentEncodedFragment {
+            place += "#\(fragment)"
+        }
+        return place
+    }
 }

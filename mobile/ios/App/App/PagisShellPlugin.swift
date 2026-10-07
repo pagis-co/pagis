@@ -1,8 +1,9 @@
 import Capacitor
 import Foundation
 
-/// `PagisShell`, the plugin of the app target that the Connect screen
-/// calls (`mobile/src/shell.ts`).
+/// `PagisShell`, the plugin of the app target. The Connect screen calls it
+/// (`mobile/src/shell.ts`), and so does the Product App
+/// (`ui/src/mobileShell.ts`).
 @objc(PagisShellPlugin)
 final class PagisShellPlugin: CAPPlugin, CAPBridgedPlugin {
     let identifier = "PagisShellPlugin"
@@ -33,6 +34,14 @@ final class PagisShellPlugin: CAPPlugin, CAPBridgedPlugin {
         DispatchQueue.main.async { [weak self] in
             (self?.bridge?.viewController as? PagisViewController)?.open(server: server, firstPage: firstPage)
         }
+    }
+
+    /// Send the Product App the event `navigate` with the place of a tap on
+    /// a Notification, and the Product App moves its router. The page does
+    /// not load again. An event that comes before the Product App listens
+    /// waits for its first listener.
+    func navigate(to place: String) {
+        notifyListeners("navigate", data: ["path": place], retainUntilConsumed: true)
     }
 
     /// The Product App says that the Session ended. The shell deletes the
