@@ -40,7 +40,7 @@ final class KeychainSessionCopy: SessionCopy {
     private let accessGroup: String?
 
     init(
-        service: String = "app.pagis.mobile.session",
+        service: String = "co.pagis.mobile.session",
         accessGroup: String? = Bundle.main.object(forInfoDictionaryKey: "PagisKeychainAccessGroup") as? String
     ) {
         self.service = service

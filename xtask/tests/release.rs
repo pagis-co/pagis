@@ -699,8 +699,8 @@ fn the_macos_server_is_signed_packaged_notarized_stapled_and_locked() {
     assert!(script.contains("CSC_NAME"), "{script}");
     assert!(script.contains("APPLE_KEYCHAIN_PROFILE"), "{script}");
     assert!(script.contains("APPLE_KEYCHAIN"), "{script}");
-    assert!(script.contains("com.pagis.server"), "{script}");
-    assert!(script.contains("com.pagis.gog"), "{script}");
+    assert!(script.contains("co.pagis.server"), "{script}");
+    assert!(script.contains("co.pagis.gog"), "{script}");
     assert!(script.contains("codesign --verify --strict"), "{script}");
     assert!(script.contains("hdiutil create"), "{script}");
     assert!(script.contains("notarytool submit"), "{script}");

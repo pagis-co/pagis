@@ -30,7 +30,7 @@ final class StaleNotifications {
         tray: UNUserNotificationCenter.current()
     )
 
-    private static let log = Logger(subsystem: "app.pagis.mobile", category: "notifications")
+    private static let log = Logger(subsystem: "co.pagis.mobile", category: "notifications")
 
     private let queue: NeedsYouRead
     private let servers: ServerStore

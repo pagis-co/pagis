@@ -30,8 +30,8 @@ function fixture(extra?: string): { root: string; lock: DarwinRuntimeLock; sourc
   const source = path.join(root, 'mounted')
   fs.mkdirSync(source)
   const specs = [
-    ['pagis', 'server', 0o755, 'executable', 'com.pagis.server'],
-    ['gog', 'gog', 0o755, 'executable', 'com.pagis.gog'],
+    ['pagis', 'server', 0o755, 'executable', 'co.pagis.server'],
+    ['gog', 'gog', 0o755, 'executable', 'co.pagis.gog'],
     ['LICENSE', 'pagis license', 0o644, 'file', undefined],
     ['LICENSE.gog', 'license', 0o644, 'file', undefined],
     ['THIRD_PARTY_NOTICES', 'notices', 0o644, 'file', undefined],
@@ -118,9 +118,9 @@ describe('the client Runtime installer', () => {
       'verify-image',
       'mount-read-only',
       'write-quarantine:pagis',
-      'verify:pagis:com.pagis.server:ABCDE12345',
+      'verify:pagis:co.pagis.server:ABCDE12345',
       'write-quarantine:gog',
-      'verify:gog:com.pagis.gog:ABCDE12345',
+      'verify:gog:co.pagis.gog:ABCDE12345',
       'detach',
     ])
   })
@@ -214,7 +214,7 @@ describe('the client Runtime installer', () => {
 
     await installer.install(lock, { beforeReplace: async () => { calls.push('release-owner') } })
 
-    expect(calls.indexOf('release-owner')).toBeGreaterThan(calls.indexOf('verify:gog:com.pagis.gog:ABCDE12345'))
+    expect(calls.indexOf('release-owner')).toBeGreaterThan(calls.indexOf('verify:gog:co.pagis.gog:ABCDE12345'))
     expect(fs.readFileSync(installed, 'utf8')).toBe('server')
     expect(fs.existsSync(path.join(runtime, 'retained'))).toBe(false)
   })

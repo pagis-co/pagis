@@ -100,7 +100,7 @@ pub struct ApnsSettings {
     pub key_id: String,
     /// The 10-character id of the Apple developer team.
     pub team_id: String,
-    /// The bundle id of the Mobile App, `app.pagis.mobile` (ADR-0032).
+    /// The bundle id of the Mobile App, `co.pagis.mobile` (ADR-0032).
     pub topic: String,
 }
 
@@ -368,7 +368,7 @@ mod tests {
         ("PUSH_RELAY_APNS_KEY_PATH", "/run/secrets/apns.p8"),
         ("PUSH_RELAY_APNS_KEY_ID", "ABC123DEFG"),
         ("PUSH_RELAY_APNS_TEAM_ID", "DEF123GHIJ"),
-        ("PUSH_RELAY_APNS_TOPIC", "app.pagis.mobile"),
+        ("PUSH_RELAY_APNS_TOPIC", "co.pagis.mobile"),
     ];
 
     #[test]
@@ -388,7 +388,7 @@ mod tests {
                 key_path: PathBuf::from("/run/secrets/apns.p8"),
                 key_id: "ABC123DEFG".to_string(),
                 team_id: "DEF123GHIJ".to_string(),
-                topic: "app.pagis.mobile".to_string(),
+                topic: "co.pagis.mobile".to_string(),
             })
         );
     }

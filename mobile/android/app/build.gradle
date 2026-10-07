@@ -7,10 +7,10 @@ apply plugin: 'com.google.gms.google-services'
 def mobilePackage = new groovy.json.JsonSlurper().parse(file('../../package.json'))
 
 android {
-    namespace = "app.pagis.mobile"
+    namespace = "co.pagis.mobile"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "app.pagis.mobile"
+        applicationId "co.pagis.mobile"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

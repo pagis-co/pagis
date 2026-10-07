@@ -26,7 +26,7 @@ struct ServerStore {
 /// Extension. The entitlement `com.apple.security.application-groups` of
 /// each target names it.
 enum AppGroup {
-    static let id = "group.app.pagis.mobile"
+    static let id = "group.co.pagis.mobile"
 
     static var defaults: UserDefaults {
         guard let defaults = UserDefaults(suiteName: id) else {

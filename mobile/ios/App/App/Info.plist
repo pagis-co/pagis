@@ -27,7 +27,7 @@
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Pagis uses the microphone when you hold the button to dictate a message.</string>
 	<key>PagisKeychainAccessGroup</key>
-	<string>$(AppIdentifierPrefix)app.pagis.mobile</string>
+	<string>$(AppIdentifierPrefix)co.pagis.mobile</string>
 	<key>PagisPushRelayOrigin</key>
 	<string>$(PUSH_RELAY_ORIGIN)</string>
 	<key>LSRequiresIPhoneOS</key>
@@ -55,7 +55,7 @@
 	<array>
 		<dict>
 			<key>UIApplicationShortcutItemType</key>
-			<string>app.pagis.mobile.change-server</string>
+			<string>co.pagis.mobile.change-server</string>
 			<key>UIApplicationShortcutItemTitle</key>
 			<string>Change server</string>
 			<key>UIApplicationShortcutItemIconSymbolName</key>

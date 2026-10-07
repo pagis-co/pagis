@@ -1,5 +1,5 @@
 {
-  "appId": "app.pagis.mobile",
+  "appId": "co.pagis.mobile",
   "appName": "Pagis",
   "webDir": "dist",
   "ios": {

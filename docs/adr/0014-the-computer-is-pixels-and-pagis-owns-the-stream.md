@@ -171,7 +171,7 @@ takes the container's place (ADR-0015).
   with more Workspaces sets larger pools.
 - The daemon removes no Tenant Network, so a test that uses the real runtime
   removes its own containers, volumes and networks. Every object a test runtime
-  creates carries the `org.pagis.test` label, the test removes those objects
+  creates carries the `co.pagis.test` label, the test removes those objects
   when it ends, also on failure, and the test tooling removes the objects of a
   test process that is not running.
 - Under the `daemon` relay, media passes through the daemon, and the UDP range

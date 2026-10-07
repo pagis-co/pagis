@@ -9,7 +9,7 @@
 #   docker login ghcr.io
 #   cargo xtask image
 #
-# The org.pagis.computer.version label below must equal the
+# The co.pagis.computer.version label below must equal the
 # IMAGE_VERSION pin in crates/pagis-computer; the daemon refuses a
 # mismatched image, and the publish refuses to start on a mismatch.
 #
@@ -163,7 +163,7 @@ RUN set -eux; \
     unzip -q /tmp/ubol.zip -d /opt/pagis/ublock-origin-lite
 
 FROM debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a
-LABEL org.pagis.computer.version="0.20.1"
+LABEL co.pagis.computer.version="0.20.1"
 # GHCR reads the OCI source label to link the package to the
 # repository, which is where a reader of the package page goes for the
 # source and the licenses.

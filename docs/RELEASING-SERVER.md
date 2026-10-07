@@ -41,7 +41,7 @@ from the rest.
 | --- | --- | --- |
 | Client App and the server package it downloads | The Runtime Lock: one release, one platform, one package, one Computer image, no adapter | The client refuses the package and installs nothing |
 | Client App and a server it connects to | The Compatibility Range: the client's own version and every later one that promises the same API | The client refuses the server and says which end to update |
-| Server and Computer image | The daemon compares the image's `org.pagis.computer.version` label with its own pin | No container boots, and the daemon says which two versions it saw |
+| Server and Computer image | The daemon compares the image's `co.pagis.computer.version` label with its own pin | No container boots, and the daemon says which two versions it saw |
 | Server and the data it opens | The release marker under the state directory is a one-way high-water mark | A server older than the data refuses to open it, before it migrates anything |
 | Headless Server image and Postgres | The image carries the PostgreSQL client that `pagis backup` runs | A client older than the server refuses to dump it; keep the image's major version and the database's equal |
 
@@ -70,7 +70,7 @@ of each architecture for secrets and for known vulnerabilities, and then
 pushes that architecture by its digest, with no tag. Last, it joins both
 digests into one multi-architecture index under the pin in
 `crates/pagis-versions` (`docker buildx imagetools create`). It refuses to start when the
-`org.pagis.computer.version` label in `computer/Dockerfile` and that pin
+`co.pagis.computer.version` label in `computer/Dockerfile` and that pin
 disagree, because the daemon reads the label back and boots nothing on a
 mismatch.
 
@@ -101,7 +101,7 @@ filesystem, scans the export for secrets and for known vulnerabilities,
 and pushes that architecture by digest only after both scans pass. Then
 it joins both digests under the release tag ("The secret scan" and "The advisory checks" below). The push needs a Docker login to GHCR with
 `write:packages`. The command refuses to publish an image whose
-`org.pagis.server.version` label is not the workspace version, because
+`co.pagis.server.version` label is not the workspace version, because
 the tag and the label are the same claim made twice.
 
 The build is the `Dockerfile` at the repository root, with the whole

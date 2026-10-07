@@ -31,7 +31,7 @@ use crate::{Action, Cmd, Step};
 
 /// The label the image carries, which says which version of the relay
 /// is in it.
-pub const VERSION_LABEL: &str = "org.pagis.push-relay.version";
+pub const VERSION_LABEL: &str = "co.pagis.push-relay.version";
 
 /// The repository the image is published to. The tag is the version of
 /// the relay crate.

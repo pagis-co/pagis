@@ -189,6 +189,9 @@ gate and publishes the Push Relay image (`docs/PUSH-RELAY.md`).
 
 - Write the test first. The tests stay in the repository.
 - Use the terms of [CONTEXT.md](CONTEXT.md) in code, comments and titles.
+- A reverse-DNS identifier starts with `co.pagis`, after the project domain
+  `pagis.co`: a bundle ID, an application ID, an App Group, a code signing
+  identifier, a container label and a Java package.
 - Write comments and documents in ASD-STE100 Simplified Technical English,
   in the present tense. They state the product as it is.
 - Write each commit message as one present-tense sentence that states the

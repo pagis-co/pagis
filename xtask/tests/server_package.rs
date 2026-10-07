@@ -88,10 +88,10 @@ fn final_server_bytes_produce_the_exact_client_runtime_lock() {
     assert_eq!(entries.len(), 5);
     assert_eq!(entries[0]["path"], "pagis");
     assert_eq!(entries[0]["kind"], "executable");
-    assert_eq!(entries[0]["codesign_id"], "com.pagis.server");
+    assert_eq!(entries[0]["codesign_id"], "co.pagis.server");
     assert_eq!(entries[0]["mode"], 493);
     assert_eq!(entries[1]["path"], "gog");
-    assert_eq!(entries[1]["codesign_id"], "com.pagis.gog");
+    assert_eq!(entries[1]["codesign_id"], "co.pagis.gog");
     assert_eq!(entries[2]["path"], "LICENSE");
     assert_eq!(entries[2]["kind"], "file");
     assert_eq!(entries[3]["path"], "LICENSE.gog");

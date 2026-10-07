@@ -703,7 +703,7 @@ fn apns_variables(key_path: &str) -> [(&'static str, &str); 4] {
         ("PUSH_RELAY_APNS_KEY_PATH", key_path),
         ("PUSH_RELAY_APNS_KEY_ID", "ABC123DEFG"),
         ("PUSH_RELAY_APNS_TEAM_ID", "DEF123GHIJ"),
-        ("PUSH_RELAY_APNS_TOPIC", "app.pagis.mobile"),
+        ("PUSH_RELAY_APNS_TOPIC", "co.pagis.mobile"),
     ]
 }
 

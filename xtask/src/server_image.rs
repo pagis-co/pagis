@@ -29,7 +29,7 @@ use crate::secrets::image_secret_scan_step;
 use crate::{Action, Cmd, Step};
 
 /// The label the image carries, which says which release is in it.
-pub const VERSION_LABEL: &str = "org.pagis.server.version";
+pub const VERSION_LABEL: &str = "co.pagis.server.version";
 
 /// The repository the image is published to. The tag is the release, so
 /// the server image and the server package of one release carry the

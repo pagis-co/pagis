@@ -213,13 +213,13 @@ const LAYOUT: [LayoutEntry; 5] = [
     LayoutEntry {
         path: "pagis",
         kind: "executable",
-        codesign_id: Some("com.pagis.server"),
+        codesign_id: Some("co.pagis.server"),
         mode: 0o755,
     },
     LayoutEntry {
         path: "gog",
         kind: "executable",
-        codesign_id: Some("com.pagis.gog"),
+        codesign_id: Some("co.pagis.gog"),
         mode: 0o755,
     },
     LayoutEntry {
@@ -1187,8 +1187,8 @@ fn macos_server_dmg_action(root: &Path, cx: &ReleaseContext) -> Action {
            identity=$(security find-identity -v -p codesigning | sed -n 's/.*) \\([0-9A-F][0-9A-F]*\\) \"Developer ID Application:.*/\\1/p' | head -1)\n\
          fi\n\
          [ -n \"$identity\" ] || {{ echo 'a Developer ID Application identity is required to package the server' >&2; exit 1; }}\n\
-         codesign --force --options runtime --timestamp --identifier com.pagis.server --sign \"$identity\" {package_dir}/pagis\n\
-         codesign --force --options runtime --timestamp --identifier com.pagis.gog --sign \"$identity\" {package_dir}/gog\n\
+         codesign --force --options runtime --timestamp --identifier co.pagis.server --sign \"$identity\" {package_dir}/pagis\n\
+         codesign --force --options runtime --timestamp --identifier co.pagis.gog --sign \"$identity\" {package_dir}/gog\n\
          codesign --verify --strict --verbose=2 {package_dir}/pagis\n\
          codesign --verify --strict --verbose=2 {package_dir}/gog\n\
          codesign -dv --verbose=4 {package_dir}/pagis 2>&1 | grep '^Authority=Developer ID Application:' >/dev/null || {{ echo 'pagis is not signed with Developer ID Application' >&2; exit 1; }}\n\
@@ -1254,8 +1254,8 @@ fn server_validation_cmd(root: &Path, cx: &ReleaseContext) -> Cmd {
          trap 'hdiutil detach \"$mount\" >/dev/null' EXIT\n\
          codesign --verify --strict --verbose=2 \"$mount/pagis\"\n\
          codesign --verify --strict --verbose=2 \"$mount/gog\"\n\
-         codesign -dr - \"$mount/pagis\" 2>&1 | grep 'identifier \"com.pagis.server\"' >/dev/null\n\
-         codesign -dr - \"$mount/gog\" 2>&1 | grep 'identifier \"com.pagis.gog\"' >/dev/null\n\
+         codesign -dr - \"$mount/pagis\" 2>&1 | grep 'identifier \"co.pagis.server\"' >/dev/null\n\
+         codesign -dr - \"$mount/gog\" 2>&1 | grep 'identifier \"co.pagis.gog\"' >/dev/null\n\
          env -i PATH=/usr/bin:/bin \"$mount/pagis\" package-check\n\
          cargo run --quiet -p xtask -- runtime-lock validate {DIST_DIR}/{mac_lock} {dmg} \"$mount\"\n\
          hdiutil detach \"$mount\" >/dev/null\n\

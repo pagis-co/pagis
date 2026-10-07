@@ -635,7 +635,7 @@
 				);
 				MARKETING_VERSION = 0.2.0;
 				OTHER_SWIFT_FLAGS = "$(inherited) \"-D\" \"COCOAPODS\" \"-DDEBUG\"";
-				PRODUCT_BUNDLE_IDENTIFIER = app.pagis.mobile;
+				PRODUCT_BUNDLE_IDENTIFIER = co.pagis.mobile;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PUSH_RELAY_ORIGIN = "https://push-relay.invalid";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
@@ -660,7 +660,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.2.0;
-				PRODUCT_BUNDLE_IDENTIFIER = app.pagis.mobile;
+				PRODUCT_BUNDLE_IDENTIFIER = co.pagis.mobile;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PUSH_RELAY_ORIGIN = "https://push-relay.invalid";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";
@@ -678,7 +678,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				MARKETING_VERSION = 0.2.0;
-				PRODUCT_BUNDLE_IDENTIFIER = app.pagis.mobile.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = co.pagis.mobile.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -695,7 +695,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				MARKETING_VERSION = 0.2.0;
-				PRODUCT_BUNDLE_IDENTIFIER = app.pagis.mobile.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = co.pagis.mobile.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -720,7 +720,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 0.2.0;
-				PRODUCT_BUNDLE_IDENTIFIER = app.pagis.mobile.PagisNotificationService;
+				PRODUCT_BUNDLE_IDENTIFIER = co.pagis.mobile.PagisNotificationService;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
@@ -746,7 +746,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 0.2.0;
-				PRODUCT_BUNDLE_IDENTIFIER = app.pagis.mobile.PagisNotificationService;
+				PRODUCT_BUNDLE_IDENTIFIER = co.pagis.mobile.PagisNotificationService;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";

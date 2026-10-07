@@ -219,7 +219,7 @@ fn dev_plan_runs_the_native_tests_of_the_changed_platform_only() {
         mobile_step_names(&dev_lanes(tmp.path(), &paths, false, NO_TOOLCHAINS).unwrap())
     };
     assert_eq!(
-        names(&["mobile/android/app/src/main/java/app/pagis/mobile/MainActivity.java"]),
+        names(&["mobile/android/app/src/main/java/co/pagis/mobile/MainActivity.java"]),
         ["mobile-deps", "mobile-android-test"]
     );
     assert_eq!(

@@ -118,7 +118,7 @@ final class SessionCopyTests: XCTestCase {
     // MARK: - The Keychain
 
     func testTheKeychainCopyReadsBackWhatWasWritten() {
-        let copy = KeychainSessionCopy(service: "app.pagis.mobile.session.tests")
+        let copy = KeychainSessionCopy(service: "co.pagis.mobile.session.tests")
         copy.delete()
         let other = WebOrigin(scheme: "https", host: "b.example", port: 0)
 

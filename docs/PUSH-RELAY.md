@@ -110,7 +110,7 @@ the variable.
 | `PUSH_RELAY_APNS_KEY_PATH` | The `.p8` file of the APNs key: a P-256 private key in PKCS#8 PEM. | The secret `apns-key` |
 | `PUSH_RELAY_APNS_KEY_ID` | The 10-character ID of the APNs key. | `.env` |
 | `PUSH_RELAY_APNS_TEAM_ID` | The 10-character ID of the Apple developer team. | `.env` |
-| `PUSH_RELAY_APNS_TOPIC` | The bundle ID of the Mobile App, `app.pagis.mobile`. | `.env` |
+| `PUSH_RELAY_APNS_TOPIC` | The bundle ID of the Mobile App, `co.pagis.mobile`. | `.env` |
 | `PUSH_RELAY_FCM_CREDENTIALS_PATH` | The JSON key of the Google service account that sends. | The secret `fcm-credentials` |
 | `PUSH_RELAY_FCM_PROJECT_ID` | The ID of the Firebase project of the Mobile App. | `.env` |
 | `RUST_LOG` | The filter of the log lines. The default is `info`. | Not set |
@@ -267,7 +267,7 @@ A tag `push-relay-v<version>` publishes the image
 
 1. Change `version` in `crates/pagis-push-relay/Cargo.toml`, and let
    Cargo write it to `Cargo.lock` (`cargo check -p pagis-push-relay`).
-2. Change the label `org.pagis.push-relay.version` in
+2. Change the label `co.pagis.push-relay.version` in
    `crates/pagis-push-relay/Dockerfile` to the same version.
 3. Change `PUSH_RELAY_VERSION` in `deploy/push-relay/.env.example` to the
    same version.

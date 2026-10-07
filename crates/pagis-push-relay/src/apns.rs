@@ -359,7 +359,7 @@ mod tests {
     fn built(message: &Message) -> ApnsRequest {
         request(
             "a1b2c3",
-            "app.pagis.mobile",
+            "co.pagis.mobile",
             "the.provider.token",
             message,
             at(NOON),
@@ -394,7 +394,7 @@ mod tests {
             vec![
                 ("authorization", "bearer the.provider.token".to_string()),
                 ("apns-push-type", "alert".to_string()),
-                ("apns-topic", "app.pagis.mobile".to_string()),
+                ("apns-topic", "co.pagis.mobile".to_string()),
                 ("apns-priority", "10".to_string()),
                 ("apns-expiration", (NOON + 86400).to_string()),
                 ("content-type", "application/json".to_string()),

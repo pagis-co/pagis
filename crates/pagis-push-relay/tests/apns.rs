@@ -126,7 +126,7 @@ fn transport(
         key_path: key_file.path().to_path_buf(),
         key_id: "ABC123DEFG".to_string(),
         team_id: "DEF123GHIJ".to_string(),
-        topic: "app.pagis.mobile".to_string(),
+        topic: "co.pagis.mobile".to_string(),
     };
     let transport = ApnsTransport::new(&settings, base_urls, clock).expect("the APNs transport");
     (transport, key_file)
@@ -184,7 +184,7 @@ async fn a_push_posts_the_device_path_the_bearer_token_and_the_body_over_http2()
         json!({ "iss": "DEF123GHIJ", "iat": NOON }),
         "the provider token of the team at the clock's now"
     );
-    assert_eq!(request.headers["apns-topic"], "app.pagis.mobile");
+    assert_eq!(request.headers["apns-topic"], "co.pagis.mobile");
     assert_eq!(request.headers["apns-push-type"], "alert");
     assert_eq!(request.headers["apns-priority"], "10");
     assert_eq!(request.headers["apns-collapse-id"], "item-42");

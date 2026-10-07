@@ -27,7 +27,7 @@ use crate::{Action, Cmd, Step};
 
 /// The label the image carries and the daemon compares with its own
 /// pin before it boots a container.
-pub const VERSION_LABEL: &str = "org.pagis.computer.version";
+pub const VERSION_LABEL: &str = "co.pagis.computer.version";
 
 /// The buildx builder the publish runs on. The default `docker` driver
 /// cannot export an image and push it by digest; the container driver

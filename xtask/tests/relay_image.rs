@@ -204,7 +204,7 @@ fn relay_tree(version: &str, label: &str) -> tempfile::TempDir {
     .unwrap();
     std::fs::write(
         crate_dir.join("Dockerfile"),
-        format!("FROM scratch\nLABEL org.pagis.push-relay.version=\"{label}\"\n"),
+        format!("FROM scratch\nLABEL co.pagis.push-relay.version=\"{label}\"\n"),
     )
     .unwrap();
     tmp

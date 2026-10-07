@@ -2,8 +2,8 @@
 <resources>
     <string name="app_name">Pagis</string>
     <string name="title_activity_main">Pagis</string>
-    <string name="package_name">app.pagis.mobile</string>
-    <string name="custom_url_scheme">app.pagis.mobile</string>
+    <string name="package_name">co.pagis.mobile</string>
+    <string name="custom_url_scheme">co.pagis.mobile</string>
     <string name="change_server">Change server</string>
     <string name="webview_update">Pagis needs a newer Android System WebView. Update Android System WebView in Google Play, then open Pagis again.</string>
     <string name="channel_needs_you">Needs you</string>

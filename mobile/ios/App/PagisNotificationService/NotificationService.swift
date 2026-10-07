@@ -7,7 +7,7 @@ import UserNotifications
 /// Subscription in the Keychain access group, and shows the payload in
 /// place of the placeholder of the relay.
 final class NotificationService: UNNotificationServiceExtension {
-    private let log = Logger(subsystem: "app.pagis.mobile", category: "push")
+    private let log = Logger(subsystem: "co.pagis.mobile", category: "push")
     private let lock = NSLock()
     private var contentHandler: ((UNNotificationContent) -> Void)?
     private var bestContent: UNNotificationContent?

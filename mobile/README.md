@@ -79,7 +79,7 @@ no push arrives:
     `android/app/build.gradle`.
 - `android/app/google-services.json`: the Firebase project of the Push
   Relay. In the Firebase console, add an Android app with the package name
-  `app.pagis.mobile` to the project that `PUSH_RELAY_FCM_PROJECT_ID` of the
+  `co.pagis.mobile` to the project that `PUSH_RELAY_FCM_PROJECT_ID` of the
   relay names. Download its `google-services.json`, and put it in place of
   the placeholder.
 
@@ -94,14 +94,14 @@ it. The extension compiles some sources of `ios/App/App/` too: the target
 membership of a file in Xcode shows which. The app and the extension share
 two groups, which the entitlements of both targets name:
 
-- the Keychain access group `<team id>.app.pagis.mobile`, which holds the
+- the Keychain access group `<team id>.co.pagis.mobile`, which holds the
   keys of the Push Subscription;
-- the App Group `group.app.pagis.mobile`, whose `UserDefaults` hold the
+- the App Group `group.co.pagis.mobile`, whose `UserDefaults` hold the
   server origin.
 
 To sign for a device, register the App Group in the Apple Developer
 account, and turn on App Groups with it for the App IDs
-`app.pagis.mobile` and `app.pagis.mobile.PagisNotificationService`. A
+`co.pagis.mobile` and `co.pagis.mobile.PagisNotificationService`. A
 simulator build needs no team.
 
 To check the extension on a phone, run the `App` scheme on the phone, turn

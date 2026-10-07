@@ -327,7 +327,7 @@ fn every_publish_command_runs_at_the_workspace_root() {
 
 #[test]
 fn the_labelled_version_is_read_from_the_dockerfile() {
-    let file = "FROM debian\nLABEL org.pagis.computer.version=\"9.9.9\"\nRUN true\n";
+    let file = "FROM debian\nLABEL co.pagis.computer.version=\"9.9.9\"\nRUN true\n";
     assert_eq!(
         labelled_version(file, VERSION_LABEL).as_deref(),
         Some("9.9.9")
@@ -409,13 +409,13 @@ fn the_final_stage_takes_the_debian_fixes_of_its_base() {
 
 #[test]
 fn a_publish_of_the_pinned_version_is_allowed() {
-    let file = "LABEL org.pagis.computer.version=\"0.12.0\"\n";
+    let file = "LABEL co.pagis.computer.version=\"0.12.0\"\n";
     assert_eq!(check_pin(file, DOCKERFILE, VERSION_LABEL, "0.12.0"), Ok(()));
 }
 
 #[test]
 fn a_publish_the_daemon_would_refuse_names_both_versions() {
-    let file = "LABEL org.pagis.computer.version=\"0.11.0\"\n";
+    let file = "LABEL co.pagis.computer.version=\"0.11.0\"\n";
     let reason = check_pin(file, DOCKERFILE, VERSION_LABEL, "0.12.0").unwrap_err();
     assert!(reason.contains("0.11.0"), "{reason}");
     assert!(reason.contains("0.12.0"), "{reason}");
@@ -424,5 +424,5 @@ fn a_publish_the_daemon_would_refuse_names_both_versions() {
 #[test]
 fn a_publish_of_an_unlabelled_image_is_refused() {
     let reason = check_pin("FROM debian\n", DOCKERFILE, VERSION_LABEL, "0.12.0").unwrap_err();
-    assert!(reason.contains("org.pagis.computer.version"), "{reason}");
+    assert!(reason.contains("co.pagis.computer.version"), "{reason}");
 }

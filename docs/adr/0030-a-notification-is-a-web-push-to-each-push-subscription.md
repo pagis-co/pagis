@@ -431,7 +431,7 @@ The relay serves `ios` when these four variables are set:
 - `PUSH_RELAY_APNS_KEY_PATH`: the `.p8` file of the APNs key;
 - `PUSH_RELAY_APNS_KEY_ID`;
 - `PUSH_RELAY_APNS_TEAM_ID`;
-- `PUSH_RELAY_APNS_TOPIC`: the bundle id, `app.pagis.mobile` (ADR-0032).
+- `PUSH_RELAY_APNS_TOPIC`: the bundle id, `co.pagis.mobile` (ADR-0032).
 
 With none of them, the relay serves no `ios` registration. With some of
 them, the relay stops at start with a message that names each missing

@@ -96,7 +96,7 @@ final class KeychainItems: SecretItems {
     private let accessGroup: String?
 
     init(
-        service: String = "app.pagis.mobile.push",
+        service: String = "co.pagis.mobile.push",
         accessGroup: String? = Bundle.main.object(forInfoDictionaryKey: "PagisKeychainAccessGroup") as? String
     ) {
         self.service = service
