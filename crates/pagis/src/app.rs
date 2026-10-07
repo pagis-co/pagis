@@ -1138,18 +1138,23 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         Arc::clone(&options.clock),
         options.cancel.clone(),
     );
-    // Each item that enters the Needs-You Queue sends a Notification
-    // (ADR-0030). The task subscribes before the queue task can publish.
+    let needs_you = Arc::new(pagis_server::NeedsYou::new(&stores));
+    // Each item that enters the Needs-You Queue sends a Notification,
+    // and waits while the Person is active in a client (ADR-0030). The
+    // task subscribes before the queue task can publish.
+    let person_activity = Arc::new(pagis_server::PersonActivity::new());
     let notifications = Arc::new(pagis_server::Notifications::new(
         options.secrets.as_ref(),
         options.public_origin.clone(),
         options.push_policy,
         stores.push_subscriptions.clone(),
         stores.agents.clone(),
+        Arc::clone(&needs_you),
         Arc::clone(&options.clock),
     )?);
     pagis_server::spawn_notifications(
         Arc::clone(&notifications),
+        Arc::clone(&person_activity),
         Arc::clone(&bus),
         options.cancel.clone(),
     )
@@ -1157,7 +1162,6 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     // The Needs-You Queue publishes each item that enters or leaves it
     // (ADR-0030). The task reads the baseline of each Workspace before
     // the daemon serves.
-    let needs_you = Arc::new(pagis_server::NeedsYou::new(&stores));
     pagis_server::spawn_needs_you(
         Arc::clone(&needs_you),
         Arc::clone(&bus),
@@ -1328,6 +1332,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         sessions: stores.sessions.clone(),
         push_subscriptions: stores.push_subscriptions.clone(),
         notifications,
+        person_activity,
         live_connections: pagis_server::LiveConnections::new(Arc::clone(&options.clock)),
         sign_in_links: stores.sign_in_links.clone(),
         sign_in_limits: Arc::new(pagis_server::SignInLimits::default()),

@@ -270,8 +270,12 @@ tab sends them too. The `last_used_at` of a Session cannot tell this,
 because the daemon moves it at most once an hour.
 
 When 120 s pass with no activity, the daemon sends each held item that is
-still in the queue. A restart of the daemon forgets the time, so an item
-after a restart goes at once.
+still in the queue. The daemon derives the queue again before the send, so
+the Notification carries the item and the count of that time. An activity
+during the hold holds the item again by the same rule. A
+`needs_you.removed` ends the hold of its item at once. The test
+Notification never waits. A restart of the daemon forgets the time, so an
+item after a restart goes at once.
 
 ### Endpoint guard
 
@@ -513,6 +517,5 @@ of the `FcmError` detail of the error, or else its `status`.
 
 ## Not built
 
-- The hold while active, and the `activity` frame.
 - The service worker of the Product App.
 - The Mobile App (ADR-0032).

@@ -80,6 +80,10 @@ pub enum ClientFrame {
         stderr: String,
     },
     Ping,
+    /// The Person used this client: it is visible and had input. A new
+    /// Needs-You item waits while the Person is active (ADR-0030). A
+    /// `ping` does not count, because a hidden client sends it too.
+    Activity,
 }
 
 /// The server envelope. Domain events carry `seq` (the event id) and an
@@ -411,6 +415,10 @@ impl Connection {
     async fn act(&mut self, action: FrameAction) -> anyhow::Result<bool> {
         match action {
             FrameAction::None => {}
+            FrameAction::Activity => self
+                .state
+                .person_activity
+                .record(&self.tenant.workspace_id, self.state.clock.now_ms()),
             FrameAction::Reply(reply) => self.socket.send(reply.to_ws()).await?,
             FrameAction::Subscribe(channel_id) => {
                 // The membership check runs before the insert, so an
@@ -591,11 +599,15 @@ enum FrameAction {
         id: String,
         outcome: HostOutcome,
     },
+    /// An activity frame. The caller keeps the time as the last
+    /// activity of the tenant's Workspace.
+    Activity,
 }
 
 fn handle_client_frame(text: &str, subscriptions: &mut HashSet<String>) -> FrameAction {
     match serde_json::from_str::<ClientFrame>(text) {
         Ok(ClientFrame::Ping) => FrameAction::Reply(ServerFrame::control("pong")),
+        Ok(ClientFrame::Activity) => FrameAction::Activity,
         Ok(ClientFrame::Subscribe { channel_id }) => FrameAction::Subscribe(channel_id),
         Ok(ClientFrame::Unsubscribe { channel_id }) => {
             subscriptions.remove(&channel_id);

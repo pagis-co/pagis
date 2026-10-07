@@ -28,6 +28,7 @@ pub mod model_preference;
 mod needs_you;
 mod notifications;
 mod openapi;
+mod person_activity;
 mod phone_numbers;
 mod plugins;
 mod providers;
@@ -76,6 +77,7 @@ pub use live_connections::LiveConnections;
 pub use needs_you::{NeedsYou, spawn_needs_you};
 pub use notifications::{Notifications, spawn_notifications};
 pub use openapi::ApiDoc;
+pub use person_activity::PersonActivity;
 pub use remote_access::{
     FUNNEL_PROXY, FUNNEL_TURN_PORT, FunnelPort, FunnelTargets, RemoteAccessSwitch, Tailscale,
     TailscaleState, serves_this_machine_only,
@@ -244,6 +246,9 @@ pub struct AppState {
     /// The Notification sender of the installation (ADR-0030): one Web
     /// Push sender with the VAPID Key.
     pub notifications: Arc<Notifications>,
+    /// The time of the last activity of the Person in a client, for each
+    /// Workspace (ADR-0030). A new item waits while it is recent.
+    pub person_activity: Arc<PersonActivity>,
     /// The signal of each Session that holds a live connection. A
     /// sign-out and an Administrator who ends every Session of a Person
     /// fire it, and so does the expiry of the Session, and every socket

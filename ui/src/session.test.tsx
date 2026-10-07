@@ -43,6 +43,9 @@ vi.mock('./ws/socket', () => ({
       this.stopped = true
     }
     subscribeChannel() {}
+    activity() {
+      return false
+    }
   },
 }))
 

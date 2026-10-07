@@ -55,3 +55,8 @@ tracing.workspace = true
 # The Public Origin an Administrator types.
 url.workspace = true
 utoipa.workspace = true
+
+[dev-dependencies]
+# `test-util` pauses the clock, so the tests of the hold of a
+# Notification drive 120 s without waiting for them.
+tokio = { workspace = true, features = ["test-util"] }

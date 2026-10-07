@@ -272,6 +272,14 @@ Approve once and Deny. Each push has `TTL: 86400`, `Urgency: high` for
 `approval`, `waiting` and `keypad` and `normal` for the other kinds, and
 a `Topic` from the hash of the item id.
 
+A new item waits while the Person is active in a client. A visible
+client sends an `activity` frame on the event socket after input, at
+most once every 30 s, and the daemon keeps the time of the last one for
+each Workspace in memory. An item that enters the queue less than 120 s
+after that time waits until 120 s pass with no activity, and then goes
+when it is still in the queue. A `needs_you.removed` ends the wait at
+once.
+
 A push service that answers `404` or `410` ends the Push Subscription,
 and the daemon deletes it. A `429` gets one more send after its
 `Retry-After`, at most 300 s later. A delivery keeps the time of the
