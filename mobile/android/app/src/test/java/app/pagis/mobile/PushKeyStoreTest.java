@@ -3,6 +3,7 @@ package app.pagis.mobile;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 
 import java.security.SecureRandom;
 import java.util.ArrayList;
@@ -48,6 +49,26 @@ public class PushKeyStoreTest {
         PushKeys second = store.keys();
         assertFalse(Arrays.equals(first.publicKey, second.publicKey));
         assertFalse(Arrays.equals(first.auth, second.auth));
+    }
+
+    @Test
+    public void theStoredKeysAreTheKeysThatTheSubscriptionGave() throws Exception {
+        PushKeyStore store = new PushKeyStore(items, new SecureRandom());
+        PushKeys made = store.keys();
+
+        PushKeys stored = store.stored();
+
+        assertArrayEquals(made.privateKey, stored.privateKey);
+        assertArrayEquals(made.publicKey, stored.publicKey);
+        assertArrayEquals(made.auth, stored.auth);
+    }
+
+    @Test
+    public void noSubscriptionHasNoStoredKeysAndMakesNone() throws Exception {
+        PushKeyStore store = new PushKeyStore(items, new SecureRandom());
+
+        assertNull(store.stored());
+        assertNull(items.read(PushKeyStore.ITEM));
     }
 
     @Test

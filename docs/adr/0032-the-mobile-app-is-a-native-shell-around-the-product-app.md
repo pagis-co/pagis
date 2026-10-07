@@ -265,6 +265,55 @@ of `pagis-push` decrypts the body with `web-push-native`, and the XCTest
 tests of the app decrypt it with `decrypt`. So the sender and the
 clients agree on one encryption.
 
+### The messaging service shows a Notification on Android
+
+The Push Relay sends FCM a data message `{"p": "<body>"}`, with the
+priority `HIGH` for `Urgency: high` and `NORMAL` for each other urgency
+(ADR-0030). Android shows nothing for a data message, so
+`onMessageReceived` of `PagisMessagingService` shows the Notification.
+FCM can lower the priority of an app whose `HIGH` messages show no
+notification, so each push shows one.
+
+For each push, the service reads the keys of the Push Subscription from
+the files that the Tink AEAD of the app encrypts, decodes `p`, decrypts
+it, and parses the payload:
+
+- `WebPushDecrypt.java` decrypts the body with `WebPushHybridDecrypt` of
+  the `apps-webpush` module of Tink. The app takes that module without
+  its dependency `tink`, because `tink-android` holds the same classes.
+  `pagis-push` writes the length of the one record as the record size of
+  the header, but Tink takes only the record size of its builder, and it
+  counts the header in that size. The record size only marks where a
+  record ends, and the encryption does not cover it. So the app checks
+  that the body is one record, and gives Tink a copy with the record size
+  4096. A short body, a second record, a record that does not open and a
+  padding delimiter other than `0x02` are each an error.
+- `PushPayload.java` parses the JSON of ADR-0030 with the rules of
+  `PushPayload.swift`. A field of the wrong type is an error. An unknown
+  field is ignored.
+
+`PushNotifier.java` then shows the Notification:
+
+- the channel `needs_you` ("Needs you", high importance) for the kinds
+  that the daemon sends with `Urgency: high` (`approval`, `waiting` and
+  `keypad`), and the channel `activity` ("Activity", default importance)
+  for each other kind;
+- the `title` and the `body` of the payload;
+- the `kind` as its group, and the `item` as its tag, so a new push for
+  the same item replaces the old Notification;
+- `app_badge` as its number, for a launcher that shows a count;
+- a content intent that opens `MainActivity` with the extra `navigate`.
+
+When the app holds no keys, when the push does not decrypt or does not
+parse, and when `data.v` is not `1`, the service shows "Pagis" and
+"Something needs you", with the server origin as `navigate`. Its channel
+is `needs_you` for a push of the priority `HIGH`, and `activity` for each
+other push. A new fallback Notification replaces the old one.
+
+The JUnit tests decrypt the vector of RFC 8291 Appendix A and
+`fixtures/web-push.json` with `WebPushDecrypt`. The test task gives the
+path of the fixture in the system property `pagis.webPushFixture`.
+
 ### Inline answers are Approve once and Deny
 
 A Notification of a pending tool action or credential action Approval
@@ -378,7 +427,7 @@ Other ways were considered:
 ## Not built
 
 - The Mobile App: the native requests that use the copy of the Session,
-  the decryption in the Android messaging service and the inline answers.
+  and the inline answers.
   No code registers the category `approval`.
 - The lower bound on the server version is 0.2.0, not the first release
   that serves Notifications.

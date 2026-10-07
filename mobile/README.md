@@ -115,6 +115,14 @@ plaintext. The XCTest tests read a copy of it in the test bundle.
 `PAGIS_PUSH_WRITE_FIXTURE=1 cargo nextest run -p pagis-push --run-ignored only`
 makes it again.
 
+On Android, `PagisMessagingService` decrypts each push and shows it. The
+JUnit tests read `fixtures/web-push.json` at the path that the test task
+gives in the system property `pagis.webPushFixture`. To check the service
+on a phone, run the app on the phone with the `google-services.json` of
+the Firebase project of the relay, turn on Notifications in the app, and
+make a Request on the server. `adb logcat -s Pagis` shows why a push shows
+"Something needs you" in place of its text.
+
 ## Run the app against a local daemon
 
 A debug build of the app takes `http://` on a loopback host. A release build

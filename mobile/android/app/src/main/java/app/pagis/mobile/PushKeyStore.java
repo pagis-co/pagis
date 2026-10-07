@@ -39,6 +39,15 @@ final class PushKeyStore {
         return keys;
     }
 
+    /**
+     * The stored keys, or null when the app has no Push Subscription. The
+     * messaging service reads the keys and never makes them.
+     */
+    PushKeys stored() throws IOException {
+        byte[] stored = items.read(ITEM);
+        return stored == null ? null : decode(stored);
+    }
+
     void delete() throws IOException {
         items.delete(ITEM);
     }

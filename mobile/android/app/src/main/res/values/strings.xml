@@ -6,4 +6,7 @@
     <string name="custom_url_scheme">app.pagis.mobile</string>
     <string name="change_server">Change server</string>
     <string name="webview_update">Pagis needs a newer Android System WebView. Update Android System WebView in Google Play, then open Pagis again.</string>
+    <string name="channel_needs_you">Needs you</string>
+    <string name="channel_activity">Activity</string>
+    <string name="notification_fallback">Something needs you</string>
 </resources>
