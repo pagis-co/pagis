@@ -1,3 +1,4 @@
+import { Capacitor } from '@capacitor/core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { registerServiceWorker } from './register'
@@ -19,9 +20,9 @@ describe('registerServiceWorker', () => {
 
   afterEach(() => {
     vi.unstubAllEnvs()
+    vi.restoreAllMocks()
     register.mockClear()
     Reflect.deleteProperty(navigator, 'serviceWorker')
-    Reflect.deleteProperty(window, 'Capacitor')
   })
 
   it('registers the worker at the root of the origin in a production build', () => {
@@ -46,8 +47,16 @@ describe('registerServiceWorker', () => {
 
   // The Mobile App receives push through the native layer of the phone.
   it('registers nothing in the Mobile App', () => {
-    Object.defineProperty(window, 'Capacitor', { configurable: true, value: {} })
+    vi.spyOn(Capacitor, 'isNativePlatform').mockReturnValue(true)
     registerServiceWorker()
     expect(register).not.toHaveBeenCalled()
+  })
+
+  // `@capacitor/core` puts a `Capacitor` global on every page that loads
+  // it, also in a browser.
+  it('registers the worker in a browser that loaded Capacitor', () => {
+    expect('Capacitor' in window).toBe(true)
+    registerServiceWorker()
+    expect(register).toHaveBeenCalledOnce()
   })
 })

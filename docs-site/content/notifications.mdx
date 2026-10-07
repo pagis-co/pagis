@@ -1,0 +1,98 @@
+---
+title: Notifications
+description: How to turn on Notifications in a browser and in a Home Screen web app on iOS, and how to remove a Push Subscription.
+icon: Bell
+---
+
+A Notification tells you that something needs you: an approval, a
+question, a failed Run or a missed Call. Pagis sends it as a Web Push to
+each browser where you turn on Notifications, also when no Pagis window is
+open. Each of these browsers holds a Push Subscription.
+[ADR-0030](https://github.com/pagis-co/pagis/blob/main/docs/adr/0030-a-notification-is-a-web-push-to-each-push-subscription.md)
+holds the decision.
+
+Open **Settings → Notifications** in the Product App. The page shows the
+state of this browser, and it lists every Push Subscription of yours.
+
+## Turn on Notifications in a browser
+
+1. Open Pagis in Chrome, Edge, Firefox or Safari, on a computer or on an
+   Android phone.
+2. Open **Settings → Notifications** and select **Turn on**.
+3. The browser asks if the site can show notifications. Select **Allow**.
+
+The page then shows **On**, and the list shows the browser as "This
+browser". Select **Send a test** on its row to get a Notification at once.
+
+A browser gives the Push API only to a secure address: `https://`, or
+`http://localhost`. On another `http://` address, the page shows that
+notifications are not available.
+
+## Turn on Notifications on an iPhone or an iPad
+
+On iOS and iPadOS 16.4 and later, only a web app on the Home Screen gets
+Notifications. A Safari tab does not, and in a Safari tab the page shows
+these steps:
+
+1. Open Pagis in Safari.
+2. Select Share, then **Add to Home Screen**.
+3. Open Pagis from the Home Screen. The web app does not share the cookies
+   of Safari, so sign in again in the web app.
+4. Open **Settings → Notifications** and select **Turn on**. Then select
+   **Allow**.
+
+## Allow notifications that the browser blocks
+
+When you select **Block** at the question of the browser, the page shows
+that this browser blocks notifications from the site. Pagis cannot ask
+again. Allow notifications for the site in the browser, then open the page
+again:
+
+- **Chrome and Edge**: select the icon at the left of the address, and set
+  **Notifications** to **Allow**.
+- **Firefox**: select the icon at the left of the address, and clear the
+  blocked permission to send notifications.
+- **Safari on a Mac**: open **Safari → Settings → Websites →
+  Notifications**, and set the site to **Allow**.
+- **A Home Screen web app on iOS**: open the **Settings** app of the phone,
+  select **Notifications**, then **Pagis**, and turn on **Allow
+  Notifications**.
+
+## Turn off Notifications
+
+Select **Turn off** in **Settings → Notifications**. The browser ends its
+Push Subscription, and Pagis deletes it.
+
+## The list of Push Subscriptions
+
+The list shows each Push Subscription of yours, in each browser and app
+where you turned on Notifications. Each row names the browser or the app of
+its Session, as **Settings → Sessions** does, or "This browser" for the
+browser that you use now. The row shows when Pagis last sent a Notification
+to it.
+
+- **Send a test** sends a Notification with the text "Notifications work
+  here." The row then shows what the push service answered.
+- **Remove** deletes the Push Subscription. That browser or app gets no
+  Notification until you turn on Notifications there again.
+
+A Push Subscription belongs to one Session. It also ends when its Session
+ends, at sign-out or when you remove the Session in **Settings →
+Sessions**, and when the push service of the browser tells Pagis that the
+subscription ended.
+
+The list of the server is the truth. When this browser holds a Push
+Subscription that the server does not list, the page ends the subscription
+in the browser and shows **Off**. This occurs after you sign in again, for
+example. Select **Turn on** to get Notifications again.
+
+## The Client App and the Mobile App
+
+The Client App gets no Notification, because Electron gives no push
+service. Its **Settings → Notifications** tells you to turn on
+Notifications in a browser. The Client App shows the Needs-You Queue on
+Home, the count in the sidebar and the sound cues.
+
+Not built: Notifications in the Mobile App. **Settings → Notifications** in
+the Mobile App shows no control. It lists the Push Subscriptions of your
+browsers, and **Send a test** and **Remove** work there.
