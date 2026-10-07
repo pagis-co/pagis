@@ -161,36 +161,50 @@ describe('conversation desk', () => {
   })
 })
 
-describe('missed calls', () => {
-  it('shows a newly ended inbound call without a reload', async () => {
+describe('the Needs-You Queue', () => {
+  /** One `needs_you.*` frame, as the event socket delivers it. */
+  function needsYouFrame(type: 'needs_you.added' | 'needs_you.removed', payload: object) {
+    act(() => socket.handlers!.onEvent({
+      type,
+      payload: {
+        id: `event-${type}`,
+        event_type: type,
+        created_at: Date.now(),
+        payload,
+      },
+    }))
+  }
+
+  it('adds and removes a row on the queue events, with no reload', async () => {
+    const missed = {
+      kind: 'call',
+      id: 'call:missed-1',
+      agent_id: 'agent-1',
+      line: 'Sage missed a call from +14155550199',
+      url: '/',
+      at: Date.now(),
+      call_id: 'missed-1',
+      remote_e164: '+14155550199',
+      left_message: false,
+    }
     let items: unknown[] = []
     api.GET.mockImplementation(async (path: string) =>
-      path === '/api/v1/calls' ? { data: { items } } : shellResponse(path),
+      path === '/api/v1/needs-you'
+        ? { data: { items, count: items.length } }
+        : shellResponse(path),
     )
     mount('/')
     await screen.findByText('Nothing needs you.')
-    items = [{
-      id: 'missed-1',
-      agent_id: 'agent-1',
-      direction: 'inbound',
-      state: 'ended',
-      outcome: 'no_answer',
-      remote_e164: '+14155550199',
-      created_at: Date.now(),
-      ended_at: Date.now(),
-    }]
-    act(() => socket.handlers!.onEvent({
-      type: 'call.ended',
-      payload: {
-        id: 'event-1',
-        event_type: 'call.ended',
-        created_at: Date.now(),
-        agent_id: 'agent-1',
-        payload: { call_id: 'missed-1' },
-      },
-    }))
-    expect(await screen.findByText(/missed a call from \+14155550199/)).toBeTruthy()
+
+    items = [missed]
+    needsYouFrame('needs_you.added', { item: missed, count: 1 })
+    expect(await screen.findByText('Sage missed a call from +14155550199')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Call back' })).toBeTruthy()
+
+    items = []
+    needsYouFrame('needs_you.removed', { item_id: 'call:missed-1', count: 0 })
+    expect(await screen.findByText('Nothing needs you.')).toBeTruthy()
+    expect(screen.queryByText('Sage missed a call from +14155550199')).toBeNull()
   })
 })
 

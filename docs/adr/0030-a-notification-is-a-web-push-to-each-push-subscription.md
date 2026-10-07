@@ -366,8 +366,6 @@ secret, a VAPID Key, a VAPID token or a body.
 
 ## Not built
 
-- The read of the daemon's queue by Home and the sidebar count. The UI
-  derives its own copy with the same rules.
 - The Notifications of the daemon: the payload, the `Urgency` and the
   `Topic` of each kind, and the end of a Push Subscription on `404` or
   `410`. The crate `pagis-push` sends a Web Push, and no part of the

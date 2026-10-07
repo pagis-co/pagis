@@ -12,6 +12,7 @@ import type { ApiClient } from './api/client'
 import {
   callKey,
   createQueryClient,
+  needsYouKey,
   trustListKey,
   useClearKeypadFailures,
   useDeleteKeypadCode,
@@ -75,7 +76,7 @@ describe('a mutation of a 204 route', () => {
     expect(invalidated).toHaveBeenCalledWith({ queryKey: trustListKey })
   })
 
-  it('clears the failed attempts of the Keypad Code and refreshes the list', async () => {
+  it('clears the failed attempts of the Keypad Code and refreshes the list and the queue', async () => {
     const api = stubApi(noContent)
     const { result, invalidated } = mount(() =>
       useClearKeypadFailures(api as unknown as ApiClient),
@@ -85,6 +86,7 @@ describe('a mutation of a 204 route', () => {
 
     expect(api.DELETE).toHaveBeenCalledWith('/api/v1/settings/keypad-code/failures')
     expect(invalidated).toHaveBeenCalledWith({ queryKey: trustListKey })
+    expect(invalidated).toHaveBeenCalledWith({ queryKey: needsYouKey })
   })
 
   it('hangs up a live call and refreshes the call', async () => {

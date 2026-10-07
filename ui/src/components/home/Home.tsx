@@ -5,10 +5,9 @@
 // Staff wrote, the work record under it, and the composer that speaks
 // to the Chief of Staff. The Desks sit in the panel beside it.
 //
-// The queue is live without a reload, because the runs that wait come
-// from the presence store, which the WS firehose folds frame by frame,
-// and the approvals and the failures come from queries the same
-// firehose invalidates.
+// The daemon derives the Needs-You Queue (ADR-0030), and Home renders
+// its items in its order. The queue is live without a reload, because
+// the `needs_you.added` and `needs_you.removed` WS events invalidate it.
 
 import { CheckCheck, Clock3, Menu as MenuIcon, Monitor, PenLine } from 'lucide-react'
 import { useMemo } from 'react'
@@ -25,6 +24,7 @@ import {
   useClearKeypadFailures,
   useDismissCall,
   useDismissRun,
+  useNeedsYou,
   useReport,
   useRunScheduleNow,
   useRuns,
@@ -39,27 +39,24 @@ import { ChannelComposer } from '../composer/ChannelComposer'
 import { runDuration, triggerText } from '../runs/runs'
 import { chiefOfStaff } from '../sidebar/conversations'
 import { briefLine, homeDate, workRecord } from './report'
-import { callBackDraft, isDismissible, queueAction, queueLine, type QueueItem } from './queue'
-import { useQueue } from './useQueue'
+import { callBackDraft, isDismissible, queueAction, queueDetail, type QueueItem } from './queue'
 
 import './home.css'
 
 /** One row of the queue. The row is one card frame: a dot in the
- *  state hue, the line that says what waits, the detail under it, and
- *  one primary action in the footer, with Dismiss at its end when the
- *  item only tells the reader. A pending approval keeps its own card,
- *  which carries the decision. */
+ *  state hue, the daemon's line that says what waits, the detail under
+ *  it, and one primary action in the footer, with Dismiss at its end
+ *  when the item only tells the reader. A pending approval keeps its
+ *  own card, which carries the decision. */
 function QueueRow({
   api,
   item,
-  agentName,
   onOpen,
   onDismiss = null,
   busy = false,
 }: {
   api: ApiClient
   item: QueueItem
-  agentName: string
   onOpen: () => void
   /** Takes the item out of the queue; `null` where only the action
    *  of the item settles it. */
@@ -67,17 +64,16 @@ function QueueRow({
   /** The action of the row runs now. */
   busy?: boolean
 }) {
-  const line = queueLine(item, agentName)
   if (item.kind === 'approval') {
     return (
       <li className="home-queue-item" data-kind={item.kind}>
         <p className="home-queue-asks">
           <span className="home-queue-dot" aria-hidden />
-          {line}
+          {item.line}
         </p>
         <ApprovalCard
           api={api}
-          requestId={item.requestId}
+          requestId={item.request_id}
           title={item.title}
           body={item.body}
         />
@@ -87,16 +83,17 @@ function QueueRow({
   // The keypad notice states the end of its delay in the detail, so
   // it carries no clock of its own.
   const clock = item.kind === 'keypad' ? null : decidedClock(item.at)
+  const detail = queueDetail(item)
   return (
     <li className="home-queue-item" data-kind={item.kind}>
       <Card className="home-queue-card" data-kind={item.kind}>
         <CardBody className="home-queue-body">
           <span className="home-queue-head">
             <span className="home-queue-dot" aria-hidden />
-            <span className="home-queue-line">{line}</span>
+            <span className="home-queue-line">{item.line}</span>
             {clock !== null && <span className="home-queue-clock">{clock}</span>}
           </span>
-          {item.detail !== null && <p className="home-queue-detail">{item.detail}</p>}
+          {detail !== null && <p className="home-queue-detail">{detail}</p>}
         </CardBody>
         <CardFooter>
           <Button variant="primary" size="sm" disabled={busy} onClick={onOpen}>
@@ -134,7 +131,7 @@ export function Home({
   const workspace = useWorkspace(api)
   const report = useReport(api)
   const writeNow = useRunScheduleNow(api)
-  const queue = useQueue(api)
+  const queue = useNeedsYou(api)
   const clearKeypad = useClearKeypadFailures(api)
   const dismissRun = useDismissRun(api)
   const dismissCall = useDismissCall(api)
@@ -166,8 +163,8 @@ export function Home({
 
   /** Takes a missed call or a failure out of the queue. */
   const dismissItem = (item: QueueItem) => {
-    if (item.kind === 'call') dismissCall.mutate(item.id)
-    if (item.kind === 'failed') dismissRun.mutate(item.runId)
+    if (item.kind === 'call') dismissCall.mutate(item.call_id)
+    if (item.kind === 'failed') dismissRun.mutate(item.run_id)
   }
 
   /** A failed run opens its run, a waiting run its conversation, and a
@@ -180,7 +177,7 @@ export function Home({
     if (item.kind === 'approval') return
     if (item.kind === 'keypad') return clearKeypad.mutate()
     if (item.kind === 'call') {
-      const channelId = directMessageChannel(channels.data ?? [], item.agentId)
+      const channelId = directMessageChannel(channels.data ?? [], item.agent_id)
       if (channelId === null) return
       setDraft(threadScope(channelId), callBackDraft(item))
       dismissItem(item)
@@ -188,13 +185,13 @@ export function Home({
     }
     if (item.kind === 'failed') {
       dismissItem(item)
-      return onOpenRun(item.runId)
+      return onOpenRun(item.run_id)
     }
-    if (item.channelId !== null) return onOpenChannel(item.channelId)
-    return onOpenRun(item.runId)
+    if (item.channel_id != null) return onOpenChannel(item.channel_id)
+    return onOpenRun(item.run_id)
   }
 
-  const queueReady = !queue.isPending && !queue.isError
+  const queueItems = queue.data?.items ?? []
   const reportMessage = report.data?.message ?? null
   const scheduleId = report.data?.schedule_id ?? null
 
@@ -239,26 +236,23 @@ export function Home({
       <section className="home-section" aria-label="Needs you">
         <div className="home-section-heading">
           <h3>Needs you</h3>
-          {queueReady && <Badge tone="neutral">{queue.items.length}</Badge>}
+          {queue.isSuccess && <Badge tone="neutral">{queue.data.count}</Badge>}
         </div>
         {queue.isError ? (
-          <PageState icon={CheckCheck} title="Could not load your decisions" onRetry={queue.refetch}>
+          <PageState icon={CheckCheck} title="Could not load your decisions" onRetry={() => { void queue.refetch() }}>
             Your approvals and missed calls may be out of date.
           </PageState>
         ) : queue.isPending ? (
           <PageState icon={CheckCheck} title="Loading decisions…" />
-        ) : queue.items.length === 0 ? (
+        ) : queueItems.length === 0 ? (
           <PageState icon={CheckCheck} title="All caught up">Nothing needs you.</PageState>
         ) : (
           <ul className="home-queue">
-            {queue.items.map((item) => (
+            {queueItems.map((item) => (
               <QueueRow
-                key={`${item.kind}-${item.id}`}
+                key={item.id}
                 api={api}
                 item={item}
-                agentName={
-                  item.kind === 'keypad' ? '' : (agentNames[item.agentId] ?? 'A sprite')
-                }
                 onOpen={() => openItem(item)}
                 onDismiss={isDismissible(item) ? () => dismissItem(item) : null}
                 busy={item.kind === 'keypad' && clearKeypad.isPending}
