@@ -26,7 +26,10 @@ pub struct PublicOrigin(String);
 
 impl PublicOrigin {
     /// Accept an `https` URL with a host and nothing after the origin. A
-    /// daemon posts only to an `https` endpoint (ADR-0030).
+    /// daemon posts only to an `https` endpoint (ADR-0030). An `http`
+    /// URL on a loopback address is accepted too, as a browser takes it
+    /// as a secure context, so a test sender with the policy
+    /// `AllowLoopback` reaches the relay on its own machine.
     pub fn parse(value: &str) -> Result<Self, SettingsError> {
         let bad = || SettingsError::Bad {
             name: PUBLIC_ORIGIN,
@@ -34,7 +37,12 @@ impl PublicOrigin {
             expected: PUBLIC_ORIGIN_FORM,
         };
         let url = url::Url::parse(value).map_err(|_| bad())?;
-        let only_origin = url.scheme() == "https"
+        let secure = match url.scheme() {
+            "https" => true,
+            "http" => is_loopback(&url),
+            _ => false,
+        };
+        let only_origin = secure
             && url.host_str().is_some()
             && url.username().is_empty()
             && url.password().is_none()
@@ -49,6 +57,16 @@ impl PublicOrigin {
 
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+}
+
+/// `true` when the host of `url` is `localhost` or a loopback address.
+fn is_loopback(url: &url::Url) -> bool {
+    match url.host() {
+        Some(url::Host::Domain(domain)) => domain.eq_ignore_ascii_case("localhost"),
+        Some(url::Host::Ipv4(address)) => address.is_loopback(),
+        Some(url::Host::Ipv6(address)) => address.is_loopback(),
+        None => false,
     }
 }
 
@@ -202,6 +220,24 @@ mod tests {
                 )
             );
         }
+    }
+
+    #[test]
+    fn an_http_origin_on_a_loopback_address_is_accepted() {
+        for origin in [
+            "http://127.0.0.1:8080",
+            "http://[::1]:8080",
+            "http://localhost:8080",
+        ] {
+            let settings = read(&[("PUSH_RELAY_PUBLIC_ORIGIN", origin), DATABASE])
+                .unwrap_or_else(|error| panic!("{origin} is refused: {error}"));
+
+            assert_eq!(settings.public_origin.as_str(), origin);
+        }
+        assert!(
+            read(&[("PUSH_RELAY_PUBLIC_ORIGIN", "http://10.0.0.2"), DATABASE]).is_err(),
+            "a private address is not loopback"
+        );
     }
 
     #[test]
