@@ -1318,6 +1318,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/needs-you": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The Needs-You Queue of the Person's Workspace. */
+        get: operations["get_needs_you"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/plugins": {
         parameters: {
             query?: never;
@@ -4850,6 +4867,112 @@ export interface components {
         NamedValueDto: {
             name: string;
             value: string;
+        };
+        /** @description A pending decision. The row carries the Approve and the Deny. */
+        NeedsYouApproval: {
+            agent_id: string;
+            /**
+             * Format: int64
+             * @description The time that orders the item inside its kind.
+             */
+            at: number;
+            body: string;
+            /** @description `request:<request_id>`. */
+            id: string;
+            /** @description What the item asks of the Person, in one line. */
+            line: string;
+            request_id: string;
+            request_kind: string;
+            title: string;
+            /** @description The Product App path that answers the item. */
+            url: string;
+        };
+        /** @description An inbound Call of today that nobody answered. */
+        NeedsYouCall: {
+            agent_id: string;
+            /** Format: int64 */
+            at: number;
+            call_id: string;
+            /** @description `call:<call_id>`. */
+            id: string;
+            /** @description The caller left a voicemail message. */
+            left_message: boolean;
+            line: string;
+            /** @description The Remote Party, in E.164. */
+            remote_e164: string;
+            url: string;
+        };
+        /** @description A Run that failed today. */
+        NeedsYouFailed: {
+            agent_id: string;
+            /** Format: int64 */
+            at: number;
+            channel_id?: string | null;
+            failure_kind?: null | components["schemas"]["FailureKind"];
+            /** @description `run:<run_id>`. */
+            id: string;
+            line: string;
+            run_id: string;
+            url: string;
+        };
+        /**
+         * @description One item of the Needs-You Queue. The variants are in the order of
+         *     the queue: a decision first, then a question, then the keypad delay,
+         *     then a missed Call, then a failure.
+         */
+        NeedsYouItem: (components["schemas"]["NeedsYouApproval"] & {
+            /** @enum {string} */
+            kind: "approval";
+        }) | (components["schemas"]["NeedsYouWaiting"] & {
+            /** @enum {string} */
+            kind: "waiting";
+        }) | (components["schemas"]["NeedsYouKeypad"] & {
+            /** @enum {string} */
+            kind: "keypad";
+        }) | (components["schemas"]["NeedsYouCall"] & {
+            /** @enum {string} */
+            kind: "call";
+        }) | (components["schemas"]["NeedsYouFailed"] & {
+            /** @enum {string} */
+            kind: "failed";
+        });
+        /**
+         * @description Callers entered so many wrong keypad codes that a delay started
+         *     (ADR-0021). It belongs to the Workspace and to no Agent, and it stays
+         *     until a correct code or the Person clears the count.
+         */
+        NeedsYouKeypad: {
+            /** Format: int64 */
+            at: number;
+            /** Format: int32 */
+            failed_attempts: number;
+            /** @description `keypad`. */
+            id: string;
+            line: string;
+            /**
+             * Format: int64
+             * @description The end of the latest delay.
+             */
+            suspended_until: number;
+            url: string;
+        };
+        /** @description The Needs-You Queue of one Workspace. */
+        NeedsYouQueue: {
+            /** @description The count of `items`. */
+            count: number;
+            items: components["schemas"]["NeedsYouItem"][];
+        };
+        /** @description A Run that waits for an answer of the Person. */
+        NeedsYouWaiting: {
+            agent_id: string;
+            /** Format: int64 */
+            at: number;
+            channel_id?: string | null;
+            /** @description `run:<run_id>`. */
+            id: string;
+            line: string;
+            run_id: string;
+            url: string;
         };
         /**
          * @description The mailbox section of the Agent creation form, and the body of a
@@ -10100,6 +10223,33 @@ export interface operations {
                 };
             };
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_needs_you: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NeedsYouQueue"];
+                };
+            };
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

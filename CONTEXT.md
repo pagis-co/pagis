@@ -1198,8 +1198,9 @@ Calls, the Keypad Code delay after too many failed attempts, and the rules
 that wait for an approval. The daemon derives it, and Home, the sidebar
 count, the app badge and each Notification read it. A failed Run or a
 missed Call leaves the queue when the Person acts on it or dismisses it;
-the record keeps the time of the dismissal. Not built: the derivation in
-the daemon. The UI derives the queue (ADR-0022, ADR-0021, ADR-0030).
+the record keeps the time of the dismissal. Not built: the read of
+the daemon's queue by Home and the sidebar count. The UI derives its own
+copy with the same rules (ADR-0022, ADR-0021, ADR-0030).
 
 ### Notification
 A Web Push to each Push Subscription of the Person when an item enters the

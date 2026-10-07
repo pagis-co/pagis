@@ -677,6 +677,11 @@ pub const ROUTES: &[Route] = &[
         authenticated: true,
     },
     Route {
+        path: "/api/v1/needs-you",
+        methods: &["get"],
+        authenticated: true,
+    },
+    Route {
         path: "/api/v1/requests",
         methods: &["get"],
         authenticated: true,
