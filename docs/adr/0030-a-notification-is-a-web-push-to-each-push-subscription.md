@@ -174,10 +174,17 @@ base64url of the uncompressed point, the `applicationServerKey` that
 The plaintext of each Web Push is the WebKit Declarative Web Push JSON:
 
 - `"web_push": 8030`.
-- A `notification` member with `title`, `body`, `navigate`, `app_badge`
-  and `data`. `navigate` is the place of the item on the Public Origin.
-  `app_badge` is the count of the Needs-You Queue.
+- A `notification` member with `title`, `body`, `navigate` and `data`.
+  `title` is the name of the Agent of the item, or "Pagis" for an item
+  of no Agent. `body` is the line of the item, and for an Approval the
+  title of the Approval on a second line. `navigate` is the place of the
+  item on the Public Origin.
+- `"app_badge"`: the count of the Needs-You Queue, as a number. WebKit
+  reads it from the top level of the message, not from `notification`.
 - `"mutable": true`.
+
+The daemon cuts `body` at a word boundary and ends it with an ellipsis
+when the plaintext would be over 2048 bytes.
 
 The Pagis fields are in `notification.data`:
 `{v, item, kind, request?: {id, actions}}`.
@@ -223,6 +230,26 @@ Each Web Push carries:
 - `Topic` from the item id, in at most 32 URL-safe base64 characters
   (RFC 8030 section 5.4). A newer push of the same item replaces a push
   that the push service did not deliver.
+
+### Outcomes
+
+The daemon sends each Notification to each Push Subscription in a task
+of its own, and reads the `Outcome`:
+
+- `Delivered` keeps the time of the send in `last_sent_at`.
+- `Gone` deletes the Push Subscription.
+- `RateLimited` sends once more after the delay of `Retry-After`, at
+  most 300 s later, or 300 s later when the push service names no
+  delay.
+- Every other `Outcome` writes a log line with the id of the Push
+  Subscription and the status, and never the payload.
+
+`POST /api/v1/push-subscriptions/{push_subscription_id}/test` sends a
+Notification of kind `test`, with the title "Pagis", the body
+"Notifications work here." and `navigate` on `/settings/notifications`,
+to one Push Subscription of the Person. It sets no badge. The route
+answers the `Outcome`, and acts on `Delivered` and `Gone` in the same
+way. A Push Subscription of another Person reads as absent.
 
 ### No dismissal push
 
@@ -486,10 +513,6 @@ of the `FcmError` detail of the error, or else its `status`.
 
 ## Not built
 
-- The Notifications of the daemon: the payload, the `Urgency` and the
-  `Topic` of each kind, and the end of a Push Subscription on `404` or
-  `410`. The crate `pagis-push` sends a Web Push, and no part of the
-  daemon calls it.
 - The hold while active, and the `activity` frame.
 - The service worker of the Product App.
 - The Mobile App (ADR-0032).

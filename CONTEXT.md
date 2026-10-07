@@ -1205,7 +1205,7 @@ ADR-0030).
 
 ### Notification
 A Web Push to each Push Subscription of the Person when an item enters the
-Needs-You Queue. Not built (ADR-0030).
+Needs-You Queue (ADR-0030).
 _Avoid_: alert, push message
 
 ### Progress

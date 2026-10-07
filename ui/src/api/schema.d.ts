@@ -1500,6 +1500,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/push-subscriptions/{push_subscription_id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a test Notification to one Push Subscription of the signed-in
+         *     Person, and answer what the push service answered. A Push
+         *     Subscription of another Person reads as absent.
+         */
+        post: operations["send_test_notification"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/push/key": {
         parameters: {
             query?: never;
@@ -5427,6 +5448,28 @@ export interface components {
         };
         ProviderSetupPage: {
             items: components["schemas"]["ProviderSetupDto"][];
+        };
+        /** @description What the push service answered to a test Notification. */
+        PushOutcomeDto: {
+            /** @enum {string} */
+            outcome: "delivered";
+        } | {
+            /** @enum {string} */
+            outcome: "gone";
+        } | {
+            /** @enum {string} */
+            outcome: "too_large";
+        } | {
+            /** @enum {string} */
+            outcome: "rate_limited";
+            /** Format: int64 */
+            retry_after_seconds?: number | null;
+        } | {
+            error: string;
+            /** @enum {string} */
+            outcome: "failed";
+            /** Format: int32 */
+            status?: number | null;
         };
         /**
          * @description One Push Subscription of the signed-in Person, named by the client of
@@ -10741,6 +10784,44 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    send_test_notification: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description One Push Subscription of the signed-in Person */
+                push_subscription_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PushOutcomeDto"];
+                };
             };
             401: {
                 headers: {

@@ -172,6 +172,10 @@ pub struct AppOptions {
     /// `main` cancels it when the daemon stops; a test daemon cancels it
     /// when it restarts and when it drops.
     pub cancel: CancellationToken,
+    /// Which endpoints a Notification may go to (ADR-0030). Production
+    /// sends only to a public `https` endpoint; a test also reaches a
+    /// push service on loopback.
+    pub push_policy: pagis_push::Policy,
     /// Where the daemon sends anonymous analytics, or why it sends
     /// none (ADR-0026). Production reads the project this build holds;
     /// a test daemon sends nothing unless a test points it at a fake.
@@ -250,6 +254,7 @@ impl AppOptions {
             password_verifier: Arc::new(pagis_server::PasswordVerifier::argon2()),
             clock: Arc::new(pagis_core::SystemClock),
             cancel: CancellationToken::new(),
+            push_policy: pagis_push::Policy::Public,
             analytics: crate::analytics::AnalyticsOptions::production(),
         })
     }
@@ -1133,6 +1138,22 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         Arc::clone(&options.clock),
         options.cancel.clone(),
     );
+    // Each item that enters the Needs-You Queue sends a Notification
+    // (ADR-0030). The task subscribes before the queue task can publish.
+    let notifications = Arc::new(pagis_server::Notifications::new(
+        options.secrets.as_ref(),
+        options.public_origin.clone(),
+        options.push_policy,
+        stores.push_subscriptions.clone(),
+        stores.agents.clone(),
+        Arc::clone(&options.clock),
+    )?);
+    pagis_server::spawn_notifications(
+        Arc::clone(&notifications),
+        Arc::clone(&bus),
+        options.cancel.clone(),
+    )
+    .await;
     // The Needs-You Queue publishes each item that enters or leaves it
     // (ADR-0030). The task reads the baseline of each Workspace before
     // the daemon serves.
@@ -1306,6 +1327,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         users: stores.users.clone(),
         sessions: stores.sessions.clone(),
         push_subscriptions: stores.push_subscriptions.clone(),
+        notifications,
         live_connections: pagis_server::LiveConnections::new(Arc::clone(&options.clock)),
         sign_in_links: stores.sign_in_links.clone(),
         sign_in_limits: Arc::new(pagis_server::SignInLimits::default()),

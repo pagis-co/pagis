@@ -19,6 +19,7 @@ pagis-broker.workspace = true
 pagis-computer.workspace = true
 pagis-connect.workspace = true
 pagis-google.workspace = true
+pagis-push.workspace = true
 pagis-core.workspace = true
 pagis-evaluation.workspace = true
 pagis-plugins.workspace = true

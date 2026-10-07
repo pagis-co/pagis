@@ -29,6 +29,7 @@ pagis-memory.workspace = true
 pagis-server.workspace = true
 pagis-plugin.workspace = true
 pagis-plugins.workspace = true
+pagis-push.workspace = true
 pagis-software.workspace = true
 pagis-storage-postgres.workspace = true
 pagis-storage-sqlite.workspace = true
@@ -85,6 +86,8 @@ p256.workspace = true
 pagis-evaluation.workspace = true
 pagis-mcp-fixture.workspace = true
 pagis-testkit.workspace = true
+# The client side of a Web Push: the test decrypts each Notification.
+web-push-native.workspace = true
 reqwest.workspace = true
 # The browser and pipeline sides of the Media Relay session test.
 str0m = { workspace = true, features = ["openssl", "vendored", "sha1"] }
