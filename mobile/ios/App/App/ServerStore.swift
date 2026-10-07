@@ -1,13 +1,15 @@
 import Foundation
 
-/// The origin of the server that the app opens, in `UserDefaults`. It holds
-/// the origin alone and never a Sign-In Link, because a link holds a secret.
+/// The origin of the server that the app opens, in the `UserDefaults` of
+/// the App Group, so the Notification Service Extension reads it too. It
+/// holds the origin alone and never a Sign-In Link, because a link holds a
+/// secret.
 struct ServerStore {
     private static let key = "serverOrigin"
 
     let defaults: UserDefaults
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = AppGroup.defaults) {
         self.defaults = defaults
     }
 
@@ -17,6 +19,20 @@ struct ServerStore {
     var server: WebOrigin? {
         get { defaults.string(forKey: ServerStore.key).flatMap { WebOrigin.server($0, debug: AppBuild.isDebug) } }
         nonmutating set { defaults.set(newValue?.serverURL, forKey: ServerStore.key) }
+    }
+}
+
+/// The App Group that the app shares with its Notification Service
+/// Extension. The entitlement `com.apple.security.application-groups` of
+/// each target names it.
+enum AppGroup {
+    static let id = "group.app.pagis.mobile"
+
+    static var defaults: UserDefaults {
+        guard let defaults = UserDefaults(suiteName: id) else {
+            preconditionFailure("UserDefaults takes no suite named \(id).")
+        }
+        return defaults
     }
 }
 

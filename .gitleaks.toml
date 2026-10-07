@@ -67,6 +67,14 @@ paths = ['''^dist/image-fs/server/linux_(?:amd64|arm64)/usr/lib/(?:x86_64|aarch6
 
 [[allowlists]]
 description = """\
+fixtures/web-push.json holds the keys of a Push Subscription that a test \
+of pagis-push makes for the tests of the Mobile App. No client and no \
+installation uses them, so they are not secrets."""
+targetRules = ["generic-api-key"]
+paths = ['''^fixtures/web-push\.json$''']
+
+[[allowlists]]
+description = """\
 `P256.KeyAgreement.PrivateKey` is the name of a CryptoKit type in the \
 Swift code of the Mobile App, not a key."""
 targetRules = ["generic-api-key"]

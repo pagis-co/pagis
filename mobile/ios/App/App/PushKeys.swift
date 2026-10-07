@@ -42,17 +42,22 @@ final class PushKeyStore {
 
     /// The stored keys, or new keys that the store keeps from now on.
     func keys() throws -> PushKeys {
-        if let data = try items.read(PushKeyStore.item) {
-            let stored = try JSONDecoder().decode(Stored.self, from: data)
-            return PushKeys(
-                privateKey: try P256.KeyAgreement.PrivateKey(rawRepresentation: stored.privateKey),
-                auth: stored.auth
-            )
-        }
+        if let keys = try stored() { return keys }
         let keys = try PushKeys.make()
         let stored = Stored(privateKey: keys.privateKey.rawRepresentation, auth: keys.auth)
         try items.write(try JSONEncoder().encode(stored), as: PushKeyStore.item)
         return keys
+    }
+
+    /// The stored keys, or nil when the app holds none. The Notification
+    /// Service Extension reads the keys with this, and never makes them.
+    func stored() throws -> PushKeys? {
+        guard let data = try items.read(PushKeyStore.item) else { return nil }
+        let stored = try JSONDecoder().decode(Stored.self, from: data)
+        return PushKeys(
+            privateKey: try P256.KeyAgreement.PrivateKey(rawRepresentation: stored.privateKey),
+            auth: stored.auth
+        )
     }
 
     func delete() throws {
@@ -148,5 +153,17 @@ extension Data {
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "=", with: "")
+    }
+
+    /// The bytes of base64url text, with or without padding, as Web Push
+    /// gives a body and the keys of a subscription. Nil for text that is
+    /// not base64url.
+    init?(base64URLEncoded text: String) {
+        guard !text.contains("+"), !text.contains("/") else { return nil }
+        var base64 = text
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        base64 += String(repeating: "=", count: (4 - base64.count % 4) % 4)
+        self.init(base64Encoded: base64)
     }
 }

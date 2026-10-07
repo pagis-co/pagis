@@ -88,6 +88,33 @@ A debug build registers the APNs environment `sandbox` with the relay, and
 a release build registers `production`. The APNs key of the relay must
 belong to the team that signs the app.
 
+The app embeds the Notification Service Extension `PagisNotificationService`
+(`ios/App/PagisNotificationService/`), which decrypts each push and shows
+it. The extension compiles some sources of `ios/App/App/` too: the target
+membership of a file in Xcode shows which. The app and the extension share
+two groups, which the entitlements of both targets name:
+
+- the Keychain access group `<team id>.app.pagis.mobile`, which holds the
+  keys of the Push Subscription;
+- the App Group `group.app.pagis.mobile`, whose `UserDefaults` hold the
+  server origin.
+
+To sign for a device, register the App Group in the Apple Developer
+account, and turn on App Groups with it for the App IDs
+`app.pagis.mobile` and `app.pagis.mobile.PagisNotificationService`. A
+simulator build needs no team.
+
+To check the extension on a phone, run the `App` scheme on the phone, turn
+on Notifications in the app, and make a Request on the server. To debug
+the extension, select **Debug → Attach to Process by PID or Name** in
+Xcode, type `PagisNotificationService`, and send a push.
+
+`fixtures/web-push.json` at the repository root holds the keys of a Push
+Subscription, one body that `pagis-push` encrypts for them, and its
+plaintext. The XCTest tests read a copy of it in the test bundle.
+`PAGIS_PUSH_WRITE_FIXTURE=1 cargo nextest run -p pagis-push --run-ignored only`
+makes it again.
+
 ## Run the app against a local daemon
 
 A debug build of the app takes `http://` on a loopback host. A release build
