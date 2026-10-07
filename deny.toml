@@ -24,5 +24,6 @@ unsound = "all"
 ignore = [
     { id = "RUSTSEC-2026-0258", reason = "h2 0.3.27 comes only through rustrtc, igd and hyper 0.14: igd is the UPnP client, rustrtc turns UPnP off by default and SipMedia::new does not turn it on. Each rustrtc release up to 0.3.140 requires igd 0.12, which uses hyper 0.14, and the fix is only in h2 0.4.16 and later." },
     { id = "RUSTSEC-2025-0057", reason = "fxhash is unmaintained, and no vulnerability is known. It comes through str0m 0.9 and sctp-proto 0.3: a dev dependency of the workspace, and a dependency of pagis-screend in the Computer Image. str0m 0.11 and later drop it through sctp-proto 0.5, but that update changes the stream code of pagis-screend." },
+    { id = "RUSTSEC-2023-0071", reason = "rsa 0.9.10 comes only through web-push-native 0.5, jwt-simple 0.12 in its pure Rust mode and superboring, in pagis-push. Pagis signs each VAPID token with ES256 (P-256) and holds no RSA key, so no RSA operation runs. web-push-native 0.5.0 is the latest release and requires jwt-simple 0.12, and no rsa release has the fix, 0.10.0-rc.19 included." },
     { id = "RUSTSEC-2026-0253", reason = "lru 0.16.4 is unsound only when the destructor of a key panics. It comes only through tantivy in pagis-software, whose store cache uses usize keys. Each tantivy release up to 0.26.2 requires lru ^0.16.3, and the fix is in lru 0.18.2." },
 ]
