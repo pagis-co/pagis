@@ -1012,6 +1012,21 @@ pub const ROUTES: &[Route] = &[
         authenticated: true,
     },
     Route {
+        path: "/api/v1/push/key",
+        methods: &["get"],
+        authenticated: true,
+    },
+    Route {
+        path: "/api/v1/push-subscriptions",
+        methods: &["get", "post"],
+        authenticated: true,
+    },
+    Route {
+        path: "/api/v1/push-subscriptions/{push_subscription_id}",
+        methods: &["delete"],
+        authenticated: true,
+    },
+    Route {
         path: "/api/v1/settings/home-exit",
         methods: &["get", "put", "delete"],
         authenticated: true,

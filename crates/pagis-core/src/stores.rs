@@ -17,6 +17,7 @@ use crate::keypad::KeypadFailureStore;
 use crate::knowledge::KnowledgeStore;
 use crate::memory::MemoryPageIndex;
 use crate::model_request_capture::ModelRequestCaptureStore;
+use crate::push_subscription::PushSubscriptionStore;
 use crate::usage::UsageStore;
 
 use crate::store::{
@@ -63,6 +64,7 @@ pub struct Stores {
     pub phone_numbers: Arc<dyn PhoneNumberStore>,
     pub plugin_tools: Arc<dyn PluginToolStore>,
     pub plugins: Arc<dyn PluginStore>,
+    pub push_subscriptions: Arc<dyn PushSubscriptionStore>,
     pub requests: Arc<dyn RequestStore>,
     pub retention_policies: Arc<dyn RetentionPolicyStore>,
     pub runs: Arc<dyn RunStore>,

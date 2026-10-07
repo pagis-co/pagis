@@ -5356,6 +5356,162 @@
         }
       }
     },
+    "/api/v1/push-subscriptions": {
+      "get": {
+        "tags": [
+          "push_subscriptions"
+        ],
+        "summary": "The Push Subscriptions of the signed-in Person, oldest first, each\nnamed by the client of its Session.",
+        "operationId": "list_push_subscriptions",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushSubscriptionsDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "push_subscriptions"
+        ],
+        "summary": "Subscribe the client of the asking Session to Web Push. A known\nendpoint moves to this Session and takes the new keys.",
+        "operationId": "subscribe",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubscribeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushSubscriptionDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/push-subscriptions/{push_subscription_id}": {
+      "delete": {
+        "tags": [
+          "push_subscriptions"
+        ],
+        "summary": "Remove one Push Subscription of the signed-in Person. A Push\nSubscription of another Person reads as absent.",
+        "operationId": "remove_push_subscription",
+        "parameters": [
+          {
+            "name": "push_subscription_id",
+            "in": "path",
+            "description": "One Push Subscription of the signed-in Person",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The Push Subscription ended"
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/push/key": {
+      "get": {
+        "tags": [
+          "push_subscriptions"
+        ],
+        "summary": "The public half of the installation's VAPID Key, which a client\nsubscribes with.",
+        "operationId": "get_vapid_key",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VapidKeyDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/requests": {
       "get": {
         "tags": [
@@ -16128,6 +16284,80 @@
           }
         }
       },
+      "PushSubscriptionDto": {
+        "type": "object",
+        "description": "One Push Subscription of the signed-in Person, named by the client of\nits Session. The endpoint and the keys stay in the daemon.",
+        "required": [
+          "id",
+          "client_kind",
+          "created_at",
+          "current"
+        ],
+        "properties": {
+          "client_kind": {
+            "type": "string",
+            "description": "The kind of client of the Session: `browser` or `desktop`."
+          },
+          "client_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The client of the Session, such as \"Safari on iPhone\". `null`\nwhere the client said none."
+          },
+          "created_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "current": {
+            "type": "boolean",
+            "description": "True for the Push Subscription of the Session that asks."
+          },
+          "id": {
+            "type": "string"
+          },
+          "last_sent_at": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "When the daemon last sent a Web Push to it. `null` until the\nfirst one."
+          }
+        }
+      },
+      "PushSubscriptionKeys": {
+        "type": "object",
+        "description": "The keys of a Push Subscription, as `PushSubscription.toJSON()`\nwrites them.",
+        "required": [
+          "p256dh",
+          "auth"
+        ],
+        "properties": {
+          "auth": {
+            "type": "string",
+            "description": "The client's 16-byte auth secret, as base64url."
+          },
+          "p256dh": {
+            "type": "string",
+            "description": "The client's P-256 public key: an uncompressed point, as base64url."
+          }
+        }
+      },
+      "PushSubscriptionsDto": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PushSubscriptionDto"
+            }
+          }
+        }
+      },
       "ReflectionFilter": {
         "type": "object",
         "required": [
@@ -18021,6 +18251,23 @@
           }
         }
       },
+      "SubscribeRequest": {
+        "type": "object",
+        "description": "The body of `PushSubscription.toJSON()`. Other members, such as\n`expirationTime`, are ignored.",
+        "required": [
+          "endpoint",
+          "keys"
+        ],
+        "properties": {
+          "endpoint": {
+            "type": "string",
+            "description": "The `https` URL of the push service, with a DNS name and at most\n2048 characters."
+          },
+          "keys": {
+            "$ref": "#/components/schemas/PushSubscriptionKeys"
+          }
+        }
+      },
       "SubscriptionDetailDto": {
         "allOf": [
           {
@@ -19480,6 +19727,19 @@
           }
         ],
         "description": "What a signal or a condition value holds.\n\n`Duration` and `List` are value kinds of a condition, not signal\nkinds: a duration applies to a DateTime signal, and a list applies to\na text signal. A `List` signal is a text signal that also tells the\neditor which form its values have."
+      },
+      "VapidKeyDto": {
+        "type": "object",
+        "description": "The public half of the VAPID Key.",
+        "required": [
+          "vapid_public_key"
+        ],
+        "properties": {
+          "vapid_public_key": {
+            "type": "string",
+            "description": "The uncompressed P-256 point as base64url with no padding: the\n`applicationServerKey` of `PushManager.subscribe`."
+          }
+        }
       },
       "Verdict": {
         "type": "string",

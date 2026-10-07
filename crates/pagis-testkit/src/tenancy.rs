@@ -529,6 +529,24 @@ async fn seed_a(
         .expect("write A's other Session");
     owned.insert("session_id", session.id.to_string());
 
+    // The phone of that other Session subscribed to Web Push (ADR-0030).
+    // No route reads the keys back, so they need not be real keys.
+    let push_subscription = stores
+        .push_subscriptions
+        .upsert(&pagis_core::PushSubscription {
+            id: pagis_core::PushSubscriptionId::generate(),
+            workspace_id: workspace_id.clone(),
+            session_id: session.id.clone(),
+            endpoint: "https://push.example.com/send/a".to_string(),
+            p256dh: "the public key of A's phone".to_string(),
+            auth: "the auth secret of A's phone".to_string(),
+            created_at: now,
+            last_sent_at: None,
+        })
+        .await
+        .expect("write A's push subscription");
+    owned.insert("push_subscription_id", push_subscription.id.to_string());
+
     let messages = &stores.messages;
     let message = fixture::user_message(workspace_id, &channel_id, "A's own words");
     messages.insert(&message).await.expect("write A's message");

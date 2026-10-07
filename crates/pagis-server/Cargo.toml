@@ -10,6 +10,8 @@ anyhow.workspace = true
 argon2.workspace = true
 async-trait.workspace = true
 axum.workspace = true
+# The keys of a Push Subscription and the VAPID Key are base64url.
+base64.workspace = true
 chrono-tz.workspace = true
 futures.workspace = true
 object_store.workspace = true
@@ -32,6 +34,8 @@ pagis-telephony.workspace = true
 pagis-trigger.workspace = true
 pagis-vault.workspace = true
 pagis-voice.workspace = true
+# The VAPID Key and the public key of each Push Subscription (ADR-0030).
+p256.workspace = true
 # The QR code of a Sign-In Link, as SVG and as terminal text.
 qrcode.workspace = true
 # The session and sign-in-link secrets.

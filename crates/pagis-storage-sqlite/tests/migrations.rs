@@ -57,6 +57,7 @@ const TABLES: &[&str] = &[
     "plugin_tools",
     "plugins",
     "provider_cursors",
+    "push_subscriptions",
     "requests",
     "run_capability_snapshots",
     "run_source_reads",

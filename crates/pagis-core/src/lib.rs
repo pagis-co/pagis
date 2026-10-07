@@ -19,6 +19,7 @@ pub mod memory;
 pub mod memory_page;
 pub mod model_request_capture;
 pub mod pending_evidence;
+pub mod push_subscription;
 pub mod reflection_filter;
 pub mod seal;
 pub mod secrets;
@@ -67,9 +68,9 @@ pub use id::{
     AgentId, AgentMailboxId, ArtifactId, CallId, ChannelId, ConnectionId, ContributionId,
     CredentialId, EventId, EventSubscriptionId, GrantId, HostId, IncomingEventId, MessageId,
     ModelAliasId, ModelRequestCaptureId, OrgId, ParticipantId, PendingEvidenceId, PhoneNumberId,
-    PluginId, PurchaseIntentId, RequestId, RunId, ScheduleId, ScheduleOccurrenceId, SessionId,
-    SignInLinkId, SoftwarePackageId, SourceBatchId, TextRecordId, TrustEntryId, UsageId, UserId,
-    WakeupId, WorkspaceId,
+    PluginId, PurchaseIntentId, PushSubscriptionId, RequestId, RunId, ScheduleId,
+    ScheduleOccurrenceId, SessionId, SignInLinkId, SoftwarePackageId, SourceBatchId, TextRecordId,
+    TrustEntryId, UsageId, UserId, WakeupId, WorkspaceId,
 };
 pub use identity::{
     CLIENT_LINK_LIFETIME_MS, ClientKind, GOOGLE_WEB_CLIENT_SECRET, INVITE_LINK_LIFETIME_MS, Org,
@@ -93,6 +94,7 @@ pub use pending_evidence::{
     PendingEvidence, PendingEvidenceRecord, PendingEvidenceState, PendingReviewClaim,
     PendingUrgency,
 };
+pub use push_subscription::{PushSubscription, PushSubscriptionStore};
 pub use seal::{DataKey, SealError, TenantKeys, data_key_name};
 pub use secrets::{
     KeySource, MemorySecretStore, PROVIDERS, Provider, ProviderKeyStatus, ProviderKeys,

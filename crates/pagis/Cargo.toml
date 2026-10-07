@@ -80,6 +80,8 @@ base64.workspace = true
 git2.workspace = true
 image.workspace = true
 llm-router.workspace = true
+# The VAPID Key test checks that the key is a point of P-256.
+p256.workspace = true
 pagis-evaluation.workspace = true
 pagis-mcp-fixture.workspace = true
 pagis-testkit.workspace = true

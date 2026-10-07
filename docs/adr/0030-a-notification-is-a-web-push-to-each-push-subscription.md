@@ -74,12 +74,37 @@ public key and its auth secret. It belongs to one Session, and it ends
 when that Session ends. A push service that answers `404` or `410` to a
 send ends it too.
 
+The row references its Session with `ON DELETE CASCADE`. A sign-out, a
+removal from the Sessions list and the expiry sweep delete the Session
+row, and the database deletes its Push Subscriptions, so no sweep of its
+own is needed. The endpoint is unique. A client that subscribes again
+lands on its own row, and a known endpoint that another Session sends
+moves to that Session with the new keys.
+
+A client posts the body of `PushSubscription.toJSON()` to
+`POST /api/v1/push-subscriptions`. The route refuses with `422`, and a
+message for each case:
+
+- an endpoint that is not `https`, that names an IP address and not a
+  DNS name, or that is longer than 2048 characters;
+- a `p256dh` that is not the base64url of an uncompressed P-256 point;
+- an `auth` that is not the base64url of 16 bytes.
+
+The Person lists their Push Subscriptions, each named by the client of
+its Session, with the one of the asking Session marked, and removes one.
+A Push Subscription of another Person reads as absent.
+
 ### One VAPID Key for each installation
 
 The **VAPID Key** is one P-256 key pair for each installation. It signs
 each Web Push of the installation. The private half is one named entry of
 `secrets.enc`, through `SecretStore` (ADR-0013), and not a Credential of
-the Vault. The daemon makes it at the first need.
+the Vault. The daemon makes it at the first need. The entry is
+`vapid_private_key`: the 32-byte secret key as base64url. It goes in
+through the create-if-absent operation of the store, so two first needs
+agree on one key. `GET /api/v1/push/key` answers the public half as the
+base64url of the uncompressed point, the `applicationServerKey` that
+`PushManager.subscribe` takes.
 
 ### The payload is a Declarative Web Push message
 
@@ -225,8 +250,6 @@ and the endpoint `<origin>/v1/push/<id>`:
 ## Not built
 
 - The derivation of the Needs-You Queue in the daemon. The UI derives it.
-- The Push Subscriptions.
-- The VAPID Key.
 - The sender: the payload, the headers, the endpoint guard and the end of
   a Push Subscription on `404` or `410`.
 - The hold while active, and the `activity` frame.
