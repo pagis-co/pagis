@@ -73,7 +73,8 @@ The server releases that a connected Client App accepts: its own release
 and every later one that promises the same API. The client checks it on
 every start and refuses a server outside it, saying which end to update
 (ADR-0025). The Mobile App holds a lower bound only: the first release that
-serves Notifications, and every later one. Not built (ADR-0032).
+serves Notifications, and every later one. Not built: the bound is 0.2.0,
+not the first release that serves Notifications (ADR-0032).
 
 ### Computer Image
 The container image every Computer and Plugin Computer runs. It has a
@@ -116,7 +117,8 @@ The Pagis app for iOS and Android. It shows the server's own Product App,
 signs in with a Sign-In Link, and shows Notifications with **Approve once**
 and **Deny** for an Approval. It connects to a Server, or to a Local
 Installation in Remote Access, over `https://`. It installs nothing, and it
-is not a Host. Not built (ADR-0032).
+is not a Host. Not built: the scan of the QR code of a Sign-In Link, and
+Notifications (ADR-0032).
 _Avoid_: phone app, mobile client, native app
 
 ### Onboarding
@@ -325,8 +327,7 @@ What a client holds after a Person signs in: an HTTP-only, host-only,
 browser's Session also carries the name of the browser and its system, such
 as "Safari on macOS", or "Pagis on macOS" for the product window of a
 connected Client App. The Mobile App holds a `browser` Session named "Pagis
-on iPhone", "Pagis on iPad" or "Pagis on Android". Not built: the Mobile
-App. A Session ends at sign-out, when the Person removes it from their
+on iPhone", "Pagis on iPad" or "Pagis on Android". A Session ends at sign-out, when the Person removes it from their
 Sessions list, and 30 days after its last use. A password sign-in, the
 trade of a Client Credential and a Sign-In Link hand one out. It grants
 nothing on its own (ADR-0023, ADR-0028, ADR-0032).
@@ -345,8 +346,8 @@ a Person, good for seven days. `pagis pair` prints one on the machine of the
 installation, good for five minutes. Its page posts the secret, so opening
 the link spends nothing. In Remote Access it is the one way in for another
 machine, and the sign-in page there takes a pasted link (ADR-0028). The
-Mobile App scans the QR code and spends the link in its web view. Not built
-(ADR-0032).
+Mobile App scans the QR code, or takes a pasted link, and spends the link
+in its web view. Not built: the scan of the QR code (ADR-0032).
 _Avoid_: pairing code, magic link, invite token
 
 ### Spend Cap

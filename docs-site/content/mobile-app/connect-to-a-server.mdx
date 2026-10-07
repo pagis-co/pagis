@@ -1,0 +1,90 @@
+---
+title: Connect to a server
+description: How the Mobile App connects to a Pagis server and opens its Product App.
+icon: Smartphone
+---
+
+The Mobile App is the Pagis app for iOS and Android. It runs on an iPhone,
+on an iPad and on an Android phone. It shows the Product App of one Pagis
+server, and it bundles only the Connect screen
+([ADR-0032](https://github.com/pagis-co/pagis/blob/main/docs/adr/0032-the-mobile-app-is-a-native-shell-around-the-product-app.md)).
+The app installs nothing, and the phone is not a Host.
+
+## The server that the app reaches
+
+The app connects to a server only over `https://`. It reaches:
+
+- A Server behind a proxy that holds TLS ([Proxy](/server/proxy)).
+- A Local Installation in Remote Access
+  ([Serve several People](/client-app/several-people)).
+
+The app refuses an `http://` address before it sends a request.
+
+## Connect
+
+The Connect screen shows one field, **Server address or sign-in link**, and
+**Connect**. The field takes the address of the server, such as
+`pagis.example.com`, or a sign-in link of the server,
+`https://<host>/sign-in#<secret>`. An address with no scheme means
+`https://`. When you select **Connect**, the app does these checks in this
+sequence:
+
+1. It reads the field. An empty address, an `http://` address, an address
+   with a user name or a password, and a sign-in link with no secret get a
+   message.
+2. It reads `GET /api/v1/health` at the origin of the server. When no Pagis
+   server answers, the message tells you to check the address. When the
+   server runs a release older than the oldest release that the app accepts,
+   the message tells you to ask the administrator of the server to update
+   it. The app accepts every newer release.
+3. It reads `GET /api/v1/setup`. When the server has no Administrator yet,
+   the message names the administration page that finishes the setup.
+4. When the server signs in this app with a sign-in link only, as an
+   installation in Remote Access does, and you typed an address, the message
+   asks for a sign-in link.
+
+Each message shows under the field. Each request goes to the origin of the
+server, follows no redirect, and holds no secret of a link.
+
+When the checks pass, the app keeps the origin of the server, and nothing
+more. The secret of a link goes to no storage of the app. The app then opens
+the Product App of the server:
+
+- For an address, the Product App shows its own sign-in page. You sign in
+  there.
+- For a sign-in link, the app opens the link. The page of the link posts the
+  secret to the server and gets the Session. A link signs in one client, one
+  time. Get a link as [Connect with a sign-in link](/client-app/connect-to-a-server#connect-with-a-sign-in-link)
+  shows.
+
+The Sessions list names the Session "Pagis on iPhone", "Pagis on iPad" or
+"Pagis on Android". Remove a Session of the app in **Settings → Sessions**,
+as any other Session.
+
+The Connect screen does not scan the QR code of a sign-in link. This is not
+built. Paste the link in the field.
+
+## Start the app again
+
+The app opens the same server at each start, signed in while the Session
+lasts.
+
+## Change server
+
+Touch and hold the Pagis icon on the Home Screen, then select **Change
+server**. The app forgets the server and opens the Connect screen.
+
+## What the app gives a page
+
+The Mobile App gives the native functions of the app only to the main frame
+of the server's exact origin: the scheme, the host and the port must all
+match. A Widget frame and each other frame or origin get no answer.
+
+Only the server's exact origin stays in the app. A link or a new window to
+another origin opens in the system browser, also a link to another port or
+another scheme of the same host, such as `https://pagis.example.com:444` or
+`http://pagis.example.com`.
+
+On Android, the app needs an Android System WebView that has a web message
+listener. On an older web view, the app shows a message to update Android
+System WebView in Google Play, and it opens no server.

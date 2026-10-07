@@ -1,0 +1,100 @@
+/* The Connect screen. Every value comes from the design tokens of the
+ * Product App (`ui/src/tokens.css`). */
+
+@import '../../ui/src/tokens.css';
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background: var(--ground);
+  color: var(--text);
+  font-family: var(--font-sans);
+}
+
+/* Body text is 15 px. The root keeps the browser default, as in the
+ * Product App, so the rem tokens stay at their intended pixel sizes. */
+body {
+  font-size: var(--text-md);
+  line-height: var(--leading-normal);
+}
+
+.connect {
+  max-width: var(--reading-width);
+  margin: 0 auto;
+  padding: calc(var(--safe-top) + var(--space-16)) calc(var(--safe-right) + var(--space-6))
+    calc(var(--safe-bottom) + var(--space-6)) calc(var(--safe-left) + var(--space-6));
+}
+
+.connect h1 {
+  margin: 0 0 var(--space-6);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  letter-spacing: var(--tracking-tight);
+}
+
+.connect form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.connect label {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--muted);
+}
+
+.connect input {
+  min-height: var(--space-11);
+  padding: var(--space-2) var(--space-3);
+  border: var(--space-px) solid var(--border-control);
+  border-radius: var(--radius-md);
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  /* WebKit on iOS zooms the page into a field with text under 16px. */
+  font-size: 1rem;
+}
+
+.connect input:hover {
+  border-color: var(--border-control-hover);
+}
+
+.connect input:focus-visible,
+.connect button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.connect input[aria-invalid='true'] {
+  border-color: var(--failed);
+}
+
+.problem {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--failed-ink);
+}
+
+.connect button {
+  min-height: var(--space-11);
+  margin-top: var(--space-2);
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--accent);
+  color: var(--on-accent);
+  font: inherit;
+  font-weight: var(--weight-semibold);
+}
+
+.connect button:disabled {
+  opacity: var(--opacity-disabled);
+}

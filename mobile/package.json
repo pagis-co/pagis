@@ -1,0 +1,29 @@
+{
+  "name": "pagis-mobile",
+  "productName": "Pagis",
+  "private": true,
+  "license": "MIT",
+  "version": "0.2.0",
+  "description": "The Pagis Mobile App opens the Product App of a server that the Person chooses.",
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/core": "^8.5.2",
+    "@capacitor/ios": "^8.5.2",
+    "semver": "^7.8.5"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.2",
+    "@types/node": "^26.4.1",
+    "@types/semver": "^7.8.0",
+    "jsdom": "^30.1.1",
+    "typescript": "^5.9.3",
+    "vite": "^8.2.2",
+    "vitest": "^4.1.11"
+  }
+}

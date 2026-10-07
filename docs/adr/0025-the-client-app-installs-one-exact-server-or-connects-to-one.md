@@ -33,7 +33,7 @@ Linux distribution has a notary checked before first launch.
 
 The Mobile App (ADR-0032) is not an installation method. It is a client of
 a Server, or of a Local Installation in Remote Access, and it installs
-nothing. Not built.
+nothing.
 
 Nothing converts one installation into another. Local is not offline: a local
 installation keeps Workspaces, memory and Computers on the machine and sends
@@ -305,7 +305,8 @@ server's own Product App, so it matches every server. Its native part reads
 only the payload format of a Notification and the decision route, which are
 a stable contract (ADR-0030). A store app and a self-hosted server update at
 different times, so an upper bound would refuse a newer server that the
-Person cannot hold back. Not built.
+Person cannot hold back. Not built: the bound is 0.2.0, not the first
+release that serves Notifications.
 
 Setup asks for the server address or a Sign-In Link of the server
 (ADR-0028), and nothing else. The client checks the origin of either with the

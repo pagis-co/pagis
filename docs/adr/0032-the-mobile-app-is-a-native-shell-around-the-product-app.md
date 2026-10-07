@@ -64,6 +64,23 @@ and the origin of each bridge call, and it does not trust the page to do
 this check. A link to every other origin opens in the system browser, as
 in the product window of the Client App (ADR-0025).
 
+- On iOS, a guard takes the place of the `bridge` message handler of
+  Capacitor and of its UI delegate. It passes a message, or a `prompt()`
+  that Capacitor reads for its cookie and HTTP calls, only from the main
+  frame of the origin that the bridge shows.
+- On Android, Capacitor makes the check with the web message listener of
+  the Android System WebView, from the server URL as a bare origin. With
+  no such listener, every frame reaches the legacy bridge of Capacitor. So
+  on a web view with no web message listener the app makes no bridge, and
+  it asks the Person to update the Android System WebView.
+- Only the exact origin that the bridge shows stays in the web view. A
+  main-frame navigation, or a new window, to each other `http` or `https`
+  origin opens in the system browser, also another port or another scheme
+  of the same host. Capacitor alone keeps a URL that starts with the text
+  of the server URL on iOS, and a URL of the same scheme and host on
+  Android, so the shell makes this check in front of Capacitor on both
+  platforms. `allowNavigation` stays empty.
+
 ### The Mobile App signs in with a Sign-In Link
 
 The Connect screen scans the QR code of a Sign-In Link. It also takes a
@@ -220,7 +237,9 @@ Other ways were considered:
 
 ## Not built
 
-- The Mobile App: the shell, the Connect screen, the bridge and its origin
-  check, the copy of the Session, the Push Subscription through the Push
+- The Mobile App: the scan of the QR code of a Sign-In Link on the Connect
+  screen, the copy of the Session, the Push Subscription through the Push
   Relay, the Notification Service Extension, the Android messaging
-  service, the inline answers and the lower bound on the server version.
+  service and the inline answers.
+- The lower bound on the server version is 0.2.0, not the first release
+  that serves Notifications.
