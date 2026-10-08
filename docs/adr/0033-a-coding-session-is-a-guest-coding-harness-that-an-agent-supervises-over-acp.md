@@ -150,8 +150,11 @@ the process runs in>"}`, or `{"ok": false, "error": "<code>", "message":
 `worktree_failed` and `spawn_failed`. After the answer the stream carries the
 harness's raw stdin and stdout: newline-delimited JSON-RPC.
 
-The Client App resolves the Person's login-shell `PATH` before it looks for a
-command, because a macOS GUI app does not inherit it.
+The Client App reads the whole environment of the Person's login shell and
+looks for the command on its `PATH`, because a macOS GUI app does not inherit
+it. The harness gets that environment, so it runs as it runs in the Person's
+terminal. The variables stay on the machine. When the login shell fails, the
+Client App answers with the error and does not use its own environment.
 
 When the process exits, the Client App closes the stream and sends a
 `session_exit` text frame on the Host socket with the session id, the exit
