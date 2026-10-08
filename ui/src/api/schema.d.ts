@@ -858,6 +858,81 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/coding-sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the Coding Sessions of the Workspace, newest first. */
+        get: operations["list_coding_sessions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/coding-sessions/{coding_session_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read one Coding Session. */
+        get: operations["get_coding_session"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/coding-sessions/{coding_session_id}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * The Person stops a Coding Session: the daemon cancels the turn that
+         *     runs and closes the session with the end reason `stopped`.
+         */
+        post: operations["stop_coding_session"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/coding-sessions/{coding_session_id}/transcript": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read one page of the transcript of a Coding Session, oldest row
+         *     first. A merge makes a row longer in place, so a client that holds
+         *     row N reads from `after = N - 1` to get its last words.
+         */
+        get: operations["coding_session_transcript"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/computers/disk": {
         parameters: {
             query?: never;
@@ -3451,6 +3526,134 @@ export interface components {
             /** @enum {string} */
             type: "activity";
         };
+        /** @description A Coding Session as a client reads it. */
+        CodingSessionDto: {
+            /** @description The harness's own ACP session id. */
+            acp_session_id?: string | null;
+            /** @description The Agent that owns and supervises the session. */
+            agent_id: string;
+            approval_mode: components["schemas"]["SessionApprovalMode"];
+            /** @description The Channel of the Thread that shows the session. */
+            channel_id: string;
+            /** Format: int64 */
+            created_at: number;
+            /** @description The directory that the Agent named. */
+            directory: string;
+            /**
+             * @description The exit code and the stderr tail of a failed harness, or the
+             *     message of the request that it failed. It is harness text.
+             */
+            end_detail?: string | null;
+            /**
+             * @description Why the session ended, for example `closed`, `stopped`,
+             *     `harness_error` or `harness_exited`.
+             */
+            end_reason?: string | null;
+            /** Format: int64 */
+            ended_at?: number | null;
+            /** @description The id of the Coding Harness in the Harness Catalog. */
+            harness_id: string;
+            /** @description The display name of the Coding Harness. */
+            harness_name: string;
+            harness_version: string;
+            /** @description The Host of a `host` session. */
+            host_id?: string | null;
+            id: string;
+            /** @description One line about the last row of the transcript. */
+            last_activity?: string | null;
+            /** @description The name of the Host. A `computer` session has none. */
+            machine_name?: string | null;
+            /** @description The message that holds the block of the session. */
+            message_id: string;
+            pending?: null | components["schemas"]["PendingDecisionDto"];
+            place: components["schemas"]["CodingSessionPlace"];
+            /** @description The root message of that Thread. */
+            root_message_id: string;
+            /** @description The Run that started the session. */
+            run_id: string;
+            state: components["schemas"]["CodingSessionState"];
+            title: string;
+            /** Format: int64 */
+            updated_at: number;
+            usage: components["schemas"]["CodingSessionUsage"];
+            /**
+             * @description The directory that the process runs in: the worktree path when
+             *     the session has a worktree.
+             */
+            working_directory?: string | null;
+            worktree_branch?: string | null;
+        };
+        /** @description One row of a transcript. The payload is foreign text. */
+        CodingSessionEventDto: {
+            /**
+             * Format: int64
+             * @description The time of the first chunk of the row.
+             */
+            at: number;
+            kind: components["schemas"]["CodingSessionEventKind"];
+            /**
+             * @description `{"text", "message_id"}` for `prompt`, `agent_message` and
+             *     `thought`, and the ACP object for each other kind.
+             */
+            payload: {
+                [key: string]: unknown;
+            };
+            /**
+             * Format: int64
+             * @description The place of the row in its session, from 1.
+             */
+            seq: number;
+        };
+        /**
+         * @description What one transcript row holds.
+         * @enum {string}
+         */
+        CodingSessionEventKind: "prompt" | "agent_message" | "thought" | "tool_call" | "tool_call_update" | "plan" | "usage" | "permission" | "decision" | "question" | "answer" | "turn_end";
+        CodingSessionPage: {
+            items: components["schemas"]["CodingSessionDto"][];
+        };
+        /**
+         * @description Where the harness of a Coding Session runs.
+         * @enum {string}
+         */
+        CodingSessionPlace: "host" | "computer";
+        /**
+         * @description Where a Coding Session is in its life.
+         * @enum {string}
+         */
+        CodingSessionState: "starting" | "working" | "needs_decision" | "idle" | "interrupted" | "closed" | "failed";
+        /** @description One page of a transcript, oldest row first. */
+        CodingSessionTranscript: {
+            items: components["schemas"]["CodingSessionEventDto"][];
+            /**
+             * Format: int64
+             * @description The `after` of the next page, when more rows follow.
+             */
+            next_after?: number | null;
+        };
+        /**
+         * @description What the harness last reported of its context and its cost. Each
+         *     field is `None` until the harness reports it.
+         */
+        CodingSessionUsage: {
+            /**
+             * Format: int64
+             * @description The size of the context window, in tokens.
+             */
+            context_size?: number | null;
+            /**
+             * Format: int64
+             * @description The tokens in the context window.
+             */
+            context_used?: number | null;
+            /**
+             * Format: double
+             * @description The cost of the session so far.
+             */
+            cost_amount?: number | null;
+            /** @description The ISO 4217 code of `cost_amount`. */
+            cost_currency?: string | null;
+        };
         /**
          * @description The optional onboarding extras: the user's name seeds shared
          *     memory so every agent knows what to call them.
@@ -5110,6 +5313,21 @@ export interface components {
              */
             timezone?: string | null;
         };
+        /** @description An ask of the harness that waits for its answer. */
+        PendingDecisionDto: {
+            kind: components["schemas"]["PendingDecisionKind"];
+            /**
+             * Format: int64
+             * @description The transcript row of the ask.
+             */
+            seq: number;
+            waits_for: components["schemas"]["WaitsFor"];
+        };
+        /**
+         * @description What an ask asks for.
+         * @enum {string}
+         */
+        PendingDecisionKind: "permission" | "question";
         /** @description One Person on the roster, with what an Administrator manages. */
         PersonDto: {
             /** Format: int64 */
@@ -6787,6 +7005,11 @@ export interface components {
              */
             provider?: string | null;
         };
+        /**
+         * @description Who answers an ask.
+         * @enum {string}
+         */
+        WaitsFor: "person" | "agent";
         WakeupDto: {
             agent_id: string;
             /** @description The destination for a conversation Run. An arrival has no Channel. */
@@ -9190,6 +9413,176 @@ export interface operations {
                 };
             };
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_coding_sessions: {
+        parameters: {
+            query?: {
+                agent_id?: string;
+                /** @description A state of a Coding Session, for example `working` */
+                state?: string;
+                /** @description The Coding Session the page starts after */
+                before?: string;
+                /** @description 1 to 100, 50 by default */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CodingSessionPage"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_coding_session: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Coding Session */
+                coding_session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CodingSessionDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    stop_coding_session: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Coding Session */
+                coding_session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The session is closed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The session is not open */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    coding_session_transcript: {
+        parameters: {
+            query?: {
+                /** @description The `seq` the page starts after */
+                after?: number;
+                /** @description 1 to 500, 200 by default */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The Coding Session */
+                coding_session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CodingSessionTranscript"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

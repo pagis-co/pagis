@@ -11,6 +11,7 @@ use crate::agents;
 use crate::artifacts;
 use crate::calls;
 use crate::channels;
+use crate::coding_sessions;
 use crate::error::{ErrorBody, ErrorDetail};
 use crate::forget;
 use crate::grants;
@@ -128,6 +129,10 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         calls::dismiss_call,
         calls::hang_up,
         calls::drop_call_tier,
+        coding_sessions::list_coding_sessions,
+        coding_sessions::get_coding_session,
+        coding_sessions::coding_session_transcript,
+        coding_sessions::stop_coding_session,
         phone_numbers::list_phone_numbers,
         phone_numbers::search_phone_numbers,
         phone_numbers::buy_phone_number,
@@ -342,6 +347,12 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         calls::CallSummaryDto,
         calls::CallPage,
         calls::TranscriptLineDto,
+        coding_sessions::CodingSessionDto,
+        coding_sessions::PendingDecisionDto,
+        coding_sessions::PendingDecisionKind,
+        coding_sessions::CodingSessionPage,
+        coding_sessions::CodingSessionEventDto,
+        coding_sessions::CodingSessionTranscript,
         phone_numbers::PhoneNumberDto,
         phone_numbers::PhoneNumberPage,
         phone_numbers::CarrierDto,

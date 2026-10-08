@@ -94,6 +94,8 @@ reqwest.workspace = true
 str0m = { workspace = true, features = ["openssl", "vendored", "sha1"] }
 tar.workspace = true
 tokio-tungstenite.workspace = true
+# `compat` joins the duplex pipe of a test session socket to its yamux.
+tokio-util = { workspace = true, features = ["compat"] }
 wiremock.workspace = true
 
 [[test]]

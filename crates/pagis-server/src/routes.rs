@@ -907,6 +907,26 @@ pub const ROUTES: &[Route] = &[
         authenticated: true,
     },
     Route {
+        path: "/api/v1/coding-sessions",
+        methods: &["get"],
+        authenticated: true,
+    },
+    Route {
+        path: "/api/v1/coding-sessions/{coding_session_id}",
+        methods: &["get"],
+        authenticated: true,
+    },
+    Route {
+        path: "/api/v1/coding-sessions/{coding_session_id}/transcript",
+        methods: &["get"],
+        authenticated: true,
+    },
+    Route {
+        path: "/api/v1/coding-sessions/{coding_session_id}/stop",
+        methods: &["post"],
+        authenticated: true,
+    },
+    Route {
         path: "/api/v1/settings/phone-numbers",
         methods: &["get", "post"],
         authenticated: true,

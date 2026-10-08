@@ -18,8 +18,8 @@ use futures::io::AsyncReadExt;
 use pagis_core::{
     AgentId, Clock, CodingSession, CodingSessionEventKind as Kind, CodingSessionId,
     CodingSessionPlace, CodingSessionState as State, CodingSessionStore, CodingSessionUsage,
-    EventBus, HostId, MessageId, NewCodingSessionEvent, NewEvent, RunId, RunStore,
-    SessionApprovalMode, StoreError, WorkspaceId, harness,
+    HostId, MessageId, NewCodingSessionEvent, RunId, RunStore, SessionApprovalMode, StoreError,
+    WorkspaceId, harness,
 };
 use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot, watch};
@@ -31,21 +31,18 @@ use crate::{
     SessionPlace, WorktreeRequest,
 };
 
-/// The event that each write to a transcript publishes.
-pub const UPDATED_EVENT: &str = "coding_session.updated";
-
 /// How long a session waits for the exit report of its process after
 /// the stream of the process closed.
 const EXIT_GRACE: Duration = Duration::from_secs(10);
 
 /// What [`CodingSessions`] is built from.
 pub struct CodingSessionsDeps {
+    /// The store reports each write to the clients.
     pub sessions: Arc<dyn CodingSessionStore>,
     /// The Run that starts a session names the Thread that shows it.
     pub runs: Arc<dyn RunStore>,
     pub place: Arc<dyn SessionPlace>,
     pub decisions: Arc<dyn SessionDecisions>,
-    pub bus: Arc<dyn EventBus>,
     pub clock: Arc<dyn Clock>,
     /// Ends the task of each live session when the daemon stops.
     pub cancel: CancellationToken,
@@ -98,6 +95,24 @@ pub enum StartFailure {
     Store(#[from] StoreError),
 }
 
+/// Who closed a session. It gives the end reason.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CloseReason {
+    /// The supervising Agent closed the session: `closed`.
+    Closed,
+    /// The Person stopped the session: `stopped`.
+    Stopped,
+}
+
+impl CloseReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CloseReason::Closed => "closed",
+            CloseReason::Stopped => "stopped",
+        }
+    }
+}
+
 /// What happened to a prompt.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PromptOutcome {
@@ -144,7 +159,6 @@ impl CodingSessions {
         Self {
             records: Records {
                 store: deps.sessions,
-                bus: deps.bus,
                 clock: deps.clock,
             },
             runs: deps.runs,
@@ -317,15 +331,19 @@ impl CodingSessions {
     }
 
     /// Cancels the turn that runs, closes the stream and moves the
-    /// session to `closed`. The Client App stops the process when its
-    /// stream closes.
+    /// session to `closed` with the end reason of `reason`. The Client
+    /// App stops the process when its stream closes.
     pub async fn close(
         &self,
         workspace_id: &WorkspaceId,
         session_id: &CodingSessionId,
+        reason: CloseReason,
     ) -> Result<(), SessionError> {
-        self.command(workspace_id, session_id, |reply| Command::Close { reply })
-            .await
+        self.command(workspace_id, session_id, |reply| Command::Close {
+            reason,
+            reply,
+        })
+        .await
     }
 
     /// The session of one Workspace. A session of another Workspace reads
@@ -406,12 +424,11 @@ impl End {
     }
 }
 
-/// The writes of a session: its record, its transcript and the event of
-/// each transcript write.
+/// The writes of a session: its record and its transcript. The store
+/// reports each write to the clients.
 #[derive(Clone)]
 struct Records {
     store: Arc<dyn CodingSessionStore>,
-    bus: Arc<dyn EventBus>,
     clock: Arc<dyn Clock>,
 }
 
@@ -419,8 +436,6 @@ impl Records {
     /// Moves a session to `state` and writes the record. A terminal state
     /// takes its end, and writes its end time. A terminal session does
     /// not move.
-    ///
-    /// It publishes no event: the store reports each write of the record.
     pub(crate) async fn transition(
         &self,
         record: &mut CodingSession,
@@ -453,7 +468,7 @@ impl Records {
         Ok(())
     }
 
-    /// Adds one update to the transcript and publishes the new `seq`.
+    /// Adds one update to the transcript.
     async fn append(
         &self,
         record: &CodingSession,
@@ -465,22 +480,8 @@ impl Records {
             kind,
             payload,
         };
-        let rows = self
-            .store
+        self.store
             .append_event(&record.workspace_id, &record.id, event)
-            .await?;
-        let Some(seq) = rows.iter().map(|row| row.seq).max() else {
-            return Ok(());
-        };
-        self.bus
-            .publish(NewEvent {
-                workspace_id: record.workspace_id.clone(),
-                event_type: UPDATED_EVENT.to_string(),
-                agent_id: Some(record.agent_id.clone()),
-                run_id: None,
-                channel_id: Some(record.channel_id.clone()),
-                payload: json!({"coding_session_id": record.id, "seq": seq}),
-            })
             .await?;
         Ok(())
     }
@@ -504,6 +505,7 @@ enum Command {
         reply: oneshot::Sender<Result<(), SessionError>>,
     },
     Close {
+        reason: CloseReason,
         reply: oneshot::Sender<Result<(), SessionError>>,
     },
     /// An ask of the harness waits for its answer.
@@ -713,7 +715,7 @@ impl Task {
                 let _ = reply.send(cancelled);
                 Flow::Go
             }
-            Command::Close { reply } => {
+            Command::Close { reason, reply } => {
                 self.queue.clear();
                 if let Some(acp) = self.acp.take() {
                     if self.turn_runs() {
@@ -728,7 +730,7 @@ impl Task {
                     .transition(
                         &mut self.record,
                         State::Closed,
-                        Some(End::new("closed", None)),
+                        Some(End::new(reason.as_str(), None)),
                     )
                     .await;
                 self.snapshot.send_replace(self.record.clone());

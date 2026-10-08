@@ -576,6 +576,29 @@ async fn seed_a(
     grants.create(&grant).await.expect("write A's grant");
     owned.insert("grant_id", grant.id.to_string());
 
+    // A's Coding Session on that machine, with one row of its transcript.
+    let coding_session =
+        fixture::coding_session(workspace_id, &agent_id, &run.id, &channel_id, &host.id);
+    stores
+        .coding_sessions
+        .insert(&coding_session)
+        .await
+        .expect("write A's coding session");
+    stores
+        .coding_sessions
+        .append_event(
+            workspace_id,
+            &coding_session.id,
+            pagis_core::NewCodingSessionEvent {
+                at: now,
+                kind: pagis_core::CodingSessionEventKind::Prompt,
+                payload: serde_json::json!({"text": "A's own prompt", "message_id": null}),
+            },
+        )
+        .await
+        .expect("write A's transcript row");
+    owned.insert("coding_session_id", coding_session.id.to_string());
+
     let artifacts = &stores.artifacts;
     let artifact = fixture::artifact(workspace_id, "aa11");
     artifacts

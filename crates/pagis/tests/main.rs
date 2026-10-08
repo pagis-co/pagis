@@ -25,6 +25,7 @@ mod calls;
 mod channels;
 mod chief_of_staff;
 mod client_setup;
+mod coding_sessions;
 mod computer;
 mod connect;
 mod connection_grants;

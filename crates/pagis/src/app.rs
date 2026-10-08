@@ -283,10 +283,12 @@ pub struct Interfaces {
     /// The session sockets of the Hosts, which carry one stream for each
     /// Coding Session (ADR-0033).
     pub host_sessions: Arc<pagis_broker::HostSessions>,
+    /// The Coding Sessions that run on those sockets.
+    pub coding_sessions: Arc<pagis_coding::CodingSessions>,
 }
 
 pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Interfaces> {
-    let stores = booted.stores.clone();
+    let mut stores = booted.stores.clone();
     // The deployment's own setup: a start that finds nobody who
     // can sign in reads `PAGIS_ADMIN_EMAIL`, `PAGIS_ADMIN_PASSWORD` and
     // the provider key variables and makes the first Administrator. A
@@ -333,6 +335,13 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     let bus: Arc<dyn EventBus> = Arc::new(RingedBus::new(
         Arc::new(AuditEventBus::new(stores.events.clone())),
         Arc::clone(&ring),
+    ));
+    // Each write of a Coding Session record or transcript reports itself
+    // to the clients, so the store is wrapped before anything reads it.
+    stores.coding_sessions = Arc::new(pagis_server::CodingSessionFeed::new(
+        stores.coding_sessions.clone(),
+        Arc::clone(&bus),
+        Arc::clone(&options.clock),
     ));
     let messages = stores.messages.clone();
     let requests = stores.requests.clone();
@@ -555,7 +564,6 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
             runs: Arc::clone(&runs) as _,
             place: Arc::clone(&host_sessions) as _,
             decisions: Arc::new(pagis_coding::RefuseDecisions),
-            bus: Arc::clone(&bus),
             clock: Arc::clone(&options.clock),
             cancel: options.cancel.clone(),
         },
@@ -1350,7 +1358,8 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         host_presence,
         home_exits: Arc::clone(&home_exits),
         host_sessions: Arc::clone(&host_sessions),
-        coding_sessions,
+        coding_sessions: Arc::clone(&coding_sessions),
+        coding_session_store: stores.coding_sessions.clone(),
         broker,
         agent_store,
         mailbox_desk,
@@ -1455,6 +1464,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         computers,
         home_exits,
         host_sessions,
+        coding_sessions,
     };
     if this_machine_only {
         let guard = || axum::middleware::from_fn(pagis_server::forwarded::refuse_other_machines);

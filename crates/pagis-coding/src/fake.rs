@@ -2,7 +2,8 @@
 //! drives.
 //!
 //! [`pair`] joins a [`FakeHarness`] to an [`AcpSession`] over two
-//! `tokio::io::duplex` pipes. The fake records each request and
+//! `tokio::io::duplex` pipes, and [`serve_client_app`] runs one on each
+//! stream of a session socket. The fake records each request and
 //! notification that it gets, and each answer to its own requests, so a
 //! test can read what the client sent. The script speaks in ACP types,
 //! which this module re-exports as [`acp`].
@@ -17,7 +18,9 @@ pub use agent_client_protocol::schema::v1 as acp;
 use agent_client_protocol::{
     Agent, ByteStreams, Client, ConnectionTo, Error, JsonRpcMessage, SentRequest,
 };
-use futures::io::{AsyncRead, AsyncWrite};
+use futures::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use pagis_broker::OpenAnswer;
+use pagis_broker::host_sessions::{REQUEST_LIMIT, read_line, yamux_config};
 use serde::Serialize;
 use tokio::sync::{Notify, mpsc};
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
@@ -398,6 +401,33 @@ pub async fn pair(
     let opened =
         AcpSession::open(client_out.compat_write(), client_in.compat(), opening, asks).await;
     (harness, opened)
+}
+
+/// Serves the Client App's end of a session socket: it answers each open
+/// request with `ok` in `cwd` and runs a fake harness of `script` on the
+/// stream. It returns when the socket ends.
+pub async fn serve_client_app<T>(socket: T, script: Script, cwd: String)
+where
+    T: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    let mut connection = yamux::Connection::new(socket, yamux_config(), yamux::Mode::Server);
+    while let Some(Ok(mut stream)) =
+        futures::future::poll_fn(|cx| connection.poll_next_inbound(cx)).await
+    {
+        let script = script.clone();
+        let cwd = cwd.clone();
+        tokio::spawn(async move {
+            if read_line(&mut stream, REQUEST_LIMIT).await.is_err() {
+                return;
+            }
+            let answer = OpenAnswer::Opened { cwd }.line();
+            if stream.write_all(answer.as_bytes()).await.is_err() || stream.flush().await.is_err() {
+                return;
+            }
+            let (read, write) = stream.split();
+            FakeHarness::serve(script, write, read);
+        });
+    }
 }
 
 /// A new session at `cwd`.

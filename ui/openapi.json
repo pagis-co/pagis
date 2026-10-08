@@ -3206,6 +3206,266 @@
         }
       }
     },
+    "/api/v1/coding-sessions": {
+      "get": {
+        "tags": [
+          "coding_sessions"
+        ],
+        "summary": "List the Coding Sessions of the Workspace, newest first.",
+        "operationId": "list_coding_sessions",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "description": "A state of a Coding Session, for example `working`",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "description": "The Coding Session the page starts after",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "1 to 100, 50 by default",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CodingSessionPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/coding-sessions/{coding_session_id}": {
+      "get": {
+        "tags": [
+          "coding_sessions"
+        ],
+        "summary": "Read one Coding Session.",
+        "operationId": "get_coding_session",
+        "parameters": [
+          {
+            "name": "coding_session_id",
+            "in": "path",
+            "description": "The Coding Session",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CodingSessionDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/coding-sessions/{coding_session_id}/stop": {
+      "post": {
+        "tags": [
+          "coding_sessions"
+        ],
+        "summary": "The Person stops a Coding Session: the daemon cancels the turn that\nruns and closes the session with the end reason `stopped`.",
+        "operationId": "stop_coding_session",
+        "parameters": [
+          {
+            "name": "coding_session_id",
+            "in": "path",
+            "description": "The Coding Session",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The session is closed"
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The session is not open",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/coding-sessions/{coding_session_id}/transcript": {
+      "get": {
+        "tags": [
+          "coding_sessions"
+        ],
+        "summary": "Read one page of the transcript of a Coding Session, oldest row\nfirst. A merge makes a row longer in place, so a client that holds\nrow N reads from `after = N - 1` to get its last words.",
+        "operationId": "coding_session_transcript",
+        "parameters": [
+          {
+            "name": "coding_session_id",
+            "in": "path",
+            "description": "The Coding Session",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "description": "The `seq` the page starts after",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "1 to 500, 200 by default",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CodingSessionTranscript"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/computers/disk": {
       "get": {
         "tags": [
@@ -11655,6 +11915,313 @@
         ],
         "description": "Frames the client sends. The first frame must be `auth`. It carries\nno credential: the session cookie authenticated the upgrade."
       },
+      "CodingSessionDto": {
+        "type": "object",
+        "description": "A Coding Session as a client reads it.",
+        "required": [
+          "id",
+          "agent_id",
+          "harness_id",
+          "harness_name",
+          "harness_version",
+          "place",
+          "directory",
+          "approval_mode",
+          "title",
+          "state",
+          "channel_id",
+          "root_message_id",
+          "message_id",
+          "run_id",
+          "usage",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "acp_session_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The harness's own ACP session id."
+          },
+          "agent_id": {
+            "type": "string",
+            "description": "The Agent that owns and supervises the session."
+          },
+          "approval_mode": {
+            "$ref": "#/components/schemas/SessionApprovalMode"
+          },
+          "channel_id": {
+            "type": "string",
+            "description": "The Channel of the Thread that shows the session."
+          },
+          "created_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "directory": {
+            "type": "string",
+            "description": "The directory that the Agent named."
+          },
+          "end_detail": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The exit code and the stderr tail of a failed harness, or the\nmessage of the request that it failed. It is harness text."
+          },
+          "end_reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the session ended, for example `closed`, `stopped`,\n`harness_error` or `harness_exited`."
+          },
+          "ended_at": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "harness_id": {
+            "type": "string",
+            "description": "The id of the Coding Harness in the Harness Catalog."
+          },
+          "harness_name": {
+            "type": "string",
+            "description": "The display name of the Coding Harness."
+          },
+          "harness_version": {
+            "type": "string"
+          },
+          "host_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The Host of a `host` session."
+          },
+          "id": {
+            "type": "string"
+          },
+          "last_activity": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "One line about the last row of the transcript."
+          },
+          "machine_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The name of the Host. A `computer` session has none."
+          },
+          "message_id": {
+            "type": "string",
+            "description": "The message that holds the block of the session."
+          },
+          "pending": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PendingDecisionDto",
+                "description": "The ask that waits for an answer while the session is\n`needs_decision`."
+              }
+            ]
+          },
+          "place": {
+            "$ref": "#/components/schemas/CodingSessionPlace"
+          },
+          "root_message_id": {
+            "type": "string",
+            "description": "The root message of that Thread."
+          },
+          "run_id": {
+            "type": "string",
+            "description": "The Run that started the session."
+          },
+          "state": {
+            "$ref": "#/components/schemas/CodingSessionState"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/CodingSessionUsage"
+          },
+          "working_directory": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The directory that the process runs in: the worktree path when\nthe session has a worktree."
+          },
+          "worktree_branch": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CodingSessionEventDto": {
+        "type": "object",
+        "description": "One row of a transcript. The payload is foreign text.",
+        "required": [
+          "seq",
+          "at",
+          "kind",
+          "payload"
+        ],
+        "properties": {
+          "at": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The time of the first chunk of the row."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/CodingSessionEventKind"
+          },
+          "payload": {
+            "type": "object",
+            "description": "`{\"text\", \"message_id\"}` for `prompt`, `agent_message` and\n`thought`, and the ACP object for each other kind.",
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "seq": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The place of the row in its session, from 1."
+          }
+        }
+      },
+      "CodingSessionEventKind": {
+        "type": "string",
+        "description": "What one transcript row holds.",
+        "enum": [
+          "prompt",
+          "agent_message",
+          "thought",
+          "tool_call",
+          "tool_call_update",
+          "plan",
+          "usage",
+          "permission",
+          "decision",
+          "question",
+          "answer",
+          "turn_end"
+        ]
+      },
+      "CodingSessionPage": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CodingSessionDto"
+            }
+          }
+        }
+      },
+      "CodingSessionPlace": {
+        "type": "string",
+        "description": "Where the harness of a Coding Session runs.",
+        "enum": [
+          "host",
+          "computer"
+        ]
+      },
+      "CodingSessionState": {
+        "type": "string",
+        "description": "Where a Coding Session is in its life.",
+        "enum": [
+          "starting",
+          "working",
+          "needs_decision",
+          "idle",
+          "interrupted",
+          "closed",
+          "failed"
+        ]
+      },
+      "CodingSessionTranscript": {
+        "type": "object",
+        "description": "One page of a transcript, oldest row first.",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CodingSessionEventDto"
+            }
+          },
+          "next_after": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "The `after` of the next page, when more rows follow."
+          }
+        }
+      },
+      "CodingSessionUsage": {
+        "type": "object",
+        "description": "What the harness last reported of its context and its cost. Each\nfield is `None` until the harness reports it.",
+        "properties": {
+          "context_size": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "The size of the context window, in tokens.",
+            "minimum": 0
+          },
+          "context_used": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "The tokens in the context window.",
+            "minimum": 0
+          },
+          "cost_amount": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "The cost of the session so far."
+          },
+          "cost_currency": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The ISO 4217 code of `cost_amount`."
+          }
+        }
+      },
       "CompleteOnboardingRequest": {
         "type": "object",
         "description": "The optional onboarding extras: the user's name seeds shared\nmemory so every agent knows what to call them.",
@@ -15946,6 +16513,36 @@
             "description": "The IANA timezone of the browser or the Client App. At the\nPerson's first sign-in it becomes their timezone, so their\nSchedules run on their clock and not on the server's."
           }
         }
+      },
+      "PendingDecisionDto": {
+        "type": "object",
+        "description": "An ask of the harness that waits for its answer.",
+        "required": [
+          "kind",
+          "waits_for",
+          "seq"
+        ],
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/PendingDecisionKind"
+          },
+          "seq": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The transcript row of the ask."
+          },
+          "waits_for": {
+            "$ref": "#/components/schemas/WaitsFor"
+          }
+        }
+      },
+      "PendingDecisionKind": {
+        "type": "string",
+        "description": "What an ask asks for.",
+        "enum": [
+          "permission",
+          "question"
+        ]
       },
       "PersonDto": {
         "type": "object",
@@ -20507,6 +21104,14 @@
             "description": "The provider of the model that speaks, or `null` when no key\nserves spoken replies."
           }
         }
+      },
+      "WaitsFor": {
+        "type": "string",
+        "description": "Who answers an ask.",
+        "enum": [
+          "person",
+          "agent"
+        ]
       },
       "WakeupDto": {
         "type": "object",
