@@ -229,9 +229,10 @@ class Shell {
   }
 
   /** Quit from the setup page, the app menu or the tray. It asks first
-   *  only while an installation or a start-up is in progress. */
+   *  only while an installation or a start-up is in progress, or while
+   *  Coding Sessions run on this computer. */
   async requestQuit(): Promise<void> {
-    const question = quitQuestion(this.controller.inProgress)
+    const question = quitQuestion(this.controller.inProgress, this.hostLink?.codingSessions() ?? 0)
     if (question === null) {
       app.quit()
       return
@@ -802,13 +803,14 @@ class Shell {
   }
 
   /**
-   * "Restart to Update" (ADR-0027): ask first when Runs are in progress,
-   * stop the server, and let the installer install the Update and start
-   * the new Client App. Each Run in progress fails, as at every restart.
+   * "Restart to Update" (ADR-0027): ask first when Runs are in progress
+   * or Coding Sessions run on this computer, stop the server, and let the
+   * installer install the Update and start the new Client App. Each Run
+   * in progress fails, as at every restart.
    */
   private async restartToUpdate(): Promise<void> {
     if (!this.updates) return
-    const question = restartQuestion(await this.unfinishedRuns())
+    const question = restartQuestion(await this.unfinishedRuns(), this.hostLink?.codingSessions() ?? 0)
     if (question !== null && (await this.messageBox(question)).response !== 0) return
     // The Update can fail while the question waits.
     if (this.updates.state.kind !== 'ready') throw new Error('the Update is not ready to install')

@@ -218,7 +218,8 @@ trust in one line (ADR-0015). After
 "Install on this computer" a second screen asks "Just me" or "Several people"
 with Back and Install. The window then shows progress, a taken port, or a
 failure with Repair, Cancel and "Choose another setup". Quit asks first only
-while an installation or a start-up runs. Both answers run the same local
+while an installation or a start-up runs, or while Coding Sessions run on
+this computer (ADR-0033). Both answers run the same local
 installation; "Several people" then opens the Administration Interface on
 `/settings#remote-access`, where the owner turns on Remote Access (ADR-0028).
 The answer is stored nowhere.

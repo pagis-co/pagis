@@ -1,5 +1,6 @@
 import type { MessageBoxOptions, NotificationConstructorOptions } from 'electron'
 
+import { codingSessionsSentence } from './quitQuestion'
 import type { CheckResult } from './updates'
 
 /** "Restart to Update" and where it is: in the Pagis menu on macOS, and
@@ -36,20 +37,25 @@ export function checkAnswer(result: CheckResult, release: string, platform: stri
 /**
  * The question that "Restart to Update" asks, or null when it restarts at
  * once (ADR-0027). A restart stops the server, and each Run in progress
- * fails, as at every restart. `unfinished` is null when the server did not
- * give the count.
+ * fails, as at every restart. It also stops the Coding Sessions whose
+ * processes this Client App runs (ADR-0033). `unfinished` is null when
+ * the server did not give the count.
  */
-export function restartQuestion(unfinished: number | null): MessageBoxOptions | null {
-  if (unfinished === 0) return null
-  const detail = unfinished === null
-    ? 'Pagis cannot count the Runs in progress. A restart stops each Run that has not finished.'
-    : unfinished === 1
-      ? '1 Run has not finished. A restart stops it.'
-      : `${unfinished} Runs have not finished. A restart stops them.`
+export function restartQuestion(unfinished: number | null, codingSessions: number): MessageBoxOptions | null {
+  const sentences: string[] = []
+  if (unfinished === null) {
+    sentences.push('Pagis cannot count the Runs in progress. A restart stops each Run that has not finished.')
+  } else if (unfinished === 1) {
+    sentences.push('1 Run has not finished. A restart stops it.')
+  } else if (unfinished > 1) {
+    sentences.push(`${unfinished} Runs have not finished. A restart stops them.`)
+  }
+  if (codingSessions > 0) sentences.push(codingSessionsSentence(codingSessions, 'A restart stops'))
+  if (sentences.length === 0) return null
   return {
     type: 'question',
     message: 'Restart Pagis to install the Update?',
-    detail,
+    detail: sentences.join(' '),
     buttons: ['Restart', 'Cancel'],
     defaultId: 1,
     cancelId: 1,

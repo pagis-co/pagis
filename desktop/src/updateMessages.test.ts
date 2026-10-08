@@ -58,12 +58,12 @@ describe('the answer of Check for Updates', () => {
 })
 
 describe('the question that Restart to Update asks', () => {
-  it('asks nothing when no Run is in progress', () => {
-    expect(restartQuestion(0)).toBeNull()
+  it('asks nothing when no Run is in progress and no Coding Session runs', () => {
+    expect(restartQuestion(0, 0)).toBeNull()
   })
 
   it('says how many Runs a restart stops, and Cancel is the default', () => {
-    expect(restartQuestion(3)).toEqual({
+    expect(restartQuestion(3, 0)).toEqual({
       type: 'question',
       message: 'Restart Pagis to install the Update?',
       detail: '3 Runs have not finished. A restart stops them.',
@@ -71,11 +71,34 @@ describe('the question that Restart to Update asks', () => {
       defaultId: 1,
       cancelId: 1,
     })
-    expect(restartQuestion(1)?.detail).toBe('1 Run has not finished. A restart stops it.')
+    expect(restartQuestion(1, 0)?.detail).toBe('1 Run has not finished. A restart stops it.')
+  })
+
+  it('says how many Coding Sessions on this computer a restart stops, and Cancel is the default', () => {
+    expect(restartQuestion(0, 2)).toEqual({
+      type: 'question',
+      message: 'Restart Pagis to install the Update?',
+      detail: '2 Coding Sessions run on this computer. A restart stops them.',
+      buttons: ['Restart', 'Cancel'],
+      defaultId: 1,
+      cancelId: 1,
+    })
+  })
+
+  it('names the Runs and the Coding Sessions that a restart stops', () => {
+    expect(restartQuestion(1, 1)).toEqual({
+      type: 'question',
+      message: 'Restart Pagis to install the Update?',
+      detail: '1 Run has not finished. A restart stops it. ' +
+        '1 Coding Session runs on this computer. A restart stops it.',
+      buttons: ['Restart', 'Cancel'],
+      defaultId: 1,
+      cancelId: 1,
+    })
   })
 
   it('asks with a general message when the server does not give the count', () => {
-    expect(restartQuestion(null)).toMatchObject({
+    expect(restartQuestion(null, 0)).toMatchObject({
       message: 'Restart Pagis to install the Update?',
       detail: 'Pagis cannot count the Runs in progress. A restart stops each Run that has not finished.',
       buttons: ['Restart', 'Cancel'],

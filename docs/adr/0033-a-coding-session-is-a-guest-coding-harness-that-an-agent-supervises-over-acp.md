@@ -372,6 +372,10 @@ Other ways were considered:
   Pagis spends no provider key on the harness.
 - A Host session lives while its Client App and its machine are awake. A
   sleeping laptop interrupts it.
+- Quit and "Restart to Update" in the Client App ask first while Coding
+  Sessions run on this computer, and say how many stop. The Client App
+  counts the processes that it runs and asks the server nothing. A quit
+  from the Dock, a logout or a signal asks no question.
 - Inside a session, Pagis memory, the Briefing and Grants do not apply.
   Pagis policy applies to each Harness Permission.
 - An edit inside the session's directory passes with no card in every mode.
@@ -406,6 +410,5 @@ Other ways were considered:
 - The Coding place.
 - The mode setting in the Access tab.
 - Harness Sign-In in Settings.
-- The quit question of the Client App.
 - The Computer place.
 - The Harness Model Endpoint for the OpenAI APIs.
