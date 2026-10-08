@@ -64,9 +64,12 @@ The record holds:
 - the id (`CodingSessionId` in `pagis-core`), the Workspace and the Agent;
 - the harness id and version;
 - the place (`host` or `computer`), and the host id for a Host;
-- the directory, and the worktree branch or none;
+- the directory that the Agent named, the directory that the process runs
+  in (the worktree path when the session has a worktree), and the worktree
+  branch or none;
 - the Session Approval Mode;
-- the title, the state and the end reason;
+- the title, the state and the end reason, and for a failed harness the end
+  detail: its exit code and the last 4 KB of its stderr;
 - the harness's own ACP session id;
 - the Channel and the root message of its Thread, and the message that holds
   its block;
@@ -88,7 +91,14 @@ a kind and a JSON payload of at most 16 KB, with a truncation marker. The
 kinds are `prompt`, `agent_message`, `thought`, `tool_call`,
 `tool_call_update`, `plan`, `usage`, `permission`, `decision`, `question`,
 `answer` and `turn_end`. Consecutive chunks of one message merge into one
-row.
+row. A message row holds at most 16 KB of text, and the rest of a longer
+message goes on in rows marked `continued`, so the transcript keeps every
+word.
+
+A Coding Session record and its transcript have no retention, and a Backup
+holds them, as it holds a Call record. Forget does not reach them: a prompt
+is the Agent's own words, and the output of a harness is foreign text that no
+Run read from a source.
 
 A lost Host or a restart of the daemon makes each open session of that place
 `interrupted`. The Agent resumes it from the stored ACP session id, with ACP
@@ -337,7 +347,6 @@ Other ways were considered:
 
 ## Not built
 
-- The Coding Session records.
 - The session socket in the daemon.
 - The harness process and the worktree in the Client App.
 - The harness capabilities of a Host.

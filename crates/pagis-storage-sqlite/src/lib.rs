@@ -8,6 +8,7 @@ mod brief_store;
 mod call_store;
 mod capability_snapshot_store;
 mod channel_store;
+mod coding_session_store;
 mod continuation_store;
 mod contribution_store;
 mod conversation_evidence_store;
@@ -51,6 +52,7 @@ pub use brief_store::SqliteBriefStore;
 pub use call_store::SqliteCallStore;
 pub use capability_snapshot_store::SqliteCapabilitySnapshotStore;
 pub use channel_store::SqliteChannelStore;
+pub use coding_session_store::SqliteCodingSessionStore;
 pub use continuation_store::SqliteContinuationStore;
 pub use contribution_store::SqliteContributionStore;
 pub use conversation_evidence_store::SqliteConversationEvidenceStore;
@@ -133,6 +135,7 @@ pub fn stores(pool: sqlx::SqlitePool) -> pagis_core::Stores {
         calls: Arc::new(SqliteCallStore::new(pool.clone())),
         capability_snapshots: Arc::new(SqliteCapabilitySnapshotStore::new(pool.clone())),
         channels: Arc::new(SqliteChannelStore::new(pool.clone())),
+        coding_sessions: Arc::new(SqliteCodingSessionStore::new(pool.clone())),
         connections: Arc::new(SqliteConnectionStore::new(pool.clone())),
         continuations: Arc::new(SqliteContinuationStore::new(pool.clone())),
         contributions: Arc::new(SqliteContributionStore::new(pool.clone())),

@@ -118,6 +118,11 @@ id_type!(
     CallId
 );
 id_type!(
+    /// One Coding Session (ADR-0033): one ACP session of one Coding
+    /// Harness that one Agent owns.
+    CodingSessionId
+);
+id_type!(
     /// One Text Record (ADR-0020): one text the Agent sent or
     /// received. The record stays with the Agent whatever happens to
     /// the number, as a Call does.

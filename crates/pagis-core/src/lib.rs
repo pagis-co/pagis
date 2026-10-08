@@ -7,6 +7,7 @@ pub mod avatar;
 pub use avatar::AvatarAppearance;
 pub mod block;
 pub mod bus;
+pub mod coding_session;
 pub mod continuation;
 pub mod conversation_evidence;
 pub mod domain;
@@ -40,6 +41,11 @@ pub use block::{
     TableCell, TableColumn, blocks_text,
 };
 pub use bus::{EventBus, EventScope, EventStream};
+pub use coding_session::{
+    CodingSession, CodingSessionEvent, CodingSessionEventKind, CodingSessionPlace,
+    CodingSessionState, CodingSessionStore, CodingSessionUsage, NewCodingSessionEvent,
+    SessionApprovalMode, TranscriptWrite,
+};
 pub use continuation::{
     ContinuationCheckpoint, ContinuationKey, ContinuationState, ContinuationStore,
 };
@@ -68,10 +74,10 @@ pub use event::{Event, NewEvent};
 pub use exposure::message_source_is_live;
 pub use host::{EXIT_CAPABILITY, Host, HostStore, SHELL_CAPABILITY};
 pub use id::{
-    AgentId, AgentMailboxId, ArtifactId, CallId, ChannelId, ConnectionId, ContributionId,
-    CredentialId, EventId, EventSubscriptionId, GrantId, HostId, IncomingEventId, MessageId,
-    ModelAliasId, ModelRequestCaptureId, OrgId, ParticipantId, PendingEvidenceId, PhoneNumberId,
-    PluginId, PurchaseIntentId, PushSubscriptionId, RequestId, RunId, ScheduleId,
+    AgentId, AgentMailboxId, ArtifactId, CallId, ChannelId, CodingSessionId, ConnectionId,
+    ContributionId, CredentialId, EventId, EventSubscriptionId, GrantId, HostId, IncomingEventId,
+    MessageId, ModelAliasId, ModelRequestCaptureId, OrgId, ParticipantId, PendingEvidenceId,
+    PhoneNumberId, PluginId, PurchaseIntentId, PushSubscriptionId, RequestId, RunId, ScheduleId,
     ScheduleOccurrenceId, SessionId, SignInLinkId, SoftwarePackageId, SourceBatchId, TextRecordId,
     TrustEntryId, UsageId, UserId, WakeupId, WorkspaceId,
 };

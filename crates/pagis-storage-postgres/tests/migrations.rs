@@ -14,6 +14,8 @@ const TABLES: &[&str] = &[
     "capability_snapshots",
     "channel_participants",
     "channels",
+    "coding_session_events",
+    "coding_sessions",
     "continuation_checkpoint_exposures",
     "continuation_checkpoint_messages",
     "continuation_checkpoints",

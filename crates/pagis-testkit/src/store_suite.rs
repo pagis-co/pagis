@@ -168,6 +168,7 @@ impl Backend {
 /// The modules that hold the bodies. Each one is the trait tests of one
 /// area, and each one carries its own `store_suite_<module>!` list right
 /// under its bodies.
+pub mod coding_sessions;
 pub mod continuation;
 pub mod conversation_evidence;
 pub mod hosts;
@@ -198,6 +199,7 @@ pub mod workspaces;
 #[macro_export]
 macro_rules! store_suite {
     () => {
+        $crate::store_suite_coding_sessions!($crate::__store_suite_emit);
         $crate::store_suite_continuation!($crate::__store_suite_emit);
         $crate::store_suite_conversation_evidence!($crate::__store_suite_emit);
         $crate::store_suite_hosts!($crate::__store_suite_emit);
@@ -252,6 +254,11 @@ macro_rules! __store_suite_emit {
 /// bodies. The guard test reads both.
 #[cfg(test)]
 const MODULES: &[(&str, &str, &str)] = &[
+    (
+        "coding_sessions",
+        include_str!("store_suite/coding_sessions.rs"),
+        "macro_rules! store_suite_coding_sessions",
+    ),
     (
         "continuation",
         include_str!("store_suite/continuation.rs"),
