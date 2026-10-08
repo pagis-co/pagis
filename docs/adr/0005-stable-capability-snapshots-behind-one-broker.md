@@ -198,8 +198,9 @@ is removed, so nothing inside can end the envelope.
 The layer that knows the source applies the envelope, one time. The broker
 wraps the result of a route that reaches outside Pagis, as `tool:<name>`. A
 tool that carries its own trust value, such as a call transcript, wraps its
-own result. A result that carries the daemon's own state or the user's own
-answer is not wrapped. One line of the system prompt says what the markers
+own result. A Coding Session wraps what a harness writes, as
+`coding_session:<id>` (ADR-0033). A result that carries the daemon's own
+state or the user's own answer is not wrapped. One line of the system prompt says what the markers
 mean.
 
 ### An absent capability is declared, never emulated
@@ -216,7 +217,9 @@ fail. A tool an Agent cannot use is absent from its snapshot.
   one exception is a Plugin Binding, which the daemon puts into the
   environment of a stdio Plugin server, where every stdio server of that
   Plugin Computer can read it, or into a request header to an HTTP Plugin
-  server (ADR-0017).
+  server (ADR-0017). The per-session token of the Harness Model Endpoint is
+  the one thing of a credential kind in an Agent's Computer. It reaches only
+  that endpoint and dies with its Coding Session (ADR-0033).
 - One enforcement point serves every installation, local or server.
 - The agent loop sees tools, not topology.
 - Tool lists change only between Runs; a revocation applies before the next

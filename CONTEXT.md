@@ -296,7 +296,9 @@ withheld from every reader (ADR-0004, ADR-0008).
 A scoped permission that lets one Agent use one Workspace resource: a
 Connection with capabilities, the Vault with allowed domains, a Host with
 command Allow Rules, or a Plugin. A Grant has numbered revisions. An action
-that matches the live revision needs no new approval (ADR-0005).
+that matches the live revision needs no new approval (ADR-0005). A host
+Grant also holds the widest Session Approval Mode of its Agent on that
+machine. Not built (ADR-0033).
 
 ### Member
 The role of a Person who changes only their own Workspace. A Member reads
@@ -517,12 +519,14 @@ reason (ADR-0010).
 ### Event Subscription
 A durable rule that matches Incoming Events from one Connection, or from
 the Agent's own mailbox or number, and asks one Agent to act in a target
-Channel and optional Thread (ADR-0006).
+Channel and optional Thread (ADR-0006). Its source can also be a Coding
+Session, as for a Session Rule. Not built (ADR-0033).
 
 ### Incoming Event
 A provider occurrence, received through a Connection, an Agent Mailbox or
 an Agent Phone Number, that may wake an Agent. It is not an audit event
-(ADR-0006).
+(ADR-0006). A Coding Session is also a source: the end of a turn, a
+decision that waits, and the end of the session. Not built (ADR-0033).
 
 ### Review Run
 The Run that reflects one claimed batch of due Pending Evidence. It uses
@@ -975,7 +979,8 @@ One machine of one Person that their Agents can act on: the Client App
 running there, with its name, platform, capabilities and last-seen time. A
 host action runs there as the Person's own OS user, never in the daemon.
 Pagis sandboxes nothing on a Host, so the approval stands in its place, and
-the Grant names the machine (ADR-0015).
+the Grant names the machine (ADR-0015). A Coding Session can run there. Not
+built (ADR-0033).
 _Avoid_: device, the user's computer
 
 ### Media Relay
@@ -1017,6 +1022,58 @@ daemon (ADR-0029). On a Headless Server it reaches no container of
 another Workspace, no other address of the Docker host, no link-local
 address and no private address that the Administrator did not allow
 (ADR-0014).
+
+## Coding Sessions
+
+### Coding Harness
+An external coding agent program that Pagis drives over ACP, such as Claude
+Code, Codex, OpenCode, pi, Gemini CLI, Copilot CLI or Cursor CLI. It owns its
+own loop, so memory, the Briefing, Grants and Threads do not reach inside
+it. It is not an Agent. Not built (ADR-0033).
+_Avoid_: coding agent, worker
+
+### Coding Session
+One ACP session of one Coding Harness, in one working directory, on a Host
+or in the Agent's Computer. One Agent owns and supervises it, and one Thread
+shows it. It is not a Run. On a Host it runs over the **session socket**, a
+WebSocket of the Client App that carries one stream for each Coding Session.
+Not built (ADR-0033).
+_Avoid_: harness session
+
+### Harness Catalog
+The list of Coding Harnesses that ships with each release, with the pinned
+version, the launch command, whether the harness asks permission, and the
+vendor's own sign-in commands. Pagis does not fetch it at run time. Not
+built (ADR-0033).
+
+### Harness Model Endpoint
+The model API that the daemon serves to the Computers for a Coding Session
+there. A per-session token authenticates a harness, and the daemon forwards
+each request with the Org's provider key under the Spend Cap. Not built
+(ADR-0033).
+
+### Harness Permission
+A permission request of a Coding Harness (ACP `session/request_permission`).
+Pagis policy answers it first, then the Session Approval Mode of the Coding
+Session decides who answers. Pagis answers once, never "always". Not built
+(ADR-0033).
+
+### Harness Sign-In
+The Person signs in to a Coding Harness on their Host with their own
+subscription or API key, in the vendor's own program. Pagis never reads,
+copies, stores or relays the credential. Not built (ADR-0033).
+_Avoid_: harness login
+
+### Session Approval Mode
+Who answers a Harness Permission of a Coding Session: `person`, `agent` or
+`auto`. The host Grant holds the widest mode that each Agent may use on each
+machine, `person` by default. Not built (ADR-0033).
+_Avoid_: permission mode
+
+### Session Rule
+The Event Subscription that the daemon makes when a Coding Session starts
+and archives when it ends. It wakes the owning Agent in the session's
+Thread. Not built (ADR-0033).
 
 ## Telephony
 
@@ -1152,7 +1209,8 @@ Run queued or running in a Channel. A Run that reflects turns no ring
 The kind of Request that asks permission to act: a tool action or a
 credential action. The approval card is a view of it. Only an Approval
 takes a scope, which is how "Always allow" writes an Allow Rule
-(ADR-0004).
+(ADR-0004). A Harness Permission that asks the Person is also an Approval.
+Not built (ADR-0033).
 
 ### Artifact
 A binary file that the Workspace stores outside the database, such as a
@@ -1225,6 +1283,8 @@ needs the Person, what is running, what got done (ADR-0022).
 Something a Run needs from the Person before it continues: a tool action, a
 credential action, a form, a choice, or a Widget answer. It is pending,
 approved, denied, expired or superseded, and it parks the Run (ADR-0004).
+A Harness Permission is a Request with no Run: it waits on its Coding
+Session, and it expires when the session ends. Not built (ADR-0033).
 
 ### Retention Policy
 How long one Artifact class is kept in a Workspace. With no policy a class

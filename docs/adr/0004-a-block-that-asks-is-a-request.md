@@ -16,8 +16,8 @@ schema of primitives, and returns the user's answer as the call's result.
 ### The vocabulary is a typed union
 
 The block types are `markdown`, `table`, `form`, `choice_card`,
-`approval_card`, `progress`, `image`, `file`, `screen`, `call`, `mail` and
-`widget`. The union is a `Block` enum in `pagis-core`, tagged on `type`, so
+`approval_card`, `progress`, `image`, `file`, `screen`, `call`, `mail`,
+`coding_session` and `widget`. The union is a `Block` enum in `pagis-core`, tagged on `type`, so
 `blocks` is a `oneOf` in the OpenAPI specification and a discriminated union in
 the generated TypeScript. Both sides keep an unknown arm, because a client that
 rejects a newer daemon's block breaks for no gain.
@@ -25,18 +25,28 @@ rejects a newer daemon's block breaks for no gain.
 ### A block that asks is a Request
 
 A Request is a durable row with a `kind` of `tool_action`, `form`, `choice`,
-`credential_action` or `widget`. A Run has at most one pending Request, and a
-second ask waits behind it. A user message in the Channel supersedes it. There
-is no clock deadline: `expired` means that the waiting Run died.
+`credential_action`, `widget` or `harness_permission`. A Run has at most one
+pending Request, and a second ask waits behind it. A user message in the
+Channel supersedes it. There is no clock deadline: `expired` means that the
+waiting Run died.
 
 An Approval is the `tool_action` kind. It gates any action that the broker
 dispatches. An Approval is a decision the user makes before an Agent may act;
 "which date should I book?" is not one.
 
+A `harness_permission` is a permission request of a Coding Harness in a Coding
+Session (ADR-0033). It has no Run, and `expired` means that its session ended.
+In the `agent` or the `auto` Session Approval Mode a Harness Permission is
+decided without the Person, because the Person delegated it with the widest
+mode on the host Grant. An Agent still cannot make an approval card.
+
 One body answers every kind: a decision of `approved` or `denied`, an optional
 scope of `once` or `always`, and optional values. A form submission is
 `approved` with values, and a dismissal is `denied`. The scope applies to
-`tool_action` alone, and `always` needs a trusted allow-rule builder.
+`tool_action`, and to a `harness_permission` for an `execute`, alone. `always`
+needs a trusted allow-rule builder. For a `harness_permission` it writes a
+Host Allow Rule with that builder, so a Request with no Run can take a scope
+(ADR-0033).
 
 The server validates the values against the field schema on the Request row,
 never against the block's copy, because a client can post back a changed
@@ -62,8 +72,8 @@ answers dies with its Run.
 ### The daemon makes any block that shows a row it owns
 
 An Agent emits `markdown`, `table`, `form`, `choice_card`, `image` and `file`.
-The daemon makes `approval_card`, `progress`, `screen`, `call`, `mail` and
-`widget`. A block that refers to a durable row the daemon controls comes from
+The daemon makes `approval_card`, `progress`, `screen`, `call`, `mail`,
+`coding_session` (ADR-0033) and `widget`. A block that refers to a durable row the daemon controls comes from
 the daemon, because a model that could make an `approval_card` could forge
 authority over its own gate. For `ask_user` the Agent supplies the content,
 and the daemon makes the row and the block.

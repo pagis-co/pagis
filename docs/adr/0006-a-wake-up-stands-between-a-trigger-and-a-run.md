@@ -52,16 +52,19 @@ A **Schedule Occurrence** records one due instant, also when no Run starts. Its
 outcome says whether it created or joined a Wake-up, or was skipped.
 
 An **Incoming Event** records one normalized provider occurrence, unique by
-Connection, qualified event kind and provider event id. It stores normalized
+source, qualified event kind and provider event id. It stores normalized
 metadata, the provider occurrence time, the receive time and the source batch,
 and never a body, a snippet, an attachment, a credential or provider stderr.
 The declaration of a kind names the synced resource whose Source Items its
 occurrences are, and `ingest` drops an occurrence of an item that a Forget
 blocks (ADR-0008).
 
-An **Event Subscription** matches one declared event kind from one Connection
+An **Event Subscription** matches one declared event kind from one source
 and gives it an Agent, an instruction, a conversation target, a typed filter,
 a creator, a revision, an approval revision and a state.
+
+An Incoming Event and an Event Subscription name their source: a Connection,
+or a Coding Session (ADR-0033).
 
 A **Wake-up** is the durable delivery decision between the source facts and a
 Run. It stores its rule revision, the Agent, the conversation target, the

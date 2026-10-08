@@ -15,6 +15,10 @@ Pagis writes its own agent loop in Rust on `crates/llm-router`. An external
 harness, such as a coding CLI, connects only as a guest coding harness over
 ACP.
 
+ACP stays the guest protocol. A native driver, such as the Codex app-server
+or pi RPC, is allowed only where ACP lacks a capability that Pagis needs
+(ADR-0033).
+
 ## Consequences
 
 - Pagis controls every turn, and no host framework competes for it.
