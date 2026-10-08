@@ -64,7 +64,21 @@ impl std::str::FromStr for CodingSessionPlace {
 }
 
 /// Who answers a Harness Permission of a Coding Session.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
+// The variants go from the narrowest mode to the widest, and the derived
+// order compares them.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+    utoipa::ToSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum SessionApprovalMode {
     /// The Person answers each one.
@@ -82,6 +96,13 @@ impl SessionApprovalMode {
             SessionApprovalMode::Agent => "agent",
             SessionApprovalMode::Auto => "auto",
         }
+    }
+
+    /// True when this mode, as the widest mode of a host Grant, lets an
+    /// Agent start a session in the requested mode: the mode itself or
+    /// a narrower one.
+    pub fn permits(self, requested: SessionApprovalMode) -> bool {
+        requested <= self
     }
 }
 
@@ -925,5 +946,28 @@ mod tests {
             assert_eq!(serde_json::to_value(kind).unwrap(), name);
         }
         assert!("message".parse::<Kind>().is_err());
+    }
+
+    #[test]
+    fn a_mode_permits_itself_and_each_narrower_mode() {
+        use SessionApprovalMode::{Agent, Auto, Person};
+        let pairs = [
+            (Person, Person, true),
+            (Person, Agent, false),
+            (Person, Auto, false),
+            (Agent, Person, true),
+            (Agent, Agent, true),
+            (Agent, Auto, false),
+            (Auto, Person, true),
+            (Auto, Agent, true),
+            (Auto, Auto, true),
+        ];
+        for (widest, requested, permitted) in pairs {
+            assert_eq!(
+                widest.permits(requested),
+                permitted,
+                "{widest:?} permits {requested:?}"
+            );
+        }
     }
 }

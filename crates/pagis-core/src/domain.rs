@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::block::Block;
+use crate::coding_session::SessionApprovalMode;
 use crate::id::{
     AgentId, ArtifactId, ChannelId, CodingSessionId, ConnectionId, EventSubscriptionId, GrantId,
     HostId, IncomingEventId, MessageId, ParticipantId, RequestId, RunId, ScheduleId,
@@ -1199,7 +1200,8 @@ impl Request {
 
 /// A scoped permission that lets one agent use one workspace resource.
 /// A credential grant has no `resource_id` and holds allow rules. A host
-/// grant names one Host and holds allow rules. A connection grant names
+/// grant names one Host and holds allow rules and the widest Session
+/// Approval Mode. A connection grant names
 /// one connection and holds capabilities. A Plugin grant names one
 /// Plugin. The off switch is `revoked_at`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1250,6 +1252,35 @@ impl Grant {
     /// The scope JSON for a list of allow rules.
     pub fn allow_scope(allow: &[String]) -> serde_json::Value {
         serde_json::json!({ "allow": allow })
+    }
+
+    /// The scope with these allow rules and every other field kept.
+    pub fn with_allow_rules(&self, allow: &[String]) -> serde_json::Value {
+        self.with_scope_field("allow", serde_json::json!(allow))
+    }
+
+    /// The widest Session Approval Mode that a host Grant gives its
+    /// Agent on its machine (ADR-0033). An absent or unknown value, and
+    /// a malformed scope, read as `person`.
+    pub fn session_approval_mode(&self) -> SessionApprovalMode {
+        self.scope["session_approval_mode"]
+            .as_str()
+            .and_then(|mode| mode.parse().ok())
+            .unwrap_or(SessionApprovalMode::Person)
+    }
+
+    /// The scope with this widest Session Approval Mode and every other
+    /// field kept.
+    pub fn with_session_approval_mode(&self, mode: SessionApprovalMode) -> serde_json::Value {
+        self.with_scope_field("session_approval_mode", serde_json::json!(mode.as_str()))
+    }
+
+    /// The scope with one field replaced. A malformed scope holds no
+    /// field to keep, so the answer is a new object.
+    fn with_scope_field(&self, name: &str, value: serde_json::Value) -> serde_json::Value {
+        let mut scope = self.scope.as_object().cloned().unwrap_or_default();
+        scope.insert(name.to_string(), value);
+        serde_json::Value::Object(scope)
     }
 
     /// The named capabilities in a connection grant.
@@ -2997,5 +3028,86 @@ mod tests {
     fn an_agent_with_no_job_gives_its_name_alone() {
         let greeting = agent_with_job("").greeting(ChannelId::generate());
         assert_eq!(greeting.text_content, "Hi, I'm Pixie.");
+    }
+
+    fn host_grant_with_scope(scope: serde_json::Value) -> Grant {
+        Grant {
+            id: GrantId::generate(),
+            workspace_id: WorkspaceId::from("w".to_string()),
+            agent_id: AgentId::from("a".to_string()),
+            resource_kind: Grant::HOST_KIND.to_string(),
+            resource_id: Some("h".to_string()),
+            scope,
+            revision: 1,
+            created_at: 1,
+            revoked_at: None,
+        }
+    }
+
+    #[test]
+    fn a_host_grant_reads_each_session_approval_mode() {
+        for mode in [
+            SessionApprovalMode::Person,
+            SessionApprovalMode::Agent,
+            SessionApprovalMode::Auto,
+        ] {
+            let grant = host_grant_with_scope(
+                serde_json::json!({"allow": [], "session_approval_mode": mode.as_str()}),
+            );
+            assert_eq!(grant.session_approval_mode(), mode);
+        }
+    }
+
+    #[test]
+    fn an_absent_unknown_or_malformed_mode_reads_as_person() {
+        for scope in [
+            serde_json::json!({"allow": ["echo"]}),
+            serde_json::json!({"allow": [], "session_approval_mode": "everything"}),
+            serde_json::json!({"allow": [], "session_approval_mode": 2}),
+            serde_json::json!(["not", "an", "object"]),
+            serde_json::Value::Null,
+        ] {
+            assert_eq!(
+                host_grant_with_scope(scope.clone()).session_approval_mode(),
+                SessionApprovalMode::Person,
+                "{scope}"
+            );
+        }
+    }
+
+    #[test]
+    fn new_allow_rules_keep_the_session_approval_mode() {
+        let grant = host_grant_with_scope(
+            serde_json::json!({"allow": ["echo"], "session_approval_mode": "agent"}),
+        );
+
+        let scope = grant.with_allow_rules(&["git status".to_string()]);
+
+        assert_eq!(
+            scope,
+            serde_json::json!({"allow": ["git status"], "session_approval_mode": "agent"})
+        );
+    }
+
+    #[test]
+    fn a_new_session_approval_mode_keeps_the_allow_rules() {
+        let grant = host_grant_with_scope(serde_json::json!({"allow": ["echo"]}));
+
+        let scope = grant.with_session_approval_mode(SessionApprovalMode::Auto);
+
+        assert_eq!(
+            scope,
+            serde_json::json!({"allow": ["echo"], "session_approval_mode": "auto"})
+        );
+    }
+
+    #[test]
+    fn a_field_written_on_a_malformed_scope_makes_an_object() {
+        let grant = host_grant_with_scope(serde_json::json!(["not", "an", "object"]));
+
+        assert_eq!(
+            grant.with_session_approval_mode(SessionApprovalMode::Agent),
+            serde_json::json!({"session_approval_mode": "agent"})
+        );
     }
 }

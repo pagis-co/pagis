@@ -28,6 +28,8 @@ pagis-audit.workspace = true
 # The Home Exit of a Person on the two-Workspace harness (ADR-0029).
 pagis-computer.workspace = true
 pagis-storage-sqlite.workspace = true
+# The in-memory Grant store of the Session Approval Mode tests.
+pagis-testkit.workspace = true
 sqlx.workspace = true
 # `test-util` pauses the clock, so the answer timeout of a session
 # socket passes with no wall-clock wait.

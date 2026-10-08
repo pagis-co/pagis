@@ -61,7 +61,9 @@ installations. A host action's effect class is `host` on every installation,
 and the only way past a card is a live allow rule on that machine's Grant.
 
 The host Grant also holds the widest Session Approval Mode that its Agent may
-use for a Coding Session on that machine (ADR-0033).
+use for a Coding Session on that machine (ADR-0033). When the Person sets that
+mode for an Agent with no host Grant on the machine, the setting writes the
+first Grant, as the card does.
 
 ### A Host Allow Rule names a command class
 

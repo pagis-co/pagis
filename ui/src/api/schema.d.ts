@@ -459,6 +459,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/agents/{agent_id}/hosts/{host_id}/session-approval-mode": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set the widest Session Approval Mode of an Agent on a machine. The
+         *     Person sets it before the Agent's first session there, when the
+         *     Agent can hold no host grant on the machine yet, so the first write
+         *     makes the grant. That grant makes the machine a host candidate of
+         *     the Agent (ADR-0015).
+         */
+        put: operations["set_session_approval_mode"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/agents/{agent_id}/mailbox": {
         parameters: {
             query?: never;
@@ -4036,6 +4059,7 @@ export interface components {
             resource_kind: string;
             /** Format: int64 */
             revision: number;
+            session_approval_mode?: null | components["schemas"]["SessionApprovalMode"];
         };
         GrantPage: {
             items: components["schemas"]["GrantDto"][];
@@ -5951,6 +5975,11 @@ export interface components {
             seq?: string | null;
             type: string;
         };
+        /**
+         * @description Who answers a Harness Permission of a Coding Session.
+         * @enum {string}
+         */
+        SessionApprovalMode: "person" | "agent" | "auto";
         /** @description One live Session, for the read that says who is signed in. */
         SessionDto: {
             /** @description `browser` or `desktop`. */
@@ -6033,6 +6062,10 @@ export interface components {
              * @description Whole days to keep the class, or `null` to keep it for ever.
              */
             retain_days?: number | null;
+        };
+        SetSessionApprovalModeRequest: {
+            /** @description The widest mode that the Agent may use on the machine. */
+            mode: components["schemas"]["SessionApprovalMode"];
         };
         SetSignInRequest: {
             email: string;
@@ -8041,6 +8074,75 @@ export interface operations {
             };
             /** @description Docker is unreachable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    set_session_approval_mode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+                host_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetSessionApprovalModeRequest"];
+            };
+        };
+        responses: {
+            /** @description The host grant holds the mode */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GrantDto"];
+                };
+            };
+            /** @description A new host grant holds the mode */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GrantDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The grant was revoked meanwhile */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -272,8 +272,16 @@ The **Session Approval Mode** says who answers a Harness Permission:
 - `auto` (UI: "Allow everything"): the daemon allows each request.
 
 The host Grant holds the widest mode that each Agent may use on each machine,
-`person` by default. A change is a Grant revision. The Agent picks a mode for
-each session within it.
+in the field `session_approval_mode` of its scope. An absent or unknown value,
+and a revoked Grant, read as `person`. A change is a Grant revision, and it
+withholds no message, because only a Connection Grant is stamped. The Agent
+picks a mode for each session within it.
+
+The Person sets the widest mode for an Agent and a machine, with
+`PUT /api/v1/agents/{agent_id}/hosts/{host_id}/session-approval-mode`. When the
+Agent holds no live host Grant on that machine, the write makes one with no
+Allow Rules. That Grant is the Person's own act, as a Connection Grant is, and
+it makes the machine a host candidate of the Agent (ADR-0015).
 
 ### A Harness Permission passes Pagis policy first
 
@@ -386,7 +394,6 @@ Other ways were considered:
 - The REST routes and the `coding_session` block.
 - The Session Rule.
 - The interruption and the resume.
-- The widest Session Approval Mode on the host Grant.
 - Pagis policy and the approval card.
 - The `agent` mode.
 - The `auto` mode.

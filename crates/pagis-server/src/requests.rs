@@ -444,7 +444,7 @@ async fn write_grant(
                 return Ok(());
             }
             allow.extend(missing);
-            grant.scope = Grant::allow_scope(&allow);
+            grant.scope = grant.with_allow_rules(&allow);
             state
                 .grants
                 .set_scope(&request.workspace_id, &grant.id, &grant.scope)

@@ -297,10 +297,9 @@ withheld from every reader (ADR-0004, ADR-0008).
 ### Grant
 A scoped permission that lets one Agent use one Workspace resource: a
 Connection with capabilities, the Vault with allowed domains, a Host with
-command Allow Rules, or a Plugin. A Grant has numbered revisions. An action
-that matches the live revision needs no new approval (ADR-0005). A host
-Grant also holds the widest Session Approval Mode of its Agent on that
-machine. Not built (ADR-0033).
+command Allow Rules and the widest Session Approval Mode of its Agent on
+that machine, or a Plugin. A Grant has numbered revisions. An action that
+matches the live revision needs no new approval (ADR-0005).
 
 ### Member
 The role of a Person who changes only their own Workspace. A Member reads
@@ -1073,7 +1072,8 @@ _Avoid_: harness login
 ### Session Approval Mode
 Who answers a Harness Permission of a Coding Session: `person`, `agent` or
 `auto`. The host Grant holds the widest mode that each Agent may use on each
-machine, `person` by default. Not built (ADR-0033).
+machine, `person` by default. Not built: the mode of a session, and who
+answers a Harness Permission (ADR-0033).
 _Avoid_: permission mode
 
 ### Session Rule

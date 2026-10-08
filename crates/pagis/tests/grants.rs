@@ -3,7 +3,9 @@
 //! then runs silently, a non-matching subcommand still asks, revoke
 //! re-gates instantly, and the grants REST serves the settings page and
 //! refuses a rule for a program that runs other programs. A stored rule
-//! for such a program blocks no later "Always allow".
+//! for such a program blocks no later "Always allow". The Person sets the
+//! widest Session Approval Mode of an Agent on a machine, and a write of
+//! the allow rules keeps it.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -511,4 +513,122 @@ async fn a_stored_runner_rule_does_not_block_an_always_allow() {
     decide(&daemon, &request_id, "denied", None).await;
     frames_until_completed(&mut socket).await;
     assert_eq!(host.commands(), ["echo hi", "git status"]);
+}
+
+async fn put_session_approval_mode(
+    daemon: &TestDaemon,
+    agent_id: &str,
+    host_id: &str,
+    mode: &str,
+) -> reqwest::Response {
+    reqwest::Client::new()
+        .put(format!(
+            "{}/api/v1/agents/{agent_id}/hosts/{host_id}/session-approval-mode",
+            daemon.base_url
+        ))
+        .header("cookie", daemon.cookie())
+        .json(&serde_json::json!({ "mode": mode }))
+        .send()
+        .await
+        .unwrap()
+}
+
+/// The Person sets the widest Session Approval Mode of an Agent on a
+/// machine before the Agent holds a host Grant there. The first write
+/// makes the Grant, a change is a new revision, and the same mode again
+/// writes nothing.
+#[tokio::test]
+async fn the_person_sets_the_widest_session_approval_mode_on_a_machine() {
+    let daemon = TestDaemon::start().await;
+    let host = connected_host(&daemon).await;
+    let mut socket = firehose(&daemon).await;
+    let agent_id = daemon.agent_id.as_str();
+
+    let created = put_session_approval_mode(&daemon, agent_id, host.host_id(), "agent").await;
+    assert_eq!(created.status(), 201);
+    let grant: serde_json::Value = created.json().await.unwrap();
+    assert_eq!(grant["resource_kind"], "host");
+    assert_eq!(grant["resource_id"], host.host_id());
+    assert_eq!(grant["agent_id"], agent_id);
+    assert_eq!(grant["allow"], serde_json::json!([]));
+    assert_eq!(grant["session_approval_mode"], "agent");
+    assert_eq!(grant["revision"], 1);
+    let changed = next_frame_of(&mut socket, "grant.changed").await;
+    assert_eq!(
+        changed["payload"]["payload"]["session_approval_mode"],
+        "agent"
+    );
+
+    let widened = put_session_approval_mode(&daemon, agent_id, host.host_id(), "auto").await;
+    assert_eq!(widened.status(), 200);
+    let widened: serde_json::Value = widened.json().await.unwrap();
+    assert_eq!(widened["id"], grant["id"]);
+    assert_eq!(widened["session_approval_mode"], "auto");
+    assert_eq!(widened["revision"], 2);
+
+    let same = put_session_approval_mode(&daemon, agent_id, host.host_id(), "auto").await;
+    assert_eq!(same.status(), 200);
+    let same: serde_json::Value = same.json().await.unwrap();
+    assert_eq!(same["revision"], 2);
+
+    let grants = list_grants(&daemon).await;
+    assert_eq!(grants.len(), 1);
+    assert_eq!(grants[0]["session_approval_mode"], "auto");
+    assert_eq!(grants[0]["revision"], 2);
+}
+
+#[tokio::test]
+async fn the_session_approval_mode_route_refuses_an_unknown_agent_host_or_mode() {
+    let daemon = TestDaemon::start().await;
+    let host = connected_host(&daemon).await;
+    let agent_id = daemon.agent_id.as_str();
+
+    let unknown_agent =
+        put_session_approval_mode(&daemon, "01UNKNOWNAGENT", host.host_id(), "agent").await;
+    assert_eq!(unknown_agent.status(), 404);
+    let unknown_host = put_session_approval_mode(&daemon, agent_id, "01UNKNOWNHOST", "agent").await;
+    assert_eq!(unknown_host.status(), 404);
+    let unknown_mode = put_session_approval_mode(&daemon, agent_id, host.host_id(), "always").await;
+    assert_eq!(unknown_mode.status(), 422);
+    assert!(list_grants(&daemon).await.is_empty());
+}
+
+/// The allow rules and the widest Session Approval Mode share the scope
+/// of the host Grant. A write of the rules keeps the mode.
+#[tokio::test]
+async fn a_change_of_the_allow_rules_keeps_the_session_approval_mode() {
+    let brain = Arc::new(ScriptedBrain::default());
+    brain.push(Script::tool_call(
+        &[],
+        "host_shell",
+        serde_json::json!({ "command": "echo hi" }),
+    ));
+    brain.push(Script::reply(&["Done."]));
+    let daemon = TestDaemon::start_with(options(&brain)).await;
+    let host = connected_host(&daemon).await;
+    let mut socket = firehose(&daemon).await;
+    let set =
+        put_session_approval_mode(&daemon, daemon.agent_id.as_str(), host.host_id(), "agent").await;
+    assert_eq!(set.status(), 201);
+
+    // "Always allow" on a card appends a rule to the same Grant.
+    let request_id = park_run(&daemon, &mut socket, "p-1").await;
+    decide(&daemon, &request_id, "approved", Some("always")).await;
+    frames_until_completed(&mut socket).await;
+    let grants = list_grants(&daemon).await;
+    assert_eq!(grants.len(), 1);
+    assert_eq!(grants[0]["allow"], serde_json::json!(["echo"]));
+    assert_eq!(grants[0]["session_approval_mode"], "agent");
+
+    // The settings page replaces the rules.
+    let grant_id = grants[0]["id"].as_str().unwrap().to_string();
+    let edited = put_rules(&daemon, &grant_id, &["git status"]).await;
+    assert_eq!(edited.status(), 200);
+    let edited: serde_json::Value = edited.json().await.unwrap();
+    assert_eq!(edited["allow"], serde_json::json!(["git status"]));
+    assert_eq!(edited["session_approval_mode"], "agent");
+    assert_eq!(
+        list_grants(&daemon).await[0]["session_approval_mode"],
+        "agent"
+    );
 }

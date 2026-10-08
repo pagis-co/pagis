@@ -2,7 +2,9 @@
 //! their allow rules, edits the rules, and revokes a grant. Revocation
 //! is the off switch — the next call re-enters the approval flow. A
 //! host grant's rules are command prefixes; a credential grant's rules
-//! are registrable domains, capped at five.
+//! are registrable domains, capped at five. A host grant also holds the
+//! widest Session Approval Mode of its Agent on its machine (ADR-0033),
+//! which the Person sets for an Agent and a machine.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -10,7 +12,9 @@ use std::sync::Arc;
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use pagis_core::{AgentId, ConnectionId, Grant, GrantId, NewEvent, now_ms};
+use pagis_core::{
+    AgentId, ConnectionId, Grant, GrantId, HostId, NewEvent, SessionApprovalMode, now_ms,
+};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -34,6 +38,9 @@ pub struct GrantDto {
     pub allow: Vec<String>,
     /// Named capabilities on a Connection grant.
     pub capabilities: Vec<String>,
+    /// The widest Session Approval Mode of the Agent on the machine of a
+    /// host grant. The other kinds hold none.
+    pub session_approval_mode: Option<SessionApprovalMode>,
     pub revision: i64,
     pub created_at: i64,
 }
@@ -61,6 +68,18 @@ pub struct SetGrantCapabilitiesRequest {
     pub capabilities: Vec<String>,
 }
 
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct SetSessionApprovalModeRequest {
+    /// The widest mode that the Agent may use on the machine.
+    pub mode: SessionApprovalMode,
+}
+
+/// The widest Session Approval Mode of a host grant, and none for the
+/// other kinds.
+fn host_session_approval_mode(grant: &Grant) -> Option<SessionApprovalMode> {
+    (grant.resource_kind == Grant::HOST_KIND).then(|| grant.session_approval_mode())
+}
+
 pub(crate) fn grant_dto(grant: &Grant, agent_name: &str) -> GrantDto {
     GrantDto {
         id: grant.id.to_string(),
@@ -70,6 +89,7 @@ pub(crate) fn grant_dto(grant: &Grant, agent_name: &str) -> GrantDto {
         resource_id: grant.resource_id.clone(),
         allow: grant.allow_rules(),
         capabilities: grant.capabilities(),
+        session_approval_mode: host_session_approval_mode(grant),
         revision: grant.revision,
         created_at: grant.created_at,
     }
@@ -309,7 +329,7 @@ pub async fn set_grant_rules(
         }
     }
     check_rules(&grant.resource_kind, &allow)?;
-    grant.scope = Grant::allow_scope(&allow);
+    grant.scope = grant.with_allow_rules(&allow);
     if !state
         .grants
         .set_scope(&tenant.workspace_id, &grant_id, &grant.scope)
@@ -330,6 +350,87 @@ pub async fn set_grant_rules(
         .map(String::as_str)
         .unwrap_or("unknown agent");
     Ok(Json(grant_dto(&grant, name)))
+}
+
+/// Set the widest Session Approval Mode of an Agent on a machine. The
+/// Person sets it before the Agent's first session there, when the
+/// Agent can hold no host grant on the machine yet, so the first write
+/// makes the grant. That grant makes the machine a host candidate of
+/// the Agent (ADR-0015).
+#[utoipa::path(
+    put,
+    path = "/api/v1/agents/{agent_id}/hosts/{host_id}/session-approval-mode",
+    params(("agent_id" = String, Path,), ("host_id" = String, Path,)),
+    request_body = SetSessionApprovalModeRequest,
+    responses(
+        (status = 200, description = "The host grant holds the mode", body = GrantDto),
+        (status = 201, description = "A new host grant holds the mode", body = GrantDto),
+        (status = 401, body = crate::error::ErrorBody),
+        (status = 404, body = crate::error::ErrorBody),
+        (status = 409, description = "The grant was revoked meanwhile", body = crate::error::ErrorBody),
+        (status = 422, body = crate::error::ErrorBody),
+    )
+)]
+pub async fn set_session_approval_mode(
+    State(state): State<Arc<AppState>>,
+    tenant: Tenant,
+    Path((agent_id, host_id)): Path<(String, String)>,
+    Json(request): Json<SetSessionApprovalModeRequest>,
+) -> Result<(StatusCode, Json<GrantDto>), ApiError> {
+    let agent = state
+        .agent_store
+        .get(&tenant.workspace_id, &AgentId::from(agent_id))
+        .await?
+        .ok_or_else(|| ApiError::not_found("agent"))?;
+    let host = state
+        .hosts
+        .get(&tenant.workspace_id, &HostId::from(host_id))
+        .await?
+        .ok_or_else(|| ApiError::not_found("host"))?;
+    let live = state
+        .grants
+        .live_for_resource(
+            &tenant.workspace_id,
+            &agent.id,
+            Grant::HOST_KIND,
+            host.id.as_str(),
+        )
+        .await?;
+    let Some(grant) = live else {
+        let mut grant = Grant {
+            id: GrantId::generate(),
+            workspace_id: tenant.workspace_id.clone(),
+            agent_id: agent.id.clone(),
+            resource_kind: Grant::HOST_KIND.to_string(),
+            resource_id: Some(host.id.to_string()),
+            scope: Grant::allow_scope(&[]),
+            revision: 1,
+            created_at: now_ms(),
+            revoked_at: None,
+        };
+        grant.scope = grant.with_session_approval_mode(request.mode);
+        state.grants.create(&grant).await?;
+        publish_grant_event(&state, &grant, "grant.changed").await?;
+        return Ok((StatusCode::CREATED, Json(grant_dto(&grant, &agent.name))));
+    };
+    if grant.session_approval_mode() == request.mode {
+        return Ok((StatusCode::OK, Json(grant_dto(&grant, &agent.name))));
+    }
+    let scope = grant.with_session_approval_mode(request.mode);
+    if !state
+        .grants
+        .set_scope(&tenant.workspace_id, &grant.id, &scope)
+        .await?
+    {
+        return Err(ApiError::conflict("grant is revoked"));
+    }
+    let changed = state
+        .grants
+        .get(&tenant.workspace_id, &grant.id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("grant"))?;
+    publish_grant_event(&state, &changed, "grant.changed").await?;
+    Ok((StatusCode::OK, Json(grant_dto(&changed, &agent.name))))
 }
 
 #[utoipa::path(
@@ -455,6 +556,7 @@ pub(crate) async fn publish_grant_event(
                 "resource_id": grant.resource_id,
                 "allow": grant.allow_rules(),
                 "capabilities": grant.capabilities(),
+                "session_approval_mode": host_session_approval_mode(grant),
                 "revision": grant.revision,
             }),
         })

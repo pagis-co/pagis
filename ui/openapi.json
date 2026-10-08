@@ -1656,6 +1656,105 @@
         }
       }
     },
+    "/api/v1/agents/{agent_id}/hosts/{host_id}/session-approval-mode": {
+      "put": {
+        "tags": [
+          "grants"
+        ],
+        "summary": "Set the widest Session Approval Mode of an Agent on a machine. The\nPerson sets it before the Agent's first session there, when the\nAgent can hold no host grant on the machine yet, so the first write\nmakes the grant. That grant makes the machine a host candidate of\nthe Agent (ADR-0015).",
+        "operationId": "set_session_approval_mode",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "host_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetSessionApprovalModeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The host grant holds the mode",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GrantDto"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "A new host grant holds the mode",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GrantDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The grant was revoked meanwhile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/agents/{agent_id}/mailbox": {
       "get": {
         "tags": [
@@ -13152,6 +13251,17 @@
           "revision": {
             "type": "integer",
             "format": "int64"
+          },
+          "session_approval_mode": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SessionApprovalMode",
+                "description": "The widest Session Approval Mode of the Agent on the machine of a\nhost grant. The other kinds hold none."
+              }
+            ]
           }
         }
       },
@@ -18160,6 +18270,15 @@
           }
         }
       },
+      "SessionApprovalMode": {
+        "type": "string",
+        "description": "Who answers a Harness Permission of a Coding Session.",
+        "enum": [
+          "person",
+          "agent",
+          "auto"
+        ]
+      },
       "SessionDto": {
         "type": "object",
         "description": "One live Session, for the read that says who is signed in.",
@@ -18374,6 +18493,18 @@
             ],
             "format": "int64",
             "description": "Whole days to keep the class, or `null` to keep it for ever."
+          }
+        }
+      },
+      "SetSessionApprovalModeRequest": {
+        "type": "object",
+        "required": [
+          "mode"
+        ],
+        "properties": {
+          "mode": {
+            "$ref": "#/components/schemas/SessionApprovalMode",
+            "description": "The widest mode that the Agent may use on the machine."
           }
         }
       },
