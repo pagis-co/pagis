@@ -21,7 +21,7 @@ updates:
       interval: weekly
 
   # `postgres`, `klipper-lb`, `caddy` and `tailscale` of a Headless Server
-  # deployment, and `caddy` of a Push Relay deployment.
+  # deployment, and `cloudflared` of a Push Relay deployment.
   # A server gets their updates with the next release of Pagis.
   - package-ecosystem: docker-compose
     directories:

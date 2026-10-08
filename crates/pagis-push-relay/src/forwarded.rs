@@ -5,6 +5,16 @@
 //! so the relay reads it only from one configured address, and it takes
 //! the **last** entry: every entry before it came inside the request and
 //! may be invented. This is the rule of the daemon's own Trusted Proxy.
+//!
+//! The deployment in `deploy/push-relay/` puts a Cloudflare Tunnel in
+//! front of the relay. The Cloudflare edge appends the address that
+//! connected to it to `X-Forwarded-For`, or sets the header to that
+//! address when the request has none, so the last entry is the same
+//! address as `CF-Connecting-IP`
+//! (<https://developers.cloudflare.com/fundamentals/reference/http-headers/>).
+//! cloudflared sends the request to the relay with the headers of the
+//! edge and does not change `X-Forwarded-For`. So the relay reads the
+//! same header behind the tunnel as behind another reverse proxy.
 
 use std::net::{IpAddr, SocketAddr};
 
