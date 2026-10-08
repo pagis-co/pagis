@@ -96,7 +96,7 @@ impl StandingCallRule for StandingCallRules {
             .create_subscription(NewSubscription {
                 workspace_id: number.workspace_id.clone(),
                 agent_id: agent_id.clone(),
-                connection_id: number.connection_id.clone(),
+                source: pagis_core::EventSource::connection(number.connection_id.clone()),
                 event_kind: CALL_ENDED.to_string(),
                 name: STANDING_CALL_RULE_NAME.to_string(),
                 instruction: STANDING_CALL_INSTRUCTION.to_string(),
@@ -131,7 +131,7 @@ impl StandingCallRule for StandingCallRules {
         // line it watches and not by its name or its filter.
         for rule in rules.into_iter().filter(|rule| {
             rule.event_kind == CALL_ENDED
-                && rule.connection_id == number.connection_id
+                && rule.source.connection_id() == Some(&number.connection_id)
                 && rule.state != EventSubscriptionState::Archived
         }) {
             self.trigger

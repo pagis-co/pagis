@@ -11,11 +11,11 @@ use std::str::FromStr;
 
 use async_trait::async_trait;
 use pagis_core::{
-    ArrivalRun, ConnectionId, DueBatch, EventMatcher, EventSubscription, EventSubscriptionId,
-    EventWakeupContext, IncomingEvent, IncomingEventId, IngestBatch, IngestOutcome, MessageId, Run,
-    RunId, RunState, ScheduleId, ScheduleOccurrence, ScheduleOccurrenceId, SourceBatch,
-    SourceBatchId, SourceBatchOutcome, TriggerStore, Wakeup, WakeupClaim, WakeupId, WakeupLanding,
-    WakeupRule, WorkspaceId,
+    ArrivalRun, CodingSessionId, ConnectionId, DueBatch, EventMatcher, EventSource,
+    EventSubscription, EventSubscriptionId, EventWakeupContext, IncomingEvent, IncomingEventId,
+    IngestBatch, IngestOutcome, MessageId, Run, RunId, RunState, ScheduleId, ScheduleOccurrence,
+    ScheduleOccurrenceId, SourceBatch, SourceBatchId, SourceBatchOutcome, TriggerStore, Wakeup,
+    WakeupClaim, WakeupId, WakeupLanding, WakeupRule, WorkspaceId,
 };
 use sqlx::{Row, Sqlite, SqlitePool, Transaction};
 
@@ -23,10 +23,10 @@ use crate::db_err;
 use crate::schedule_store::{SCHEDULE_COLUMNS, WAKEUP_COLUMNS, row_to_schedule, row_to_wakeup};
 
 /// Columns of one stored Incoming Event.
-pub(crate) const EVENT_COLUMNS: &str = "id, workspace_id, connection_id, event_kind, \
-    provider_event_id, metadata, occurred_at, received_at, batch_id";
-pub(crate) const BATCH_COLUMNS: &str = "id, workspace_id, connection_id, event_kind, \
-    collected_at, collected_count, stored_count, wakeup_count, outcome, detail";
+pub(crate) const EVENT_COLUMNS: &str = "id, workspace_id, connection_id, coding_session_id, \
+    event_kind, provider_event_id, metadata, occurred_at, received_at, batch_id";
+pub(crate) const BATCH_COLUMNS: &str = "id, workspace_id, connection_id, coding_session_id, \
+    event_kind, collected_at, collected_count, stored_count, wakeup_count, outcome, detail";
 
 #[derive(Clone)]
 pub struct SqliteTriggerStore {
@@ -39,13 +39,32 @@ impl SqliteTriggerStore {
     }
 }
 
+/// The source that the `connection_id` and `coding_session_id`
+/// columns of one row hold.
+pub(crate) fn row_to_source(
+    row: &sqlx::sqlite::SqliteRow,
+) -> Result<EventSource, pagis_core::StoreError> {
+    EventSource::from_columns(row.get("connection_id"), row.get("coding_session_id"))
+        .map_err(pagis_core::StoreError::Corrupt)
+}
+
+/// The column that names one source, and the id it holds.
+pub(crate) fn source_column(source: &EventSource) -> (&'static str, &str) {
+    match source {
+        EventSource::Connection { connection_id } => ("connection_id", connection_id.as_str()),
+        EventSource::CodingSession { coding_session_id } => {
+            ("coding_session_id", coding_session_id.as_str())
+        }
+    }
+}
+
 pub(crate) fn row_to_event(
     row: &sqlx::sqlite::SqliteRow,
 ) -> Result<IncomingEvent, pagis_core::StoreError> {
     Ok(IncomingEvent {
         id: IncomingEventId::from(row.get::<String, _>("id")),
         workspace_id: WorkspaceId::from(row.get::<String, _>("workspace_id")),
-        connection_id: ConnectionId::from(row.get::<String, _>("connection_id")),
+        source: row_to_source(row)?,
         event_kind: row.get("event_kind"),
         provider_event_id: row.get("provider_event_id"),
         metadata: serde_json::from_str(&row.get::<String, _>("metadata"))
@@ -62,7 +81,7 @@ pub(crate) fn row_to_batch(
     Ok(SourceBatch {
         id: SourceBatchId::from(row.get::<String, _>("id")),
         workspace_id: WorkspaceId::from(row.get::<String, _>("workspace_id")),
-        connection_id: ConnectionId::from(row.get::<String, _>("connection_id")),
+        source: row_to_source(row)?,
         event_kind: row.get("event_kind"),
         collected_at: row.get("collected_at"),
         collected_count: count(row, "collected_count")?,
@@ -653,7 +672,7 @@ impl TriggerStore for SqliteTriggerStore {
         let batch = SourceBatch {
             id: SourceBatchId::generate(),
             workspace_id: workspace_id.clone(),
-            connection_id: connection_id.clone(),
+            source: EventSource::connection(connection_id.clone()),
             event_kind: event_kind.to_string(),
             collected_at: at,
             collected_count: 0,
@@ -669,7 +688,7 @@ impl TriggerStore for SqliteTriggerStore {
         )
         .bind(batch.id.as_str())
         .bind(batch.workspace_id.as_str())
-        .bind(batch.connection_id.as_str())
+        .bind(connection_id.as_str())
         .bind(&batch.event_kind)
         .bind(batch.collected_at)
         .bind(batch.detail.as_deref())
@@ -685,9 +704,11 @@ impl TriggerStore for SqliteTriggerStore {
         wakeup_id: &WakeupId,
     ) -> Result<Option<EventWakeupContext>, pagis_core::StoreError> {
         let header = sqlx::query(
-            "SELECT s.id AS subscription_id, s.event_kind AS event_kind, c.alias AS alias \
+            "SELECT s.id AS subscription_id, s.event_kind AS event_kind, \
+             s.connection_id AS connection_id, s.coding_session_id AS coding_session_id, \
+             c.alias AS alias \
              FROM wakeups w JOIN event_subscriptions s ON s.id = w.subscription_id \
-             JOIN connections c ON c.id = s.connection_id \
+             LEFT JOIN connections c ON c.id = s.connection_id \
              WHERE w.id = ? AND w.workspace_id = ?",
         )
         .bind(wakeup_id.as_str())
@@ -715,6 +736,7 @@ impl TriggerStore for SqliteTriggerStore {
         .map_err(db_err)?;
         Ok(Some(EventWakeupContext {
             subscription_id: EventSubscriptionId::from(header.get::<String, _>("subscription_id")),
+            source: row_to_source(&header)?,
             connection_alias: header.get("alias"),
             event_kind: header.get("event_kind"),
             events: rows
@@ -772,16 +794,19 @@ impl TriggerStore for SqliteTriggerStore {
         let mut transaction = crate::pool::begin_write(&self.pool).await.map_err(db_err)?;
         let collected_count = u32::try_from(batch.events.len()).unwrap_or(u32::MAX);
         let batch_id = SourceBatchId::generate();
+        let connection_id = batch.source.connection_id();
+        let coding_session_id = batch.source.coding_session_id();
         // The batch row lands first: an Incoming Event points at the
         // pass that acquired it.
         sqlx::query(
-            "INSERT INTO source_batches (id, workspace_id, connection_id, event_kind, \
-             collected_at, collected_count, stored_count, wakeup_count, outcome, detail) \
-             VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, NULL)",
+            "INSERT INTO source_batches (id, workspace_id, connection_id, coding_session_id, \
+             event_kind, collected_at, collected_count, stored_count, wakeup_count, outcome, \
+             detail) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, NULL)",
         )
         .bind(batch_id.as_str())
         .bind(batch.workspace_id.as_str())
-        .bind(batch.connection_id.as_str())
+        .bind(connection_id.map(ConnectionId::as_str))
+        .bind(coding_session_id.map(CodingSessionId::as_str))
         .bind(&batch.event_kind)
         .bind(batch.received_at)
         .bind(i64::from(collected_count))
@@ -797,11 +822,17 @@ impl TriggerStore for SqliteTriggerStore {
         // The Source Item of an event has the provider event id as its
         // id, under the synced resource that the declaration of the kind
         // names (ADR-0008).
-        let source = source_resource.map(|resource| pagis_core::knowledge::SourceKey {
-            workspace_id: batch.workspace_id.clone(),
-            connection_id: batch.connection_id.clone(),
-            resource: resource.to_string(),
-        });
+        // A Coding Session syncs no resource, so a Forget never reaches
+        // its events.
+        let source = source_resource
+            .zip(connection_id)
+            .map(
+                |(resource, connection_id)| pagis_core::knowledge::SourceKey {
+                    workspace_id: batch.workspace_id.clone(),
+                    connection_id: connection_id.clone(),
+                    resource: resource.to_string(),
+                },
+            );
 
         // A baseline pass commits its cursor and emits nothing: mail
         // that arrived before the user subscribed is not news.
@@ -825,12 +856,13 @@ impl TriggerStore for SqliteTriggerStore {
                 let metadata = event.metadata.to_string();
                 let inserted = sqlx::query(
                     "INSERT OR IGNORE INTO incoming_events (id, workspace_id, connection_id, \
-                     event_kind, provider_event_id, metadata, occurred_at, received_at, batch_id) \
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                     coding_session_id, event_kind, provider_event_id, metadata, occurred_at, \
+                     received_at, batch_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 )
                 .bind(id.as_str())
                 .bind(batch.workspace_id.as_str())
-                .bind(batch.connection_id.as_str())
+                .bind(connection_id.map(ConnectionId::as_str))
+                .bind(coding_session_id.map(CodingSessionId::as_str))
                 .bind(&batch.event_kind)
                 .bind(&event.provider_event_id)
                 .bind(&metadata)
@@ -848,7 +880,7 @@ impl TriggerStore for SqliteTriggerStore {
                     IncomingEvent {
                         id,
                         workspace_id: batch.workspace_id.clone(),
-                        connection_id: batch.connection_id.clone(),
+                        source: batch.source.clone(),
                         event_kind: batch.event_kind.clone(),
                         provider_event_id: event.provider_event_id.clone(),
                         metadata: event.metadata.clone(),
@@ -1021,13 +1053,14 @@ impl TriggerStore for SqliteTriggerStore {
             }
         }
 
-        if let Some(cursor) = &batch.cursor {
+        // Only a Connection keeps a provider cursor.
+        if let (Some(cursor), Some(connection_id)) = (&batch.cursor, connection_id) {
             sqlx::query(
                 "INSERT INTO provider_cursors (connection_id, event_kind, cursor, updated_at) \
                  VALUES (?, ?, ?, ?) ON CONFLICT (connection_id, event_kind) \
                  DO UPDATE SET cursor = excluded.cursor, updated_at = excluded.updated_at",
             )
-            .bind(batch.connection_id.as_str())
+            .bind(connection_id.as_str())
             .bind(&batch.event_kind)
             .bind(cursor)
             .bind(batch.received_at)
@@ -1039,7 +1072,7 @@ impl TriggerStore for SqliteTriggerStore {
         let record = SourceBatch {
             id: batch_id,
             workspace_id: batch.workspace_id.clone(),
-            connection_id: batch.connection_id.clone(),
+            source: batch.source.clone(),
             event_kind: batch.event_kind.clone(),
             collected_at: batch.received_at,
             collected_count,

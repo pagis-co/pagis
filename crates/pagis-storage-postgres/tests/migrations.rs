@@ -193,3 +193,46 @@ fn no_query_reads_a_forget_key_from_the_database() {
         "these files keep a Forget key in the database"
     );
 }
+
+/// The rows of a Connection stay through the migration that gives an
+/// event source a Coding Session (ADR-0033).
+#[tokio::test]
+async fn the_rules_batches_and_events_of_a_connection_stay_through_coding_session_events() {
+    let Some(database) = postgres::database().await else {
+        return;
+    };
+    // The test database comes with every migration, so the schema is
+    // made again from the earlier ones.
+    sqlx::raw_sql("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+        .execute(&database.pool)
+        .await
+        .unwrap();
+    let (before, _earlier) = pagis_testkit::migration::migrator_before(
+        &migrations(),
+        pagis_testkit::migration::CODING_SESSION_EVENTS,
+    )
+    .await;
+    before.run(&database.pool).await.unwrap();
+    sqlx::raw_sql(pagis_testkit::migration::CONNECTION_EVENT_ROWS)
+        .execute(&database.pool)
+        .await
+        .unwrap();
+
+    pagis_storage_postgres::MIGRATOR
+        .run(&database.pool)
+        .await
+        .unwrap();
+
+    pagis_testkit::migration::assert_connection_event_rows(&pagis_storage_postgres::stores(
+        database.pool,
+    ))
+    .await;
+}
+
+/// The migration directory of this crate.
+fn migrations() -> std::path::PathBuf {
+    std::path::PathBuf::from(
+        std::env::var_os("CARGO_MANIFEST_DIR").expect("cargo sets CARGO_MANIFEST_DIR"),
+    )
+    .join("migrations")
+}

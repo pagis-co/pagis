@@ -17,7 +17,7 @@ fn mail(id: &str, thread: &str) -> NormalizedEvent {
 fn batch(world: &World) -> IngestBatch {
     IngestBatch {
         workspace_id: world.workspace_id.clone(),
-        connection_id: world.connection_id.clone(),
+        source: pagis_core::EventSource::connection(world.connection_id.clone()),
         agent_id: None,
         event_kind: TEST_EVENT_KIND.to_string(),
         cursor: Some("cursor-1".to_string()),

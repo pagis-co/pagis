@@ -111,7 +111,10 @@ impl MailBlocks {
                         if grants.iter().any(|grant| {
                             grant.resource_kind == pagis_core::Grant::CONNECTION_KIND
                                 && grant.resource_id.as_deref()
-                                    == Some(event.connection_id.as_str())
+                                    == event
+                                        .source
+                                        .connection_id()
+                                        .map(pagis_core::ConnectionId::as_str)
                                 && grant
                                     .capabilities()
                                     .iter()

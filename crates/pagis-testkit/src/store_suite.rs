@@ -171,6 +171,7 @@ impl Backend {
 pub mod coding_sessions;
 pub mod continuation;
 pub mod conversation_evidence;
+pub mod event_sources;
 pub mod hosts;
 pub mod installation;
 pub mod keypad_failures;
@@ -202,6 +203,7 @@ macro_rules! store_suite {
         $crate::store_suite_coding_sessions!($crate::__store_suite_emit);
         $crate::store_suite_continuation!($crate::__store_suite_emit);
         $crate::store_suite_conversation_evidence!($crate::__store_suite_emit);
+        $crate::store_suite_event_sources!($crate::__store_suite_emit);
         $crate::store_suite_hosts!($crate::__store_suite_emit);
         $crate::store_suite_installation!($crate::__store_suite_emit);
         $crate::store_suite_keypad_failures!($crate::__store_suite_emit);
@@ -268,6 +270,11 @@ const MODULES: &[(&str, &str, &str)] = &[
         "conversation_evidence",
         include_str!("store_suite/conversation_evidence.rs"),
         "macro_rules! store_suite_conversation_evidence",
+    ),
+    (
+        "event_sources",
+        include_str!("store_suite/event_sources.rs"),
+        "macro_rules! store_suite_event_sources",
     ),
     (
         "hosts",

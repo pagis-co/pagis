@@ -182,3 +182,39 @@ fn no_query_reads_a_forget_key_from_the_database() {
         "these files keep a Forget key in the database"
     );
 }
+
+/// The migration that gives an event source a Coding Session makes the
+/// three tables again in SQLite. The rows of a Connection stay, with
+/// the Wake-ups that point at them (ADR-0033).
+#[tokio::test]
+async fn the_rules_batches_and_events_of_a_connection_stay_through_coding_session_events() {
+    let pool = pagis_storage_sqlite::connect_memory().await.unwrap();
+    let (before, _earlier) = pagis_testkit::migration::migrator_before(
+        &migrations(),
+        pagis_testkit::migration::CODING_SESSION_EVENTS,
+    )
+    .await;
+    before.run(&pool).await.unwrap();
+    sqlx::raw_sql(pagis_testkit::migration::CONNECTION_EVENT_ROWS)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    pagis_storage_sqlite::MIGRATOR.run(&pool).await.unwrap();
+
+    let broken: Vec<String> = sqlx::query_scalar("SELECT \"table\" FROM pragma_foreign_key_check")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert_eq!(broken, Vec::<String>::new());
+    pagis_testkit::migration::assert_connection_event_rows(&pagis_storage_sqlite::stores(pool))
+        .await;
+}
+
+/// The migration directory of this crate.
+fn migrations() -> std::path::PathBuf {
+    std::path::PathBuf::from(
+        std::env::var_os("CARGO_MANIFEST_DIR").expect("cargo sets CARGO_MANIFEST_DIR"),
+    )
+    .join("migrations")
+}

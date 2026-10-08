@@ -468,7 +468,10 @@ async fn a_delivered_message_becomes_one_incoming_event(pool: SqlitePool) {
 
     let pass = &world.ingest.passes()[0];
     assert_eq!(pass.event_kind, MAIL_MESSAGE_RECEIVED);
-    assert_eq!(pass.connection_id, world.connection_id);
+    assert_eq!(
+        pass.source,
+        pagis_core::EventSource::connection(world.connection_id.clone())
+    );
     // The mailbox is this Agent's own identity, so no other Agent's
     // rules see the pass.
     assert_eq!(pass.agent_id.as_ref(), Some(&world.agent_id));

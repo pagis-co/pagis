@@ -72,7 +72,7 @@ fn new_subscription(
     NewSubscription {
         workspace_id: world.workspace_id.clone(),
         agent_id: agent_id.clone(),
-        connection_id: world.connection_id.clone(),
+        source: pagis_core::EventSource::connection(world.connection_id.clone()),
         event_kind: event_kind.to_string(),
         name: "Invoices".to_string(),
         instruction: "File the invoice".to_string(),

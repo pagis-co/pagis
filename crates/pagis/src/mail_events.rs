@@ -72,7 +72,7 @@ impl StandingMailRule for StandingMailRules {
             .create_subscription(NewSubscription {
                 workspace_id: mailbox.workspace_id.clone(),
                 agent_id: mailbox.agent_id.clone(),
-                connection_id: mailbox.connection_id.clone(),
+                source: pagis_core::EventSource::connection(mailbox.connection_id.clone()),
                 event_kind: MAIL_MESSAGE_RECEIVED.to_string(),
                 name: STANDING_MAIL_RULE_NAME.to_string(),
                 instruction: STANDING_MAIL_INSTRUCTION.to_string(),

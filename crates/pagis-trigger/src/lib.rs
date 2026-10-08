@@ -15,12 +15,12 @@ use chrono::{LocalResult, NaiveDateTime, TimeZone};
 use pagis_core::{
     AgentId, AgentStatus, AgentStore, BlockReason, ChannelId, ChannelStore, CollectorTarget,
     Connection, ConnectionId, ConnectionStore, CreatorKind, EventBus, EventCatalog,
-    EventDeclaration, EventMatcher, EventSubscription, EventSubscriptionId, EventSubscriptionState,
-    EventSubscriptionStore, ForgetKeys, Grant, GrantStore, IncomingEvent, IncomingEventId,
-    IngestBatch, IngestOutcome, MessageId, MessageStore, NewEvent, Schedule, ScheduleId,
-    ScheduleKind, ScheduleOccurrence, ScheduleOccurrenceId, ScheduleRevision, ScheduleState,
-    ScheduleStore, SourceBatch, StoreError, TriggerStore, Wakeup, WakeupClaim, WakeupId,
-    WorkspaceId,
+    EventDeclaration, EventMatcher, EventSource, EventSubscription, EventSubscriptionId,
+    EventSubscriptionState, EventSubscriptionStore, ForgetKeys, Grant, GrantStore, IncomingEvent,
+    IncomingEventId, IngestBatch, IngestOutcome, MessageId, MessageStore, NewEvent, Schedule,
+    ScheduleId, ScheduleKind, ScheduleOccurrence, ScheduleOccurrenceId, ScheduleRevision,
+    ScheduleState, ScheduleStore, SourceBatch, StoreError, TriggerStore, Wakeup, WakeupClaim,
+    WakeupId, WorkspaceId,
 };
 
 pub use pagis_core::ArrivalRun;
@@ -30,6 +30,9 @@ pub use subscriptions::{NewSubscription, SubscriptionAction};
 /// The namespaces Pagis owns. A subscription never names one: an
 /// internal audit Event is not a provider occurrence (ADR-0006).
 const NATIVE_NAMESPACES: [&str; 3] = ["core", "ui", "vault"];
+/// The provider of each Incoming Event kind that Pagis itself raises,
+/// such as the events of a Coding Session (ADR-0033).
+pub const PAGIS_PROVIDER: &str = "pagis";
 const SUBJECT_COOLDOWN_MS: i64 = 14 * 24 * 60 * 60 * 1_000;
 
 #[derive(Debug, Clone)]
@@ -142,6 +145,8 @@ pub enum TriggerError {
     SubscriptionArchived,
     #[error("this agent has no live grant on that connection")]
     GrantMissing,
+    #[error("`{0}` asks for a Grant, and a Coding Session holds none")]
+    CapabilityOnCodingSession(String),
     #[error("invalid IANA timezone `{0}`")]
     InvalidTimezone(String),
     #[error("invalid local time; use YYYY-MM-DDTHH:MM:SS")]
@@ -254,6 +259,23 @@ impl Trigger {
         self.connections
             .get(&self.org_workspace_id, connection_id)
             .await
+    }
+
+    /// What a source resolves to: the Connection that a Connection
+    /// source names, or a Coding Session, which reads no Connection.
+    async fn source_account(
+        &self,
+        workspace_id: &WorkspaceId,
+        source: &EventSource,
+    ) -> Result<SourceAccount, TriggerError> {
+        match source {
+            EventSource::Connection { connection_id } => self
+                .connection(workspace_id, connection_id)
+                .await?
+                .map(|connection| SourceAccount::Connection(Box::new(connection)))
+                .ok_or_else(|| TriggerError::ConnectionNotFound(connection_id.to_string())),
+            EventSource::CodingSession { .. } => Ok(SourceAccount::CodingSession),
+        }
     }
 
     /// The one check of the target of a Schedule or an Event
@@ -970,20 +992,19 @@ impl Trigger {
             input.root_message_id.as_ref(),
         )
         .await?;
-        let connection = self
-            .connection(&input.workspace_id, &input.connection_id)
-            .await?
-            .ok_or_else(|| TriggerError::ConnectionNotFound(input.connection_id.to_string()))?;
+        let account = self
+            .source_account(&input.workspace_id, &input.source)
+            .await?;
         // The provider decides the declaration, so a kind no manifest
         // declares and a kind this Connection does not supply read the
         // same way to the caller: this account cannot give you that.
         let declaration = self
-            .declaration(&input.workspace_id, &input.event_kind, &connection.provider)
-            .map_err(|error| match error {
-                TriggerError::UnknownEventKind(kind) => {
+            .declaration(&input.workspace_id, &input.event_kind, account.provider())
+            .map_err(|error| match (error, &account) {
+                (TriggerError::UnknownEventKind(kind), SourceAccount::Connection(connection)) => {
                     TriggerError::EventKindNotOnConnection(connection.alias.clone(), kind)
                 }
-                other => other,
+                (other, _) => other,
             })?;
         if !self.matchers.contains_key(&declaration.matcher) {
             return Err(TriggerError::UnknownMatcher(declaration.matcher));
@@ -992,11 +1013,7 @@ impl Trigger {
         // The grant is checked here and again before every Wake-up: a
         // rule the Agent cannot act on is never created.
         if !self
-            .authorized(
-                &input.agent_id,
-                &connection,
-                &declaration.required_capability,
-            )
+            .authorized(&input.agent_id, &account, &declaration)
             .await?
         {
             return Err(TriggerError::GrantMissing);
@@ -1006,7 +1023,7 @@ impl Trigger {
             id: EventSubscriptionId::generate(),
             workspace_id: input.workspace_id,
             agent_id: input.agent_id,
-            connection_id: input.connection_id,
+            source: input.source,
             event_kind: input.event_kind,
             source_version: declaration.source_version,
             name: name.to_string(),
@@ -1036,14 +1053,24 @@ impl Trigger {
         Ok(subscription)
     }
 
+    /// One rule that the Person and the Agent manage. A rule of a
+    /// Coding Session source is daemon housekeeping, so it reads as
+    /// absent here, as in [`Self::list_subscriptions`] (ADR-0033).
     pub async fn get_subscription(
         &self,
         workspace_id: &WorkspaceId,
         id: &EventSubscriptionId,
     ) -> Result<Option<EventSubscription>, TriggerError> {
-        Ok(self.subscriptions.get(workspace_id, id).await?)
+        Ok(self
+            .subscriptions
+            .get(workspace_id, id)
+            .await?
+            .filter(is_managed))
     }
 
+    /// One page of the rules that the Person and the Agent manage: the
+    /// REST list, the Automations and `event_subscription_list`. It
+    /// leaves out the rules of a Coding Session source.
     pub async fn list_subscriptions(
         &self,
         workspace_id: &WorkspaceId,
@@ -1068,8 +1095,7 @@ impl Trigger {
         now: i64,
     ) -> Result<EventSubscription, TriggerError> {
         let subscription = self
-            .subscriptions
-            .get(workspace_id, id)
+            .get_subscription(workspace_id, id)
             .await?
             .ok_or(TriggerError::SubscriptionNotFound)?;
         if !subscriptions::is_manageable(subscription.state) {
@@ -1080,17 +1106,13 @@ impl Trigger {
             ..
         } = &action
         {
-            let provider = self
-                .connection(&subscription.workspace_id, &subscription.connection_id)
-                .await?
-                .ok_or_else(|| {
-                    TriggerError::ConnectionNotFound(subscription.connection_id.to_string())
-                })?
-                .provider;
+            let account = self
+                .source_account(&subscription.workspace_id, &subscription.source)
+                .await?;
             let declaration = self.declaration(
                 &subscription.workspace_id,
                 &subscription.event_kind,
-                &provider,
+                account.provider(),
             )?;
             validate_filter(&declaration.filter_schema, filter)?;
         }
@@ -1123,6 +1145,37 @@ impl Trigger {
                 .await?;
         }
         Ok(next)
+    }
+
+    /// Archive every rule of one source, because the source ended. The
+    /// pending Wake-ups of the rules stay, unlike an archive by the
+    /// Person: the last event of a Coding Session is the news that the
+    /// session ended (ADR-0033).
+    pub async fn end_source(
+        &self,
+        workspace_id: &WorkspaceId,
+        source: &EventSource,
+        now: i64,
+    ) -> Result<Vec<EventSubscription>, TriggerError> {
+        let live = self
+            .subscriptions
+            .list_for_source(workspace_id, source, &["active", "paused", "blocked"])
+            .await?;
+        let mut ended = Vec::with_capacity(live.len());
+        for subscription in live {
+            let next =
+                subscriptions::apply_action(&subscription, &SubscriptionAction::Archive, now);
+            self.subscriptions.update(&next).await?;
+            self.publish_subscription("event_subscription.updated", &next)
+                .await?;
+            self.publish_subscription("event_subscription.state_changed", &next)
+                .await?;
+            ended.push(next);
+        }
+        if !ended.is_empty() {
+            self.changed.notify_one();
+        }
+        Ok(ended)
     }
 
     /// Every Connection a collector must poll this minute.
@@ -1170,12 +1223,11 @@ impl Trigger {
         batch: IngestBatch,
         arrival: Option<ArrivalRun>,
     ) -> Result<IngestOutcome, TriggerError> {
-        let connection = self
-            .connection(&batch.workspace_id, &batch.connection_id)
-            .await?
-            .ok_or_else(|| TriggerError::ConnectionNotFound(batch.connection_id.to_string()))?;
+        let account = self
+            .source_account(&batch.workspace_id, &batch.source)
+            .await?;
         let declaration =
-            self.declaration(&batch.workspace_id, &batch.event_kind, &connection.provider)?;
+            self.declaration(&batch.workspace_id, &batch.event_kind, account.provider())?;
         let matcher = self
             .matchers
             .get(&declaration.matcher)
@@ -1183,7 +1235,7 @@ impl Trigger {
             .ok_or_else(|| TriggerError::UnknownMatcher(declaration.matcher.clone()))?;
         let candidates = self
             .subscriptions
-            .live_for_source(&batch.workspace_id, &batch.connection_id, &batch.event_kind)
+            .live_for_source(&batch.workspace_id, &batch.source, &batch.event_kind)
             .await?;
         let mut eligible = Vec::new();
         for subscription in candidates {
@@ -1198,11 +1250,7 @@ impl Trigger {
                 continue;
             }
             if self
-                .authorized(
-                    &subscription.agent_id,
-                    &connection,
-                    &declaration.required_capability,
-                )
+                .authorized(&subscription.agent_id, &account, &declaration)
                 .await?
             {
                 eligible.push(subscription);
@@ -1232,7 +1280,7 @@ impl Trigger {
                 None,
                 serde_json::json!({
                     "incoming_event_id": event.id.as_str(),
-                    "connection_id": event.connection_id.as_str(),
+                    "source": event.source,
                     "event_kind": event.event_kind,
                     "occurred_at": event.occurred_at,
                 }),
@@ -1245,7 +1293,11 @@ impl Trigger {
         for wakeup in &outcome.combined {
             self.publish_wakeup("wakeup.combined", wakeup).await?;
         }
-        self.publish_collector_state(&outcome.batch).await?;
+        // A Coding Session has no collector, so its batch changes no
+        // collector state.
+        if matches!(account, SourceAccount::Connection(_)) {
+            self.publish_collector_state(&outcome.batch).await?;
+        }
         if !outcome.created.is_empty() {
             self.changed.notify_one();
         }
@@ -1282,7 +1334,11 @@ impl Trigger {
     ) -> Result<usize, TriggerError> {
         let affected = self
             .subscriptions
-            .list_for_connection(workspace_id, connection_id, &["active"])
+            .list_for_source(
+                workspace_id,
+                &EventSource::connection(connection_id.clone()),
+                &["active"],
+            )
             .await?;
         let count = affected.len();
         for subscription in affected {
@@ -1302,30 +1358,26 @@ impl Trigger {
         connection_id: &ConnectionId,
         now: i64,
     ) -> Result<usize, TriggerError> {
+        let source = EventSource::connection(connection_id.clone());
         let blocked = self
             .subscriptions
-            .list_for_connection(workspace_id, connection_id, &["blocked"])
+            .list_for_source(workspace_id, &source, &["blocked"])
             .await?;
         if blocked.is_empty() {
             return Ok(0);
         }
-        let connection = self
-            .connection(&blocked[0].workspace_id, connection_id)
-            .await?
-            .ok_or_else(|| TriggerError::ConnectionNotFound(connection_id.to_string()))?;
+        let account = self
+            .source_account(&blocked[0].workspace_id, &source)
+            .await?;
         let mut restored = 0;
         for subscription in blocked {
             let declaration = self.declaration(
                 &subscription.workspace_id,
                 &subscription.event_kind,
-                &connection.provider,
+                account.provider(),
             )?;
             if !self
-                .authorized(
-                    &subscription.agent_id,
-                    &connection,
-                    &declaration.required_capability,
-                )
+                .authorized(&subscription.agent_id, &account, &declaration)
                 .await?
             {
                 continue;
@@ -1440,22 +1492,35 @@ impl Trigger {
         Ok(())
     }
 
-    /// The Agent's live grant on one Connection, when it carries the
+    /// Whether the Agent may act on the events of one source: the
+    /// Agent's live grant on the Connection, when it carries the
     /// capability the declaration requires and the Connection can
     /// still serve it.
     async fn authorized(
         &self,
         agent_id: &AgentId,
-        connection: &Connection,
-        capability: &str,
+        account: &SourceAccount,
+        declaration: &EventDeclaration,
     ) -> Result<bool, TriggerError> {
+        let capability = declaration.required_capability.as_str();
         // A declaration that names no capability is the Agent acting
         // as its own identity, which needs no Grant and does not stop
         // when the Connection's own credential does: an Agent Mailbox
-        // keeps reading with a revoked host API key (ADR-0019).
+        // keeps reading with a revoked host API key (ADR-0019). A
+        // Coding Session is the Agent's own work, so it is the same.
         if capability.is_empty() {
             return Ok(true);
         }
+        let connection = match account {
+            SourceAccount::Connection(connection) => connection,
+            // A Grant names a Connection, so a Pagis kind that asks
+            // for one is a fault of its declaration.
+            SourceAccount::CodingSession => {
+                return Err(TriggerError::CapabilityOnCodingSession(
+                    declaration.name.clone(),
+                ));
+            }
+        };
         if connection.status != Connection::CONNECTED {
             return Ok(false);
         }
@@ -1484,7 +1549,7 @@ impl Trigger {
             serde_json::json!({
                 "event_subscription_id": subscription.id.as_str(),
                 "event_kind": subscription.event_kind,
-                "connection_id": subscription.connection_id.as_str(),
+                "source": subscription.source,
                 "state": subscription.state.as_str(),
                 "revision": subscription.revision,
             }),
@@ -1499,7 +1564,7 @@ impl Trigger {
             None,
             None,
             serde_json::json!({
-                "connection_id": batch.connection_id.as_str(),
+                "source": batch.source,
                 "event_kind": batch.event_kind,
                 "outcome": batch.outcome.as_str(),
                 "collected_count": batch.collected_count,
@@ -1573,6 +1638,29 @@ impl Trigger {
             .map(|_| ())
             .map_err(TriggerError::Store)
     }
+}
+
+/// A source as the Trigger module reads it: the Connection that a
+/// Connection source names, or a Coding Session.
+enum SourceAccount {
+    Connection(Box<Connection>),
+    CodingSession,
+}
+
+impl SourceAccount {
+    /// The provider whose declaration a kind of this source resolves to.
+    fn provider(&self) -> &str {
+        match self {
+            Self::Connection(connection) => &connection.provider,
+            Self::CodingSession => PAGIS_PROVIDER,
+        }
+    }
+}
+
+/// True for a rule that the Person and the Agent manage. The rule of a
+/// Coding Session source is daemon housekeeping (ADR-0033).
+fn is_managed(subscription: &EventSubscription) -> bool {
+    matches!(subscription.source, EventSource::Connection { .. })
 }
 
 /// The Thread a rule keeps after an edit that names no Thread root. A
