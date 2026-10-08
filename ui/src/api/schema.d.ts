@@ -3415,6 +3415,13 @@ export interface components {
             /** @enum {string} */
             type: "result";
         } | {
+            /** Format: int64 */
+            exit_code?: number | null;
+            session_id: string;
+            stderr_tail?: string;
+            /** @enum {string} */
+            type: "session_exit";
+        } | {
             /** @enum {string} */
             type: "ping";
         } | {

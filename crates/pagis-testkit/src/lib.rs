@@ -13,6 +13,7 @@ pub mod grant;
 pub mod host_client;
 pub mod plugin;
 pub mod postgres;
+pub mod session_client;
 pub mod software;
 pub mod sql;
 pub mod store_suite;
@@ -38,6 +39,7 @@ pub use exit_client::ExitClient;
 pub use grant::MemoryGrantStore;
 pub use host_client::{HostAnswer, HostClient};
 pub use plugin::{MemoryPluginStore, MemoryPluginToolStore};
+pub use session_client::SessionClient;
 pub use software::MemorySoftwareStore;
 pub use tailscale::FakeTailscale;
 pub use tenancy::{A_PLUGIN_STDERR, Person, Report, TwoTenants};
@@ -311,6 +313,9 @@ pub struct TestDaemon {
     /// The exit sockets of the Hosts of this daemon, which carry the
     /// connections of their Person's Computers as the Home Exit.
     pub home_exits: Arc<pagis_computer::HomeExits>,
+    /// The session sockets of the Hosts of this daemon, which carry one
+    /// stream for each Coding Session.
+    pub host_sessions: Arc<pagis_broker::HostSessions>,
     /// The origin a browser reaches this daemon at. It is
     /// [`TestDaemon::base_url`] unless the test named one.
     pub public_origin: String,
@@ -625,6 +630,7 @@ impl TestDaemon {
             .to_string();
 
         let home_exits = Arc::clone(&interfaces.home_exits);
+        let host_sessions = Arc::clone(&interfaces.host_sessions);
         let server = tokio::spawn(async move {
             axum::serve(
                 listener,
@@ -677,6 +683,7 @@ impl TestDaemon {
             remote_access_turn_addr,
             exit_addr,
             home_exits,
+            host_sessions,
             public_origin,
             dm_channel_id,
             agent_id,

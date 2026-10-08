@@ -6,6 +6,7 @@ mod administration;
 mod agents;
 mod artifacts;
 mod auth;
+mod byte_socket;
 mod calls;
 mod channels;
 mod client_name;
@@ -42,6 +43,7 @@ mod run_steps;
 mod runs;
 mod schedules;
 mod served_file;
+mod session_socket;
 mod sessions;
 mod settings;
 pub mod setup;
@@ -139,6 +141,9 @@ pub struct AppState {
     /// their Person's Computers as the Home Exit (ADR-0029). The exit
     /// listener opens a stream on them.
     pub home_exits: Arc<pagis_computer::HomeExits>,
+    /// The session sockets of the Hosts, which carry one stream for each
+    /// Coding Session (ADR-0033).
+    pub host_sessions: Arc<pagis_broker::HostSessions>,
     /// The installed Capability Manifests are the authority for
     /// Connection capability names.
     pub broker: Arc<pagis_broker::Broker>,
@@ -796,6 +801,10 @@ fn product_router(state: Arc<AppState>) -> Router {
         // that a page at another origin starts.
         .route("/api/v1/ws", get(ws::upgrade))
         .route("/api/v1/hosts/{host_id}/exit", get(exit_socket::upgrade))
+        .route(
+            "/api/v1/hosts/{host_id}/sessions",
+            get(session_socket::upgrade),
+        )
         .route("/api/v1/channels/{channel_id}/dictate", get(voice::dictate))
         // Listen-Live (ADR-0020).
         .route("/api/v1/calls/{call_id}/listen", get(calls::listen))

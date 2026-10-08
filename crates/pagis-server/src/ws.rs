@@ -30,8 +30,8 @@ use axum::extract::ws::{Message as WsMessage, WebSocket, WebSocketUpgrade};
 use axum::response::Response;
 use futures::StreamExt;
 use pagis_agent::{DeltaFrame, ProgressFrame};
-use pagis_broker::{HostCommand, HostConnection, HostOutcome};
-use pagis_core::{ChannelId, Event, EventScope, Host};
+use pagis_broker::{HostCommand, HostConnection, HostOutcome, SessionExit};
+use pagis_core::{ChannelId, CodingSessionId, Event, EventScope, Host};
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
@@ -78,6 +78,14 @@ pub enum ClientFrame {
         stdout: String,
         #[serde(default)]
         stderr: String,
+    },
+    /// How the process of one Coding Session on this Host ended. The
+    /// daemon keeps the last 4 KiB of `stderr_tail`.
+    SessionExit {
+        session_id: String,
+        exit_code: Option<i64>,
+        #[serde(default)]
+        stderr_tail: String,
     },
     Ping,
     /// The Person used this client: it is visible and had input. A new
@@ -479,6 +487,20 @@ impl Connection {
                         .complete(&registered.connection, &id, outcome);
                 }
             }
+            FrameAction::SessionExit { session_id, exit } => {
+                // The exit reaches only a session of the Host that this
+                // socket registered, in the Session's Workspace. A
+                // socket that registered no Host carries no session, so
+                // its exit is dropped.
+                if let Some(registered) = &self.host {
+                    self.state.host_sessions.exited(
+                        &self.tenant.workspace_id,
+                        &registered.host.id,
+                        &session_id,
+                        exit,
+                    );
+                }
+            }
         }
         Ok(false)
     }
@@ -599,6 +621,12 @@ enum FrameAction {
         id: String,
         outcome: HostOutcome,
     },
+    /// How the process of one Coding Session ended. The caller hands it
+    /// on only for the Host this socket registered.
+    SessionExit {
+        session_id: CodingSessionId,
+        exit: SessionExit,
+    },
     /// An activity frame. The caller keeps the time as the last
     /// activity of the tenant's Workspace.
     Activity,
@@ -644,6 +672,14 @@ fn handle_client_frame(text: &str, subscriptions: &mut HashSet<String>) -> Frame
                 stdout,
                 stderr,
             },
+        },
+        Ok(ClientFrame::SessionExit {
+            session_id,
+            exit_code,
+            stderr_tail,
+        }) => FrameAction::SessionExit {
+            session_id: CodingSessionId::from(session_id),
+            exit: SessionExit::new(exit_code, stderr_tail),
         },
         Ok(ClientFrame::Auth { .. }) => {
             FrameAction::Reply(ServerFrame::error("validation", "already authenticated"))

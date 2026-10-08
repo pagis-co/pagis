@@ -390,10 +390,13 @@ pub fn launch_command(entry: &HarnessEntry) -> (&'static str, Vec<&'static str>)
     }
 }
 
+/// The prefix of each Host capability that names a Coding Harness.
+pub const CAPABILITY_PREFIX: &str = "harness:";
+
 /// The Host capability that a Host declares when it can start the
 /// harness with this id: `harness:<id>`.
 pub fn capability(id: &str) -> String {
-    format!("harness:{id}")
+    format!("{CAPABILITY_PREFIX}{id}")
 }
 
 /// The programs that must be on the Person's `PATH` to start a harness:

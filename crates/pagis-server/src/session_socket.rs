@@ -1,31 +1,30 @@
-//! The exit socket of a Host (ADR-0029): the second WebSocket of a
-//! Client App that carries the connections of its Person's Computers as
-//! their Home Exit.
+//! The session socket of a Host (ADR-0033): a further WebSocket of a
+//! Client App that carries one stream for each Coding Session on the
+//! machine.
 //!
 //! The Client App opens it after its Host socket registered the
 //! machine, with the id that the registration answered and the same
 //! Session cookie. The Host must be of the Session's Workspace and must
-//! declare the `exit` capability. [`crate::byte_socket`] carries the
-//! bytes, and [`pagis_computer::HomeExits`] runs yamux over them: the
-//! daemon opens one stream for each connection.
+//! declare at least one `harness:<id>` capability. [`crate::byte_socket`]
+//! carries the bytes, and [`pagis_broker::HostSessions`] runs yamux over
+//! them: the daemon opens one stream for each Coding Session.
 //!
-//! The Host is present as a Home Exit while this socket lives. At the end
-//! of the Session the socket closes with 1008, and every connection that
-//! it carried closes with it.
+//! At the end of the Session the socket closes with 1008, and every
+//! Coding Session that it carried loses its place.
 
 use std::sync::Arc;
 
 use axum::extract::ws::WebSocketUpgrade;
 use axum::extract::{Path, State};
 use axum::response::Response;
-use pagis_core::{EXIT_CAPABILITY, HostId};
+use pagis_core::HostId;
 
 use crate::AppState;
 use crate::byte_socket;
 use crate::error::ApiError;
 use crate::live_connections::LiveTenant;
 
-/// Open the exit socket of one Host of the signed-in Person.
+/// Open the session socket of one Host of the signed-in Person.
 pub async fn upgrade(
     State(state): State<Arc<AppState>>,
     live: LiveTenant,
@@ -40,17 +39,17 @@ pub async fn upgrade(
         .get(&workspace_id, &HostId::from(host_id))
         .await?
         .ok_or_else(|| ApiError::not_found("host"))?;
-    if !host.can(EXIT_CAPABILITY) {
+    if host.harnesses().is_empty() {
         return Err(ApiError::conflict(
-            "this Host declared no `exit` capability, so it carries no exit traffic",
+            "this Host declared no `harness:<id>` capability, so it starts no Coding Session",
         ));
     }
     let session_ended = live.session_ended;
     Ok(ws.on_upgrade(move |socket| {
         byte_socket::carry(socket, session_ended, move |daemon_end| async move {
             state
-                .home_exits
-                .serve(workspace_id, host.id, host.name, daemon_end)
+                .host_sessions
+                .serve(workspace_id, host.id, daemon_end)
                 .await
         })
     }))

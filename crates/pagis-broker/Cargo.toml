@@ -7,6 +7,7 @@ autotests = false
 
 [dependencies]
 async-trait.workspace = true
+futures.workspace = true
 hex.workspace = true
 jsonschema.workspace = true
 pagis-core.workspace = true
@@ -18,6 +19,9 @@ thiserror.workspace = true
 tokio = { workspace = true, features = ["process", "sync", "time"] }
 tree-sitter.workspace = true
 tree-sitter-bash.workspace = true
+# The streams of the session socket of a Host (ADR-0033): one yamux
+# stream for each Coding Session.
+yamux.workspace = true
 
 [dev-dependencies]
 pagis-audit.workspace = true
@@ -25,7 +29,11 @@ pagis-audit.workspace = true
 pagis-computer.workspace = true
 pagis-storage-sqlite.workspace = true
 sqlx.workspace = true
-tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread"] }
+# `test-util` pauses the clock, so the answer timeout of a session
+# socket passes with no wall-clock wait.
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "test-util"] }
+# `compat` gives the yamux of a session socket its pipe.
+tokio-util = { workspace = true, features = ["compat"] }
 
 [[test]]
 name = "main"
