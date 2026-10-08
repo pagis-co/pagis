@@ -146,6 +146,9 @@ pub struct AppState {
     /// The session sockets of the Hosts, which carry one stream for each
     /// Coding Session (ADR-0033).
     pub host_sessions: Arc<pagis_broker::HostSessions>,
+    /// The Coding Sessions that run on those sockets (ADR-0033): the
+    /// start, the prompts, the cancel and the close of each session.
+    pub coding_sessions: Arc<pagis_coding::CodingSessions>,
     /// The installed Capability Manifests are the authority for
     /// Connection capability names.
     pub broker: Arc<pagis_broker::Broker>,
