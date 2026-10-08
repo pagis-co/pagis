@@ -68,20 +68,24 @@ pub trait Meter: Send {
 }
 
 pub trait Protocol: Send + Sync {
-    /// Prepare the forward of a request that a client wrote in this
-    /// protocol's own format: set the provider key on `headers` as this
-    /// codec sends it, and return the meter of the answer. Protocols that do
-    /// not forward keep the default, which reports forward as unsupported.
+    /// Prepare the forward of a request that a client wrote in the `wire`
+    /// format to a provider of this protocol: set the provider key on
+    /// `headers` as this codec sends it. Protocols that do not forward that
+    /// wire keep the default, which reports forward as unsupported.
     fn forward(
         &self,
         provider_key: &str,
         _provider: &ProviderConfig,
+        _wire: ProtocolKind,
         _headers: &mut reqwest::header::HeaderMap,
-    ) -> Result<Box<dyn Meter>, Error> {
-        Err(Error::Unsupported {
-            provider: provider_key.to_owned(),
-            feature: "forward",
-        })
+    ) -> Result<(), Error> {
+        Err(unsupported_forward(provider_key))
+    }
+
+    /// The meter of an answer in this protocol's own format, or `None` when
+    /// no request in this format forwards.
+    fn forward_meter(&self) -> Option<Box<dyn Meter>> {
+        None
     }
 
     /// Build the HTTP request for `req` against `provider`, with the alias
@@ -332,6 +336,13 @@ fn unsupported_model_list(provider_key: &str) -> Error {
     Error::Unsupported {
         provider: provider_key.to_owned(),
         feature: "model list",
+    }
+}
+
+pub(crate) fn unsupported_forward(provider_key: &str) -> Error {
+    Error::Unsupported {
+        provider: provider_key.to_owned(),
+        feature: "forward",
     }
 }
 

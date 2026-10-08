@@ -444,4 +444,3 @@ Other ways were considered:
 - The mode setting in the Access tab.
 - Harness Sign-In in Settings.
 - The Computer place.
-- The Harness Model Endpoint for the OpenAI APIs.

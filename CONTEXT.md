@@ -1056,8 +1056,9 @@ answer to its registration, and the Client App ships no copy (ADR-0033).
 The model API that the daemon serves to the Computers for a Coding Session
 there. A per-session token authenticates a harness, and the daemon forwards
 each request with the Org's provider key under the Spend Cap. The endpoint
-serves the Anthropic Messages API. The OpenAI APIs are not built
-(ADR-0033).
+serves the Anthropic Messages API, the OpenAI Responses API and the OpenAI
+Chat Completions API. The first segment of the path names the provider
+whose key the request uses (ADR-0033).
 
 ### Harness Permission
 A permission request of a Coding Harness (ACP `session/request_permission`).

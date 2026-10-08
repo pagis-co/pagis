@@ -18,9 +18,11 @@ use reqwest::StatusCode;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-/// The Org's key, which the provider must receive and the harness must
+/// The Org's keys, which the providers must receive and the harness must
 /// never hold.
 const ORG_KEY: &str = "sk-ant-org-key";
+const OPENAI_KEY: &str = "sk-openai-org-key";
+const OPENROUTER_KEY: &str = "sk-or-org-key";
 
 /// A Messages request as Claude Code writes it, with spacing that a
 /// decode and an encode would not keep.
@@ -48,8 +50,56 @@ fn stream_body() -> String {
     .concat()
 }
 
-/// A fake Anthropic: a stream for `/messages` and a count for
-/// `/messages/count_tokens`.
+/// A Responses request as Codex writes it, with spacing that a decode and
+/// an encode would not keep.
+const RESPONSES_BODY: &str = concat!(
+    r#"{"model":"gpt-5", "instructions":"You are Codex.","#,
+    r#""input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]}],"#,
+    r#""store":false,"stream":true}"#,
+);
+
+fn responses_stream() -> String {
+    [
+        "event: response.created\n",
+        "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",",
+        "\"model\":\"gpt-5-2025-08-07\",\"status\":\"in_progress\",\"usage\":null}}\n\n",
+        "event: response.output_text.delta\n",
+        "data: {\"type\":\"response.output_text.delta\",\"item_id\":\"msg_1\",",
+        "\"output_index\":0,\"content_index\":0,\"delta\":\"Hi\"}\n\n",
+        "event: response.completed\n",
+        "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",",
+        "\"model\":\"gpt-5-2025-08-07\",\"status\":\"completed\",\"usage\":{",
+        "\"input_tokens\":40,\"input_tokens_details\":{\"cached_tokens\":10},",
+        "\"output_tokens\":7,\"output_tokens_details\":{\"reasoning_tokens\":3},",
+        "\"total_tokens\":47}}}\n\n",
+    ]
+    .concat()
+}
+
+/// A Chat Completions request as OpenCode writes it for OpenRouter. It
+/// does not ask for the usage chunk.
+const CHAT_BODY: &str =
+    r#"{"model":"openai/gpt-5", "messages":[{"role":"user","content":"hi"}],"stream":true}"#;
+
+fn chat_stream() -> String {
+    [
+        "data: {\"id\":\"c1\",\"object\":\"chat.completion.chunk\",\"model\":\"openai/gpt-5\",",
+        "\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"Hi\"},",
+        "\"finish_reason\":null}]}\n\n",
+        "data: {\"id\":\"c1\",\"object\":\"chat.completion.chunk\",\"model\":\"openai/gpt-5\",",
+        "\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n",
+        "data: {\"id\":\"c1\",\"object\":\"chat.completion.chunk\",\"model\":\"openai/gpt-5\",",
+        "\"choices\":[],\"usage\":{\"prompt_tokens\":40,\"completion_tokens\":7,",
+        "\"prompt_tokens_details\":{\"cached_tokens\":10}}}\n\n",
+        "data: [DONE]\n\n",
+    ]
+    .concat()
+}
+
+/// A fake provider at every provider's base URL: an Anthropic stream for
+/// `/messages`, a count for `/messages/count_tokens`, a Responses stream
+/// for `/responses` and a Chat Completions stream for
+/// `/chat/completions`.
 async fn provider() -> MockServer {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
@@ -68,24 +118,42 @@ async fn provider() -> MockServer {
         })))
         .mount(&server)
         .await;
+    Mock::given(method("POST"))
+        .and(path("/responses"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("x-request-id", "req_openai")
+                .set_body_raw(responses_stream(), "text/event-stream"),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(chat_stream(), "text/event-stream"))
+        .mount(&server)
+        .await;
     server
 }
 
 /// The model requests that reached the provider. The daemon also asks
-/// the same address for its model list, which is no model request.
+/// the same address for its model lists, which are no model requests.
 async fn model_requests(provider: &MockServer) -> Vec<wiremock::Request> {
     provider
         .received_requests()
         .await
         .unwrap()
         .into_iter()
-        .filter(|request| request.url.path().starts_with("/messages"))
+        .filter(|request| !request.url.path().starts_with("/models"))
         .collect()
 }
 
 async fn daemon(provider: &MockServer) -> TestDaemon {
     TestDaemon::start_with(TestDaemonOptions {
-        keys: test_provider_keys(vec![("ANTHROPIC_API_KEY", ORG_KEY)]),
+        keys: test_provider_keys(vec![
+            ("ANTHROPIC_API_KEY", ORG_KEY),
+            ("OPENAI_API_KEY", OPENAI_KEY),
+            ("OPENROUTER_API_KEY", OPENROUTER_KEY),
+        ]),
         provider_base_url: Some(provider.uri()),
         ..TestDaemonOptions::default()
     })
@@ -146,12 +214,52 @@ fn harness_request(daemon: &TestDaemon, path: &str, token: &str) -> reqwest::Req
         .header("x-claude-code-session-id", "harness-own-id")
 }
 
+/// A request as Codex or OpenCode sends it to an OpenAI API.
+fn openai_request(daemon: &TestDaemon, path: &str, token: &str) -> reqwest::RequestBuilder {
+    reqwest::Client::new()
+        .post(url(daemon, path))
+        .header("authorization", format!("Bearer {token}"))
+        .header("content-type", "application/json")
+        .header("accept", "text/event-stream")
+        .header("originator", "codex_cli_rs")
+}
+
+/// The one model request that reached the provider, with its checks of
+/// the credential: the Org's key as a bearer, and no token or harness
+/// header.
+async fn sent_with_bearer(provider: &MockServer, key: &str, token: &str) -> wiremock::Request {
+    let mut received = model_requests(provider).await;
+    assert_eq!(received.len(), 1);
+    let sent = received.remove(0);
+    assert_eq!(sent.headers["authorization"], format!("Bearer {key}"));
+    assert_eq!(sent.headers["accept"], "text/event-stream");
+    assert!(sent.headers.get("x-api-key").is_none());
+    assert!(sent.headers.get("originator").is_none());
+    assert!(
+        sent.headers
+            .values()
+            .all(|value| !value.to_str().unwrap_or_default().contains(token)),
+        "the session token reaches no provider"
+    );
+    sent
+}
+
 fn month() -> UsagePeriod {
     UsagePeriod::calendar_month(now_ms(), "UTC")
 }
 
 /// The Usage Records of a Workspace, once the meter wrote at least one.
 async fn wait_for_usage(daemon: &TestDaemon, workspace_id: &WorkspaceId) -> pagis_core::UsageTotal {
+    wait_for_calls(daemon, workspace_id, 1).await
+}
+
+/// The Usage Records of a Workspace, once the meter wrote `calls` of
+/// them.
+async fn wait_for_calls(
+    daemon: &TestDaemon,
+    workspace_id: &WorkspaceId,
+    calls: i64,
+) -> pagis_core::UsageTotal {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(8);
     loop {
         let total = daemon
@@ -160,7 +268,7 @@ async fn wait_for_usage(daemon: &TestDaemon, workspace_id: &WorkspaceId) -> pagi
             .total_for_workspace(workspace_id, month())
             .await
             .unwrap();
-        if total.calls > 0 {
+        if total.calls >= calls {
             return total;
         }
         assert!(
@@ -499,20 +607,35 @@ async fn the_spend_of_a_session_lands_in_its_own_workspace() {
     let daemon = &tenants.daemon;
     let (session, token) = running_session(daemon, &tenants.a.workspace_id).await;
 
-    let response = harness_request(daemon, "/anthropic/v1/messages", &token)
+    let anthropic = harness_request(daemon, "/anthropic/v1/messages", &token)
         .body(BODY)
         .send()
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    response.text().await.unwrap();
+    assert_eq!(anthropic.status(), StatusCode::OK);
+    anthropic.text().await.unwrap();
+    let openai = openai_request(daemon, "/openai/v1/responses", &token)
+        .body(RESPONSES_BODY)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(openai.status(), StatusCode::OK);
+    openai.text().await.unwrap();
 
-    let a_total = wait_for_usage(daemon, &tenants.a.workspace_id).await;
-    assert_eq!(a_total.calls, 1);
-    assert_eq!(
-        usage_column(daemon, "run_id", &tenants.a.workspace_id).await,
-        session.run_id.as_str()
-    );
+    let a_total = wait_for_calls(daemon, &tenants.a.workspace_id, 2).await;
+    assert_eq!(a_total.calls, 2);
+    let of_the_run = daemon
+        .rows()
+        .count(
+            "SELECT COUNT(*) FROM usage WHERE workspace_id = ? AND run_id = ?",
+            &[
+                tenants.a.workspace_id.as_str().into(),
+                session.run_id.as_str().into(),
+            ],
+        )
+        .await
+        .unwrap();
+    assert_eq!(of_the_run, 2, "both records are of the Run of the session");
     let b_usage: serde_json::Value = reqwest::Client::new()
         .get(format!("{}/api/v1/usage", daemon.base_url))
         .header("cookie", &tenants.b.cookie)
@@ -531,4 +654,142 @@ async fn the_spend_of_a_session_lands_in_its_own_workspace() {
         .await
         .unwrap();
     assert_eq!(b_total, pagis_core::UsageTotal::default());
+}
+
+#[tokio::test]
+async fn a_streamed_responses_call_passes_byte_for_byte_and_is_recorded() {
+    let provider = provider().await;
+    let daemon = daemon(&provider).await;
+    let (session, token) = running_session(&daemon, &daemon.workspace_id).await;
+
+    let response = openai_request(&daemon, "/openai/v1/responses", &token)
+        .body(RESPONSES_BODY)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["x-request-id"], "req_openai");
+    assert_eq!(response.text().await.unwrap(), responses_stream());
+    let sent = sent_with_bearer(&provider, OPENAI_KEY, &token).await;
+    assert_eq!(sent.url.path(), "/responses");
+    assert_eq!(
+        sent.body,
+        RESPONSES_BODY.as_bytes(),
+        "the body goes unchanged"
+    );
+
+    let total = wait_for_usage(&daemon, &daemon.workspace_id).await;
+    assert_eq!(total.calls, 1);
+    assert_eq!(total.input_tokens, 40);
+    assert_eq!(total.output_tokens, 7);
+    assert_eq!(total.cache_read_tokens, 10);
+    assert_eq!(total.cache_write_tokens, 0);
+    // gpt-5: 30 input at $1.25, 10 cache reads at $0.125 and 7 output at
+    // $10, per million tokens.
+    assert!((total.cost_usd - 0.000_108_75).abs() < 1e-12, "{total:?}");
+    let workspace = &daemon.workspace_id;
+    assert_eq!(
+        usage_column(&daemon, "run_id", workspace).await,
+        session.run_id.as_str()
+    );
+    assert_eq!(usage_column(&daemon, "provider", workspace).await, "openai");
+    assert_eq!(
+        usage_column(&daemon, "model", workspace).await,
+        "gpt-5-2025-08-07"
+    );
+}
+
+#[tokio::test]
+async fn a_streamed_chat_completions_call_asks_for_its_usage_and_is_recorded() {
+    let provider = provider().await;
+    let daemon = daemon(&provider).await;
+    let (session, token) = running_session(&daemon, &daemon.workspace_id).await;
+
+    let response = openai_request(&daemon, "/openrouter/v1/chat/completions", &token)
+        .body(CHAT_BODY)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.text().await.unwrap(), chat_stream());
+    let sent = sent_with_bearer(&provider, OPENROUTER_KEY, &token).await;
+    assert_eq!(sent.url.path(), "/chat/completions");
+    let mut asked: serde_json::Value = serde_json::from_str(CHAT_BODY).unwrap();
+    asked["stream_options"] = serde_json::json!({ "include_usage": true });
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&sent.body).unwrap(),
+        asked,
+        "the body asks for the usage chunk and changes no other field"
+    );
+
+    let total = wait_for_usage(&daemon, &daemon.workspace_id).await;
+    assert_eq!(total.calls, 1);
+    assert_eq!(total.input_tokens, 40);
+    assert_eq!(total.output_tokens, 7);
+    assert_eq!(total.cache_read_tokens, 10);
+    // openai/gpt-5 has the price of gpt-5.
+    assert!((total.cost_usd - 0.000_108_75).abs() < 1e-12, "{total:?}");
+    let workspace = &daemon.workspace_id;
+    assert_eq!(
+        usage_column(&daemon, "run_id", workspace).await,
+        session.run_id.as_str()
+    );
+    assert_eq!(
+        usage_column(&daemon, "provider", workspace).await,
+        "openrouter"
+    );
+    assert_eq!(
+        usage_column(&daemon, "model", workspace).await,
+        "openai/gpt-5"
+    );
+}
+
+#[tokio::test]
+async fn the_openai_routes_refuse_in_the_openai_error_shape() {
+    let provider = provider().await;
+    let daemon = daemon(&provider).await;
+    let (session, token) = running_session(&daemon, &daemon.workspace_id).await;
+
+    let wrong = openai_request(&daemon, "/openai/v1/responses", "not-a-token")
+        .body(RESPONSES_BODY)
+        .send()
+        .await
+        .unwrap();
+    let (status, retry, body) = error_of(wrong).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(retry.as_deref(), Some("false"));
+    assert_eq!(body["error"]["type"], "invalid_request_error");
+    assert_eq!(body["error"]["code"], "invalid_api_key");
+    assert!(body["error"]["message"].is_string(), "{body}");
+
+    let models = reqwest::Client::new()
+        .get(url(&daemon, "/openai/v1/models"))
+        .header("authorization", format!("Bearer {token}"))
+        .send()
+        .await
+        .unwrap();
+    let (status, _, body) = error_of(models).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(body["error"]["type"], "invalid_request_error");
+
+    spend_past_the_cap(&daemon, &session).await;
+    for path in ["/openai/v1/responses", "/openrouter/v1/chat/completions"] {
+        let capped = openai_request(&daemon, path, &token)
+            .body(CHAT_BODY)
+            .send()
+            .await
+            .unwrap();
+        let (status, retry, body) = error_of(capped).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{path}");
+        assert_eq!(retry.as_deref(), Some("false"), "{path}");
+        assert_eq!(body["error"]["type"], "insufficient_quota", "{path}");
+        assert_eq!(body["error"]["code"], "insufficient_quota", "{path}");
+        let message = body["error"]["message"].as_str().unwrap();
+        assert!(message.contains("spend cap"), "{path}: {message}");
+        assert!(body.get("type").is_none(), "{path}: {body}");
+    }
+
+    assert!(model_requests(&provider).await.is_empty());
 }

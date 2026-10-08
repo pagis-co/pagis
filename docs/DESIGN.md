@@ -149,8 +149,15 @@ body, and maps a byte stream to a `StreamEvent` stream. The router owns the shar
   bytes pass to the caller unchanged, and a copy goes to the meter of the
   codec, which reads the model and the normalized usage from the events
   of a stream or from a whole body. The meter resolves when the body ends,
-  or with the usage so far when the caller drops the body. Only the
-  `anthropic-messages` wire forwards, to a provider of that protocol.
+  or with the usage so far when the caller drops the body. The wire of
+  the request chooses the meter, and the protocol of the provider chooses
+  the credential. The `anthropic-messages` wire forwards to a provider of
+  that protocol. The `openai-responses` and `openai-chat` wires forward to
+  a provider of either OpenAI protocol, with the key as
+  `Authorization: Bearer`. The OpenAI wires meter the usage of the
+  Responses and Chat Completions answers: the `response.completed` or
+  `response.incomplete` event of a Responses stream, and the chunk that
+  carries `usage` in a Chat Completions stream.
 
 ## Not built
 

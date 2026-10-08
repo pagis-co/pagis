@@ -6,9 +6,11 @@ use futures::StreamExt;
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
-use crate::config::ProviderConfig;
+use crate::config::{ProtocolKind, ProviderConfig};
 use crate::error::{Error, ErrorKind};
-use crate::protocol::{ByteStream, EventStream, Meter, ModelPage, Protocol, model_list};
+use crate::protocol::{
+    ByteStream, EventStream, Meter, ModelPage, Protocol, model_list, unsupported_forward,
+};
 use crate::types::{
     CachePolicy, ChatRequest, ChatResponse, ContentPart, FinishReason, Message, ReasoningConfig,
     ReasoningEffort, Role, StreamEvent, ToolCall, ToolChoice, Usage,
@@ -29,13 +31,21 @@ impl Protocol for AnthropicMessages {
         &self,
         provider_key: &str,
         provider: &ProviderConfig,
+        wire: ProtocolKind,
         headers: &mut reqwest::header::HeaderMap,
-    ) -> Result<Box<dyn Meter>, Error> {
+    ) -> Result<(), Error> {
+        if wire != ProtocolKind::AnthropicMessages {
+            return Err(unsupported_forward(provider_key));
+        }
         match api_key(provider_key, provider)? {
             Some(key) => headers.insert(API_KEY_HEADER, key),
             None => headers.remove(API_KEY_HEADER),
         };
-        Ok(Box::new(MessagesMeter::default()))
+        Ok(())
+    }
+
+    fn forward_meter(&self) -> Option<Box<dyn Meter>> {
+        Some(Box::new(MessagesMeter::default()))
     }
 
     fn build_list_models_request(

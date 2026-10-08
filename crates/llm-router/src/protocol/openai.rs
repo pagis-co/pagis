@@ -6,9 +6,12 @@ use futures::StreamExt;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::config::ProviderConfig;
+use crate::config::{ProtocolKind, ProviderConfig};
 use crate::error::{Error, ErrorKind};
-use crate::protocol::{ByteStream, EventStream, ModelPage, Protocol, model_list};
+use crate::protocol::{
+    ByteStream, EventStream, Meter, ModelPage, Protocol, model_list, sensitive_header,
+    unsupported_forward,
+};
 use crate::types::{
     ChatRequest, ChatResponse, ContentPart, EmbeddingsRequest, EmbeddingsResponse, FinishReason,
     GeneratedImage, ImageData, ImageInput, ImageRequest, ImageResponse, Message, Role,
@@ -19,6 +22,20 @@ use crate::types::{
 pub struct OpenAiChat;
 
 impl Protocol for OpenAiChat {
+    fn forward(
+        &self,
+        provider_key: &str,
+        provider: &ProviderConfig,
+        wire: ProtocolKind,
+        headers: &mut reqwest::header::HeaderMap,
+    ) -> Result<(), Error> {
+        forward_bearer(provider_key, provider, wire, headers)
+    }
+
+    fn forward_meter(&self) -> Option<Box<dyn Meter>> {
+        Some(Box::new(ChatMeter::default()))
+    }
+
     fn build_list_models_request(
         &self,
         http: &reqwest::Client,
@@ -896,6 +913,72 @@ pub(super) fn get(
     path: &str,
 ) -> reqwest::RequestBuilder {
     with_auth(http.get(format!("{}{path}", provider.base_url)), provider)
+}
+
+/// The forward credential of a provider of an OpenAI protocol: the key as
+/// `Authorization: Bearer`, as [`post`] sends it. Such a provider serves
+/// both OpenAI wires, the Chat Completions API and the Responses API.
+pub(super) fn forward_bearer(
+    provider_key: &str,
+    provider: &ProviderConfig,
+    wire: ProtocolKind,
+    headers: &mut reqwest::header::HeaderMap,
+) -> Result<(), Error> {
+    if !matches!(
+        wire,
+        ProtocolKind::OpenAiChat | ProtocolKind::OpenAiResponses
+    ) {
+        return Err(unsupported_forward(provider_key));
+    }
+    if provider.api_key.is_empty() {
+        headers.remove(reqwest::header::AUTHORIZATION);
+    } else {
+        let bearer = sensitive_header(provider_key, &format!("Bearer {}", provider.api_key))?;
+        headers.insert(reqwest::header::AUTHORIZATION, bearer);
+    }
+    Ok(())
+}
+
+/// The meter of a forwarded Chat Completions answer. A stream gives the
+/// usage and the model in the chunk that carries `usage`, which a request
+/// asks for with `stream_options.include_usage`. A whole body gives
+/// `model` and `usage`.
+#[derive(Default)]
+struct ChatMeter {
+    model: Option<String>,
+    usage: Option<Usage>,
+}
+
+/// The fields of a chunk or a body that the meter reads.
+#[derive(Deserialize)]
+struct MeteredAnswer {
+    model: Option<String>,
+    usage: Option<WireUsage>,
+}
+
+impl Meter for ChatMeter {
+    fn event(&mut self, _name: &str, data: &str) {
+        // `[DONE]` and other data that is not a chunk meter nothing.
+        let Ok(chunk) = serde_json::from_str::<MeteredAnswer>(data) else {
+            return;
+        };
+        if let Some(usage) = chunk.usage {
+            self.usage = Some(usage.into());
+            self.model = chunk.model;
+        }
+    }
+
+    fn body(&mut self, body: &[u8]) {
+        let Ok(answer) = serde_json::from_slice::<MeteredAnswer>(body) else {
+            return;
+        };
+        self.model = answer.model;
+        self.usage = answer.usage.map(Usage::from);
+    }
+
+    fn finish(self: Box<Self>) -> (Option<String>, Option<Usage>) {
+        (self.model, self.usage)
+    }
 }
 
 fn with_auth(
