@@ -1,0 +1,323 @@
+{
+  "reference_states": 39,
+  "missing": [],
+  "horizontal_overflow": 0,
+  "uncaught_page_errors": 1,
+  "captures": [
+    {
+      "reference": "missed-call",
+      "screenshot": "screens/missed-call.png",
+      "overflow": false,
+      "page_errors": 0,
+      "native_renderer": false,
+      "expected_native_plugin_errors": 0
+    },
+    {
+      "reference": "settings-trusted-contacts",
+      "screenshot": "screens/settings-trusted-contacts.png",
+      "overflow": false,
+      "page_errors": 0,
+      "native_renderer": false,
+      "expected_native_plugin_errors": 0
+    },
+    {
+      "reference": "settings-sound",
+      "screenshot": "screens/settings-sound.png",
+      "overflow": false,
+      "page_errors": 0,
+      "native_renderer": false,
+      "expected_native_plugin_errors": 0
+    },
+    {
+      "reference": "live-screen-takeover",
+      "screenshot": "screens/live-screen-takeover.png",
+      "overflow": false,
+      "page_errors": 0,
+      "native_renderer": false,
+      "expected_native_plugin_errors": 0
+    },
+    {
+      "reference": "sprite-work",
+      "screenshot": "screens/sprite-work.png",
+      "overflow": false,
+      "page_errors": 0,
+      "native_renderer": false,
+      "expected_native_plugin_errors": 0
+    },
+    {
+      "reference": "new-group",
+      "screenshot": "screens/new-group.png",
+      "overflow": false,
+      "page_errors": 0,
+      "native_renderer": false,
+      "expected_native_plugin_errors": 0
+    },
+    {
+      "reference": "conversation",
+      "screenshot": "screens/conversation.png",
+      "overflow": false,
+      "page_errors": 0,
+      "native_renderer": false,
+      "expected_native_plugin_errors": 0
+    },
+    {
+      "reference": "new-sprite",
+      "screenshot": "screens/new-sprite.png",
+      "overflow": false,
+      "page_errors": 0,
+      "native_renderer": false,
+      "expected_native_plugin_errors": 0
+    },
+    {
+      "reference": "call",
+      "screenshot": "screens/call.png",
+      "overflow": false,
+      "page_errors": 0,
+      "native_renderer": false,
+      "expected_native_plugin_errors": 0
+    },
+    {
+      "reference": "settings-vault",
+      "screenshot": "screens/settings-vault.png",
+      "overflow": false,
+      "page_errors": 0,
+      "native_renderer": false,
+      "expected_native_plugin_errors": 0
+    },
+    {
+      "reference": "settings-hosts",
+      "screenshot": "screens/settings-hosts.png",
+      "overflow": false,
+      "page_errors": 0,
+      "native_renderer": false,
+      "expected_native_plugin_errors": 0
+    },
+    {
+      "reference": "settings-connections",
+      "screenshot": "screens/settings-connections.png",
+      "overflow": false,
+      "page_errors": 0,
+      "native_renderer": false,
+      "expected_native_plugin_errors": 0
+    },
+    {
+      "reference": "change-server",
+      "screenshot": "screens/change-server.png",
+      "overflow": false,
+      "page_errors": 0,
+      "native_renderer": false,
+      "expected_native_plugin_errors": 0
+    },
+    {
+      "reference": "you",
+      "screenshot": "screens/you-native.png",
+      "overflow": false,
+      "page_errors": 0,
+      "native_renderer": false,
+      "expected_native_plugin_errors": 0
+    },
+    {
+      "reference": "sprites",
+      "screenshot": "screens/sprites.png",
+      "overflow": false,
+      "page_errors": 0,
+      "native_renderer": false,
+      "expected_native_plugin_errors": 0
+    },
+    {
+      "reference": "sprite-memory",
+      "screenshot": "screens/sprite-memory.png",
+      "overflow": false,
+      "page_errors": 0,
+      "native_renderer": false,
+      "expected_native_plugin_errors": 0
+    },
+    {
+      "reference": "failed-run",
+      "screenshot": "screens/failed-run.png",
+      "overflow": false,
+      "page_errors": 0,
+      "native_renderer": false,
+      "expected_native_plugin_errors": 0
+    },
+    {
+      "reference": "automations",
+      "screenshot": "screens/automations.png",
+      "overflow": false,
+      "page_errors": 0,
+      "native_renderer": false,
+      "expected_native_plugin_errors": 0
+    },
+    {
+      "reference": "settings",
+      "screenshot": "screens/settings.png",
+      "overflow": false,
+      "page_errors": 0,
+      "native_renderer": false,
+      "expected_native_plugin_errors": 0
+    },
+    {
+      "reference": "approval",
+      "screenshot": "screens/approval.png",
+      "overflow": false,
+      "page_errors": 0,
+      "native_renderer": false,
+      "expected_native_plugin_errors": 0
+    },
+    {
+      "reference": "add-connection",
+      "screenshot": "screens/add-connection.png",
+      "overflow": false,
+      "page_errors": 0,
+      "native_renderer": false,
+      "expected_native_plugin_errors": 0
+    },
+    {
+      "reference": "memory",
+      "screenshot": "screens/memory.png",
+      "overflow": false,
+      "page_errors": 0,
+      "native_renderer": false,
+      "expected_native_plugin_errors": 0
+    },
+    {
+      "reference": "settings-retention",
+      "screenshot": "screens/settings-retention.png",
+      "overflow": false,
+      "page_errors": 0,
+      "native_renderer": false,
+      "expected_native_plugin_errors": 0
+    },
+    {
+      "reference": "sprite-profile",
+      "screenshot": "screens/sprite-profile.png",
+      "overflow": false,
+      "page_errors": 0,
+      "native_renderer": false,
+      "expected_native_plugin_errors": 0
+    },
+    {
+      "reference": "home",
+      "screenshot": "screens/home-full.png",
+      "overflow": false,
+      "page_errors": 0,
+      "native_renderer": false,
+      "expected_native_plugin_errors": 0
+    },
+    {
+      "reference": "live-screen",
+      "screenshot": "screens/live-screen.png",
+      "overflow": false,
+      "page_errors": 0,
+      "native_renderer": false,
+      "expected_native_plugin_errors": 0
+    },
+    {
+      "reference": "sign-out",
+      "screenshot": "screens/sign-out.png",
+      "overflow": false,
+      "page_errors": 0,
+      "native_renderer": false,
+      "expected_native_plugin_errors": 0
+    },
+    {
+      "reference": "sprite-access-connection",
+      "screenshot": "screens/sprite-access-connection.png",
+      "overflow": false,
+      "page_errors": 0,
+      "native_renderer": false,
+      "expected_native_plugin_errors": 0
+    },
+    {
+      "reference": "settings-models",
+      "screenshot": "screens/settings-models.png",
+      "overflow": false,
+      "page_errors": 0,
+      "native_renderer": false,
+      "expected_native_plugin_errors": 0
+    },
+    {
+      "reference": "conversations",
+      "screenshot": "screens/conversations.png",
+      "overflow": false,
+      "page_errors": 0,
+      "native_renderer": false,
+      "expected_native_plugin_errors": 0
+    },
+    {
+      "reference": "settings-sessions",
+      "screenshot": "screens/settings-sessions.png",
+      "overflow": false,
+      "page_errors": 0,
+      "native_renderer": false,
+      "expected_native_plugin_errors": 0
+    },
+    {
+      "reference": "software",
+      "screenshot": "screens/software.png",
+      "overflow": false,
+      "page_errors": 0,
+      "native_renderer": false,
+      "expected_native_plugin_errors": 0
+    },
+    {
+      "reference": "add-connection-no-client",
+      "screenshot": "screens/add-connection-no-client.png",
+      "overflow": false,
+      "page_errors": 0,
+      "native_renderer": false,
+      "expected_native_plugin_errors": 0
+    },
+    {
+      "reference": "connect",
+      "screenshot": "screens/connect-actual.png",
+      "overflow": false,
+      "page_errors": 1,
+      "native_renderer": false,
+      "expected_native_plugin_errors": 1
+    },
+    {
+      "reference": "settings-usage",
+      "screenshot": "screens/settings-usage.png",
+      "overflow": false,
+      "page_errors": 0,
+      "native_renderer": false,
+      "expected_native_plugin_errors": 0
+    },
+    {
+      "reference": "sprite-access",
+      "screenshot": "screens/sprite-access.png",
+      "overflow": false,
+      "page_errors": 0,
+      "native_renderer": false,
+      "expected_native_plugin_errors": 0
+    },
+    {
+      "reference": "home-dark",
+      "screenshot": "screens/home-dark.png",
+      "overflow": false,
+      "page_errors": 0,
+      "native_renderer": false,
+      "expected_native_plugin_errors": 0
+    },
+    {
+      "reference": "settings-notifications",
+      "screenshot": "screens/settings-notifications.png",
+      "overflow": false,
+      "page_errors": 0,
+      "native_renderer": false,
+      "expected_native_plugin_errors": 0
+    },
+    {
+      "reference": "settings-timezone",
+      "screenshot": "screens/settings-timezone.png",
+      "overflow": false,
+      "page_errors": 0,
+      "native_renderer": false,
+      "expected_native_plugin_errors": 0
+    }
+  ],
+  "expected_native_plugin_errors": 1,
+  "unexpected_page_errors": 0,
+  "scope": "Chromium layout captures with reference sample data; native bridge and video fixtures. These do not prove native rendering or a real Computer stream."
+}

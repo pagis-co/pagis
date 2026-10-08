@@ -1,0 +1,194 @@
+[
+  {
+    "width": 360,
+    "route": "/",
+    "overflow": false,
+    "phone": true,
+    "drawer": false,
+    "errors": []
+  },
+  {
+    "width": 360,
+    "route": "/sprites",
+    "overflow": false,
+    "phone": true,
+    "drawer": false,
+    "errors": []
+  },
+  {
+    "width": 360,
+    "route": "/settings/connections",
+    "overflow": false,
+    "phone": true,
+    "drawer": false,
+    "errors": []
+  },
+  {
+    "width": 360,
+    "route": "/settings/retention",
+    "overflow": false,
+    "phone": true,
+    "drawer": false,
+    "errors": []
+  },
+  {
+    "width": 360,
+    "route": "/memory",
+    "overflow": false,
+    "phone": true,
+    "drawer": false,
+    "errors": []
+  },
+  {
+    "width": 360,
+    "route": "/software",
+    "overflow": false,
+    "phone": true,
+    "drawer": false,
+    "errors": []
+  },
+  {
+    "width": 760,
+    "route": "/",
+    "overflow": false,
+    "phone": true,
+    "drawer": false,
+    "errors": []
+  },
+  {
+    "width": 760,
+    "route": "/sprites",
+    "overflow": false,
+    "phone": true,
+    "drawer": false,
+    "errors": []
+  },
+  {
+    "width": 760,
+    "route": "/settings/connections",
+    "overflow": false,
+    "phone": true,
+    "drawer": false,
+    "errors": []
+  },
+  {
+    "width": 760,
+    "route": "/settings/retention",
+    "overflow": false,
+    "phone": true,
+    "drawer": false,
+    "errors": []
+  },
+  {
+    "width": 760,
+    "route": "/memory",
+    "overflow": false,
+    "phone": true,
+    "drawer": false,
+    "errors": []
+  },
+  {
+    "width": 760,
+    "route": "/software",
+    "overflow": false,
+    "phone": true,
+    "drawer": false,
+    "errors": []
+  },
+  {
+    "width": 761,
+    "route": "/",
+    "overflow": false,
+    "phone": false,
+    "drawer": false,
+    "errors": []
+  },
+  {
+    "width": 761,
+    "route": "/sprites",
+    "overflow": false,
+    "phone": false,
+    "drawer": false,
+    "errors": []
+  },
+  {
+    "width": 761,
+    "route": "/settings/connections",
+    "overflow": false,
+    "phone": false,
+    "drawer": false,
+    "errors": []
+  },
+  {
+    "width": 761,
+    "route": "/settings/retention",
+    "overflow": false,
+    "phone": false,
+    "drawer": false,
+    "errors": []
+  },
+  {
+    "width": 761,
+    "route": "/memory",
+    "overflow": false,
+    "phone": false,
+    "drawer": false,
+    "errors": []
+  },
+  {
+    "width": 761,
+    "route": "/software",
+    "overflow": false,
+    "phone": false,
+    "drawer": false,
+    "errors": []
+  },
+  {
+    "width": 1280,
+    "route": "/",
+    "overflow": false,
+    "phone": false,
+    "drawer": false,
+    "errors": []
+  },
+  {
+    "width": 1280,
+    "route": "/sprites",
+    "overflow": false,
+    "phone": false,
+    "drawer": false,
+    "errors": []
+  },
+  {
+    "width": 1280,
+    "route": "/settings/connections",
+    "overflow": false,
+    "phone": false,
+    "drawer": false,
+    "errors": []
+  },
+  {
+    "width": 1280,
+    "route": "/settings/retention",
+    "overflow": false,
+    "phone": false,
+    "drawer": false,
+    "errors": []
+  },
+  {
+    "width": 1280,
+    "route": "/memory",
+    "overflow": false,
+    "phone": false,
+    "drawer": false,
+    "errors": []
+  },
+  {
+    "width": 1280,
+    "route": "/software",
+    "overflow": false,
+    "phone": false,
+    "drawer": false,
+    "errors": []
+  }
+]

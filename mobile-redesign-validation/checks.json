@@ -1,0 +1,53 @@
+{
+  "implementation_head": "88be6f88b388a5fa1c8ce84e2604f63d65da236f",
+  "base_includes_google_dependency": "a6e1d5bd5ff45d5a7954315d29aa26687675293f",
+  "original_redesign_portable_rust": {
+    "passed": 4175,
+    "phase": "before the merged Google dependency"
+  },
+  "combined_branch_focused_rust": {
+    "passed": 88,
+    "includes": [
+      "Run titles",
+      "SQLite and PostgreSQL title backfills",
+      "Google account selection and consent",
+      "readable channel projections",
+      "memory titles and Forget"
+    ]
+  },
+  "combined_branch_ui": {
+    "passed": 1484,
+    "files": 158
+  },
+  "final_phone_actions_tokens_primitives": {
+    "passed": 45,
+    "files": 3,
+    "includes": "two added Google setup-flag regression cases"
+  },
+  "mobile": {
+    "passed": 52,
+    "files": 7
+  },
+  "android_unit_gate": "passed",
+  "ui_typecheck": "passed",
+  "mobile_typecheck": "passed",
+  "production_ui_and_service_worker_build": "passed",
+  "rust_fmt_and_clippy": "passed",
+  "gog_contract": {
+    "passed": 3
+  },
+  "full_gate": "not passed",
+  "broad_rust_gate": {
+    "passed": 3710,
+    "failed": 52,
+    "run": 3762,
+    "note": "Includes ignored Docker checks; failures involve the absent Computer image, browser sandbox/proxy restrictions and concurrent test-binary rebuild interference."
+  },
+  "limits": [
+    "No Xcode or native simulator renderer validation",
+    "Real Computer stream validation needs the Computer image",
+    "Docker build needs a writable client configuration and allowed image build destinations",
+    "Broader desktop gate has six failures in unchanged terminal/process tests",
+    "Docs export encounters the cloud environment file-watcher limit"
+  ]
+}
