@@ -59,6 +59,7 @@ import { assertServerIsReady, connectToServer } from './serverOnboarding'
 import { openServerPage, watchServerSignIn } from './serverSignIn'
 import { ServerConnections, type ServerConnection } from './serverConnection'
 import { reportUncaughtExceptions } from './uncaughtFailure'
+import { endFailedStart } from './startFailure'
 import { checkSignedChecksum } from './signedChecksums'
 import { checkAnswer, readyNotification, restartQuestion } from './updateMessages'
 import { type Installer, type UpdateSource, type UpdateState, Updates } from './updates'
@@ -82,7 +83,6 @@ const REMOTE_ACCESS_SWITCH = '/settings#remote-access'
 
 const SMOKE = process.argv.includes('--smoke')
 const SMOKE_DEADLINE_MS = 60000
-let smokeRoot: string | null = null
 
 class Shell {
   private readonly home = dataDirectory()
@@ -204,7 +204,6 @@ class Shell {
     }
     if (SMOKE) {
       console.log('pagis smoke: setup opened without a bundled server')
-      if (smokeRoot) fs.rmSync(smokeRoot, { recursive: true, force: true })
       app.exit(0)
       return
     }
@@ -1015,7 +1014,9 @@ function updateInstaller(): Installer | null {
 
 function run(): void {
   if (SMOKE) {
-    smokeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'pagis-client-smoke-'))
+    // Chromium writes the profile until the process ends, so the caller
+    // of the smoke removes the temporary directory after the exit.
+    const smokeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'pagis-client-smoke-'))
     app.setPath('userData', path.join(smokeRoot, 'client'))
     process.env.PAGIS_HOME = path.join(smokeRoot, 'workspace')
   }
@@ -1029,9 +1030,7 @@ function run(): void {
   app.on('activate', () => shellApp.show())
   app.on('window-all-closed', () => {})
   endOnQuit(app, () => shellApp.stop())
-  app.whenReady().then(() => shellApp.start()).catch((error: unknown) => {
-    dialog.showErrorBox('Pagis could not start', String(error)); app.exit(1)
-  })
+  app.whenReady().then(() => shellApp.start()).catch((error: unknown) => endFailedStart(error, SMOKE, app, dialog))
   if (SMOKE) setTimeout(() => { console.error('pagis smoke: setup did not open in time'); app.exit(1) }, SMOKE_DEADLINE_MS).unref()
 }
 

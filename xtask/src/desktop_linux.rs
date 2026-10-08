@@ -211,8 +211,13 @@ fn inventory_script(version: &str) -> String {
 }
 
 /// Start the client of the host's architecture with no installed server.
-/// It must open its local setup page. A machine with no display runs it
-/// under a virtual one.
+/// It must open its local setup page and exit. A machine with no display
+/// runs it under a virtual one. The run has a time limit: a client that
+/// does not exit fails the step. `timeout` then kills its whole process
+/// group, the virtual display and every child of the client too, so no
+/// process keeps the step open. Its exit status is then 137. The client
+/// keeps its profile in `TMPDIR` and writes there until the process ends,
+/// so the script removes the directory after the client exits.
 const SMOKE_SCRIPT: &str = concat!(
     "set -eu\n",
     "case \"$(uname -m)\" in\n",
@@ -221,11 +226,20 @@ const SMOKE_SCRIPT: &str = concat!(
     "  *) echo \"no Linux client for $(uname -m)\" >&2; exit 1 ;;\n",
     "esac\n",
     "[ -x \"$app/pagis-client\" ] || { echo \"the packaged client is missing from $app\" >&2; exit 1; }\n",
+    "tmp=$(mktemp -d)\n",
+    "trap 'rm -rf \"$tmp\"' EXIT\n",
+    "export TMPDIR=\"$tmp\"\n",
+    "set -- \"$app/pagis-client\" --smoke\n",
     "if [ -z \"${DISPLAY:-}\" ] && [ -z \"${WAYLAND_DISPLAY:-}\" ]; then\n",
-    "  xvfb-run -a \"$app/pagis-client\" --smoke\n",
-    "else\n",
-    "  \"$app/pagis-client\" --smoke\n",
+    "  set -- xvfb-run -a \"$@\"\n",
     "fi\n",
+    "status=0\n",
+    "timeout --signal=KILL 120 \"$@\" || status=$?\n",
+    "case $status in\n",
+    "  0) ;;\n",
+    "  137) echo 'the client did not exit within 120 seconds, so the smoke killed it' >&2; exit 1 ;;\n",
+    "  *) exit \"$status\" ;;\n",
+    "esac\n",
 );
 
 /// The checksum list of the four packages, beside them. A tag signs it

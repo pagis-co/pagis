@@ -206,6 +206,123 @@ fn the_smoke_runs_the_client_of_the_host_architecture_on_a_display() {
     );
 }
 
+/// The result of the smoke script against a stand-in client that exits
+/// with `client_status`. The client records its `TMPDIR` and writes a file
+/// there. A stand-in `timeout` records its arguments and runs the rest, so
+/// a client that exits with 137 stands for a run that `timeout` killed.
+struct SmokeRun {
+    status: std::process::ExitStatus,
+    stderr: String,
+    timeout_args: String,
+    client_tmpdir: String,
+}
+
+fn run_smoke(client_status: i32) -> SmokeRun {
+    use std::os::unix::fs::PermissionsExt;
+
+    let steps = desktop_plan(Path::new("/repo"), &context(None));
+    let script = commands(step(&steps, "smoke"))[0].args[1].clone();
+    let dir = tempfile::tempdir().unwrap();
+    let executable = |path: &Path, body: &str| {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, body).unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    };
+    for unpacked in ["linux-unpacked", "linux-arm64-unpacked"] {
+        executable(
+            &dir.path()
+                .join("release")
+                .join(unpacked)
+                .join("pagis-client"),
+            &format!(
+                "#!/bin/sh\necho \"$TMPDIR\" > '{}'\ntouch \"$TMPDIR/profile\"\nexit {client_status}\n",
+                dir.path().join("client-tmpdir").display()
+            ),
+        );
+    }
+    let bin = dir.path().join("bin");
+    let args = dir.path().join("timeout-args");
+    executable(
+        &bin.join("timeout"),
+        &format!(
+            "#!/bin/sh\necho \"$@\" > '{}'\nshift 2\nexec \"$@\"\n",
+            args.display()
+        ),
+    );
+    let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap());
+    let output = Command::new("sh")
+        .args(["-c", &script])
+        .current_dir(dir.path())
+        .env("PATH", path)
+        .env("DISPLAY", ":0")
+        .output()
+        .unwrap();
+    SmokeRun {
+        status: output.status,
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        timeout_args: std::fs::read_to_string(&args).unwrap_or_default(),
+        client_tmpdir: std::fs::read_to_string(dir.path().join("client-tmpdir"))
+            .unwrap_or_default()
+            .trim_end()
+            .to_string(),
+    }
+}
+
+#[test]
+fn the_smoke_bounds_the_client_run_with_a_timeout() {
+    let run = run_smoke(0);
+    assert!(run.status.success(), "{}", run.stderr);
+    assert!(
+        run.timeout_args.starts_with("--signal=KILL 120 release/"),
+        "{}",
+        run.timeout_args
+    );
+    assert!(
+        run.timeout_args
+            .trim_end()
+            .ends_with("/pagis-client --smoke"),
+        "{}",
+        run.timeout_args
+    );
+}
+
+#[test]
+fn a_client_that_does_not_exit_in_time_fails_the_smoke() {
+    let run = run_smoke(137);
+    assert_eq!(run.status.code(), Some(1), "{}", run.stderr);
+    assert!(
+        run.stderr
+            .contains("the client did not exit within 120 seconds"),
+        "{}",
+        run.stderr
+    );
+}
+
+/// The client writes its profile under the temporary directory until the
+/// process ends, so the smoke, not the client, removes it.
+#[test]
+fn the_smoke_removes_the_temporary_directory_of_the_client_after_it_exits() {
+    for client_status in [0, 137] {
+        let run = run_smoke(client_status);
+        assert!(!run.client_tmpdir.is_empty(), "{}", run.stderr);
+        assert_ne!(
+            run.client_tmpdir,
+            std::env::var("TMPDIR").unwrap_or_default()
+        );
+        assert!(
+            !Path::new(&run.client_tmpdir).exists(),
+            "{} remains",
+            run.client_tmpdir
+        );
+    }
+}
+
+#[test]
+fn a_client_failure_keeps_its_exit_status() {
+    let run = run_smoke(3);
+    assert_eq!(run.status.code(), Some(3), "{}", run.stderr);
+}
+
 #[test]
 fn a_routine_build_publishes_and_signs_nothing() {
     let steps = desktop_plan(Path::new("/repo"), &context(None));

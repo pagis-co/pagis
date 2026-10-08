@@ -37,7 +37,12 @@ npm start
 
 `PAGIS_HOME` names another state directory. `npm start -- --smoke` opens the
 packaged local setup page against isolated client and state directories,
-confirms that it loaded, and quits without starting a server.
+confirms that it loaded, and quits without starting a server. The
+directories are in a new directory under `TMPDIR`. Chromium writes there
+until the process ends, so the client does not remove it: the caller of
+the smoke gives it a `TMPDIR` that it removes after the exit. A smoke
+that does not start prints the failure and exits with status 1. It does
+not open a message box.
 
 ## Packaging
 
@@ -77,7 +82,8 @@ cargo xtask desktop --linux --tag v0.1.0 --publish-existing
 ```
 
 On Linux the smoke runs the client of the host's architecture, under
-`xvfb-run` when there is no display. The inventory checks both
+`xvfb-run` when there is no display. A client that does not exit
+within 120 seconds fails the smoke. The inventory checks both
 architectures, and reads the deb's exact bytes with `dpkg-deb`.
 
 On macOS, `--prepare` signs, notarizes, staples and checks the client. It stops before

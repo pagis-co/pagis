@@ -140,6 +140,10 @@ fn the_smoke_runs_the_packaged_app_and_asks_it_for_the_health_answer() {
         script.contains("ditto"),
         "the app must run outside the checkout: {script}"
     );
+    assert!(
+        script.contains("TMPDIR=\"$tmp\" ./Pagis.app/Contents/MacOS/Pagis --smoke"),
+        "the smoke removes the temporary directory of the client: {script}"
+    );
     assert_eq!(cmds[0].cwd.as_deref(), Some(Path::new("/repo/desktop")));
 }
 
@@ -212,7 +216,10 @@ fn a_tag_verifies_the_existing_server_tuple_before_client_upload() {
         signed.contains("check-packaged-runtime.mjs"),
         "command: {signed}"
     );
-    assert!(signed.contains("--smoke"), "command: {signed}");
+    assert!(
+        signed.contains("TMPDIR=\"$copy\" ./Pagis.app/Contents/MacOS/Pagis --smoke"),
+        "the check removes the temporary directory of the client: {signed}"
+    );
     assert!(
         signed.contains("codesign --verify --deep --strict"),
         "command: {signed}"
