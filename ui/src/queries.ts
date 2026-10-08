@@ -21,6 +21,7 @@ import type {
   MessageDto,
   NeedsYouQueue,
   PluginSourceRequest,
+  SessionApprovalMode,
   SystemSettingsBody,
   ThreadDto,
   TimelineItem,
@@ -771,6 +772,34 @@ export function useSetGrantRules(api: ApiClient) {
           params: { path: { grant_id: grantId } },
           body: { allow },
         }),
+      ),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: grantsKey }),
+  });
+}
+
+/** Set the widest Session Approval Mode of one Agent on one machine.
+ *  The host Grant holds it, and the first write on a machine with no
+ *  Grant makes one. */
+export function useSetSessionApprovalMode(api: ApiClient) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      agentId,
+      hostId,
+      mode,
+    }: {
+      agentId: string;
+      hostId: string;
+      mode: SessionApprovalMode;
+    }) =>
+      unwrap(
+        api.PUT(
+          "/api/v1/agents/{agent_id}/hosts/{host_id}/session-approval-mode",
+          {
+            params: { path: { agent_id: agentId, host_id: hostId } },
+            body: { mode },
+          },
+        ),
       ),
     onSettled: () => queryClient.invalidateQueries({ queryKey: grantsKey }),
   });

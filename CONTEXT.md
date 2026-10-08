@@ -1076,7 +1076,8 @@ _Avoid_: harness login
 ### Session Approval Mode
 Who answers a Harness Permission of a Coding Session: `person`, `agent` or
 `auto`. The host Grant holds the widest mode that each Agent may use on each
-machine, `person` by default. Not built: the mode of a session, and who
+machine, `person` by default. The Person sets it on the Access tab of the
+Agent. Not built: the mode of a session, and who
 answers a Harness Permission (ADR-0033).
 _Avoid_: permission mode
 

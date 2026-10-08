@@ -571,4 +571,14 @@ describe("the agent profile", () => {
 
     expect(await screen.findByTestId("agent-access-no-google")).toBeTruthy();
   });
+
+  it("shows the Coding sessions section on Access", async () => {
+    profile(stubApi([sage]));
+
+    await userEvent.click(await screen.findByRole("tab", { name: "Access" }));
+
+    expect(
+      await screen.findByRole("region", { name: "Coding sessions" }),
+    ).toBeTruthy();
+  });
 });
