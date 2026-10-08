@@ -10,28 +10,25 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use futures::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
-use pagis_audit::AuditEventBus;
-use pagis_broker::host_sessions::{REQUEST_LIMIT, read_line, yamux_config};
-use pagis_broker::{HostSessions, OpenAnswer};
-use pagis_coding::fake::{Ask, FakeHarness, NEW_SESSION_ID, Script, Turn, acp};
+use futures::io::{AsyncRead, AsyncWrite};
+use pagis_broker::HostSessions;
+use pagis_coding::fake::{Ask, FakeHarness, NEW_SESSION_ID, Script, Turn, acp, serve_client_app};
 use pagis_coding::{
-    CodingSessions, CodingSessionsDeps, NewCodingSession, OpenFailure, OpenFailureCode,
-    OpenRequest, OpenedStream, Pending, PermissionAnswer, PermissionAsk, PromptOutcome,
-    QuestionAnswer, QuestionAsk, RefuseDecisions, SessionDecisions, SessionError, SessionExit,
-    SessionPlace, StartFailure, WorktreeRequest,
+    CloseReason, CodingSessions, CodingSessionsDeps, NewCodingSession, OpenFailure,
+    OpenFailureCode, OpenRequest, OpenedStream, Pending, PermissionAnswer, PermissionAsk,
+    PromptOutcome, QuestionAnswer, QuestionAsk, RefuseDecisions, SessionDecisions, SessionError,
+    SessionExit, SessionPlace, StartFailure, WorktreeRequest,
 };
 use pagis_core::{
     Agent, AgentId, AgentStatus, AgentStore, AuthorKind, Block, Channel, ChannelId, ChannelKind,
     ChannelStore, CodingSession, CodingSessionEvent, CodingSessionEventKind as Kind,
-    CodingSessionId, CodingSessionPlace, CodingSessionState as State, CodingSessionStore, EventLog,
-    HostId, HostStore, Message, MessageId, MessageStatus, MessageStore, Run, RunId, RunState,
-    RunStore, SessionApprovalMode, SystemClock, TriggerKind, Workspace, WorkspaceId,
-    WorkspaceStore, now_ms,
+    CodingSessionId, CodingSessionPlace, CodingSessionState as State, CodingSessionStore, HostId,
+    HostStore, Message, MessageId, MessageStatus, MessageStore, Run, RunId, RunState, RunStore,
+    SessionApprovalMode, SystemClock, TriggerKind, Workspace, WorkspaceId, WorkspaceStore, now_ms,
 };
 use pagis_storage_sqlite::{
-    SqliteAgentStore, SqliteChannelStore, SqliteCodingSessionStore, SqliteEventLog,
-    SqliteHostStore, SqliteMessageStore, SqliteRunStore, SqliteWorkspaceStore,
+    SqliteAgentStore, SqliteChannelStore, SqliteCodingSessionStore, SqliteHostStore,
+    SqliteMessageStore, SqliteRunStore, SqliteWorkspaceStore,
 };
 use serde_json::{Value, json};
 use sqlx::SqlitePool;
@@ -48,7 +45,6 @@ const WORKTREE_DIRECTORY: &str = "/Users/bo/.pagis-worktrees/app/pagis/fix-login
 struct World {
     pool: SqlitePool,
     sessions: Arc<SqliteCodingSessionStore>,
-    events: Arc<SqliteEventLog>,
     workspace_id: WorkspaceId,
     agent_id: AgentId,
     channel_id: ChannelId,
@@ -99,7 +95,6 @@ async fn world(pool: SqlitePool) -> World {
         .unwrap();
     let mut world = World {
         sessions: Arc::new(SqliteCodingSessionStore::new(pool.clone())),
-        events: Arc::new(SqliteEventLog::new(pool.clone())),
         pool,
         workspace_id,
         agent_id: agent.id,
@@ -194,7 +189,6 @@ impl World {
             runs: Arc::new(SqliteRunStore::new(self.pool.clone())),
             place,
             decisions,
-            bus: Arc::new(AuditEventBus::new(self.events.clone())),
             clock: Arc::new(SystemClock),
             cancel: CancellationToken::new(),
         })
@@ -656,21 +650,6 @@ async fn the_updates_of_a_turn_make_their_rows_and_its_end_makes_the_session_idl
     assert_eq!(record.usage.context_size, Some(200_000));
     assert_eq!(record.usage.cost_amount, Some(0.25));
     assert_eq!(record.usage.cost_currency.as_deref(), Some("USD"));
-
-    let updated: Vec<Value> = world
-        .events
-        .list_after(Some(&world.workspace_id), 0, 1_000)
-        .await
-        .unwrap()
-        .into_iter()
-        .filter(|event| event.event_type == "coding_session.updated")
-        .map(|event| event.payload)
-        .collect();
-    assert_eq!(
-        updated.last(),
-        Some(&json!({"coding_session_id": session.id.as_str(), "seq": 7})),
-        "each append names its session and its new seq"
-    );
 }
 
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
@@ -860,7 +839,7 @@ async fn close_closes_the_stream_and_the_exit_that_follows_changes_nothing(pool:
         .unwrap();
 
     sessions
-        .close(&world.workspace_id, &session.id)
+        .close(&world.workspace_id, &session.id, CloseReason::Closed)
         .await
         .unwrap();
 
@@ -891,6 +870,33 @@ async fn close_closes_the_stream_and_the_exit_that_follows_changes_nothing(pool:
     assert!(
         matches!(refused, Err(SessionError::NotOpen(State::Closed))),
         "{refused:?}"
+    );
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_stop_of_the_person_closes_the_session_with_the_end_reason_stopped(pool: SqlitePool) {
+    let world = world(pool).await;
+    let place = DuplexPlace::new(Script::default().turn(Turn::until_cancel(vec![])));
+    let sessions = world.coding_sessions(place.clone(), Arc::new(RefuseDecisions));
+    let session = sessions
+        .start(world.new_session(&world.run_id))
+        .await
+        .unwrap();
+
+    sessions
+        .close(&world.workspace_id, &session.id, CloseReason::Stopped)
+        .await
+        .unwrap();
+
+    let record = world.record(&session.id).await;
+    assert_eq!(record.state, State::Closed);
+    assert_eq!(record.end_reason.as_deref(), Some("stopped"));
+    let again = sessions
+        .close(&world.workspace_id, &session.id, CloseReason::Stopped)
+        .await;
+    assert!(
+        matches!(again, Err(SessionError::NotOpen(State::Closed))),
+        "{again:?}"
     );
 }
 
@@ -973,30 +979,6 @@ async fn get_with_the_id_of_another_workspaces_session_answers_none(pool: Sqlite
     );
 }
 
-/// Serves the Client App end of a session socket: it answers each open
-/// request with `cwd` and runs the fake harness on the stream.
-async fn client_app<T>(socket: T, script: Script, cwd: &'static str)
-where
-    T: AsyncRead + AsyncWrite + Unpin + Send + 'static,
-{
-    let mut connection = yamux::Connection::new(socket, yamux_config(), yamux::Mode::Server);
-    while let Some(Ok(mut stream)) =
-        futures::future::poll_fn(|cx| connection.poll_next_inbound(cx)).await
-    {
-        let script = script.clone();
-        tokio::spawn(async move {
-            read_line(&mut stream, REQUEST_LIMIT).await.unwrap();
-            let answer = OpenAnswer::Opened {
-                cwd: cwd.to_string(),
-            };
-            stream.write_all(answer.line().as_bytes()).await.unwrap();
-            stream.flush().await.unwrap();
-            let (read, write) = futures::io::AsyncReadExt::split(stream);
-            FakeHarness::serve(script, write, read);
-        });
-    }
-}
-
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
 async fn an_exit_on_the_session_socket_fails_the_session_and_an_exit_after_close_changes_nothing(
     pool: SqlitePool,
@@ -1016,10 +998,10 @@ async fn an_exit_on_the_session_socket_fails_the_session_and_an_exit_after_close
     let script = Script::default()
         .turn(Turn::until_cancel(vec![]))
         .turn(Turn::until_cancel(vec![]));
-    tokio::spawn(client_app(
+    tokio::spawn(serve_client_app(
         client_app_end.compat(),
         script,
-        WORKTREE_DIRECTORY,
+        WORKTREE_DIRECTORY.to_string(),
     ));
     let deadline = tokio::time::Instant::now() + WAIT;
     while !hosts.is_open(&world.host_id) {
@@ -1051,7 +1033,7 @@ async fn an_exit_on_the_session_socket_fails_the_session_and_an_exit_after_close
         .await
         .unwrap();
     sessions
-        .close(&world.workspace_id, &closed.id)
+        .close(&world.workspace_id, &closed.id, CloseReason::Closed)
         .await
         .unwrap();
     hosts.exited(

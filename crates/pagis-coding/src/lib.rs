@@ -39,6 +39,6 @@ pub use place::{
 };
 pub use session::{AcpSession, HarnessInfo, Opening, SignInMethod};
 pub use sessions::{
-    CodingSessions, CodingSessionsDeps, NewCodingSession, PromptOutcome, SessionError,
-    StartFailure, UPDATED_EVENT,
+    CloseReason, CodingSessions, CodingSessionsDeps, NewCodingSession, PromptOutcome, SessionError,
+    StartFailure,
 };

@@ -20,12 +20,12 @@ tokio = { workspace = true, features = ["sync", "rt", "io-util"] }
 # of the ACP transport.
 tokio-util = { workspace = true, features = ["compat"] }
 tracing.workspace = true
+# The REST answers of the daemon name who a pending ask waits for.
+utoipa.workspace = true
+# The Client App end of a session socket in the public `fake` module.
+yamux.workspace = true
 
 [dev-dependencies]
-# The bus of the session tests writes to the SQLite event log.
-pagis-audit.workspace = true
 pagis-storage-sqlite.workspace = true
 sqlx.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
-# The Client App end of a session socket in the tests.
-yamux.workspace = true

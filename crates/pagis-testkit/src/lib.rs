@@ -321,6 +321,8 @@ pub struct TestDaemon {
     /// The session sockets of the Hosts of this daemon, which carry one
     /// stream for each Coding Session.
     pub host_sessions: Arc<pagis_broker::HostSessions>,
+    /// The Coding Sessions that run on those sockets.
+    pub coding_sessions: Arc<pagis_coding::CodingSessions>,
     /// The origin a browser reaches this daemon at. It is
     /// [`TestDaemon::base_url`] unless the test named one.
     pub public_origin: String,
@@ -642,6 +644,7 @@ impl TestDaemon {
 
         let home_exits = Arc::clone(&interfaces.home_exits);
         let host_sessions = Arc::clone(&interfaces.host_sessions);
+        let coding_sessions = Arc::clone(&interfaces.coding_sessions);
         let server = tokio::spawn(async move {
             axum::serve(
                 listener,
@@ -696,6 +699,7 @@ impl TestDaemon {
             model_addr,
             home_exits,
             host_sessions,
+            coding_sessions,
             public_origin,
             dm_channel_id,
             agent_id,

@@ -266,7 +266,7 @@ impl std::str::FromStr for CodingSessionEventKind {
 
 /// What the harness last reported of its context and its cost. Each
 /// field is `None` until the harness reports it.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CodingSessionUsage {
     /// The tokens in the context window.
     pub context_used: Option<u64>,

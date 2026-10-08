@@ -10,6 +10,8 @@ mod byte_socket;
 mod calls;
 mod channels;
 mod client_name;
+mod coding_session_feed;
+mod coding_sessions;
 mod cors;
 mod cross_origin;
 pub mod error;
@@ -75,6 +77,7 @@ use pagis_core::{
 };
 
 pub use auth::{SESSION_COOKIE, Tenant, hash_secret};
+pub use coding_session_feed::CodingSessionFeed;
 pub use forwarded::TrustedProxy;
 pub use harness_model::{HarnessModelDeps, HarnessModelTokens};
 pub use live_connections::LiveConnections;
@@ -149,6 +152,9 @@ pub struct AppState {
     /// The Coding Sessions that run on those sockets (ADR-0033): the
     /// start, the prompts, the cancel and the close of each session.
     pub coding_sessions: Arc<pagis_coding::CodingSessions>,
+    /// The Coding Session records and their transcripts. Each write
+    /// reports itself as an event.
+    pub coding_session_store: Arc<dyn pagis_core::CodingSessionStore>,
     /// The installed Capability Manifests are the authority for
     /// Connection capability names.
     pub broker: Arc<pagis_broker::Broker>,
@@ -709,6 +715,22 @@ fn product_router(state: Arc<AppState>) -> Router {
         .route("/api/v1/calls/{call_id}/dismiss", post(calls::dismiss_call))
         .route("/api/v1/calls/{call_id}/hangup", post(calls::hang_up))
         .route("/api/v1/calls/{call_id}/tier", post(calls::drop_call_tier))
+        .route(
+            "/api/v1/coding-sessions",
+            get(coding_sessions::list_coding_sessions),
+        )
+        .route(
+            "/api/v1/coding-sessions/{coding_session_id}",
+            get(coding_sessions::get_coding_session),
+        )
+        .route(
+            "/api/v1/coding-sessions/{coding_session_id}/transcript",
+            get(coding_sessions::coding_session_transcript),
+        )
+        .route(
+            "/api/v1/coding-sessions/{coding_session_id}/stop",
+            post(coding_sessions::stop_coding_session),
+        )
         .route(
             "/api/v1/settings/phone-numbers",
             get(phone_numbers::list_phone_numbers).post(phone_numbers::buy_phone_number),

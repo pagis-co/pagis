@@ -377,6 +377,24 @@ active, new events join one pending Wake-up. A Run that a session event
 starts is a Run of an Incoming Event: a new chain whose Origin is the
 session's Thread (ADR-0003).
 
+### Clients read a session over REST and events
+
+The daemon serves the Coding Sessions of the Workspace and their
+transcripts under `/api/v1/coding-sessions`: the list, newest first, one
+session, one page of its transcript, and the Person's Stop. Stop cancels
+the turn that runs and closes the session with the end reason `stopped`.
+The answer about a session also gives the display name of the harness, the
+name of the machine, one line about the last row of the transcript, and the
+ask that waits while the session is `needs_decision`. The daemon reads them
+on each request and does not store them.
+
+The store of the daemon reports each write as a durable event, as a Call
+does. `coding_session.changed` reports a write of the record.
+`coding_session.transcript` reports a new row at once, and a row that grows
+by merges at most once a second. A client then reads the rows from the
+highest `seq` that it holds, less one. No event carries the text of a row or
+the title of a session.
+
 ### The session's Thread shows a daemon-made block
 
 The daemon posts the session's block in the Channel of the starting Run: in
@@ -430,7 +448,7 @@ Other ways were considered:
 ## Not built
 
 - The core tools.
-- The REST routes and the `coding_session` block.
+- The `coding_session` block.
 - The Session Rule.
 - The interruption and the resume.
 - Pagis policy and the approval card.

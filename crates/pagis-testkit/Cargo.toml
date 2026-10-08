@@ -16,6 +16,7 @@ pagis.workspace = true
 pagis-agent.workspace = true
 pagis-audit.workspace = true
 pagis-broker.workspace = true
+pagis-coding.workspace = true
 pagis-computer.workspace = true
 pagis-connect.workspace = true
 pagis-google.workspace = true
