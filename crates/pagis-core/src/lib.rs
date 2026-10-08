@@ -43,8 +43,8 @@ pub use block::{
 pub use bus::{EventBus, EventScope, EventStream};
 pub use coding_session::{
     CodingSession, CodingSessionEvent, CodingSessionEventKind, CodingSessionPlace,
-    CodingSessionState, CodingSessionStore, CodingSessionUsage, NewCodingSessionEvent,
-    SessionApprovalMode, TranscriptWrite,
+    CodingSessionState, CodingSessionStore, CodingSessionUsage, ModelTokenOwner,
+    NewCodingSessionEvent, SessionApprovalMode, TranscriptWrite,
 };
 pub use continuation::{
     ContinuationCheckpoint, ContinuationKey, ContinuationState, ContinuationStore,

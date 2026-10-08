@@ -144,9 +144,31 @@ pub fn taken_exit_port_message(port: u16) -> String {
     )
 }
 
+/// The same failure for the Harness Model Endpoint (ADR-0033). The
+/// egress rules of a Server name its port too, so a move changes both.
+pub fn taken_model_port_message(port: u16) -> String {
+    format!(
+        "the model port {port} of the Computers is already in use. Stop the process that holds \
+         it, or name another port in `[computer] model_port` of config.toml (or \
+         PAGIS_COMPUTER_MODEL_PORT)."
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The model port is a setting of its own, so its message names it
+    /// and not the flag of the product port.
+    #[test]
+    fn the_model_port_message_names_its_setting() {
+        let message = taken_model_port_message(4404);
+
+        assert!(message.contains("model port 4404"));
+        assert!(message.contains("[computer] model_port"));
+        assert!(message.contains("PAGIS_COMPUTER_MODEL_PORT"));
+        assert!(!message.contains("--port"));
+    }
 
     /// The exit port is a setting of its own, and the egress rules name
     /// it, so its message names both.

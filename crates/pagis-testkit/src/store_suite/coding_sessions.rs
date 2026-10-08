@@ -6,8 +6,8 @@
 
 use pagis_core::{
     AgentId, ChannelId, CodingSession, CodingSessionEventKind, CodingSessionId, CodingSessionState,
-    CodingSessionUsage, HostId, NewCodingSessionEvent, RunId, SHELL_CAPABILITY, Workspace,
-    WorkspaceId,
+    CodingSessionUsage, HostId, ModelTokenOwner, NewCodingSessionEvent, RunId, SHELL_CAPABILITY,
+    Workspace, WorkspaceId,
 };
 use serde_json::json;
 
@@ -486,6 +486,125 @@ pub async fn the_schema_refuses_a_closed_session_with_no_end_reason(backend: &Ba
     );
 }
 
+pub async fn model_token_owner_finds_the_session_of_a_set_hash(backend: &Backend) {
+    let workspace = backend.seeded_workspace().await;
+    let owner = seed_owner(backend, &workspace).await;
+    let sessions = &backend.stores().coding_sessions;
+    let session = CodingSession {
+        state: CodingSessionState::Starting,
+        ..owner.session()
+    };
+    sessions.insert(&session).await.unwrap();
+
+    assert!(
+        sessions
+            .set_model_token(&workspace.id, &session.id, "hash-a")
+            .await
+            .unwrap()
+    );
+
+    let expected = ModelTokenOwner {
+        workspace_id: workspace.id.clone(),
+        agent_id: owner.agent_id.clone(),
+        session_id: session.id.clone(),
+        run_id: owner.run_id.clone(),
+    };
+    // Each state with a running harness keeps the token, and a write of
+    // the whole record does not clear it.
+    for state in [
+        CodingSessionState::Starting,
+        CodingSessionState::Working,
+        CodingSessionState::NeedsDecision,
+        CodingSessionState::Idle,
+    ] {
+        let moved = CodingSession {
+            state,
+            ..session.clone()
+        };
+        assert!(sessions.update(&moved).await.unwrap());
+        assert_eq!(
+            sessions.model_token_owner("hash-a").await.unwrap().as_ref(),
+            Some(&expected),
+            "{state:?}"
+        );
+    }
+    assert_eq!(sessions.model_token_owner("hash-b").await.unwrap(), None);
+}
+
+pub async fn a_second_set_model_token_stops_the_first_hash(backend: &Backend) {
+    let workspace = backend.seeded_workspace().await;
+    let owner = seed_owner(backend, &workspace).await;
+    let sessions = &backend.stores().coding_sessions;
+    let session = owner.session();
+    sessions.insert(&session).await.unwrap();
+    sessions
+        .set_model_token(&workspace.id, &session.id, "hash-a")
+        .await
+        .unwrap();
+
+    sessions
+        .set_model_token(&workspace.id, &session.id, "hash-b")
+        .await
+        .unwrap();
+
+    assert_eq!(sessions.model_token_owner("hash-a").await.unwrap(), None);
+    assert_eq!(
+        sessions
+            .model_token_owner("hash-b")
+            .await
+            .unwrap()
+            .map(|found| found.session_id),
+        Some(session.id)
+    );
+}
+
+pub async fn a_session_with_no_running_harness_has_no_model_token_owner(backend: &Backend) {
+    let workspace = backend.seeded_workspace().await;
+    let owner = seed_owner(backend, &workspace).await;
+    let sessions = &backend.stores().coding_sessions;
+    let interrupted = CodingSession {
+        state: CodingSessionState::Interrupted,
+        ..owner.session()
+    };
+    let closed = ended(owner.session(), CodingSessionState::Closed);
+    let failed = ended(owner.session(), CodingSessionState::Failed);
+    for (session, hash) in [
+        (&interrupted, "hash-interrupted"),
+        (&closed, "hash-closed"),
+        (&failed, "hash-failed"),
+    ] {
+        sessions.insert(session).await.unwrap();
+        sessions
+            .set_model_token(&workspace.id, &session.id, hash)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            sessions.model_token_owner(hash).await.unwrap(),
+            None,
+            "{:?}",
+            session.state
+        );
+    }
+}
+
+pub async fn set_model_token_writes_no_session_of_another_workspace(backend: &Backend) {
+    let workspace = backend.seeded_workspace().await;
+    let other = second_workspace(backend, &workspace).await;
+    let owner = seed_owner(backend, &workspace).await;
+    let sessions = &backend.stores().coding_sessions;
+    let session = owner.session();
+    sessions.insert(&session).await.unwrap();
+
+    let written = sessions
+        .set_model_token(&other.id, &session.id, "hash-a")
+        .await
+        .unwrap();
+
+    assert!(!written);
+    assert_eq!(sessions.model_token_owner("hash-a").await.unwrap(), None);
+}
+
 /// Every body of this module. [`crate::store_suite!`] turns each one
 /// into a SQLite test and a Postgres test.
 #[macro_export]
@@ -502,6 +621,10 @@ macro_rules! store_suite_coding_sessions {
             latest_event_answers_the_newest_row_of_the_named_kinds,
             a_workspace_reads_and_writes_nothing_of_another,
             the_schema_refuses_a_closed_session_with_no_end_reason,
+            model_token_owner_finds_the_session_of_a_set_hash,
+            a_second_set_model_token_stops_the_first_hash,
+            a_session_with_no_running_harness_has_no_model_token_owner,
+            set_model_token_writes_no_session_of_another_workspace,
         );
     };
 }

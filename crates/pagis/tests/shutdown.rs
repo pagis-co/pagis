@@ -18,6 +18,17 @@ fn started_daemon(home: &Path) -> Child {
     started(Command::new(env!("CARGO_BIN_EXE_pagis")), home).0
 }
 
+/// A port that no process holds now, on every interface. The model port
+/// is never 0, because the egress rules name it, so each daemon of a
+/// test takes one of these.
+fn free_port() -> u16 {
+    std::net::TcpListener::bind("0.0.0.0:0")
+        .expect("a free port")
+        .local_addr()
+        .expect("the bound address")
+        .port()
+}
+
 /// Start a local daemon from `command` in the state directory `home` on
 /// free ports, and wait until it prints the last line of its start
 /// banner. Answers the process and the local origin that the banner
@@ -33,6 +44,7 @@ pub(crate) fn started(mut command: Command, home: &Path) -> (Child, String) {
         .args(["--local", "--no-open", "--port", "0"])
         .env("PAGIS_HOME", home)
         .env("PAGIS_ADMINISTRATION_PORT", "0")
+        .env("PAGIS_COMPUTER_MODEL_PORT", free_port().to_string())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())

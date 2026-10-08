@@ -410,7 +410,13 @@ pub(crate) async fn execute(
     // A Run that would start over the cap, or on a model whose cost
     // the cap cannot count, says so in the conversation and ends with
     // a reason, rather than stopping in silence.
-    if let Some(stop) = crate::spend::cap_stop(&deps, &run, &model_candidates).await {
+    if let Some(stop) = crate::spend::cap_stop(
+        crate::spend::CapReads::of(&deps),
+        &run.workspace_id,
+        &model_candidates,
+    )
+    .await
+    {
         let note = stop.note();
         post_notice(&deps, &run, &note).await;
         run.error = Some(note);

@@ -322,6 +322,18 @@ pub struct CodingSession {
     pub ended_at: Option<UnixMillis>,
 }
 
+/// The session that holds a token of the Harness Model Endpoint, and
+/// what a model call of its harness is charged to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelTokenOwner {
+    pub workspace_id: WorkspaceId,
+    pub agent_id: AgentId,
+    pub session_id: CodingSessionId,
+    /// The Run that started the session. A Usage Record of the session
+    /// names it.
+    pub run_id: RunId,
+}
+
 /// One row of the transcript of a Coding Session.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CodingSessionEvent {
@@ -582,6 +594,22 @@ pub trait CodingSessionStore: Send + Sync {
         coding_session_id: &CodingSessionId,
         kinds: &[CodingSessionEventKind],
     ) -> Result<Option<CodingSessionEvent>, StoreError>;
+    /// Write the hash of the token of the Harness Model Endpoint of one
+    /// session, in place of the hash that it held. `false` when the
+    /// Workspace holds no such session.
+    async fn set_model_token(
+        &self,
+        workspace_id: &WorkspaceId,
+        coding_session_id: &CodingSessionId,
+        hash: &str,
+    ) -> Result<bool, StoreError>;
+    /// The session that holds the token of `hash`, while its harness
+    /// runs: in `starting`, `working`, `needs_decision` or `idle`.
+    ///
+    /// It is the one read of this store that does not name a Workspace,
+    /// because the token is what names it, as the token of a Computer
+    /// names the Computer at the exit listener.
+    async fn model_token_owner(&self, hash: &str) -> Result<Option<ModelTokenOwner>, StoreError>;
 }
 
 #[cfg(test)]

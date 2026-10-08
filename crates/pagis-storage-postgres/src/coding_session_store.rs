@@ -11,7 +11,7 @@ use async_trait::async_trait;
 use pagis_core::coding_session::{TranscriptWrite, fold};
 use pagis_core::{
     AgentId, ChannelId, CodingSession, CodingSessionEvent, CodingSessionEventKind, CodingSessionId,
-    CodingSessionState, CodingSessionStore, CodingSessionUsage, HostId, MessageId,
+    CodingSessionState, CodingSessionStore, CodingSessionUsage, HostId, MessageId, ModelTokenOwner,
     NewCodingSessionEvent, RunId, StoreError, WorkspaceId,
 };
 use sqlx::{PgPool, Row};
@@ -39,6 +39,10 @@ const EVENT_COLUMNS: &str = "workspace_id, coding_session_id, seq, at, kind, pay
 /// The terminal states, as the SQL of `count_open` and `list_open`
 /// names them. `CodingSessionState::is_terminal` is the rule.
 const TERMINAL: &str = "('closed', 'failed')";
+
+/// The states in which the harness of a session runs, so its token of
+/// the Harness Model Endpoint is valid.
+const HARNESS_RUNS: &str = "('starting', 'working', 'needs_decision', 'idle')";
 
 fn parse<T: std::str::FromStr<Err = String>>(value: &str) -> Result<T, StoreError> {
     value.parse().map_err(StoreError::Corrupt)
@@ -414,5 +418,40 @@ impl CodingSessionStore for PostgresCodingSessionStore {
         }
         let row = query.fetch_optional(&self.pool).await.map_err(db_err)?;
         row.as_ref().map(event_from_row).transpose()
+    }
+
+    async fn set_model_token(
+        &self,
+        workspace_id: &WorkspaceId,
+        coding_session_id: &CodingSessionId,
+        hash: &str,
+    ) -> Result<bool, StoreError> {
+        let updated = sqlx::query(
+            "UPDATE coding_sessions SET model_token_hash = $1 WHERE id = $2 AND workspace_id = $3",
+        )
+        .bind(hash)
+        .bind(coding_session_id.as_str())
+        .bind(workspace_id.as_str())
+        .execute(&self.pool)
+        .await
+        .map_err(db_err)?;
+        Ok(updated.rows_affected() > 0)
+    }
+
+    async fn model_token_owner(&self, hash: &str) -> Result<Option<ModelTokenOwner>, StoreError> {
+        let row = sqlx::query(&format!(
+            "SELECT workspace_id, agent_id, id, run_id FROM coding_sessions \
+             WHERE model_token_hash = $1 AND state IN {HARNESS_RUNS}"
+        ))
+        .bind(hash)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(db_err)?;
+        Ok(row.map(|row| ModelTokenOwner {
+            workspace_id: WorkspaceId::from(row.get::<String, _>("workspace_id")),
+            agent_id: AgentId::from(row.get::<String, _>("agent_id")),
+            session_id: CodingSessionId::from(row.get::<String, _>("id")),
+            run_id: RunId::from(row.get::<String, _>("run_id")),
+        }))
     }
 }

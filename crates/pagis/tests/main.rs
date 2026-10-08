@@ -37,6 +37,7 @@ mod evaluation;
 mod events;
 mod grants;
 mod groups;
+mod harness_model;
 mod home_exit;
 mod hosts;
 mod inbound_calls;
