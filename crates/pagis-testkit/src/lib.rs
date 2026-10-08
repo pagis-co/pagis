@@ -11,6 +11,7 @@ pub mod exit_client;
 pub mod fixture;
 pub mod grant;
 pub mod host_client;
+pub mod migration;
 pub mod plugin;
 pub mod postgres;
 pub mod session_client;

@@ -228,7 +228,7 @@ async fn collect_once(
     };
     let batch = IngestBatch {
         workspace_id: target.workspace_id.clone(),
-        connection_id: connection.id.clone(),
+        source: pagis_core::EventSource::connection(connection.id.clone()),
         // A Gmail account is the user's, and every rule on it sees the
         // pass.
         agent_id: None,

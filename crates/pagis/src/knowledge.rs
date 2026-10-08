@@ -389,7 +389,7 @@ impl Worker {
                 .ingest_arrivals(
                     pagis_core::IngestBatch {
                         workspace_id: key.workspace_id.clone(),
-                        connection_id: key.connection_id.clone(),
+                        source: pagis_core::EventSource::connection(key.connection_id.clone()),
                         agent_id: None,
                         event_kind: pagis_broker::MAIL_MESSAGE_RECEIVED.into(),
                         cursor: None,
@@ -536,7 +536,7 @@ impl Worker {
             .ingest_arrivals(
                 pagis_core::IngestBatch {
                     workspace_id: key.workspace_id.clone(),
-                    connection_id: key.connection_id.clone(),
+                    source: pagis_core::EventSource::connection(key.connection_id.clone()),
                     agent_id: None,
                     event_kind: pagis_broker::MAIL_MESSAGE_RECEIVED.into(),
                     cursor: None,

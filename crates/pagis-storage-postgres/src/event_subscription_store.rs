@@ -2,17 +2,20 @@
 
 use async_trait::async_trait;
 use pagis_core::{
-    AgentId, ChannelId, CollectorTarget, ConnectionId, EventSubscription, EventSubscriptionId,
-    EventSubscriptionStore, IncomingEvent, IncomingEventId, MessageId, SourceBatch, StoreError,
-    Wakeup, WakeupId, WorkspaceId,
+    AgentId, ChannelId, CollectorTarget, ConnectionId, EventSource, EventSubscription,
+    EventSubscriptionId, EventSubscriptionStore, IncomingEvent, IncomingEventId, MessageId,
+    SourceBatch, StoreError, Wakeup, WakeupId, WorkspaceId,
 };
 use sqlx::{PgPool, Row};
 
 use crate::db_err;
 use crate::schedule_store::{WAKEUP_COLUMNS, row_to_wakeup};
-use crate::trigger_store::{BATCH_COLUMNS, EVENT_COLUMNS, row_to_batch, row_to_event};
+use crate::trigger_store::{
+    BATCH_COLUMNS, EVENT_COLUMNS, row_to_batch, row_to_event, row_to_source, source_column,
+};
 
-const SUBSCRIPTION_COLUMNS: &str = "id, workspace_id, agent_id, connection_id, event_kind, \
+const SUBSCRIPTION_COLUMNS: &str = "id, workspace_id, agent_id, connection_id, \
+    coding_session_id, event_kind, \
     source_version, name, instruction, channel_id, root_message_id, filter, creator, state, \
     revision, approved_revision, watermark_at, blocked_reason, created_at, updated_at, \
     archived_at";
@@ -33,7 +36,7 @@ fn row_to_subscription(row: &sqlx::postgres::PgRow) -> Result<EventSubscription,
         id: EventSubscriptionId::from(row.get::<String, _>("id")),
         workspace_id: WorkspaceId::from(row.get::<String, _>("workspace_id")),
         agent_id: AgentId::from(row.get::<String, _>("agent_id")),
-        connection_id: ConnectionId::from(row.get::<String, _>("connection_id")),
+        source: row_to_source(row)?,
         event_kind: row.get("event_kind"),
         source_version: row.get("source_version"),
         name: row.get("name"),
@@ -81,16 +84,27 @@ impl EventSubscriptionStore for PostgresEventSubscriptionStore {
     async fn create(&self, subscription: &EventSubscription) -> Result<(), StoreError> {
         sqlx::query(
             "INSERT INTO event_subscriptions (id, workspace_id, agent_id, connection_id, \
-             event_kind, source_version, name, instruction, channel_id, root_message_id, filter, \
-             creator, state, revision, approved_revision, watermark_at, blocked_reason, \
-             created_at, updated_at, archived_at) \
+             coding_session_id, event_kind, source_version, name, instruction, channel_id, \
+             root_message_id, filter, creator, state, revision, approved_revision, watermark_at, \
+             blocked_reason, created_at, updated_at, archived_at) \
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, \
-             $18, $19, $20)",
+             $18, $19, $20, $21)",
         )
         .bind(subscription.id.as_str())
         .bind(subscription.workspace_id.as_str())
         .bind(subscription.agent_id.as_str())
-        .bind(subscription.connection_id.as_str())
+        .bind(
+            subscription
+                .source
+                .connection_id()
+                .map(ConnectionId::as_str),
+        )
+        .bind(
+            subscription
+                .source
+                .coding_session_id()
+                .map(pagis_core::CodingSessionId::as_str),
+        )
         .bind(&subscription.event_kind)
         .bind(&subscription.source_version)
         .bind(&subscription.name)
@@ -139,7 +153,7 @@ impl EventSubscriptionStore for PostgresEventSubscriptionStore {
     ) -> Result<Vec<EventSubscription>, StoreError> {
         let rows = sqlx::query(&format!(
             "SELECT {SUBSCRIPTION_COLUMNS} FROM event_subscriptions WHERE workspace_id = $1 \
-             AND ($2 IS NULL OR agent_id = $3) AND ($4 IS NULL OR id < $5) \
+             AND connection_id IS NOT NULL AND ($2 IS NULL OR agent_id = $3) AND ($4 IS NULL OR id < $5) \
              ORDER BY id DESC LIMIT $6"
         ))
         .bind(workspace_id.as_str())
@@ -185,8 +199,8 @@ impl EventSubscriptionStore for PostgresEventSubscriptionStore {
     async fn collector_targets(&self) -> Result<Vec<CollectorTarget>, StoreError> {
         let rows = sqlx::query(
             "SELECT DISTINCT workspace_id, connection_id, event_kind FROM event_subscriptions \
-             WHERE state = 'active' AND approved_revision = revision \
-             ORDER BY connection_id, event_kind",
+             WHERE connection_id IS NOT NULL AND state = 'active' \
+             AND approved_revision = revision ORDER BY connection_id, event_kind",
         )
         .fetch_all(&self.pool)
         .await
@@ -204,15 +218,16 @@ impl EventSubscriptionStore for PostgresEventSubscriptionStore {
     async fn live_for_source(
         &self,
         workspace_id: &WorkspaceId,
-        connection_id: &ConnectionId,
+        source: &EventSource,
         event_kind: &str,
     ) -> Result<Vec<EventSubscription>, StoreError> {
+        let (column, source_id) = source_column(source);
         let rows = sqlx::query(&format!(
-            "SELECT {SUBSCRIPTION_COLUMNS} FROM event_subscriptions WHERE connection_id = $1 \
+            "SELECT {SUBSCRIPTION_COLUMNS} FROM event_subscriptions WHERE {column} = $1 \
              AND workspace_id = $2 AND event_kind = $3 AND state = 'active' \
              AND approved_revision = revision ORDER BY id"
         ))
-        .bind(connection_id.as_str())
+        .bind(source_id)
         .bind(workspace_id.as_str())
         .bind(event_kind)
         .fetch_all(&self.pool)
@@ -221,27 +236,28 @@ impl EventSubscriptionStore for PostgresEventSubscriptionStore {
         rows.iter().map(row_to_subscription).collect()
     }
 
-    async fn list_for_connection(
+    async fn list_for_source(
         &self,
         workspace_id: &WorkspaceId,
-        connection_id: &ConnectionId,
+        source: &EventSource,
         states: &[&str],
     ) -> Result<Vec<EventSubscription>, StoreError> {
         if states.is_empty() {
             return Ok(Vec::new());
         }
+        let (column, source_id) = source_column(source);
         // The state list is the last of the binds, so it starts behind
-        // the Connection and the Workspace.
+        // the source and the Workspace.
         let placeholders = (0..states.len())
             .map(|index| format!("${}", index + 3))
             .collect::<Vec<_>>()
             .join(", ");
         let sql = format!(
-            "SELECT {SUBSCRIPTION_COLUMNS} FROM event_subscriptions WHERE connection_id = $1 \
+            "SELECT {SUBSCRIPTION_COLUMNS} FROM event_subscriptions WHERE {column} = $1 \
              AND workspace_id = $2 AND state IN ({placeholders}) ORDER BY id"
         );
         let mut query = sqlx::query(&sql)
-            .bind(connection_id.as_str())
+            .bind(source_id)
             .bind(workspace_id.as_str());
         for state in states {
             query = query.bind(*state);

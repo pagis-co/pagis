@@ -106,7 +106,7 @@ async fn an_event_of_a_forgotten_message_is_dropped_and_wakes_nothing() {
         .create_subscription(NewSubscription {
             workspace_id: world.workspace_id.clone(),
             agent_id: world.agent_id.clone(),
-            connection_id: world.connection_id.clone(),
+            source: pagis_core::EventSource::connection(world.connection_id.clone()),
             event_kind: TEST_EVENT_KIND.to_string(),
             name: "inbox".to_string(),
             instruction: "Read the new mail.".to_string(),
@@ -124,7 +124,7 @@ async fn an_event_of_a_forgotten_message_is_dropped_and_wakes_nothing() {
         .trigger
         .ingest(IngestBatch {
             workspace_id: world.workspace_id.clone(),
-            connection_id: world.connection_id.clone(),
+            source: pagis_core::EventSource::connection(world.connection_id.clone()),
             agent_id: None,
             event_kind: TEST_EVENT_KIND.to_string(),
             cursor: Some("cursor-1".to_string()),

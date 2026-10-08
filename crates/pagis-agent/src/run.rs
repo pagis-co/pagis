@@ -5189,12 +5189,20 @@ async fn channel_briefing(deps: &AgentDeps, agent: &Agent, run: &Run) -> String 
             return channel;
         }
     };
+    // A Connection source goes by its alias. A Coding Session has no
+    // Connection, so it goes by its id (ADR-0033).
+    let (source_line, source_name) = match &context.connection_alias {
+        Some(alias) => (format!("Connection: {alias}"), alias.clone()),
+        None => (
+            format!("Source: {}", context.source),
+            context.source.to_string(),
+        ),
+    };
     let mut briefing = format!(
-        "{channel}\n\nIncoming event trigger:\nRule: {}\nInstruction: {}\nEvent kind: {}\nConnection: {}\nActual start: {}\nMatched messages: {}",
+        "{channel}\n\nIncoming event trigger:\nRule: {}\nInstruction: {}\nEvent kind: {}\n{source_line}\nActual start: {}\nMatched messages: {}",
         wakeup.rule_name,
         wakeup.instruction,
         context.event_kind,
-        context.connection_alias,
         actual_start,
         context.events.len(),
     );
@@ -5222,7 +5230,7 @@ async fn channel_briefing(deps: &AgentDeps, agent: &Agent, run: &Run) -> String 
     }
     briefing.push('\n');
     briefing.push_str(&wrap_untrusted(
-        &event_source(&context.event_kind, &context.connection_alias),
+        &event_source(&context.event_kind, &source_name),
         rows.trim_end(),
     ));
     briefing.push_str("\n\nSender trust:\n");
@@ -5334,9 +5342,9 @@ async fn schedule_trigger_message(deps: &AgentDeps, run: &Run) -> Option<String>
 }
 
 /// The source name of incoming event metadata: the event kind and the
-/// Connection it arrived on.
-fn event_source(event_kind: &str, connection_alias: &str) -> String {
-    format!("event:{event_kind}@{connection_alias}")
+/// source it arrived from.
+fn event_source(event_kind: &str, source_name: &str) -> String {
+    format!("event:{event_kind}@{source_name}")
 }
 
 /// The briefing carries metadata only. This line says where the rest

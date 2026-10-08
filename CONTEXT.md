@@ -519,16 +519,18 @@ Agent cannot schedule that page again. A refused reschedule returns the
 reason (ADR-0010).
 
 ### Event Subscription
-A durable rule that matches Incoming Events from one Connection, or from
-the Agent's own mailbox or number, and asks one Agent to act in a target
-Channel and optional Thread (ADR-0006). Its source can also be a Coding
-Session, as for a Session Rule. Not built (ADR-0033).
+A durable rule that matches Incoming Events from one source and asks one
+Agent to act in a target Channel and optional Thread (ADR-0006). The
+source is a Connection, which includes the Agent's own mailbox or number,
+or a Coding Session, as for a Session Rule (ADR-0033). The Person and the
+Agent do not see or manage the rule of a Coding Session.
 
 ### Incoming Event
-A provider occurrence, received through a Connection, an Agent Mailbox or
-an Agent Phone Number, that may wake an Agent. It is not an audit event
-(ADR-0006). A Coding Session is also a source: the end of a turn, a
-decision that waits, and the end of the session. Not built (ADR-0033).
+An occurrence that may wake an Agent: a provider occurrence received
+through a Connection, an Agent Mailbox or an Agent Phone Number, or an
+event of a Coding Session. It is not an audit event (ADR-0006). The events
+of a Coding Session are the end of a turn, a decision that waits, and the
+end of the session. These kinds are not built (ADR-0033).
 
 ### Review Run
 The Run that reflects one claimed batch of due Pending Evidence. It uses

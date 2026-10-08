@@ -245,7 +245,7 @@ impl InboundCalls {
         let at = now_ms();
         let batch = IngestBatch {
             workspace_id: number.workspace_id.clone(),
-            connection_id: number.connection_id.clone(),
+            source: pagis_core::EventSource::connection(number.connection_id.clone()),
             // The desk line is one Agent's own identity, so only that
             // Agent's rules read the call (ADR-0019).
             agent_id: Some(agent_id.clone()),

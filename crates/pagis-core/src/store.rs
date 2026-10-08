@@ -302,7 +302,7 @@ pub struct NormalizedEvent {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IngestBatch {
     pub workspace_id: WorkspaceId,
-    pub connection_id: ConnectionId,
+    pub source: crate::EventSource,
     /// The Agent this pass belongs to, where the source is the Agent's
     /// own identity and not an account the Workspace shares. An Agent
     /// Mailbox is one Agent's mail, so only that Agent's rules see the
@@ -312,7 +312,7 @@ pub struct IngestBatch {
     pub agent_id: Option<AgentId>,
     pub event_kind: String,
     /// The opaque next cursor. The Trigger module stores it and never
-    /// reads inside it.
+    /// reads inside it. A Coding Session source has none.
     pub cursor: Option<String>,
     pub events: Vec<NormalizedEvent>,
     pub received_at: UnixMillis,
@@ -351,13 +351,15 @@ pub trait EventMatcher: Send + Sync {
 }
 
 /// What a proactive Run needs to brief an Agent on an event Wake-up:
-/// the account it came from and the occurrences that joined it. The
+/// the source it came from and the occurrences that joined it. The
 /// metadata is untrusted provider text, and it carries no body,
 /// snippet, or attachment (ADR-0006).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EventWakeupContext {
     pub subscription_id: EventSubscriptionId,
-    pub connection_alias: String,
+    pub source: crate::EventSource,
+    /// The alias of the Connection, for a Connection source alone.
+    pub connection_alias: Option<String>,
     pub event_kind: String,
     pub events: Vec<IncomingEvent>,
 }
@@ -483,7 +485,9 @@ pub trait EventSubscriptionStore: Send + Sync {
         workspace_id: &WorkspaceId,
         id: &EventSubscriptionId,
     ) -> Result<Option<EventSubscription>, StoreError>;
-    /// One page of subscriptions in a workspace, newest first.
+    /// One page of the Connection subscriptions in a workspace, newest
+    /// first. A rule of a Coding Session source is daemon housekeeping,
+    /// so the list leaves it out (ADR-0033).
     async fn list(
         &self,
         workspace_id: &WorkspaceId,
@@ -497,19 +501,19 @@ pub trait EventSubscriptionStore: Send + Sync {
     /// Every Connection with at least one live subscription: the
     /// collector work list. A Connection with none stops collecting.
     async fn collector_targets(&self) -> Result<Vec<CollectorTarget>, StoreError>;
-    /// The live subscriptions of one Connection and event kind, oldest
+    /// The live subscriptions of one source and event kind, oldest
     /// first.
     async fn live_for_source(
         &self,
         workspace_id: &WorkspaceId,
-        connection_id: &ConnectionId,
+        source: &crate::EventSource,
         event_kind: &str,
     ) -> Result<Vec<EventSubscription>, StoreError>;
-    /// Every subscription of one Connection in the given states.
-    async fn list_for_connection(
+    /// Every subscription of one source in the given states.
+    async fn list_for_source(
         &self,
         workspace_id: &WorkspaceId,
-        connection_id: &ConnectionId,
+        source: &crate::EventSource,
         states: &[&str],
     ) -> Result<Vec<EventSubscription>, StoreError>;
     /// One page of the Incoming Events this subscription matched.

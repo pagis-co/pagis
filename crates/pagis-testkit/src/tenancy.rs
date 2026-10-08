@@ -662,7 +662,7 @@ async fn seed_a(
         id: EventSubscriptionId::generate(),
         workspace_id: workspace_id.clone(),
         agent_id: agent_id.clone(),
-        connection_id: connection.id.clone(),
+        source: pagis_core::EventSource::connection(connection.id.clone()),
         event_kind: "google.mail.received".to_string(),
         source_version: "v1".to_string(),
         name: "New mail".to_string(),

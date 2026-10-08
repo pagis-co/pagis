@@ -89,7 +89,7 @@ impl SubscriptionToolRuntime {
             .create_subscription(NewSubscription {
                 workspace_id: call.workspace_id.clone(),
                 agent_id: call.agent_id.clone(),
-                connection_id: connection.id,
+                source: pagis_core::EventSource::connection(connection.id),
                 event_kind: call.arguments["event_kind"]
                     .as_str()
                     .unwrap_or_default()

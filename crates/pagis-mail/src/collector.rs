@@ -353,7 +353,7 @@ impl MailCollector {
         self.ingest
             .ingest(IngestBatch {
                 workspace_id: mailbox.workspace_id.clone(),
-                connection_id: mailbox.connection_id.clone(),
+                source: pagis_core::EventSource::connection(mailbox.connection_id.clone()),
                 // The mailbox is this Agent's own identity, so no other
                 // Agent on the Connection sees the pass (ADR-0019).
                 agent_id: Some(mailbox.agent_id.clone()),

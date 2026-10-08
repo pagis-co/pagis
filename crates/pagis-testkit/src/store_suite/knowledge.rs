@@ -1074,7 +1074,7 @@ pub async fn a_forget_purge_leaves_no_value_of_the_forgotten_item_in_any_table(b
         .ingest(
             pagis_core::IngestBatch {
                 workspace_id: key.workspace_id.clone(),
-                connection_id: key.connection_id.clone(),
+                source: pagis_core::EventSource::connection(key.connection_id.clone()),
                 agent_id: None,
                 event_kind: pagis_broker::MAIL_MESSAGE_RECEIVED.into(),
                 cursor: None,
@@ -1481,7 +1481,7 @@ async fn mail_rule(backend: &Backend, state: &SyncStatus) -> pagis_core::EventSu
         id: pagis_core::EventSubscriptionId::generate(),
         workspace_id: state.config.workspace_id.clone(),
         agent_id: state.config.agent_id.clone(),
-        connection_id: state.config.connection_id.clone(),
+        source: pagis_core::EventSource::connection(state.config.connection_id.clone()),
         event_kind: pagis_broker::MAIL_MESSAGE_RECEIVED.into(),
         source_version: "1".into(),
         name: "New mail".into(),
@@ -1555,7 +1555,7 @@ async fn ingest_mail(
         .ingest(
             pagis_core::IngestBatch {
                 workspace_id: key.workspace_id.clone(),
-                connection_id: key.connection_id.clone(),
+                source: pagis_core::EventSource::connection(key.connection_id.clone()),
                 agent_id: None,
                 event_kind: pagis_broker::MAIL_MESSAGE_RECEIVED.into(),
                 cursor: Some(MAIL_CURSOR.into()),
@@ -2716,7 +2716,7 @@ async fn woken_reply(
         .ingest(
             pagis_core::IngestBatch {
                 workspace_id: key.workspace_id.clone(),
-                connection_id: key.connection_id.clone(),
+                source: pagis_core::EventSource::connection(key.connection_id.clone()),
                 agent_id: None,
                 event_kind: pagis_broker::MAIL_MESSAGE_RECEIVED.into(),
                 cursor: None,
@@ -2785,7 +2785,7 @@ pub async fn a_forget_forgets_the_reply_of_the_run_that_the_item_woke(backend: &
         id: pagis_core::EventSubscriptionId::generate(),
         workspace_id: key.workspace_id.clone(),
         agent_id: state.config.agent_id.clone(),
-        connection_id: key.connection_id.clone(),
+        source: pagis_core::EventSource::connection(key.connection_id.clone()),
         event_kind: pagis_broker::MAIL_MESSAGE_RECEIVED.into(),
         source_version: "v1".into(),
         name: "New mail".into(),

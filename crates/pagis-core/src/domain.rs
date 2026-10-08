@@ -4,9 +4,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::block::Block;
 use crate::id::{
-    AgentId, ArtifactId, ChannelId, ConnectionId, EventSubscriptionId, GrantId, HostId,
-    IncomingEventId, MessageId, ParticipantId, RequestId, RunId, ScheduleId, ScheduleOccurrenceId,
-    SourceBatchId, UserId, WakeupId, WorkspaceId,
+    AgentId, ArtifactId, ChannelId, CodingSessionId, ConnectionId, EventSubscriptionId, GrantId,
+    HostId, IncomingEventId, MessageId, ParticipantId, RequestId, RunId, ScheduleId,
+    ScheduleOccurrenceId, SourceBatchId, UserId, WakeupId, WorkspaceId,
 };
 use crate::time::UnixMillis;
 
@@ -454,8 +454,77 @@ impl std::str::FromStr for EventSubscriptionState {
     }
 }
 
+/// Where an Incoming Event comes from, and what an Event Subscription
+/// listens to: a Connection, or a Coding Session (ADR-0006, ADR-0033).
+/// A rule or an event has exactly one source.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum EventSource {
+    Connection {
+        connection_id: ConnectionId,
+    },
+    /// A Coding Session raises its own events. It has no cursor, no
+    /// baseline and no collector: one session event is one batch.
+    CodingSession {
+        coding_session_id: CodingSessionId,
+    },
+}
+
+impl EventSource {
+    pub fn connection(connection_id: ConnectionId) -> Self {
+        Self::Connection { connection_id }
+    }
+
+    pub fn coding_session(coding_session_id: CodingSessionId) -> Self {
+        Self::CodingSession { coding_session_id }
+    }
+
+    /// The Connection, for a Connection source.
+    pub fn connection_id(&self) -> Option<&ConnectionId> {
+        match self {
+            Self::Connection { connection_id } => Some(connection_id),
+            Self::CodingSession { .. } => None,
+        }
+    }
+
+    /// The Coding Session, for a Coding Session source.
+    pub fn coding_session_id(&self) -> Option<&CodingSessionId> {
+        match self {
+            Self::Connection { .. } => None,
+            Self::CodingSession { coding_session_id } => Some(coding_session_id),
+        }
+    }
+
+    /// The source that two nullable columns hold. Exactly one of them
+    /// holds a value, as the `CHECK` of each table says.
+    pub fn from_columns(
+        connection_id: Option<String>,
+        coding_session_id: Option<String>,
+    ) -> Result<Self, String> {
+        match (connection_id, coding_session_id) {
+            (Some(connection_id), None) => Ok(Self::connection(connection_id.into())),
+            (None, Some(coding_session_id)) => Ok(Self::coding_session(coding_session_id.into())),
+            (connection_id, coding_session_id) => Err(format!(
+                "an event source names one of a Connection and a Coding Session, not \
+                 connection_id={connection_id:?} and coding_session_id={coding_session_id:?}"
+            )),
+        }
+    }
+}
+
+impl std::fmt::Display for EventSource {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Connection { connection_id } => write!(formatter, "connection:{connection_id}"),
+            Self::CodingSession { coding_session_id } => {
+                write!(formatter, "coding_session:{coding_session_id}")
+            }
+        }
+    }
+}
+
 /// A durable rule that matches Incoming Events of one declared kind
-/// from one Connection and asks one Agent to act (ADR-0006).
+/// from one source and asks one Agent to act (ADR-0006).
 ///
 /// `source_version` pins the Capability Manifest version the filter and
 /// the metadata were written against. `watermark_at` is the activation
@@ -465,7 +534,7 @@ pub struct EventSubscription {
     pub id: EventSubscriptionId,
     pub workspace_id: WorkspaceId,
     pub agent_id: AgentId,
-    pub connection_id: ConnectionId,
+    pub source: EventSource,
     pub event_kind: String,
     pub source_version: String,
     pub name: String,
@@ -540,9 +609,9 @@ impl EventSubscription {
 pub struct IncomingEvent {
     pub id: IncomingEventId,
     pub workspace_id: WorkspaceId,
-    pub connection_id: ConnectionId,
+    pub source: EventSource,
     pub event_kind: String,
-    /// The provider's own id. Unique with the Connection and the kind.
+    /// The provider's own id. Unique with the source and the kind.
     pub provider_event_id: String,
     /// Untrusted normalized metadata, valid against the declaration.
     pub metadata: serde_json::Value,
@@ -551,13 +620,15 @@ pub struct IncomingEvent {
     pub batch_id: SourceBatchId,
 }
 
-/// What one collection pass acquired. It is the collector health
-/// record: the last successful collection, and the last failure code.
+/// What one batch acquired: one collection pass of a Connection, or one
+/// event of a Coding Session. For a Connection it is the collector
+/// health record: the last successful collection, and the last failure
+/// code.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SourceBatch {
     pub id: SourceBatchId,
     pub workspace_id: WorkspaceId,
-    pub connection_id: ConnectionId,
+    pub source: EventSource,
     pub event_kind: String,
     pub collected_at: UnixMillis,
     /// Occurrences the provider returned, before deduplication.

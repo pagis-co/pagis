@@ -8,9 +8,9 @@ use std::sync::Arc;
 
 use pagis_audit::AuditEventBus;
 use pagis_core::{
-    AgentId, ChannelId, Connection, ConnectionId, ConnectionStore, EventBus, EventCatalog,
-    EventDeclaration, EventMatcher, Grant, GrantId, GrantStore, MemorySecretStore, MessageId,
-    ScheduleStore, StoreError, TenantKeys, WorkspaceId,
+    AgentId, ChannelId, CodingSessionId, Connection, ConnectionId, ConnectionStore, EventBus,
+    EventCatalog, EventDeclaration, EventMatcher, Grant, GrantId, GrantStore, MemorySecretStore,
+    MessageId, RunId, ScheduleStore, StoreError, TenantKeys, WorkspaceId,
 };
 use pagis_storage_sqlite::{
     SqliteAgentStore, SqliteChannelStore, SqliteConnectionStore, SqliteEventLog,
@@ -30,6 +30,12 @@ pub const TEST_MATCHER: &str = "testmail";
 /// The synced resource whose Source Items the events of
 /// [`TEST_EVENT_KIND`] are. The Agent's own kind has none (ADR-0008).
 pub const TEST_SOURCE_RESOURCE: &str = "testmail";
+/// A kind that Pagis itself raises for a Coding Session, under the
+/// provider `pagis` (ADR-0033).
+pub const TEST_SESSION_EVENT_KIND: &str = "coding_session.turn_ended";
+/// A Pagis kind whose declaration names a capability, which no Coding
+/// Session can hold.
+pub const TEST_SESSION_GRANTED_KIND: &str = "coding_session.granted";
 
 /// The world one test runs in. Each test binary compiles the whole
 /// module and uses the part it needs.
@@ -60,12 +66,18 @@ impl EventCatalog for TestCatalog {
         name: &str,
         provider: &str,
     ) -> Option<EventDeclaration> {
-        let (required_capability, source_resource) = match name {
-            TEST_EVENT_KIND => (TEST_CAPABILITY, Some(TEST_SOURCE_RESOURCE.to_string())),
-            TEST_OWN_EVENT_KIND => ("", None),
+        let (owner, required_capability, source_resource) = match name {
+            TEST_EVENT_KIND => (
+                "testmail",
+                TEST_CAPABILITY,
+                Some(TEST_SOURCE_RESOURCE.to_string()),
+            ),
+            TEST_OWN_EVENT_KIND => ("testmail", "", None),
+            TEST_SESSION_EVENT_KIND => ("pagis", "", None),
+            TEST_SESSION_GRANTED_KIND => ("pagis", TEST_CAPABILITY, None),
             _ => return None,
         };
-        (provider == "testmail").then(|| EventDeclaration {
+        (provider == owner).then(|| EventDeclaration {
             name: name.to_string(),
             metadata_schema: serde_json::json!({"type": "object"}),
             filter_schema: serde_json::json!({
@@ -75,8 +87,8 @@ impl EventCatalog for TestCatalog {
             }),
             required_capability: required_capability.to_string(),
             matcher: TEST_MATCHER.to_string(),
-            source_version: "testmail-1".to_string(),
-            provider: "testmail".to_string(),
+            source_version: format!("{owner}-1"),
+            provider: owner.to_string(),
             source_resource,
         })
     }
@@ -179,6 +191,46 @@ pub async fn world() -> World {
         connection_id: connection.id,
         grants,
     }
+}
+
+/// A Coding Session of the world's Agent, in its own Channel, with the
+/// Run that started it. It runs in the Agent's Computer, so it names no
+/// Host.
+#[allow(dead_code)]
+pub async fn coding_session(world: &World) -> CodingSessionId {
+    let run_id = RunId::generate();
+    sqlx::query(
+        "INSERT INTO runs (id, workspace_id, agent_id, trigger_kind, state, created_at) \
+         VALUES (?, ?, ?, 'message', 'completed', ?)",
+    )
+    .bind(run_id.as_str())
+    .bind(world.workspace_id.as_str())
+    .bind(world.agent_id.as_str())
+    .bind(NOW)
+    .execute(&world.pool)
+    .await
+    .expect("run");
+    let id = CodingSessionId::generate();
+    sqlx::query(
+        "INSERT INTO coding_sessions (id, workspace_id, agent_id, harness_id, harness_version, \
+         place, directory, approval_mode, title, state, channel_id, root_message_id, \
+         message_id, run_id, created_at, updated_at) \
+         VALUES (?, ?, ?, 'claude', '1.0.0', 'computer', '/work', 'auto', 'Fix it', 'working', \
+         ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(id.as_str())
+    .bind(world.workspace_id.as_str())
+    .bind(world.agent_id.as_str())
+    .bind(world.channel_id.as_str())
+    .bind(MessageId::generate().as_str())
+    .bind(MessageId::generate().as_str())
+    .bind(run_id.as_str())
+    .bind(NOW)
+    .bind(NOW)
+    .execute(&world.pool)
+    .await
+    .expect("coding session");
+    id
 }
 
 /// Revoke the Agent's live grant on the Connection.

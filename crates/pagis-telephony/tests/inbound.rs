@@ -508,7 +508,10 @@ async fn a_settled_call_reaches_the_trigger_module_as_an_envelope(pool: SqlitePo
     assert_eq!(batches.len(), 1);
     let batch = &batches[0];
     assert_eq!(batch.event_kind, CALL_ENDED);
-    assert_eq!(batch.connection_id, number.connection_id);
+    assert_eq!(
+        batch.source,
+        pagis_core::EventSource::connection(number.connection_id.clone())
+    );
     // The desk line is one Agent's own identity, so the pass carries
     // the Agent and no other Agent's rules read it.
     assert_eq!(batch.agent_id.as_ref(), Some(&world.agent.id));

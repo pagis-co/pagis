@@ -11,8 +11,8 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use pagis_core::{
-    AgentId, ChannelId, ConnectionId, CreatorKind, EventSubscriptionId, IncomingEventId, MessageId,
-    SourceBatch, WakeupId, now_ms,
+    AgentId, ChannelId, ConnectionId, CreatorKind, EventSource, EventSubscriptionId,
+    IncomingEventId, MessageId, SourceBatch, WakeupId, now_ms,
 };
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -81,13 +81,24 @@ pub struct SubscriptionDto {
     pub archived_at: Option<i64>,
 }
 
+/// The Connection of a rule or an event that this surface serves. The
+/// Trigger module leaves out every rule of a Coding Session source, and
+/// a Connection rule matches the events of its Connection alone, so each
+/// one here has a Connection (ADR-0033).
+fn connection_of(source: &EventSource) -> String {
+    source
+        .connection_id()
+        .map(ToString::to_string)
+        .unwrap_or_default()
+}
+
 impl From<pagis_core::EventSubscription> for SubscriptionDto {
     fn from(value: pagis_core::EventSubscription) -> Self {
         Self {
             id: value.id.to_string(),
             workspace_id: value.workspace_id.to_string(),
             agent_id: value.agent_id.to_string(),
-            connection_id: value.connection_id.to_string(),
+            connection_id: connection_of(&value.source),
             event_kind: value.event_kind,
             source_version: value.source_version,
             name: value.name,
@@ -172,7 +183,7 @@ impl From<pagis_core::IncomingEvent> for IncomingEventDto {
     fn from(value: pagis_core::IncomingEvent) -> Self {
         Self {
             id: value.id.to_string(),
-            connection_id: value.connection_id.to_string(),
+            connection_id: connection_of(&value.source),
             event_kind: value.event_kind,
             provider_event_id: value.provider_event_id,
             metadata: value.metadata,
@@ -204,7 +215,7 @@ pub async fn create_subscription(
         .create_subscription(pagis_trigger::NewSubscription {
             workspace_id: tenant.workspace_id.clone(),
             agent_id: AgentId::from(body.agent_id),
-            connection_id: ConnectionId::from(body.connection_id),
+            source: EventSource::connection(ConnectionId::from(body.connection_id)),
             event_kind: body.event_kind,
             name: body.name,
             instruction: body.instruction,
@@ -256,11 +267,14 @@ pub async fn get_subscription(
     Path(subscription_id): Path<String>,
 ) -> Result<Json<SubscriptionDetailDto>, ApiError> {
     let subscription = owned(&state, &tenant, EventSubscriptionId::from(subscription_id)).await?;
+    let Some(connection_id) = subscription.source.connection_id() else {
+        return Err(ApiError::not_found("event subscription"));
+    };
     let (last, succeeded) = state
         .trigger
         .collector_health(
             &tenant.workspace_id,
-            &subscription.connection_id,
+            connection_id,
             &subscription.event_kind,
         )
         .await

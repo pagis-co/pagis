@@ -7,7 +7,7 @@
 //! neither reaches this file.
 
 use pagis_core::{
-    AgentId, ChannelId, ConnectionId, CreatorKind, EventSubscription, EventSubscriptionState,
+    AgentId, ChannelId, CreatorKind, EventSource, EventSubscription, EventSubscriptionState,
     MessageId, WorkspaceId,
 };
 
@@ -18,7 +18,7 @@ use pagis_core::{
 pub struct NewSubscription {
     pub workspace_id: WorkspaceId,
     pub agent_id: AgentId,
-    pub connection_id: ConnectionId,
+    pub source: EventSource,
     pub event_kind: String,
     pub name: String,
     pub instruction: String,
