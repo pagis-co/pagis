@@ -90,6 +90,10 @@ address. Behind a reverse proxy, the address is the last entry of
 Behind the Cloudflare Tunnel of the deployment, that entry is the
 address that connected to Cloudflare (see
 [Deploy the relay](#deploy-the-relay)).
+An IPv6 client counts by its /64 network: all the addresses in one /64
+share one window, because one site usually gets a /64 and can use each
+address in it. An IPv4 client counts by its full address. An
+IPv4-mapped IPv6 address counts as its IPv4 address.
 
 The database holds the count of pushes, so a restart keeps it. A push
 that APNs or FCM does not take gets `502` and does not count against the

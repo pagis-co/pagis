@@ -367,7 +367,10 @@ and the endpoint `<origin>/v1/push/<id>`:
   relay counts in process, in a fixed window. It reads the last entry of
   `X-Forwarded-For` only from the proxy address that
   `PUSH_RELAY_TRUSTED_PROXY` names, by the rule of the daemon's Trusted
-  Proxy.
+  Proxy. An IPv6 client counts by its /64 network, as rate limiters
+  usually count IPv6: one site gets a /64 and can use each address in
+  it. An IPv4 client, and an IPv4-mapped IPv6 address, counts by its
+  IPv4 address.
 - The relay holds one transport for each platform, and for each APNs
   environment of `ios`, that it serves. A registration for a platform or
   an APNs environment with no transport gets `422`.
