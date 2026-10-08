@@ -1,7 +1,8 @@
 // Draw the Pagis mark from its construction (README.md, "Construction")
 // into PNG files, with no library. The tray icons of the Client App
 // (desktop/scripts/draw-tray-icons.mjs) and the icons of the Product App
-// web app (ui/scripts/draw-web-app-icons.mjs) use this module.
+// web app (ui/scripts/draw-web-app-icons.mjs), and the Mobile App icons
+// (mobile/scripts/draw-app-icons.mjs) use this module.
 //
 // The drawing sits on the 160 unit square of the mark, and the desks fill
 // its 120 unit box from 20 to 140. An icon shows a square view of that

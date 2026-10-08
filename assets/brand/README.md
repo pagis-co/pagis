@@ -13,7 +13,7 @@ the bottom right, stays open.
 | `pagis-mark-mono.svg` | The mark in one ink (`#272521`), for print and for a place that takes one color. |
 | `pagis-favicon.svg` | The browser tab icon of the Product App and the Administration Interface. It changes to the dark colors when the system is dark. |
 | `pagis-app-icon.svg` | The source of the Client App icon, `desktop/build/icon.png`. |
-| `mark.mjs` | Draws the mark from its construction into PNG files, with no library. The scripts that make the tray icons and the web app icons use it. |
+| `mark.mjs` | Draws the mark from its construction into PNG files, with no library. The scripts that make the tray icons, web app icons and Mobile App icons use it. |
 
 The tray icons of the Client App are the mark in `desktop/static`. The macOS
 ones, `trayTemplate.png` at 16 px and `trayTemplate@2x.png` at 32 px, are
@@ -32,6 +32,12 @@ The icons of the Product App web app are the mark in `ui/public`, and
   transparent pixel, because iOS draws a transparent pixel black.
 - `badge-96.png` is the mark in one ink on a transparent ground, for the
   Android status bar.
+
+The Mobile App icons are the mark on white in `mobile/ios` and
+`mobile/android`. iOS has an opaque 1024 px icon; Android has square,
+round and adaptive icons at each density. The adaptive foreground and
+monochrome layer keep the mark inside the central 66 dp safe circle of
+the 108 dp layer. The launcher cuts the background to its own shape.
 
 ## Construction
 
@@ -79,7 +85,7 @@ macOS `sips` renders the app icon from its SVG source:
 sips -s format png assets/brand/pagis-app-icon.svg --out desktop/build/icon.png
 ```
 
-Two scripts draw the PNG files of the mark from the construction above,
+The scripts draw the PNG files of the mark from the construction above,
 with `mark.mjs`. A test in `desktop/src/menus.test.ts` fails on a tray icon
 of the wrong size or a template image that is not black:
 
@@ -93,4 +99,11 @@ with a transparent pixel:
 
 ```bash
 node ui/scripts/draw-web-app-icons.mjs
+```
+
+A test in `mobile/src/appIcons.test.ts` checks the Mobile App icons and
+their native resource references:
+
+```bash
+node mobile/scripts/draw-app-icons.mjs
 ```

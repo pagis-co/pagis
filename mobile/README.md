@@ -38,6 +38,26 @@ npx cap sync android
 npx cap sync ios
 ```
 
+## App icons
+
+The app uses the Pagis mark on a white ground. iOS has one opaque 1024 px
+icon for iPhone, iPad and the App Store. Android has square and round
+icons at each density, adaptive foreground layers inside the 66 dp safe
+circle, and a monochrome layer for themed icons on Android 13 and later.
+The launcher cuts the adaptive icon to its own shape.
+
+`scripts/draw-app-icons.mjs` uses the shared mark renderer in
+[`assets/brand/mark.mjs`](../assets/brand/mark.mjs). To make the PNG files
+again:
+
+```bash
+npm run icons
+```
+
+The native projects hold the generated files. `src/appIcons.test.ts`
+checks their sizes, colors, transparency and safe margins, and the native
+resource references.
+
 ## Native tests
 
 The JUnit tests are in `android/app/src/test/` and the XCTest tests are in
