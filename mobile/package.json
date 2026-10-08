@@ -7,6 +7,7 @@
   "description": "The Pagis Mobile App opens the Product App of a server that the Person chooses.",
   "type": "module",
   "scripts": {
+    "icons": "node scripts/draw-app-icons.mjs",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
@@ -22,6 +23,7 @@
     "@capacitor/cli": "^8.5.2",
     "@types/node": "^26.4.1",
     "@types/semver": "^7.8.0",
+    "fast-png": "^8.0.0",
     "jsdom": "^30.1.1",
     "typescript": "^5.9.3",
     "vite": "^8.2.2",
