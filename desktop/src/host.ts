@@ -13,6 +13,7 @@
 import { exec } from 'node:child_process'
 import os from 'node:os'
 
+import { type HarnessSignInRequest, type HarnessSignInResult, runSignIn, type SignInRunner } from './harnessSignIn'
 import { findOnPath, loginShellEnvironment } from './loginShell'
 import { isTrustedServerOrigin } from './origin'
 
@@ -73,6 +74,27 @@ function catalogOf(value: unknown): CatalogHarness[] | null {
       Array.isArray(entry.launchers) &&
       entry.launchers.every((launcher: unknown) => typeof launcher === 'string'),
   )
+}
+
+/** The request of a `harness_sign_in` frame, or null when the payload is
+ *  not one. */
+function signInRequestOf(value: unknown): HarnessSignInRequest | null {
+  const request = value as Partial<HarnessSignInRequest> | undefined
+  if (
+    typeof request?.id !== 'string' ||
+    typeof request.harness !== 'string' ||
+    typeof request.name !== 'string' ||
+    typeof request.command !== 'string' ||
+    !Array.isArray(request.args) ||
+    !request.args.every((arg) => typeof arg === 'string') ||
+    typeof request.env !== 'object' ||
+    request.env === null ||
+    Array.isArray(request.env) ||
+    !Object.values(request.env).every((variable) => typeof variable === 'string')
+  ) {
+    return null
+  }
+  return request as HarnessSignInRequest
 }
 
 /** One command the daemon dispatched. */
@@ -189,6 +211,10 @@ export const runInShell: CommandRunner = (dispatch) =>
  * answer, it registers again with its own capabilities and `harness:<id>` for each
  * harness it found. A failed search declares no harness, and the Client
  * App writes the message to its log.
+ *
+ * A `harness_sign_in` frame asks for a Harness Sign-In. The agent answers
+ * it with one `harness_sign_in_result` that holds only the exit code, and
+ * never the output of the window (`harnessSignIn.ts`).
  */
 export class HostAgent {
   private hostId: string | null = null
@@ -202,6 +228,7 @@ export class HostAgent {
     private readonly run: CommandRunner = runInShell,
     private readonly capabilities: readonly string[] = [SHELL_CAPABILITY],
     private readonly findHarnesses: HarnessFinder = harnessesOnPath,
+    private readonly signIn: SignInRunner = runSignIn,
   ) {
     this.socket.onMessage((frame) => {
       void this.receive(frame)
@@ -274,6 +301,10 @@ export class HostAgent {
       }
       return
     }
+    if (parsed.type === 'harness_sign_in') {
+      await this.answerSignIn(parsed.payload)
+      return
+    }
     if (parsed.type !== 'dispatch') return
     const dispatch = parsed.payload as unknown as HostDispatch
     if (
@@ -292,6 +323,18 @@ export class HostAgent {
       result = { exit_code: null, stdout: '', stderr: `${(error as Error).message}\n` }
     }
     this.socket.send(JSON.stringify({ type: 'result', id: dispatch.id, ...result }))
+  }
+
+  private async answerSignIn(payload: unknown): Promise<void> {
+    const request = signInRequestOf(payload)
+    if (request === null) return
+    let result: HarnessSignInResult
+    try {
+      result = await this.signIn(request)
+    } catch (error) {
+      result = { exit_code: null, error: (error as Error).message }
+    }
+    this.socket.send(JSON.stringify({ type: 'harness_sign_in_result', id: request.id, ...result }))
   }
 }
 
