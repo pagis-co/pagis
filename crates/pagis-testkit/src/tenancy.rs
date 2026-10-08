@@ -96,6 +96,11 @@ const OPAQUE: &[(&str, &str)] = &[
          proves the two halves of that",
     ),
     (
+        "harness_id",
+        "a harness id of the Harness Catalog, the same for every \
+         Workspace; the route names the Host too, and that id is planted",
+    ),
+    (
         "message_id",
         "a Message id on the channel routes, and a mail `Message-ID` on \
          the mail route; the channel routes name the Channel too, and \

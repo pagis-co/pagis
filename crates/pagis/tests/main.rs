@@ -39,6 +39,7 @@ mod events;
 mod grants;
 mod groups;
 mod harness_model;
+mod harness_sign_in;
 mod home_exit;
 mod hosts;
 mod inbound_calls;

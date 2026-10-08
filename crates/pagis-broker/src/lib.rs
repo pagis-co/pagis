@@ -41,7 +41,10 @@ pub use host_sessions::{
     HostSessions, OpenAnswer, OpenFailure, OpenRequest, OpenedSession, SessionExit,
     SessionOpenError, WorktreeRequest,
 };
-pub use hosts::{HostCommand, HostConnection, HostDispatchError, HostOutcome, HostPresence};
+pub use hosts::{
+    HarnessSignIn, HostCommand, HostConnection, HostDispatchError, HostFrame, HostOutcome,
+    HostPresence, SignInOutcome,
+};
 pub use mail::{
     MAIL_GET_MESSAGE, MAIL_GET_THREAD, MAIL_MATCHER, MAIL_MESSAGE_RECEIVED, MAIL_MODIFY_MESSAGE,
     MAIL_NAMESPACE, MAIL_PROVIDER, MAIL_SEARCH, MAIL_SEND, MAIL_SYNC_RESOURCE, MAILBOX_PROVIDERS,
@@ -3195,7 +3198,9 @@ fn not_connected(candidates: &[pagis_core::Host]) -> ToolResult {
     ToolResult::plain_error("host_not_connected", message)
 }
 
-fn not_connected_message(name: &str) -> String {
+/// What a Person reads when their machine `name` is not connected. The
+/// host tools and the Harness Sign-In route say the same words.
+pub fn not_connected_message(name: &str) -> String {
     format!("your {name} is not connected; open the Pagis client on it, then ask again.")
 }
 

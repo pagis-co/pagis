@@ -15,6 +15,7 @@ use crate::coding_sessions;
 use crate::error::{ErrorBody, ErrorDetail};
 use crate::forget;
 use crate::grants;
+use crate::harnesses;
 use crate::home_exit;
 use crate::hosts;
 use crate::knowledge;
@@ -151,6 +152,8 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         requests::get_request,
         requests::decide_request,
         hosts::list_hosts,
+        harnesses::list_harnesses,
+        harnesses::start_sign_in,
         push_subscriptions::get_vapid_key,
         push_subscriptions::list_push_subscriptions,
         push_subscriptions::subscribe,
@@ -283,6 +286,12 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         administration::AdministrationHostsDto,
         hosts::HostDto,
         hosts::HostsDto,
+        harnesses::HarnessDto,
+        harnesses::SignInMethodDto,
+        harnesses::HarnessesDto,
+        harnesses::StartSignInRequest,
+        harnesses::SignInStartedDto,
+        pagis_core::harness::SignInMethod,
         push_subscriptions::VapidKeyDto,
         push_subscriptions::SubscribeRequest,
         push_subscriptions::PushSubscriptionKeys,

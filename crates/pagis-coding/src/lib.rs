@@ -25,6 +25,8 @@
 //! [`CodingSessionStarts`] holds the checks of a start, which the broker
 //! asks before the card, and [`CodingToolRuntime`] executes the core
 //! tool `coding_session_start` after the approval.
+//!
+//! [`SignIns`] starts a Harness Sign-In on a Host for the Person.
 
 mod ask;
 mod decisions;
@@ -36,6 +38,7 @@ mod place;
 mod policy;
 mod session;
 mod sessions;
+mod sign_in;
 mod starts;
 mod tools;
 
@@ -62,5 +65,6 @@ pub use sessions::{
     CloseReason, CodingSessions, CodingSessionsDeps, NewCodingSession, PromptOutcome, SessionError,
     StartFailure,
 };
+pub use sign_in::{SignInFailure, SignIns};
 pub use starts::{CodingSessionStarts, MAX_OPEN_SESSIONS, worktree_branch};
 pub use tools::CodingToolRuntime;

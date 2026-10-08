@@ -266,9 +266,20 @@ The Client App runs the vendor's own sign-in command, in the vendor's own
 program, in a terminal window on that Host: the ACP terminal method that
 `initialize` gives, else the command of the Harness Catalog.
 
+Only the Person starts a sign-in, through REST:
+`POST /api/v1/hosts/{host_id}/harnesses/{harness_id}/sign-in` with the
+method. `GET /api/v1/harnesses` gives each harness of the catalog with its
+sign-in methods. No Agent tool starts a sign-in. The daemon names what the
+Client App runs, and sends it as a `harness_sign_in` frame on the Host's
+connection. For an ACP terminal method, the daemon starts the harness on the
+session socket in the Person's home directory and sends `initialize` alone,
+so the harness gives its methods at its pinned version on that machine. The
+Client App stays a pipe: it opens the terminal window and reports the exit
+code in `harness_sign_in_result`.
+
 Pagis never reads, copies, stores or relays the credential. The harness
-keeps it in its own store on that machine. The daemon reports a harness that
-needs a sign-in.
+keeps it in its own store on that machine, and the frames carry no
+credential. The daemon reports a harness that needs a sign-in.
 
 ### The Agent drives a session with core tools
 
@@ -519,7 +530,7 @@ Other ways were considered:
 - The `auto` mode.
 - The item in the Needs-You Queue and the Notification.
 - The question in the daemon.
-- Harness Sign-In.
+- The report of a harness that needs a sign-in.
 - The session block in the Product App.
 - The diffs on the session page.
 - The Coding place.

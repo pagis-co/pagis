@@ -149,6 +149,12 @@ id_type!(
     /// with ids.
     PluginId
 );
+id_type!(
+    /// One Harness Sign-In on one Host (ADR-0033). No record holds it:
+    /// it names the `harness_sign_in` frame and the result that answers
+    /// it.
+    HarnessSignInId
+);
 
 #[cfg(test)]
 mod tests {

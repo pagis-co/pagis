@@ -4358,6 +4358,37 @@
         }
       }
     },
+    "/api/v1/harnesses": {
+      "get": {
+        "tags": [
+          "harnesses"
+        ],
+        "summary": "The Coding Harnesses that Pagis starts, in the order a list shows\nthem, with their sign-in methods.",
+        "operationId": "list_harnesses",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HarnessesDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/health": {
       "get": {
         "tags": [
@@ -4398,6 +4429,107 @@
           },
           "401": {
             "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/hosts/{host_id}/harnesses/{harness_id}/sign-in": {
+      "post": {
+        "tags": [
+          "harnesses"
+        ],
+        "summary": "Start a Harness Sign-In on one of the Person's Hosts. The Client App\nopens a terminal window that runs the vendor's own sign-in.",
+        "operationId": "start_sign_in",
+        "parameters": [
+          {
+            "name": "host_id",
+            "in": "path",
+            "description": "The Host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "harness_id",
+            "in": "path",
+            "description": "The harness, by its id in the Harness Catalog",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartSignInRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "The Host received the sign-in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignInStartedDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The Host is not connected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The Host does not declare the harness, or the harness has no such sign-in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The harness did not give its sign-in methods",
             "content": {
               "application/json": {
                 "schema": {
@@ -11856,6 +11988,38 @@
           },
           {
             "type": "object",
+            "description": "How one Harness Sign-In ended. `id` is the id the\n`harness_sign_in` frame carried. `exit_code` is null when the\nvendor's program gave none, and `error` then tells why. It\ncarries no credential.",
+            "required": [
+              "id",
+              "type"
+            ],
+            "properties": {
+              "error": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "exit_code": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64"
+              },
+              "id": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "harness_sign_in_result"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
             "description": "How the process of one Coding Session on this Host ended. The\ndaemon keeps the last 4 KiB of `stderr_tail`.",
             "required": [
               "session_id",
@@ -13854,6 +14018,54 @@
         "properties": {
           "agent_id": {
             "type": "string"
+          }
+        }
+      },
+      "HarnessDto": {
+        "type": "object",
+        "description": "One Coding Harness of the Harness Catalog.",
+        "required": [
+          "id",
+          "name",
+          "sign_in_methods"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The id of the harness, as a Host declares it in `harness:<id>`."
+          },
+          "name": {
+            "type": "string",
+            "description": "The display name of the harness."
+          },
+          "sign_in_methods": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SignInMethodDto"
+            },
+            "description": "The ways the Person can sign in to the harness."
+          }
+        }
+      },
+      "HarnessSignInMethod": {
+        "type": "string",
+        "description": "What the Person signs in with.",
+        "enum": [
+          "subscription",
+          "api_key"
+        ]
+      },
+      "HarnessesDto": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HarnessDto"
+            }
           }
         }
       },
@@ -19326,6 +19538,35 @@
           "link"
         ]
       },
+      "SignInMethodDto": {
+        "type": "object",
+        "description": "One way to sign in to a harness.",
+        "required": [
+          "method",
+          "label"
+        ],
+        "properties": {
+          "label": {
+            "type": "string",
+            "description": "The name of the method that a person reads."
+          },
+          "method": {
+            "$ref": "#/components/schemas/HarnessSignInMethod"
+          }
+        }
+      },
+      "SignInStartedDto": {
+        "type": "object",
+        "description": "The sign-in that the Host received.",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        }
+      },
       "Signal": {
         "type": "object",
         "description": "One fact the filter editor offers for one resource.",
@@ -19594,6 +19835,17 @@
           },
           "workspace_id": {
             "type": "string"
+          }
+        }
+      },
+      "StartSignInRequest": {
+        "type": "object",
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "$ref": "#/components/schemas/HarnessSignInMethod"
           }
         }
       },
