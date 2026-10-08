@@ -23,6 +23,9 @@ use crate::time::UnixMillis;
 /// The capability a Host declares when it can run a shell command. A
 /// phone-shaped client registers without it and is never offered for a
 /// shell command.
+///
+/// The capability that names a Coding Harness is `harness:<id>`, from
+/// [`crate::harness::capability`].
 pub const SHELL_CAPABILITY: &str = "shell";
 
 /// The capability a Host declares when it can carry the connections of
