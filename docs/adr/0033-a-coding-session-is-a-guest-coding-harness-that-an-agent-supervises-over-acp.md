@@ -337,7 +337,6 @@ Other ways were considered:
 
 ## Not built
 
-- The Harness Catalog.
 - The Coding Session records.
 - The session socket in the daemon.
 - The harness process and the worktree in the Client App.

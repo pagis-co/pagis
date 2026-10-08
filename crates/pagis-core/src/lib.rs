@@ -12,6 +12,7 @@ pub mod conversation_evidence;
 pub mod domain;
 pub mod event;
 pub mod exposure;
+pub mod harness;
 pub mod host;
 pub mod id;
 pub mod identity;

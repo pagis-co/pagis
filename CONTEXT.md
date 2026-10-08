@@ -1043,8 +1043,8 @@ _Avoid_: harness session
 ### Harness Catalog
 The list of Coding Harnesses that ships with each release, with the pinned
 version, the launch command, whether the harness asks permission, and the
-vendor's own sign-in commands. Pagis does not fetch it at run time. Not
-built (ADR-0033).
+vendor's own sign-in commands. Pagis does not fetch it at run time
+(ADR-0033).
 
 ### Harness Model Endpoint
 The model API that the daemon serves to the Computers for a Coding Session
