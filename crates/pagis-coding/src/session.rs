@@ -127,13 +127,7 @@ impl AcpSession {
             .block_task()
             .await
             .map_err(CodingError::from_acp)?;
-        if initialized.protocol_version != ProtocolVersion::V1 {
-            return Err(CodingError::Protocol(format!(
-                "the harness answers protocol version {}, and Pagis speaks version 1",
-                initialized.protocol_version
-            )));
-        }
-        let harness = HarnessInfo::from_initialize(initialized);
+        let harness = HarnessInfo::from_initialize(initialized)?;
 
         let session_id = match opening {
             Opening::New { cwd } => {
@@ -179,6 +173,33 @@ impl AcpSession {
             close,
         };
         Ok((session, receiver))
+    }
+
+    /// Connects over `outgoing` and `incoming`, sends `initialize` alone,
+    /// and closes the connection.
+    ///
+    /// It opens no session, so a harness that needs a sign-in answers
+    /// too. The harness process ends when its byte stream closes.
+    pub async fn probe<W, R>(outgoing: W, incoming: R) -> Result<HarnessInfo, CodingError>
+    where
+        W: AsyncWrite + Send + 'static,
+        R: AsyncRead + Send + 'static,
+    {
+        let initialized = Client
+            .builder()
+            .name("pagis")
+            .connect_with(
+                ByteStreams::new(outgoing, incoming),
+                async |connection: ConnectionTo<Agent>| {
+                    connection
+                        .send_request(initialize_request())
+                        .block_task()
+                        .await
+                },
+            )
+            .await
+            .map_err(CodingError::from_acp)?;
+        HarnessInfo::from_initialize(initialized)
     }
 
     /// What the harness declared in `initialize`.
@@ -274,7 +295,14 @@ impl AcpSession {
 }
 
 impl HarnessInfo {
-    fn from_initialize(response: acp::InitializeResponse) -> Self {
+    /// What a harness of protocol version 1 declared in `initialize`.
+    fn from_initialize(response: acp::InitializeResponse) -> Result<Self, CodingError> {
+        if response.protocol_version != ProtocolVersion::V1 {
+            return Err(CodingError::Protocol(format!(
+                "the harness answers protocol version {}, and Pagis speaks version 1",
+                response.protocol_version
+            )));
+        }
         let capabilities = response.agent_capabilities;
         let sign_in_methods = response
             .auth_methods
@@ -289,13 +317,13 @@ impl HarnessInfo {
                 _ => None,
             })
             .collect();
-        Self {
+        Ok(Self {
             name: response.agent_info.as_ref().map(|info| info.name.clone()),
             version: response.agent_info.map(|info| info.version),
             can_resume: capabilities.session_capabilities.resume.is_some(),
             can_load: capabilities.load_session,
             sign_in_methods,
-        }
+        })
     }
 }
 

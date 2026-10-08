@@ -91,12 +91,37 @@ pub struct Archive {
 }
 
 /// What the Person signs in with.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, utoipa::ToSchema,
+)]
+#[serde(rename_all = "snake_case")]
+// The sign-in of a Person to Pagis has a `SignInMethod` schema of its own.
+#[schema(as = HarnessSignInMethod)]
 pub enum SignInMethod {
     /// The Person's subscription or account at the vendor.
     Subscription,
     /// An API key of the vendor.
     ApiKey,
+}
+
+impl SignInMethod {
+    /// The name of the method on the wire: `subscription` or `api_key`.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SignInMethod::Subscription => "subscription",
+            SignInMethod::ApiKey => "api_key",
+        }
+    }
+
+    /// The name of the method that a person reads.
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            SignInMethod::Subscription => "Subscription",
+            SignInMethod::ApiKey => "API key",
+        }
+    }
 }
 
 /// What the Client App runs in a terminal window for a Harness Sign-In.

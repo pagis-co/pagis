@@ -579,6 +579,12 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
             cancel: options.cancel.clone(),
         },
     ));
+    // The Harness Sign-Ins that the Person starts. A probe of a terminal
+    // method runs on the session socket, as a session does.
+    let sign_ins = Arc::new(pagis_coding::SignIns::new(
+        Arc::clone(&host_presence),
+        Arc::clone(&host_sessions) as _,
+    ));
     // The checks of a Coding Session start. The broker asks them before
     // the card, and the tool runtime again at the start.
     let session_starts = Arc::new(pagis_coding::CodingSessionStarts::new(
@@ -1393,6 +1399,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         home_exits: Arc::clone(&home_exits),
         host_sessions: Arc::clone(&host_sessions),
         coding_sessions: Arc::clone(&coding_sessions),
+        sign_ins,
         coding_session_store: stores.coding_sessions.clone(),
         broker,
         agent_store,

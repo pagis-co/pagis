@@ -1,7 +1,8 @@
 //! A Pagis client that acts as a Host of the test daemon.
 //!
 //! It speaks the real protocol: it opens the authenticated WebSocket,
-//! registers as a Host, and answers every command the daemon dispatches.
+//! registers as a Host, and answers every command the daemon dispatches
+//! and every Harness Sign-In the daemon sends.
 //! A test that exercises a host action holds one of these, because a host
 //! action runs on a present client and never in the daemon.
 //!
@@ -14,6 +15,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures::{SinkExt, StreamExt};
+use pagis_broker::HarnessSignIn;
 use tokio::sync::{mpsc, oneshot};
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
@@ -32,9 +34,9 @@ pub enum HostAnswer {
     /// Answer with the command itself on standard output, so a test can
     /// tell which command reached the machine.
     Echo,
-    /// Answer no command. The test answers each one with
-    /// [`HostClient::answer`], so it decides when the answer reaches the
-    /// daemon.
+    /// Answer no command and no sign-in. The test answers each command
+    /// with [`HostClient::answer`], so it decides when the answer reaches
+    /// the daemon.
     Manual,
 }
 
@@ -70,6 +72,7 @@ type Outgoing = (serde_json::Value, oneshot::Sender<()>);
 pub struct HostClient {
     host_id: String,
     dispatched: Arc<Mutex<Vec<HostDispatch>>>,
+    sign_ins: Arc<Mutex<Vec<HarnessSignIn>>>,
     results: mpsc::UnboundedSender<Outgoing>,
     task: tokio::task::JoinHandle<()>,
 }
@@ -143,9 +146,11 @@ impl HostClient {
             assert_ne!(frame["type"], "error", "the registration failed: {frame}");
         };
         let dispatched = Arc::new(Mutex::new(Vec::new()));
+        let sign_ins = Arc::new(Mutex::new(Vec::new()));
         let (results, mut outgoing) = mpsc::unbounded_channel::<Outgoing>();
         let task = {
             let dispatched = Arc::clone(&dispatched);
+            let sign_ins = Arc::clone(&sign_ins);
             tokio::spawn(async move {
                 // The results the test sent, oldest first. Each one waits
                 // for the `pong` of the ping that follows it.
@@ -161,6 +166,27 @@ impl HostClient {
                             if frame["type"] == "pong" {
                                 if let Some(read) = unread.pop_front() {
                                     let _ = read.send(());
+                                }
+                                continue;
+                            }
+                            if frame["type"] == "harness_sign_in" {
+                                let sign_in: HarnessSignIn =
+                                    serde_json::from_value(frame["payload"].clone())
+                                        .expect("a harness_sign_in frame holds a sign-in");
+                                let reply = serde_json::json!({
+                                    "type": "harness_sign_in_result",
+                                    "id": sign_in.id,
+                                    "exit_code": 0,
+                                });
+                                sign_ins.lock().expect("sign-ins").push(sign_in);
+                                if matches!(answer, HostAnswer::Manual) {
+                                    continue;
+                                }
+                                if SinkExt::send(&mut socket, Message::text(reply.to_string()))
+                                    .await
+                                    .is_err()
+                                {
+                                    return;
                                 }
                                 continue;
                             }
@@ -219,6 +245,7 @@ impl HostClient {
         Self {
             host_id,
             dispatched,
+            sign_ins,
             results,
             task,
         }
@@ -240,6 +267,14 @@ impl HostClient {
     /// The dispatches this machine received, in order.
     pub fn dispatched(&self) -> Vec<HostDispatch> {
         self.dispatched.lock().expect("dispatched").clone()
+    }
+
+    /// The Harness Sign-Ins the daemon sent to this machine, in order.
+    /// The client answers each one with exit code 0, as the Client App
+    /// does when the vendor's program ends well, unless it answers
+    /// [`HostAnswer::Manual`].
+    pub fn sign_ins(&self) -> Vec<HarnessSignIn> {
+        self.sign_ins.lock().expect("sign-ins").clone()
     }
 
     /// Send a result with exit code 0 and `stdout` for the call `id` on

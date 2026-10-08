@@ -732,6 +732,16 @@ pub const ROUTES: &[Route] = &[
         authenticated: true,
     },
     Route {
+        path: "/api/v1/hosts/{host_id}/harnesses/{harness_id}/sign-in",
+        methods: &["post"],
+        authenticated: true,
+    },
+    Route {
+        path: "/api/v1/harnesses",
+        methods: &["get"],
+        authenticated: true,
+    },
+    Route {
         path: "/api/v1/grants",
         methods: &["get", "post"],
         authenticated: true,

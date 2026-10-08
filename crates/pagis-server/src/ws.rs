@@ -14,6 +14,8 @@
 //! as this socket lives. The daemon then dispatches a host command to it
 //! and reads the result off the same socket, correlated by the id it
 //! minted. Only the Host connection that received a command answers it.
+//! A Harness Sign-In goes the same way: a `harness_sign_in` frame out,
+//! and one `harness_sign_in_result` back from the same connection.
 //! Nothing about this is a second connection: the transport was
 //! already bidirectional, and the client already proved who it is.
 //!
@@ -30,8 +32,10 @@ use axum::extract::ws::{Message as WsMessage, WebSocket, WebSocketUpgrade};
 use axum::response::Response;
 use futures::StreamExt;
 use pagis_agent::{DeltaFrame, ProgressFrame};
-use pagis_broker::{HostCommand, HostConnection, HostOutcome, SessionExit};
-use pagis_core::{ChannelId, CodingSessionId, Event, EventScope, Host, harness};
+use pagis_broker::{
+    HarnessSignIn, HostCommand, HostConnection, HostFrame, HostOutcome, SessionExit, SignInOutcome,
+};
+use pagis_core::{ChannelId, CodingSessionId, Event, EventScope, HarnessSignInId, Host, harness};
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
@@ -78,6 +82,16 @@ pub enum ClientFrame {
         stdout: String,
         #[serde(default)]
         stderr: String,
+    },
+    /// How one Harness Sign-In ended. `id` is the id the
+    /// `harness_sign_in` frame carried. `exit_code` is null when the
+    /// vendor's program gave none, and `error` then tells why. It
+    /// carries no credential.
+    HarnessSignInResult {
+        id: String,
+        exit_code: Option<i64>,
+        #[serde(default)]
+        error: Option<String>,
     },
     /// How the process of one Coding Session on this Host ended. The
     /// daemon keeps the last 4 KiB of `stderr_tail`.
@@ -217,6 +231,17 @@ impl ServerFrame {
             replay: None,
             r#type: "dispatch".to_string(),
             payload: Some(serde_json::to_value(command).expect("host command serializes")),
+        }
+    }
+
+    /// One Harness Sign-In for the Host this socket registered: no
+    /// `seq`, never replayed, as a command.
+    fn harness_sign_in(sign_in: &HarnessSignIn) -> Self {
+        ServerFrame {
+            seq: None,
+            replay: None,
+            r#type: "harness_sign_in".to_string(),
+            payload: Some(serde_json::to_value(sign_in).expect("a sign-in serializes")),
         }
     }
 
@@ -361,9 +386,9 @@ struct RegisteredHost {
     connection: HostConnection,
 }
 
-/// The next command for the registered Host, or a future that never
+/// The next frame for the registered Host, or a future that never
 /// finishes while this client registered none.
-async fn next_command(host: &mut Option<RegisteredHost>) -> Option<HostCommand> {
+async fn next_host_frame(host: &mut Option<RegisteredHost>) -> Option<HostFrame> {
     match host {
         Some(registered) => registered.connection.next().await,
         None => std::future::pending().await,
@@ -372,8 +397,8 @@ async fn next_command(host: &mut Option<RegisteredHost>) -> Option<HostCommand> 
 
 impl Connection {
     /// The frame loop of one authenticated socket: the firehose out, the
-    /// ephemeral streams out, a dispatched host command out, and the
-    /// client's own frames in.
+    /// ephemeral streams out, a dispatched host command or a Harness
+    /// Sign-In out, and the client's own frames in.
     async fn serve(&mut self) -> anyhow::Result<()> {
         loop {
             tokio::select! {
@@ -410,10 +435,15 @@ impl Connection {
                         Err(broadcast::error::RecvError::Closed) => return Ok(()),
                     }
                 }
-                command = next_command(&mut self.host) => {
-                    match command {
-                        Some(command) => {
+                frame = next_host_frame(&mut self.host) => {
+                    match frame {
+                        Some(HostFrame::Dispatch(command)) => {
                             self.socket.send(ServerFrame::dispatch(&command).to_ws()).await?;
+                        }
+                        Some(HostFrame::HarnessSignIn(sign_in)) => {
+                            self.socket
+                                .send(ServerFrame::harness_sign_in(&sign_in).to_ws())
+                                .await?;
                         }
                         // The registry dropped this connection, which means
                         // another socket of the same machine replaced it.
@@ -503,6 +533,15 @@ impl Connection {
                     self.state
                         .host_presence
                         .complete(&registered.connection, &id, outcome);
+                }
+            }
+            FrameAction::SignInResult { id, outcome } => {
+                // The rule of a host result: only the connection that
+                // received the sign-in answers it.
+                if let Some(registered) = &self.host {
+                    self.state
+                        .host_presence
+                        .complete_sign_in(&registered.connection, &id, outcome);
                 }
             }
             FrameAction::SessionExit { session_id, exit } => {
@@ -639,6 +678,12 @@ enum FrameAction {
         id: String,
         outcome: HostOutcome,
     },
+    /// How one Harness Sign-In ended. The caller hands it on only from
+    /// the Host connection this socket registered.
+    SignInResult {
+        id: HarnessSignInId,
+        outcome: SignInOutcome,
+    },
     /// How the process of one Coding Session ended. The caller hands it
     /// on only for the Host this socket registered.
     SessionExit {
@@ -690,6 +735,14 @@ fn handle_client_frame(text: &str, subscriptions: &mut HashSet<String>) -> Frame
                 stdout,
                 stderr,
             },
+        },
+        Ok(ClientFrame::HarnessSignInResult {
+            id,
+            exit_code,
+            error,
+        }) => FrameAction::SignInResult {
+            id: HarnessSignInId::from(id),
+            outcome: SignInOutcome { exit_code, error },
         },
         Ok(ClientFrame::SessionExit {
             session_id,

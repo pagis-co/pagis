@@ -310,7 +310,10 @@ impl FakeHostClient {
     fn answering(presence: Arc<pagis_broker::HostPresence>, host_id: pagis_core::HostId) -> Self {
         let mut connection = presence.connect(&host_id);
         let task = tokio::spawn(async move {
-            while let Some(command) = connection.next().await {
+            while let Some(frame) = connection.next().await {
+                let pagis_broker::HostFrame::Dispatch(command) = frame else {
+                    continue;
+                };
                 presence.complete(
                     &connection,
                     &command.id,

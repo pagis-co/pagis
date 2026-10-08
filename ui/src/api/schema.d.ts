@@ -1191,6 +1191,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/harnesses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The Coding Harnesses that Pagis starts, in the order a list shows
+         *     them, with their sign-in methods.
+         */
+        get: operations["list_harnesses"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/health": {
         parameters: {
             query?: never;
@@ -1218,6 +1238,26 @@ export interface paths {
         get: operations["list_hosts"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/hosts/{host_id}/harnesses/{harness_id}/sign-in": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start a Harness Sign-In on one of the Person's Hosts. The Client App
+         *     opens a terminal window that runs the vendor's own sign-in.
+         */
+        post: operations["start_sign_in"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3513,6 +3553,13 @@ export interface components {
             /** @enum {string} */
             type: "result";
         } | {
+            error?: string | null;
+            /** Format: int64 */
+            exit_code?: number | null;
+            id: string;
+            /** @enum {string} */
+            type: "harness_sign_in_result";
+        } | {
             /** Format: int64 */
             exit_code?: number | null;
             session_id: string;
@@ -4269,6 +4316,23 @@ export interface components {
         };
         GrantPluginRequest: {
             agent_id: string;
+        };
+        /** @description One Coding Harness of the Harness Catalog. */
+        HarnessDto: {
+            /** @description The id of the harness, as a Host declares it in `harness:<id>`. */
+            id: string;
+            /** @description The display name of the harness. */
+            name: string;
+            /** @description The ways the Person can sign in to the harness. */
+            sign_in_methods: components["schemas"]["SignInMethodDto"][];
+        };
+        /**
+         * @description What the Person signs in with.
+         * @enum {string}
+         */
+        HarnessSignInMethod: "subscription" | "api_key";
+        HarnessesDto: {
+            items: components["schemas"]["HarnessDto"][];
         };
         /**
          * @description What the desktop shell reads before it attaches to a daemon it did
@@ -6387,6 +6451,16 @@ export interface components {
          * @enum {string}
          */
         SignInMethod: "password" | "link";
+        /** @description One way to sign in to a harness. */
+        SignInMethodDto: {
+            /** @description The name of the method that a person reads. */
+            label: string;
+            method: components["schemas"]["HarnessSignInMethod"];
+        };
+        /** @description The sign-in that the Host received. */
+        SignInStartedDto: {
+            id: string;
+        };
         /** @description One fact the filter editor offers for one resource. */
         Signal: {
             id: string;
@@ -6464,6 +6538,9 @@ export interface components {
             connection_id: string;
             resource: string;
             workspace_id: string;
+        };
+        StartSignInRequest: {
+            method: components["schemas"]["HarnessSignInMethod"];
         };
         /**
          * @description The body of `PushSubscription.toJSON()`. Other members, such as
@@ -10236,6 +10313,33 @@ export interface operations {
             };
         };
     };
+    list_harnesses: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HarnessesDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     health: {
         parameters: {
             query?: never;
@@ -10273,6 +10377,78 @@ export interface operations {
                 };
             };
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    start_sign_in: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Host */
+                host_id: string;
+                /** @description The harness, by its id in the Harness Catalog */
+                harness_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartSignInRequest"];
+            };
+        };
+        responses: {
+            /** @description The Host received the sign-in */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignInStartedDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The Host is not connected */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The Host does not declare the harness, or the harness has no such sign-in */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The harness did not give its sign-in methods */
+            502: {
                 headers: {
                     [name: string]: unknown;
                 };

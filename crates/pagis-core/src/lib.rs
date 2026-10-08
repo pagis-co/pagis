@@ -76,11 +76,11 @@ pub use exposure::message_source_is_live;
 pub use host::{EXIT_CAPABILITY, Host, HostStore, SHELL_CAPABILITY};
 pub use id::{
     AgentId, AgentMailboxId, ArtifactId, CallId, ChannelId, CodingSessionId, ConnectionId,
-    ContributionId, CredentialId, EventId, EventSubscriptionId, GrantId, HostId, IncomingEventId,
-    MessageId, ModelAliasId, ModelRequestCaptureId, OrgId, ParticipantId, PendingEvidenceId,
-    PhoneNumberId, PluginId, PurchaseIntentId, PushSubscriptionId, RequestId, RunId, ScheduleId,
-    ScheduleOccurrenceId, SessionId, SignInLinkId, SoftwarePackageId, SourceBatchId, TextRecordId,
-    TrustEntryId, UsageId, UserId, WakeupId, WorkspaceId,
+    ContributionId, CredentialId, EventId, EventSubscriptionId, GrantId, HarnessSignInId, HostId,
+    IncomingEventId, MessageId, ModelAliasId, ModelRequestCaptureId, OrgId, ParticipantId,
+    PendingEvidenceId, PhoneNumberId, PluginId, PurchaseIntentId, PushSubscriptionId, RequestId,
+    RunId, ScheduleId, ScheduleOccurrenceId, SessionId, SignInLinkId, SoftwarePackageId,
+    SourceBatchId, TextRecordId, TrustEntryId, UsageId, UserId, WakeupId, WorkspaceId,
 };
 pub use identity::{
     CLIENT_LINK_LIFETIME_MS, ClientKind, GOOGLE_WEB_CLIENT_SECRET, INVITE_LINK_LIFETIME_MS, Org,

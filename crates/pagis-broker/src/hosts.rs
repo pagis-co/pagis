@@ -13,12 +13,20 @@
 //! Absence is an answer and not a wait: [`HostPresence::run`] fails at
 //! once for a machine that is not connected, and a machine that is
 //! connected but silent fails after the caller's own deadline.
+//!
+//! The same connection carries each Harness Sign-In that the Person
+//! starts on the machine ([`HostPresence::sign_in`]). The person signs in
+//! in a terminal window, which can take minutes, so a sign-in has no
+//! deadline here: the Client App answers it when the window ends, and
+//! the end of the connection ends the wait.
 
-use std::collections::HashMap;
+use std::borrow::Borrow;
+use std::collections::{BTreeMap, HashMap};
+use std::hash::Hash;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use pagis_core::HostId;
+use pagis_core::{HarnessSignInId, HostId};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot};
 
@@ -49,6 +57,39 @@ pub struct HostOutcome {
     pub stderr: String,
 }
 
+/// One Harness Sign-In that the Client App runs in a terminal window on
+/// the machine (ADR-0033): the vendor's own program, with `args` and
+/// `env`. It carries no credential.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HarnessSignIn {
+    /// What the result comes back under.
+    pub id: HarnessSignInId,
+    /// The id of the harness in the Harness Catalog.
+    pub harness: String,
+    /// The name of the harness that the person reads.
+    pub name: String,
+    pub command: String,
+    pub args: Vec<String>,
+    pub env: BTreeMap<String, String>,
+}
+
+/// How one Harness Sign-In ended on the machine. The exit code tells how
+/// the vendor's program ended, not that the person signed in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SignInOutcome {
+    /// `None` when the vendor's program gave no exit code. `error` then
+    /// tells why.
+    pub exit_code: Option<i64>,
+    pub error: Option<String>,
+}
+
+/// One frame that the daemon sends to a machine.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HostFrame {
+    Dispatch(HostCommand),
+    HarnessSignIn(HarnessSignIn),
+}
+
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum HostDispatchError {
     #[error("the host is not connected")]
@@ -64,7 +105,7 @@ pub enum HostDispatchError {
 pub struct HostConnection {
     host_id: HostId,
     presence: Arc<HostPresence>,
-    commands: mpsc::UnboundedReceiver<HostCommand>,
+    frames: mpsc::UnboundedReceiver<HostFrame>,
     /// Which registration this is, so a connection that has already been
     /// replaced does not deregister its replacement, and does not answer
     /// a command that its replacement received.
@@ -72,10 +113,10 @@ pub struct HostConnection {
 }
 
 impl HostConnection {
-    /// The next command for this machine, or `None` once the presence
+    /// The next frame for this machine, or `None` once the presence
     /// registry has dropped the connection.
-    pub async fn next(&mut self) -> Option<HostCommand> {
-        self.commands.recv().await
+    pub async fn next(&mut self) -> Option<HostFrame> {
+        self.frames.recv().await
     }
 
     pub fn host_id(&self) -> &HostId {
@@ -96,43 +137,69 @@ impl Drop for HostConnection {
         {
             state.connected.remove(&self.host_id);
         }
-        // Only this connection answers the commands it took, and nothing
-        // more comes from it, replaced or not. So they answer now.
-        // Dropping the answer channel is that answer: the caller reads it
-        // as an absent machine and the person is not left waiting out
-        // the deadline.
+        // Only this connection answers the commands and the sign-ins it
+        // took, and nothing more comes from it, replaced or not. So they
+        // answer now. Dropping the answer channel is that answer: the
+        // caller reads it as an absent machine and the person is not left
+        // waiting out the deadline.
         state
             .waiting
+            .retain(|_, waiting| !waiting.received_by(self));
+        state
+            .signing_in
             .retain(|_, waiting| !waiting.received_by(self));
     }
 }
 
 struct Connected {
-    commands: mpsc::UnboundedSender<HostCommand>,
+    frames: mpsc::UnboundedSender<HostFrame>,
     /// Which registration this is. A client that reconnects before the
     /// daemon noticed the old socket replaces it, and the old one must
     /// not deregister the new one on its way out.
     epoch: u64,
 }
 
-/// One command in flight, and the connection that received it: the
-/// machine and the registration.
-struct Waiting {
+/// One command or sign-in in flight, and the connection that received
+/// it: the machine and the registration.
+struct Waiting<T> {
     host_id: HostId,
     epoch: u64,
-    answer: oneshot::Sender<HostOutcome>,
+    answer: oneshot::Sender<T>,
 }
 
-impl Waiting {
+impl<T> Waiting<T> {
     fn received_by(&self, connection: &HostConnection) -> bool {
         self.host_id == connection.host_id && self.epoch == connection.epoch
+    }
+}
+
+/// Take the waiting entry of `key` when `from` received it. An answer
+/// from another connection, or for an entry nobody waits for, takes
+/// nothing.
+fn take_received<K, Q, T>(
+    waiting: &mut HashMap<K, Waiting<T>>,
+    key: &Q,
+    from: &HostConnection,
+) -> Option<Waiting<T>>
+where
+    K: Borrow<Q> + Hash + Eq,
+    Q: Hash + Eq + ?Sized,
+{
+    if waiting
+        .get(key)
+        .is_some_and(|waiting| waiting.received_by(from))
+    {
+        waiting.remove(key)
+    } else {
+        None
     }
 }
 
 #[derive(Default)]
 struct PresenceState {
     connected: HashMap<HostId, Connected>,
-    waiting: HashMap<String, Waiting>,
+    waiting: HashMap<String, Waiting<HostOutcome>>,
+    signing_in: HashMap<HarnessSignInId, Waiting<SignInOutcome>>,
     next_epoch: u64,
     next_call: u64,
 }
@@ -152,7 +219,7 @@ impl HostPresence {
     /// so. A second registration of one machine replaces the first: the
     /// client that is connected now is the one that runs the commands.
     pub fn connect(self: &Arc<Self>, host_id: &HostId) -> HostConnection {
-        let (sender, commands) = mpsc::unbounded_channel();
+        let (sender, frames) = mpsc::unbounded_channel();
         let epoch = {
             let mut state = self.state.lock().expect("host presence lock");
             state.next_epoch += 1;
@@ -160,7 +227,7 @@ impl HostPresence {
             state.connected.insert(
                 host_id.clone(),
                 Connected {
-                    commands: sender,
+                    frames: sender,
                     epoch,
                 },
             );
@@ -169,7 +236,7 @@ impl HostPresence {
         HostConnection {
             host_id: host_id.clone(),
             presence: Arc::clone(self),
-            commands,
+            frames,
             epoch,
         }
     }
@@ -198,23 +265,23 @@ impl HostPresence {
     ) -> Result<HostOutcome, HostDispatchError> {
         let (call_id, answer) = {
             let mut state = self.state.lock().expect("host presence lock");
-            let Some((commands, epoch)) = state
+            let Some((frames, epoch)) = state
                 .connected
                 .get(host_id)
-                .map(|connected| (connected.commands.clone(), connected.epoch))
+                .map(|connected| (connected.frames.clone(), connected.epoch))
             else {
                 return Err(HostDispatchError::NotConnected);
             };
             state.next_call += 1;
             let call_id = format!("{host_id}:{}", state.next_call);
             let (sender, answer) = oneshot::channel();
-            let sent = commands.send(HostCommand {
+            let sent = frames.send(HostFrame::Dispatch(HostCommand {
                 id: call_id.clone(),
                 host_id: host_id.to_string(),
                 command: command.to_string(),
                 timeout_ms: timeout.as_millis() as u64,
                 approved_by_rule,
-            });
+            }));
             if sent.is_err() {
                 // The handler is gone and has not deregistered yet.
                 state.connected.remove(host_id);
@@ -259,15 +326,69 @@ impl HostPresence {
     pub fn complete(&self, from: &HostConnection, call_id: &str, outcome: HostOutcome) {
         let waiting = {
             let mut state = self.state.lock().expect("host presence lock");
-            if state
-                .waiting
-                .get(call_id)
-                .is_some_and(|waiting| waiting.received_by(from))
-            {
-                state.waiting.remove(call_id)
-            } else {
-                None
-            }
+            take_received(&mut state.waiting, call_id, from)
+        };
+        if let Some(waiting) = waiting {
+            let _ = waiting.answer.send(outcome);
+        }
+    }
+
+    /// Send one Harness Sign-In to a machine. The answer comes on the
+    /// receiver when the Client App reports how the sign-in ended.
+    ///
+    /// A machine that is not connected fails at once. The receiver fails
+    /// when the connection that received the sign-in closes first, since
+    /// no other connection can answer it.
+    pub fn sign_in(
+        &self,
+        host_id: &HostId,
+        sign_in: HarnessSignIn,
+    ) -> Result<oneshot::Receiver<SignInOutcome>, HostDispatchError> {
+        let mut state = self.state.lock().expect("host presence lock");
+        let Some((frames, epoch)) = state
+            .connected
+            .get(host_id)
+            .map(|connected| (connected.frames.clone(), connected.epoch))
+        else {
+            return Err(HostDispatchError::NotConnected);
+        };
+        // A caller that stopped waiting leaves its entry until the
+        // connection answers or closes. It goes here, so the map holds
+        // only the sign-ins that somebody still waits for.
+        state
+            .signing_in
+            .retain(|_, waiting| !waiting.answer.is_closed());
+        let id = sign_in.id.clone();
+        if frames.send(HostFrame::HarnessSignIn(sign_in)).is_err() {
+            // The handler is gone and has not deregistered yet.
+            state.connected.remove(host_id);
+            return Err(HostDispatchError::NotConnected);
+        }
+        let (sender, answer) = oneshot::channel();
+        state.signing_in.insert(
+            id,
+            Waiting {
+                host_id: host_id.clone(),
+                epoch,
+                answer: sender,
+            },
+        );
+        Ok(answer)
+    }
+
+    /// Hand the result of a Harness Sign-In that came in on `from` to the
+    /// caller that waits for it, with the rule of [`Self::complete`]:
+    /// only the connection that received the sign-in answers it, and a
+    /// result that nobody waits for is dropped.
+    pub fn complete_sign_in(
+        &self,
+        from: &HostConnection,
+        id: &HarnessSignInId,
+        outcome: SignInOutcome,
+    ) {
+        let waiting = {
+            let mut state = self.state.lock().expect("host presence lock");
+            take_received(&mut state.signing_in, id, from)
         };
         if let Some(waiting) = waiting {
             let _ = waiting.answer.send(outcome);
@@ -288,6 +409,15 @@ mod tests {
     use super::*;
 
     const SHORT: Duration = Duration::from_millis(200);
+
+    /// The next frame of a connection, which a test expects to be a
+    /// command.
+    async fn next_command(connection: &mut HostConnection) -> HostCommand {
+        match connection.next().await.expect("the frame arrives") {
+            HostFrame::Dispatch(command) => command,
+            HostFrame::HarnessSignIn(sign_in) => panic!("a sign-in arrived: {sign_in:?}"),
+        }
+    }
 
     fn outcome() -> HostOutcome {
         HostOutcome {
@@ -329,7 +459,7 @@ mod tests {
                     .await
             })
         };
-        let command = connection.next().await.expect("the command arrives");
+        let command = next_command(&mut connection).await;
         assert_eq!(command.command, "echo hi");
         assert_eq!(command.host_id, host.to_string());
         // The client reads which shell to run it in from the command.
@@ -352,7 +482,7 @@ mod tests {
             let host = host.clone();
             tokio::spawn(async move { presence.run(&host, "sleep 100", false, SHORT).await })
         };
-        connection.next().await.expect("the command arrives");
+        next_command(&mut connection).await;
 
         assert_eq!(
             dispatching.await.unwrap(),
@@ -393,7 +523,7 @@ mod tests {
                     .await
             })
         };
-        connection.next().await.expect("the command arrives");
+        next_command(&mut connection).await;
         drop(connection);
 
         assert_eq!(
@@ -424,7 +554,7 @@ mod tests {
                     .await
             })
         };
-        let command = second.next().await.expect("the new connection receives it");
+        let command = next_command(&mut second).await;
         presence.complete(&second, &command.id, outcome());
         assert!(dispatching.await.unwrap().is_ok());
     }
@@ -467,7 +597,7 @@ mod tests {
                     .await
             })
         };
-        let command = connection.next().await.expect("the command arrives");
+        let command = next_command(&mut connection).await;
         presence.complete(&intruder, &command.id, forged());
         presence.complete(&connection, &command.id, outcome());
 
@@ -493,7 +623,7 @@ mod tests {
                     .await
             })
         };
-        let command = second.next().await.expect("the new connection receives it");
+        let command = next_command(&mut second).await;
         presence.complete(&first, &command.id, forged());
         presence.complete(&second, &command.id, outcome());
 
@@ -518,7 +648,7 @@ mod tests {
                     .await
             })
         };
-        let command = connection.next().await.expect("the command arrives");
+        let command = next_command(&mut connection).await;
         presence.complete(&connection, &command.id, outcome());
         presence.complete(&connection, &command.id, forged());
 
@@ -548,7 +678,7 @@ mod tests {
                     .await
             })
         };
-        first.next().await.expect("the command arrives");
+        next_command(&mut first).await;
         let _second = presence.connect(&host);
         drop(first);
 
@@ -557,5 +687,135 @@ mod tests {
             .expect("the host action answers before its deadline");
         assert_eq!(answered.unwrap(), Err(HostDispatchError::NotConnected));
         assert!(presence.present(&host), "the new connection stays present");
+    }
+
+    fn sign_in() -> HarnessSignIn {
+        HarnessSignIn {
+            id: HarnessSignInId::generate(),
+            harness: "codex".to_string(),
+            name: "Codex".to_string(),
+            command: "npx".to_string(),
+            args: vec![
+                "--yes".to_string(),
+                "@openai/codex".to_string(),
+                "login".to_string(),
+            ],
+            env: BTreeMap::from([("CODEX_HOME".to_string(), "/home/bo/.codex".to_string())]),
+        }
+    }
+
+    fn signed_in() -> SignInOutcome {
+        SignInOutcome {
+            exit_code: Some(0),
+            error: None,
+        }
+    }
+
+    /// The next frame of a connection, which a test expects to be a
+    /// Harness Sign-In.
+    async fn next_sign_in(connection: &mut HostConnection) -> HarnessSignIn {
+        match connection.next().await.expect("the frame arrives") {
+            HostFrame::HarnessSignIn(sign_in) => sign_in,
+            HostFrame::Dispatch(command) => panic!("a command arrived: {command:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_sign_in_reaches_the_registered_connection_and_its_result_comes_back() {
+        let presence = Arc::new(HostPresence::new());
+        let host = HostId::generate();
+        let mut connection = presence.connect(&host);
+
+        let answer = presence
+            .sign_in(&host, sign_in())
+            .expect("a present host takes the sign-in");
+        let received = next_sign_in(&mut connection).await;
+        assert_eq!(received.command, "npx");
+        assert_eq!(received.env, sign_in().env);
+        presence.complete_sign_in(&connection, &received.id, signed_in());
+
+        assert_eq!(answer.await, Ok(signed_in()));
+    }
+
+    #[tokio::test]
+    async fn a_sign_in_on_an_absent_host_fails_at_once() {
+        let presence = Arc::new(HostPresence::new());
+
+        assert_eq!(
+            presence.sign_in(&HostId::generate(), sign_in()).err(),
+            Some(HostDispatchError::NotConnected)
+        );
+    }
+
+    /// A sign-in id is not a secret. A result from another machine, or
+    /// from a connection that a new one replaced, does not answer the
+    /// sign-in, and the connection that received it still answers it.
+    #[tokio::test]
+    async fn a_sign_in_result_from_another_connection_is_dropped() {
+        let presence = Arc::new(HostPresence::new());
+        let host = HostId::generate();
+        let replaced = presence.connect(&host);
+        let mut connection = presence.connect(&host);
+        let intruder = presence.connect(&HostId::generate());
+
+        let mut answer = presence.sign_in(&host, sign_in()).unwrap();
+        let received = next_sign_in(&mut connection).await;
+        let forged = SignInOutcome {
+            exit_code: Some(1),
+            error: Some("forged".to_string()),
+        };
+        presence.complete_sign_in(&intruder, &received.id, forged.clone());
+        presence.complete_sign_in(&replaced, &received.id, forged);
+        assert!(
+            answer.try_recv().is_err(),
+            "a result from another connection answered the sign-in"
+        );
+
+        presence.complete_sign_in(&connection, &received.id, signed_in());
+        assert_eq!(answer.await, Ok(signed_in()));
+    }
+
+    /// The connection that received the sign-in is the only one that can
+    /// answer it. When it closes, the result is lost, and the waiting
+    /// side hears so at once.
+    #[tokio::test]
+    async fn a_connection_that_closes_under_a_sign_in_ends_its_wait() {
+        let presence = Arc::new(HostPresence::new());
+        let host = HostId::generate();
+        let mut connection = presence.connect(&host);
+
+        let answer = presence.sign_in(&host, sign_in()).unwrap();
+        next_sign_in(&mut connection).await;
+        drop(connection);
+
+        assert!(answer.await.is_err());
+        assert!(presence.state.lock().unwrap().signing_in.is_empty());
+    }
+
+    /// A command and a sign-in share the channel of the connection, in
+    /// the order the daemon sent them.
+    #[tokio::test]
+    async fn a_command_and_a_sign_in_arrive_in_order_on_one_connection() {
+        let presence = Arc::new(HostPresence::new());
+        let host = HostId::generate();
+        let mut connection = presence.connect(&host);
+
+        let dispatching = {
+            let presence = Arc::clone(&presence);
+            let host = host.clone();
+            tokio::spawn(async move {
+                presence
+                    .run(&host, "echo hi", false, Duration::from_secs(5))
+                    .await
+            })
+        };
+        let HostFrame::Dispatch(command) = connection.next().await.unwrap() else {
+            panic!("the command arrives first");
+        };
+        let _answer = presence.sign_in(&host, sign_in()).unwrap();
+        next_sign_in(&mut connection).await;
+        presence.complete(&connection, &command.id, outcome());
+
+        assert_eq!(dispatching.await.unwrap(), Ok(outcome()));
     }
 }

@@ -20,6 +20,7 @@ pub mod forget;
 pub mod forwarded;
 mod grants;
 pub mod harness_model;
+mod harnesses;
 mod home_exit;
 mod hosts;
 mod knowledge;
@@ -152,6 +153,9 @@ pub struct AppState {
     /// The Coding Sessions that run on those sockets (ADR-0033): the
     /// start, the prompts, the cancel and the close of each session.
     pub coding_sessions: Arc<pagis_coding::CodingSessions>,
+    /// The Harness Sign-Ins that the Person starts on their Hosts
+    /// (ADR-0033).
+    pub sign_ins: Arc<pagis_coding::SignIns>,
     /// The Coding Session records and their transcripts. Each write
     /// reports itself as an event.
     pub coding_session_store: Arc<dyn pagis_core::CodingSessionStore>,
@@ -435,6 +439,11 @@ fn product_router(state: Arc<AppState>) -> Router {
             get(knowledge::agent_sync_connections),
         )
         .route("/api/v1/hosts", get(hosts::list_hosts))
+        .route(
+            "/api/v1/hosts/{host_id}/harnesses/{harness_id}/sign-in",
+            post(harnesses::start_sign_in),
+        )
+        .route("/api/v1/harnesses", get(harnesses::list_harnesses))
         .route(
             "/api/v1/agents",
             get(agents::list_agents).post(agents::create_agent),

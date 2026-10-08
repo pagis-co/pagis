@@ -1071,8 +1071,11 @@ audit fact. Not built: the answer of the Person and of the Agent (ADR-0033).
 
 ### Harness Sign-In
 The Person signs in to a Coding Harness on their Host with their own
-subscription or API key, in the vendor's own program. Pagis never reads,
-copies, stores or relays the credential. Not built (ADR-0033).
+subscription or API key, in the vendor's own program. The Person starts it,
+the daemon names the command, and the Client App runs it in a terminal
+window. Pagis never reads, copies, stores or relays the credential. Not
+built: the report of a harness that needs a sign-in, and the sign-in in
+Settings (ADR-0033).
 _Avoid_: harness login
 
 ### Session Approval Mode
