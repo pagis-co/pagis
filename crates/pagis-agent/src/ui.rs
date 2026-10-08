@@ -182,6 +182,28 @@ mod tests {
     }
 
     #[test]
+    fn a_coding_session_block_is_refused_as_minted_by_pagis() {
+        let buffer = BlockBuffer::default();
+        let block = serde_json::json!({
+            "type": "coding_session",
+            "coding_session_id": "cs_1",
+            "harness": "Claude Code",
+            "machine": "Air",
+            "directory": "/Users/bo/code/app",
+            "title": "Fix the login bug",
+        });
+
+        let error = buffer.push(&run(), &block).expect_err("refused");
+
+        assert_eq!(error.code.as_deref(), Some("invalid_request"));
+        assert!(
+            error.content.contains("minted by Pagis"),
+            "{}",
+            error.content
+        );
+    }
+
+    #[test]
     fn an_unreadable_block_is_refused() {
         let buffer = BlockBuffer::default();
         assert!(

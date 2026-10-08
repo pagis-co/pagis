@@ -156,6 +156,27 @@ impl Block {
         .into()
     }
 
+    /// The view of one Coding Session in its Thread (ADR-0033).
+    /// Daemon-minted: it names a record the daemon owns. It carries
+    /// copies of four display fields; the live state comes from the
+    /// record.
+    pub fn coding_session(
+        coding_session_id: impl Into<String>,
+        harness: impl Into<String>,
+        machine: impl Into<String>,
+        directory: impl Into<String>,
+        title: impl Into<String>,
+    ) -> Self {
+        KnownBlock::CodingSession {
+            coding_session_id: coding_session_id.into(),
+            harness: harness.into(),
+            machine: machine.into(),
+            directory: directory.into(),
+            title: title.into(),
+        }
+        .into()
+    }
+
     /// The derived run progress line. The daemon composes the text;
     /// no tool writes it (ADR-0004).
     pub fn progress(run_id: impl Into<String>, text: impl Into<String>) -> Self {
@@ -302,6 +323,21 @@ pub enum KnownBlock {
         #[serde(default)]
         trust_tier: Option<TrustTier>,
     },
+    /// One Coding Session (ADR-0033). The state, the usage and the
+    /// pending decision come from the record; the block carries copies
+    /// of its display fields.
+    CodingSession {
+        coding_session_id: String,
+        /// The display name of the harness in the Harness Catalog.
+        harness: String,
+        /// The name of the Host, or "Computer" for a session in the
+        /// Agent's Computer.
+        machine: String,
+        /// The directory that the Agent named.
+        directory: String,
+        /// The title that the Agent wrote.
+        title: String,
+    },
 }
 
 impl KnownBlock {
@@ -365,6 +401,15 @@ impl KnownBlock {
                 trust_tier,
                 ..
             } => mail_text(*direction, mailbox, counterpart, subject, *trust_tier),
+            // The Agent wrote the title and the daemon the rest. No part
+            // is harness output, so the line needs no envelope.
+            KnownBlock::CodingSession {
+                harness,
+                machine,
+                directory,
+                title,
+                ..
+            } => format!("Coding session \"{title}\": {harness} on {machine} in {directory}"),
         }
     }
 }
@@ -927,6 +972,52 @@ mod tests {
     #[test]
     fn an_agent_cannot_emit_a_mail_block() {
         let Block::Known(known) = inbound_mail() else {
+            panic!("a known block");
+        };
+        assert!(!known.is_content());
+    }
+
+    /// The Coding Session block (ADR-0033).
+    fn coding_session_block() -> Block {
+        Block::coding_session(
+            "cs_1",
+            "Claude Code",
+            "Air",
+            "/Users/bo/code/app",
+            "Fix the login bug",
+        )
+    }
+
+    #[test]
+    fn a_coding_session_block_round_trips_through_json() {
+        let block = coding_session_block();
+        let json = serde_json::to_value(&block).unwrap();
+
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "type": "coding_session",
+                "coding_session_id": "cs_1",
+                "harness": "Claude Code",
+                "machine": "Air",
+                "directory": "/Users/bo/code/app",
+                "title": "Fix the login bug",
+            })
+        );
+        assert_eq!(serde_json::from_value::<Block>(json).unwrap(), block);
+    }
+
+    #[test]
+    fn a_coding_session_block_projects_to_one_line_with_no_envelope() {
+        assert_eq!(
+            coding_session_block().text_projection(),
+            "Coding session \"Fix the login bug\": Claude Code on Air in /Users/bo/code/app"
+        );
+    }
+
+    #[test]
+    fn an_agent_cannot_emit_a_coding_session_block() {
+        let Block::Known(known) = coding_session_block() else {
             panic!("a known block");
         };
         assert!(!known.is_content());

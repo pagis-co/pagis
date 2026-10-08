@@ -14638,6 +14638,45 @@
                 ]
               }
             }
+          },
+          {
+            "type": "object",
+            "description": "One Coding Session (ADR-0033). The state, the usage and the\npending decision come from the record; the block carries copies\nof its display fields.",
+            "required": [
+              "coding_session_id",
+              "harness",
+              "machine",
+              "directory",
+              "title",
+              "type"
+            ],
+            "properties": {
+              "coding_session_id": {
+                "type": "string"
+              },
+              "directory": {
+                "type": "string",
+                "description": "The directory that the Agent named."
+              },
+              "harness": {
+                "type": "string",
+                "description": "The display name of the harness in the Harness Catalog."
+              },
+              "machine": {
+                "type": "string",
+                "description": "The name of the Host, or \"Computer\" for a session in the\nAgent's Computer."
+              },
+              "title": {
+                "type": "string",
+                "description": "The title that the Agent wrote."
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "coding_session"
+                ]
+              }
+            }
           }
         ],
         "description": "The block types the daemon and the UI both know."

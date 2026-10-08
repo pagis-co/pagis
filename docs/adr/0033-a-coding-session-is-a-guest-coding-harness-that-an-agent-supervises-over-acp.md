@@ -448,7 +448,6 @@ Other ways were considered:
 ## Not built
 
 - The core tools.
-- The `coding_session` block.
 - The Session Rule.
 - The interruption and the resume.
 - Pagis policy and the approval card.
