@@ -2,7 +2,7 @@
 
 .ui-input {
   font: inherit;
-  font-size: var(--text-sm);
+  font-size: var(--text-input);
   color: var(--text);
   background: var(--panel);
   border: 1px solid var(--border-control);

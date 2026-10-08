@@ -109,6 +109,7 @@
   --text-md: 0.9375rem;
   --text-lg: 1.125rem;
   --text-xl: 1.5rem;
+  --text-input: var(--text-sm);
 
   /* Four weights: copy, controls, titles, and the page heading. */
   --weight-regular: 400;
@@ -213,6 +214,14 @@
   /* A list that opens from a control: a select, a menu or a combobox.
    * It sits above a dialog, because a dialog holds such controls. */
   --z-popover: 60;
+}
+
+/* iOS zooms into a focused field with text below 16 px. This also
+ * applies to a wide touch screen, such as an iPad. */
+@media (pointer: coarse) {
+  :root {
+    --text-input: 1rem;
+  }
 }
 
 @media (prefers-color-scheme: dark) {

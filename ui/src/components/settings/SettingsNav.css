@@ -1,8 +1,15 @@
 /* The settings nav. The shell comes from `ui-settings-nav`;
  * this sheet draws the title, the group labels and the items. */
 
-.settings-nav-title {
+.settings-nav-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   margin: 0 var(--space-2-5) var(--space-1-5);
+}
+
+.settings-nav-title {
+  margin: 0;
   font-family: var(--font-serif);
   font-size: var(--text-xl);
   font-weight: var(--weight-semibold);

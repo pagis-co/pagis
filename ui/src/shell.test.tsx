@@ -167,6 +167,40 @@ describe('the conversation header toggles', () => {
 describe('the mobile shell', () => {
   beforeEach(() => setViewport(375))
 
+  it('returns to a conversation after opening Settings and changing sections', async () => {
+    const history = mount('/c/channel-1')
+    await screen.findByRole('heading', { name: 'Sage' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open conversations' }))
+    fireEvent.click(within(places()).getByRole('button', { name: 'Settings' }))
+    await screen.findByRole('heading', { name: 'Settings' })
+    await waitFor(() => expect(screen.queryByRole('navigation', { name: 'Places' })).toBeNull())
+
+    const settings = screen.getByRole('navigation', { name: 'Settings' })
+    fireEvent.click(within(settings).getByRole('button', { name: 'Sound' }))
+    await waitFor(() => expect(history.location.pathname).toBe('/settings/sound'))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open conversations' }))
+    expect(screen.getByRole('button', { name: 'Open conversations' }).getAttribute('aria-expanded')).toBe('true')
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'Conversations' })).getByRole('button', { name: /Sage/ }))
+
+    await waitFor(() => expect(history.location.pathname).toBe('/c/channel-1'))
+    await screen.findByRole('heading', { name: 'Sage' })
+    await waitFor(() => expect(screen.queryByRole('navigation', { name: 'Places' })).toBeNull())
+  })
+
+  it.each(['/settings/sound', '/settings/connections/conn-1'])(
+    'opens navigation from a direct Settings address: %s',
+    async (url) => {
+      const history = mount(url)
+      fireEvent.click(await screen.findByRole('button', { name: 'Open conversations' }))
+      fireEvent.click(within(places()).getByRole('button', { name: 'Home' }))
+
+      await waitFor(() => expect(history.location.pathname).toBe('/'))
+      await screen.findByTestId('home')
+    },
+  )
+
   // The drawer holds the whole sidebar: the places, the conversations
   // and the profile.
   it('reaches a place from the drawer', async () => {
