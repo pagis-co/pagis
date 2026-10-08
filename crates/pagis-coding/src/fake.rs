@@ -156,8 +156,9 @@ impl Turn {
         }
     }
 
-    /// Sends `ask` first, then the updates. The fake then waits for the
-    /// answer, records it, and ends the turn.
+    /// Sends `ask` first, then the updates, or the updates first for an
+    /// ask [`after_updates`](Ask::after_updates). The fake then waits for
+    /// the answer, records it, and ends the turn.
     #[must_use]
     pub fn asks(mut self, ask: Ask) -> Self {
         self.ask = Some(ask);
@@ -170,6 +171,7 @@ impl Turn {
 pub struct Ask {
     request: AskRequest,
     withdrawn: bool,
+    after_updates: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -221,10 +223,19 @@ impl Ask {
         self
     }
 
+    /// The fake sends the request after the updates of the turn, as a
+    /// harness asks about a tool call that an update reported.
+    #[must_use]
+    pub fn after_updates(mut self) -> Self {
+        self.after_updates = true;
+        self
+    }
+
     fn new(request: AskRequest) -> Self {
         Self {
             request,
             withdrawn: false,
+            after_updates: false,
         }
     }
 
@@ -531,15 +542,17 @@ where
                             return responder
                                 .respond(acp::PromptResponse::new(acp::StopReason::EndTurn));
                         };
-                        let asked = turn
-                            .ask
-                            .as_ref()
-                            .map(|ask| (ask.withdrawn, ask.send(&cx, &session_id)));
+                        let send = |ask: &Ask| (ask.withdrawn, ask.send(&cx, &session_id));
+                        let mut asked =
+                            turn.ask.as_ref().filter(|ask| !ask.after_updates).map(send);
                         for update in turn.updates {
                             cx.send_notification(acp::SessionNotification::new(
                                 session_id.clone(),
                                 update,
                             ))?;
+                        }
+                        if asked.is_none() {
+                            asked = turn.ask.as_ref().map(send);
                         }
                         if let Some((withdrawn, sent)) = asked {
                             if withdrawn {

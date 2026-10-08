@@ -27,9 +27,9 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    AcpSession, AskHandler, CodingError, OpenFailure, OpenRequest, Opening, PermissionAnswer,
-    PermissionAsk, QuestionAnswer, QuestionAsk, SessionDecisions, SessionEvent, SessionExit,
-    SessionPlace, WorktreeRequest,
+    AcpSession, AskHandler, CodingError, OpenFailure, OpenRequest, Opening, Pending,
+    PermissionAnswer, PermissionAsk, QuestionAnswer, QuestionAsk, SessionDecisions, SessionEvent,
+    SessionExit, SessionPlace, WorktreeRequest,
 };
 
 /// How long a session waits for the exit report of its process after
@@ -594,11 +594,13 @@ enum Command {
         reason: CloseReason,
         reply: oneshot::Sender<Result<(), SessionError>>,
     },
-    /// An ask of the harness waits for its answer.
+    /// An ask of the harness came. When it `waits`, the session is
+    /// `needs_decision` until its answer comes.
     Asked {
         ask_id: String,
         ask: AskKind,
         payload: Value,
+        waits: bool,
     },
     /// An ask of the harness got its answer.
     Answered { ask_id: String, payload: Value },
@@ -652,13 +654,40 @@ impl SessionAsks {
         let _ = self.commands.send(command);
     }
 
-    fn asked(&self, ask_id: &str, ask: AskKind, mut payload: Value, waits_for: Value) {
-        payload["waits_for"] = waits_for;
+    /// Records the ask and, when it comes, its answer. The row of the
+    /// ask names who the session waits for, or none for an answer that
+    /// the daemon gives at once.
+    async fn answer<T: serde::Serialize>(
+        &self,
+        ask_id: String,
+        ask: AskKind,
+        mut payload: Value,
+        pending: Pending<T>,
+    ) -> T {
+        let waits_for = match &pending {
+            Pending::Decided(_) => None,
+            Pending::Waits { waits_for, .. } => Some(*waits_for),
+        };
+        payload["waits_for"] = json!(waits_for);
         self.send(Command::Asked {
-            ask_id: ask_id.to_string(),
+            ask_id: ask_id.clone(),
             ask,
             payload,
+            waits: waits_for.is_some(),
         });
+        let answer = match pending {
+            Pending::Decided(answer) => answer,
+            Pending::Waits { answer, .. } => answer.await,
+        };
+        let field = match ask {
+            AskKind::Permission => "decision",
+            AskKind::Question => "answer",
+        };
+        self.send(Command::Answered {
+            payload: json!({"ask_id": ask_id, field: answer}),
+            ask_id,
+        });
+        answer
     }
 }
 
@@ -669,18 +698,8 @@ impl AskHandler for SessionAsks {
         let ask_id = ask.ask_id.clone();
         let payload = json!(ask);
         let pending = self.decisions.permission(&session, ask).await;
-        self.asked(
-            &ask_id,
-            AskKind::Permission,
-            payload,
-            json!(pending.waits_for),
-        );
-        let answer = pending.answer.await;
-        self.send(Command::Answered {
-            payload: json!({"ask_id": ask_id, "decision": answer}),
-            ask_id,
-        });
-        answer
+        self.answer(ask_id, AskKind::Permission, payload, pending)
+            .await
     }
 
     async fn question(&self, ask: QuestionAsk) -> QuestionAnswer {
@@ -688,18 +707,8 @@ impl AskHandler for SessionAsks {
         let ask_id = ask.ask_id.clone();
         let payload = json!(ask);
         let pending = self.decisions.question(&session, ask).await;
-        self.asked(
-            &ask_id,
-            AskKind::Question,
-            payload,
-            json!(pending.waits_for),
-        );
-        let answer = pending.answer.await;
-        self.send(Command::Answered {
-            payload: json!({"ask_id": ask_id, "answer": answer}),
-            ask_id,
-        });
-        answer
+        self.answer(ask_id, AskKind::Question, payload, pending)
+            .await
     }
 }
 
@@ -827,10 +836,11 @@ impl Task {
                 ask_id,
                 ask,
                 payload,
+                waits,
             } => {
                 self.asks.insert(ask_id, ask);
                 self.append(ask.asked(), payload).await;
-                if self.record.state == State::Working {
+                if waits && self.record.state == State::Working {
                     self.transition(State::NeedsDecision, None).await;
                 }
                 Flow::Go

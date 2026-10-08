@@ -4460,6 +4460,7 @@ dependencies = [
  "agent-client-protocol",
  "async-trait",
  "futures",
+ "pagis-audit",
  "pagis-broker",
  "pagis-core",
  "pagis-storage-sqlite",

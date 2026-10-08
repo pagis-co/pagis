@@ -555,9 +555,8 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     // The session sockets of the same machines, which carry the Coding
     // Sessions (ADR-0033).
     let host_sessions = Arc::new(pagis_broker::HostSessions::new());
-    // The Coding Sessions on those sockets. No decision handler asks the
-    // Person or the Agent, so each Harness Permission is rejected and
-    // each question is cancelled.
+    // The Coding Sessions on those sockets. Pagis policy answers each
+    // Harness Permission, and each question is cancelled.
     let coding_sessions = Arc::new(pagis_coding::CodingSessions::new(
         pagis_coding::CodingSessionsDeps {
             sessions: stores.coding_sessions.clone(),
@@ -566,7 +565,10 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
             messages: Arc::clone(&messages) as _,
             bus: Arc::clone(&bus),
             place: Arc::clone(&host_sessions) as _,
-            decisions: Arc::new(pagis_coding::RefuseDecisions),
+            decisions: Arc::new(pagis_coding::PolicyDecisions::new(
+                Arc::clone(&grants) as _,
+                Arc::clone(&bus),
+            )),
             clock: Arc::clone(&options.clock),
             cancel: options.cancel.clone(),
         },

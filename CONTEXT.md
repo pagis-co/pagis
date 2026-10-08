@@ -1063,10 +1063,11 @@ whose key the request uses (ADR-0033).
 
 ### Harness Permission
 A permission request of a Coding Harness (ACP `session/request_permission`).
-Pagis policy answers it first, then the Session Approval Mode of the Coding
-Session decides who answers. Pagis answers once, never "always". The ACP
-client hands each request to the daemon. Not built: Pagis policy and the
-answer in the daemon (ADR-0033).
+Pagis policy answers it first: the `auto` mode, an action inside the
+session's directory, or a command that a Host Allow Rule matches allows it
+once. Else the Session Approval Mode of the Coding Session decides who
+answers. Pagis answers once, never "always", and each decision writes one
+audit fact. Not built: the answer of the Person and of the Agent (ADR-0033).
 
 ### Harness Sign-In
 The Person signs in to a Coding Harness on their Host with their own
@@ -1078,8 +1079,9 @@ _Avoid_: harness login
 Who answers a Harness Permission of a Coding Session: `person`, `agent` or
 `auto`. The host Grant holds the widest mode that each Agent may use on each
 machine, `person` by default. The Person sets it on the Access tab of the
-Agent, and the Agent picks the mode of each session within it. Not built:
-who answers a Harness Permission (ADR-0033).
+Agent, and the Agent picks the mode of each session within it. The live
+host Grant narrows the mode at each Harness Permission. Not built: the
+answer of the Person and of the Agent (ADR-0033).
 _Avoid_: permission mode
 
 ### Session Rule

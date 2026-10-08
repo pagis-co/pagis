@@ -323,13 +323,30 @@ it makes the machine a host candidate of the Agent (ADR-0015).
 
 ### A Harness Permission passes Pagis policy first
 
-A **Harness Permission** is an ACP `session/request_permission`. The daemon
-evaluates it in this order:
+A **Harness Permission** is an ACP `session/request_permission`. The ACP
+client merges the request's tool call onto the tool call that the harness
+reported with the same `toolCallId`: a field that the request leaves out
+keeps its reported value (ACP `ToolCallUpdate`). The Codex adapter asks for a
+started command with no kind, title or locations, because its earlier
+`tool_call` update holds them. ACP has no command field. The Claude Code and
+Codex adapters put the shell command of an `execute` in `rawInput.command`,
+so the command is that value when it is a string, and else there is none.
+
+The daemon reads the live host Grant of the owning Agent on the session's
+machine at each permission, so a narrower Grant applies to the next
+permission of a running session (ADR-0005). The effective mode is the
+narrower of the session's mode and the widest mode on the Grant. With no
+live Grant, the mode is `person` and there are no rules.
+
+The broker evaluates the permission with a pure function, in this order, and
+stops at the first step that answers:
 
 1. The `auto` mode allows once. The audit decider is `auto`.
-2. By ACP tool kind: a `read`, `search` or `think` inside the session's
-   directory allows, and an `edit`, `delete` or `move` with every location
-   inside the session's directory allows. The audit decider is `scope`.
+2. By ACP tool kind: a `read`, `search`, `think`, `edit`, `delete` or `move`
+   with every location inside the session's directory allows. A request with
+   no location passes this step only for `think`, which touches no file. The
+   session's directory is the directory that the process runs in. The audit
+   decider is `scope`.
 3. An `execute` whose command a live Host Allow Rule of that machine's Grant
    matches, with the tree-sitter-bash matcher of ADR-0015, allows. The audit
    decider is `rule`.
@@ -341,10 +358,36 @@ evaluates it in this order:
    allows once. "Always allow" for an `execute` writes a Host Allow Rule with
    the existing builder, then allows once. "Deny" rejects once.
 
+The scope check is lexical, because the files are on the Host and the daemon
+cannot read them. It removes `.` and resolves `..` in each POSIX path, and it
+then requires the directory itself or a path under it. A relative path is
+outside. A symbolic link inside the directory that points outside it counts
+as inside. The `acceptEdits` mode of Claude Code and the `workspace-write`
+mode of Codex trust the working directory in the same way.
+
+The rule step uses the same Host Allow Rules as `host_shell`. A rule that the
+Person writes from a harness card also lets the Agent run that command class
+with `host_shell` on that machine, and the reverse. ADR-0015 runs a
+rule-approved command of `host_shell` under `/bin/sh`. A Coding Harness runs
+a command in its own shell, which Pagis does not choose, and a plain word
+can have a different meaning in that shell, for example a `zsh` word that
+starts with `=`. Pagis accepts this difference for a harness command.
+
 Each decision answers with the offered ACP option of the matching kind,
-`allow_once` or `reject_once`. Pagis never answers `allow_always` to the
-harness, so the authority stays in Pagis. Each decision writes one audit fact
-with its decider. A cancel answers each pending request with `cancelled`.
+`allow_once` or `reject_once`. An allow of a request that offers no
+`allow_once` option answers `cancelled`. Pagis never answers `allow_always`
+or `reject_always` to the harness, so the authority stays in Pagis. A cancel
+answers each pending request with `cancelled`.
+
+Each decision is recorded two times. The transcript holds a `permission` row
+when the request arrives, with whom the session waits for, and a `decision`
+row when it is answered. The bus holds one audit fact, the event
+`coding_session.permission_decided` with no Run. It holds the session, the
+Agent, the Host, the tool call id, the tool kind, the command, the
+locations, the decider, the outcome (`allowed` or `cancelled`), the selected
+option kind, and the revision of the Grant that the evaluator read. A
+pending request that a cancel ends, or that the harness withdraws, has the
+outcome `cancelled` and no decider.
 
 ### A question goes to the supervising Agent
 
@@ -453,7 +496,8 @@ Other ways were considered:
   permission.
 - The Session Rule.
 - The interruption and the resume.
-- Pagis policy and the approval card.
+- The approval card. A Harness Permission that Pagis policy does not allow
+  waits until a cancel ends it.
 - The `agent` mode.
 - The `auto` mode.
 - The item in the Needs-You Queue and the Notification.

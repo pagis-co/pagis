@@ -1,9 +1,9 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::future::Future;
 use std::path::PathBuf;
 use std::pin::pin;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::schema::v1 as acp;
@@ -17,8 +17,8 @@ use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::event::raw_json;
 use crate::{
-    AskHandler, CodingError, PermissionAnswer, PermissionAsk, QuestionAnswer, QuestionAsk,
-    SessionEvent, StopReason, ToolKind,
+    AskHandler, CodingError, PermissionAnswer, PermissionAsk, PermissionOptionKind, QuestionAnswer,
+    QuestionAsk, SessionEvent, StopReason, ToolKind,
 };
 
 /// How `AcpSession::open` starts the ACP session.
@@ -360,6 +360,7 @@ async fn run_connection<W, R>(
     R: AsyncRead + Send + 'static,
 {
     let events = asks.events.clone();
+    let tool_calls = ToolCalls::default();
     let result = Client
         .builder()
         .name("pagis")
@@ -367,7 +368,9 @@ async fn run_connection<W, R>(
             {
                 let flags = flags.clone();
                 let events = events.clone();
+                let tool_calls = tool_calls.clone();
                 async move |notification: acp::SessionNotification, _cx| {
+                    tool_calls.record(&notification.update);
                     if flags.replaying.load(Ordering::SeqCst) {
                         return Ok(());
                     }
@@ -389,7 +392,11 @@ async fn run_connection<W, R>(
                 async move |request: acp::RequestPermissionRequest,
                             responder: Responder<acp::RequestPermissionResponse>,
                             cx: ConnectionTo<Agent>| {
-                    let ask = PermissionAsk::from_acp(responder.id(), &request.tool_call);
+                    let ask = PermissionAsk::from_acp(
+                        responder.id(),
+                        tool_calls.merged(&request.tool_call),
+                        &request.options,
+                    );
                     let handler = asks.handler.clone();
                     let waited = asks.wait(
                         ask.ask_id.clone(),
@@ -527,27 +534,155 @@ impl Asks {
     }
 }
 
+/// The fields of each open tool call, as the harness reported them in its
+/// `tool_call` and `tool_call_update` notifications. A tool call that is
+/// `completed` or `failed` gets no permission request, so it leaves the
+/// map.
+///
+/// The notification handler and the permission handler run on the
+/// dispatch loop, so a permission request sees each update that the
+/// harness sent before it.
+#[derive(Clone, Default)]
+struct ToolCalls(Arc<Mutex<HashMap<String, ToolCallFields>>>);
+
+/// The fields of a tool call that a permission request uses.
+#[derive(Debug, Clone, Default)]
+struct ToolCallFields {
+    id: String,
+    title: Option<String>,
+    kind: Option<acp::ToolKind>,
+    locations: Option<Vec<PathBuf>>,
+    raw_input: Option<serde_json::Value>,
+}
+
+impl ToolCallFields {
+    /// Puts each field that the update holds onto these fields.
+    fn update(&mut self, fields: &acp::ToolCallUpdateFields) {
+        if let Some(title) = &fields.title {
+            self.title = Some(title.clone());
+        }
+        if let Some(kind) = fields.kind {
+            self.kind = Some(kind);
+        }
+        if let Some(locations) = &fields.locations {
+            self.locations = Some(
+                locations
+                    .iter()
+                    .map(|location| location.path.clone())
+                    .collect(),
+            );
+        }
+        if let Some(raw_input) = &fields.raw_input {
+            self.raw_input = Some(raw_input.clone());
+        }
+    }
+}
+
+impl ToolCalls {
+    fn record(&self, update: &acp::SessionUpdate) {
+        let mut calls = self.0.lock().expect("the tool calls");
+        match update {
+            acp::SessionUpdate::ToolCall(call) => {
+                let id = call.tool_call_id.0.to_string();
+                if is_finished(call.status) {
+                    calls.remove(&id);
+                } else {
+                    let fields = ToolCallFields {
+                        id: id.clone(),
+                        title: Some(call.title.clone()),
+                        kind: Some(call.kind),
+                        locations: Some(
+                            call.locations
+                                .iter()
+                                .map(|location| location.path.clone())
+                                .collect(),
+                        ),
+                        raw_input: call.raw_input.clone(),
+                    };
+                    calls.insert(id, fields);
+                }
+            }
+            acp::SessionUpdate::ToolCallUpdate(update) => {
+                let id = update.tool_call_id.0.to_string();
+                if update.fields.status.is_some_and(is_finished) {
+                    calls.remove(&id);
+                } else {
+                    calls
+                        .entry(id.clone())
+                        .or_insert_with(|| ToolCallFields {
+                            id,
+                            ..ToolCallFields::default()
+                        })
+                        .update(&update.fields);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// The tool call of a permission request, merged onto the tool call
+    /// that the harness reported with the same id.
+    fn merged(&self, tool_call: &acp::ToolCallUpdate) -> ToolCallFields {
+        let id = tool_call.tool_call_id.0.to_string();
+        let mut fields = self
+            .0
+            .lock()
+            .expect("the tool calls")
+            .get(&id)
+            .cloned()
+            .unwrap_or_else(|| ToolCallFields {
+                id,
+                ..ToolCallFields::default()
+            });
+        fields.update(&tool_call.fields);
+        fields
+    }
+}
+
+fn is_finished(status: acp::ToolCallStatus) -> bool {
+    matches!(
+        status,
+        acp::ToolCallStatus::Completed | acp::ToolCallStatus::Failed
+    )
+}
+
 impl PermissionAsk {
-    fn from_acp(id: &acp::RequestId, tool_call: &acp::ToolCallUpdate) -> Self {
-        let fields = &tool_call.fields;
+    fn from_acp(
+        id: &acp::RequestId,
+        tool_call: ToolCallFields,
+        options: &[acp::PermissionOption],
+    ) -> Self {
         Self {
             ask_id: id.to_string(),
-            tool_call_id: tool_call.tool_call_id.0.to_string(),
-            title: fields.title.clone(),
-            kind: fields.kind.map_or(ToolKind::Other, ToolKind::from_acp),
-            locations: fields
-                .locations
+            tool_call_id: tool_call.id,
+            title: tool_call.title,
+            kind: tool_call.kind.map_or(ToolKind::Other, ToolKind::from_acp),
+            locations: tool_call.locations.unwrap_or_default(),
+            raw_input: tool_call.raw_input,
+            options: options
                 .iter()
-                .flatten()
-                .map(|location| location.path.clone())
+                .filter_map(|option| PermissionOptionKind::from_acp(option.kind))
                 .collect(),
-            raw_input: fields.raw_input.clone(),
+        }
+    }
+}
+
+impl PermissionOptionKind {
+    /// `None` for a kind that a later ACP release adds.
+    fn from_acp(kind: acp::PermissionOptionKind) -> Option<Self> {
+        match kind {
+            acp::PermissionOptionKind::AllowOnce => Some(Self::AllowOnce),
+            acp::PermissionOptionKind::AllowAlways => Some(Self::AllowAlways),
+            acp::PermissionOptionKind::RejectOnce => Some(Self::RejectOnce),
+            acp::PermissionOptionKind::RejectAlways => Some(Self::RejectAlways),
+            _ => None,
         }
     }
 }
 
 /// Selects the offered option of the answer's kind. When the harness
-/// offers no option of that kind, the answer is `cancelled`.
+/// offers no option of that kind, and for `Cancel`, the answer is
+/// `cancelled`.
 fn permission_response(
     answer: PermissionAnswer,
     options: &[acp::PermissionOption],
@@ -555,6 +690,9 @@ fn permission_response(
     let kind = match answer {
         PermissionAnswer::AllowOnce => acp::PermissionOptionKind::AllowOnce,
         PermissionAnswer::RejectOnce => acp::PermissionOptionKind::RejectOnce,
+        PermissionAnswer::Cancel => {
+            return acp::RequestPermissionResponse::new(acp::RequestPermissionOutcome::Cancelled);
+        }
     };
     let outcome = options.iter().find(|option| option.kind == kind).map_or(
         acp::RequestPermissionOutcome::Cancelled,
