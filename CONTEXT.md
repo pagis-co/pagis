@@ -1019,12 +1019,12 @@ Credential (ADR-0013, ADR-0014).
 
 ### Tenant Network
 The one Docker network that every container of one Workspace joins. A
-container on it reaches its own Workspace's containers, the public internet
-and the Media Relay, and on a Headless Server the exit listener of the
-daemon (ADR-0029). On a Headless Server it reaches no container of
-another Workspace, no other address of the Docker host, no link-local
-address and no private address that the Administrator did not allow
-(ADR-0014).
+container on it reaches its own Workspace's containers, the public internet,
+the Media Relay and the Harness Model Endpoint, and on a Headless Server the
+exit listener of the daemon (ADR-0029). On a Headless Server it reaches no
+container of another Workspace, no other address of the Docker host, no
+link-local address and no private address that the Administrator did not
+allow (ADR-0014).
 
 ## Coding Sessions
 

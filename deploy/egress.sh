@@ -2,18 +2,21 @@
 # The egress policy of the Computers on this Docker host (ADR-0014).
 #
 # A Computer reaches the public internet, the Media Relay's UDP range on
-# this host, and the TCP port of the daemon's exit listener on this host,
-# which the Exit Proxy of a Computer in Home mode sends its connections
-# to (ADR-0029). It reaches no other address of this host, no link-local
-# address and no private address, except the blocks in
+# this host, and two TCP ports of the daemon on this host: the port of
+# the exit listener, which the Exit Proxy of a Computer in Home mode
+# sends its connections to (ADR-0029), and the port of the Harness Model
+# Endpoint, which the harness of a Coding Session sends its model
+# requests to (ADR-0033). It reaches no other address of this host, no
+# link-local address and no private address, except the blocks in
 # PAGIS_COMPUTER_ALLOW. The rules are in the host's DOCKER-USER chain
 # (traffic that the host forwards) and INPUT chain (traffic to the host
 # itself), so root inside a Computer cannot remove them.
 #
-# The exit listener binds every interface of this host, because the
-# address at which a Computer reaches the host is Docker's choice. The
-# rules close its port to every interface but the Computers' bridges: to
-# the network, to the other containers and to the host itself.
+# The daemon binds the two ports on every interface of this host,
+# because the address at which a Computer reaches the host is Docker's
+# choice. The rules close them to every interface but the Computers'
+# bridges: to the network, to the other containers and to the host
+# itself.
 #
 # The `egress` service of `compose.yaml` runs this script with the host's
 # network and NET_ADMIN before the daemon starts. Each run replaces the
@@ -32,6 +35,10 @@
 #   PAGIS_EXIT_PORT
 #       The TCP port of the daemon's exit listener: `[computer] exit_port`
 #       of the daemon, PAGIS_COMPUTER_EXIT_PORT.
+#   PAGIS_MODEL_PORT
+#       The TCP port of the Harness Model Endpoint: `[computer]
+#       model_port` of the daemon, PAGIS_COMPUTER_MODEL_PORT. It is not
+#       the exit port.
 #   PAGIS_COMPUTER_ALLOW
 #       The private IPv4 blocks that a Computer reaches, comma-separated,
 #       such as `192.168.1.0/24,10.0.5.7`. Empty by default. The list
@@ -70,12 +77,15 @@ is_block() {
 first=${PAGIS_MEDIA_PORT_FIRST:-}
 last=${PAGIS_MEDIA_PORT_LAST:-}
 exit_port=${PAGIS_EXIT_PORT:-}
+model_port=${PAGIS_MODEL_PORT:-}
 bridges=${PAGIS_EGRESS_BRIDGES:-br-+}
 
 is_port "$first" || fail "PAGIS_MEDIA_PORT_FIRST is \"$first\"; set it to the first port of the Media Relay's range"
 is_port "$last" || fail "PAGIS_MEDIA_PORT_LAST is \"$last\"; set it to the last port of the Media Relay's range"
 [ "$first" -le "$last" ] || fail "PAGIS_MEDIA_PORT_LAST ($last) is before PAGIS_MEDIA_PORT_FIRST ($first)"
 is_port "$exit_port" || fail "PAGIS_EXIT_PORT is \"$exit_port\"; set it to the port of the daemon's exit listener"
+is_port "$model_port" || fail "PAGIS_MODEL_PORT is \"$model_port\"; set it to the port of the daemon's Harness Model Endpoint"
+[ "$model_port" -ne "$exit_port" ] || fail "PAGIS_MODEL_PORT is PAGIS_EXIT_PORT ($exit_port); the daemon binds each on a port of its own"
 case $bridges in
   '' | *[!A-Za-z0-9_.+-]*) fail "PAGIS_EGRESS_BRIDGES is \"$bridges\"; set it to an interface name, or to a prefix and +" ;;
 esac
@@ -147,14 +157,16 @@ earlier_jumps() {
   done
   echo "-A PAGIS-INPUT -p udp --dport $first:$last -j RETURN"
   echo "-A PAGIS-INPUT -p tcp --dport $exit_port -j RETURN"
+  echo "-A PAGIS-INPUT -p tcp --dport $model_port -j RETURN"
   echo '-A PAGIS-INPUT -j DROP'
 
-  # Traffic to the exit port from every interface but the Computers'
-  # bridges.
+  # Traffic to the exit port and the model port from every interface but
+  # the Computers' bridges.
   echo "-A PAGIS-EXIT -p tcp --dport $exit_port -j DROP"
+  echo "-A PAGIS-EXIT -p tcp --dport $model_port -j DROP"
   echo 'COMMIT'
 } | "$iptables-restore" --noflush
 
 echo "pagis-egress: the rules are in place with $iptables on $bridges;" \
-  "media range $first-$last; exit port $exit_port; allowed:${allowed:- none};" \
-  "resolvers: $(echo $resolvers)"
+  "media range $first-$last; exit port $exit_port; model port $model_port;" \
+  "allowed:${allowed:- none}; resolvers: $(echo $resolvers)"

@@ -119,7 +119,8 @@ Privacy is then a Bind Address rather than a published port:
 | 4401, the Administration Port | `127.0.0.1` | The Administrator, over an SSH tunnel. |
 | The Media Relay's UDP range | Every interface | The team's browsers, because media does not go through the proxy, and the Computers. Open exactly that range in the VM's firewall, and nothing else. At home, open it to the LAN alone. |
 | 4403, the exit port | Every interface | The Computers alone. The egress rules close the port on every interface but the Computers' bridges, and the daemon answers a Computer's token and nothing else. |
-| None, the `egress` service | Nothing | Nobody. The service writes the egress rules, which close every port of the VM to the Computers except the Media Relay's range and the exit port. |
+| 4404, the Harness Model Endpoint | Every interface | The Computers alone. The egress rules close the port on every interface but the Computers' bridges, and the daemon answers the token of a running Coding Session and nothing else. |
+| None, the `egress` service | Nothing | Nobody. The service writes the egress rules, which close every port of the VM to the Computers except the Media Relay's range, the exit port and the port of the Harness Model Endpoint. |
 
 ## The state directory has one path
 

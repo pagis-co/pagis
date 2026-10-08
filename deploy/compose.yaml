@@ -37,10 +37,10 @@
 # Privacy is then a bind address rather than a published port: Postgres,
 # the product port and the administration port each bind loopback. Caddy
 # is the one service that binds a public interface for the browsers. The
-# daemon binds the Media Relay's UDP range and the exit port of the
-# Computers on every interface. The VM's firewall opens the range alone,
-# and the egress rules close the exit port to everything but the
-# Computers. The Tailscale service opens no port for the Funnel: the
+# daemon binds the Media Relay's UDP range, the exit port and the model
+# port of the Computers on every interface. The VM's firewall opens the
+# range alone, and the egress rules close the exit port and the model
+# port to everything but the Computers. The Tailscale service opens no port for the Funnel: the
 # Funnel comes in through the tunnel that the service opens to
 # Tailscale.
 name: pagis
@@ -70,11 +70,12 @@ services:
 
   # The egress policy of the Computers (ADR-0014). `egress.sh` writes
   # rules into the VM's DOCKER-USER and INPUT chains: a Computer reaches
-  # the public internet, the Media Relay's UDP range and the daemon's
-  # exit port (ADR-0029), and no other address of this VM, no link-local
-  # address and no private address outside PAGIS_COMPUTER_ALLOW. The rules are the VM's, so root inside
-  # a Computer cannot remove them, and this service writes them because
-  # the daemon does not own the VM's firewall.
+  # the public internet, the Media Relay's UDP range, the daemon's exit
+  # port (ADR-0029) and the daemon's Harness Model Endpoint (ADR-0033),
+  # and no other address of this VM, no link-local address and no private
+  # address outside PAGIS_COMPUTER_ALLOW. The rules are the VM's, so root
+  # inside a Computer cannot remove them, and this service writes them
+  # because the daemon does not own the VM's firewall.
   #
   # The daemon starts after the rules are in place. The service then
   # stays up, so Docker starts it again when the VM boots, and each start
@@ -92,6 +93,9 @@ services:
       PAGIS_MEDIA_PORT_LAST: ${PAGIS_MEDIA_PORT_LAST}
       # The daemon's exit port, as PAGIS_COMPUTER_EXIT_PORT below.
       PAGIS_EXIT_PORT: "4403"
+      # The daemon's Harness Model Endpoint, as PAGIS_COMPUTER_MODEL_PORT
+      # below.
+      PAGIS_MODEL_PORT: "4404"
       PAGIS_COMPUTER_ALLOW: ${PAGIS_COMPUTER_ALLOW:-}
     volumes:
       - ./egress.sh:/pagis/egress.sh:ro
@@ -162,6 +166,12 @@ services:
       # interface and answers a Computer's token alone; the egress rules
       # close it on every interface but the Computers' bridges.
       PAGIS_COMPUTER_EXIT_PORT: "4403"
+      # The Harness Model Endpoint (ADR-0033): the harness of a Coding
+      # Session in a Computer sends its model requests here. It binds
+      # every interface and answers a session's token alone; the egress
+      # rules close it on every interface but the Computers' bridges.
+      # PAGIS_MODEL_PORT of the egress service names the same port.
+      PAGIS_COMPUTER_MODEL_PORT: "4404"
       # The first run, with no browser. They are read at
       # the first start that finds nobody who can sign in, and ignored
       # from then on. Leave them empty to finish setup on the
