@@ -32,6 +32,7 @@ record, so the database refuses a record of another Workspace.
 │  Triggers     Schedules, Event Subscriptions, Wake-ups                           │
 │  Execution    containers, screen pipeline, Media Relay, computer use             │
 │   Supervisor                                                                     │
+│  Coding       Coding Sessions, ACP client, Harness Catalog                       │
 │  Telephony    Agent Phone Numbers, Calls, realtime voice bridge                  │
 │  Mail         Agent Mailboxes, mail tools                                        │
 │  Audit        append-only event log                                              │
@@ -116,7 +117,8 @@ the Agent's identity and listens for triggers (messages, Schedules,
 Incoming Events, other Agents). Idle cost is memory only. A trigger starts
 a Run: the agent loop executes turns against the LLM router until the work
 completes (ADR-0002). Pagis owns the loop, with no external harness under
-it (ADR-0001). Run states: `queued`, `running`, `reflecting`,
+it (ADR-0001). A Coding Harness runs beside the loop as a guest over ACP
+(ADR-0033). Run states: `queued`, `running`, `reflecting`,
 `waiting_for_user`, `waiting_for_approval`, and then `completed`, `failed`
 or `canceled`. Every step appends to the audit log.
 
@@ -226,6 +228,16 @@ children. The daemon reads the whole output but keeps only a head and a
 tail of it, because a command whose output nobody reads stops at its next
 write. A command wakes a Computer that sleeps, and holds it awake until
 the command ends.
+
+### Coding Sessions
+
+The daemon is the ACP client of a Coding Harness, which runs on a Host
+through the session socket of its Client App, or in the Agent's Computer
+(ADR-0033). The Agent that started a Coding Session supervises it from the
+session's Thread with core tools, and a Session Rule wakes the Agent when a
+turn ends, a decision waits or the session ends. Pagis policy answers each
+Harness Permission first, then the Session Approval Mode decides who answers.
+Coding Sessions are not built.
 
 ### Telephony
 

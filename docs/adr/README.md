@@ -28,6 +28,7 @@ records that touch an area before you change it.
 - [0015](0015-a-host-action-runs-on-a-present-client.md): A host action runs on a present client, never in the daemon
 - [0016](0016-a-software-package-is-a-tag-addressed-version.md): A Software Package is a tag-addressed Version
 - [0017](0017-a-plugin-consumes-connections.md): A Plugin consumes Connections and never exposes one
+- [0033](0033-a-coding-session-is-a-guest-coding-harness-that-an-agent-supervises-over-acp.md): A Coding Session is a guest Coding Harness that an Agent supervises over ACP
 
 ## Agent identity and channels
 

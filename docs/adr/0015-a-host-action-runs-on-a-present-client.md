@@ -45,7 +45,8 @@ that no computer is connected and says to open the Client App.
 
 Presence is in memory, so the daemon answers a call for an absent machine at
 once and names the machine where there is one. A command runs for at most two
-minutes; longer work belongs in the Agent's Computer.
+minutes; longer work belongs in the Agent's Computer. A Coding Session is the
+one long-lived work on a Host (ADR-0033).
 
 ### The Grant and the card name the machine
 
@@ -58,6 +59,9 @@ Allow rules live on that Grant, so they are scoped to one Agent on one machine
 of one person in one installation, and nothing carries them between
 installations. A host action's effect class is `host` on every installation,
 and the only way past a card is a live allow rule on that machine's Grant.
+
+The host Grant also holds the widest Session Approval Mode that its Agent may
+use for a Coding Session on that machine (ADR-0033).
 
 ### A Host Allow Rule names a command class
 
@@ -93,6 +97,11 @@ A rule accepts every flag and argument of its program, including one that
 writes a file or runs a program, such as `git log --output=<path>`. The broker
 does not try to list such flags. Beside "Always allow" the card says so.
 
+A Coding Harness runs a command in its own shell, which Pagis does not choose,
+not under `/bin/sh` (ADR-0033). A rule that allows an `execute` of a harness
+accepts that a plain word can mean another thing in that shell, such as a
+`zsh` word that starts with `=`.
+
 ### The broker asks rather than choosing
 
 A client declares what it can do, and a machine that declared no shell is
@@ -115,7 +124,8 @@ allow rules and the audit row are on the server. The trust statement:
 The Host trusts the server that TLS authenticates, and a Host registers on no
 clear-text connection to another machine. Connecting grants the server's
 Administrator, and anybody who takes that server, the ability to run commands
-on the client's machine as the OS user who started it.**
+and to start a Coding Harness on the client's machine as the OS user who
+started it (ADR-0033).**
 
 So a client connects over `https://` and opens the Host socket over `wss://`,
 and accepts `http://` and `ws://` only on a loopback host (ADR-0024). There is
