@@ -39,6 +39,14 @@ firewall before the daemon starts:
   at once. `PAGIS_EXIT_PORT` of the `egress` service and
   `PAGIS_COMPUTER_EXIT_PORT` of the daemon name the same port in
   `compose.yaml`.
+- **The Harness Model Endpoint of the daemon**: yes, TCP port `4404` on the
+  VM. The coding harness of a Coding Session in a Computer sends its model
+  requests there, and the daemon answers the token of a running session and
+  nothing else. The daemon binds the port on every interface, and the rules
+  close it to everything but the Computers: to the network, to the other
+  containers and to the VM itself. `PAGIS_MODEL_PORT` of the `egress`
+  service and `PAGIS_COMPUTER_MODEL_PORT` of the daemon name the same port
+  in `compose.yaml`.
 - **Name resolution**: yes, UDP and TCP port 53 to the resolvers that Docker
   gives to containers, also when a resolver has a private or link-local
   address.

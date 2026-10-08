@@ -233,7 +233,9 @@ each request. The daemon forwards it with the Org's provider key through
 `crates/llm-router`, under the Spend Cap, and writes Usage Records for the
 Agent. The harness points at the endpoint: `ANTHROPIC_BASE_URL` with
 `ANTHROPIC_AUTH_TOKEN`, a Codex model provider, or an OpenCode or pi provider
-base URL.
+base URL. The endpoint has a TCP port of its own, `[computer] model_port`, on
+every interface of the daemon's host. On a Server the egress rules open that
+port to the Computers and close it to everything else (ADR-0014).
 
 A subscription sign-in in a Computer is not in scope.
 
