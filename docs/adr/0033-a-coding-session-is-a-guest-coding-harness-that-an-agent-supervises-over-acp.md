@@ -492,6 +492,17 @@ writes the rules onto the host Grant of the session's machine and never
 answers `allow_always` to the harness. A message of the Person in the Thread
 does not supersede the Request, because no Run waits on it.
 
+The Request is an Approval in the Needs-You Queue. The daemon derives its
+item as for every pending Request, with the line "<sprite> needs your
+approval". The item opens the session's Thread,
+`/c/<channel_id>/t/<root_message_id>`, from the payload of the Request. Its
+Notification carries **Approve once** and **Deny** (ADR-0030). An answer
+from a Notification has no scope, so it answers the harness with
+`allow_once` or `reject_once`. "Always allow" needs the card in a client. In
+the `agent` mode no Request exists until the Agent or the daemon escalates
+the permission, so a permission that waits for the Agent is not in the
+queue.
+
 The Request expires when the harness stops waiting for it: a cancel of the
 turn, a close, a lost place, or an ACP connection that ends. A restart ends
 every ACP connection, so the boot expires each pending `harness_permission`
@@ -690,7 +701,6 @@ Other ways were considered:
 - The refusal of a mode other than `auto` for a harness that does not ask
   permission.
 - The `auto` mode.
-- The item in the Needs-You Queue and the Notification.
 - The question in the daemon.
 - Harness Sign-In in Settings.
 - The Computer place.

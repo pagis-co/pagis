@@ -132,9 +132,14 @@ pub fn test_options() -> Options {
 }
 
 /// A Request that a Notification can answer: a tool action or a
-/// credential action Approval.
+/// credential action Approval, or a Harness Permission.
 fn answerable(request_kind: &str) -> bool {
-    request_kind == Request::TOOL_ACTION_KIND || request_kind == Request::CREDENTIAL_ACTION_KIND
+    [
+        Request::TOOL_ACTION_KIND,
+        Request::CREDENTIAL_ACTION_KIND,
+        Request::HARNESS_PERMISSION_KIND,
+    ]
+    .contains(&request_kind)
 }
 
 /// The place `path` of the Product App on the Public Origin.
@@ -689,6 +694,21 @@ mod tests {
     fn an_approval_of_a_credential_action_can_be_answered() {
         let message = json_of(&payload(
             &approval("credential_action"),
+            Some("Robin"),
+            1,
+            ORIGIN,
+        ));
+
+        assert_eq!(
+            message["notification"]["data"]["request"],
+            json!({"id": "r-1", "actions": ["approve_once", "deny"]})
+        );
+    }
+
+    #[test]
+    fn an_approval_of_a_harness_permission_can_be_answered_once() {
+        let message = json_of(&payload(
+            &approval("harness_permission"),
             Some("Robin"),
             1,
             ORIGIN,

@@ -193,8 +193,10 @@ The Pagis fields are in `notification.data`:
 - `item` is the id of the queue item.
 - `kind` is a queue kind, or `test`.
 - `request` is there only for a pending Request that a Notification can
-  answer: a tool action or a credential action Approval. Its `actions`
-  are `approve_once` and `deny`.
+  answer: a tool action or a credential action Approval, or a Harness
+  Permission (ADR-0033). Its `actions` are `approve_once` and `deny`. The
+  shape of `request` is the same for each kind, and a client answers by
+  its presence, not by the kind of the Request.
 
 The service worker of the Product App, the iOS Notification Service
 Extension and the Android messaging service of the Mobile App (ADR-0032) parse

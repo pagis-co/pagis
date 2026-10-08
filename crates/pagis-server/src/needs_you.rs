@@ -415,6 +415,9 @@ fn queue(records: &Records, now: UnixMillis) -> NeedsYouQueue {
                     Some(run) => conversation_url(run),
                     None => format!("/runs/{run_id}"),
                 },
+                None if request.kind == Request::HARNESS_PERMISSION_KIND => {
+                    session_thread_url(&request.payload)
+                }
                 None => "/".to_string(),
             };
             NeedsYouItem::Approval(NeedsYouApproval {
@@ -536,6 +539,18 @@ fn conversation_url(run: &Run) -> String {
     match &run.channel_id {
         Some(channel_id) => format!("/c/{channel_id}"),
         None => format!("/runs/{}", run.id),
+    }
+}
+
+/// The Thread of the Coding Session that a Harness Permission names in
+/// its payload, or Home when the payload names no Thread.
+fn session_thread_url(payload: &serde_json::Value) -> String {
+    match (
+        payload_text(payload, &["channel_id"]),
+        payload_text(payload, &["root_message_id"]),
+    ) {
+        (Some(channel_id), Some(root_message_id)) => format!("/c/{channel_id}/t/{root_message_id}"),
+        _ => "/".to_string(),
     }
 }
 
@@ -1147,6 +1162,28 @@ mod tests {
             urls,
             ["/c/channel-7", "/", "/c/channel-1", "/", "/runs/no-channel"]
         );
+    }
+
+    #[test]
+    fn the_item_of_a_harness_permission_opens_the_sessions_thread() {
+        let mut permission = request("permission");
+        permission.run_id = None;
+        permission.kind = Request::HARNESS_PERMISSION_KIND.to_string();
+        permission.payload = serde_json::json!({
+            "action_title": "Run cargo test",
+            "channel_id": "channel-3",
+            "root_message_id": "message-5",
+        });
+        let records = Records {
+            requests: vec![permission],
+            ..records()
+        };
+
+        let items = wire(&queue(&records, NOW));
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["kind"], "approval");
+        assert_eq!(items[0]["url"], "/c/channel-3/t/message-5");
     }
 
     #[test]

@@ -1073,10 +1073,12 @@ Pagis policy answers it first: the `auto` mode, an action inside the
 session's directory, or a command that a Host Allow Rule matches allows it
 once. Else the Session Approval Mode of the Coding Session decides who
 answers. In the `person` mode the Person answers on an approval card in the
-session's Thread. In the `agent` mode the owning Agent wakes in that Thread,
-and it allows once, denies, or escalates to the Person with a note on the
-card. A woken Run that ends with no decision escalates it. Pagis answers
-once, never "always", and each decision writes one audit fact (ADR-0033).
+session's Thread, or from its Notification: the permission is an Approval in
+the Needs-You Queue, and its item opens that Thread. In the `agent` mode the
+owning Agent wakes in that Thread, and it allows once, denies, or escalates
+to the Person with a note on the card. A woken Run that ends with no
+decision escalates it. Pagis answers once, never "always", and each
+decision writes one audit fact (ADR-0033).
 
 ### Harness Sign-In
 The Person signs in to a Coding Harness on their Host with their own
