@@ -76,8 +76,7 @@ request from a program on this machine that did not come through a proxy.
 Any other request gets `403`. A same-machine proxy connects from `127.0.0.1`
 like the Client App, so the Trusted Proxy address cannot be the test; such a
 proxy fails rule 2 or 3, named as the Trusted Proxy or not. The documented
-proxies write `X-Forwarded-For`, which the rate limit also needs. The same rule
-decides where a `byo` Google Connection starts (ADR-0012).
+proxies write `X-Forwarded-For`, which the rate limit also needs.
 
 ### The Runtime Lock is the trust root of a download
 

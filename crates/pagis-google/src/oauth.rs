@@ -313,11 +313,15 @@ impl GoogleOAuth {
     /// person of an installation would reach `connected` with no way to
     /// refresh. The scope starts with [`IDENTITY_SCOPES`], so the answer
     /// names the account that consented.
+    ///
+    /// `account` is the account of the Connection, when it has one. With
+    /// none, the prompt adds `select_account`, and the person picks the
+    /// account in Google's account chooser.
     pub fn authorization_url(
         &self,
         client: &WebClient,
         redirect_uri: &str,
-        account: &str,
+        account: Option<&str>,
         scopes: &[&str],
         state: &str,
         pkce: &Pkce,
@@ -328,20 +332,30 @@ impl GoogleOAuth {
             .copied()
             .collect::<Vec<_>>()
             .join(" ");
-        let query = form_encode(&[
+        let mut pairs = vec![
             ("client_id", client.client_id()),
             ("redirect_uri", redirect_uri),
             ("response_type", "code"),
             ("scope", &scope),
             ("access_type", "offline"),
-            ("prompt", "consent"),
+            (
+                "prompt",
+                match account {
+                    Some(_) => "consent",
+                    None => "select_account consent",
+                },
+            ),
             ("include_granted_scopes", "true"),
-            ("login_hint", account),
+        ];
+        if let Some(account) = account {
+            pairs.push(("login_hint", account));
+        }
+        pairs.extend([
             ("state", state),
             ("code_challenge", pkce.challenge()),
             ("code_challenge_method", "S256"),
         ]);
-        format!("{}?{query}", self.authorize_endpoint)
+        format!("{}?{}", self.authorize_endpoint, form_encode(&pairs))
     }
 
     /// Trade the code the redirect carried for tokens.
@@ -503,7 +517,7 @@ mod tests {
         let url = GoogleOAuth::new().authorization_url(
             &client(),
             "https://pagis.example.net/api/v1/connections/google/callback",
-            "alice@example.com",
+            Some("alice@example.com"),
             &["https://www.googleapis.com/auth/gmail.readonly"],
             "state-value",
             &pkce,
@@ -520,7 +534,7 @@ mod tests {
             "{url}"
         );
         assert!(url.contains("access_type=offline"), "{url}");
-        assert!(url.contains("prompt=consent"), "{url}");
+        assert!(url.contains("prompt=consent&"), "{url}");
         assert!(url.contains("login_hint=alice%40example.com"), "{url}");
         // `openid email` comes first, so the answer names the account.
         assert!(
@@ -537,6 +551,25 @@ mod tests {
         );
         // The verifier is the daemon's half and never leaves it.
         assert!(!url.contains(pkce.verifier()), "{url}");
+    }
+
+    /// The first authorization of a Connection names no account: the
+    /// person picks one in Google's account chooser, which Google shows
+    /// even to a browser with one Google session.
+    #[test]
+    fn with_no_account_the_person_picks_one_at_google() {
+        let url = GoogleOAuth::new().authorization_url(
+            &client(),
+            "https://pagis.example.net/api/v1/connections/google/callback",
+            None,
+            &["https://www.googleapis.com/auth/gmail.readonly"],
+            "state-value",
+            &Pkce::generate(),
+        );
+
+        assert!(url.contains("prompt=select_account%20consent&"), "{url}");
+        assert!(!url.contains("login_hint"), "{url}");
+        assert!(url.contains("access_type=offline"), "{url}");
     }
 
     /// The challenge is the SHA-256 of the verifier, URL-safe and

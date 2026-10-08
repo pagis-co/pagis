@@ -88,7 +88,3 @@ lives on the server ([ADR-0015](https://github.com/pagis-co/pagis/blob/main/docs
   `127.0.0.1`, to isolate its frame from the Product App. A Product App on
   a public name has no second origin, so it shows the projection of a
   Widget and never the Widget ([Write a Widget](/widgets)).
-- **A `byo` Google Connection.** The loopback flow of bring your own needs a
-  Person at the daemon's machine. The daemon refuses it for a request that
-  comes through the proxy or from another machine, and the refusal says that
-  an Administrator sets up the Google OAuth client.

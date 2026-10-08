@@ -19,8 +19,8 @@ async fn workspace_id(daemon: &TestDaemon) -> WorkspaceId {
 async fn connect_google(daemon: &TestDaemon, id: &str) {
     sqlx::query(
         "INSERT INTO connections \
-         (id, workspace_id, provider, alias, display_name, status, auth_mode, config, created_at) \
-         VALUES (?, ?, 'google', 'work', 'Work Google', 'connected', 'byo', ?, ?)",
+         (id, workspace_id, provider, alias, display_name, status, config, created_at) \
+         VALUES (?, ?, 'google', 'work', 'Work Google', 'connected', ?, ?)",
     )
     .bind(id)
     .bind(workspace_id(daemon).await.as_str())

@@ -303,9 +303,9 @@ impl ToolExecutor for ConnectionRuntime {
 ///
 /// Three things come from the record and none from the environment: the
 /// account, the alias that names the `gog` client, and the `GOG_HOME` of
-/// the Workspace that owns the Connection. A `brokered` Connection gets
-/// a fourth: the access token the daemon mints per call from the refresh
-/// token it holds sealed, so `gog` keeps no token of its own.
+/// the Workspace that owns the Connection. A fourth comes from the
+/// daemon: the access token it mints per call from the refresh token it
+/// holds sealed, so `gog` keeps no token of its own.
 ///
 /// Every caller that reaches Google through a Connection binds it here,
 /// so no path can bind one with a shared home or with no token.
@@ -341,22 +341,20 @@ impl GoogleBinder {
             pagis_google::workspace_gog_home(&self.gog_root, &connection.workspace_id),
         )
         .ok()?;
-        let provider = pagis_google::GoogleProvider::new(binding, Arc::clone(&self.runner));
+        // The daemon holds the refresh token, so it mints the access
+        // token of each call and `gog` keeps none (ADR-0012).
         Some(
-            match connection.auth_mode == Connection::AUTH_MODE_BROKERED {
-                true => provider.with_access_tokens(
+            pagis_google::GoogleProvider::new(binding, Arc::clone(&self.runner))
+                .with_access_tokens(
                     self.google
                         .access_tokens(&connection.workspace_id, &connection.id),
                 ),
-                false => provider,
-            },
         )
     }
 }
 
-/// Builds the Google provider from a Connection's account and client.
-/// It runs the same `gog` the connect flow does, so one runner
-/// serves both and a test replaces both at once.
+/// Builds the Google provider from a Connection's account and client,
+/// through the one [`GoogleBinder`].
 pub struct GoogleProviderFactory {
     binder: Arc<GoogleBinder>,
 }

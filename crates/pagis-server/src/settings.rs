@@ -10,11 +10,10 @@
 //! part of every provider ([`crate::providers`]).
 
 use std::collections::BTreeMap;
-use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::Json;
-use axum::extract::{ConnectInfo, Path, Query, State};
+use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use pagis_core::{OnboardingModelVerification, Provider, ProviderKeys, now_ms};
 use serde::{Deserialize, Serialize};
@@ -169,9 +168,6 @@ pub struct ConnectionDto {
     /// `disconnected`, `connecting`, `connected`, `reauth_required`, or
     /// `unavailable` once the provider refuses the key it holds.
     pub status: String,
-    /// `byo` when the user supplies the OAuth client, `brokered` when
-    /// the installation supplies it through its Installation OAuth Client.
-    pub auth_mode: String,
     pub authorized_capabilities: Vec<String>,
     /// The external account this Connection binds to. It is not a
     /// secret, and the card names the account the user connected.
@@ -244,7 +240,6 @@ impl From<pagis_core::Connection> for ConnectionDto {
             alias: connection.alias,
             display_name: connection.display_name,
             status: connection.status,
-            auth_mode: connection.auth_mode,
             authorized_capabilities: connection.authorized_capabilities,
             account: connection.config["account"].as_str().map(str::to_string),
             sip_username,
@@ -324,11 +319,14 @@ pub struct ProviderEntryDto {
     pub default_alias: String,
     /// Where the user finds the values, e.g. `the Telnyx portal`.
     pub portal: Option<String>,
-    /// True for the `oauth` entry of a brokered flow in which the browser
-    /// that goes to the provider can first ask the Person to sign in to
-    /// Pagis. False on a local installation with Remote Access off,
-    /// whose start route asks for no Session, and for every other
-    /// entry.
+    /// False for the Google entry where the Org holds no Installation
+    /// OAuth Client. The blurb then says that an administrator sets it
+    /// up, and the picker offers no connect step.
+    pub set_up: bool,
+    /// True for the `oauth` entry in which the browser that goes to the
+    /// provider can first ask the Person to sign in to Pagis. False on a
+    /// local installation with Remote Access off, whose start route asks
+    /// for no Session, and for every other entry.
     pub browser_sign_in: bool,
 }
 
@@ -347,9 +345,10 @@ impl From<&pagis_connect::ProviderField> for ProviderFieldDto {
 
 impl ProviderEntryDto {
     /// One entry as this installation serves it. `browser_sign_in` says
-    /// whether the browser step of a brokered flow can ask for a sign-in
-    /// here; only an `oauth` entry has a browser step.
-    fn new(entry: &pagis_connect::ProviderEntry, browser_sign_in: bool) -> Self {
+    /// whether the browser step can ask for a sign-in here; only an
+    /// `oauth` entry has a browser step.
+    fn new(provider: &pagis_connect::PersonProvider, browser_sign_in: bool) -> Self {
+        let entry = &provider.entry;
         Self {
             id: entry.id.to_string(),
             label: entry.label.to_string(),
@@ -370,7 +369,10 @@ impl ProviderEntryDto {
             default_display_name: entry.default_display_name.to_string(),
             default_alias: entry.default_alias.to_string(),
             portal: entry.portal.map(str::to_string),
-            browser_sign_in: browser_sign_in && entry.kind == pagis_connect::ProviderKind::Oauth,
+            set_up: provider.set_up,
+            browser_sign_in: browser_sign_in
+                && provider.set_up
+                && entry.kind == pagis_connect::ProviderKind::Oauth,
         }
     }
 }
@@ -446,7 +448,7 @@ pub struct AddCredentialRequest {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct AuthorizeConnectionResponse {
     pub connection: ConnectionDto,
-    /// The address to open for a `brokered` Google Connection: the
+    /// The address to open for a Google Connection: the
     /// start route on the Public Origin. A browser with a Session of the
     /// Person who asked goes on from there to consent at Google, and the
     /// connection reaches `connected` when Google redirects that browser
@@ -535,12 +537,10 @@ pub async fn list_connections(
 /// a person connects on their own, with the form each one needs. An
 /// Installation Connection is not in it.
 ///
-/// The Google entry follows the installation. Where the Org holds
-/// a Web OAuth client the form asks for the account alone, because the
-/// client is the installation's; where it holds none the form asks for
-/// the person's own Desktop client. The entry also says whether the
-/// browser step can ask for a sign-in, which a local installation with
-/// Remote Access off never does.
+/// The Google entry asks for nothing: the person signs in at Google.
+/// It says whether the Org holds the Installation OAuth Client that the
+/// sign-in needs, and whether the browser step can ask for a sign-in to
+/// Pagis, which a local installation with Remote Access off never does.
 #[utoipa::path(get, path = "/api/v1/settings/connections/providers", responses(
     (status = 200, body = ProviderPage),
     (status = 401, body = crate::error::ErrorBody),
@@ -549,25 +549,25 @@ pub async fn list_connection_providers(
     State(state): State<Arc<AppState>>,
     _tenant: Tenant,
 ) -> Result<Json<ProviderPage>, ApiError> {
-    let brokered = state
+    let google_client = state
         .connector
         .google()
         .web_client()
         .await
         .map_err(connect_error)?
         .is_some();
-    let browser_sign_in = brokered && !crate::remote_access::serves_this_machine_only(&state);
+    let browser_sign_in = !crate::remote_access::serves_this_machine_only(&state);
     Ok(Json(ProviderPage {
-        items: pagis_connect::person_catalog(brokered)
+        items: pagis_connect::person_catalog(google_client)
             .iter()
-            .map(|entry| ProviderEntryDto::new(entry, browser_sign_in))
+            .map(|provider| ProviderEntryDto::new(provider, browser_sign_in))
             .collect(),
     }))
 }
 
-/// Connect an account (ADR-0012). The record lands at
-/// `disconnected` with its binding; `authorize_connection` is the step
-/// that sends the user to Google.
+/// Connect an account (ADR-0012). A Google record lands at
+/// `disconnected` with no account; `authorize_connection` is the step
+/// that sends the person to Google, where they pick the account.
 #[utoipa::path(post, path = "/api/v1/settings/connections",
     request_body = CreateConnectionRequest, responses(
         (status = 201, body = ConnectionDto),
@@ -579,8 +579,6 @@ pub async fn list_connection_providers(
 )]
 pub async fn create_connection(
     State(state): State<Arc<AppState>>,
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
-    headers: HeaderMap,
     tenant: Tenant,
     Json(request): Json<CreateConnectionRequest>,
 ) -> Result<(StatusCode, Json<ConnectionDto>), ApiError> {
@@ -595,7 +593,6 @@ pub async fn create_connection(
             alias: request.alias,
             display_name: request.display_name,
             credentials,
-            source: crate::forwarded::request_source(peer, &headers),
         })
         .await
         .map_err(connect_error)?;
@@ -615,8 +612,8 @@ pub async fn create_connection(
 
 /// Authorize one Connection.
 ///
-/// A `brokered` Google Connection answers an `authorization_url` and
-/// returns at once. The URL is the start route on the Public Origin,
+/// A Google Connection answers an `authorization_url` and returns at
+/// once. The URL is the start route on the Public Origin,
 /// which belongs to the Person who asks: the client opens it, the person
 /// consents at Google in that browser, and the public callback route is
 /// what makes the Connection `connected`. Every other Connection is
@@ -633,8 +630,6 @@ pub async fn create_connection(
 )]
 pub async fn authorize_connection(
     State(state): State<Arc<AppState>>,
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
-    headers: HeaderMap,
     tenant: Tenant,
     Path(connection_id): Path<String>,
     body: Option<Json<AuthorizeConnectionRequest>>,
@@ -649,7 +644,6 @@ pub async fn authorize_connection(
             &id,
             &request.capabilities,
             request.api_key.as_deref(),
-            crate::forwarded::request_source(peer, &headers),
             &initiator(&tenant),
         )
         .await
@@ -757,7 +751,7 @@ impl TransactionCookie {
 /// this one it goes back to the start route.
 const SIGN_IN_AND_START: &str = "/connections/google/start";
 
-/// Send one browser to Google for a brokered authorization.
+/// Send one browser to Google for an authorization.
 ///
 /// The authorize request answers this address, and it belongs to the
 /// Person who asked. It sits outside the session middleware because a
@@ -838,7 +832,7 @@ pub async fn google_start(
     Ok(answer)
 }
 
-/// Finish one brokered Google authorization.
+/// Finish one Google authorization.
 ///
 /// Google redirects the person's browser here on the installation's own
 /// public origin. The request carries no Session: the Session cookie is
@@ -846,9 +840,9 @@ pub async fn google_start(
 /// navigation. The route finishes only for the browser that holds the
 /// transaction cookie of the `state`, which the start route set. The
 /// `state` names the Connection, and the Person and the Session that
-/// started the authorization: that Session must still be live, and the
-/// Google account that consented must be the account of the Connection.
-/// A redirect without the cookie spends the `state` and connects
+/// started the authorization: that Session must still be live. The first
+/// consent records the Google account that consented, and a later
+/// consent must come from that account. A redirect without the cookie spends the `state` and connects
 /// nothing. Each answer clears the cookie.
 #[utoipa::path(get, path = "/api/v1/connections/google/callback",
     params(

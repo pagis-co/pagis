@@ -891,7 +891,7 @@
         "tags": [
           "providers"
         ],
-        "summary": "Remove one part. A carrier that carries a number and a mail domain\nthat holds a mailbox stay, and the refusal says what to do first.\nRemoving the OAuth client leaves every brokered Google connection\nunable to refresh, so each person consents again against the next\nclient (ADR-0012).",
+        "summary": "Remove one part. A carrier that carries a number and a mail domain\nthat holds a mailbox stay, and the refusal says what to do first.\nRemoving the OAuth client leaves every Google connection\nunable to refresh, so each person consents again against the next\nclient (ADR-0012).",
         "operationId": "remove_provider_part",
         "parameters": [
           {
@@ -3501,8 +3501,8 @@
         "tags": [
           "settings"
         ],
-        "summary": "Finish one brokered Google authorization.",
-        "description": "Google redirects the person's browser here on the installation's own\npublic origin. The request carries no Session: the Session cookie is\n`SameSite=Strict`, so a browser sends none on a cross-site\nnavigation. The route finishes only for the browser that holds the\ntransaction cookie of the `state`, which the start route set. The\n`state` names the Connection, and the Person and the Session that\nstarted the authorization: that Session must still be live, and the\nGoogle account that consented must be the account of the Connection.\nA redirect without the cookie spends the `state` and connects\nnothing. Each answer clears the cookie.",
+        "summary": "Finish one Google authorization.",
+        "description": "Google redirects the person's browser here on the installation's own\npublic origin. The request carries no Session: the Session cookie is\n`SameSite=Strict`, so a browser sends none on a cross-site\nnavigation. The route finishes only for the browser that holds the\ntransaction cookie of the `state`, which the start route set. The\n`state` names the Connection, and the Person and the Session that\nstarted the authorization: that Session must still be live. The first\nconsent records the Google account that consented, and a later\nconsent must come from that account. A redirect without the cookie spends the `state` and connects\nnothing. Each answer clears the cookie.",
         "operationId": "google_callback",
         "parameters": [
           {
@@ -3542,7 +3542,7 @@
         "tags": [
           "settings"
         ],
-        "summary": "Send one browser to Google for a brokered authorization.",
+        "summary": "Send one browser to Google for an authorization.",
         "description": "The authorize request answers this address, and it belongs to the\nPerson who asked. It sits outside the session middleware because a\nbrowser with no Session must sign in and come back, not get `401`: it\ngoes to the same address in the Product App, which shows the sign-in\npage and then comes back here. A Session of another Person gets a\nrefusal. For the initiating Person, the route sets the transaction\ncookie, which binds the `state` to this browser, and redirects to\nGoogle.\n\nA local installation with Remote Access off has one Person and\nanswers only programs of its own machine. There the route asks the\nbrowser for no Session: the Client App opens it in the system\nbrowser, and the owner does not sign in a second time. The callback\nkeeps every check.",
         "operationId": "google_start",
         "parameters": [
@@ -7487,7 +7487,7 @@
         "tags": [
           "settings"
         ],
-        "summary": "Connect an account (ADR-0012). The record lands at\n`disconnected` with its binding; `authorize_connection` is the step\nthat sends the user to Google.",
+        "summary": "Connect an account (ADR-0012). A Google record lands at\n`disconnected` with no account; `authorize_connection` is the step\nthat sends the person to Google, where they pick the account.",
         "operationId": "create_connection",
         "requestBody": {
           "content": {
@@ -7559,7 +7559,7 @@
           "settings"
         ],
         "summary": "The Provider Catalog (ADR-0012) a person picks from: every provider\na person connects on their own, with the form each one needs. An\nInstallation Connection is not in it.",
-        "description": "The Google entry follows the installation. Where the Org holds\na Web OAuth client the form asks for the account alone, because the\nclient is the installation's; where it holds none the form asks for\nthe person's own Desktop client. The entry also says whether the\nbrowser step can ask for a sign-in, which a local installation with\nRemote Access off never does.",
+        "description": "The Google entry asks for nothing: the person signs in at Google.\nIt says whether the Org holds the Installation OAuth Client that the\nsign-in needs, and whether the browser step can ask for a sign-in to\nPagis, which a local installation with Remote Access off never does.",
         "operationId": "list_connection_providers",
         "responses": {
           "200": {
@@ -7644,7 +7644,7 @@
           "settings"
         ],
         "summary": "Authorize one Connection.",
-        "description": "A `brokered` Google Connection answers an `authorization_url` and\nreturns at once. The URL is the start route on the Public Origin,\nwhich belongs to the Person who asks: the client opens it, the person\nconsents at Google in that browser, and the public callback route is\nwhat makes the Connection `connected`. Every other Connection is\nfinished when this returns, and `authorization_url` is absent.",
+        "description": "A Google Connection answers an `authorization_url` and returns at\nonce. The URL is the start route on the Public Origin,\nwhich belongs to the Person who asks: the client opens it, the person\nconsents at Google in that browser, and the public callback route is\nwhat makes the Connection `connected`. Every other Connection is\nfinished when this returns, and `authorization_url` is absent.",
         "operationId": "authorize_connection",
         "parameters": [
           {
@@ -11268,7 +11268,7 @@
               "string",
               "null"
             ],
-            "description": "The address to open for a `brokered` Google Connection: the\nstart route on the Public Origin. A browser with a Session of the\nPerson who asked goes on from there to consent at Google, and the\nconnection reaches `connected` when Google redirects that browser\nback to this installation. A local installation with Remote\nAccess off has one Person and asks the browser for no Session.\nAbsent for every Connection this request already finished."
+            "description": "The address to open for a Google Connection: the\nstart route on the Public Origin. A browser with a Session of the\nPerson who asked goes on from there to consent at Google, and the\nconnection reaches `connected` when Google redirects that browser\nback to this installation. A local installation with Remote\nAccess off has one Person and asks the browser for no Session.\nAbsent for every Connection this request already finished."
           },
           "connection": {
             "$ref": "#/components/schemas/ConnectionDto"
@@ -12771,7 +12771,6 @@
           "alias",
           "display_name",
           "status",
-          "auth_mode",
           "authorized_capabilities",
           "installation",
           "created_at"
@@ -12794,10 +12793,6 @@
           "alias": {
             "type": "string",
             "description": "The name a tool call uses to pick this account."
-          },
-          "auth_mode": {
-            "type": "string",
-            "description": "`byo` when the user supplies the OAuth client, `brokered` when\nthe installation supplies it through its Installation OAuth Client."
           },
           "authorized_capabilities": {
             "type": "array",
@@ -17511,6 +17506,7 @@
           "absent_capabilities",
           "default_display_name",
           "default_alias",
+          "set_up",
           "browser_sign_in"
         ],
         "properties": {
@@ -17527,7 +17523,7 @@
           },
           "browser_sign_in": {
             "type": "boolean",
-            "description": "True for the `oauth` entry of a brokered flow in which the browser\nthat goes to the provider can first ask the Person to sign in to\nPagis. False on a local installation with Remote Access off,\nwhose start route asks for no Session, and for every other\nentry."
+            "description": "True for the `oauth` entry in which the browser that goes to the\nprovider can first ask the Person to sign in to Pagis. False on a\nlocal installation with Remote Access off, whose start route asks\nfor no Session, and for every other entry."
           },
           "capabilities": {
             "type": "array",
@@ -17574,6 +17570,10 @@
               "null"
             ],
             "description": "Where the user finds the values, e.g. `the Telnyx portal`."
+          },
+          "set_up": {
+            "type": "boolean",
+            "description": "False for the Google entry where the Org holds no Installation\nOAuth Client. The blurb then says that an administrator sets it\nup, and the picker offers no connect step."
           }
         }
       },

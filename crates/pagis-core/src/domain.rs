@@ -1509,14 +1509,12 @@ pub struct ModelAlias {
 /// model-visible, so it carries no ID and no secret.
 ///
 /// `config` is the trusted binding the provider needs — for Google, the
-/// account and the Desktop OAuth client. The user supplies it; nothing
-/// an agent wrote ever reaches it, and it holds no token.
+/// account that consented and the `gog` client name. Nothing an agent
+/// wrote ever reaches it, and it holds no token.
 ///
-/// `auth_mode` records who supplies the OAuth client: `byo`, where the
-/// user does, or `brokered`, where the installation does through its
-/// Installation OAuth Client. The mode belongs to the connection, not to
-/// the provider, because one installation can hold a client for a
-/// provider whose people bring their own on another installation.
+/// The kind of the provider's catalog entry says what the Connection
+/// holds: a credential that the Installation OAuth Client brokered, or a
+/// key that a Person or an Administrator supplied (ADR-0012).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Connection {
     pub id: crate::ConnectionId,
@@ -1525,7 +1523,6 @@ pub struct Connection {
     pub alias: String,
     pub display_name: String,
     pub status: String,
-    pub auth_mode: String,
     /// The named capabilities accepted by the provider in the latest
     /// successful authorization.
     pub authorized_capabilities: Vec<String>,
@@ -1536,7 +1533,7 @@ pub struct Connection {
 impl Connection {
     /// A record that carries its binding and has no live authorization.
     pub const DISCONNECTED: &'static str = "disconnected";
-    /// The user is at Google, and the daemon waits on 127.0.0.1.
+    /// The person is at Google, and the daemon waits for the redirect.
     pub const CONNECTING: &'static str = "connecting";
     /// The one status at which the broker offers a Connection's tools.
     pub const CONNECTED: &'static str = "connected";
@@ -1555,12 +1552,6 @@ impl Connection {
         Self::REAUTH_REQUIRED,
         Self::UNAVAILABLE,
     ];
-
-    /// The user supplies the OAuth client.
-    pub const AUTH_MODE_BYO: &'static str = "byo";
-    /// The installation supplies the OAuth client: its Installation OAuth
-    /// Client.
-    pub const AUTH_MODE_BROKERED: &'static str = "brokered";
 }
 
 /// One saved login in the Workspace vault (ADR-0013). The secret

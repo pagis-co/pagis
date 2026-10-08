@@ -8,12 +8,9 @@ use std::time::Duration;
 
 use pagis_agent::{Brain, BrainError, TurnRequest, TurnStream};
 use pagis_core::knowledge::{KnowledgeStore, SourceKey};
-use pagis_core::{
-    AgentId, AgentStore, Connection, ConnectionId, ConnectionStore, RunStore, ScheduleStore, now_ms,
-};
+use pagis_core::{AgentId, AgentStore, Connection, ConnectionId, RunStore, ScheduleStore, now_ms};
 use pagis_storage_sqlite::{
-    SqliteAgentStore, SqliteConnectionStore, SqliteKnowledgeStore, SqliteRunStore,
-    SqliteScheduleStore,
+    SqliteAgentStore, SqliteKnowledgeStore, SqliteRunStore, SqliteScheduleStore,
 };
 use pagis_testkit::evaluation::FixtureClock;
 use pagis_testkit::{Script, ScriptedBrain, TestDaemon, TestDaemonOptions};
@@ -297,15 +294,11 @@ async fn a_synced_arrival_has_a_model_message_but_no_channel_message_and_cancel_
         alias: "personal".into(),
         display_name: "Personal".into(),
         status: Connection::CONNECTED.into(),
-        auth_mode: Connection::AUTH_MODE_BYO.into(),
         authorized_capabilities: vec!["gmail_read".into()],
         config: json!({"account": "owner@example.com", "client": "test"}),
         created_at: now_ms(),
     };
-    SqliteConnectionStore::new(pool.clone())
-        .create(&connection)
-        .await
-        .unwrap();
+    daemon.plant_google_connection(&connection).await;
     *brain.connection_id.lock().unwrap() = Some(connection.id.to_string());
     let client = reqwest::Client::new();
     let grant = client

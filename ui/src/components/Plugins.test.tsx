@@ -99,7 +99,6 @@ const connection = {
   alias: 'work',
   display_name: 'Work Google',
   status: 'connected',
-  auth_mode: 'byo',
   account: 'ada@gmail.com',
   authorized_capabilities: ['calendar_read'],
   created_at: 1,

@@ -6,10 +6,8 @@ use std::time::Duration;
 
 use pagis_agent::{Brain, BrainError, TurnRequest, TurnStream};
 use pagis_core::knowledge::{KnowledgeStore, SourceKey};
-use pagis_core::{
-    AgentId, AgentStore, Connection, ConnectionId, ConnectionStore, WorkspaceId, now_ms,
-};
-use pagis_storage_sqlite::{SqliteAgentStore, SqliteConnectionStore, SqliteKnowledgeStore};
+use pagis_core::{AgentId, AgentStore, Connection, ConnectionId, WorkspaceId, now_ms};
+use pagis_storage_sqlite::{SqliteAgentStore, SqliteKnowledgeStore};
 use pagis_testkit::evaluation::FixtureClock;
 use pagis_testkit::{Script, ScriptedBrain, TestDaemon, TestDaemonOptions};
 use serde_json::{Value, json};
@@ -197,15 +195,11 @@ async fn connect(daemon: &TestDaemon) -> (SourceKey, SqliteKnowledgeStore) {
         alias: "personal".into(),
         display_name: "Personal".into(),
         status: Connection::CONNECTED.into(),
-        auth_mode: Connection::AUTH_MODE_BYO.into(),
         authorized_capabilities: vec!["gmail_read".into()],
         config: json!({"account": "owner@example.com", "client": "test"}),
         created_at: now_ms(),
     };
-    SqliteConnectionStore::new(pool.clone())
-        .create(&connection)
-        .await
-        .unwrap();
+    daemon.plant_google_connection(&connection).await;
     let grant = reqwest::Client::new()
         .post(format!("{}/api/v1/grants", daemon.base_url))
         .header("cookie", daemon.cookie())

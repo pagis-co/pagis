@@ -328,7 +328,6 @@ async fn sourced_chat_rereads_hide_revoked_text_in_every_projection() {
         alias: "source".into(),
         display_name: "Source".into(),
         status: "connected".into(),
-        auth_mode: "byo".into(),
         authorized_capabilities: vec!["gmail_read".into()],
         config: serde_json::json!({}),
         created_at: now_ms(),

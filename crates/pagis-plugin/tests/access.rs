@@ -38,7 +38,6 @@ impl Fixture {
                 alias: "work".to_string(),
                 display_name: "Work".to_string(),
                 status: Connection::CONNECTED.to_string(),
-                auth_mode: Connection::AUTH_MODE_BYO.to_string(),
                 authorized_capabilities: vec!["calendar.read".to_string()],
                 config: serde_json::json!({}),
                 created_at: now_ms(),

@@ -101,18 +101,19 @@ async fn workspace_id(daemon: &TestDaemon) -> WorkspaceId {
 /// Seed a connected Google Connection. The connect flow that writes
 /// this row for real has its own tests.
 async fn connect_google(daemon: &TestDaemon) {
-    sqlx::query(
-        "INSERT INTO connections \
-         (id, workspace_id, provider, alias, display_name, status, auth_mode, config, created_at) \
-         VALUES (?, ?, 'google', 'work', 'Google', 'connected', 'byo', ?, ?)",
-    )
-    .bind(CONNECTION_ID)
-    .bind(workspace_id(daemon).await.as_str())
-    .bind(r#"{"account":"alice@example.com","client":"work"}"#)
-    .bind(now_ms())
-    .execute(daemon.pool())
-    .await
-    .unwrap();
+    daemon
+        .plant_google_connection(&pagis_core::Connection {
+            id: pagis_core::ConnectionId::from(CONNECTION_ID.to_string()),
+            workspace_id: workspace_id(daemon).await,
+            provider: "google".to_string(),
+            alias: "work".to_string(),
+            display_name: "Google".to_string(),
+            status: pagis_core::Connection::CONNECTED.to_string(),
+            authorized_capabilities: Vec::new(),
+            config: serde_json::json!({"account": "alice@example.com", "client": "work"}),
+            created_at: now_ms(),
+        })
+        .await;
 }
 
 async fn grant(daemon: &TestDaemon, capabilities: &[&str]) -> GrantId {

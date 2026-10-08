@@ -1,12 +1,12 @@
 // The Connection list and the connect flow (ADR-0022).
 //
-// The flow is four steps — provider, your Google client, Google, done —
-// and the third step says plainly where the browser went and that the
-// daemon waits on 127.0.0.1 for the answer. A cancelled or refused
-// exchange returns to the second step with the entered values kept.
-//
-// Nothing typed here is stored: the client id and secret reach the
-// daemon once, which hands them to the provider and keeps neither.
+// The Google flow is four steps — provider, names, Google, done — and
+// the third step says plainly that Google opened in a new tab. The
+// person types no client and no account: the client is the
+// installation's (ADR-0012), and Google's account chooser picks the
+// account. A refused exchange returns to the second step with the names
+// kept. Where the installation holds no Google client, the entry says
+// that an administrator sets it up and offers no way on.
 //
 // The carrier account and the mail domain are Installation
 // Connections: an administrator sets them up in the Administration
@@ -50,6 +50,7 @@ import {
   CapabilityPicker,
   READ_ONLY_CONNECTION_CAPABILITIES,
 } from './ConnectionCapabilities'
+import { openAuthorization } from './connection/openAuthorization'
 import { AdministratorSetsUp } from './settings/AdministratorSetsUp'
 
 import './Connections.css'
@@ -406,10 +407,9 @@ function AccountDetail({
   const needsReconnect =
     connection.status === 'disconnected' ||
     connection.status === 'reauth_required'
-  const brokered = connection.auth_mode === 'brokered'
-  // A brokered connection sends the person to Google in their own
-  // browser and the card waits for the redirect to land.
-  const atGoogle = brokered && connection.status === 'connecting'
+  // The person goes to Google in their own browser, and the card waits
+  // for the redirect to land.
+  const atGoogle = connection.status === 'connecting'
   const start = (capabilities: string[]) =>
     authorize.mutate(
       { connectionId: connection.id, capabilities },
@@ -431,7 +431,7 @@ function AccountDetail({
         <Button
           size="sm"
           aria-label={`${needsReconnect ? 'Reconnect' : 'Change access for'} ${connection.display_name}`}
-          disabled={authorize.isPending || (!brokered && connection.status === 'connecting')}
+          disabled={authorize.isPending}
           onClick={() => {
             if (needsReconnect) {
               start(currentCapabilities)
@@ -457,11 +457,9 @@ function AccountDetail({
         <div className="connection-reauthorize">
           <CapabilityPicker selected={capabilities} onChange={setCapabilities} />
           <p className="settings-hint">
-            {!brokered
-              ? 'Pagis opens Google in your browser and waits on 127.0.0.1 for the answer.'
-              : browserSignIn
-                ? 'Pagis opens Google in a new tab. If that tab asks you to sign in to Pagis, sign in as yourself. Then grant the access at Google and come back to this page.'
-                : 'Pagis opens Google in a new tab. Grant the access there and come back to this page.'}
+            {browserSignIn
+              ? 'Pagis opens Google in a new tab. If that tab asks you to sign in to Pagis, sign in as yourself. Then grant the access at Google and come back to this page.'
+              : 'Pagis opens Google in a new tab. Grant the access there and come back to this page.'}
           </p>
           <Button
             variant="primary"
@@ -482,24 +480,15 @@ function AccountDetail({
   )
 }
 
-type Step = 'client' | 'google' | 'done'
+type Step = 'names' | 'google' | 'done'
 
-/** Open the start route that the authorize request answered. A brokered
- *  connection is finished in the person's own browser, on whatever
- *  machine they are on, so the client opens a tab and the record catches
- *  up. The start route sends a browser of this Person on to Google, and
- *  the Client App opens it in the system browser. */
-function openAuthorization(url: string | null | undefined) {
-  if (url != null && url !== '') window.open(url, '_blank', 'noopener')
-}
-
-/** The three-step connect flow. `onDone` closes it; the caller decides
+/** The connect flow of Google. `onDone` closes it; the caller decides
  *  whether that returns to the list or finishes an onboarding step.
  *  The provider is picked before this flow starts.
  *
- *  The entry says which shape the form takes: a brokered
- *  installation declares the account field alone, because the Google
- *  client is the installation's and the person supplies nothing. */
+ *  The person names the Connection and goes to Google, where they pick
+ *  the account and allow Pagis. An entry the installation has not set
+ *  up says who sets it up, and goes no further. */
 export function ConnectGoogle({
   api,
   entry,
@@ -514,21 +503,13 @@ export function ConnectGoogle({
   const remove = useDeleteConnection(api)
   const connections = useConnections(api)
   const refetchConnections = connections.refetch
-  const [step, setStep] = useState<Step>('client')
+  const [step, setStep] = useState<Step>('names')
   const [displayName, setDisplayName] = useState(entry.default_display_name)
   const [alias, setAlias] = useState('')
-  const [account, setAccount] = useState('')
-  const [clientId, setClientId] = useState('')
-  const [clientSecret, setClientSecret] = useState('')
   const [connectionId, setConnectionId] = useState<string | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
-  const brokered = !entry.fields.some((field) => field.key === 'client_id')
 
-  const ready =
-    alias.trim() !== '' &&
-    displayName.trim() !== '' &&
-    account.trim() !== '' &&
-    (brokered || (clientId.trim() !== '' && clientSecret !== ''))
+  const ready = alias.trim() !== '' && displayName.trim() !== ''
 
   // The connection reaches `connected` when Google redirects the person
   // back to this installation, which is another request entirely. The
@@ -543,12 +524,12 @@ export function ConnectGoogle({
     if (step === 'google' && connected) setStep('done')
   }, [step, connected])
   useEffect(() => {
-    if (step !== 'google' || !brokered) return
+    if (step !== 'google') return
     const poll = window.setInterval(() => {
       void refetchConnections()
     }, 1000)
     return () => window.clearInterval(poll)
-  }, [step, brokered, refetchConnections])
+  }, [step, refetchConnections])
 
   const connect = async () => {
     setFailure(null)
@@ -558,13 +539,7 @@ export function ConnectGoogle({
         provider: 'google',
         alias: alias.trim(),
         display_name: displayName.trim(),
-        fields: brokered
-          ? { account: account.trim() }
-          : {
-              account: account.trim(),
-              client_id: clientId.trim(),
-              client_secret: clientSecret,
-            },
+        fields: {},
       })
     } catch (error) {
       setFailure(errorMessage(error, 'That account could not be recorded.'))
@@ -577,25 +552,39 @@ export function ConnectGoogle({
         connectionId: created.id,
         capabilities: READ_ONLY_CONNECTION_CAPABILITIES,
       })
+      // The connection waits for the redirect, which the list reports.
       openAuthorization(answer.authorization_url)
-      // A local connection is finished when the request returns; a
-      // brokered one waits for the redirect, which the list reports.
-      if (answer.authorization_url == null) setStep('done')
     } catch (error) {
       // The record cannot be authorized and holds its alias, so the
-      // second step starts over from the values the user still sees.
+      // second step starts over from the names the user still sees.
       await remove.mutateAsync(created.id).catch(() => undefined)
       setConnectionId(null)
       setFailure(errorMessage(error, 'Google did not complete the connection.'))
-      setStep('client')
+      setStep('names')
     }
+  }
+
+  if (!entry.set_up) {
+    return (
+      <div className="connect-flow" aria-label="Connect Google">
+        <section>
+          <h4>Connect Google</h4>
+          <AdministratorSetsUp api={api}>
+            Google sign-in is not set up on this installation.
+          </AdministratorSetsUp>
+          <div className="settings-row-actions">
+            <Button onClick={onDone}>Cancel</Button>
+          </div>
+        </section>
+      </div>
+    )
   }
 
   return (
     <div className="connect-flow" aria-label="Connect Google">
-      {step === 'client' && (
+      {step === 'names' && (
         <section>
-          <h4>{brokered ? 'The account to connect' : 'Your Google client'}</h4>
+          <h4>Connect Google</h4>
           <p className="settings-hint">{entry.blurb}</p>
           <Input
             aria-label="Connection name"
@@ -609,29 +598,6 @@ export function ConnectGoogle({
             value={alias}
             onChange={(event) => setAlias(event.target.value)}
           />
-          <Input
-            aria-label="Google account"
-            placeholder="Google account, e.g. alice@example.com"
-            value={account}
-            onChange={(event) => setAccount(event.target.value)}
-          />
-          {!brokered && (
-            <>
-              <Input
-                aria-label="Client ID"
-                placeholder="Client ID"
-                value={clientId}
-                onChange={(event) => setClientId(event.target.value)}
-              />
-              <Input
-                aria-label="Client secret"
-                type="password"
-                placeholder="Client secret"
-                value={clientSecret}
-                onChange={(event) => setClientSecret(event.target.value)}
-              />
-            </>
-          )}
           {failure !== null && (
             <p className="settings-error" role="alert">
               {failure}
@@ -654,11 +620,9 @@ export function ConnectGoogle({
         <section aria-live="polite">
           <h4>Finish at Google</h4>
           <p className="settings-hint">
-            {brokered
-              ? entry.browser_sign_in
-                ? 'Google opened in a new tab. If that tab asks you to sign in to Pagis, sign in as yourself. Then sign in at Google and grant the read-only access Pagis asks for. This page turns over by itself when Google sends you back.'
-                : 'Google opened in a new tab. Sign in there and grant the read-only access Pagis asks for. This page turns over by itself when Google sends you back.'
-              : "Your browser has left for Google. Sign in there and grant the read-only access Pagis asks for. This page waits: Pagis is listening on 127.0.0.1 for Google's answer, and nothing leaves your machine except the sign-in itself."}
+            {entry.browser_sign_in
+              ? 'Google opened in a new tab. If that tab asks you to sign in to Pagis, sign in as yourself. Then pick the Google account and grant the read-only access Pagis asks for. This page turns over by itself when Google sends you back.'
+              : 'Google opened in a new tab. Pick the Google account there and grant the read-only access Pagis asks for. This page turns over by itself when Google sends you back.'}
           </p>
         </section>
       )}

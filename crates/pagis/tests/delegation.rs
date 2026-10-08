@@ -751,7 +751,6 @@ async fn connect(daemon: &TestDaemon, agent_id: &str) -> pagis_core::GrantId {
         alias: "work".into(),
         display_name: "Work mail".into(),
         status: "connected".into(),
-        auth_mode: "byo".into(),
         authorized_capabilities: vec!["gmail_read".into()],
         config: serde_json::json!({}),
         created_at: now_ms(),

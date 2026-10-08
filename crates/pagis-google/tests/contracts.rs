@@ -4,9 +4,8 @@ use pagis_broker::{
 use pagis_google::{
     AdapterError, BROWSE_QUERY, CalendarEvent, CalendarEventPatch, ConnectionBinding, EmailDraft,
     GOG_VERSION, GmailSearch, GogCommand, GoogleCall, GoogleCapability, INBOX_LABEL,
-    ProcessFailure, ProcessOutput, ProviderErrorCode, STARRED_LABEL, ScopeProfile, UNREAD_LABEL,
-    authorize_command, call_from_tool, install_client_command, is_write, manifest,
-    normalize_output, scope_profile,
+    ProcessFailure, ProcessOutput, ProviderErrorCode, STARRED_LABEL, UNREAD_LABEL, call_from_tool,
+    is_write, manifest, normalize_output,
 };
 
 /// The keyring of these bodies: the password is in memory, so no test
@@ -533,7 +532,6 @@ fn every_tool_call_builds_one_fixed_gog_argument_array() {
     for (call, expected) in cases {
         let command = GogCommand::for_call(&binding, &call).unwrap();
         assert_eq!(command.args(), expected);
-        assert!(command.stdin().is_none());
     }
 }
 
@@ -955,122 +953,6 @@ fn calendar_events_refuses_an_option_shaped_calendar_id() {
 }
 
 #[test]
-fn connect_flow_uses_stdin_for_the_desktop_client_and_loopback_auth() {
-    let binding = ConnectionBinding::new(
-        "alice@example.com",
-        "pagis-google-01",
-        "/tmp/pagis-test-gog-home",
-    )
-    .unwrap();
-    let credentials = br#"{"installed":{"client_id":"id","client_secret":"secret"}}"#;
-
-    let install = install_client_command(&binding, credentials).unwrap();
-    assert_eq!(
-        install.args(),
-        [
-            "--client",
-            "pagis-google-01",
-            "--no-input",
-            "--json",
-            "auth",
-            "credentials",
-            "set",
-            "-"
-        ]
-    );
-    assert_eq!(install.stdin(), Some(credentials.as_slice()));
-    assert!(!format!("{install:?}").contains("secret"));
-
-    let authorize = authorize_command(
-        &binding,
-        scope_profile([GoogleCapability::GmailRead, GoogleCapability::CalendarRead]),
-    );
-    assert_eq!(
-        authorize.args(),
-        [
-            "--client",
-            "pagis-google-01",
-            "--json",
-            "auth",
-            "add",
-            "alice@example.com",
-            "--services",
-            "gmail,calendar",
-            "--gmail-scope",
-            "readonly",
-            "--readonly",
-            "--listen-addr",
-            "127.0.0.1:0"
-        ]
-    );
-    assert!(authorize.stdin().is_none());
-
-    let modify = authorize_command(
-        &binding,
-        scope_profile([GoogleCapability::GmailRead, GoogleCapability::GmailModify]),
-    );
-    assert_eq!(
-        modify.args(),
-        [
-            "--client",
-            "pagis-google-01",
-            "--json",
-            "auth",
-            "add",
-            "alice@example.com",
-            "--services",
-            "gmail",
-            "--gmail-scope",
-            "readonly",
-            "--extra-scopes",
-            "https://www.googleapis.com/auth/gmail.modify",
-            "--listen-addr",
-            "127.0.0.1:0"
-        ]
-    );
-}
-
-#[test]
-fn scope_profiles_use_stock_gog_scope_modes() {
-    assert_eq!(
-        scope_profile([GoogleCapability::GmailRead, GoogleCapability::CalendarRead]),
-        ScopeProfile {
-            services: "gmail,calendar",
-            gmail_scope: Some("readonly"),
-            extra_scopes: vec![],
-            readonly: true,
-        }
-    );
-    assert_eq!(
-        scope_profile([GoogleCapability::GmailRead, GoogleCapability::GmailSend]),
-        ScopeProfile {
-            services: "gmail",
-            gmail_scope: Some("read-send"),
-            extra_scopes: vec![],
-            readonly: false,
-        }
-    );
-    assert_eq!(
-        scope_profile([GoogleCapability::GmailSend, GoogleCapability::CalendarWrite]),
-        ScopeProfile {
-            services: "gmail,calendar",
-            gmail_scope: Some("send"),
-            extra_scopes: vec![],
-            readonly: false,
-        }
-    );
-    assert_eq!(
-        scope_profile([GoogleCapability::GmailRead, GoogleCapability::GmailModify]),
-        ScopeProfile {
-            services: "gmail",
-            gmail_scope: Some("readonly"),
-            extra_scopes: vec!["https://www.googleapis.com/auth/gmail.modify"],
-            readonly: false,
-        }
-    );
-}
-
-#[test]
 fn the_shared_mail_tools_map_onto_the_pinned_gog_calls() {
     let cases = [
         (
@@ -1403,10 +1285,10 @@ fn a_gog_child_gets_no_gog_variable_of_the_daemon() {
             .collect::<Vec<_>>()
     };
 
-    let brokered = GogCommand::for_call(&binding, &call)
+    let minted = GogCommand::for_call(&binding, &call)
         .unwrap()
         .with_access_token("ya29.minted-by-the-daemon");
-    let environment = gog_environment(daemon(), &brokered, "keyring-password").unwrap();
+    let environment = gog_environment(daemon(), &minted, "keyring-password").unwrap();
     assert_eq!(
         environment.removed,
         [
@@ -1447,7 +1329,7 @@ fn a_gog_child_gets_no_gog_variable_of_the_daemon() {
     );
 }
 
-/// A `brokered` Connection's token is the daemon's. It reaches `gog`
+/// A Google Connection's token is the daemon's. It reaches `gog`
 /// through `GOG_ACCESS_TOKEN`, which bypasses `gog`'s own store, and
 /// never through an argument, which would put it in `ps`.
 #[cfg(unix)]
@@ -1472,25 +1354,25 @@ async fn the_daemons_access_token_reaches_gog_in_the_environment_only() {
     };
 
     let byo = GogCommand::for_call(&binding, &call).unwrap();
-    let brokered = GogCommand::for_call(&binding, &call)
+    let minted = GogCommand::for_call(&binding, &call)
         .unwrap()
         .with_access_token("ya29.minted-by-the-daemon");
 
     assert!(!byo.has_access_token());
     assert_eq!(runner.run(&byo).await.unwrap().stdout, b"none");
     assert_eq!(
-        runner.run(&brokered).await.unwrap().stdout,
+        runner.run(&minted).await.unwrap().stdout,
         b"ya29.minted-by-the-daemon"
     );
     assert!(
-        !brokered
+        !minted
             .args()
             .iter()
             .any(|arg| arg.contains("ya29.minted-by-the-daemon")),
         "the token must not reach the argument list"
     );
     // The `Debug` rendering says a token is held and never prints it.
-    let rendered = format!("{brokered:?}");
+    let rendered = format!("{minted:?}");
     assert!(rendered.contains("has_access_token: true"), "{rendered}");
     assert!(!rendered.contains("ya29."), "{rendered}");
 }

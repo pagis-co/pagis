@@ -322,9 +322,9 @@ async fn add_google_connection_as(
 ) {
     sqlx::query(
         "INSERT INTO connections \
-         (id, workspace_id, provider, alias, display_name, status, auth_mode, config, \
+         (id, workspace_id, provider, alias, display_name, status, config, \
          created_at) \
-         VALUES (?, ?, 'google', ?, 'Work Google', 'connected', 'byo', '{}', ?)",
+         VALUES (?, ?, 'google', ?, 'Work Google', 'connected', '{}', ?)",
     )
     .bind(id)
     .bind(harness.workspace.id.as_str())

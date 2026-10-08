@@ -17,7 +17,7 @@ pub struct MemoryConnectionStore {
     /// needs the same Grant store the daemon writes.
     grants: Arc<dyn GrantStore>,
     connections: Mutex<Vec<Connection>>,
-    /// The sealed refresh token of every `brokered` Connection, keyed
+    /// The sealed refresh token of every Google Connection, keyed
     /// the way the column is. It is off [`Connection`] here for
     /// the same reason it is off the row: one caller writes it.
     refresh_tokens: Mutex<HashMap<(WorkspaceId, ConnectionId), SealedSecret>>,

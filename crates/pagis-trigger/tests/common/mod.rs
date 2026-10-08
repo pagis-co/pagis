@@ -135,7 +135,6 @@ pub async fn world() -> World {
         alias: "work".to_string(),
         display_name: "Work mail".to_string(),
         status: Connection::CONNECTED.to_string(),
-        auth_mode: Connection::AUTH_MODE_BYO.to_string(),
         authorized_capabilities: vec![TEST_CAPABILITY.to_string()],
         config: serde_json::json!({"account": "user@example.com", "client": "work"}),
         created_at: NOW,

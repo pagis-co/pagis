@@ -16,10 +16,10 @@ use futures::StreamExt;
 use pagis_agent::{Brain, JsonSchemaFormat, TurnDelta, TurnMessage, TurnRequest};
 use pagis_core::{
     AgentId, AgentStore, AuthorKind, Channel, ChannelId, ChannelKind, ChannelParticipant,
-    ChannelStore, Connection, ConnectionId, ConnectionStore, EventLog, Grant, GrantId, GrantStore,
-    Message, MessageId, MessageStatus, MessageStore, ModelAliasStore, ParticipantId,
-    ParticipantKind, ParticipantStore, PendingEvidenceStore, RequestId, RequestStore, RunId,
-    RunState, RunStore, TriggerStore, WorkspaceId, WorkspaceStore,
+    ChannelStore, Connection, ConnectionId, EventLog, Grant, GrantId, GrantStore, Message,
+    MessageId, MessageStatus, MessageStore, ModelAliasStore, ParticipantId, ParticipantKind,
+    ParticipantStore, PendingEvidenceStore, RequestId, RequestStore, RunId, RunState, RunStore,
+    TriggerStore, WorkspaceId, WorkspaceStore,
     knowledge::{KnowledgeStore, SourceKey, SyncConfig},
     now_ms,
     subject_page::repair_json,
@@ -31,10 +31,9 @@ use pagis_evaluation::{
     StoreObservability, SystemFailures, Usage,
 };
 use pagis_storage_sqlite::{
-    SqliteAgentStore, SqliteChannelStore, SqliteConnectionStore, SqliteEventLog, SqliteGrantStore,
-    SqliteKnowledgeStore, SqliteMessageStore, SqliteModelAliasStore, SqliteParticipantStore,
-    SqlitePendingEvidenceStore, SqliteRequestStore, SqliteRunStore, SqliteTriggerStore,
-    SqliteWorkspaceStore,
+    SqliteAgentStore, SqliteChannelStore, SqliteEventLog, SqliteGrantStore, SqliteKnowledgeStore,
+    SqliteMessageStore, SqliteModelAliasStore, SqliteParticipantStore, SqlitePendingEvidenceStore,
+    SqliteRequestStore, SqliteRunStore, SqliteTriggerStore, SqliteWorkspaceStore,
 };
 use serde::Deserialize;
 
@@ -351,15 +350,11 @@ impl Replay {
             alias: "evaluation".into(),
             display_name: "Evaluation fixture".into(),
             status: Connection::CONNECTED.into(),
-            auth_mode: Connection::AUTH_MODE_BYO.into(),
             authorized_capabilities: vec!["gmail_read".into()],
             config: serde_json::json!({"account":"owner@fixture.invalid","client":"evaluation"}),
             created_at: clock.now_ms(),
         };
-        SqliteConnectionStore::new(pool.clone())
-            .create(&connection)
-            .await
-            .map_err(|error| error.to_string())?;
+        daemon.plant_google_connection(&connection).await;
         SqliteGrantStore::new(pool.clone())
             .create(&Grant {
                 id: GrantId::generate(),

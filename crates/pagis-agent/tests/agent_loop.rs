@@ -6595,7 +6595,6 @@ async fn source_harness(pool: SqlitePool) -> (Loop, Grant) {
         alias: "work".into(),
         display_name: "Work mail".into(),
         status: "connected".into(),
-        auth_mode: "byo".into(),
         authorized_capabilities: vec!["gmail_read".into()],
         config: serde_json::json!({}),
         created_at: now_ms(),

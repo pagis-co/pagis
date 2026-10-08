@@ -111,11 +111,7 @@ fn a_secret_field_is_marked_and_a_port_is_a_number_with_a_default() {
 
 #[test]
 fn the_declared_fields_are_what_the_parser_reads() {
-    // Both shapes of the catalog: the local one, where the person
-    // supplies a Google Desktop client, and the brokered one, where the
-    // installation holds a Web client and the form asks for the account
-    // alone.
-    for entry in catalog().iter().chain(person_catalog(true).iter()) {
+    for entry in catalog() {
         let values: BTreeMap<String, String> = entry
             .fields
             .iter()
@@ -221,42 +217,43 @@ fn the_plivo_entry_declares_texting_absent_and_the_others_carry_it() {
     }
 }
 
-/// A brokered installation's Google entry asks for the account alone,
-/// and it says the client is the installation's.
+/// A person types nothing to connect Google: no client id, no client
+/// secret and no account. Google's own account chooser and consent
+/// screen are the whole form (ADR-0012).
 #[test]
-fn the_brokered_google_entry_asks_for_the_account_alone() {
-    let brokered = person_catalog(true);
-    let google = brokered
-        .iter()
-        .find(|entry| entry.id == "google")
-        .expect("the google entry");
-
-    assert_eq!(
-        google
-            .fields
-            .iter()
-            .map(|field| field.key)
-            .collect::<Vec<_>>(),
-        vec!["account"]
-    );
+fn the_google_entry_asks_for_nothing() {
+    let google = entry("google").unwrap();
+    assert!(google.fields.is_empty(), "{:?}", google.fields);
+    assert_eq!(google.portal, None);
     assert!(
-        google
-            .blurb
-            .contains("this installation's own Google client"),
+        google.blurb.contains("Sign in at Google"),
         "{}",
         google.blurb
     );
-    // Every other entry is the same list, and the local shape still
-    // asks for the Desktop client.
-    assert_eq!(brokered.len(), person_catalog(false).len());
+}
+
+/// The Google entry works only where an Administrator set up the
+/// Installation OAuth Client, and it says who does that.
+#[test]
+fn the_google_entry_says_whether_the_installation_set_it_up() {
+    let google = |client: bool| {
+        person_catalog(client)
+            .into_iter()
+            .find(|provider| provider.entry.id == "google")
+            .expect("the google entry")
+    };
+
+    let ready = google(true);
+    assert!(ready.set_up);
+    assert_eq!(ready.entry, *entry("google").unwrap());
+
+    let waiting = google(false);
+    assert!(!waiting.set_up);
+    assert!(waiting.entry.fields.is_empty());
     assert!(
-        person_catalog(false)
-            .iter()
-            .find(|entry| entry.id == "google")
-            .unwrap()
-            .fields
-            .iter()
-            .any(|field| field.key == "client_secret")
+        waiting.entry.blurb.contains("Administration Interface"),
+        "{}",
+        waiting.entry.blurb
     );
 }
 
@@ -265,17 +262,29 @@ fn the_brokered_google_entry_asks_for_the_account_alone() {
 /// administrator sets them up in the Administration Interface.
 #[test]
 fn the_person_catalog_holds_no_installation_connection() {
-    for brokered in [false, true] {
-        let ids: Vec<&str> = person_catalog(brokered)
+    for client in [false, true] {
+        let ids: Vec<&str> = person_catalog(client)
             .iter()
-            .map(|entry| entry.id)
+            .map(|provider| provider.entry.id)
             .collect();
-        assert_eq!(ids, vec!["google"], "brokered: {brokered}");
+        assert_eq!(ids, vec!["google"], "client: {client}");
     }
     for id in ["telnyx", "twilio", "plivo", "migadu", "manual"] {
         assert!(is_installation_provider(id), "{id}");
     }
     assert!(!is_installation_provider("google"));
+}
+
+/// Google expires a refresh token after seven days while the consent
+/// screen of its client is in Testing. The Administrator reads that
+/// before they register the client.
+#[test]
+fn the_oauth_client_part_tells_the_administrator_to_publish_the_consent_screen() {
+    let setup = installation_setup("google").unwrap();
+    let blurb = setup.parts[0].blurb;
+    assert!(blurb.contains("Testing"), "{blurb}");
+    assert!(blurb.contains("Internal"), "{blurb}");
+    assert!(!blurb.contains("Desktop"), "{blurb}");
 }
 
 /// Every provider declares its installation parts in one place, and
