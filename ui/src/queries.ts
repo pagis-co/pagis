@@ -106,6 +106,10 @@ export const mailboxNameKey = (connectionId: string, localPart: string) =>
   ["mailbox-name", connectionId, localPart] as const;
 export const trustListKey = ["trust-list"] as const;
 export const callKey = (callId: string) => ["call", callId] as const;
+export const codingSessionKey = (sessionId: string) =>
+  ["coding-session", sessionId] as const;
+export const codingSessionEventsKey = (sessionId: string) =>
+  ["coding-session-events", sessionId] as const;
 export const mailMessageKey = (mailbox: string, messageId: string) =>
   ["mail-message", mailbox, messageId] as const;
 export const availableNumbersKey = (
@@ -2475,6 +2479,52 @@ export function useCall(api: ApiClient, callId: string) {
       ),
     staleTime: Infinity,
   });
+}
+
+/** One Coding Session record (ADR-0033). A `coding_session.*` frame of
+ *  the session invalidates it. */
+export function useCodingSession(api: ApiClient, sessionId: string) {
+  return useQuery({
+    queryKey: codingSessionKey(sessionId),
+    queryFn: () =>
+      unwrap(
+        api.GET("/api/v1/coding-sessions/{coding_session_id}", {
+          params: { path: { coding_session_id: sessionId } },
+        }),
+      ),
+    staleTime: Infinity,
+  });
+}
+
+/** The largest page of a transcript that the daemon gives. */
+const TRANSCRIPT_PAGE = 500;
+
+/** The whole transcript of a Coding Session, oldest row first. The
+ *  daemon gives it in pages after a `seq`, and the hook reads each page
+ *  until the last, because the session page folds every row. A
+ *  `coding_session.*` frame of the session invalidates it, and the
+ *  pages are read again. */
+export function useCodingSessionEvents(api: ApiClient, sessionId: string) {
+  const query = useInfiniteQuery({
+    queryKey: codingSessionEventsKey(sessionId),
+    initialPageParam: undefined as number | undefined,
+    queryFn: ({ pageParam }) =>
+      unwrap(
+        api.GET("/api/v1/coding-sessions/{coding_session_id}/transcript", {
+          params: {
+            path: { coding_session_id: sessionId },
+            query: { after: pageParam, limit: TRANSCRIPT_PAGE },
+          },
+        }),
+      ),
+    getNextPageParam: (page) => page.next_after ?? undefined,
+    staleTime: Infinity,
+  });
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = query;
+  useEffect(() => {
+    if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+  return query;
 }
 
 /** One message, read live through the daemon for the mail inspector

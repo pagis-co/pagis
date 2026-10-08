@@ -766,7 +766,10 @@ async fn the_updates_of_a_turn_make_their_rows_and_its_end_makes_the_session_idl
     );
     assert_eq!(rows[2].payload["toolCallId"], "call-1");
     assert_eq!(rows[3].payload["status"], "completed");
-    assert_eq!(rows[4].payload["entries"][0]["content"], "Run the tests");
+    assert_eq!(
+        rows[4].payload["entries"][0],
+        json!({"content": "Run the tests", "priority": "high", "status": "completed"})
+    );
     assert_eq!(rows[5].payload["used"], 1200);
     assert_eq!(rows[6].payload, json!({"stop_reason": "max_tokens"}));
 
@@ -859,6 +862,7 @@ async fn a_permission_request_waits_in_needs_decision_and_gets_reject_once(pool:
     let rows = world.wait_for_row(&session.id, Kind::TurnEnd).await;
     let decided = &rows_of(&rows, Kind::Decision)[0].payload;
     assert_eq!(decided["decision"], "reject_once");
+    assert_eq!(decided["decider"], "person");
     assert_eq!(decided["ask_id"], asked["ask_id"]);
     assert_eq!(
         place.harness().answers()[0].as_ref().unwrap(),
@@ -1174,10 +1178,9 @@ async fn policy_allows_an_edit_inside_the_directory_once_with_the_scope_as_decid
     let asked = &rows_of(&rows, Kind::Permission)[0].payload;
     assert_eq!(asked["waits_for"], Value::Null);
     assert_eq!(asked["kind"], "edit");
-    assert_eq!(
-        rows_of(&rows, Kind::Decision)[0].payload["decision"],
-        "allow_once"
-    );
+    let decided = &rows_of(&rows, Kind::Decision)[0].payload;
+    assert_eq!(decided["decision"], "allow_once");
+    assert_eq!(decided["decider"], "scope");
     let facts = world.wait_for_facts(1).await;
     assert_eq!(facts[0].agent_id.as_ref(), Some(&world.agent_id));
     assert_eq!(facts[0].run_id, None);

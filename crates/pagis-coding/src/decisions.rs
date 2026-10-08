@@ -8,6 +8,7 @@
 
 use async_trait::async_trait;
 use futures::future::BoxFuture;
+use pagis_broker::Decider;
 use pagis_core::CodingSession;
 use serde::{Deserialize, Serialize};
 
@@ -33,7 +34,9 @@ pub trait SessionDecisions: Send + Sync {
 /// The answer to an ask.
 pub enum Pending<T> {
     /// The daemon answers at once, and the session does not wait.
-    Decided(T),
+    /// `decider` names the Pagis policy that decided a permission. A
+    /// question has none.
+    Decided { answer: T, decider: Option<Decider> },
     /// The ask waits for its answer, and the session is `needs_decision`
     /// until it comes.
     Waits {
@@ -61,6 +64,16 @@ pub enum WaitsFor {
     Person,
     /// The supervising Agent.
     Agent,
+}
+
+impl WaitsFor {
+    /// The decider of an answer that this party gives.
+    pub fn decider(self) -> Decider {
+        match self {
+            WaitsFor::Person => Decider::Person,
+            WaitsFor::Agent => Decider::Agent,
+        }
+    }
 }
 
 /// Refuses each ask: it rejects each permission once and cancels each

@@ -116,5 +116,42 @@ export function shellResponse(path: string): { data: unknown } {
       },
     }
   }
+  if (path === '/api/v1/coding-sessions/{coding_session_id}') {
+    return { data: codingSession }
+  }
+  if (path === '/api/v1/coding-sessions/{coding_session_id}/transcript') {
+    return {
+      data: {
+        items: [{ seq: 1, at: 1, kind: 'prompt', payload: { text: 'Fix the login bug', message_id: null } }],
+        next_after: null,
+      },
+    }
+  }
   return { data: { items: [] } }
+}
+
+/** The Coding Session of the shell stub: Sage runs Claude Code on a
+ *  laptop, and its Thread is `message-1` of `channel-2`. */
+export const codingSession = {
+  id: 'session-1',
+  agent_id: 'agent-1',
+  run_id: 'run-1',
+  channel_id: 'channel-2',
+  root_message_id: 'message-1',
+  message_id: 'message-2',
+  place: 'host',
+  host_id: 'host-1',
+  machine_name: 'Ada’s laptop',
+  harness_id: 'claude-code',
+  harness_name: 'Claude Code',
+  harness_version: '2.1.0',
+  title: 'Fix the login bug',
+  directory: '/Users/ada/src/app',
+  working_directory: '/Users/ada/src/app/.worktrees/fix-login',
+  worktree_branch: 'pagis/fix-login',
+  approval_mode: 'person',
+  state: 'working',
+  usage: { context_used: 76_000, context_size: 200_000, cost_amount: null, cost_currency: null },
+  created_at: 1,
+  updated_at: 1,
 }

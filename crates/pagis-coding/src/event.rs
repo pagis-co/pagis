@@ -97,7 +97,17 @@ pub struct Location {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlanEntry {
     pub content: String,
+    pub priority: PlanPriority,
     pub status: PlanStatus,
+}
+
+/// How much a plan entry matters to the agent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlanPriority {
+    High,
+    Medium,
+    Low,
 }
 
 /// The state of a plan entry.
@@ -171,6 +181,7 @@ impl SessionEvent {
                     .into_iter()
                     .map(|entry| PlanEntry {
                         content: entry.content,
+                        priority: PlanPriority::from_acp(&entry.priority),
                         status: PlanStatus::from_acp(&entry.status),
                     })
                     .collect(),
@@ -228,6 +239,17 @@ impl PlanStatus {
             acp::PlanEntryStatus::Completed => Self::Completed,
             // `pending`, and a status that a later ACP release adds.
             _ => Self::Pending,
+        }
+    }
+}
+
+impl PlanPriority {
+    fn from_acp(priority: &acp::PlanEntryPriority) -> Self {
+        match priority {
+            acp::PlanEntryPriority::High => Self::High,
+            acp::PlanEntryPriority::Low => Self::Low,
+            // `medium`, and a priority that a later ACP release adds.
+            _ => Self::Medium,
         }
     }
 }

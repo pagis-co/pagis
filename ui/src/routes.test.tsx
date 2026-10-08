@@ -91,6 +91,13 @@ describe('deep URLs', () => {
     expect(history.location.pathname).toBe('/c/channel-1')
   })
 
+  it('renders the session page at the address of a Coding Session', async () => {
+    mount('/coding/session-1')
+
+    expect(await screen.findByRole('heading', { name: 'Fix the login bug' })).toBeTruthy()
+    expect(screen.getByText('Claude Code')).toBeTruthy()
+  })
+
   it('renders the sprites URL', async () => {
     mount('/sprites')
 

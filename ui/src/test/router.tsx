@@ -1,8 +1,9 @@
 // A router around one component under test. A row that links to
-// a run needs the router that owns `/runs`, and the Thread header links
-// the Agent at `/agents`; the test router holds the component and a
-// stand-in view for each, so a click on the link is answered in the
-// same document and nothing reloads.
+// a run needs the router that owns `/runs`, the Thread header links
+// the Agent at `/sprites`, and the session page links its Thread; the
+// test router holds the component and a stand-in view for each, so a
+// click on the link is answered in the same document and nothing
+// reloads.
 
 import {
   Outlet,
@@ -34,8 +35,13 @@ export function renderInRouter(ui: ReactNode): RouterHistory {
     path: '/sprites/$agentId',
     component: () => <div data-testid="agent-view">the agent</div>,
   })
+  const threadRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/c/$channelId/t/$messageId',
+    component: () => <div data-testid="thread-view">the thread</div>,
+  })
   const router = createRouter({
-    routeTree: rootRoute.addChildren([indexRoute, runRoute, agentRoute]),
+    routeTree: rootRoute.addChildren([indexRoute, runRoute, agentRoute, threadRoute]),
     history,
   })
   render(<RouterProvider router={router as never} />)

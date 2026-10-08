@@ -41,7 +41,8 @@ pub use ask::{
 pub use decisions::{Pending, RefuseDecisions, SessionDecisions, WaitsFor};
 pub use error::CodingError;
 pub use event::{
-    Cost, Location, PlanEntry, PlanStatus, SessionEvent, StopReason, ToolKind, ToolStatus,
+    Cost, Location, PlanEntry, PlanPriority, PlanStatus, SessionEvent, StopReason, ToolKind,
+    ToolStatus,
 };
 pub use place::{
     OpenFailure, OpenFailureCode, OpenRequest, OpenedStream, PlaceStream, SessionExit,

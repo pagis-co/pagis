@@ -656,7 +656,7 @@ impl SessionAsks {
 
     /// Records the ask and, when it comes, its answer. The row of the
     /// ask names who the session waits for, or none for an answer that
-    /// the daemon gives at once.
+    /// the daemon gives at once. The row of a decision names its decider.
     async fn answer<T: serde::Serialize>(
         &self,
         ask_id: String,
@@ -664,9 +664,9 @@ impl SessionAsks {
         mut payload: Value,
         pending: Pending<T>,
     ) -> T {
-        let waits_for = match &pending {
-            Pending::Decided(_) => None,
-            Pending::Waits { waits_for, .. } => Some(*waits_for),
+        let (waits_for, decider) = match &pending {
+            Pending::Decided { decider, .. } => (None, *decider),
+            Pending::Waits { waits_for, .. } => (Some(*waits_for), Some(waits_for.decider())),
         };
         payload["waits_for"] = json!(waits_for);
         self.send(Command::Asked {
@@ -676,17 +676,16 @@ impl SessionAsks {
             waits: waits_for.is_some(),
         });
         let answer = match pending {
-            Pending::Decided(answer) => answer,
+            Pending::Decided { answer, .. } => answer,
             Pending::Waits { answer, .. } => answer.await,
         };
-        let field = match ask {
-            AskKind::Permission => "decision",
-            AskKind::Question => "answer",
+        let payload = match ask {
+            AskKind::Permission => {
+                json!({"ask_id": ask_id, "decision": answer, "decider": decider})
+            }
+            AskKind::Question => json!({"ask_id": ask_id, "answer": answer}),
         };
-        self.send(Command::Answered {
-            payload: json!({"ask_id": ask_id, field: answer}),
-            ask_id,
-        });
+        self.send(Command::Answered { payload, ask_id });
         answer
     }
 }

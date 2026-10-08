@@ -381,7 +381,7 @@ answers each pending request with `cancelled`.
 
 Each decision is recorded two times. The transcript holds a `permission` row
 when the request arrives, with whom the session waits for, and a `decision`
-row when it is answered. The bus holds one audit fact, the event
+row with its decider when it is answered. The bus holds one audit fact, the event
 `coding_session.permission_decided` with no Run. It holds the session, the
 Agent, the Host, the tool call id, the tool kind, the command, the
 locations, the decider, the outcome (`allowed` or `cancelled`), the selected
@@ -437,6 +437,11 @@ does. `coding_session.changed` reports a write of the record.
 by merges at most once a second. A client then reads the rows from the
 highest `seq` that it holds, less one. No event carries the text of a row or
 the title of a session.
+
+The Product App shows one session at `/coding/<id>`, in the main pane as a
+Run is: its head, its last plan, and its transcript as messages, tool calls
+and one line for each ask. An event of the session makes the page read the
+record and every page of the transcript again.
 
 ### The session's Thread shows a daemon-made block
 
@@ -504,7 +509,6 @@ Other ways were considered:
 - The question in the daemon.
 - Harness Sign-In.
 - The session block in the Product App.
-- The session page.
 - The diffs on the session page.
 - The Coding place.
 - Harness Sign-In in Settings.
