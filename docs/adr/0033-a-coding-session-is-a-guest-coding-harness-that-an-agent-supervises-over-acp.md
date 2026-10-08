@@ -334,7 +334,6 @@ Other ways were considered:
 
 ## Not built
 
-- The ACP client.
 - The Harness Catalog.
 - The Coding Session records.
 - The session socket in the daemon.

@@ -31,7 +31,8 @@ pub enum Error {
         kind: ErrorKind,
         message: String,
         /// The raw provider error payload, when it was parseable JSON.
-        raw: Option<Value>,
+        /// It is boxed so that every `Result` of the crate stays small.
+        raw: Option<Box<Value>>,
     },
 
     #[error("invalid response from provider `{provider}`: {message}")]
@@ -112,7 +113,7 @@ impl Error {
     /// `None` when no provider answered with an error status.
     pub fn provider_response(&self) -> Option<(u16, Option<&Value>)> {
         match self {
-            Error::Provider { status, raw, .. } => Some((*status, raw.as_ref())),
+            Error::Provider { status, raw, .. } => Some((*status, raw.as_deref())),
             Error::Exhausted { last, .. } => last.provider_response(),
             _ => None,
         }

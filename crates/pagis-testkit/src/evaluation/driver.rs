@@ -1763,9 +1763,9 @@ mod tests {
                 status: 429,
                 kind: llm_router::ErrorKind::RateLimit,
                 message: "You have no credits remaining".into(),
-                raw: Some(serde_json::json!({
+                raw: Some(Box::new(serde_json::json!({
                     "error": {"message": "You have no credits remaining"}
-                })),
+                }))),
             }),
         };
         brain.push(Script::fail_after(&["Half"], &error.to_string()));

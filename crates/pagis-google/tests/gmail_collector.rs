@@ -230,19 +230,21 @@ fn the_mail_manifest_declares_the_one_event_kind_and_google_declares_none() {
         declared.filter_schema["additionalProperties"], false,
         "a filter cannot widen past the declaration"
     );
-    assert!(
-        declared.filter_schema["properties"]
-            .as_object()
-            .expect("filter fields")
-            .keys()
-            .eq([
-                "mailbox",
-                "min_trust",
-                "replies_only",
-                "senders",
-                "subject_contains"
-            ]
-            .iter()),
+    let filter_fields: std::collections::BTreeSet<&str> = declared.filter_schema["properties"]
+        .as_object()
+        .expect("filter fields")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(
+        filter_fields,
+        std::collections::BTreeSet::from([
+            "mailbox",
+            "min_trust",
+            "replies_only",
+            "senders",
+            "subject_contains"
+        ]),
         "the five typed filter fields ADR-0019 fixes"
     );
     assert!(

@@ -159,7 +159,9 @@ The one enforcement point for everything an Agent may touch (ADR-0005).
 - **Hosts.** A Host is one of a Person's own machines, reached through the
   Client App running on it (ADR-0015). A host action never runs in the
   daemon. The Grant names the machine, approval is on by default, and an
-  allow rule belongs to that one machine.
+  allow rule belongs to that one machine. The daemon is the ACP client of
+  each Coding Session (`crates/pagis-coding`), and the Client App only
+  pipes the bytes (ADR-0033).
 
 ### Memory
 

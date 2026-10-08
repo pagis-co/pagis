@@ -1029,7 +1029,7 @@ address and no private address that the Administrator did not allow
 An external coding agent program that Pagis drives over ACP, such as Claude
 Code, Codex, OpenCode, pi, Gemini CLI, Copilot CLI or Cursor CLI. It owns its
 own loop, so memory, the Briefing, Grants and Threads do not reach inside
-it. It is not an Agent. Not built (ADR-0033).
+it. It is not an Agent (ADR-0033).
 _Avoid_: coding agent, worker
 
 ### Coding Session
