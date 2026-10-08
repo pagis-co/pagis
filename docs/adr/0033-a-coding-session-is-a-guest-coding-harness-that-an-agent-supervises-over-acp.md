@@ -174,6 +174,21 @@ it. The harness gets that environment, so it runs as it runs in the Person's
 terminal. The variables stay on the machine. When the login shell fails, the
 Client App answers with the error and does not use its own environment.
 
+For a request with a `worktree`, the Client App makes a git worktree before
+it answers. It runs `git -C <repo> worktree add -b <branch> <path> <base>`
+with the git of the login shell, so the repository's own hooks run as in the
+Person's terminal. `base` is a ref of the local repository, and the Client
+App does not fetch. The worktree is at
+`~/.pagis-worktrees/<base name of repo>/<branch with each "/" as "-">`, apart
+from the Person's repositories. It is not in the State Directory, because a
+Backup copies that directory. The process runs in the worktree, at the same
+relative path as `cwd` in `repo`, and the answer gives that directory. A
+`repo` that is not an absolute path to a directory, or a `cwd` outside
+`repo`, answers `bad_directory`. A failure of git, such as a branch or a
+path that exists, answers `worktree_failed` with git's message. Pagis does
+not remove a worktree: it holds the Agent's work after the session ends, and
+the Person removes it with `git worktree remove`.
+
 When the process exits, the Client App closes the stream and sends a
 `session_exit` text frame on the Host socket with the session id, the exit
 code and the last 4 KB of stderr.
@@ -391,7 +406,6 @@ Other ways were considered:
 
 ## Not built
 
-- The worktree in the Client App.
 - The harness capabilities of a Host.
 - The start and the updates in the daemon.
 - The core tools.

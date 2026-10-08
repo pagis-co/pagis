@@ -15,7 +15,9 @@
 //    `{"ok": true, "cwd": "<the directory the process runs in>"}`, or
 //    `{"ok": false, "error": "<code>", "message": "..."}`. The codes are
 //    `not_found`, `bad_directory`, `worktree_failed` and `spawn_failed`.
-//    After a refusal, the client ends the stream.
+//    After a refusal, the client ends the stream. For a request with a
+//    `worktree`, the client makes the git worktree before it answers, and
+//    the process runs in it (`./worktree`).
 // 3. After `ok`, the stream carries the raw stdin and stdout of the
 //    process. When the process exits, the client ends the stream and sends
 //    a `session_exit` frame on its Host socket.
@@ -26,8 +28,8 @@
 // A process that outlives its stream answers nobody.
 //
 // This module uses only erasable TypeScript syntax and imports only Node
-// built-ins, `./byteSocket`, `./loginShell`, `./streamLine` and `./yamux`,
-// so plain `node` loads it in the interop test of the daemon
+// built-ins, `./byteSocket`, `./loginShell`, `./streamLine`, `./worktree`
+// and `./yamux`, so plain `node` loads it in the interop test of the daemon
 // (`test/session-peer.ts`).
 
 import { spawn } from 'node:child_process'
@@ -42,6 +44,8 @@ import type { ByteSocket } from './byteSocket'
 import { openByteSocket } from './byteSocket'
 import { findOnPath, loginShellEnvironment } from './loginShell'
 import { readLine } from './streamLine'
+import type { Worktree, WorktreeRequest } from './worktree'
+import { BadDirectoryError, homePath, makeWorktree } from './worktree'
 import { YamuxSession } from './yamux'
 
 /** The longest open request, with its line feed. */
@@ -69,7 +73,7 @@ export interface OpenRequest {
   args: string[]
   cwd: string
   env: Record<string, string>
-  worktree: { repo: string; branch: string; base: string } | null
+  worktree: Worktree | null
 }
 
 /** The Host socket frame that tells how the process of a session ended.
@@ -124,10 +128,8 @@ export async function startSession(stream: Duplex, deps: SessionDeps): Promise<v
   let env: Record<string, string>
   try {
     request = parseRequest(await readLine(stream, REQUEST_LIMIT, REQUEST_TIMEOUT_MS))
-    if (request.worktree !== null) {
-      throw new Refusal('worktree_failed', 'This Client App makes no worktree')
-    }
-    cwd = await resolveDirectory(request.cwd, deps.home ?? os.homedir())
+    const home = deps.home ?? os.homedir()
+    cwd = await resolveDirectory(request.cwd, home)
     let shell: Record<string, string>
     try {
       shell = await (deps.environment ?? loginShellEnvironment)()
@@ -139,6 +141,11 @@ export async function startSession(stream: Duplex, deps: SessionDeps): Promise<v
       throw new Refusal('not_found', `${request.command} is not on the PATH of the login shell`)
     }
     file = found
+    // The worktree comes after the command lookup, so a missing command
+    // leaves no worktree behind.
+    if (request.worktree !== null) {
+      cwd = await worktreeDirectory(stream, { home, cwd, worktree: request.worktree }, shell)
+    }
     env = { ...shell, ...request.env }
   } catch (error) {
     refuse(stream, error instanceof Refusal ? error.code : 'spawn_failed', messageOf(error))
@@ -276,12 +283,34 @@ function isWorktree(value: unknown): boolean {
 }
 
 /**
+ * Make the worktree of the request, and give the directory of the process
+ * in it. A stream that closes while git runs stops git.
+ */
+async function worktreeDirectory(
+  stream: Duplex,
+  request: WorktreeRequest,
+  env: Record<string, string>,
+): Promise<string> {
+  const abort = new AbortController()
+  const stop = (): void => abort.abort()
+  stream.once('close', stop)
+  if (stream.destroyed) stop()
+  try {
+    return await makeWorktree(request, env, abort.signal)
+  } catch (error) {
+    throw new Refusal(error instanceof BadDirectoryError ? 'bad_directory' : 'worktree_failed', messageOf(error))
+  } finally {
+    stream.off('close', stop)
+  }
+}
+
+/**
  * The directory of the process. `~`, and a path that starts with `~/`,
- * resolve against the home directory of the OS user, because the daemon
- * does not know it. Any other path must be absolute.
+ * resolve against the home directory of the OS user. Any other path must
+ * be absolute.
  */
 async function resolveDirectory(cwd: string, home: string): Promise<string> {
-  const resolved = cwd === '~' ? home : cwd.startsWith('~/') ? path.join(home, cwd.slice(2)) : cwd
+  const resolved = homePath(cwd, home)
   if (!path.isAbsolute(resolved)) {
     throw new Refusal('bad_directory', `the directory ${cwd} is not an absolute path`)
   }

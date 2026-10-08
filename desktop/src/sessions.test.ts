@@ -4,7 +4,7 @@
 // `process.execPath`, with a fake login-shell environment. The last case
 // runs the interop harness of the daemon's test under plain node.
 
-import { spawn } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -257,17 +257,27 @@ describe('a session stream', () => {
     daemon.end()
   })
 
-  it('answers worktree_failed for a request with a worktree', async () => {
-    const { daemon, answer } = session()
+  it('answers with the directory in the worktree for a request with a worktree', async () => {
+    const home = directory()
+    const repo = path.join(directory(), 'app')
+    mkdirSync(repo)
+    // The git configuration of the person who runs the tests does not
+    // apply.
+    const gitEnvironment = { PATH: process.env.PATH ?? '', GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' }
+    const git = (...args: string[]) =>
+      execFileSync('git', ['-C', repo, '-c', 'user.name=Test', '-c', 'user.email=test@example.com', ...args], {
+        env: gitEnvironment,
+      })
+    git('init', '--quiet', '--initial-branch=main')
+    git('commit', '--quiet', '--allow-empty', '--message=start')
+    const { daemon, answer } = session({ home, environment: async () => ({ ...gitEnvironment }) })
 
-    daemon.write(request(directory(), { worktree: { repo: '/code/app', branch: 'pagis/fix', base: 'main' } }))
+    daemon.write(
+      request(repo, { command: process.execPath, worktree: { repo, branch: 'pagis/fix', base: 'main' } }),
+    )
 
-    expect(await answer()).toEqual({
-      ok: false,
-      error: 'worktree_failed',
-      message: 'This Client App makes no worktree',
-    })
-    await ended(daemon)
+    expect(await answer()).toEqual({ ok: true, cwd: path.join(home, '.pagis-worktrees', 'app', 'pagis-fix') })
+    daemon.end()
   })
 
   it('answers spawn_failed when the process does not start', async () => {
