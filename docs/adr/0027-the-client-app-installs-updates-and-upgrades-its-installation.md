@@ -95,8 +95,8 @@ check its Updates, and openpgp.js is LGPL-3.0, while the Client App is MIT.
 
 ### Restart to Update
 
-1. When Runs are in progress, the Client App says how many, and asks before
-   it continues.
+1. When Runs are in progress or Coding Sessions run on this computer
+   (ADR-0033), the Client App says how many, and asks before it continues.
 2. The Client App stops its daemon. Each Run in progress fails, as it does at
    every restart.
 3. The Update installs, and the new Client App starts.
