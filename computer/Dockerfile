@@ -1,7 +1,8 @@
 # The agent computer image: debian:trixie-slim with
 # labwc 0.9.8 + wlroots 0.19 built from source (the trixie apt versions
 # lack ext-image-copy-capture-v1), Chromium on ozone/wayland maximized,
-# foot, and the pagis screen daemon. The daemon pulls this image from
+# foot, the pagis screen daemon, and the Coding Harnesses that run in a
+# Computer. The daemon pulls this image from
 # GHCR at boot or when an agent wakes, so an installation works only
 # while the pinned tag is on the registry. One command builds both
 # architectures and pushes it:
@@ -139,6 +140,42 @@ RUN set -eux; \
     ln -s ../lib/node_modules/pnpm/bin/pnpm.mjs /opt/node/bin/pnpm; \
     ln -s ../lib/node_modules/pnpm/bin/pnpx.mjs /opt/node/bin/pnpx
 
+# The Coding Harnesses that run in a Computer (ADR-0033), at the pins of
+# the Computer launches of the Harness Catalog
+# (crates/pagis-core/src/harness.rs). `npm ci` installs the lock exactly
+# and checks each package against its `integrity` sha512. It installs
+# the native optional packages of the build architecture only, because
+# each architecture builds on a runner of that architecture.
+# `--ignore-scripts` keeps third-party install scripts from running at
+# build time: the native programs come as optional packages, not from
+# scripts.
+FROM runtimes AS harnesses
+ARG TARGETARCH
+ENV PATH=/opt/node/bin:$PATH
+COPY harnesses/package.json harnesses/package-lock.json /opt/pagis/harnesses/
+RUN cd /opt/pagis/harnesses \
+    && npm ci --omit=dev --ignore-scripts --no-audit --no-fund \
+    && rm -rf /root/.npm
+
+# OpenCode is a native program, so it comes from the vendor's release
+# archive of its architecture, pinned by version and by the sha256 of the
+# ACP registry, as the Harness Catalog pins it.
+ARG OPENCODE_VERSION=1.18.35
+ARG OPENCODE_SHA256_amd64=c8f888b451f5494a18f858fffb0e0b68f4e4baa9c241761c5f206884f0fa640d
+ARG OPENCODE_SHA256_arm64=f7f2ba59ee8aa94d388f9696575a32d20e71c2ee48def9f80fc693a60fec6c72
+RUN set -eux; \
+    case "${TARGETARCH:-$(dpkg --print-architecture)}" in \
+      amd64) arch=x64; sha="$OPENCODE_SHA256_amd64" ;; \
+      arm64) arch=arm64; sha="$OPENCODE_SHA256_arm64" ;; \
+      *) echo "unsupported architecture" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSLo /tmp/opencode.tar.gz \
+      "https://github.com/anomalyco/opencode/releases/download/v${OPENCODE_VERSION}/opencode-linux-${arch}.tar.gz"; \
+    echo "$sha  /tmp/opencode.tar.gz" | sha256sum -c -; \
+    mkdir -p /opt/opencode; \
+    tar -xzf /tmp/opencode.tar.gz -C /opt/opencode --no-same-owner; \
+    test -x /opt/opencode/opencode
+
 # The content blocker: the uBlock Origin Lite release the
 # browser loads as an unpacked extension. It comes from the vendor's
 # own release asset, pinned by tag and sha256, as uv and Node above do,
@@ -163,7 +200,7 @@ RUN set -eux; \
     unzip -q /tmp/ubol.zip -d /opt/pagis/ublock-origin-lite
 
 FROM debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a
-LABEL co.pagis.computer.version="0.20.1"
+LABEL co.pagis.computer.version="0.21.0"
 # GHCR reads the OCI source label to link the package to the
 # repository, which is where a reader of the package page goes for the
 # source and the licenses.
@@ -293,6 +330,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends locales tzdata 
     && sed -i 's/^# *en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen \
     && locale-gen en_US.UTF-8 \
     && rm -rf /var/lib/apt/lists/*
+# The Coding Harnesses, from the `harnesses` stage. They add about 1 GB
+# to the image, mostly the native programs of Claude Code and Codex. A
+# Docker host pulls the image once for each release, and every Computer
+# of the host shares it. These layers come after the layers that change
+# less often, so a new harness version moves only these layers. Root
+# owns the harnesses, so the agent uid cannot change a harness and a
+# harness cannot update itself. The programs go into /usr/local/bin,
+# which is on the PATH that the daemon gives a command of the Computer.
+COPY --from=harnesses /opt/pagis/harnesses /opt/pagis/harnesses
+COPY --from=harnesses /opt/opencode/opencode /usr/local/bin/opencode
+RUN for program in claude-agent-acp codex-acp pi-acp pi; do \
+      ln -s "/opt/pagis/harnesses/node_modules/.bin/$program" "/usr/local/bin/$program"; \
+    done
 ENV XDG_RUNTIME_DIR=/run/pagis-xdg \
     WLR_BACKENDS=headless \
     WLR_RENDERER=pixman \

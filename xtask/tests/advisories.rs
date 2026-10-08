@@ -232,29 +232,36 @@ fn npm_audit_skips_a_package_without_a_lockfile() {
 // --- the components that Trivy does not identify ---
 
 /// Trivy identifies the Debian packages, uv, pnpm and the npm packages
-/// that Node ships. It does not identify labwc and wlroots, which the
-/// image builds from source, or the Node runtime, whose executable holds
-/// no package metadata. The scan prints their pinned versions for a
-/// check by hand.
+/// of Node and of the Coding Harnesses. It does not identify labwc and
+/// wlroots, which the image builds from source, or the Node runtime and
+/// the OpenCode program, whose executables hold no package metadata. The
+/// scan prints their pinned versions for a check by hand.
 #[test]
 fn the_components_trivy_does_not_identify_are_read_from_the_dockerfile() {
     assert_eq!(
         computer_image_components(&computer_dockerfile()),
-        ["wlroots 0.19.3", "labwc 0.9.8", "node 24.20.0"]
+        [
+            "wlroots 0.19.3",
+            "labwc 0.9.8",
+            "node 24.20.0",
+            "opencode 1.18.35"
+        ]
     );
 }
 
 #[test]
-fn a_source_checkout_and_the_node_pin_are_components() {
+fn a_source_checkout_and_the_node_and_opencode_pins_are_components() {
     let dockerfile = "FROM debian\n\
                       RUN git clone --depth 1 --branch v2.1 https://example.com/tools/widget.git /src/widget\n\
                       ARG UV_VERSION=0.1.0\n\
                       ARG NODE_VERSION=26.0.1\n\
+                      ARG OPENCODE_VERSION=1.2.3\n\
+                      ARG OPENCODE_SHA256_amd64=00ff\n\
                       RUN git clone https://example.com/other.git /src/other\n";
 
     assert_eq!(
         computer_image_components(dockerfile),
-        ["widget v2.1", "node 26.0.1"]
+        ["widget v2.1", "node 26.0.1", "opencode 1.2.3"]
     );
 }
 
