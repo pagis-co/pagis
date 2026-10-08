@@ -66,7 +66,9 @@ Settings holds the person's own Workspace settings in three groups:
   the account, the auth mode, the connect time, the absent capabilities, the
   Agents with access, the state and the repair action; add, disconnect and
   reauthorize are here. The Org's Installation Connections show here too,
-  flagged as the installation's. Hosts. Vault: one row for each Credential
+  flagged as the installation's. Hosts: each machine, whether it is
+  connected, the Coding Harnesses it can start, and a Harness Sign-In for
+  each. Vault: one row for each Credential
   with its domain, username, sign-in address, second factor, provenance and
   allowed Agents; the add form is the only place a human types a secret, and
   it says there is no export and no reveal. Trusted contacts: the tier legend,

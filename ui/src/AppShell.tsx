@@ -55,6 +55,7 @@ import {
   mailboxesKey,
   phoneNumbersKey,
   grantsKey,
+  hostsKey,
   memoryFeedKey,
   modelAliasesKey,
   runStepsKey,
@@ -414,6 +415,12 @@ export function AppShell() {
                 queryKey: codingSessionEventsKey(sessionId),
               })
             }
+          }
+          // The daemon reports a harness that needs a sign-in, or one that
+          // no longer does, on a Host. Settings › Hosts reads the report
+          // with each Host (ADR-0033).
+          if (frame.type === 'harness.sign_in_changed') {
+            void queryClient.invalidateQueries({ queryKey: hostsKey })
           }
           // A number bought, assigned, unassigned or released refreshes
           // the Agent's settings page.

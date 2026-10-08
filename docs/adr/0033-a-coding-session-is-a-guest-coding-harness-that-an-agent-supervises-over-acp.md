@@ -285,7 +285,12 @@ program, in a terminal window on that Host: the ACP terminal method that
 Only the Person starts a sign-in, through REST:
 `POST /api/v1/hosts/{host_id}/harnesses/{harness_id}/sign-in` with the
 method. `GET /api/v1/harnesses` gives each harness of the catalog with its
-sign-in methods. No Agent tool starts a sign-in. The daemon names what the
+sign-in methods. No Agent tool starts a sign-in. Settings › Hosts lists
+each harness of the catalog under each machine that runs commands: whether
+the machine can start it, a "Needs sign-in" mark from the report below, and
+one button for each sign-in method. A button is off when the machine is not
+connected or cannot start the harness. No field of the Product App takes
+the credential (ADR-0022). The daemon names what the
 Client App runs, and sends it as a `harness_sign_in` frame on the Host's
 connection. For an ACP terminal method, the daemon starts the harness on the
 session socket in the Person's home directory and sends `initialize` alone,
@@ -716,5 +721,4 @@ Other ways were considered:
 - Harness Modes.
 - The switch for Unattended Modes on the Access tab.
 - The question in the daemon.
-- Harness Sign-In in Settings.
 - The Computer place.

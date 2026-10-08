@@ -18,6 +18,7 @@ import type {
   ApiClient,
   AgentDto,
   BindingValueRequest,
+  HarnessSignInMethod,
   MessageDto,
   NeedsYouQueue,
   PluginSourceRequest,
@@ -85,6 +86,8 @@ export const vapidKeyKey = ["push", "key"] as const;
 export const pushSubscriptionsKey = ["push-subscriptions"] as const;
 /** The person's own machines. */
 export const hostsKey = ["hosts"] as const;
+/** The Harness Catalog: the Coding Harnesses that Pagis starts. */
+export const harnessesKey = ["harnesses"] as const;
 /** The person's own Home Exit (ADR-0029). */
 export const homeExitKey = ["home-exit"] as const;
 /** Every machine of the installation, on the administration port. */
@@ -690,6 +693,41 @@ export function useHosts(api: ApiClient) {
   return useQuery({
     queryKey: hostsKey,
     queryFn: async () => (await unwrap(api.GET("/api/v1/hosts"))).items,
+  });
+}
+
+/** The Harness Catalog: each Coding Harness with its sign-in methods.
+ *  The catalog is part of the daemon's build, so it never goes stale.
+ *  The report of a harness that needs a sign-in comes with each Host
+ *  in `useHosts`. */
+export function useHarnesses(api: ApiClient) {
+  return useQuery({
+    queryKey: harnessesKey,
+    queryFn: async () => (await unwrap(api.GET("/api/v1/harnesses"))).items,
+    staleTime: Infinity,
+  });
+}
+
+/** Start a Harness Sign-In of one harness on one Host. The route answers
+ *  when the Client App has it, and the Person signs in in the terminal
+ *  window that it opens (ADR-0033). */
+export function useStartHarnessSignIn(api: ApiClient) {
+  return useMutation({
+    mutationFn: ({
+      hostId,
+      harnessId,
+      method,
+    }: {
+      hostId: string;
+      harnessId: string;
+      method: HarnessSignInMethod;
+    }) =>
+      unwrap(
+        api.POST("/api/v1/hosts/{host_id}/harnesses/{harness_id}/sign-in", {
+          params: { path: { host_id: hostId, harness_id: harnessId } },
+          body: { method },
+        }),
+      ),
   });
 }
 

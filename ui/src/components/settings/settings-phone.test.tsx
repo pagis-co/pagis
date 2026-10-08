@@ -114,6 +114,42 @@ it('says when a host that is not connected was last seen', async () => {
   expect(row.textContent).toContain('Linux · No commands · last seen yesterday')
 })
 
+it('lists the Coding Harnesses under a machine that runs commands, and none under a phone', async () => {
+  responses['/api/v1/harnesses'] = {
+    items: [{ id: 'claude', name: 'Claude Code', sign_in_methods: [{ method: 'subscription', label: 'Subscription' }] }],
+  }
+  responses['/api/v1/hosts'] = {
+    items: [
+      {
+        id: 'host-1',
+        name: 'Studio desktop',
+        platform: 'macos',
+        capabilities: ['shell', 'harness:claude'],
+        harnesses: [{ id: 'claude', needs_sign_in: true }],
+        present: true,
+        last_seen_at: Date.now(),
+      },
+      {
+        id: 'host-2',
+        name: 'iPhone',
+        platform: 'ios',
+        capabilities: [],
+        harnesses: [],
+        present: true,
+        last_seen_at: Date.now(),
+      },
+    ],
+  }
+  mount('/settings/hosts')
+  const claude = await screen.findByRole('group', { name: 'Claude Code' })
+  expect(screen.getAllByRole('group', { name: 'Claude Code' })).toHaveLength(1)
+  expect(within(claude).getByText('Needs sign-in')).toBeTruthy()
+  expect(
+    within(claude).getByRole('button', { name: 'Sign in with a subscription' }),
+  ).toBeTruthy()
+  expect(screen.getByText(/Pagis never sees your password or your key\./)).toBeTruthy()
+})
+
 it('shows compact token counts on Usage', async () => {
   const now = Date.now()
   const total = (input: number, output: number, calls: number) => ({
