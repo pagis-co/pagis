@@ -6,6 +6,7 @@ members = [
     "crates/pagis-agent",
     "crates/pagis-analytics",
     "crates/pagis-broker",
+    "crates/pagis-coding",
     "crates/pagis-computer",
     "crates/pagis-connect",
     "crates/pagis-evaluation",
@@ -43,6 +44,7 @@ pagis = { path = "crates/pagis" }
 pagis-agent = { path = "crates/pagis-agent" }
 pagis-analytics = { path = "crates/pagis-analytics" }
 pagis-broker = { path = "crates/pagis-broker" }
+pagis-coding = { path = "crates/pagis-coding" }
 pagis-computer = { path = "crates/pagis-computer" }
 pagis-connect = { path = "crates/pagis-connect" }
 pagis-core = { path = "crates/pagis-core" }
@@ -68,6 +70,10 @@ pagis-versions = { path = "crates/pagis-versions" }
 pagis-voice = { path = "crates/pagis-voice" }
 llm-router = { path = "crates/llm-router" }
 
+# The daemon's ACP client for Coding Harnesses (ADR-0033). It needs no
+# feature: the transport is a byte stream that the caller gives, never a
+# child process or stdio of the daemon.
+agent-client-protocol = { version = "3.1", default-features = false }
 anyhow = "1"
 async-trait = "0.1"
 clap = { version = "4.6", features = ["derive"] }
@@ -166,7 +172,10 @@ http = "1"
 rust-embed = "8"
 reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+# The ACP client crates turn on `preserve_order`, and Cargo unifies
+# features across the workspace, so every crate gets it. A JSON object
+# keeps the order it was written in.
+serde_json = { version = "1", features = ["preserve_order"] }
 semver = "1"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls-ring", "sqlite", "postgres", "migrate", "macros", "json"] }
 tempfile = "3"

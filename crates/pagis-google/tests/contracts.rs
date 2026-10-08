@@ -126,9 +126,13 @@ fn model_schemas_pin_the_typed_surface_and_hide_trusted_configuration() {
                 .as_array()
                 .cloned()
                 .unwrap_or_default();
+            // The schema keeps its properties in the order the code
+            // writes them; the contract is the set of names.
+            let mut property_names: Vec<String> = properties.keys().cloned().collect();
+            property_names.sort();
             (
                 tool.name,
-                properties.keys().cloned().collect(),
+                property_names,
                 required
                     .iter()
                     .map(|value| value.as_str().unwrap().to_string())

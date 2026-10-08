@@ -352,7 +352,7 @@ impl Protocol for OpenAiResponses {
             status,
             kind,
             message: crate::protocol::cap_error_text(message),
-            raw,
+            raw: raw.map(Box::new),
         }
     }
 
@@ -508,7 +508,7 @@ impl Protocol for OpenAiResponses {
                                 status,
                                 kind,
                                 message,
-                                raw: Some(data.clone()),
+                                raw: Some(Box::new(data.clone())),
                             },
                             None => Error::Stream { provider: provider.clone(), message },
                         });

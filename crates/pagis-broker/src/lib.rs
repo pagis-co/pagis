@@ -869,7 +869,8 @@ pub struct ToolResult {
     pub content: String,
     pub is_error: bool,
     pub code: Option<String>,
-    pub metadata: serde_json::Value,
+    /// Boxed so that a `Result` with a `ToolResult` error stays small.
+    pub metadata: Box<serde_json::Value>,
 }
 
 impl ToolResult {
@@ -878,7 +879,7 @@ impl ToolResult {
             content: content.into(),
             is_error: false,
             code: None,
-            metadata: serde_json::json!({}),
+            metadata: Box::new(serde_json::json!({})),
         }
     }
 
@@ -889,7 +890,7 @@ impl ToolResult {
             content: serde_json::json!({"error": {"code": code, "message": message}}).to_string(),
             is_error: true,
             code: Some(code),
-            metadata: serde_json::json!({}),
+            metadata: Box::new(serde_json::json!({})),
         }
     }
 
@@ -898,12 +899,12 @@ impl ToolResult {
             content: message.into(),
             is_error: true,
             code: Some(code.into()),
-            metadata: serde_json::json!({}),
+            metadata: Box::new(serde_json::json!({})),
         }
     }
 
     pub fn with_metadata(mut self, metadata: serde_json::Value) -> Self {
-        self.metadata = metadata;
+        self.metadata = Box::new(metadata);
         self
     }
 
@@ -912,7 +913,7 @@ impl ToolResult {
     /// source Grant before it writes anything.
     pub fn retain_as_conversation_evidence(mut self) -> Self {
         if !self.metadata.is_object() {
-            self.metadata = serde_json::json!({});
+            *self.metadata = serde_json::json!({});
         }
         let object = self.metadata.as_object_mut().expect("object metadata");
         object.insert("retain_conversation_evidence".to_string(), true.into());
@@ -927,7 +928,7 @@ impl ToolResult {
             return self;
         }
         if !self.metadata.is_object() {
-            self.metadata = serde_json::json!({});
+            *self.metadata = serde_json::json!({});
         }
         let object = self.metadata.as_object_mut().expect("object metadata");
         object.insert(
@@ -993,7 +994,7 @@ pub struct PendingRequest {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InvokeOutcome {
     Completed(ToolResult),
-    Waiting(PendingRequest),
+    Waiting(Box<PendingRequest>),
     Rejected(ToolResult),
 }
 
@@ -1707,7 +1708,7 @@ impl Broker {
                 .lock()
                 .expect("pending call lock")
                 .insert(question.request.id.clone(), PendingCall { context });
-            return Ok(InvokeOutcome::Waiting(question));
+            return Ok(InvokeOutcome::Waiting(Box::new(question)));
         }
         // A host action names the machine it runs on before anything
         // else asks about it: the card names that machine, and an absent
@@ -1773,7 +1774,7 @@ impl Broker {
             .lock()
             .expect("pending call lock")
             .insert(request.request.id.clone(), PendingCall { context });
-        Ok(InvokeOutcome::Waiting(request))
+        Ok(InvokeOutcome::Waiting(Box::new(request)))
     }
 
     pub async fn resolve(
@@ -1968,9 +1969,9 @@ impl Broker {
                 }
                 Ok(HostTarget::Absent(not_connected(&candidates)))
             }
-            _ => Ok(HostTarget::Ask(
+            _ => Ok(HostTarget::Ask(Box::new(
                 self.ask_which_host(context, &present).await?,
-            )),
+            ))),
         }
     }
 
@@ -2762,11 +2763,11 @@ impl Broker {
             .lock()
             .expect("pending call lock")
             .insert(request.id.clone(), PendingCall { context });
-        Ok(InvokeOutcome::Waiting(PendingRequest {
+        Ok(InvokeOutcome::Waiting(Box::new(PendingRequest {
             request,
             title,
             body: projection,
-        }))
+        })))
     }
 
     /// Keep one live view, inside the Run's cap.
@@ -2892,7 +2893,7 @@ enum HostTarget {
     /// The machine is settled on the context.
     Chosen,
     /// The person holds more than one present machine and is asked which.
-    Ask(PendingRequest),
+    Ask(Box<PendingRequest>),
     /// Nothing the Agent may reach is connected, and this is the answer.
     Absent(ToolResult),
 }

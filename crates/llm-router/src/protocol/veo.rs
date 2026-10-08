@@ -41,7 +41,7 @@ impl Protocol for Veo {
             status,
             kind,
             message: crate::protocol::cap_error_text(message),
-            raw,
+            raw: raw.map(Box::new),
         }
     }
 

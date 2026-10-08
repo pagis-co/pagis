@@ -2435,9 +2435,9 @@ async fn exhausted_router_failure_records_the_last_provider_error_on_the_run(poo
             status: 429,
             kind: llm_router::ErrorKind::RateLimit,
             message: "You have no credits remaining".into(),
-            raw: Some(serde_json::json!({
+            raw: Some(Box::new(serde_json::json!({
                 "error": {"message": "You have no credits remaining"}
-            })),
+            }))),
         }),
     };
     harness
