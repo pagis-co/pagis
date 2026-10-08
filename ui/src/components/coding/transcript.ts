@@ -17,8 +17,20 @@ export interface ToolLocation {
   line?: number
 }
 
-/** What a tool call gave back. A diff shows its path only. */
-export type ToolContent = { type: 'text'; text: string } | { type: 'diff'; path: string }
+/** A change of one file, as the harness sends it. `oldText` is `null`
+ *  for a new file, and an empty `newText` deletes the file. `truncated`
+ *  is true when the daemon cut the payload that holds the diff, so a
+ *  text can be incomplete. */
+export interface DiffContent {
+  type: 'diff'
+  path: string
+  oldText: string | null
+  newText: string
+  truncated: boolean
+}
+
+/** What a tool call gave back. */
+export type ToolContent = { type: 'text'; text: string } | DiffContent
 
 export interface PlanEntry {
   content: string
@@ -88,13 +100,14 @@ function locationsOf(value: unknown): ToolLocation[] {
   })
 }
 
-function contentOf(value: unknown): ToolContent[] {
+function contentOf(value: unknown, truncated: boolean): ToolContent[] {
   if (!Array.isArray(value)) return []
   return value.flatMap((entry: unknown): ToolContent[] => {
     if (entry === null || typeof entry !== 'object') return []
     const item = entry as Payload
-    if (item.type === 'diff' && typeof item.path === 'string') {
-      return [{ type: 'diff', path: item.path }]
+    if (item.type === 'diff' && typeof item.path === 'string' && typeof item.newText === 'string') {
+      const { path, newText } = item
+      return [{ type: 'diff', path, oldText: text(item.oldText), newText, truncated }]
     }
     if (item.type === 'content' && item.content !== null && typeof item.content === 'object') {
       const block = item.content as Payload
@@ -129,7 +142,7 @@ function applyTool(item: ToolItem, payload: Payload) {
   if ('kind' in payload) item.toolKind = text(payload.kind)
   if ('status' in payload) item.status = text(payload.status) ?? item.status
   if ('locations' in payload) item.locations = locationsOf(payload.locations)
-  if ('content' in payload) item.content = contentOf(payload.content)
+  if ('content' in payload) item.content = contentOf(payload.content, payload.truncated === true)
   if ('rawInput' in payload) item.rawInput = payload.rawInput
   if (payload.truncated === true) item.truncated = true
 }

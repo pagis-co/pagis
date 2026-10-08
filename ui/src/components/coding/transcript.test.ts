@@ -113,9 +113,27 @@ describe('the tool calls', () => {
     expect(tools[0].title).toBe('Run cargo test')
     expect(tools[0].content).toEqual([
       { type: 'text', text: '12 passed' },
-      { type: 'diff', path: '/repo/src/login.rs' },
+      { type: 'diff', path: '/repo/src/login.rs', oldText: 'a', newText: 'b', truncated: false },
     ])
     expect(items.map((item) => item.kind)).toEqual(['tool', 'message'])
+  })
+
+  it('keeps the texts of a diff, a null old text, and the cut of its payload', () => {
+    const { items } = foldTranscript([
+      toolCall(1, {
+        content: [{ type: 'diff', path: '/repo/new.rs', oldText: null, newText: 'fn main() {}' }],
+      }),
+      row(2, 'tool_call', {
+        toolCallId: 'call-2',
+        truncated: true,
+        content: [{ type: 'diff', path: '/repo/big.rs', oldText: 'a', newText: 'b…' }],
+      }),
+    ])
+
+    expect(only(items, 'tool').map((tool) => tool.content)).toEqual([
+      [{ type: 'diff', path: '/repo/new.rs', oldText: null, newText: 'fn main() {}', truncated: false }],
+      [{ type: 'diff', path: '/repo/big.rs', oldText: 'a', newText: 'b…', truncated: true }],
+    ])
   })
 
   it('opens an item for an update whose tool call it has not read', () => {

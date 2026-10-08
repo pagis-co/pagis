@@ -233,6 +233,71 @@ describe('the transcript', () => {
   })
 })
 
+describe('the changes', () => {
+  const edits: CodingSessionEventDto[] = [
+    row(1, 'tool_call', {
+      toolCallId: 'call-1',
+      title: 'Edit login.rs',
+      kind: 'edit',
+      status: 'completed',
+      content: [{ type: 'diff', path: '/repo/login.rs', oldText: 'a\n', newText: 'b\n' }],
+    }),
+    row(2, 'tool_call', {
+      toolCallId: 'call-2',
+      title: 'Write token.rs',
+      kind: 'edit',
+      status: 'completed',
+      content: [{ type: 'diff', path: '/repo/token.rs', oldText: null, newText: 'x\n' }],
+    }),
+    row(3, 'tool_call', {
+      toolCallId: 'call-3',
+      title: 'Edit login.rs again',
+      kind: 'edit',
+      status: 'completed',
+      content: [{ type: 'diff', path: '/repo/login.rs', oldText: 'b\n', newText: 'b\nc\n' }],
+    }),
+  ]
+
+  it('draws the diff of a change in its tool call', async () => {
+    mount(stubApi({ transcript: edits }))
+
+    const tool = await screen.findByRole('article', { name: 'Edit login.rs' })
+    expect(tool.querySelector('del')?.textContent).toBe('a')
+    expect(tool.querySelector('ins')?.textContent).toBe('b')
+  })
+
+  it('lists each changed file once with its counts', async () => {
+    mount(stubApi({ transcript: edits }))
+
+    const files = await screen.findByRole('region', { name: 'Changed files' })
+    expect(within(files).getAllByRole('button').map((button) => button.textContent)).toEqual([
+      '/repo/login.rs+2 −12 changes',
+      '/repo/token.rs+1 −01 change',
+    ])
+  })
+
+  it('scrolls to the last change of a file on a click of its row', async () => {
+    const scrolled = vi.spyOn(Element.prototype, 'scrollIntoView')
+    mount(stubApi({ transcript: edits }))
+
+    const files = await screen.findByRole('region', { name: 'Changed files' })
+    fireEvent.click(within(files).getByRole('button', { name: /login\.rs/ }))
+
+    expect(scrolled).toHaveBeenCalledTimes(1)
+    expect(scrolled.mock.contexts[0]).toBe(
+      screen.getByRole('article', { name: 'Edit login.rs again' }),
+    )
+    scrolled.mockRestore()
+  })
+
+  it('has no section when the session changed no file', async () => {
+    mount(stubApi({ transcript: [rows[0]] }))
+
+    await screen.findByText('Fix the login bug', { selector: 'p' })
+    expect(screen.queryByRole('region', { name: 'Changed files' })).toBeNull()
+  })
+})
+
 describe('a session that is not there', () => {
   it('says that it is not on record', async () => {
     mount(stubApi({ session: null }))

@@ -2,7 +2,9 @@
 //
 // The head says who runs which coding harness, where, and how far it
 // is. The plan is a checklist, and the transcript shows the messages,
-// the tool calls and one line for each ask. Everything that the harness
+// the tool calls and one line for each ask. A tool call draws each of
+// its changes as a diff, and "Changed files" is the index to them: a
+// row scrolls to the last change of its file. Everything that the harness
 // writes is foreign text: a message draws only through `Prose`, and
 // each other text draws as plain text.
 //
@@ -16,7 +18,6 @@ import {
   Circle,
   CircleCheck,
   CircleDot,
-  FileDiff,
   MessageCircleQuestion,
   ShieldCheck,
   SquareTerminal,
@@ -28,12 +29,16 @@ import { Prose } from '../../prose'
 import { Avatar, Badge, Button } from '../../primitives'
 import { errorCode, useAgents, useCodingSession, useCodingSessionEvents } from '../../queries'
 import { PageState } from '../PageState'
+import { changedFiles, type ChangedFile } from './diff'
+import { DiffView } from './DiffView'
 import { StopCodingSession } from './StopCodingSession'
 import { foldTranscript, type PlanEntry, type TranscriptItem } from './transcript'
 import {
   answerText,
   approvalModeBadge,
+  changeCountText,
   decisionText,
+  lineCountText,
   planStatusWord,
   sessionSettled,
   sessionStateBadge,
@@ -145,6 +150,35 @@ function Plan({ entries }: { entries: PlanEntry[] }) {
   )
 }
 
+/** The id of the card of a tool call, so a changed file can scroll to
+ *  it. */
+function toolAnchor(toolCallId: string): string {
+  return `coding-tool-${toolCallId}`
+}
+
+function ChangedFiles({ files }: { files: ChangedFile[] }) {
+  return (
+    <section className="coding-files" aria-label="Changed files">
+      <h3>Changed files</h3>
+      <ul>
+        {files.map((file) => (
+          <li key={file.path}>
+            <Button
+              variant="ghost"
+              className="coding-file"
+              onClick={() => document.getElementById(toolAnchor(file.toolCallId))?.scrollIntoView()}
+            >
+              <span className="coding-file-path coding-mono">{file.path}</span>
+              <span className="coding-file-lines">{lineCountText(file.added, file.removed)}</span>
+              <span className="coding-file-changes">{changeCountText(file.changes)}</span>
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
 type Item<K extends TranscriptItem['kind']> = Extract<TranscriptItem, { kind: K }>
 
 function Message({ item, author }: { item: Item<'message'>; author: string }) {
@@ -189,7 +223,7 @@ function ToolCall({ item }: { item: Item<'tool'> }) {
   const status = toolStatusBadge(item.status)
   const title = item.title === '' ? toolKindWord(item.toolKind) : item.title
   return (
-    <article className="coding-tool" aria-label={title}>
+    <article id={toolAnchor(item.toolCallId)} className="coding-tool" aria-label={title}>
       <header className="coding-tool-head">
         <span className="coding-tool-kind">{toolKindWord(item.toolKind)}</span>
         <strong className="coding-tool-title">{title}</strong>
@@ -210,10 +244,7 @@ function ToolCall({ item }: { item: Item<'tool'> }) {
             {content.text}
           </pre>
         ) : (
-          <p key={index} className="coding-tool-diff">
-            <FileDiff size={14} aria-hidden />
-            <span className="coding-mono">{content.path}</span>
-          </p>
+          <DiffView key={index} content={content} />
         ),
       )}
       {item.rawInput !== undefined && (
@@ -343,11 +374,13 @@ export function CodingSessionPage({ api, sessionId }: { api: ApiClient; sessionI
   const spriteName = agent?.name ?? 'A sprite'
   const rows = (events.data?.pages ?? []).flatMap((page) => page.items)
   const { items, plan } = foldTranscript(rows)
+  const files = changedFiles(items)
 
   return (
     <div className="coding-page">
       <Head api={api} session={record} agent={agent} spriteName={spriteName} />
       {plan !== null && plan.length > 0 && <Plan entries={plan} />}
+      {files.length > 0 && <ChangedFiles files={files} />}
       {events.data === undefined ? (
         <p className="coding-empty">Reading the transcript…</p>
       ) : (
