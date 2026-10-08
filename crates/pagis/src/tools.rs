@@ -5,7 +5,8 @@
 //! each route to the runtime that owns it: the core tools to the agent
 //! loop's runtime, the vault tools to the vault, the provider tools to
 //! the connection runtime, the call tool to telephony, the mail tools
-//! to the mail crate. No runtime knows about the others.
+//! to the mail crate, the Coding Session tools to the coding crate. No
+//! runtime knows about the others.
 
 use std::sync::Arc;
 
@@ -59,6 +60,9 @@ pub struct RoutingExecutor {
     /// The `mail__*` tools in the Agent's own mailbox. They are
     /// Mailbox-routed, and executed by the mail crate.
     mail: Arc<dyn ToolExecutor>,
+    /// The Coding Session tools. Core-routed, and executed by the
+    /// coding crate.
+    coding: Arc<dyn ToolExecutor>,
 }
 
 /// How the call tool reads the tools a Run may use on a call: the
@@ -116,6 +120,7 @@ impl RoutingExecutor {
         software: Arc<dyn ToolExecutor>,
         plugins: Arc<dyn ToolExecutor>,
         mail: Arc<dyn ToolExecutor>,
+        coding: Arc<dyn ToolExecutor>,
     ) -> Self {
         Self {
             core,
@@ -126,6 +131,7 @@ impl RoutingExecutor {
             software,
             plugins,
             mail,
+            coding,
         }
     }
 }
@@ -149,6 +155,9 @@ impl ToolExecutor for RoutingExecutor {
         }
         if pagis_mail::MailToolRuntime::owns(&call.route) {
             return self.mail.execute(call).await;
+        }
+        if pagis_coding::CodingToolRuntime::owns(&call.route) {
+            return self.coding.execute(call).await;
         }
         match call.route {
             ToolRoute::Vault { .. } => self.vault.execute(call).await,

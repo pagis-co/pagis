@@ -3,8 +3,8 @@
 //! [`FakeClientApp`] speaks the protocol of the Client App: it accepts
 //! the yamux streams of the daemon, reads each open request, answers one
 //! line as the test says, and after an answer that opened the session it
-//! writes back each byte that it reads, as `cat` does. It starts no
-//! process. The Client App's own session code has its own tests and an
+//! writes back each byte that it reads, as `cat` does, or gives the
+//! stream to the test's own program. It starts no process. The Client App's own session code has its own tests and an
 //! interop test with the daemon.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -29,9 +29,16 @@ pub enum FakeAnswer {
     Silent,
 }
 
+/// What runs on the stream of an opened session in place of the
+/// process, such as a fake Coding Harness.
+type FakeProgram = Arc<dyn Fn(yamux::Stream) + Send + Sync>;
+
 /// One fake Client App that answers every stream the same way.
 pub struct FakeClientApp {
     answer: FakeAnswer,
+    /// The program of each opened session. With none, the fake writes
+    /// back each byte that it reads.
+    program: Option<FakeProgram>,
     requests: Mutex<Vec<OpenRequest>>,
     streams: AtomicUsize,
 }
@@ -40,6 +47,23 @@ impl FakeClientApp {
     pub fn answering(answer: FakeAnswer) -> Arc<Self> {
         Arc::new(Self {
             answer,
+            program: None,
+            requests: Mutex::new(Vec::new()),
+            streams: AtomicUsize::new(0),
+        })
+    }
+
+    /// A Client App that opens every session in `cwd` and gives its
+    /// stream to `program`.
+    pub fn running(
+        cwd: &str,
+        program: impl Fn(yamux::Stream) + Send + Sync + 'static,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            answer: FakeAnswer::Open {
+                cwd: cwd.to_string(),
+            },
+            program: Some(Arc::new(program)),
             requests: Mutex::new(Vec::new()),
             streams: AtomicUsize::new(0),
         })
@@ -102,7 +126,9 @@ impl FakeClientApp {
         if stream.write_all(answer.as_bytes()).await.is_err() || stream.flush().await.is_err() {
             return;
         }
-        if let FakeAnswer::Open { .. } = self.answer {
+        if let Some(program) = &self.program {
+            program(stream);
+        } else if let FakeAnswer::Open { .. } = self.answer {
             let (mut reader, mut writer) = stream.split();
             let _ = futures::io::copy(&mut reader, &mut writer).await;
             let _ = writer.close().await;

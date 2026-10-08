@@ -501,6 +501,7 @@ where
         mailboxes: Arc::new(SqliteAgentMailboxStore::new(pool.clone())),
         hosts: Arc::new(pagis_storage_sqlite::SqliteHostStore::new(pool.clone())),
         presence: Arc::clone(&host_presence),
+        session_starts: Arc::new(pagis_broker::NoSessionStarts),
     }));
     let capture = Arc::new(pagis_core::CaptureSetting::default());
     let captures = Arc::new(pagis_storage_sqlite::SqliteModelRequestCaptureStore::new(

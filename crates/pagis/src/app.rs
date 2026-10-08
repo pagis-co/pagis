@@ -571,6 +571,12 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
             cancel: options.cancel.clone(),
         },
     ));
+    // The checks of a Coding Session start. The broker asks them before
+    // the card, and the tool runtime again at the start.
+    let session_starts = Arc::new(pagis_coding::CodingSessionStarts::new(
+        stores.coding_sessions.clone(),
+        Arc::clone(&grants) as _,
+    ));
     let tool_runtime = Arc::new(CoreToolRuntime::new(ToolRuntimeDeps {
         presence: Arc::clone(&host_presence),
         agents: Arc::clone(&agent_store) as _,
@@ -874,11 +880,16 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
             Arc::clone(&software_tools) as _,
             Arc::clone(&plugin_tools) as _,
             Arc::clone(&mail_tools) as _,
+            Arc::new(pagis_coding::CodingToolRuntime::new(
+                Arc::clone(&coding_sessions),
+                Arc::clone(&session_starts) as _,
+            )) as _,
         )),
         phone_numbers: Arc::clone(&phone_numbers) as _,
         mailboxes: Arc::clone(&mailbox_store) as _,
         hosts: stores.hosts.clone(),
         presence: Arc::clone(&host_presence),
+        session_starts: Arc::clone(&session_starts) as _,
     }));
     // The realtime bridge: the model session, the SIP leg
     // and the recording of one call. A test injects a scripted bridge

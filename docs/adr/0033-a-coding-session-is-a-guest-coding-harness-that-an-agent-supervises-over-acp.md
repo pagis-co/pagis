@@ -447,7 +447,10 @@ Other ways were considered:
 
 ## Not built
 
-- The core tools.
+- The core tools other than `coding_session_start`.
+- The "Always allow" rule of `coding_session_start`.
+- The refusal of a mode other than `auto` for a harness that does not ask
+  permission.
 - The Session Rule.
 - The interruption and the resume.
 - Pagis policy and the approval card.
