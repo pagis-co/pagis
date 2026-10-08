@@ -5204,14 +5204,32 @@ async fn channel_briefing(deps: &AgentDeps, agent: &Agent, run: &Run) -> String 
             context.source.to_string(),
         ),
     };
+    // A Coding Session is no mail: its events name the session, and the
+    // mail lines do not apply (ADR-0033).
+    let session = context.source.coding_session_id().is_some();
+    let matched = if session {
+        "Matched events"
+    } else {
+        "Matched messages"
+    };
     let mut briefing = format!(
-        "{channel}\n\nIncoming event trigger:\nRule: {}\nInstruction: {}\nEvent kind: {}\n{source_line}\nActual start: {}\nMatched messages: {}",
+        "{channel}\n\nIncoming event trigger:\nRule: {}\nInstruction: {}\nEvent kind: {}\n{source_line}\nActual start: {}\n{matched}: {}",
         wakeup.rule_name,
         wakeup.instruction,
         context.event_kind,
         actual_start,
         context.events.len(),
     );
+    if session {
+        // The title is the Agent's text, but the stop reason and the end
+        // come from the harness, so the rows go inside the envelope.
+        briefing.push('\n');
+        briefing.push_str(&wrap_untrusted(
+            &context.source.to_string(),
+            session_rows(&context.events).trim_end(),
+        ));
+        return briefing;
+    }
     let mut rows = String::new();
     let mut tiers = Vec::new();
     for event in &context.events {
@@ -5345,6 +5363,37 @@ async fn schedule_trigger_message(deps: &AgentDeps, run: &Run) -> Option<String>
         "System: Schedule trigger:\nName: {}\nInstruction: {}\nScheduled for: {}\nActual start: {}\nLateness milliseconds: {}\nCombined occurrences: {combined}\nChoose exactly one outcome. To send one message, reply with the message text and no marker. To reschedule, call schedule_update with action edit. To stay silent, reply `{SILENT_SCHEDULE_PREFIX} <reason>`. Pagis parses this decision directly and does not send a silent reply. It records the reason on the Subject Page Timeline when this Schedule has one.",
         wakeup.rule_name, wakeup.instruction, wakeup.scheduled_at, actual_start, lateness,
     ))
+}
+
+/// One row for each event of a Coding Session: the session, the harness,
+/// the machine, and what happened.
+fn session_rows(events: &[pagis_core::IncomingEvent]) -> String {
+    const FIELDS: [&str; 9] = [
+        "coding_session_id",
+        "title",
+        "harness",
+        "machine",
+        "stop_reason",
+        "decision_kind",
+        "state",
+        "reason",
+        "seq",
+    ];
+    let mut rows = String::new();
+    for event in events {
+        rows.push_str(&format!("- event: {}", event.event_kind));
+        for field in FIELDS {
+            let value = &event.metadata[field];
+            let value = match value {
+                serde_json::Value::Null => continue,
+                serde_json::Value::String(text) => text.clone(),
+                other => other.to_string(),
+            };
+            rows.push_str(&format!(" | {field}: {value}"));
+        }
+        rows.push_str(&format!(" | occurred_at: {}\n", event.occurred_at));
+    }
+    rows
 }
 
 /// The source name of incoming event metadata: the event kind and the

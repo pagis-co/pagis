@@ -6,6 +6,7 @@ mod arrival_commit;
 pub mod backup;
 mod boot;
 pub mod call_events;
+pub mod coding_events;
 pub mod collectors;
 mod config;
 pub mod connections;

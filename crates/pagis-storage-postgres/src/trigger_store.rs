@@ -532,7 +532,8 @@ impl TriggerStore for PostgresTriggerStore {
                  AND (source_kind = 'arrival') = $3 \
                  AND NOT EXISTS (SELECT 1 FROM wakeups active_wakeup \
                      JOIN runs active_run ON active_run.id = active_wakeup.run_id \
-                     WHERE active_wakeup.schedule_id = wakeups.schedule_id \
+                     WHERE (active_wakeup.schedule_id = wakeups.schedule_id \
+                         OR active_wakeup.subscription_id = wakeups.subscription_id) \
                        AND active_wakeup.state = 'started' \
                        AND active_run.state IN ('queued', 'running', 'reflecting', 'waiting_for_user', 'waiting_for_approval')) \
                  ORDER BY scheduled_at, id LIMIT $4"

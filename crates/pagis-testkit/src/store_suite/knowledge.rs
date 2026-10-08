@@ -2761,6 +2761,12 @@ async fn woken_reply(
         .insert_stamped(&reply, &[exposure])
         .await
         .unwrap();
+    // The Run ends with its reply. A rule has at most one active Run, so
+    // the next arrival wakes a Run only after this one (ADR-0006).
+    let mut run = claims[0].run.clone();
+    run.state = pagis_core::RunState::Completed;
+    run.ended_at = Some(16);
+    stores.runs.update(&run).await.unwrap();
     reply
 }
 

@@ -556,7 +556,11 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     // Sessions (ADR-0033).
     let host_sessions = Arc::new(pagis_broker::HostSessions::new());
     // The Coding Sessions on those sockets. Pagis policy answers each
-    // Harness Permission, and each question is cancelled.
+    // Harness Permission, and each question is cancelled. The Session
+    // Rule of each session needs the Trigger module, which is built
+    // further down (ADR-0033).
+    let session_rules = Arc::new(crate::coding_events::DeferredSessionRules::default());
+    let session_events = Arc::new(crate::coding_events::DeferredSessionEvents::default());
     let coding_sessions = Arc::new(pagis_coding::CodingSessions::new(
         pagis_coding::CodingSessionsDeps {
             sessions: stores.coding_sessions.clone(),
@@ -569,6 +573,8 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
                 Arc::clone(&grants) as _,
                 Arc::clone(&bus),
             )),
+            rules: Arc::clone(&session_rules) as _,
+            events: Arc::clone(&session_events) as _,
             clock: Arc::clone(&options.clock),
             cancel: options.cancel.clone(),
         },
@@ -1152,6 +1158,10 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
                 pagis_telephony::CALL_MATCHER.to_string(),
                 Arc::new(pagis_telephony::CallEndedMatcher) as Arc<dyn pagis_core::EventMatcher>,
             ),
+            (
+                pagis_broker::CODING_SESSION_MATCHER.to_string(),
+                Arc::new(pagis_coding::SessionEventMatcher) as Arc<dyn pagis_core::EventMatcher>,
+            ),
         ]),
         events: Arc::clone(&bus),
         forget_keys: Arc::clone(&tenant_keys) as _,
@@ -1299,6 +1309,14 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     call_events.set(Arc::new(crate::call_events::TriggerCallIngest(Arc::clone(
         &trigger,
     ))));
+    // A Coding Session can now make its Session Rule, and its news wakes
+    // the owning Agent in the session's Thread (ADR-0033).
+    session_rules.set(Arc::new(crate::coding_events::TriggerSessionRules(
+        Arc::clone(&trigger),
+    )));
+    session_events.set(Arc::new(crate::coding_events::TriggerSessionEvents(
+        Arc::clone(&trigger),
+    )));
     let mail_collector = Arc::new(pagis_mail::MailCollector::new(
         pagis_mail::MailCollectorDeps {
             workspaces: Arc::clone(&workspaces) as _,

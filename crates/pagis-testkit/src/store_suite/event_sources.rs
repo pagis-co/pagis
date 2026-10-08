@@ -255,6 +255,38 @@ pub async fn one_event_id_of_two_sessions_makes_two_events(backend: &Backend) {
     );
 }
 
+/// A rule has at most one active Run (ADR-0006): while the Run of its
+/// first Wake-up is active, the next Wake-up of the rule waits, and the
+/// events that come in that time join it.
+pub async fn a_rule_whose_run_is_active_claims_no_second_wakeup(backend: &Backend) {
+    let world = world(backend).await;
+    let session = &world.sessions[0];
+    let rule = rule(&world, session);
+    backend.stores().subscriptions.create(&rule).await.unwrap();
+    let eligible = std::slice::from_ref(&rule);
+    let triggers = &backend.stores().triggers;
+    let slots = pagis_core::RunSlots {
+        conversation: 3,
+        arrival: 0,
+    };
+    ingest(backend, &world, session, "turn-1", eligible, 20).await;
+    let active = triggers
+        .claim_wakeups(&world.workspace.id, &world.agent_id, slots, 21)
+        .await
+        .unwrap();
+    assert_eq!(active.len(), 1);
+
+    ingest(backend, &world, session, "turn-2", eligible, 30).await;
+    let waiting = triggers
+        .claim_wakeups(&world.workspace.id, &world.agent_id, slots, 31)
+        .await
+        .unwrap();
+    assert!(waiting.is_empty(), "the Run of the rule is active");
+    let joined = ingest(backend, &world, session, "turn-3", eligible, 40).await;
+    assert_eq!(joined.combined.len(), 1);
+    assert_eq!(joined.combined[0].source_count, 2);
+}
+
 #[macro_export]
 macro_rules! store_suite_event_sources {
     ($emit:path) => {
@@ -263,6 +295,7 @@ macro_rules! store_suite_event_sources {
             a_rule_and_an_event_of_a_coding_session_read_back_with_their_source,
             one_event_id_stored_twice_for_one_session_makes_one_event,
             one_event_id_of_two_sessions_makes_two_events,
+            a_rule_whose_run_is_active_claims_no_second_wakeup,
         );
     };
 }

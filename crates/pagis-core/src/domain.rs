@@ -471,6 +471,10 @@ pub enum EventSource {
     },
 }
 
+/// The provider of each Incoming Event kind that Pagis itself raises,
+/// such as the events of a Coding Session (ADR-0033).
+pub const PAGIS_PROVIDER: &str = "pagis";
+
 impl EventSource {
     pub fn connection(connection_id: ConnectionId) -> Self {
         Self::Connection { connection_id }

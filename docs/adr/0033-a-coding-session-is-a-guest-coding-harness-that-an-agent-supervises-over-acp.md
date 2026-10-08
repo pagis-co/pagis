@@ -397,23 +397,36 @@ the Person with `ask_user`. The daemon declines the URL mode.
 
 ### A Session Rule wakes the owning Agent
 
-When a session starts, the daemon makes a **Session Rule**: an Event
-Subscription that wakes the owning Agent in the session's Thread, as the
-Standing Call Rule does for a Call. The daemon archives it when the session
-reaches a terminal state. That archive keeps the pending Wake-up of the
-rule, unlike an archive by the Person (ADR-0006), because the last event of
-a session is the news that the session ended. The Session Rule is daemon
-housekeeping: the REST list, the Automations and `event_subscription_list`
-do not show it, and nobody edits it.
+When a session starts, the daemon makes a **Session Rule**: one Event
+Subscription for each kind of session event, because a rule matches one kind
+(ADR-0006). The rule wakes the owning Agent in the session's Thread, as the
+Standing Call Rule does for a Call. The daemon makes it after it posts the
+block, because the root of the Thread must exist, and before the stream
+opens. A start whose rule is not made fails with `temporarily_unavailable`.
+The daemon archives the rule when the session reaches a terminal state,
+after it gives the last event to the rule. That archive keeps the pending
+Wake-up of the rule, unlike an archive by the Person (ADR-0006), because the
+last event of a session is the news that the session ended. The Session Rule
+is daemon housekeeping: the REST list, the Automations and
+`event_subscription_list` do not show it, and nobody edits it.
 
 Session events enter the Trigger module through `ingest` as Incoming Events
-of the kinds `coding_session.turn_ended`, `coding_session.needs_decision` and
-`coding_session.ended`. The source of these Incoming Events and of the
-Session Rule is the Coding Session, and no Connection. The provider of
-these kinds is `pagis`, the provider of each kind that Pagis itself raises,
-and their declarations name no capability, because a Grant names a
-Connection. A Coding Session source has no cursor, no baseline and no
-collector: one session event is one batch with one event.
+of the kinds `coding_session.turn_ended`, `coding_session.needs_decision`
+and `coding_session.ended`. The daemon raises `coding_session.turn_ended` at
+each end of a turn, `coding_session.needs_decision` at each move to
+`needs_decision`, and `coding_session.ended` at each move to `interrupted`,
+`closed` or `failed`. A start that fails raises no event, because the
+starting Run reads the failure in its tool result. The metadata names the
+session, its title, the harness, the machine and the stop reason, the
+decision kind or the end state and reason. It holds no harness text. The id
+of an event is `<session id>:<seq>` for an event of a transcript row and
+`<session id>:ended:<state>` for an end, so a replay wakes nobody twice. A
+failed `ingest` is logged and does not stop the session. The source of these
+Incoming Events and of the Session Rule is the Coding Session, and no
+Connection. The provider of these kinds is `pagis`, the provider of each
+kind that Pagis itself raises, and their declarations name no capability,
+because a Grant names a Connection. A Coding Session source has no cursor,
+no baseline and no collector: one session event is one batch with one event.
 
 Wake-ups combine as ADR-0006 says: while the Agent's Run for the rule is
 active, new events join one pending Wake-up. A Run that a session event
@@ -499,7 +512,6 @@ Other ways were considered:
 - The "Always allow" rule of `coding_session_start`.
 - The refusal of a mode other than `auto` for a harness that does not ask
   permission.
-- The Session Rule.
 - The interruption and the resume.
 - The approval card. A Harness Permission that Pagis policy does not allow
   waits until a cancel ends it.

@@ -19,6 +19,9 @@
 //! question. [`PolicyDecisions`] applies Pagis policy to each permission
 //! request and writes its audit fact.
 //!
+//! Each session raises its news to its Session Rule through
+//! [`SessionEvents`], and [`SessionRules`] makes and ends the rule.
+//!
 //! [`CodingSessionStarts`] holds the checks of a start, which the broker
 //! asks before the card, and [`CodingToolRuntime`] executes the core
 //! tool `coding_session_start` after the approval.
@@ -27,6 +30,7 @@ mod ask;
 mod decisions;
 mod error;
 mod event;
+mod events;
 pub mod fake;
 mod place;
 mod policy;
@@ -43,6 +47,10 @@ pub use error::CodingError;
 pub use event::{
     Cost, Location, PlanEntry, PlanPriority, PlanStatus, SessionEvent, StopReason, ToolKind,
     ToolStatus,
+};
+pub use events::{
+    DecisionKind, SESSION_RULE_INSTRUCTION, SessionEventMatcher, SessionEvents, SessionNews,
+    SessionRuleError, SessionRules, session_event, session_rule_name,
 };
 pub use place::{
     OpenFailure, OpenFailureCode, OpenRequest, OpenedStream, PlaceStream, SessionExit,
