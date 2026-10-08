@@ -372,6 +372,19 @@ and the endpoint `<origin>/v1/push/<id>`:
   environment of `ios`, that it serves. A registration for a platform or
   an APNs environment with no transport gets `422`.
 
+The project runs its relay with the deployment in `deploy/push-relay/`,
+behind a Cloudflare Tunnel (`cloudflared`). The tunnel connects out to
+Cloudflare, so the host has no inbound port and needs no public address,
+and Cloudflare holds the TLS certificate. A reverse proxy on the host,
+such as Caddy, needs the ports 80 and 443 open to the internet and a
+public address. The tunnel has the fixed address that
+`PUSH_RELAY_TRUSTED_PROXY` names. The Cloudflare edge puts the address
+that connected to it at the end of `X-Forwarded-For`, and cloudflared
+does not change that header, so the relay reads the same header behind
+the tunnel as behind another proxy. The base deployment serves `ios`
+alone and needs no Firebase project. `compose.fcm.yaml` adds the FCM
+credentials and serves `android`.
+
 A server posts a Web Push to `POST /v1/push/<id>`. The relay does these
 checks in this order:
 

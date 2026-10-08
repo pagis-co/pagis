@@ -87,6 +87,9 @@ that holds only the ciphertext.
 The registration limit counts in a fixed window of one hour for each
 address. Behind a reverse proxy, the address is the last entry of
 `X-Forwarded-For` from the address that `PUSH_RELAY_TRUSTED_PROXY` names.
+Behind the Cloudflare Tunnel of the deployment, that entry is the
+address that connected to Cloudflare (see
+[Deploy the relay](#deploy-the-relay)).
 
 The database holds the count of pushes, so a restart keeps it. A push
 that APNs or FCM does not take gets `502` and does not count against the
@@ -106,15 +109,15 @@ the variable.
 | `PUSH_RELAY_PUBLIC_ORIGIN` | Required. The `https` origin of the relay, such as `https://push.example.net`. Each endpoint starts with it, and the `aud` of each VAPID token must be it. An `http` origin on a loopback address is accepted for tests. | `https://` and `PUSH_RELAY_DOMAIN` |
 | `PUSH_RELAY_DATABASE` | Required. The path of the SQLite file. The relay makes the file and its tables when they are missing. | The image: `/var/lib/pagis-push-relay/relay.sqlite` |
 | `PUSH_RELAY_BIND` | The IP address and the port that the relay listens on. The default is `127.0.0.1:8080`. | The image: `0.0.0.0:8080` |
-| `PUSH_RELAY_TRUSTED_PROXY` | The IP address of the reverse proxy. The relay reads `X-Forwarded-For` only from this address. Without it, the relay believes no `X-Forwarded-For`. | `compose.yaml`: `10.231.0.2`, the address of Caddy |
+| `PUSH_RELAY_TRUSTED_PROXY` | The IP address of the reverse proxy. The relay reads `X-Forwarded-For` only from this address. Without it, the relay believes no `X-Forwarded-For`. | `compose.yaml`: `10.231.0.2`, the address of the tunnel |
 | `PUSH_RELAY_APNS_PRODUCTION_KEY_PATH` | The `.p8` file of the APNs key of the production environment: a P-256 private key in PKCS#8 PEM. | The secret `apns-production-key` |
 | `PUSH_RELAY_APNS_PRODUCTION_KEY_ID` | The 10-character ID of the APNs key of the production environment. | `.env` |
 | `PUSH_RELAY_APNS_SANDBOX_KEY_PATH` | The `.p8` file of the APNs key of the sandbox environment: a P-256 private key in PKCS#8 PEM. | The secret `apns-sandbox-key` |
 | `PUSH_RELAY_APNS_SANDBOX_KEY_ID` | The 10-character ID of the APNs key of the sandbox environment. | `.env` |
 | `PUSH_RELAY_APNS_TEAM_ID` | The 10-character ID of the Apple developer team that holds the APNs keys. | `.env` |
 | `PUSH_RELAY_APNS_TOPIC` | The bundle ID of the Mobile App, `co.pagis.mobile`. | `.env` |
-| `PUSH_RELAY_FCM_CREDENTIALS_PATH` | The JSON key of the Google service account that sends. | The secret `fcm-credentials` |
-| `PUSH_RELAY_FCM_PROJECT_ID` | The ID of the Firebase project of the Mobile App. | `.env` |
+| `PUSH_RELAY_FCM_CREDENTIALS_PATH` | The JSON key of the Google service account that sends. | `compose.fcm.yaml`: the secret `fcm-credentials` |
+| `PUSH_RELAY_FCM_PROJECT_ID` | The ID of the Firebase project of the Mobile App. | `compose.fcm.yaml`: `.env` |
 | `RUST_LOG` | The filter of the log lines. The default is `info`. | Not set |
 
 The relay serves `ios` registrations of an APNs environment when the key
@@ -130,8 +133,9 @@ With none of the variables of a platform, the relay serves no
 registration of that platform. With half of a key pair, or some but not
 all of the FCM variables, the relay stops and names each missing
 variable. A team ID or a topic without a key pair also stops it. The
-deployment in `deploy/push-relay/` serves both platforms and both APNs
-environments, so it requires each of these variables.
+deployment in `deploy/push-relay/` serves both APNs environments, so it
+requires each APNs variable. It serves `android` only with
+`compose.fcm.yaml`, which requires the two FCM variables.
 
 Each APNs key is Topic Specific to the bundle ID of the Mobile App, and
 the relay has one key for each environment. Apple lets a key for both
@@ -147,71 +151,137 @@ read or parse stops it.
 
 ## Deploy the relay
 
-`deploy/push-relay/` holds the deployment: the relay and Caddy, which
-holds the TLS certificate. The two services share a network with the
-fixed subnet `10.231.0.0/24`. Caddy has the fixed address `10.231.0.2`,
-and the relay believes `X-Forwarded-For` from that address alone.
+`deploy/push-relay/` holds the deployment: the relay, and a Cloudflare
+Tunnel (`cloudflared`) in front of it. The tunnel connects out to
+Cloudflare, and Cloudflare holds the TLS certificate of the name of the
+relay. No service publishes a port, so the host needs no inbound port and
+no public IP address.
+
+The two services share a network with the fixed subnet `10.231.0.0/24`.
+The tunnel has the fixed address `10.231.0.2`, and the relay believes
+`X-Forwarded-For` from that address alone. The Cloudflare edge puts the
+address that connected to it at the end of `X-Forwarded-For`, and it
+sets the header to that address when the request has none
+([Cloudflare HTTP headers](https://developers.cloudflare.com/fundamentals/reference/http-headers/#x-forwarded-for)).
+cloudflared does not change the header. So the last entry is the address
+of the phone or the server, the same address as `CF-Connecting-IP`, and
+the registration limit counts that address.
+
+`compose.yaml` serves the iOS app through APNs. `compose.fcm.yaml` adds
+the Android app through FCM. `COMPOSE_FILE` in `.env` selects the files:
+`compose.yaml` alone, or `compose.yaml:compose.fcm.yaml` to serve the
+Android app too. Without `compose.fcm.yaml`, the relay serves no
+`android` registration, and the deployment needs no Firebase project.
 
 You need:
 
-- a Linux host with Docker Engine and the Compose plugin;
-- a DNS name for the relay, with an A record to the host. Give the name
-  no AAAA record: the network of the deployment is IPv4, and Docker
-  forwards an IPv6 connection through its own proxy. The relay then sees
-  one address for each IPv6 client, and they share one registration
-  limit;
-- the ports 80 and 443 open to the internet. Caddy uses port 80 to get
-  its certificate;
+- a Linux host with Docker Engine and the Compose plugin. The host
+  connects out to Cloudflare on port 7844 (TCP and UDP), and to APNs and
+  FCM on port 443;
+- a domain on Cloudflare DNS, such as `pagis.co`, and a Cloudflare
+  account that can make a Cloudflare Tunnel;
 - two APNs keys of the Apple developer team that publishes the Mobile
   App, each Topic Specific to the bundle ID of the Mobile App: a key for
   the sandbox environment and a key for the production environment. Keep
   the `.p8` file of each key;
-- a JSON key of a service account of the Firebase project of the Mobile
-  App that can send with the FCM HTTP v1 API.
+- for the Android app only: a JSON key of a service account of the
+  Firebase project of the Mobile App that can send with the FCM HTTP v1
+  API.
+
+Do these steps in the Cloudflare dashboard:
+
+1. Go to **Networking** > **Tunnels**, and select **Create a tunnel**.
+   Give the tunnel a name, such as `pagis-push-relay`.
+2. The dashboard shows an installation command for the cloudflared
+   connector. Copy the token of the tunnel from it: the long value that
+   starts with `eyJ`. Do not run the command. The deployment runs
+   cloudflared.
+3. On the **Routes** tab of the tunnel, select **Add route** >
+   **Published application**. Set the subdomain (`push`) and the domain
+   (`pagis.co`). The name is `PUSH_RELAY_DOMAIN`. Set the service URL to
+   `http://relay:8080`. cloudflared runs on the network of the
+   deployment, and the DNS of Docker on that network resolves the
+   service name `relay`. Cloudflare adds the DNS record of the name.
+4. Make sure that Cloudflare does not challenge or block a request to
+   the name. The Mobile App and each server send `POST` requests with no
+   browser. They cannot solve a challenge, so a challenge stops each
+   registration and each push:
+   - **Bot Fight Mode** challenges API and mobile app traffic, and a
+     rule cannot skip it for one name. Turn it off in **Security** >
+     **Settings** for the zone. On a plan with Super Bot Fight Mode, add
+     a WAF custom rule that skips it for the name instead.
+   - **Browser Integrity Check** challenges a request with no user agent
+     or with a user agent that is not a browser. Add a configuration
+     rule (**Rules** > **Configuration Rules**) for the hostname of the
+     relay that turns Browser Integrity Check off.
+   - Keep **I'm Under Attack** mode off for the name, and put no
+     Cloudflare Access application on it.
+   - Keep the managed transform **Remove visitor IP headers** off, and
+     keep **Pseudo IPv4** off. Each of them changes the address that
+     the relay counts.
+
+   **Security** > **Events** shows each request that Cloudflare
+   challenged or blocked, and the feature that did it.
 
 Do these steps on the host:
 
 1. Copy `deploy/push-relay/` from the tag of the relay version that you
    deploy.
-2. Copy `.env.example` to `.env`, and set each value in it.
-3. Put the three key files in `secrets/`:
+2. Copy `.env.example` to `.env`, and set each value in it. To serve the
+   Android app, set `COMPOSE_FILE=compose.yaml:compose.fcm.yaml`.
+3. Put the APNs key files and the token of the tunnel in `secrets/`.
+   Paste the token, and then push Ctrl-D, so that the token is not in
+   the history of the shell:
 
    ```bash
    mkdir -p secrets
    cp /path/to/AuthKey_ABC123DEFG.p8 secrets/apns-production-key.p8
    cp /path/to/AuthKey_GHI456JKLM.p8 secrets/apns-sandbox-key.p8
-   cp /path/to/service-account.json secrets/fcm-credentials.json
+   cat > secrets/cloudflared-token
    ```
 
-4. Give the key files to the user of the relay, and make them private.
-   Compose mounts each file with its owner and its mode on the host, and
-   the relay runs as the user ID 10001:
+4. Give each file to the user of the service that reads it, and make it
+   private. Compose mounts each file with its owner and its mode on the
+   host. The relay runs as the user ID 10001, and cloudflared runs as
+   the user ID 65532:
 
    ```bash
    sudo chown 10001:10001 secrets/apns-production-key.p8 \
-     secrets/apns-sandbox-key.p8 secrets/fcm-credentials.json
+     secrets/apns-sandbox-key.p8
+   sudo chown 65532:65532 secrets/cloudflared-token
    sudo chmod 400 secrets/apns-production-key.p8 \
-     secrets/apns-sandbox-key.p8 secrets/fcm-credentials.json
+     secrets/apns-sandbox-key.p8 secrets/cloudflared-token
    ```
 
-5. Start the deployment:
+5. Only with `compose.fcm.yaml`: put the JSON key of the service account
+   at `secrets/fcm-credentials.json`, and give it to the user of the
+   relay:
+
+   ```bash
+   cp /path/to/service-account.json secrets/fcm-credentials.json
+   sudo chown 10001:10001 secrets/fcm-credentials.json
+   sudo chmod 400 secrets/fcm-credentials.json
+   ```
+
+6. Start the deployment. Compose reads `COMPOSE_FILE` from `.env`:
 
    ```bash
    docker compose up -d
    ```
 
-6. Make sure that the relay is healthy. `docker compose ps` shows the
-   relay as `healthy`, and the health route answers the version:
+7. Make sure that the relay is healthy. `docker compose ps` shows the
+   relay as `healthy`, the Cloudflare dashboard shows the tunnel as
+   `Healthy`, and the health route answers the version:
 
    ```bash
    curl https://push.example.net/v1/health
    ```
 
 The named volume `relay-data` holds the state directory and the SQLite
-file. The volumes `caddy-data` and `caddy-config` hold the certificate.
+file.
 
 To upgrade, set `PUSH_RELAY_VERSION` in `.env` to the new version, and
-take the `compose.yaml` and the `Caddyfile` of its tag. Then run
+take the `compose.yaml` and the `compose.fcm.yaml` of its tag. Then run
 `docker compose pull` and `docker compose up -d`. The relay migrates its
 database when it starts.
 
@@ -243,7 +313,7 @@ the key of one environment:
    failure.
 6. Revoke the old key in the Apple developer account.
 
-To rotate the FCM credentials:
+To rotate the FCM credentials of a deployment with `compose.fcm.yaml`:
 
 1. In the Google Cloud console, add a new JSON key to the service
    account. Keep the old key.

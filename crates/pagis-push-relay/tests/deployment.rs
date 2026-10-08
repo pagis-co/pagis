@@ -1,5 +1,6 @@
-//! The deployment of the Push Relay (`deploy/push-relay/compose.yaml`),
-//! as Docker Compose itself reads it.
+//! The deployment of the Push Relay (`deploy/push-relay/compose.yaml`,
+//! and `compose.fcm.yaml` for the Android app), as Docker Compose itself
+//! reads it.
 
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
@@ -17,11 +18,17 @@ fn deployment(file: &str) -> PathBuf {
     repository().join("deploy/push-relay").join(file)
 }
 
-fn compose() -> std::process::Command {
+/// The deployment that serves the iOS app alone.
+const IOS: &[&str] = &["compose.yaml"];
+/// The deployment that serves the iOS app and the Android app.
+const IOS_AND_ANDROID: &[&str] = &["compose.yaml", "compose.fcm.yaml"];
+
+fn compose(files: &[&str]) -> std::process::Command {
     let mut command = std::process::Command::new("docker");
-    command
-        .args(["compose", "--file"])
-        .arg(deployment("compose.yaml"));
+    command.arg("compose");
+    for file in files {
+        command.arg("--file").arg(deployment(file));
+    }
     command
 }
 
@@ -35,18 +42,24 @@ fn config_of(mut command: std::process::Command) -> Value {
     serde_json::from_slice(&output.stdout).expect("compose prints JSON")
 }
 
-/// The deployment as `docker compose config` reads it, with no setting
-/// put in.
+/// The deployment of both apps as `docker compose config` reads it, with
+/// no setting put in.
 fn compose_config() -> Value {
-    let mut command = compose();
+    let mut command = compose(IOS_AND_ANDROID);
     command.args(["config", "--no-interpolate", "--format", "json"]);
     config_of(command)
 }
 
-/// The deployment as Compose resolves it for the settings of
+/// The deployment of both apps as Compose resolves it for the settings of
 /// `.env.example`.
 fn example_config() -> Value {
-    let mut command = compose();
+    example_config_of(IOS_AND_ANDROID)
+}
+
+/// The deployment of `files` as Compose resolves it for the settings of
+/// `.env.example`.
+fn example_config_of(files: &[&str]) -> Value {
+    let mut command = compose(files);
     command
         .arg("--env-file")
         .arg(deployment(".env.example"))
@@ -73,23 +86,6 @@ fn example_settings() -> Vec<String> {
         .collect()
 }
 
-/// The global options of the Caddyfile: the lines of the block that
-/// opens the file, without comments.
-fn caddy_global_options() -> Vec<String> {
-    let caddyfile = std::fs::read_to_string(deployment("Caddyfile")).expect("the Caddyfile");
-    let mut lines = caddyfile
-        .lines()
-        .map(|line| line.split('#').next().unwrap_or_default().trim())
-        .filter(|line| !line.is_empty());
-    if lines.next() != Some("{") {
-        return Vec::new();
-    }
-    lines
-        .take_while(|line| *line != "}")
-        .map(str::to_string)
-        .collect()
-}
-
 /// The value of `ENV <name>=` in the relay Dockerfile.
 fn image_env(name: &str) -> String {
     let dockerfile =
@@ -103,28 +99,19 @@ fn image_env(name: &str) -> String {
         .to_string()
 }
 
-/// Caddy serves its admin API on its own loopback unless the Caddyfile
-/// turns it off, and a request there can stop the proxy. Nothing in the
-/// deployment uses it.
-#[test]
-fn the_proxy_serves_no_admin_api() {
-    let options = caddy_global_options();
-
-    assert!(
-        options.iter().any(|option| option == "admin off"),
-        "the global options of deploy/push-relay/Caddyfile are {options:?}"
-    );
-}
-
-/// Each setting of `.env.example` reaches the relay. A setting that
-/// nothing reads would look like a setting and change nothing.
+/// Each setting of `.env.example` reaches the relay, or Compose itself
+/// reads it (`COMPOSE_*`). A setting that nothing reads would look like a
+/// setting and change nothing.
 #[test]
 fn every_example_setting_reaches_the_relay() {
     let relay = compose_config()["services"]["relay"].to_string();
 
     let settings = example_settings();
     assert!(!settings.is_empty());
-    for name in settings {
+    for name in settings
+        .into_iter()
+        .filter(|name| !name.starts_with("COMPOSE_"))
+    {
         assert!(
             relay.contains(&format!("${{{name}}}")) || relay.contains(&format!("${{{name}:")),
             "the relay of deploy/push-relay/compose.yaml does not read {name}"
@@ -179,50 +166,171 @@ fn the_deployment_holds_a_key_pair_for_each_apns_environment() {
     }
 }
 
-/// The relay believes `X-Forwarded-For` only from the address that
-/// `PUSH_RELAY_TRUSTED_PROXY` names. Caddy has that fixed address on the
-/// network of the deployment, so the registration limit counts the
-/// address of each phone and not the address of Caddy.
+/// `compose.yaml` alone serves the iOS app: it sets no FCM variable and
+/// mounts no FCM credentials, so a deployment needs no Firebase project.
+/// `compose.fcm.yaml` adds them.
 #[test]
-fn the_relay_trusts_the_fixed_address_of_the_proxy() {
-    let config = example_config();
+fn the_base_deployment_needs_no_firebase_project() {
+    let config = example_config_of(IOS);
     let relay = &config["services"]["relay"];
-    let proxy = &config["services"]["proxy"];
-    let networks = config["networks"].as_object().expect("the networks");
-    assert_eq!(networks.len(), 1, "{networks:?}");
-    let (network, definition) = networks.iter().next().unwrap();
-    let subnet = definition["ipam"]["config"][0]["subnet"]
-        .as_str()
-        .unwrap_or_else(|| panic!("the network {network} has no fixed subnet: {definition}"));
-    let (base, prefix) = subnet.split_once('/').expect("a CIDR subnet");
-    let base: Ipv4Addr = base.parse().expect("an IPv4 subnet");
-    let mask = u32::MAX << (32 - prefix.parse::<u32>().expect("a prefix length"));
+    let environment = relay["environment"].as_object().expect("the environment");
 
-    let address: Ipv4Addr = proxy["networks"][network]["ipv4_address"]
-        .as_str()
-        .unwrap_or_else(|| panic!("the proxy has no fixed address: {proxy}"))
-        .parse()
-        .expect("an IPv4 address");
+    assert!(
+        environment
+            .keys()
+            .all(|name| !name.starts_with("PUSH_RELAY_FCM_")),
+        "deploy/push-relay/compose.yaml sets {:?}",
+        environment.keys().collect::<Vec<_>>()
+    );
+    assert!(
+        environment.contains_key("PUSH_RELAY_APNS_TOPIC"),
+        "{environment:?}"
+    );
+    let secrets = relay["secrets"].to_string();
+    assert!(!secrets.contains("fcm"), "{secrets}");
+    assert!(
+        config["secrets"].get("fcm-credentials").is_none(),
+        "{config}"
+    );
 
-    assert_eq!(
-        relay["environment"]["PUSH_RELAY_TRUSTED_PROXY"],
-        address.to_string()
-    );
-    assert_eq!(
-        u32::from(address) & mask,
-        u32::from(base) & mask,
-        "{subnet}"
-    );
-    assert!(relay["networks"].get(network).is_some(), "{relay}");
-    assert_eq!(
-        relay["environment"]["PUSH_RELAY_PUBLIC_ORIGIN"],
-        format!(
-            "https://{}",
-            proxy["environment"]["PUSH_RELAY_DOMAIN"]
+    let both = example_config();
+    let environment = &both["services"]["relay"]["environment"];
+    for name in [
+        "PUSH_RELAY_FCM_CREDENTIALS_PATH",
+        "PUSH_RELAY_FCM_PROJECT_ID",
+    ] {
+        assert!(
+            environment[name]
                 .as_str()
-                .expect("the domain of the proxy")
-        )
+                .is_some_and(|value| !value.is_empty()),
+            "compose.fcm.yaml sets no {name}: {environment}"
+        );
+    }
+}
+
+/// The relay believes `X-Forwarded-For` only from the address that
+/// `PUSH_RELAY_TRUSTED_PROXY` names. The tunnel has that fixed address on
+/// the network of the deployment, so the registration limit counts the
+/// address of each phone and not the address of the tunnel.
+#[test]
+fn the_relay_trusts_the_fixed_address_of_the_tunnel() {
+    for files in [IOS, IOS_AND_ANDROID] {
+        let config = example_config_of(files);
+        let relay = &config["services"]["relay"];
+        let tunnel = &config["services"]["tunnel"];
+        let networks = config["networks"].as_object().expect("the networks");
+        assert_eq!(networks.len(), 1, "{networks:?}");
+        let (network, definition) = networks.iter().next().unwrap();
+        let subnet = definition["ipam"]["config"][0]["subnet"]
+            .as_str()
+            .unwrap_or_else(|| panic!("the network {network} has no fixed subnet: {definition}"));
+        let (base, prefix) = subnet.split_once('/').expect("a CIDR subnet");
+        let base: Ipv4Addr = base.parse().expect("an IPv4 subnet");
+        let mask = u32::MAX << (32 - prefix.parse::<u32>().expect("a prefix length"));
+
+        let address: Ipv4Addr = tunnel["networks"][network]["ipv4_address"]
+            .as_str()
+            .unwrap_or_else(|| panic!("the tunnel has no fixed address: {tunnel}"))
+            .parse()
+            .expect("an IPv4 address");
+
+        assert_eq!(
+            relay["environment"]["PUSH_RELAY_TRUSTED_PROXY"],
+            address.to_string(),
+            "{files:?}"
+        );
+        assert_eq!(
+            u32::from(address) & mask,
+            u32::from(base) & mask,
+            "{subnet}"
+        );
+        assert!(relay["networks"].get(network).is_some(), "{relay}");
+    }
+}
+
+/// The tunnel runs the official cloudflared image, pinned by tag and
+/// digest, so a relay runs the bytes that were tested.
+#[test]
+fn the_tunnel_image_is_pinned_by_digest() {
+    let config = compose_config();
+    let image = config["services"]["tunnel"]["image"]
+        .as_str()
+        .expect("the tunnel has an image");
+
+    let (name, digest) = image
+        .split_once("@sha256:")
+        .unwrap_or_else(|| panic!("{image} has no digest"));
+    let (repository, tag) = name
+        .split_once(':')
+        .unwrap_or_else(|| panic!("{image} has no tag"));
+    assert_eq!(repository, "cloudflare/cloudflared", "{image}");
+    assert!(!tag.is_empty() && tag != "latest", "{image}");
+    assert!(
+        digest.len() == 64 && digest.chars().all(|c| c.is_ascii_hexdigit()),
+        "{image}"
     );
+}
+
+/// The token of the tunnel is a Compose secret that cloudflared reads from
+/// its file. It is not a setting of `.env`, and it is not in the
+/// environment or the command of the tunnel.
+#[test]
+fn the_tunnel_token_is_a_secret() {
+    let config = example_config();
+    let tunnel = &config["services"]["tunnel"];
+
+    let path = tunnel["environment"]["TUNNEL_TOKEN_FILE"]
+        .as_str()
+        .unwrap_or_else(|| panic!("the tunnel sets no TUNNEL_TOKEN_FILE: {tunnel}"));
+    let secrets = tunnel["secrets"]
+        .as_array()
+        .expect("the tunnel has secrets");
+    let secret = secrets
+        .iter()
+        .find(|secret| secret["target"] == path)
+        .unwrap_or_else(|| panic!("no secret of the tunnel is at {path}: {secrets:?}"));
+    let source = secret["source"].as_str().expect("a source");
+    assert!(
+        config["secrets"][source]["file"]
+            .as_str()
+            .is_some_and(|file| file.ends_with("/secrets/cloudflared-token")),
+        "{}",
+        config["secrets"]
+    );
+
+    assert!(
+        tunnel["environment"].get("TUNNEL_TOKEN").is_none(),
+        "{tunnel}"
+    );
+    let command = tunnel["command"].to_string();
+    assert!(!command.contains("--token"), "{command}");
+    let settings = example_settings();
+    assert!(
+        settings.iter().all(|name| !name.contains("TOKEN")),
+        "{settings:?}"
+    );
+}
+
+/// The tunnel connects out to Cloudflare, so no service publishes a port
+/// and the host needs no inbound port.
+#[test]
+fn no_service_publishes_a_port() {
+    for files in [IOS, IOS_AND_ANDROID] {
+        let config = example_config_of(files);
+        let services = config["services"].as_object().expect("the services");
+        assert!(services.contains_key("tunnel"), "{files:?}");
+
+        for (name, service) in services {
+            assert!(
+                service
+                    .get("ports")
+                    .and_then(Value::as_array)
+                    .is_none_or(Vec::is_empty),
+                "{name} of {files:?} publishes {}",
+                service["ports"]
+            );
+        }
+    }
 }
 
 /// The APNs key of each environment and the FCM credentials are Compose

@@ -1,0 +1,18 @@
+# The FCM part of the Push Relay: it serves the Android app. Compose
+# merges this file into `compose.yaml` when `COMPOSE_FILE` in `.env` names
+# both files:
+#
+#   COMPOSE_FILE=compose.yaml:compose.fcm.yaml
+#
+# Without this file, the relay serves no `android` registration.
+services:
+  relay:
+    environment:
+      PUSH_RELAY_FCM_CREDENTIALS_PATH: /run/secrets/fcm-credentials
+      PUSH_RELAY_FCM_PROJECT_ID: ${PUSH_RELAY_FCM_PROJECT_ID:?set PUSH_RELAY_FCM_PROJECT_ID in .env}
+    secrets:
+      - fcm-credentials
+
+secrets:
+  fcm-credentials:
+    file: ./secrets/fcm-credentials.json
