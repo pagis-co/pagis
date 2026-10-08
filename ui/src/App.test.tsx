@@ -3,7 +3,7 @@ import { createMemoryHistory } from '@tanstack/react-router'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { ApiClient } from './api/client'
+import type { ApiClient, CodingSessionEventDto } from './api/client'
 import type { SocketHandlers, SocketOptions } from './ws/socket'
 import { App } from './App'
 import { useCallInspector } from './state/stores'
@@ -224,6 +224,41 @@ describe('the Needs-You Queue', () => {
     needsYouFrame('needs_you.removed', { item_id: 'call:missed-1', count: 0 })
     expect(await screen.findByText('Nothing needs you.')).toBeTruthy()
     expect(screen.queryByText('Sage missed a call from +14155550199')).toBeNull()
+  })
+})
+
+describe('the session page', () => {
+  // The daemon reports each write of a Coding Session as a frame that
+  // carries no text, and the page reads the transcript again.
+  it('reads the transcript again on a frame of the open session, with no reload', async () => {
+    let rows: CodingSessionEventDto[] = [
+      { seq: 1, at: 1, kind: 'prompt', payload: { text: 'Fix the login bug', message_id: null } },
+    ]
+    api.GET.mockImplementation(async (path: string) =>
+      path === '/api/v1/coding-sessions/{coding_session_id}/transcript'
+        ? { data: { items: rows, next_after: null } }
+        : shellResponse(path),
+    )
+    mount('/coding/session-1')
+    expect(await screen.findByText('Fix the login bug', { selector: 'p' })).toBeTruthy()
+
+    rows = [
+      ...rows,
+      { seq: 2, at: 2, kind: 'agent_message', payload: { text: 'The token expired early.', message_id: 'm1' } },
+    ]
+    act(() =>
+      socket.handlers!.onEvent({
+        type: 'coding_session.transcript',
+        payload: {
+          id: 'event-1',
+          event_type: 'coding_session.transcript',
+          created_at: Date.now(),
+          payload: { coding_session_id: 'session-1', seq: 2, kind: 'agent_message' },
+        },
+      }),
+    )
+
+    expect(await screen.findByText('The token expired early.')).toBeTruthy()
   })
 })
 

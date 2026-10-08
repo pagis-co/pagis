@@ -11,8 +11,8 @@ use async_trait::async_trait;
 use pagis_coding::fake::{self, NEW_SESSION_ID, Script, Turn, acp};
 use pagis_coding::{
     AcpSession, AskHandler, CodingError, Cost, Location, Opening, PermissionAnswer, PermissionAsk,
-    PlanEntry, PlanStatus, QuestionAnswer, QuestionAsk, SessionEvent, SignInMethod, StopReason,
-    ToolKind, ToolStatus,
+    PlanEntry, PlanPriority, PlanStatus, QuestionAnswer, QuestionAsk, SessionEvent, SignInMethod,
+    StopReason, ToolKind, ToolStatus,
 };
 use serde_json::json;
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -223,6 +223,7 @@ async fn a_prompt_gives_its_updates_in_order_then_the_turn_end() {
         SessionEvent::Plan {
             entries: vec![PlanEntry {
                 content: "Fix the bug".to_owned(),
+                priority: PlanPriority::High,
                 status: PlanStatus::InProgress,
             }],
         }

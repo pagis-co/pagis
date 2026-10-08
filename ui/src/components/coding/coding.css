@@ -1,0 +1,275 @@
+/* The session page (docs/UI-DESIGN.md): one Coding Session as its head,
+ * its plan and its transcript. Every value comes from `tokens.css`. */
+
+.coding-page {
+  padding: var(--space-4) var(--space-5);
+  overflow: hidden auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  width: 100%;
+  max-width: 56rem;
+}
+
+.coding-empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+/* Paths, branches and tool output: identifiers, so mono. A long path
+ * breaks at any character and never widens the page. */
+.coding-mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+
+.coding-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.coding-head-top {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.coding-head-what {
+  flex: 1;
+  min-width: 0;
+}
+
+.coding-head-what h2 {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.coding-head-who {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.coding-head-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1-5);
+}
+
+.coding-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+}
+
+.coding-facts div {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  min-width: 0;
+}
+
+.coding-facts dt {
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+.coding-facts dd {
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.coding-thread-link {
+  align-self: flex-start;
+  color: var(--accent-ink);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.coding-plan {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--raised);
+}
+
+.coding-plan h3 {
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.coding-plan ul {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.coding-plan-entry {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.coding-plan-content {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.coding-plan-completed .coding-plan-content {
+  color: var(--muted);
+}
+
+.coding-plan-in_progress svg {
+  color: var(--working);
+}
+
+.coding-plan-status {
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+.coding-transcript {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.coding-message {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.coding-author {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+
+.coding-prose {
+  font-size: var(--text-md);
+  line-height: var(--leading-relaxed);
+}
+
+.coding-message-sprite .coding-prose {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--sunken);
+}
+
+.coding-thought {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  color: var(--muted);
+}
+
+.coding-disclosure {
+  align-self: flex-start;
+  gap: var(--space-1);
+}
+
+.coding-tool {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2-5) var(--space-3);
+}
+
+.coding-tool-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.coding-tool-kind {
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+.coding-tool-title {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.coding-tool-locations {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+}
+
+.coding-tool-text,
+.coding-raw {
+  margin: 0;
+  padding: var(--space-2);
+  max-height: 20rem;
+  overflow: auto;
+  background: var(--sunken);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.coding-tool-diff {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  margin: 0;
+  color: var(--muted);
+}
+
+/* A permission or a question: one line, with the outcome after it. */
+.coding-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1-5);
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.coding-line-what {
+  overflow-wrap: anywhere;
+}
+
+.coding-line-outcome {
+  color: var(--muted);
+}
+
+/* The end of a turn: a hairline with its reason. */
+.coding-turn-end {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  margin: 0;
+  padding-top: var(--space-1-5);
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+.coding-cut {
+  color: var(--waiting-ink);
+  font-size: var(--text-xs);
+}

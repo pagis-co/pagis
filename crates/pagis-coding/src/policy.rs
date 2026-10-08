@@ -123,13 +123,17 @@ impl SessionDecisions for PolicyDecisions {
                 } else {
                     fact.event(Some(decider), Outcome::Cancelled, None)
                 };
-                match self.bus.publish(event).await {
-                    Ok(_) if offered => Pending::Decided(PermissionAnswer::AllowOnce),
-                    Ok(_) => Pending::Decided(PermissionAnswer::Cancel),
+                let answer = match self.bus.publish(event).await {
+                    Ok(_) if offered => PermissionAnswer::AllowOnce,
+                    Ok(_) => PermissionAnswer::Cancel,
                     Err(error) => {
                         tracing::error!(session = %session.id, %error, "the audit fact of a Harness Permission was not written, so it is cancelled");
-                        Pending::Decided(PermissionAnswer::Cancel)
+                        PermissionAnswer::Cancel
                     }
+                };
+                Pending::Decided {
+                    answer,
+                    decider: Some(decider),
                 }
             }
             PolicyOutcome::AskAgent => self.wait(WaitsFor::Agent, fact),
@@ -144,7 +148,10 @@ impl SessionDecisions for PolicyDecisions {
         _session: &CodingSession,
         _ask: QuestionAsk,
     ) -> Pending<QuestionAnswer> {
-        Pending::Decided(QuestionAnswer::Cancel)
+        Pending::Decided {
+            answer: QuestionAnswer::Cancel,
+            decider: None,
+        }
     }
 }
 

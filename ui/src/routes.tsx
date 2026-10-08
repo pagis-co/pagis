@@ -1,6 +1,6 @@
 // The route tree. Every view has a URL: a channel, a thread, a
-// run, an agent, each Settings section, and the Automations and
-// Software destinations. The durable inspector tenant (the Desk
+// run, a Coding Session, an agent, each Settings section, and the
+// Automations and Software destinations. The durable inspector tenant (the Desk
 // panel) rides in the `panel` search parameter; Call and Mail stay
 // transient in their stores (ADR-0022).
 
@@ -19,6 +19,7 @@ import { useEffect } from 'react'
 import type { ApiClient } from './api/client'
 import { AppShell } from './AppShell'
 import { Automations } from './components/Automations'
+import { CodingSessionPage } from './components/coding/CodingSessionPage'
 import { ChannelComposer } from './components/composer/ChannelComposer'
 import { Home } from './components/home/Home'
 import { MemoryPage } from './components/memory/MemoryPage'
@@ -322,6 +323,25 @@ const runRoute = createRoute({
   component: RunView,
 })
 
+const codingRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/coding',
+})
+
+/** `/coding/:sessionId`: one Coding Session as its transcript, its
+ *  plan and its tool calls. */
+function CodingSessionView() {
+  const api = useApi()
+  const { sessionId } = codingSessionRoute.useParams()
+  return <CodingSessionPage api={api} sessionId={sessionId} />
+}
+
+const codingSessionRoute = createRoute({
+  getParentRoute: () => codingRoute,
+  path: '$sessionId',
+  component: CodingSessionView,
+})
+
 /** One sprite: the profile page. */
 function AgentView() {
   const api = useApi()
@@ -581,6 +601,7 @@ const routeTree = rootRoute.addChildren([
     channelRoute.addChildren([threadRoute]),
   ]),
   runsRoute.addChildren([runsIndexRoute, runRoute]),
+  codingRoute.addChildren([codingSessionRoute]),
   agentRoute,
   memoryRoute,
   automationsRoute,

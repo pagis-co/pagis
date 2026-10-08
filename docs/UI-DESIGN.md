@@ -58,6 +58,15 @@ a URL, so a refresh keeps the place and any view is linkable.
   the trigger, the steps as tool cards, and the tokens and the time in a
   footer. Grouped by day, with filter chips that carry counts, and a
   failure reason in plain words.
+- **Coding** (`/coding/<id>`) — one Coding Session as its transcript,
+  its plan and its tool calls. The head shows the sprite, the coding
+  harness, the title, the machine, the directory, the branch, the state,
+  the approval mode and the usage, with a link to the session's Thread.
+  The plan is a checklist. A message of the harness draws as prose, a
+  tool call is a card with its status and its files, and a permission
+  or a question is one line that says how it ended. A changed file shows
+  its path. Not built: the diff, the Stop button and the list at
+  `/coding`.
 - **Memory** (`/memory`) — the page list and the learning feed, with a
   diff preview and a revert on each change.
 - **Automations** (`/automations`) and **Software** (`/software`) — the
