@@ -3,7 +3,8 @@
 //! A start runs here after the broker has settled the machine, checked
 //! the start and asked the Person. Each other tool acts on one session of
 //! the calling Agent: a session of another Agent reads as absent, as
-//! another Agent's Call does (ADR-0020).
+//! another Agent's Call does (ADR-0020). A resume also needs the live
+//! host Grant of the Agent on the session's machine.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -14,13 +15,14 @@ use pagis_broker::{
 };
 use pagis_core::{
     CodingSession, CodingSessionId, CodingSessionState as State, CodingSessionStore, EventSource,
-    HostStore, StoreError, harness, wrap_untrusted,
+    Grant, GrantStore, HostStore, StoreError, harness, wrap_untrusted,
 };
 use serde_json::json;
 
 use crate::report::harness_output;
 use crate::{
-    CloseReason, CodingSessions, NewCodingSession, PromptOutcome, SessionError, StartFailure,
+    CloseReason, CodingSessions, NewCodingSession, PromptOutcome, ResumeFailure, SessionError,
+    StartFailure,
 };
 
 /// The ref that the worktree of a session starts from: the commit that
@@ -54,6 +56,8 @@ pub struct CodingToolRuntime {
     store: Arc<dyn CodingSessionStore>,
     /// The Hosts give the machine names.
     hosts: Arc<dyn HostStore>,
+    /// The live host Grant lets a resume run.
+    grants: Arc<dyn GrantStore>,
 }
 
 impl CodingToolRuntime {
@@ -62,12 +66,14 @@ impl CodingToolRuntime {
         starts: Arc<dyn SessionStarts>,
         store: Arc<dyn CodingSessionStore>,
         hosts: Arc<dyn HostStore>,
+        grants: Arc<dyn GrantStore>,
     ) -> Self {
         Self {
             sessions,
             starts,
             store,
             hosts,
+            grants,
         }
     }
 
@@ -192,6 +198,42 @@ impl CodingToolRuntime {
         Ok(ToolResult::success("The session is closed."))
     }
 
+    /// Resumes an `interrupted` session, when the Agent still holds a
+    /// live host Grant on its machine. The Person approved this harness
+    /// in this directory on this machine, and a revoked Grant takes that
+    /// back.
+    async fn resume(&self, call: &AuthorizedCall) -> Result<ToolResult, ToolResult> {
+        let session = self.own_session(call).await?;
+        let granted = match &session.host_id {
+            Some(host_id) => self
+                .grants
+                .live_for_resource(
+                    &call.workspace_id,
+                    &call.agent_id,
+                    Grant::HOST_KIND,
+                    host_id.as_str(),
+                )
+                .await
+                .map_err(unavailable)?
+                .is_some(),
+            None => false,
+        };
+        if !granted {
+            return Err(ToolResult::error(
+                "permission_revoked",
+                "the user revoked your access to the computer of this coding session; ask the \
+                 user to allow it again",
+            ));
+        }
+        self.sessions
+            .resume(&call.workspace_id, &session.id)
+            .await
+            .map_err(|failure| resume_failure(&session.id, failure))?;
+        Ok(ToolResult::success(
+            "The session resumed. It is idle and takes a new prompt.",
+        ))
+    }
+
     /// The Agent's own sessions: each open one, then the newest that
     /// ended. The title and the directory are the Agent's own words, so
     /// they take no envelope.
@@ -289,10 +331,40 @@ fn unavailable(error: StoreError) -> ToolResult {
 }
 
 fn not_open(state: State) -> ToolResult {
-    ToolResult::error(
-        SESSION_NOT_OPEN,
-        format!("the coding session is {}", state.as_str()),
-    )
+    let message = match state {
+        State::Interrupted => "the coding session is interrupted; resume it with \
+                               coding_session_resume, or close it"
+            .to_string(),
+        state => format!("the coding session is {}", state.as_str()),
+    };
+    ToolResult::error(SESSION_NOT_OPEN, message)
+}
+
+/// The tool error of a resume that did nothing.
+fn resume_failure(session_id: &CodingSessionId, failure: ResumeFailure) -> ToolResult {
+    match failure {
+        ResumeFailure::NotFound => ToolResult::error(
+            SESSION_NOT_FOUND,
+            format!("you have no coding session {session_id}"),
+        ),
+        ResumeFailure::NotInterrupted(_) | ResumeFailure::Resuming => {
+            ToolResult::error("session_not_interrupted", failure.to_string())
+        }
+        ResumeFailure::NotStarted | ResumeFailure::CannotResume { .. } => {
+            ToolResult::error("cannot_resume", failure.to_string())
+        }
+        ResumeFailure::UnknownHarness(_) => {
+            ToolResult::error("unknown_harness", failure.to_string())
+        }
+        ResumeFailure::HostNotFound => ToolResult::error("machine_not_found", failure.to_string()),
+        // The words of every host tool for a machine that is away.
+        ResumeFailure::HostNotConnected { .. } => {
+            ToolResult::plain_error("host_not_connected", failure.to_string())
+        }
+        ResumeFailure::Open(failure) => ToolResult::error(failure.code.as_str(), failure.message),
+        ResumeFailure::Harness(message) => harness_error(session_id.clone(), &message),
+        ResumeFailure::Store(error) => unavailable(error),
+    }
 }
 
 /// The tool error of a call on a session that did nothing.
@@ -357,6 +429,7 @@ impl ToolExecutor for CodingToolRuntime {
                 CoreTool::CodingSessionCancel => self.cancel(&call).await,
                 CoreTool::CodingSessionClose => self.close(&call).await,
                 CoreTool::CodingSessionList => self.list(&call).await,
+                CoreTool::CodingSessionResume => self.resume(&call).await,
                 _ => Err(not_a_session_tool(&call)),
             },
             _ => Err(not_a_session_tool(&call)),

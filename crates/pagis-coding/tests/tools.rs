@@ -1,6 +1,7 @@
 //! The tools that an Agent drives its own Coding Sessions with (ADR-0033):
 //! `coding_session_send`, `coding_session_read`, `coding_session_cancel`,
-//! `coding_session_close` and `coding_session_list`, against the SQLite
+//! `coding_session_close`, `coding_session_list` and
+//! `coding_session_resume`, against the SQLite
 //! stores. A live session runs the fake harness behind the session socket
 //! registry; a test that reads a transcript writes its rows itself.
 
@@ -18,9 +19,9 @@ use pagis_core::{
     Agent, AgentId, AgentStatus, AgentStore, Channel, ChannelId, ChannelKind, ChannelStore,
     CodingSession, CodingSessionEventKind as Kind, CodingSessionId, CodingSessionPlace,
     CodingSessionState as State, CodingSessionStore, CodingSessionUsage, Event, EventBus, EventId,
-    EventScope, EventStream, HostId, HostStore, IngestBatch, MessageId, NewCodingSessionEvent,
-    NewEvent, Run, RunId, RunState, RunStore, SessionApprovalMode, StoreError, SystemClock,
-    TriggerKind, Workspace, WorkspaceId, WorkspaceStore, now_ms,
+    EventScope, EventStream, Grant, GrantId, GrantStore, HostId, HostStore, IngestBatch, MessageId,
+    NewCodingSessionEvent, NewEvent, Run, RunId, RunState, RunStore, SessionApprovalMode,
+    StoreError, SystemClock, TriggerKind, Workspace, WorkspaceId, WorkspaceStore, now_ms,
 };
 use pagis_storage_sqlite::{
     SqliteAgentStore, SqliteChannelStore, SqliteCodingSessionStore, SqliteGrantStore,
@@ -48,6 +49,7 @@ struct World {
     run_id: RunId,
     sessions: Arc<CodingSessions>,
     tools: CodingToolRuntime,
+    grants: Arc<SqliteGrantStore>,
 }
 
 /// A world whose machine runs the fake harness of `script` on each
@@ -131,6 +133,7 @@ async fn world(pool: SqlitePool, script: Script) -> World {
         rules: Arc::new(SilentRules),
         events: Arc::new(SilentRules),
         clock: Arc::new(SystemClock),
+        departures: pagis_broker::HostPresence::new().departures(),
         cancel: CancellationToken::new(),
     }));
     let tools = CodingToolRuntime::new(
@@ -141,7 +144,9 @@ async fn world(pool: SqlitePool, script: Script) -> World {
         )),
         store.clone(),
         hosts_store,
+        Arc::new(SqliteGrantStore::new(pool.clone())),
     );
+    let grants = Arc::new(SqliteGrantStore::new(pool.clone()));
     World {
         store,
         workspace_id: workspace.id,
@@ -152,6 +157,7 @@ async fn world(pool: SqlitePool, script: Script) -> World {
         run_id: run.id,
         sessions,
         tools,
+        grants,
     }
 }
 
@@ -335,6 +341,33 @@ impl World {
             json!({"session": session.id.as_str()}),
         )
         .await
+    }
+
+    async fn resume(&self, session: &CodingSession) -> ToolResult {
+        self.call(
+            CoreTool::CodingSessionResume,
+            "coding_session_resume",
+            json!({"session": session.id.as_str()}),
+        )
+        .await
+    }
+
+    /// A live host Grant of the calling Agent on the machine.
+    async fn host_grant(&self) {
+        self.grants
+            .create(&Grant {
+                id: GrantId::generate(),
+                workspace_id: self.workspace_id.clone(),
+                agent_id: self.agent_id.clone(),
+                resource_kind: Grant::HOST_KIND.to_string(),
+                resource_id: Some(self.host_id.to_string()),
+                scope: json!({"allow": []}),
+                revision: 1,
+                created_at: now_ms(),
+                revoked_at: None,
+            })
+            .await
+            .unwrap();
     }
 
     async fn list(&self) -> ToolResult {
@@ -766,4 +799,101 @@ async fn each_tool_answers_session_not_found_for_another_agents_session(pool: Sq
         }
     }
     assert_eq!(world.state(&theirs).await, State::Idle);
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn send_to_an_interrupted_session_names_the_resume(pool: SqlitePool) {
+    let world = world(pool, Script::default()).await;
+    let lost = world
+        .record(&world.agent_id, State::Interrupted, "Lost")
+        .await;
+
+    let refused = world.send(&lost, "More.").await;
+
+    assert_eq!(code(&refused), "session_not_open");
+    assert!(
+        refused.content.contains("coding_session_resume"),
+        "{refused:?}"
+    );
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn resume_with_a_live_host_grant_makes_the_session_idle(pool: SqlitePool) {
+    let world = world(
+        pool,
+        Script::default()
+            .resume()
+            .turn(Turn::new(vec![], acp::StopReason::EndTurn)),
+    )
+    .await;
+    world.host_grant().await;
+    let lost = world
+        .record(&world.agent_id, State::Interrupted, "Lost")
+        .await;
+
+    let resumed = world.resume(&lost).await;
+
+    assert_eq!(
+        success(&resumed),
+        "The session resumed. It is idle and takes a new prompt."
+    );
+    assert_eq!(world.state(&lost).await, State::Idle);
+    assert_eq!(
+        success(&world.send(&lost, "Go on.").await),
+        "The turn started."
+    );
+    assert_eq!(
+        code(&world.resume(&lost).await),
+        "session_not_interrupted",
+        "a session that runs does not resume"
+    );
+}
+
+/// The Person revoked the host Grant, so the Agent no longer runs the
+/// harness on that machine.
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn resume_with_no_live_host_grant_answers_permission_revoked(pool: SqlitePool) {
+    let world = world(pool, Script::default().resume()).await;
+    let lost = world
+        .record(&world.agent_id, State::Interrupted, "Lost")
+        .await;
+
+    let refused = world.resume(&lost).await;
+
+    assert_eq!(code(&refused), "permission_revoked");
+    assert_eq!(world.state(&lost).await, State::Interrupted);
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn resume_of_a_session_of_another_agent_answers_session_not_found(pool: SqlitePool) {
+    let world = world(pool, Script::default().resume()).await;
+    world.host_grant().await;
+    let theirs = world
+        .record(&world.other_agent_id, State::Interrupted, "Theirs")
+        .await;
+
+    let refused = world.resume(&theirs).await;
+
+    assert_eq!(code(&refused), "session_not_found");
+    assert_eq!(world.state(&theirs).await, State::Interrupted);
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn resume_with_a_harness_that_cannot_restore_answers_cannot_resume(pool: SqlitePool) {
+    let world = world(pool, Script::default()).await;
+    world.host_grant().await;
+    let lost = world
+        .record(&world.agent_id, State::Interrupted, "Lost")
+        .await;
+
+    let refused = world.resume(&lost).await;
+
+    assert_eq!(code(&refused), "cannot_resume");
+    assert!(
+        refused
+            .content
+            .contains("Claude Code cannot resume a session. Close it and start a new one."),
+        "{refused:?}"
+    );
+    assert_eq!(world.state(&lost).await, State::Interrupted);
 }

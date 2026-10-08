@@ -95,13 +95,14 @@ pub const SOFTWARE_PUBLISH: &str = "software_publish";
 pub const TOOL_SEARCH: &str = "tool_search";
 /// Start a Coding Session on one of the Person's machines (ADR-0033).
 pub const CODING_SESSION_START: &str = "coding_session_start";
-/// Prompt, read, cancel, close and list the Agent's own Coding Sessions
-/// (ADR-0033).
+/// Prompt, read, cancel, close, list and resume the Agent's own Coding
+/// Sessions (ADR-0033).
 pub const CODING_SESSION_SEND: &str = "coding_session_send";
 pub const CODING_SESSION_READ: &str = "coding_session_read";
 pub const CODING_SESSION_CANCEL: &str = "coding_session_cancel";
 pub const CODING_SESSION_CLOSE: &str = "coding_session_close";
 pub const CODING_SESSION_LIST: &str = "coding_session_list";
+pub const CODING_SESSION_RESUME: &str = "coding_session_resume";
 
 /// The metadata key a `tool_search` result carries: the packages the
 /// call loaded. The run loop reads it into its `LoadedSet`.
@@ -289,6 +290,10 @@ pub enum CoreTool {
     CodingSessionCancel,
     CodingSessionClose,
     CodingSessionList,
+    /// Resume an `interrupted` session. It is `Free` with a check of the
+    /// live host Grant: it runs the harness that the Person approved,
+    /// in the same directory, on the same machine.
+    CodingSessionResume,
 }
 
 impl CoreTool {
@@ -303,6 +308,7 @@ impl CoreTool {
                 | CoreTool::CodingSessionCancel
                 | CoreTool::CodingSessionClose
                 | CoreTool::CodingSessionList
+                | CoreTool::CodingSessionResume
         )
     }
 }
@@ -3601,7 +3607,8 @@ fn validate_core_arguments(
         CoreTool::CodingSessionSend => required_text("session") && required_text("prompt"),
         CoreTool::CodingSessionRead
         | CoreTool::CodingSessionCancel
-        | CoreTool::CodingSessionClose => required_text("session"),
+        | CoreTool::CodingSessionClose
+        | CoreTool::CodingSessionResume => required_text("session"),
         CoreTool::CodingSessionList => true,
     };
     if valid {
@@ -4074,6 +4081,20 @@ fn core_manifest() -> CapabilityManifest {
                 "List your coding sessions: each open one, then the 20 newest that ended.",
                 serde_json::json!({"type": "object", "properties": {}}),
                 CoreTool::CodingSessionList,
+                EffectClass::Free,
+                None,
+            ),
+            core(
+                CODING_SESSION_RESUME,
+                "Resume one of your interrupted coding sessions. A session is interrupted when the user's computer goes away or Pagis restarts. The harness opens its own session again in the same directory, and the session then takes a new prompt. A harness that cannot resume a session answers cannot_resume.",
+                serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "session": {"type": "string", "description": "The id of the session."}
+                    },
+                    "required": ["session"]
+                }),
+                CoreTool::CodingSessionResume,
                 EffectClass::Free,
                 None,
             ),
@@ -4589,6 +4610,7 @@ mod tests {
             CODING_SESSION_CANCEL,
             CODING_SESSION_CLOSE,
             CODING_SESSION_LIST,
+            CODING_SESSION_RESUME,
         ] {
             let tool = core_tool(name);
 

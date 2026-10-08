@@ -102,9 +102,24 @@ is the Agent's own words, and the output of a harness is foreign text that no
 Run read from a source.
 
 A lost Host or a restart of the daemon makes each open session of that place
-`interrupted`. The Agent resumes it from the stored ACP session id, with ACP
-`session/resume` or `session/load` where the harness declares the
-capability.
+`interrupted`. A Host is lost when its Host socket goes away, or when its
+session socket ends, which ends the stream of each session on it. The
+interrupted session closes its stream, its prompts that wait are dropped,
+and a decision that waits is cancelled. The record holds no end reason,
+because `interrupted` is not terminal: the Session Rule stays, and the
+`coding_session.ended` event gives the reason `host_lost` or
+`daemon_restart`. A restart interrupts and does not fail a session, because
+the harness keeps its own session on the Host.
+
+The daemon does not resume a session by itself, because the work may no
+longer make sense. The Agent resumes it with `coding_session_resume`. The
+daemon opens a new stream in the working directory of the record, with the
+launch command of the Harness Catalog and no worktree, because the worktree
+exists. It then restores the stored ACP session id with ACP
+`session/resume`, or with `session/load` when the harness declares only
+that, and drops the history that the load replays, because the transcript
+holds it. A harness that declares neither answers `cannot_resume`, and the
+session stays `interrupted`. A resumed session is `idle`.
 
 An Agent holds at most four open (non-terminal) Coding Sessions.
 
@@ -316,6 +331,12 @@ The Agent drives a Coding Session with core tools (ADR-0005):
   Free.
 - `coding_session_list`: the Agent's own sessions, each open one first,
   then the 20 newest that ended. Free.
+- `coding_session_resume {session}` of an `interrupted` session. Free, with
+  a check that the Agent still holds a live host Grant on the session's
+  machine, else `permission_revoked`: the Person approved this harness in
+  this directory on this machine, and a revoked Grant takes that back. An
+  absent Host answers `host_not_connected`. The refusal of
+  `coding_session_send` for an `interrupted` session names this tool.
 - An Agent reads and acts on its own sessions alone. A session of another
   Agent reads as absent (`session_not_found`), as another Agent's Call does
   (ADR-0020). The snapshot holds the session tools when a machine of the
@@ -502,6 +523,9 @@ session, its title, the harness, the machine and the stop reason, the
 decision kind or the end state and reason. It holds no harness text. The id
 of an event is `<session id>:<seq>` for an event of a transcript row and
 `<session id>:ended:<state>` for an end, so a replay wakes nobody twice. A
+resumed session can be interrupted again, so the id of an interruption is
+`<session id>:ended:interrupted:<time>`, with the update time of the record
+that the interruption wrote. A
 failed `ingest` is logged and does not stop the session. The source of these
 Incoming Events and of the Session Rule is the Coding Session, and no
 Connection. The provider of these kinds is `pagis`, the provider of each
@@ -620,7 +644,6 @@ Other ways were considered:
   `coding_session_answer`.
 - The refusal of a mode other than `auto` for a harness that does not ask
   permission.
-- The interruption and the resume.
 - The `agent` mode. A Harness Permission that waits for the Agent waits until
   a cancel ends it.
 - The `auto` mode.

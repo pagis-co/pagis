@@ -1,11 +1,16 @@
 //! The Coding Sessions of the daemon (ADR-0033): the start on a place,
-//! the transcript of each update, the prompts, the cancel, the close and
-//! the exit of the harness process.
+//! the transcript of each update, the prompts, the cancel, the close, the
+//! exit of the harness process, the interruption and the resume.
 //!
 //! [`CodingSessions`] runs one tokio task for each live session. The task
 //! holds the [`AcpSession`] and its events, and it is the one writer of
 //! the record and the transcript while the session lives. The calls of
 //! the API and the asks of the harness reach it as commands on a channel.
+//!
+//! A lost place interrupts a session: the departure of its Host, or the
+//! end of the session socket, which ends the exit of each of its streams.
+//! A restart of the daemon interrupts each session that was open. The
+//! harness keeps its own session on the Host, so the Agent can resume it.
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
@@ -23,14 +28,14 @@ use pagis_core::{
     StoreError, WorkspaceId, blocks_text, harness,
 };
 use serde_json::{Value, json};
-use tokio::sync::{mpsc, oneshot, watch};
+use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
-use crate::events::{DecisionKind, SessionNews, is_end, session_batch};
+use crate::events::{DecisionKind, InterruptReason, SessionNews, session_batch};
 use crate::{
-    AcpSession, AskHandler, CodingError, OpenFailure, OpenRequest, Opening, Pending,
-    PermissionAnswer, PermissionAsk, QuestionAnswer, QuestionAsk, SessionDecisions, SessionEvent,
-    SessionEvents, SessionExit, SessionPlace, SessionRules, WorktreeRequest,
+    AcpSession, AskHandler, CodingError, OpenFailure, OpenFailureCode, OpenRequest, Opening,
+    Pending, PermissionAnswer, PermissionAsk, QuestionAnswer, QuestionAsk, SessionDecisions,
+    SessionEvent, SessionEvents, SessionExit, SessionPlace, SessionRules, WorktreeRequest,
 };
 
 /// How long a session waits for the exit report of its process after
@@ -56,6 +61,9 @@ pub struct CodingSessionsDeps {
     /// Where the news of each session goes to its Session Rule.
     pub events: Arc<dyn SessionEvents>,
     pub clock: Arc<dyn Clock>,
+    /// The Hosts that go away. Each live session of such a Host is
+    /// interrupted.
+    pub departures: broadcast::Receiver<HostId>,
     /// Ends the task of each live session when the daemon stops.
     pub cancel: CancellationToken,
 }
@@ -159,6 +167,51 @@ pub enum SessionError {
     Store(#[from] StoreError),
 }
 
+/// Why an `interrupted` session did not resume. The session stays
+/// `interrupted`.
+#[derive(Debug, thiserror::Error)]
+pub enum ResumeFailure {
+    /// The Workspace holds no such session.
+    #[error("the Workspace has no such Coding Session")]
+    NotFound,
+    /// Only an `interrupted` session resumes.
+    #[error("the coding session is {}, and only an interrupted session resumes", .0.as_str())]
+    NotInterrupted(State),
+    /// Another call resumes the session now.
+    #[error("the coding session resumes already")]
+    Resuming,
+    /// The session was interrupted before its harness opened an ACP
+    /// session, so there is nothing to resume.
+    #[error(
+        "the coding session was interrupted before its harness started. Close it and start a \
+         new one."
+    )]
+    NotStarted,
+    #[error("the Coding Harness {0:?} is not in the Harness Catalog")]
+    UnknownHarness(String),
+    /// The Host of the session left the Workspace.
+    #[error("the Workspace no longer has the computer of the coding session")]
+    HostNotFound,
+    /// The Host has no session socket open.
+    #[error("{}", pagis_broker::not_connected_message(.machine))]
+    HostNotConnected { machine: String },
+    /// The harness declares neither `session/resume` nor `session/load`.
+    #[error("{harness} cannot resume a session. Close it and start a new one.")]
+    CannotResume { harness: String },
+    /// The Client App did not start the process.
+    #[error("{0}")]
+    Open(OpenFailure),
+    /// The harness failed to open its session. The message is harness
+    /// text.
+    #[error("the Coding Harness failed: {0}")]
+    Harness(String),
+    #[error(transparent)]
+    Store(#[from] StoreError),
+}
+
+/// The live sessions, by id.
+type LiveSessions = Arc<Mutex<HashMap<CodingSessionId, Live>>>;
+
 /// The Coding Sessions of the daemon.
 pub struct CodingSessions {
     records: Records,
@@ -169,17 +222,28 @@ pub struct CodingSessions {
     place: Arc<dyn SessionPlace>,
     decisions: Arc<dyn SessionDecisions>,
     cancel: CancellationToken,
-    live: Arc<Mutex<HashMap<CodingSessionId, Live>>>,
+    live: LiveSessions,
 }
 
-/// The task of one live session.
+/// The task of one live session. A session that resumes is live from
+/// the start of the resume, so its commands wait for its task.
 struct Live {
     workspace_id: WorkspaceId,
+    host_id: HostId,
     commands: mpsc::UnboundedSender<Command>,
 }
 
 impl CodingSessions {
+    /// Builds the runtime, and starts the task that interrupts the live
+    /// sessions of each Host that goes away. That task ends when the
+    /// daemon stops.
     pub fn new(deps: CodingSessionsDeps) -> Self {
+        let live = LiveSessions::default();
+        tokio::spawn(interrupt_departures(
+            deps.departures,
+            Arc::clone(&live),
+            deps.cancel.clone(),
+        ));
         Self {
             records: Records {
                 store: deps.sessions,
@@ -194,7 +258,7 @@ impl CodingSessions {
             place: deps.place,
             decisions: deps.decisions,
             cancel: deps.cancel,
-            live: Arc::default(),
+            live,
         }
     }
 
@@ -331,6 +395,7 @@ impl CodingSessions {
             record.id.clone(),
             Live {
                 workspace_id: record.workspace_id.clone(),
+                host_id: new.host_id,
                 commands,
             },
         );
@@ -463,6 +528,178 @@ impl CodingSessions {
         session_id: &CodingSessionId,
     ) -> Result<Option<CodingSession>, StoreError> {
         self.records.store.get(workspace_id, session_id).await
+    }
+
+    /// Moves each session in `starting`, `working`, `needs_decision` or
+    /// `idle` to `interrupted`, and gives its news with `reason`. It
+    /// answers how many sessions it interrupted.
+    ///
+    /// The daemon calls it at its start, once the Session Rules can hear
+    /// the news. No start runs then, so a `starting` session has no
+    /// start that writes its record later.
+    pub async fn interrupt_all(&self, reason: InterruptReason) -> Result<usize, StoreError> {
+        let live = interrupt_live(&self.live, |_| true, reason).await;
+        let mut interrupted = live.len();
+        for mut record in self.records.store.list_open().await? {
+            if record.state == State::Interrupted || live.contains(&record.id) {
+                continue;
+            }
+            let machine = self.machine(&record).await;
+            self.records
+                .interrupt(&mut record, &machine, reason)
+                .await?;
+            interrupted += 1;
+        }
+        Ok(interrupted)
+    }
+
+    /// Resumes an `interrupted` session on its Host: a new harness
+    /// process in its working directory, and the harness's own session
+    /// again, with ACP `session/resume` or `session/load`. The session is
+    /// then `idle`, and its task runs again.
+    ///
+    /// The worktree of the session exists, so the open request makes
+    /// none. The commands that come while the session resumes wait for
+    /// its task.
+    pub async fn resume(
+        &self,
+        workspace_id: &WorkspaceId,
+        session_id: &CodingSessionId,
+    ) -> Result<(), ResumeFailure> {
+        let record = self
+            .records
+            .store
+            .get(workspace_id, session_id)
+            .await?
+            .ok_or(ResumeFailure::NotFound)?;
+        if record.state != State::Interrupted {
+            return Err(ResumeFailure::NotInterrupted(record.state));
+        }
+        let host_id = record.host_id.clone().ok_or(ResumeFailure::HostNotFound)?;
+        let (commands, commands_rx) = mpsc::unbounded_channel();
+        {
+            let mut live = self.live.lock().expect("the live sessions");
+            if live.contains_key(session_id) {
+                return Err(ResumeFailure::Resuming);
+            }
+            live.insert(
+                session_id.clone(),
+                Live {
+                    workspace_id: workspace_id.clone(),
+                    host_id: host_id.clone(),
+                    commands: commands.clone(),
+                },
+            );
+        }
+        let resumed = self.reopen(record, host_id, commands, commands_rx).await;
+        if resumed.is_err() {
+            // The commands that waited get no answer, so their callers
+            // read the record.
+            self.live
+                .lock()
+                .expect("the live sessions")
+                .remove(session_id);
+        }
+        resumed
+    }
+
+    /// Opens the stream and the harness's own session of a session that
+    /// resumes, and starts its task.
+    async fn reopen(
+        &self,
+        record: CodingSession,
+        host_id: HostId,
+        commands: mpsc::UnboundedSender<Command>,
+        commands_rx: mpsc::UnboundedReceiver<Command>,
+    ) -> Result<(), ResumeFailure> {
+        let entry = harness::entry(&record.harness_id)
+            .ok_or_else(|| ResumeFailure::UnknownHarness(record.harness_id.clone()))?;
+        let acp_session_id = record
+            .acp_session_id
+            .clone()
+            .ok_or(ResumeFailure::NotStarted)?;
+        let host = self
+            .hosts
+            .get(&record.workspace_id, &host_id)
+            .await?
+            .ok_or(ResumeFailure::HostNotFound)?;
+        let (command, args) = harness::launch_command(entry);
+        let request = OpenRequest {
+            session_id: record.id.clone(),
+            command: command.to_string(),
+            args: args.into_iter().map(str::to_string).collect(),
+            cwd: record
+                .working_directory
+                .clone()
+                .unwrap_or_else(|| record.directory.clone()),
+            env: BTreeMap::new(),
+            worktree: None,
+        };
+        let opened = self
+            .place
+            .open(&record.workspace_id, &host_id, request)
+            .await
+            .map_err(|failure| match failure.code {
+                OpenFailureCode::HostNotConnected => ResumeFailure::HostNotConnected {
+                    machine: host.name.clone(),
+                },
+                _ => ResumeFailure::Open(failure),
+            })?;
+
+        let (snapshot, snapshot_rx) = watch::channel(record.clone());
+        let asks = Arc::new(SessionAsks {
+            decisions: Arc::clone(&self.decisions),
+            commands,
+            session: snapshot_rx,
+        });
+        let (incoming, outgoing) = opened.stream.split();
+        let opening = Opening::Restore {
+            acp_session_id,
+            cwd: PathBuf::from(&opened.cwd),
+        };
+        // A failed `open` drops its connection, which closes the stream.
+        let (acp, events) = AcpSession::open(outgoing, incoming, opening, asks)
+            .await
+            .map_err(|error| match error {
+                CodingError::CannotRestore => ResumeFailure::CannotResume {
+                    harness: entry.label.to_string(),
+                },
+                CodingError::Protocol(message) => ResumeFailure::Harness(message),
+                other => ResumeFailure::Harness(other.to_string()),
+            })?;
+
+        // A close of the record can come while the stream opens.
+        let mut record = self
+            .records
+            .store
+            .get(&record.workspace_id, &record.id)
+            .await?
+            .ok_or(ResumeFailure::NotFound)?;
+        if record.state != State::Interrupted {
+            acp.close();
+            return Err(ResumeFailure::NotInterrupted(record.state));
+        }
+        self.records
+            .transition(&mut record, State::Idle, None)
+            .await?;
+        snapshot.send_replace(record.clone());
+        let task = Task {
+            records: self.records.clone(),
+            record,
+            machine: host.name,
+            snapshot,
+            acp: Some(acp),
+            queue: Vec::new(),
+            asks: HashMap::new(),
+        };
+        tokio::spawn(task.run(
+            events,
+            commands_rx,
+            opened.exit,
+            self.cancel.clone(),
+            Arc::clone(&self.live),
+        ));
+        Ok(())
     }
 
     /// Hands a command to the task of a live session. A session with no
@@ -647,6 +884,25 @@ impl Records {
         }
     }
 
+    /// Moves an open session to `interrupted` and gives the news with its
+    /// reason. The news goes also when the record was not written: the
+    /// place is lost all the same. A session that is terminal or
+    /// interrupted already does not move.
+    async fn interrupt(
+        &self,
+        record: &mut CodingSession,
+        machine: &str,
+        reason: InterruptReason,
+    ) -> Result<(), StoreError> {
+        if record.state.is_terminal() || record.state == State::Interrupted {
+            return Ok(());
+        }
+        let written = self.transition(record, State::Interrupted, None).await;
+        self.raise(record, machine, SessionNews::Interrupted { reason })
+            .await;
+        written
+    }
+
     /// Ends the Session Rule of a session that closed or failed. The
     /// Wake-up of the last event stays.
     async fn end_rules(&self, record: &CodingSession) {
@@ -719,6 +975,75 @@ enum Command {
     },
     /// An ask of the harness got its answer.
     Answered { ask_id: String, payload: Value },
+    /// The place of the session is lost: the task closes the stream,
+    /// moves the session to `interrupted` and ends.
+    Interrupt {
+        reason: InterruptReason,
+        reply: oneshot::Sender<()>,
+    },
+}
+
+/// Interrupts the live sessions of each Host that goes away, until the
+/// daemon stops.
+async fn interrupt_departures(
+    mut departures: broadcast::Receiver<HostId>,
+    live: LiveSessions,
+    cancel: CancellationToken,
+) {
+    loop {
+        let departed = tokio::select! {
+            () = cancel.cancelled() => return,
+            departed = departures.recv() => departed,
+        };
+        match departed {
+            // A session that resumes takes its commands only when its
+            // stream is open, so one Host does not wait for another.
+            Ok(host_id) => {
+                let live = Arc::clone(&live);
+                tokio::spawn(async move {
+                    interrupt_live(
+                        &live,
+                        |session| session.host_id == host_id,
+                        InterruptReason::HostLost,
+                    )
+                    .await;
+                });
+            }
+            Err(broadcast::error::RecvError::Lagged(missed)) => {
+                tracing::warn!(
+                    missed,
+                    "departures of Hosts were missed; their Coding Sessions stay as they are until their sockets end"
+                );
+            }
+            Err(broadcast::error::RecvError::Closed) => return,
+        }
+    }
+}
+
+/// Interrupts each live session that `which` selects, and waits until
+/// each task has moved. It answers the sessions that it interrupted.
+async fn interrupt_live(
+    live: &LiveSessions,
+    which: impl Fn(&Live) -> bool,
+    reason: InterruptReason,
+) -> Vec<CodingSessionId> {
+    let selected: Vec<_> = live
+        .lock()
+        .expect("the live sessions")
+        .iter()
+        .filter(|(_, session)| which(session))
+        .map(|(id, session)| (id.clone(), session.commands.clone()))
+        .collect();
+    let mut interrupted = Vec::new();
+    for (id, commands) in selected {
+        let (reply, replied) = oneshot::channel();
+        // A task that ends meanwhile, or a resume that fails, gives no
+        // reply: that session is not live anymore.
+        if commands.send(Command::Interrupt { reason, reply }).is_ok() && replied.await.is_ok() {
+            interrupted.push(id);
+        }
+    }
+    interrupted
 }
 
 /// The kind of an ask of the harness.
@@ -861,7 +1186,7 @@ impl Task {
         mut commands: mpsc::UnboundedReceiver<Command>,
         exit: oneshot::Receiver<SessionExit>,
         cancel: CancellationToken,
-        live: Arc<Mutex<HashMap<CodingSessionId, Live>>>,
+        live: LiveSessions,
     ) {
         let mut exit = Some(exit);
         let mut stream_closed = false;
@@ -888,6 +1213,7 @@ impl Task {
                         Err(_) => {
                             // The session socket ended: the place is lost.
                             tracing::info!(session = %self.record.id, "the place of a Coding Session is lost");
+                            self.interrupt(InterruptReason::HostLost).await;
                             Flow::End
                         }
                     }
@@ -975,6 +1301,21 @@ impl Task {
                     self.settle().await;
                 }
                 Flow::Go
+            }
+            Command::Interrupt { reason, reply } => {
+                self.queue.clear();
+                if let Some(acp) = self.acp.take() {
+                    if self.turn_runs() {
+                        // The cancel ends each decision that waits. The
+                        // stream closes next, so a failed cancel changes
+                        // nothing.
+                        let _ = acp.cancel();
+                    }
+                    acp.close();
+                }
+                self.interrupt(reason).await;
+                let _ = reply.send(());
+                Flow::End
             }
         }
     }
@@ -1101,20 +1442,31 @@ impl Task {
         }
     }
 
-    /// Moves the session. An end goes to the Session Rule, and a terminal
-    /// state then ends the rule, also when the record was not written:
-    /// the session ends all the same.
+    /// Moves the session. An end goes to the Session Rule, which then
+    /// ends, also when the record was not written: the session ends all
+    /// the same.
     async fn move_to(&mut self, state: State, end: Option<End>) -> Result<(), StoreError> {
         let ended_before = self.record.state.is_terminal();
         let written = self.records.transition(&mut self.record, state, end).await;
         self.snapshot.send_replace(self.record.clone());
-        if !ended_before && is_end(state) {
+        if !ended_before && state.is_terminal() {
             self.raise(SessionNews::Ended).await;
-            if state.is_terminal() {
-                self.records.end_rules(&self.record).await;
-            }
+            self.records.end_rules(&self.record).await;
         }
         written
+    }
+
+    /// Moves the session to `interrupted`. The Session Rule stays, so the
+    /// Agent hears of the session again when it resumes.
+    async fn interrupt(&mut self, reason: InterruptReason) {
+        if let Err(error) = self
+            .records
+            .interrupt(&mut self.record, &self.machine, reason)
+            .await
+        {
+            tracing::warn!(session = %self.record.id, %error, "an interrupted Coding Session was not written");
+        }
+        self.snapshot.send_replace(self.record.clone());
     }
 
     async fn raise(&self, news: SessionNews) {

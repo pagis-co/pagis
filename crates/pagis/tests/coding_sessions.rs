@@ -16,7 +16,7 @@ use async_trait::async_trait;
 use futures::StreamExt;
 use pagis_agent::{Brain, BrainError, TurnRequest, TurnRole, TurnStream};
 use pagis_broker::fake::FakeClientApp;
-use pagis_coding::fake::{Ask, FakeHarness, Script, Turn, acp, serve_client_app};
+use pagis_coding::fake::{Ask, FakeHarness, NEW_SESSION_ID, Script, Turn, acp, serve_client_app};
 use pagis_coding::{CloseReason, NewCodingSession, PERMISSION_DECIDED_EVENT, PromptOutcome};
 use pagis_core::{
     AgentId, AuthorKind, Block, ChannelId, CodingSession, CodingSessionEventKind, CodingSessionId,
@@ -1889,4 +1889,135 @@ async fn person_bs_decision_on_person_as_harness_permission_gets_404() {
         .unwrap();
     assert_eq!(still.state, RequestState::Pending);
     assert!(harnesses.lock().unwrap()[0].answers().is_empty());
+}
+
+/// Waits until the record of `session_id` is in `state`.
+async fn wait_for_session_state(
+    daemon: &TestDaemon,
+    session_id: &CodingSessionId,
+    state: CodingSessionState,
+) -> CodingSession {
+    let deadline = tokio::time::Instant::now() + WAIT;
+    loop {
+        let record = daemon
+            .stores()
+            .coding_sessions
+            .get(&daemon.workspace_id, session_id)
+            .await
+            .unwrap()
+            .expect("the session record");
+        if record.state == state {
+            return record;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the session is {:?}, not {state:?}",
+            record.state
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+/// The Client App goes away with its Host socket and its session socket,
+/// and the session is interrupted. The Client App comes back, the Agent
+/// calls `coding_session_resume`, and the harness resumes its own session
+/// in the working directory. The session is then idle.
+#[tokio::test]
+async fn a_lost_host_interrupts_the_session_and_the_agent_resumes_it_when_the_host_is_back() {
+    let script = Script::default()
+        .resume()
+        .turn(Turn::new(vec![], acp::StopReason::EndTurn));
+    let started = start_approved_session(script.clone()).await;
+    started.wait_for_state(CodingSessionState::Idle).await;
+    let Started {
+        daemon,
+        brain,
+        _host: host,
+        _sessions: sessions,
+        harnesses,
+        session_id,
+        grant_id,
+    } = started;
+    let host_id = HostId::from(host.host_id().to_string());
+
+    drop(sessions);
+    drop(host);
+
+    let record =
+        wait_for_session_state(&daemon, &session_id, CodingSessionState::Interrupted).await;
+    assert_eq!(record.end_reason, None);
+    let client_app = FakeClientApp::running(WORKTREE, {
+        let harnesses = Arc::clone(&harnesses);
+        move |stream| {
+            let (read, write) = futures::io::AsyncReadExt::split(stream);
+            harnesses
+                .lock()
+                .unwrap()
+                .push(FakeHarness::serve(script.clone(), write, read));
+        }
+    });
+    let host = HostClient::connect(
+        &daemon,
+        "Air",
+        "macos",
+        &["shell", "harness:claude"],
+        HostAnswer::ok(),
+    )
+    .await;
+    assert_eq!(host.host_id(), host_id.as_str(), "the same machine is back");
+    let sessions = SessionClient::connect(
+        &daemon,
+        daemon.cookie(),
+        host.host_id(),
+        Arc::clone(&client_app),
+    )
+    .await
+    .expect("the session socket opens");
+    wait_until("the session socket is not open", || {
+        daemon.host_sessions.is_open(&host_id)
+    })
+    .await;
+    let started = Started {
+        daemon,
+        brain,
+        _host: host,
+        _sessions: sessions,
+        harnesses,
+        session_id,
+        grant_id,
+    };
+
+    session_call(&started, "coding_session_resume", json!({}));
+    let resumed = tool_result_after(&started, "resume the session").await;
+
+    assert_eq!(
+        resumed,
+        "The session resumed. It is idle and takes a new prompt."
+    );
+    started.wait_for_state(CodingSessionState::Idle).await;
+    let request = &client_app.requests()[0];
+    assert_eq!(request.session_id, started.session_id);
+    assert_eq!(request.cwd, WORKTREE, "the session resumes in its worktree");
+    assert_eq!(request.worktree, None, "the worktree exists");
+    let harness = started.harnesses.lock().unwrap()[1].clone();
+    let resume = harness.params("session/resume");
+    assert_eq!(resume.len(), 1, "{:?}", harness.received());
+    assert_eq!(resume[0]["sessionId"], NEW_SESSION_ID);
+    assert_eq!(resume[0]["cwd"], WORKTREE);
+}
+
+/// A restart ends every ACP connection, so the session that was working
+/// is interrupted.
+#[tokio::test]
+async fn a_restart_leaves_a_working_session_interrupted() {
+    let daemon = TestDaemon::start().await;
+    let session = start_session(&daemon).await;
+    assert_eq!(session.state, CodingSessionState::Working);
+
+    let daemon = daemon.restart(TestDaemonOptions::default()).await;
+
+    let record =
+        wait_for_session_state(&daemon, &session.id, CodingSessionState::Interrupted).await;
+    assert_eq!(record.end_reason, None);
+    assert_eq!(record.ended_at, None);
 }

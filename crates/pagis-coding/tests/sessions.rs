@@ -12,15 +12,15 @@ use std::time::Duration;
 use async_trait::async_trait;
 use futures::io::{AsyncRead, AsyncWrite};
 use pagis_audit::AuditEventBus;
-use pagis_broker::HostSessions;
+use pagis_broker::{HostPresence, HostSessions, not_connected_message};
 use pagis_coding::fake::{Ask, FakeHarness, NEW_SESSION_ID, Script, Turn, acp, serve_client_app};
 use pagis_coding::{
-    CloseReason, CodingSessions, CodingSessionsDeps, NewCodingSession, OpenFailure,
-    OpenFailureCode, OpenRequest, OpenedStream, PERMISSION_DECIDED_EVENT, Pending,
+    CloseReason, CodingSessions, CodingSessionsDeps, InterruptReason, NewCodingSession,
+    OpenFailure, OpenFailureCode, OpenRequest, OpenedStream, PERMISSION_DECIDED_EVENT, Pending,
     PermissionAnswer, PermissionAsk, PolicyDecisions, PolicyDecisionsDeps, PromptOutcome,
-    QuestionAnswer, QuestionAsk, RefuseDecisions, SessionDecisions, SessionError, SessionEvents,
-    SessionExit, SessionPlace, SessionRuleError, SessionRules, StartFailure, WaitsFor,
-    WorktreeRequest,
+    QuestionAnswer, QuestionAsk, RefuseDecisions, ResumeFailure, SessionDecisions, SessionError,
+    SessionEvents, SessionExit, SessionPlace, SessionRuleError, SessionRules, StartFailure,
+    WaitsFor, WorktreeRequest,
 };
 use pagis_core::{
     Agent, AgentId, AgentStatus, AgentStore, AuthorKind, Block, Channel, ChannelId, ChannelKind,
@@ -61,6 +61,9 @@ struct World {
     run_id: RunId,
     /// The Trigger module, as the sessions see it.
     rules: Arc<RecordedRules>,
+    /// The machines that are connected, whose departures the sessions
+    /// hear.
+    presence: Arc<HostPresence>,
 }
 
 async fn world(pool: SqlitePool) -> World {
@@ -113,6 +116,7 @@ async fn world(pool: SqlitePool) -> World {
         host_id: host.id,
         run_id: RunId::generate(),
         rules: Arc::default(),
+        presence: Arc::new(HostPresence::new()),
     };
     world.run_id = world.run(Some(world.channel_id.clone()), None).await;
     world
@@ -207,6 +211,7 @@ impl World {
             rules: self.rules.clone(),
             events: self.rules.clone(),
             clock: Arc::new(SystemClock),
+            departures: self.presence.departures(),
             cancel: CancellationToken::new(),
         })
     }
@@ -1735,5 +1740,464 @@ async fn a_start_whose_session_rule_is_not_made_fails_before_the_stream_opens(po
     assert!(
         matches!(calls.as_slice(), [RuleCall::End(id)] if *id == session_id),
         "a part of the rule that was made ends, and no news goes out: {calls:?}"
+    );
+}
+
+impl World {
+    /// A second machine of the Person.
+    async fn other_host(&self) -> HostId {
+        SqliteHostStore::new(self.pool.clone())
+            .register(&self.workspace_id, "Mini", "macos", &[], now_ms())
+            .await
+            .unwrap()
+            .id
+    }
+
+    /// A session record in `state` with no task, written through the
+    /// store, as a daemon before a restart left it.
+    async fn stored(&self, state: State) -> CodingSession {
+        let at = now_ms();
+        let terminal = state.is_terminal();
+        let message_id = MessageId::generate();
+        let session = CodingSession {
+            id: CodingSessionId::generate(),
+            workspace_id: self.workspace_id.clone(),
+            agent_id: self.agent_id.clone(),
+            harness_id: "claude".to_string(),
+            harness_version: "1.0.0".to_string(),
+            place: CodingSessionPlace::Host,
+            host_id: Some(self.host_id.clone()),
+            directory: DIRECTORY.to_string(),
+            working_directory: Some(WORKTREE_DIRECTORY.to_string()),
+            worktree_branch: Some("pagis/fix-login".to_string()),
+            approval_mode: SessionApprovalMode::Person,
+            title: format!("A {} session", state.as_str()),
+            state,
+            end_reason: terminal.then(|| "closed".to_string()),
+            end_detail: None,
+            acp_session_id: Some(NEW_SESSION_ID.to_string()),
+            channel_id: self.channel_id.clone(),
+            root_message_id: message_id.clone(),
+            message_id,
+            run_id: self.run_id.clone(),
+            usage: Default::default(),
+            created_at: at,
+            updated_at: at,
+            ended_at: terminal.then_some(at),
+        };
+        self.sessions.insert(&session).await.unwrap();
+        session
+    }
+
+    /// The interruptions that the rules heard, by session.
+    fn interruptions(&self) -> Vec<(String, Value)> {
+        self.rules
+            .batches("coding_session.ended")
+            .into_iter()
+            .flat_map(|batch| batch.events)
+            .filter(|event| event.metadata["state"] == "interrupted")
+            .map(|event| (event.provider_event_id, event.metadata))
+            .collect()
+    }
+
+    /// Asserts that the session is `interrupted` with no end reason, and
+    /// that the rules heard its interruption with `reason` once.
+    async fn assert_interrupted(&self, id: &CodingSessionId, reason: &str) {
+        let record = self.wait_for_state(id, State::Interrupted).await;
+        assert_eq!(record.end_reason, None, "an interruption is no end");
+        assert_eq!(record.ended_at, None);
+        // The news goes after the write of the record.
+        let heard_of = || -> Vec<_> {
+            self.interruptions()
+                .into_iter()
+                .filter(|(_, metadata)| metadata["coding_session_id"] == id.as_str())
+                .collect()
+        };
+        let deadline = tokio::time::Instant::now() + WAIT;
+        while heard_of().is_empty() {
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "no interruption of {id} in {:?}",
+                self.rules.calls()
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let heard = heard_of();
+        assert_eq!(heard.len(), 1, "one interruption of {id}: {heard:?}");
+        let (event_id, metadata) = &heard[0];
+        assert_eq!(metadata["reason"], reason);
+        assert_eq!(
+            *event_id,
+            format!("{id}:ended:interrupted:{}", record.updated_at)
+        );
+        assert!(
+            !self
+                .rules
+                .calls()
+                .iter()
+                .any(|call| matches!(call, RuleCall::End(ended) if ended == id)),
+            "the Session Rule of an interrupted session stays"
+        );
+    }
+}
+
+/// A turn that ends at once, so the session is `idle`.
+fn ends_at_once() -> Turn {
+    Turn::new(vec![], acp::StopReason::EndTurn)
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_departure_of_the_host_interrupts_its_sessions_and_no_session_of_another_host(
+    pool: SqlitePool,
+) {
+    let world = world(pool).await;
+    let other_host = world.other_host().await;
+    let place = DuplexPlace::new(Script::default().turn(Turn::until_cancel(vec![])));
+    let sessions = world.coding_sessions(place.clone(), Arc::new(RefuseDecisions));
+    let connection = world.presence.connect(&world.host_id);
+    let working = sessions
+        .start(world.new_session(&world.run_id))
+        .await
+        .unwrap();
+    let idle_place = DuplexPlace::new(Script::default().turn(ends_at_once()));
+    let idle_sessions = world.coding_sessions(idle_place, Arc::new(RefuseDecisions));
+    let idle = idle_sessions
+        .start(world.new_session(&world.run_id))
+        .await
+        .unwrap();
+    world.wait_for_state(&idle.id, State::Idle).await;
+    let elsewhere = sessions
+        .start(NewCodingSession {
+            host_id: other_host,
+            ..world.new_session(&world.run_id)
+        })
+        .await
+        .unwrap();
+
+    drop(connection);
+
+    world.assert_interrupted(&working.id, "host_lost").await;
+    world.assert_interrupted(&idle.id, "host_lost").await;
+    assert!(
+        place.dropped.load(Ordering::SeqCst),
+        "the stream of an interrupted session closes"
+    );
+    assert_eq!(world.record(&elsewhere.id).await.state, State::Working);
+    assert_eq!(
+        sessions
+            .prompt(&world.workspace_id, &working.id, "Go on.".to_string())
+            .await
+            .unwrap_err()
+            .to_string(),
+        "the Coding Session is interrupted",
+        "an interrupted session has no task"
+    );
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_lost_session_socket_interrupts_its_sessions_and_no_session_of_another_host(
+    pool: SqlitePool,
+) {
+    let world = world(pool).await;
+    let other_host = world.other_host().await;
+    let hosts = Arc::new(HostSessions::new());
+    let serve = |host_id: HostId, script: Script| {
+        let (daemon_end, client_app_end) = tokio::io::duplex(64 * 1024);
+        tokio::spawn({
+            let hosts = hosts.clone();
+            let workspace_id = world.workspace_id.clone();
+            async move {
+                hosts
+                    .serve(workspace_id, host_id, daemon_end.compat())
+                    .await;
+            }
+        });
+        tokio::spawn(serve_client_app(
+            client_app_end.compat(),
+            script,
+            WORKTREE_DIRECTORY.to_string(),
+        ))
+    };
+    // The harness of each stream plays the turns of the script.
+    let client_app = serve(
+        world.host_id.clone(),
+        Script::default().turn(Turn::until_cancel(vec![])),
+    );
+    let _other_client_app = serve(
+        other_host.clone(),
+        Script::default().turn(Turn::until_cancel(vec![])),
+    );
+    let deadline = tokio::time::Instant::now() + WAIT;
+    while !(hosts.is_open(&world.host_id) && hosts.is_open(&other_host)) {
+        assert!(tokio::time::Instant::now() < deadline, "no session socket");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let sessions = world.coding_sessions(hosts.clone(), Arc::new(RefuseDecisions));
+    let working = sessions
+        .start(world.new_session(&world.run_id))
+        .await
+        .unwrap();
+    let elsewhere = sessions
+        .start(NewCodingSession {
+            host_id: other_host,
+            ..world.new_session(&world.run_id)
+        })
+        .await
+        .unwrap();
+
+    // The Client App goes away, and its end of the socket with it.
+    client_app.abort();
+
+    world.assert_interrupted(&working.id, "host_lost").await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(world.record(&elsewhere.id).await.state, State::Working);
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_lost_session_socket_interrupts_an_idle_session(pool: SqlitePool) {
+    let world = world(pool).await;
+    let place = DuplexPlace::new(Script::default().turn(ends_at_once()));
+    let sessions = world.coding_sessions(place.clone(), Arc::new(RefuseDecisions));
+    let idle = sessions
+        .start(world.new_session(&world.run_id))
+        .await
+        .unwrap();
+    world.wait_for_state(&idle.id, State::Idle).await;
+
+    // The exit of a stream ends with an error when its socket ends.
+    drop(place.exit.lock().unwrap().take());
+
+    world.assert_interrupted(&idle.id, "host_lost").await;
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn interrupt_all_interrupts_every_open_session_and_leaves_the_ended_ones(pool: SqlitePool) {
+    let world = world(pool).await;
+    let open = [
+        world.stored(State::Starting).await,
+        world.stored(State::Working).await,
+        world.stored(State::NeedsDecision).await,
+        world.stored(State::Idle).await,
+    ];
+    let closed = world.stored(State::Closed).await;
+    let failed = world.stored(State::Failed).await;
+    let interrupted = world.stored(State::Interrupted).await;
+    let sessions = world.coding_sessions(
+        DuplexPlace::new(Script::default()),
+        Arc::new(RefuseDecisions),
+    );
+
+    let count = sessions
+        .interrupt_all(InterruptReason::DaemonRestart)
+        .await
+        .unwrap();
+
+    assert_eq!(count, open.len());
+    for session in &open {
+        world
+            .assert_interrupted(&session.id, "daemon_restart")
+            .await;
+    }
+    assert_eq!(world.record(&closed.id).await, closed);
+    assert_eq!(world.record(&failed.id).await, failed);
+    assert_eq!(world.record(&interrupted.id).await, interrupted);
+    assert_eq!(world.interruptions().len(), open.len());
+}
+
+/// A live session that a `interrupt_all` interrupts closes its stream.
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn interrupt_all_closes_the_stream_of_a_live_session(pool: SqlitePool) {
+    let world = world(pool).await;
+    let place = DuplexPlace::new(Script::default().turn(Turn::until_cancel(vec![])));
+    let sessions = world.coding_sessions(place.clone(), Arc::new(RefuseDecisions));
+    let working = sessions
+        .start(world.new_session(&world.run_id))
+        .await
+        .unwrap();
+
+    let count = sessions
+        .interrupt_all(InterruptReason::DaemonRestart)
+        .await
+        .unwrap();
+
+    assert_eq!(count, 1);
+    world
+        .assert_interrupted(&working.id, "daemon_restart")
+        .await;
+    let deadline = tokio::time::Instant::now() + WAIT;
+    while !place.dropped.load(Ordering::SeqCst) {
+        assert!(tokio::time::Instant::now() < deadline, "the stream stays");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+/// An idle session of `script` that the departure of its Host
+/// interrupted, with its place and its runtime.
+async fn interrupted_session(
+    world: &World,
+    script: Script,
+) -> (Arc<DuplexPlace>, CodingSessions, CodingSession) {
+    let place = DuplexPlace::new(script);
+    let sessions = world.coding_sessions(place.clone(), Arc::new(RefuseDecisions));
+    let connection = world.presence.connect(&world.host_id);
+    let session = sessions
+        .start(world.new_session(&world.run_id))
+        .await
+        .unwrap();
+    world.wait_for_state(&session.id, State::Idle).await;
+    drop(connection);
+    world.wait_for_state(&session.id, State::Interrupted).await;
+    (place, sessions, session)
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn resume_reopens_the_stream_in_the_working_directory_and_the_session_is_idle(
+    pool: SqlitePool,
+) {
+    let world = world(pool).await;
+    let (place, sessions, session) = interrupted_session(
+        &world,
+        Script::default()
+            .resume()
+            .turn(ends_at_once())
+            .turn(Turn::new(
+                vec![message("Resumed.")],
+                acp::StopReason::EndTurn,
+            )),
+    )
+    .await;
+
+    sessions
+        .resume(&world.workspace_id, &session.id)
+        .await
+        .expect("the session resumes");
+
+    let record = world.record(&session.id).await;
+    assert_eq!(record.state, State::Idle);
+    assert_eq!(record.end_reason, None);
+    let requests = place.requests.lock().unwrap().clone();
+    assert_eq!(requests.len(), 2, "the resume opens a second stream");
+    let (_, host_id, request) = &requests[1];
+    assert_eq!(*host_id, world.host_id);
+    assert_eq!(request.cwd, WORKTREE_DIRECTORY);
+    assert_eq!(request.worktree, None, "the worktree exists");
+    let (command, args) =
+        pagis_core::harness::launch_command(pagis_core::harness::entry("claude").unwrap());
+    assert_eq!(request.command, command);
+    assert_eq!(request.args, args);
+    let harness = place.harness();
+    let resumed = harness.params("session/resume");
+    assert_eq!(resumed[0]["sessionId"], NEW_SESSION_ID);
+    assert_eq!(resumed[0]["cwd"], WORKTREE_DIRECTORY);
+
+    // The task runs again: a prompt starts a turn, and its end makes
+    // the session idle.
+    let outcome = sessions
+        .prompt(&world.workspace_id, &session.id, "Go on.".to_string())
+        .await
+        .unwrap();
+    assert_eq!(outcome, PromptOutcome::Sent);
+    world.wait_for_rows(&session.id, Kind::TurnEnd, 2).await;
+    world.wait_for_state(&session.id, State::Idle).await;
+    assert_eq!(prompts(&harness), ["Go on."]);
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn resume_with_load_drops_the_replayed_history(pool: SqlitePool) {
+    let world = world(pool).await;
+    let (place, sessions, session) = interrupted_session(
+        &world,
+        Script::default()
+            .load()
+            .history(vec![message("An old message."), message("Another.")])
+            .turn(ends_at_once()),
+    )
+    .await;
+    let before = world.rows(&session.id).await;
+
+    sessions
+        .resume(&world.workspace_id, &session.id)
+        .await
+        .expect("the session resumes");
+
+    assert_eq!(
+        place.harness().params("session/load")[0]["sessionId"],
+        NEW_SESSION_ID
+    );
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(world.rows(&session.id).await, before, "no new row");
+    assert_eq!(world.record(&session.id).await.state, State::Idle);
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn resume_with_a_harness_that_cannot_restore_answers_cannot_resume(pool: SqlitePool) {
+    let world = world(pool).await;
+    let (place, sessions, session) =
+        interrupted_session(&world, Script::default().turn(ends_at_once())).await;
+    place.dropped.store(false, Ordering::SeqCst);
+
+    let failure = sessions
+        .resume(&world.workspace_id, &session.id)
+        .await
+        .expect_err("the harness cannot resume");
+
+    assert!(
+        matches!(&failure, ResumeFailure::CannotResume { harness } if harness == "Claude Code"),
+        "{failure:?}"
+    );
+    assert_eq!(
+        failure.to_string(),
+        "Claude Code cannot resume a session. Close it and start a new one."
+    );
+    assert_eq!(world.record(&session.id).await.state, State::Interrupted);
+    let deadline = tokio::time::Instant::now() + WAIT;
+    while !place.dropped.load(Ordering::SeqCst) {
+        assert!(tokio::time::Instant::now() < deadline, "the stream stays");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    // The session has no task, so its close moves it to `closed` at once.
+    sessions
+        .close(&world.workspace_id, &session.id, CloseReason::Closed)
+        .await
+        .unwrap();
+    assert_eq!(world.record(&session.id).await.state, State::Closed);
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn resume_with_no_session_socket_answers_host_not_connected(pool: SqlitePool) {
+    let world = world(pool).await;
+    let session = world.stored(State::Interrupted).await;
+    let sessions = world.coding_sessions(Arc::new(HostSessions::new()), Arc::new(RefuseDecisions));
+
+    let failure = sessions
+        .resume(&world.workspace_id, &session.id)
+        .await
+        .expect_err("no Host is present");
+
+    assert!(
+        matches!(&failure, ResumeFailure::HostNotConnected { machine } if machine == "Air"),
+        "{failure:?}"
+    );
+    assert_eq!(failure.to_string(), not_connected_message("Air"));
+    assert_eq!(world.record(&session.id).await, session);
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn resume_of_a_session_that_is_not_interrupted_answers_its_state(pool: SqlitePool) {
+    let world = world(pool).await;
+    let idle = world.stored(State::Idle).await;
+    let sessions = world.coding_sessions(
+        DuplexPlace::new(Script::default().resume()),
+        Arc::new(RefuseDecisions),
+    );
+
+    let failure = sessions
+        .resume(&world.workspace_id, &idle.id)
+        .await
+        .expect_err("an idle session does not resume");
+
+    assert!(
+        matches!(failure, ResumeFailure::NotInterrupted(State::Idle)),
+        "{failure:?}"
     );
 }

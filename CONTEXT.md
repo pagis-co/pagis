@@ -1046,8 +1046,10 @@ An Agent starts it on a Host with `coding_session_start`, after the Person
 approves the card or under a session Allow Rule of the host Grant, and the
 daemon stores its record and its transcript. The Agent then prompts,
 reads, cancels, closes and lists its own sessions with core tools, and a
-session of another Agent reads as absent. Not built: a session in the
-Agent's Computer (ADR-0033).
+session of another Agent reads as absent. A lost Host or a restart of the
+daemon makes an open session `interrupted`, and the Agent resumes it with
+`coding_session_resume` where the harness can restore its own session.
+Not built: a session in the Agent's Computer (ADR-0033).
 _Avoid_: harness session
 
 ### Harness Catalog

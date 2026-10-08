@@ -47,9 +47,12 @@ pub enum SessionNews {
         decision_kind: DecisionKind,
         seq: i64,
     },
-    /// The session is `interrupted`, `closed` or `failed`. The record
-    /// gives the state and the reason.
+    /// The session is `closed` or `failed`. The record gives the state
+    /// and the end reason.
     Ended,
+    /// The session is `interrupted`. The record holds no end reason, so
+    /// the news holds the reason of the interruption.
+    Interrupted { reason: InterruptReason },
 }
 
 impl SessionNews {
@@ -58,7 +61,26 @@ impl SessionNews {
         match self {
             SessionNews::TurnEnded { .. } => CODING_SESSION_TURN_ENDED,
             SessionNews::NeedsDecision { .. } => CODING_SESSION_NEEDS_DECISION,
-            SessionNews::Ended => CODING_SESSION_ENDED,
+            SessionNews::Ended | SessionNews::Interrupted { .. } => CODING_SESSION_ENDED,
+        }
+    }
+}
+
+/// Why a session is `interrupted`. The harness keeps its own session on
+/// the Host, so the Agent can resume it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InterruptReason {
+    /// The Host or its session socket went away.
+    HostLost,
+    /// The daemon stopped, and every ACP connection with it.
+    DaemonRestart,
+}
+
+impl InterruptReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            InterruptReason::HostLost => "host_lost",
+            InterruptReason::DaemonRestart => "daemon_restart",
         }
     }
 }
@@ -82,9 +104,11 @@ impl DecisionKind {
 /// The Incoming Event of one piece of news of a session on `machine`.
 ///
 /// The identity of a row event is `<session id>:<seq>`, and of an end is
-/// `<session id>:ended:<state>`, so a replay wakes nobody twice. The
-/// metadata holds the daemon's own fields and the Agent's title, and no
-/// text of the harness.
+/// `<session id>:ended:<state>`, so a replay wakes nobody twice. A
+/// resumed session can be interrupted again, so the identity of an
+/// interruption also holds the time of the record that it wrote:
+/// `<session id>:ended:interrupted:<updated_at>`. The metadata holds the
+/// daemon's own fields and the Agent's title, and no text of the harness.
 pub fn session_event(
     session: &CodingSession,
     machine: &str,
@@ -114,6 +138,14 @@ pub fn session_event(
                 session.end_reason.clone().unwrap_or_default().into(),
             );
             format!("{}:ended:{}", session.id, session.state.as_str())
+        }
+        SessionNews::Interrupted { reason } => {
+            metadata.insert(
+                "state".into(),
+                CodingSessionState::Interrupted.as_str().into(),
+            );
+            metadata.insert("reason".into(), reason.as_str().into());
+            format!("{}:ended:interrupted:{}", session.id, session.updated_at)
         }
     };
     NormalizedEvent {
@@ -154,14 +186,6 @@ fn stop_reason_text(stop_reason: StopReason) -> &'static str {
         StopReason::Refusal => "refusal",
         StopReason::Cancelled => "cancelled",
     }
-}
-
-/// Whether a session state is the end that [`SessionNews::Ended`] reports.
-pub(crate) fn is_end(state: CodingSessionState) -> bool {
-    matches!(
-        state,
-        CodingSessionState::Interrupted | CodingSessionState::Closed | CodingSessionState::Failed
-    )
 }
 
 /// The matcher of the Coding Session kinds. The source of a Session Rule
@@ -286,6 +310,28 @@ mod tests {
         assert!(
             !ended.metadata.to_string().contains("panicked"),
             "the end detail is harness text"
+        );
+    }
+
+    #[test]
+    fn an_interruption_holds_its_reason_and_the_time_of_its_record() {
+        let mut interrupted = session(CodingSessionState::Interrupted, None);
+        interrupted.updated_at = 42;
+        let news = SessionNews::Interrupted {
+            reason: InterruptReason::HostLost,
+        };
+
+        let event = session_event(&interrupted, "Air", news, 10);
+
+        assert_eq!(event.provider_event_id, "cs_1:ended:interrupted:42");
+        assert_eq!(event.metadata["state"], "interrupted");
+        assert_eq!(event.metadata["reason"], "host_lost");
+        assert_eq!(news.event_kind(), CODING_SESSION_ENDED);
+        interrupted.updated_at = 43;
+        assert_ne!(
+            session_event(&interrupted, "Air", news, 10).provider_event_id,
+            event.provider_event_id,
+            "a second interruption of a resumed session wakes the Agent again"
         );
     }
 
