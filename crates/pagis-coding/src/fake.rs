@@ -3,9 +3,9 @@
 //!
 //! [`pair`] joins a [`FakeHarness`] to an [`AcpSession`] over two
 //! `tokio::io::duplex` pipes. The fake records each request and
-//! notification that it gets, so a test can read what the client sent.
-//! The script speaks in ACP types, which this module re-exports as
-//! [`acp`].
+//! notification that it gets, and each answer to its own requests, so a
+//! test can read what the client sent. The script speaks in ACP types,
+//! which this module re-exports as [`acp`].
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
@@ -14,12 +14,15 @@ use std::sync::{Arc, Mutex};
 
 use agent_client_protocol::schema::ProtocolVersion;
 pub use agent_client_protocol::schema::v1 as acp;
-use agent_client_protocol::{Agent, ByteStreams, Client, ConnectionTo, Error, JsonRpcMessage};
+use agent_client_protocol::{
+    Agent, ByteStreams, Client, ConnectionTo, Error, JsonRpcMessage, SentRequest,
+};
 use futures::io::{AsyncRead, AsyncWrite};
+use serde::Serialize;
 use tokio::sync::{Notify, mpsc};
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
-use crate::{AcpSession, CodingError, Opening, SessionEvent};
+use crate::{AcpSession, AskHandler, CodingError, Opening, SessionEvent};
 
 /// The session id that the fake gives to a new session.
 pub const NEW_SESSION_ID: &str = "fake-session";
@@ -119,7 +122,7 @@ impl Script {
 pub struct Turn {
     updates: Vec<acp::SessionUpdate>,
     end: TurnEnd,
-    asks_permission: bool,
+    ask: Option<Ask>,
 }
 
 #[derive(Debug, Clone)]
@@ -135,7 +138,7 @@ impl Turn {
         Self {
             updates,
             end: TurnEnd::Stop(stop_reason),
-            asks_permission: false,
+            ask: None,
         }
     }
 
@@ -146,17 +149,115 @@ impl Turn {
         Self {
             updates,
             end: TurnEnd::UntilCancel,
-            asks_permission: false,
+            ask: None,
         }
     }
 
-    /// Sends one `session/request_permission` first, and waits for its
-    /// answer.
+    /// Sends `ask` first, then the updates. The fake then waits for the
+    /// answer, records it, and ends the turn.
     #[must_use]
-    pub fn asks_permission(mut self) -> Self {
-        self.asks_permission = true;
+    pub fn asks(mut self, ask: Ask) -> Self {
+        self.ask = Some(ask);
         self
     }
+}
+
+/// A request that the fake sends to the client in a turn.
+#[derive(Debug, Clone)]
+pub struct Ask {
+    request: AskRequest,
+    withdrawn: bool,
+}
+
+#[derive(Debug, Clone)]
+enum AskRequest {
+    Permission {
+        tool_call: acp::ToolCallUpdate,
+        options: Vec<acp::PermissionOption>,
+    },
+    Form {
+        message: String,
+        schema: acp::ElicitationSchema,
+    },
+    Url {
+        message: String,
+        url: String,
+    },
+}
+
+impl Ask {
+    /// A `session/request_permission` for `tool_call` with `options`.
+    #[must_use]
+    pub fn permission(tool_call: acp::ToolCallUpdate, options: Vec<acp::PermissionOption>) -> Self {
+        Self::new(AskRequest::Permission { tool_call, options })
+    }
+
+    /// An `elicitation/create` in form mode.
+    #[must_use]
+    pub fn form(message: &str, schema: acp::ElicitationSchema) -> Self {
+        Self::new(AskRequest::Form {
+            message: message.to_owned(),
+            schema,
+        })
+    }
+
+    /// An `elicitation/create` in URL mode.
+    #[must_use]
+    pub fn url(message: &str, url: &str) -> Self {
+        Self::new(AskRequest::Url {
+            message: message.to_owned(),
+            url: url.to_owned(),
+        })
+    }
+
+    /// After the updates, the fake waits for [`FakeHarness::withdraw_ask`]
+    /// and then sends `$/cancel_request` for the request.
+    #[must_use]
+    pub fn withdrawn(mut self) -> Self {
+        self.withdrawn = true;
+        self
+    }
+
+    fn new(request: AskRequest) -> Self {
+        Self {
+            request,
+            withdrawn: false,
+        }
+    }
+
+    /// Sends the request. The answer comes as JSON.
+    fn send(
+        &self,
+        cx: &ConnectionTo<Client>,
+        session_id: &acp::SessionId,
+    ) -> SentRequest<serde_json::Value> {
+        let scope = || acp::ElicitationSessionScope::new(session_id.clone());
+        match &self.request {
+            AskRequest::Permission { tool_call, options } => cx
+                .send_request(acp::RequestPermissionRequest::new(
+                    session_id.clone(),
+                    tool_call.clone(),
+                    options.clone(),
+                ))
+                .map(to_json),
+            AskRequest::Form { message, schema } => cx
+                .send_request(acp::CreateElicitationRequest::new(
+                    acp::ElicitationFormMode::new(scope(), schema.clone()),
+                    message.clone(),
+                ))
+                .map(to_json),
+            AskRequest::Url { message, url } => cx
+                .send_request(acp::CreateElicitationRequest::new(
+                    acp::ElicitationUrlMode::new(scope(), "fake-elicitation", url.clone()),
+                    message.clone(),
+                ))
+                .map(to_json),
+        }
+    }
+}
+
+fn to_json(response: impl Serialize) -> Result<serde_json::Value, Error> {
+    serde_json::to_value(response).map_err(Error::into_internal_error)
 }
 
 /// One request or notification that the fake got.
@@ -176,7 +277,9 @@ struct State {
     script: Script,
     turns: Mutex<VecDeque<Turn>>,
     received: Mutex<Vec<Received>>,
+    answers: Mutex<Vec<Result<serde_json::Value, Error>>>,
     cancel: Notify,
+    withdraw: Notify,
     close: Notify,
 }
 
@@ -193,6 +296,13 @@ impl State {
                 method: message.method().to_owned(),
                 params,
             });
+    }
+
+    fn record_answer(&self, answer: Result<serde_json::Value, Error>) {
+        self.answers
+            .lock()
+            .expect("the fake's answer lock is not poisoned")
+            .push(answer);
     }
 
     fn next_turn(&self) -> Option<Turn> {
@@ -214,7 +324,9 @@ impl FakeHarness {
             turns: Mutex::new(script.turns.iter().cloned().collect()),
             script,
             received: Mutex::new(Vec::new()),
+            answers: Mutex::new(Vec::new()),
             cancel: Notify::new(),
+            withdraw: Notify::new(),
             close: Notify::new(),
         });
         let connection = connect(state.clone(), ByteStreams::new(outgoing, incoming));
@@ -246,6 +358,23 @@ impl FakeHarness {
             .collect()
     }
 
+    /// The answer to each request of the fake, in order: the result as
+    /// JSON, or the error.
+    #[must_use]
+    pub fn answers(&self) -> Vec<Result<serde_json::Value, Error>> {
+        self.state
+            .answers
+            .lock()
+            .expect("the fake's answer lock is not poisoned")
+            .clone()
+    }
+
+    /// Sends `$/cancel_request` for the open request of an [`Ask`] that is
+    /// [`withdrawn`](Ask::withdrawn).
+    pub fn withdraw_ask(&self) {
+        self.state.withdraw.notify_one();
+    }
+
     /// Ends the fake's connection, so the client's side of the stream
     /// closes.
     pub fn close_stream(&self) {
@@ -254,10 +383,11 @@ impl FakeHarness {
 }
 
 /// Joins a new fake harness to a new [`AcpSession`] over two
-/// `tokio::io::duplex` pipes, and opens the session.
+/// `tokio::io::duplex` pipes, and opens the session with `asks`.
 pub async fn pair(
     script: Script,
     opening: Opening,
+    asks: Arc<dyn AskHandler>,
 ) -> (
     FakeHarness,
     Result<(AcpSession, mpsc::UnboundedReceiver<SessionEvent>), CodingError>,
@@ -265,7 +395,8 @@ pub async fn pair(
     let (client_out, harness_in) = tokio::io::duplex(64 * 1024);
     let (harness_out, client_in) = tokio::io::duplex(64 * 1024);
     let harness = FakeHarness::serve(script, harness_out.compat_write(), harness_in.compat());
-    let opened = AcpSession::open(client_out.compat_write(), client_in.compat(), opening).await;
+    let opened =
+        AcpSession::open(client_out.compat_write(), client_in.compat(), opening, asks).await;
     (harness, opened)
 }
 
@@ -370,18 +501,23 @@ where
                             return responder
                                 .respond(acp::PromptResponse::new(acp::StopReason::EndTurn));
                         };
-                        if turn.asks_permission {
-                            // The answer does not change the turn.
-                            let _answer = cx
-                                .send_request(permission_request(session_id.clone()))
-                                .block_task()
-                                .await;
-                        }
+                        let asked = turn
+                            .ask
+                            .as_ref()
+                            .map(|ask| (ask.withdrawn, ask.send(&cx, &session_id)));
                         for update in turn.updates {
                             cx.send_notification(acp::SessionNotification::new(
                                 session_id.clone(),
                                 update,
                             ))?;
+                        }
+                        if let Some((withdrawn, sent)) = asked {
+                            if withdrawn {
+                                state.withdraw.notified().await;
+                                sent.cancel()?;
+                            }
+                            // The answer does not change the turn.
+                            state.record_answer(sent.block_task().await);
                         }
                         let stop_reason = match turn.end {
                             TurnEnd::Stop(stop_reason) => stop_reason,
@@ -414,16 +550,4 @@ where
             Ok(())
         })
         .await
-}
-
-fn permission_request(session_id: acp::SessionId) -> acp::RequestPermissionRequest {
-    acp::RequestPermissionRequest::new(
-        session_id,
-        acp::ToolCallUpdate::new("permission-call", acp::ToolCallUpdateFields::new()),
-        vec![acp::PermissionOption::new(
-            "allow",
-            "Allow",
-            acp::PermissionOptionKind::AllowOnce,
-        )],
-    )
 }

@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::future::Future;
 use std::path::PathBuf;
 use std::pin::pin;
 use std::sync::Arc;
@@ -6,12 +7,19 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::schema::v1 as acp;
-use agent_client_protocol::{Agent, ByteStreams, Client, ConnectionTo, Error};
+use agent_client_protocol::{
+    Agent, ByteStreams, Client, ConnectionTo, Error, JsonRpcResponse, RequestCancellation,
+    Responder,
+};
 use futures::io::{AsyncRead, AsyncWrite};
 use serde::{Deserialize, Serialize};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
 
-use crate::{CodingError, SessionEvent, StopReason};
+use crate::event::raw_json;
+use crate::{
+    AskHandler, CodingError, PermissionAnswer, PermissionAsk, QuestionAnswer, QuestionAsk,
+    SessionEvent, StopReason, ToolKind,
+};
 
 /// How `AcpSession::open` starts the ACP session.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -61,6 +69,8 @@ pub struct AcpSession {
     session_id: acp::SessionId,
     flags: Arc<Flags>,
     events: mpsc::UnboundedSender<SessionEvent>,
+    /// Counts the cancels, so that each ask that waits at a cancel ends.
+    cancels: watch::Sender<u64>,
     close: oneshot::Sender<()>,
 }
 
@@ -82,11 +92,13 @@ impl AcpSession {
     ///
     /// The connection runs on a new tokio task. The receiver gets the
     /// events of the session in the order that the harness sent them, and
-    /// `SessionEvent::Closed` last.
+    /// `SessionEvent::Closed` last. `asks` answers each permission request
+    /// and each question of the harness.
     pub async fn open<W, R>(
         outgoing: W,
         incoming: R,
         opening: Opening,
+        asks: Arc<dyn AskHandler>,
     ) -> Result<(Self, mpsc::UnboundedReceiver<SessionEvent>), CodingError>
     where
         W: AsyncWrite + Send + 'static,
@@ -94,12 +106,17 @@ impl AcpSession {
     {
         let flags = Arc::new(Flags::default());
         let (events, receiver) = mpsc::unbounded_channel();
+        let (cancels, cancels_rx) = watch::channel(0);
         let (connection_tx, connection_rx) = oneshot::channel();
         let (close, close_rx) = oneshot::channel::<()>();
         tokio::spawn(run_connection(
             ByteStreams::new(outgoing, incoming),
             flags.clone(),
-            events.clone(),
+            Asks {
+                handler: asks,
+                cancels: cancels_rx,
+                events: events.clone(),
+            },
             connection_tx,
             close_rx,
         ));
@@ -158,6 +175,7 @@ impl AcpSession {
             session_id,
             flags,
             events,
+            cancels,
             close,
         };
         Ok((session, receiver))
@@ -228,13 +246,19 @@ impl AcpSession {
 
     /// Sends `session/cancel`. The turn still ends with its own
     /// `TurnEnded { stop_reason: cancelled }`.
+    ///
+    /// Each permission request that waits gets the answer `cancelled`, as
+    /// ACP requires, and each question that waits gets `cancel`. Each of
+    /// them gives `SessionEvent::AskWithdrawn`.
     pub fn cancel(&self) -> Result<(), CodingError> {
         if self.is_closed() {
             return Err(CodingError::Closed);
         }
         self.connection
             .send_notification(acp::CancelNotification::new(self.session_id.clone()))
-            .map_err(CodingError::from_acp)
+            .map_err(CodingError::from_acp)?;
+        self.cancels.send_modify(|cancels| *cancels += 1);
+        Ok(())
     }
 
     /// Ends the connection. The harness process ends when its byte stream
@@ -277,7 +301,8 @@ impl HarnessInfo {
 
 /// `initialize` with protocol 1. The harness uses its own file system and
 /// terminal where it runs, and it offers its own sign-in as terminal
-/// methods.
+/// methods. It asks its questions in form mode only, because Pagis opens
+/// no URL for a harness.
 fn initialize_request() -> acp::InitializeRequest {
     acp::InitializeRequest::new(ProtocolVersion::V1)
         .client_capabilities(
@@ -286,7 +311,11 @@ fn initialize_request() -> acp::InitializeRequest {
                     .read_text_file(false)
                     .write_text_file(false))
                 .terminal(false)
-                .auth(acp::AuthCapabilities::new().terminal(true)),
+                .auth(acp::AuthCapabilities::new().terminal(true))
+                .elicitation(
+                    acp::ElicitationCapabilities::new()
+                        .form(acp::ElicitationFormCapabilities::new()),
+                ),
         )
         .client_info(acp::Implementation::new("pagis", env!("CARGO_PKG_VERSION")))
 }
@@ -323,13 +352,14 @@ async fn load(
 async fn run_connection<W, R>(
     transport: ByteStreams<W, R>,
     flags: Arc<Flags>,
-    events: mpsc::UnboundedSender<SessionEvent>,
+    asks: Asks,
     connection_tx: oneshot::Sender<ConnectionTo<Agent>>,
     close: oneshot::Receiver<()>,
 ) where
     W: AsyncWrite + Send + 'static,
     R: AsyncRead + Send + 'static,
 {
+    let events = asks.events.clone();
     let result = Client
         .builder()
         .name("pagis")
@@ -350,16 +380,73 @@ async fn run_connection<W, R>(
             },
             agent_client_protocol::on_receive_notification!(),
         )
-        // The SDK keeps an unhandled request that names a session for a
-        // later handler, so the harness would wait for ever. Pagis answers
-        // no permission request, so it answers each with an error.
+        // A handler runs on the dispatch loop, which handles no other
+        // message while it runs. So each handler moves the wait for the
+        // answer to a task of the connection.
         .on_receive_request(
-            async move |request: acp::RequestPermissionRequest, responder, _cx| {
-                tracing::debug!(
-                    tool_call = %request.tool_call.tool_call_id.0,
-                    "a Coding Harness asks permission, and the ACP client refuses"
-                );
-                responder.respond_with_error(Error::method_not_found())
+            {
+                let asks = asks.clone();
+                async move |request: acp::RequestPermissionRequest,
+                            responder: Responder<acp::RequestPermissionResponse>,
+                            cx: ConnectionTo<Agent>| {
+                    let ask = PermissionAsk::from_acp(responder.id(), &request.tool_call);
+                    let handler = asks.handler.clone();
+                    let waited = asks.wait(
+                        ask.ask_id.clone(),
+                        async move { handler.permission(ask).await },
+                        responder.cancellation(),
+                    );
+                    let options = request.options;
+                    cx.spawn(async move {
+                        let answer = match waited.await {
+                            Waited::Answered(answer) => Ok(permission_response(answer, &options)),
+                            Waited::Cancelled => Ok(acp::RequestPermissionResponse::new(
+                                acp::RequestPermissionOutcome::Cancelled,
+                            )),
+                            Waited::Withdrawn => Err(Error::request_cancelled()),
+                        };
+                        respond(responder, answer);
+                        Ok(())
+                    })
+                }
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
+        .on_receive_request(
+            {
+                let asks = asks.clone();
+                async move |request: acp::CreateElicitationRequest,
+                            responder: Responder<acp::CreateElicitationResponse>,
+                            cx: ConnectionTo<Agent>| {
+                    let acp::ElicitationMode::Form(form) = request.mode else {
+                        // Pagis declares form mode only.
+                        return responder.respond(acp::CreateElicitationResponse::new(
+                            acp::ElicitationAction::Decline,
+                        ));
+                    };
+                    let ask = QuestionAsk {
+                        ask_id: responder.id().to_string(),
+                        message: request.message,
+                        schema: raw_json(&form.requested_schema),
+                    };
+                    let handler = asks.handler.clone();
+                    let waited = asks.wait(
+                        ask.ask_id.clone(),
+                        async move { handler.question(ask).await },
+                        responder.cancellation(),
+                    );
+                    cx.spawn(async move {
+                        let answer = match waited.await {
+                            Waited::Answered(answer) => Ok(elicitation_response(answer)),
+                            Waited::Cancelled => Ok(acp::CreateElicitationResponse::new(
+                                acp::ElicitationAction::Cancel,
+                            )),
+                            Waited::Withdrawn => Err(Error::request_cancelled()),
+                        };
+                        respond(responder, answer);
+                        Ok(())
+                    })
+                }
             },
             agent_client_protocol::on_receive_request!(),
         )
@@ -378,4 +465,143 @@ async fn run_connection<W, R>(
     }
     flags.closed.store(true, Ordering::SeqCst);
     let _ = events.send(SessionEvent::Closed);
+}
+
+/// What the handlers of the permission requests and the questions share.
+#[derive(Clone)]
+struct Asks {
+    handler: Arc<dyn AskHandler>,
+    cancels: watch::Receiver<u64>,
+    events: mpsc::UnboundedSender<SessionEvent>,
+}
+
+/// How the wait for an answer ended.
+enum Waited<T> {
+    Answered(T),
+    /// `AcpSession::cancel` was called.
+    Cancelled,
+    /// The harness sent `$/cancel_request` for the request.
+    Withdrawn,
+}
+
+impl Asks {
+    /// Waits for the first of `answer`, a cancel of the session, and the
+    /// withdrawal of the request by the harness. In the last two cases it
+    /// drops `answer` and sends `SessionEvent::AskWithdrawn`.
+    ///
+    /// It reads the cancel count when it is called, on the dispatch loop,
+    /// so each cancel after the request ends the wait.
+    fn wait<T>(
+        &self,
+        ask_id: String,
+        answer: impl Future<Output = T> + Send + 'static,
+        withdrawal: RequestCancellation,
+    ) -> impl Future<Output = Waited<T>> + Send + 'static
+    where
+        T: Send,
+    {
+        let mut cancels = self.cancels.clone();
+        let asked_at = *cancels.borrow();
+        let events = self.events.clone();
+        async move {
+            let session_cancelled = async move {
+                let cancelled = cancels
+                    .wait_for(|cancels| *cancels != asked_at)
+                    .await
+                    .is_ok();
+                if !cancelled {
+                    // The session was dropped, so the connection ends and
+                    // this task with it.
+                    std::future::pending::<()>().await;
+                }
+            };
+            let waited = tokio::select! {
+                answer = answer => return Waited::Answered(answer),
+                () = session_cancelled => Waited::Cancelled,
+                () = withdrawal.cancelled() => Waited::Withdrawn,
+            };
+            // The caller can drop the receiver; the wait ends all the same.
+            let _ = events.send(SessionEvent::AskWithdrawn { ask_id });
+            waited
+        }
+    }
+}
+
+impl PermissionAsk {
+    fn from_acp(id: &acp::RequestId, tool_call: &acp::ToolCallUpdate) -> Self {
+        let fields = &tool_call.fields;
+        Self {
+            ask_id: id.to_string(),
+            tool_call_id: tool_call.tool_call_id.0.to_string(),
+            title: fields.title.clone(),
+            kind: fields.kind.map_or(ToolKind::Other, ToolKind::from_acp),
+            locations: fields
+                .locations
+                .iter()
+                .flatten()
+                .map(|location| location.path.clone())
+                .collect(),
+            raw_input: fields.raw_input.clone(),
+        }
+    }
+}
+
+/// Selects the offered option of the answer's kind. When the harness
+/// offers no option of that kind, the answer is `cancelled`.
+fn permission_response(
+    answer: PermissionAnswer,
+    options: &[acp::PermissionOption],
+) -> acp::RequestPermissionResponse {
+    let kind = match answer {
+        PermissionAnswer::AllowOnce => acp::PermissionOptionKind::AllowOnce,
+        PermissionAnswer::RejectOnce => acp::PermissionOptionKind::RejectOnce,
+    };
+    let outcome = options.iter().find(|option| option.kind == kind).map_or(
+        acp::RequestPermissionOutcome::Cancelled,
+        |option| {
+            acp::RequestPermissionOutcome::Selected(acp::SelectedPermissionOutcome::new(
+                option.option_id.clone(),
+            ))
+        },
+    );
+    acp::RequestPermissionResponse::new(outcome)
+}
+
+/// The ACP answer to a question. A value that ACP cannot carry makes the
+/// answer `cancel`, so the harness never gets a part of a form.
+fn elicitation_response(answer: QuestionAnswer) -> acp::CreateElicitationResponse {
+    let action = match answer {
+        QuestionAnswer::Accept(values) => {
+            let content = values
+                .into_iter()
+                .map(|(name, value)| serde_json::from_value(value).map(|value| (name, value)))
+                .collect::<Result<BTreeMap<String, acp::ElicitationContentValue>, _>>();
+            match content {
+                Ok(content) => acp::ElicitationAction::Accept(
+                    acp::ElicitationAcceptAction::new().content(content),
+                ),
+                Err(error) => {
+                    tracing::warn!(
+                        %error,
+                        "an answer to a harness question has a value that ACP cannot carry"
+                    );
+                    acp::ElicitationAction::Cancel
+                }
+            }
+        }
+        QuestionAnswer::Decline => acp::ElicitationAction::Decline,
+        QuestionAnswer::Cancel => acp::ElicitationAction::Cancel,
+    };
+    acp::CreateElicitationResponse::new(action)
+}
+
+/// Sends the answer to a request of the harness. A send fails only when
+/// the connection closed, and `SessionEvent::Closed` tells the caller.
+fn respond<T: JsonRpcResponse>(responder: Responder<T>, answer: Result<T, Error>) {
+    if let Err(error) = responder.respond_with_result(answer) {
+        tracing::warn!(
+            error = %error.message,
+            "the answer to a request of a Coding Harness was not sent"
+        );
+    }
 }

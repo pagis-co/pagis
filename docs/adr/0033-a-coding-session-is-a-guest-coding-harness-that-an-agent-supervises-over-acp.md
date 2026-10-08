@@ -115,6 +115,12 @@ it runs. It declares terminal authentication (`auth.terminal`), so a harness
 offers its own sign-in, and it declares form elicitation alone. It passes no
 MCP server in `session/new`.
 
+The ACP client keeps no policy. It hands each permission request and each
+form question of the harness to the daemon, and it waits for the answer
+outside its dispatch loop, so the updates of the harness still arrive. A
+cancel of the session, or a request that the harness withdraws, ends the
+wait, and the daemon gets an event that the request is withdrawn.
+
 A native driver, such as the Codex app-server or pi RPC, is allowed only
 where ACP lacks a capability that Pagis needs.
 
@@ -359,7 +365,7 @@ Other ways were considered:
 - The `agent` mode.
 - The `auto` mode.
 - The item in the Needs-You Queue and the Notification.
-- The question.
+- The question in the daemon.
 - Harness Sign-In.
 - The session block in the Product App.
 - The session page.
