@@ -27,6 +27,7 @@
 mod accumulator;
 mod config;
 mod error;
+mod forward;
 pub mod protocol;
 mod realtime;
 mod registry;
@@ -41,6 +42,7 @@ pub use config::{
     RouterConfig, TimeoutConfig,
 };
 pub use error::{Error, ErrorKind};
+pub use forward::{ForwardRequest, Forwarded, Metered};
 pub use realtime::{
     RealtimeConnection, RealtimeIntent, RealtimeMessage, RealtimeProtocol, RealtimeSocket,
 };
