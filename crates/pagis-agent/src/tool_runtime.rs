@@ -196,7 +196,8 @@ impl CoreToolRuntime {
             | CoreTool::SoftwareFork
             | CoreTool::SoftwareContribute
             | CoreTool::ContributionView
-            | CoreTool::ContributionClose => ToolResult::error(
+            | CoreTool::ContributionClose
+            | CoreTool::CodingSessionStart => ToolResult::error(
                 "temporarily_unavailable",
                 format!("{} is not registered on this daemon", call.tool_name),
             ),

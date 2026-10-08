@@ -1041,8 +1041,9 @@ One ACP session of one Coding Harness, in one working directory, on a Host
 or in the Agent's Computer. One Agent owns and supervises it, and one Thread
 shows it. It is not a Run. On a Host it runs over the **session socket**, a
 WebSocket of the Client App that carries one stream for each Coding Session.
-The daemon starts it on a Host, and it stores its record and its
-transcript. Not built: a session in the Agent's Computer (ADR-0033).
+An Agent starts it on a Host with `coding_session_start`, after the Person
+approves the card, and the daemon stores its record and its transcript. Not
+built: a session in the Agent's Computer (ADR-0033).
 _Avoid_: harness session
 
 ### Harness Catalog
@@ -1077,8 +1078,8 @@ _Avoid_: harness login
 Who answers a Harness Permission of a Coding Session: `person`, `agent` or
 `auto`. The host Grant holds the widest mode that each Agent may use on each
 machine, `person` by default. The Person sets it on the Access tab of the
-Agent. Not built: the mode of a session, and who
-answers a Harness Permission (ADR-0033).
+Agent, and the Agent picks the mode of each session within it. Not built:
+who answers a Harness Permission (ADR-0033).
 _Avoid_: permission mode
 
 ### Session Rule

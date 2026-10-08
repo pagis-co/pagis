@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use pagis_audit::AuditEventBus;
 use pagis_broker::{
     AuthorizedCall, Broker, BrokerDeps, CapabilityManifest, EffectClass, ManifestError,
-    ManifestTool, ToolDef, ToolExecutor, ToolResult, ToolRoute,
+    ManifestTool, SessionStartAction, SessionStarts, ToolDef, ToolExecutor, ToolResult, ToolRoute,
 };
 use pagis_core::{
     Agent, AgentId, AgentStatus, AgentStore, CapabilitySnapshotStore, Channel, ChannelId,
@@ -112,9 +112,44 @@ impl ToolExecutor for RecordingExecutor {
     }
 }
 
+/// The checks of a Coding Session start, scripted. With no script it
+/// refuses, as the broker's own `NoSessionStarts` does.
+#[derive(Default)]
+pub struct ScriptedStarts {
+    answer: Mutex<Option<Result<SessionStartAction, ToolResult>>>,
+    /// The machine of each check, in order.
+    pub hosts: Mutex<Vec<pagis_core::HostId>>,
+}
+
+impl ScriptedStarts {
+    pub fn answers(&self, answer: Result<SessionStartAction, ToolResult>) {
+        *self.answer.lock().unwrap() = Some(answer);
+    }
+}
+
+#[async_trait]
+impl SessionStarts for ScriptedStarts {
+    async fn describe(
+        &self,
+        _workspace_id: &WorkspaceId,
+        _agent_id: &AgentId,
+        host: &pagis_core::Host,
+        _arguments: &serde_json::Value,
+    ) -> Result<SessionStartAction, ToolResult> {
+        self.hosts.lock().unwrap().push(host.id.clone());
+        self.answer.lock().unwrap().clone().unwrap_or_else(|| {
+            Err(ToolResult::error(
+                "temporarily_unavailable",
+                "no start is scripted",
+            ))
+        })
+    }
+}
+
 pub struct Harness {
     pub broker: Broker,
     pub executor: Arc<RecordingExecutor>,
+    pub starts: Arc<ScriptedStarts>,
     /// The machines of the workspace, and which of them are connected.
     hosts: Arc<pagis_storage_sqlite::SqliteHostStore>,
     presence: Arc<pagis_broker::HostPresence>,
@@ -185,6 +220,7 @@ async fn harness_with(pool: SqlitePool, behind: Option<Arc<dyn ToolExecutor>>) -
     let presence = Arc::new(pagis_broker::HostPresence::new());
     let executor = Arc::new(RecordingExecutor::default());
     let behind = behind.unwrap_or_else(|| Arc::clone(&executor) as _);
+    let starts = Arc::new(ScriptedStarts::default());
     let broker = Broker::new(BrokerDeps {
         forget: Arc::new(pagis_storage_sqlite::SqliteForgetStore::new(pool.clone())),
         grants: Arc::new(SqliteGrantStore::new(pool.clone())),
@@ -202,10 +238,12 @@ async fn harness_with(pool: SqlitePool, behind: Option<Arc<dyn ToolExecutor>>) -
         mailboxes: Arc::new(SqliteAgentMailboxStore::new(pool.clone())),
         hosts: Arc::clone(&hosts) as _,
         presence: Arc::clone(&presence),
+        session_starts: Arc::clone(&starts) as _,
     });
     Harness {
         broker,
         executor,
+        starts,
         hosts,
         presence,
         pool,

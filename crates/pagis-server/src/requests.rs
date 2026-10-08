@@ -326,10 +326,13 @@ fn mailbox_of(request: &Request) -> Option<AgentMailboxId> {
 /// the record and not only the kind (ADR-0017).
 fn grant_target(request: &Request) -> Option<(&'static str, Option<String>)> {
     if request.kind == Request::TOOL_ACTION_KIND
-        && request.payload["tool_name"] == pagis_broker::HOST_SHELL
+        && (request.payload["tool_name"] == pagis_broker::HOST_SHELL
+            || request.payload["tool_name"] == pagis_broker::CODING_SESSION_START)
     {
-        // A host Grant names the machine the card named. A card
-        // that named none grants nothing: the daemon is never a Host.
+        // A host action writes a host Grant: a Coding Session start runs
+        // a program on the machine as a command does (ADR-0033). The
+        // Grant names the machine the card named. A card that named none
+        // grants nothing: the daemon is never a Host.
         let host_id = request.payload["host_id"].as_str()?;
         Some((Grant::HOST_KIND, Some(host_id.to_string())))
     } else if request.kind == Request::CREDENTIAL_ACTION_KIND {

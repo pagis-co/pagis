@@ -24,7 +24,7 @@ const ENVIRONMENT_OVERRIDE: &str =
 /// Register one machine of the workspace. It is present only once a
 /// client connects, which is what a Pagis client does over its own
 /// socket; a test that wants presence holds the connection it returns.
-async fn register(harness: &Harness, name: &str, capabilities: &[&str]) -> Host {
+pub(crate) async fn register(harness: &Harness, name: &str, capabilities: &[&str]) -> Host {
     let capabilities: Vec<String> = capabilities.iter().map(|held| held.to_string()).collect();
     harness
         .hosts()
@@ -39,7 +39,7 @@ async fn register(harness: &Harness, name: &str, capabilities: &[&str]) -> Host 
         .unwrap()
 }
 
-async fn grant_host(harness: &Harness, host: &Host, allow: &[&str]) -> Grant {
+pub(crate) async fn grant_host(harness: &Harness, host: &Host, allow: &[&str]) -> Grant {
     let allow: Vec<String> = allow.iter().map(|rule| rule.to_string()).collect();
     let grant = Grant {
         id: pagis_core::GrantId::generate(),

@@ -1,26 +1,37 @@
-//! Full-daemon tests of the Coding Session routes and events (ADR-0033).
+//! Full-daemon tests of Coding Sessions (ADR-0033).
 //!
-//! The REST routes read the records and the transcripts that the stores
-//! hold. The stop and the events run the daemon's own session runtime
-//! over a session socket whose Client App end runs the fake harness.
+//! An Agent calls `coding_session_start`, the Person approves the card,
+//! and the daemon starts the harness on the Person's machine over its
+//! session socket. The REST routes read the records and the transcripts
+//! that the stores hold. The Client App's end of the socket runs the fake
+//! Coding Harness of `pagis_coding` on each stream in place of the
+//! process: through `serve_client_app`, or through the fake Client App of
+//! `pagis_broker` when a test reads the open requests.
 
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures::StreamExt;
+use pagis_broker::fake::FakeClientApp;
 use pagis_coding::NewCodingSession;
-use pagis_coding::fake::{Script, Turn, serve_client_app};
+use pagis_coding::fake::{FakeHarness, Script, Turn, serve_client_app};
 use pagis_core::{
-    AgentId, AuthorKind, Block, ChannelId, CodingSession, CodingSessionEventKind,
+    AgentId, AuthorKind, Block, ChannelId, CodingSession, CodingSessionEventKind, CodingSessionId,
     CodingSessionState, HostId, Message, MessageId, NewCodingSessionEvent, RunId,
-    SessionApprovalMode, now_ms,
+    SessionApprovalMode, harness, now_ms,
 };
-use pagis_testkit::{Socket, TestDaemon, fixture};
+use pagis_testkit::{
+    HostAnswer, HostClient, ScriptedBrain, SessionClient, Socket, TestDaemon, TestDaemonOptions,
+    TwoTenants, fixture,
+};
 use serde_json::{Value, json};
 use tokio_tungstenite::tungstenite::Message as Frame;
 use tokio_util::compat::TokioAsyncReadCompatExt;
 
 const WAIT: Duration = Duration::from_secs(10);
 const DIRECTORY: &str = "/Users/bo/code/app";
+const WORKTREE: &str = "/Users/bo/.pagis-worktrees/app/pagis-fix-the-login";
+const PROMPT: &str = "Fix the login bug.";
 
 /// A Host of the daemon's own person that can start Claude Code.
 async fn host(daemon: &TestDaemon) -> HostId {
@@ -381,4 +392,277 @@ async fn a_session_from_a_run_with_no_thread_posts_the_root_of_its_own_thread() 
     assert_eq!(message.parent_message_id, None);
     assert_eq!(message.channel_id, session.channel_id);
     assert_session_block(&message, &session);
+}
+
+fn start_call(machine: Option<&str>) -> pagis_testkit::Script {
+    let mut arguments = json!({
+        "harness": "claude",
+        "directory": DIRECTORY,
+        "title": "Fix the login",
+        "prompt": PROMPT,
+    });
+    if let Some(machine) = machine {
+        arguments["machine"] = machine.into();
+    }
+    pagis_testkit::Script::tool_call(&[], "coding_session_start", arguments)
+}
+
+async fn daemon_with(brain: &Arc<ScriptedBrain>) -> TestDaemon {
+    TestDaemon::start_with(TestDaemonOptions {
+        brain: Arc::clone(brain) as _,
+        ..TestDaemonOptions::default()
+    })
+    .await
+}
+
+async fn wait_until(what: &str, ready: impl Fn() -> bool) {
+    let deadline = tokio::time::Instant::now() + WAIT;
+    while !ready() {
+        assert!(tokio::time::Instant::now() < deadline, "{what}");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+/// The tool result that the model read, once the Run completes.
+async fn the_tool_result(firehose: &mut Socket, brain: &ScriptedBrain) -> String {
+    loop {
+        let changed = next_frame_of(firehose, "run.state_changed").await;
+        if changed["payload"]["payload"]["to"] == "completed" {
+            break;
+        }
+    }
+    brain
+        .requests()
+        .last()
+        .expect("the model read the tool result")
+        .messages
+        .last()
+        .expect("the tool result")
+        .text
+        .clone()
+}
+
+async fn send(daemon: &TestDaemon, cookie: &str, channel_id: &str, text: &str) {
+    let sent = reqwest::Client::new()
+        .post(format!(
+            "{}/api/v1/channels/{channel_id}/messages",
+            daemon.base_url
+        ))
+        .header("cookie", cookie)
+        .json(&json!({"pending_id": "p-1", "text": text}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(sent.status(), 201);
+}
+
+/// The whole path: the Agent calls the tool, the Person approves the
+/// card that names the harness and the machine, the Client App gets the
+/// launch command of the Harness Catalog, the harness gets the first
+/// prompt, and the Agent reads a session that works. The approval wrote
+/// the host Grant of the machine.
+#[tokio::test]
+async fn an_agent_starts_a_coding_session_on_a_host_after_the_person_approves_its_card() {
+    let brain = Arc::new(ScriptedBrain::default());
+    brain.push(start_call(None));
+    brain.push(pagis_testkit::Script::reply(&["Started."]));
+    let daemon = daemon_with(&brain).await;
+    let harnesses: Arc<Mutex<Vec<FakeHarness>>> = Arc::default();
+    let client_app = FakeClientApp::running(WORKTREE, {
+        let harnesses = Arc::clone(&harnesses);
+        move |stream| {
+            let (read, write) = futures::io::AsyncReadExt::split(stream);
+            let script = Script::default().turn(Turn::until_cancel(vec![]));
+            harnesses
+                .lock()
+                .unwrap()
+                .push(FakeHarness::serve(script, write, read));
+        }
+    });
+    let host = HostClient::connect(
+        &daemon,
+        "Air",
+        "macos",
+        &["shell", "harness:claude"],
+        HostAnswer::ok(),
+    )
+    .await;
+    let host_id = HostId::from(host.host_id().to_string());
+    let _sessions = SessionClient::connect(
+        &daemon,
+        daemon.cookie(),
+        host.host_id(),
+        Arc::clone(&client_app),
+    )
+    .await
+    .expect("the session socket opens");
+    wait_until("the session socket is not open", || {
+        daemon.host_sessions.is_open(&host_id)
+    })
+    .await;
+    let mut firehose = daemon.event_socket(daemon.cookie()).await;
+
+    send(
+        &daemon,
+        daemon.cookie(),
+        &daemon.dm_channel_id,
+        "fix the login",
+    )
+    .await;
+
+    let created = next_frame_of(&mut firehose, "request.created").await;
+    let request_id = created["payload"]["payload"]["request_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let card = get(&daemon, &format!("/api/v1/requests/{request_id}")).await;
+    assert_eq!(card["kind"], "tool_action");
+    assert_eq!(
+        card["payload"]["action_title"],
+        "Start Claude Code on your Air"
+    );
+    assert_eq!(card["payload"]["host_id"], host.host_id());
+    assert!(
+        client_app.requests().is_empty(),
+        "nothing starts before the approval"
+    );
+
+    let decided = reqwest::Client::new()
+        .post(format!(
+            "{}/api/v1/requests/{request_id}/decision",
+            daemon.base_url
+        ))
+        .header("cookie", daemon.cookie())
+        .json(&json!({"decision": "approved"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(decided.status(), 200);
+
+    let result = the_tool_result(&mut firehose, &brain).await;
+    let result: Value = serde_json::from_str(&result)
+        .unwrap_or_else(|error| panic!("the tool result is JSON ({error}): {result}"));
+    assert_eq!(result["state"], "working");
+    assert_eq!(result["directory"], WORKTREE);
+    assert_eq!(result["branch"], "pagis/fix-the-login");
+    let session_id = CodingSessionId::from(result["session_id"].as_str().unwrap().to_string());
+    let record = daemon
+        .stores()
+        .coding_sessions
+        .get(&daemon.workspace_id, &session_id)
+        .await
+        .unwrap()
+        .expect("the session record");
+    assert_eq!(record.state, CodingSessionState::Working);
+    assert_eq!(record.host_id.as_ref(), Some(&host_id));
+
+    let requests = client_app.requests();
+    assert_eq!(requests.len(), 1);
+    let (command, args) = harness::launch_command(harness::entry("claude").unwrap());
+    assert_eq!(requests[0].command, command);
+    assert_eq!(requests[0].args, args);
+    assert_eq!(requests[0].cwd, DIRECTORY);
+    let worktree = requests[0].worktree.as_ref().expect("a worktree");
+    assert_eq!(worktree.repo, DIRECTORY);
+    assert_eq!(worktree.branch, "pagis/fix-the-login");
+
+    let harness = harnesses.lock().unwrap()[0].clone();
+    let prompts = harness.params("session/prompt");
+    assert_eq!(prompts.len(), 1);
+    assert!(prompts[0].to_string().contains(PROMPT), "{prompts:?}");
+
+    let grants = get(&daemon, "/api/v1/grants").await;
+    let items = grants["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1, "{grants:#}");
+    assert_eq!(items[0]["resource_kind"], "host");
+    assert_eq!(items[0]["resource_id"], host.host_id());
+}
+
+/// Person B's Agent names person A's machine. The Host read names B's
+/// Workspace, so A's machine is no candidate, and the answer names B's
+/// own machines. Nothing reaches A's machine, and B is asked nothing.
+#[tokio::test]
+async fn person_bs_agent_that_names_person_as_machine_gets_machine_not_found() {
+    let brain = Arc::new(ScriptedBrain::default());
+    brain.push(start_call(Some("Air")));
+    brain.push(pagis_testkit::Script::reply(&["No such computer."]));
+    let tenants = TwoTenants::on(daemon_with(&brain).await).await;
+    let daemon = &tenants.daemon;
+    let a_client_app = FakeClientApp::opening(WORKTREE);
+    let a_host = HostClient::connect_as(
+        daemon,
+        &tenants.a.cookie,
+        "Air",
+        "macos",
+        &["shell", "harness:claude"],
+        HostAnswer::ok(),
+    )
+    .await;
+    let _a_sessions = SessionClient::connect(
+        daemon,
+        &tenants.a.cookie,
+        a_host.host_id(),
+        Arc::clone(&a_client_app),
+    )
+    .await
+    .expect("person A's session socket opens");
+    let _b_host = HostClient::connect_as(
+        daemon,
+        &tenants.b.cookie,
+        "Mini",
+        "macos",
+        &["shell", "harness:claude"],
+        HostAnswer::ok(),
+    )
+    .await;
+    // Person B's Agent, in a DM with B, on the model aliases of B's
+    // Workspace.
+    let stores = daemon.stores();
+    pagis_server::provisioning::WorkspaceSeed::from(stores)
+        .ensure_aliases(&tenants.b.workspace_id)
+        .await
+        .unwrap();
+    let agent = fixture::agent(&tenants.b.workspace_id);
+    stores.agents.create(&agent).await.unwrap();
+    let channel = fixture::channel(&tenants.b.workspace_id);
+    stores.channels.create(&channel).await.unwrap();
+    for participant in [
+        fixture::agent_participant(&tenants.b.workspace_id, &channel.id, &agent.id),
+        fixture::user_participant(&tenants.b.workspace_id, &channel.id),
+    ] {
+        stores.participants.create(&participant).await.unwrap();
+    }
+    let mut firehose = daemon.event_socket(&tenants.b.cookie).await;
+
+    send(
+        daemon,
+        &tenants.b.cookie,
+        channel.id.as_str(),
+        "fix it on Air",
+    )
+    .await;
+
+    let result = the_tool_result(&mut firehose, &brain).await;
+    assert!(result.contains("Mini"), "{result}");
+    assert!(result.contains("\"Air\""), "{result}");
+    let fact = stores
+        .events
+        .list_by_types(&tenants.b.workspace_id, &["tool.completed"], None, 20)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|event| event.payload["name"] == "coding_session_start")
+        .expect("the start is in the audit log");
+    assert_eq!(fact.payload["error_code"], "machine_not_found");
+    assert!(a_client_app.requests().is_empty());
+    let pending = stores
+        .requests
+        .list_by_state(
+            &tenants.b.workspace_id,
+            pagis_core::RequestState::Pending,
+            None,
+        )
+        .await
+        .unwrap();
+    assert!(pending.is_empty(), "{pending:?}");
 }

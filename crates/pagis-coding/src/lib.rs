@@ -17,6 +17,10 @@
 //! records its updates through the Coding Session store, and asks
 //! [`SessionDecisions`] for the answer to each permission request and
 //! question.
+//!
+//! [`CodingSessionStarts`] holds the checks of a start, which the broker
+//! asks before the card, and [`CodingToolRuntime`] executes the core
+//! tool `coding_session_start` after the approval.
 
 mod ask;
 mod decisions;
@@ -26,6 +30,8 @@ pub mod fake;
 mod place;
 mod session;
 mod sessions;
+mod starts;
+mod tools;
 
 pub use ask::{AskHandler, PermissionAnswer, PermissionAsk, QuestionAnswer, QuestionAsk};
 pub use decisions::{Pending, RefuseDecisions, SessionDecisions, WaitsFor};
@@ -42,3 +48,5 @@ pub use sessions::{
     CloseReason, CodingSessions, CodingSessionsDeps, NewCodingSession, PromptOutcome, SessionError,
     StartFailure,
 };
+pub use starts::{CodingSessionStarts, MAX_OPEN_SESSIONS, worktree_branch};
+pub use tools::CodingToolRuntime;

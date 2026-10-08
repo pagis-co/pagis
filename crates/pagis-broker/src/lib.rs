@@ -82,6 +82,8 @@ pub const CALL_TRANSCRIPT: &str = "call_transcript";
 /// (ADR-0016).
 pub const SOFTWARE_PUBLISH: &str = "software_publish";
 pub const TOOL_SEARCH: &str = "tool_search";
+/// Start a Coding Session on one of the Person's machines (ADR-0033).
+pub const CODING_SESSION_START: &str = "coding_session_start";
 
 /// The metadata key a `tool_search` result carries: the packages the
 /// call loaded. The run loop reads it into its `LoadedSet`.
@@ -250,6 +252,12 @@ pub enum CoreTool {
     ContributionView,
     /// Close one Contribution as merged or declined.
     ContributionClose,
+    /// Start a Coding Session on one of the Person's machines
+    /// (ADR-0033). It is a host action: it runs a program on the
+    /// Person's machine, so it takes the effect class `Host`, the
+    /// candidate machines of `host_shell` and the same first Grant
+    /// (ADR-0015).
+    CodingSessionStart,
 }
 
 /// The `ui` manifest's tools. Both write into the run's own
@@ -752,6 +760,55 @@ impl CredentialDirectory for NoCredentialDirectory {
     }
 }
 
+/// What the broker asks before it renders the card of a Coding Session
+/// start (ADR-0033): what the card shows, or a refusal that is not an
+/// approval. The broker asks once the machine is settled, so a start
+/// that cannot happen writes no Request.
+#[async_trait]
+pub trait SessionStarts: Send + Sync {
+    async fn describe(
+        &self,
+        workspace_id: &WorkspaceId,
+        agent_id: &AgentId,
+        host: &pagis_core::Host,
+        arguments: &serde_json::Value,
+    ) -> Result<SessionStartAction, ToolResult>;
+}
+
+/// One Coding Session start that its checks allow: what the card shows.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionStartAction {
+    /// The id of the harness in the Harness Catalog.
+    pub harness_id: String,
+    /// The name of the harness that the Person reads.
+    pub harness_name: String,
+    /// The directory that the Agent named.
+    pub directory: String,
+    /// The branch of the git worktree, or `None` when the session works
+    /// in the directory itself.
+    pub branch: Option<String>,
+    pub mode: pagis_core::SessionApprovalMode,
+}
+
+/// The checks of a daemon that starts no Coding Session.
+pub struct NoSessionStarts;
+
+#[async_trait]
+impl SessionStarts for NoSessionStarts {
+    async fn describe(
+        &self,
+        _workspace_id: &WorkspaceId,
+        _agent_id: &AgentId,
+        _host: &pagis_core::Host,
+        _arguments: &serde_json::Value,
+    ) -> Result<SessionStartAction, ToolResult> {
+        Err(ToolResult::error(
+            "temporarily_unavailable",
+            "coding sessions are not registered",
+        ))
+    }
+}
+
 pub struct BrokerDeps {
     pub forget: Arc<dyn pagis_core::ForgetStore>,
     pub grants: Arc<dyn GrantStore>,
@@ -780,6 +837,8 @@ pub struct BrokerDeps {
     /// whether a host action can run at all, and absence is an answer
     /// rather than a wait.
     pub presence: Arc<hosts::HostPresence>,
+    /// The checks of a Coding Session start, and what its card shows.
+    pub session_starts: Arc<dyn SessionStarts>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1105,6 +1164,9 @@ struct CallContext {
     /// True while the parked Request is the question about which machine
     /// to run on, and not the approval of the action itself.
     asking_which_host: bool,
+    /// The Coding Session start this call makes, checked once its
+    /// machine is settled, so the card reads what the checks read.
+    session_start: Option<SessionStartAction>,
 }
 
 pub struct Broker {
@@ -1264,14 +1326,17 @@ impl Broker {
         let connections = self.deps.connections.list(&run.workspace_id).await?;
         // Which machine can do what belongs in the snapshot: a grant on a
         // machine that cannot run a command is not a host binding, so a
-        // phone is never offered for a shell command.
-        let shell_hosts: HashSet<String> = self
-            .deps
-            .hosts
-            .list(workspace_id)
-            .await?
-            .into_iter()
+        // phone is never offered for a shell command, and a machine that
+        // declares no Coding Harness is never offered for a session.
+        let hosts = self.deps.hosts.list(workspace_id).await?;
+        let shell_hosts: HashSet<String> = hosts
+            .iter()
             .filter(|host| host.can(pagis_core::SHELL_CAPABILITY))
+            .map(|host| host.id.to_string())
+            .collect();
+        let harness_hosts: HashSet<String> = hosts
+            .iter()
+            .filter(|host| !host.harnesses().is_empty())
             .map(|host| host.id.to_string())
             .collect();
         let holds_number = self
@@ -1300,17 +1365,10 @@ impl Broker {
                     let bindings: Vec<GrantBinding> = match &tool.route {
                         ToolRoute::Core {
                             tool: CoreTool::HostShell,
-                        } => grants
-                            .iter()
-                            .filter(|grant| grant.resource_kind == Grant::HOST_KIND)
-                            .filter(|grant| {
-                                grant
-                                    .resource_id
-                                    .as_ref()
-                                    .is_some_and(|host| shell_hosts.contains(host))
-                            })
-                            .map(GrantBinding::from)
-                            .collect(),
+                        } => host_bindings(&grants, &shell_hosts),
+                        ToolRoute::Core {
+                            tool: CoreTool::CodingSessionStart,
+                        } => host_bindings(&grants, &harness_hosts),
                         // A Software tool holds no grant: it runs in
                         // the agent's own Computer, which is the
                         // sandbox (ADR-0014).
@@ -1366,6 +1424,18 @@ impl Broker {
                             tool: CoreTool::PhoneCall | CoreTool::CallTranscript
                         }
                     ) && !holds_number
+                    {
+                        continue;
+                    }
+                    // A Workspace whose machines declare no Coding Harness
+                    // has no session to start: an absent capability is
+                    // declared, never emulated (ADR-0005).
+                    if matches!(
+                        tool.route,
+                        ToolRoute::Core {
+                            tool: CoreTool::CodingSessionStart
+                        }
+                    ) && harness_hosts.is_empty()
                     {
                         continue;
                     }
@@ -1669,6 +1739,7 @@ impl Broker {
             tool_call_id: call.tool_call_id,
             host: None,
             asking_which_host: false,
+            session_start: None,
         };
         let live_binding = match self.authorize(&context).await? {
             Ok(binding) => binding,
@@ -1721,7 +1792,7 @@ impl Broker {
         // A host action names the machine it runs on before anything
         // else asks about it: the card names that machine, and an absent
         // one is an answer rather than a card.
-        if is_host_shell(&context.entry.manifest.route) {
+        if is_host_action(&context.entry.manifest.route) {
             match self.resolve_host(&mut context).await? {
                 HostTarget::Chosen => {}
                 HostTarget::Ask(pending) => {
@@ -1752,6 +1823,31 @@ impl Broker {
             || is_schedule_control_without_revision(&context)
         {
             return self.execute(context, "free").await;
+        }
+        // A start is checked once its machine is settled and before its
+        // card: a start that cannot happen is an answer, and the Person
+        // is not asked about it.
+        if is_session_start(&context.entry.manifest.route)
+            && let Some(host) = &context.host
+        {
+            match self
+                .deps
+                .session_starts
+                .describe(
+                    &context.workspace_id,
+                    &context.agent_id,
+                    host,
+                    &context.arguments,
+                )
+                .await
+            {
+                Ok(start) => context.session_start = Some(start),
+                Err(result) => {
+                    self.audit(&context, "rejected", "rejected", &result)
+                        .await?;
+                    return Ok(InvokeOutcome::Rejected(result));
+                }
+            }
         }
         if self.uses_credential_rules(&context) {
             // Resolve the record once: the rule check and the card both
@@ -1937,21 +2033,45 @@ impl Broker {
     /// person. The broker never picks between two machines of one person,
     /// for the same reason it never picks between two mail accounts.
     async fn resolve_host(&self, context: &mut CallContext) -> Result<HostTarget, BrokerError> {
+        let capability = host_capability(context);
         let granted: Vec<String> = context
             .entry
             .grants
             .iter()
             .filter_map(|binding| binding.resource_id.clone())
             .collect();
-        let candidates: Vec<pagis_core::Host> = self
+        let mut candidates: Vec<pagis_core::Host> = self
             .deps
             .hosts
             .list(&context.workspace_id)
             .await?
             .into_iter()
-            .filter(|host| host.can(pagis_core::SHELL_CAPABILITY))
+            .filter(|host| host.can(&capability))
             .filter(|host| granted.is_empty() || granted.contains(&host.id.to_string()))
             .collect();
+        // The Agent can name the machine as the Person says it. The read
+        // names the Workspace, so a machine of another person is not a
+        // candidate and its name matches nothing.
+        if let Some(name) = context.arguments["machine"]
+            .as_str()
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+        {
+            let wanted = name.to_lowercase();
+            let named: Vec<pagis_core::Host> = candidates
+                .iter()
+                .filter(|host| host.name.to_lowercase() == wanted)
+                .cloned()
+                .collect();
+            if named.is_empty() {
+                return Ok(HostTarget::Absent(machine_not_found(
+                    name,
+                    &host_action_words(context),
+                    &candidates,
+                )));
+            }
+            candidates = named;
+        }
         let present: Vec<pagis_core::Host> = candidates
             .iter()
             .filter(|host| self.deps.presence.present(&host.id))
@@ -1975,6 +2095,16 @@ impl Broker {
                 if let [only] = candidates.as_slice() {
                     context.host = Some(only.clone());
                 }
+                if candidates.is_empty() && is_session_start(&context.entry.manifest.route) {
+                    return Ok(HostTarget::Absent(ToolResult::plain_error(
+                        "host_not_connected",
+                        format!(
+                            "no computer of yours that can {} is connected. Open the Pagis \
+                             client on a computer where it is installed, then ask again.",
+                            host_action_words(context)
+                        ),
+                    )));
+                }
                 Ok(HostTarget::Absent(not_connected(&candidates)))
             }
             _ => Ok(HostTarget::Ask(Box::new(
@@ -1992,10 +2122,18 @@ impl Broker {
         present: &[pagis_core::Host],
     ) -> Result<PendingRequest, BrokerError> {
         let title = "Which computer should this run on?".to_string();
-        let body = context.arguments["command"]
-            .as_str()
-            .unwrap_or_default()
-            .to_string();
+        let body = if is_session_start(&context.entry.manifest.route) {
+            format!(
+                "{} in {}",
+                harness_name(&context.arguments),
+                context.arguments["directory"].as_str().unwrap_or_default()
+            )
+        } else {
+            context.arguments["command"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string()
+        };
         let options: Vec<serde_json::Value> = present
             .iter()
             .map(|host| {
@@ -2066,7 +2204,8 @@ impl Broker {
             Some(id) => self.deps.hosts.get(&context.workspace_id, id).await?,
             None => None,
         };
-        let Some(host) = host.filter(|host| host.can(pagis_core::SHELL_CAPABILITY)) else {
+        let capability = host_capability(&context);
+        let Some(host) = host.filter(|host| host.can(&capability)) else {
             let result = ToolResult::error("host_not_connected", NO_HOST_NAMED);
             self.audit(&context, "rejected", "rejected", &result)
                 .await?;
@@ -2119,7 +2258,7 @@ impl Broker {
         &self,
         context: &CallContext,
     ) -> Result<Result<Option<GrantBinding>, ToolResult>, BrokerError> {
-        if is_host_shell(&context.entry.manifest.route) {
+        if is_host_action(&context.entry.manifest.route) {
             // The Grant names the machine, so it is read live for that
             // machine and for no other. An Agent that holds none
             // yet is on its first call: the approval writes the Grant,
@@ -2367,7 +2506,10 @@ impl Broker {
         // The card names the machine: "run this on your computer" is a
         // different question when the person has three.
         if let Some(host) = &context.host {
-            presentation.action_title = format!("Run a command on your {}", host.name);
+            presentation.action_title = match &context.session_start {
+                Some(start) => format!("Start {} on your {}", start.harness_name, host.name),
+                None => format!("Run a command on your {}", host.name),
+            };
         }
         match &context.mail_target {
             Some(MailTarget::Own) => {
@@ -2424,7 +2566,13 @@ impl Broker {
             }
             Some(AllowRuleBuilder::CredentialDomain) | None => Vec::new(),
         };
-        let body = if matches!(
+        let body = if let (Some(start), Some(host)) = (&context.session_start, &context.host) {
+            coding_session_approval_body(
+                start,
+                host,
+                context.arguments["prompt"].as_str().unwrap_or_default(),
+            )
+        } else if matches!(
             context.entry.manifest.route,
             ToolRoute::Core {
                 tool: CoreTool::ScheduleCreate | CoreTool::ScheduleUpdate
@@ -2906,14 +3054,72 @@ enum HostTarget {
     Absent(ToolResult),
 }
 
-/// Whether one route is the host shell tool.
-fn is_host_shell(route: &ToolRoute) -> bool {
+/// Whether one route is a host action: a tool that runs a program on
+/// one of the Person's machines.
+fn is_host_action(route: &ToolRoute) -> bool {
     matches!(
         route,
         ToolRoute::Core {
-            tool: CoreTool::HostShell
+            tool: CoreTool::HostShell | CoreTool::CodingSessionStart
         }
     )
+}
+
+/// Whether one route is the start of a Coding Session.
+fn is_session_start(route: &ToolRoute) -> bool {
+    matches!(
+        route,
+        ToolRoute::Core {
+            tool: CoreTool::CodingSessionStart
+        }
+    )
+}
+
+/// The Host capability that one host action needs: `shell` for a
+/// command, and `harness:<id>` for a Coding Session start.
+fn host_capability(context: &CallContext) -> String {
+    if is_session_start(&context.entry.manifest.route) {
+        pagis_core::harness::capability(context.arguments["harness"].as_str().unwrap_or_default())
+    } else {
+        pagis_core::SHELL_CAPABILITY.to_string()
+    }
+}
+
+/// The name of the harness that a start names, as the Person reads it.
+/// A harness that is not in the Harness Catalog reads as its id.
+fn harness_name(arguments: &serde_json::Value) -> String {
+    let id = arguments["harness"].as_str().unwrap_or_default();
+    pagis_core::harness::entry(id).map_or_else(|| id.to_string(), |entry| entry.label.to_string())
+}
+
+/// What one host action does, in the words of an answer.
+fn host_action_words(context: &CallContext) -> String {
+    if is_session_start(&context.entry.manifest.route) {
+        format!("start {}", harness_name(&context.arguments))
+    } else {
+        "run a command".to_string()
+    }
+}
+
+/// The answer when the Agent named a machine that is not a candidate. It
+/// names the candidates, so the Agent can name one of them or ask the
+/// Person.
+fn machine_not_found(name: &str, what: &str, candidates: &[pagis_core::Host]) -> ToolResult {
+    let message = if candidates.is_empty() {
+        format!(
+            "you have no computer named {name:?} that can {what}, and no other computer of yours can."
+        )
+    } else {
+        format!(
+            "you have no computer named {name:?} that can {what}. Name one of these: {}.",
+            candidates
+                .iter()
+                .map(|host| host.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    };
+    ToolResult::plain_error("machine_not_found", message)
 }
 
 /// The answer when the person named a machine the daemon cannot reach.
@@ -2934,6 +3140,30 @@ const NO_HOST_NAMED: &str =
 /// longer belongs in the Agent's own Computer, which has the long budget
 /// because nobody waits for it.
 pub const HOST_DISPATCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// How long a Coding Session start may take before the daemon stops
+/// waiting. The call waits for the open of the harness, its `initialize`,
+/// its `session/new` and the first prompt, and not for the turn. The
+/// first start of an `npx` harness on a machine downloads its adapter,
+/// which takes minutes on a slow network.
+pub const SESSION_START_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
+
+/// The description of `coding_session_start`, with the ids of the
+/// Harness Catalog.
+fn coding_session_start_description() -> String {
+    let harnesses = pagis_core::harness::catalog()
+        .iter()
+        .map(|entry| format!("{} ({})", entry.id, entry.label))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "Start a coding session: a Coding Harness that writes code in a directory on one of \
+         the user's own computers, through the Pagis client on it. It never runs on the server. \
+         The user approves each start on a card, and the user is asked which computer when more \
+         than one of theirs can run the harness. The call returns when the harness has the \
+         first prompt, and you wake when its turn ends. The harnesses: {harnesses}."
+    )
+}
 
 /// The answer for a machine that is not connected. It names the machine
 /// when there is one to name, and it says what the person does about it.
@@ -2958,6 +3188,21 @@ fn not_connected(candidates: &[pagis_core::Host]) -> ToolResult {
 
 fn not_connected_message(name: &str) -> String {
     format!("your {name} is not connected; open the Pagis client on it, then ask again.")
+}
+
+/// The live host grants of the Agent on the machines of `hosts`.
+fn host_bindings(grants: &[Grant], hosts: &HashSet<String>) -> Vec<GrantBinding> {
+    grants
+        .iter()
+        .filter(|grant| grant.resource_kind == Grant::HOST_KIND)
+        .filter(|grant| {
+            grant
+                .resource_id
+                .as_ref()
+                .is_some_and(|host| hosts.contains(host))
+        })
+        .map(GrantBinding::from)
+        .collect()
 }
 
 /// The argument that names which Connection a provider call goes to.
@@ -3253,6 +3498,12 @@ fn validate_core_arguments(
         CoreTool::ContributionClose => {
             required_text("id") && required_text("status") && required_text("reason")
         }
+        CoreTool::CodingSessionStart => {
+            required_text("harness")
+                && required_text("directory")
+                && required_text("title")
+                && required_text("prompt")
+        }
     };
     if valid {
         Ok(())
@@ -3327,6 +3578,37 @@ fn phone_call_approval_body(arguments: &serde_json::Value) -> String {
         "To: {}\nFor: {}",
         arguments["to"].as_str().unwrap_or_default(),
         arguments["brief"].as_str().unwrap_or_default()
+    )
+}
+
+/// How many characters of the prompt the card of a start shows.
+const CARD_PROMPT_CHARS: usize = 280;
+
+/// The card of one Coding Session start (ADR-0033): what runs, on which
+/// machine, in which directory and on which branch, who answers its
+/// permission requests, and the start of the prompt.
+fn coding_session_approval_body(
+    start: &SessionStartAction,
+    host: &pagis_core::Host,
+    prompt: &str,
+) -> String {
+    let worktree = match &start.branch {
+        Some(branch) => format!("Worktree: {branch}"),
+        None => "No worktree: it works in the directory".to_string(),
+    };
+    let mode = match start.mode {
+        pagis_core::SessionApprovalMode::Person => "Ask me",
+        pagis_core::SessionApprovalMode::Agent => "Let the sprite decide",
+        pagis_core::SessionApprovalMode::Auto => "Allow everything",
+    };
+    let mut chars = prompt.chars();
+    let mut shown: String = chars.by_ref().take(CARD_PROMPT_CHARS).collect();
+    if chars.next().is_some() {
+        shown.push('…');
+    }
+    format!(
+        "Harness: {}\nMachine: {}\nDirectory: {}\n{worktree}\nMode: {mode}\nPrompt: {shown}",
+        start.harness_name, host.name, start.directory
     )
 }
 
@@ -3601,6 +3883,33 @@ fn core_manifest() -> CapabilityManifest {
                         action_title: "Run a command on your computer".to_string(),
                         body_argument: Some("command".to_string()),
                         allow_rule_builder: Some(AllowRuleBuilder::HostCommandPrefix),
+                    }),
+                )
+            },
+            ManifestTool {
+                call_timeout: Some(SESSION_START_TIMEOUT),
+                ..core(
+                    CODING_SESSION_START,
+                    &coding_session_start_description(),
+                    serde_json::json!({
+                        "type": "object",
+                        "properties": {
+                            "harness": {"type": "string", "description": "The id of the Coding Harness, from the list above."},
+                            "machine": {"type": "string", "description": "The name of the user's computer, as the user says it. Omit it when the user has one computer, or to let the user choose."},
+                            "directory": {"type": "string", "description": "The absolute path of the directory on that computer that the session works in, usually the root of a git repository."},
+                            "worktree": {"type": "boolean", "default": true, "description": "True makes a new git worktree on the branch pagis/<title as a slug>, so the user's own checkout does not change. False works in the directory itself."},
+                            "mode": {"enum": ["person", "agent", "auto"], "default": "person", "description": "Who answers the permission requests of the harness: person (the user), agent (you) or auto (the harness does everything with no question). The user sets the widest mode that you can use on each computer."},
+                            "title": {"type": "string", "description": "A short name of the work, for the user and for the branch."},
+                            "prompt": {"type": "string", "description": "The first instructions to the harness. Give the goal, the context and what done looks like."}
+                        },
+                        "required": ["harness", "directory", "title", "prompt"]
+                    }),
+                    CoreTool::CodingSessionStart,
+                    EffectClass::Host,
+                    Some(ApprovalPresentation {
+                        action_title: "Start a coding session".to_string(),
+                        body_argument: None,
+                        allow_rule_builder: None,
                     }),
                 )
             },

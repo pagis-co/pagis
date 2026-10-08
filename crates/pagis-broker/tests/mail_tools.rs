@@ -158,6 +158,7 @@ impl World {
             executor: Arc::clone(&executor) as _,
             phone_numbers: Arc::new(SqlitePhoneNumberStore::new(pool.clone())),
             mailboxes: Arc::clone(&mailboxes) as _,
+            session_starts: Arc::new(pagis_broker::NoSessionStarts),
         });
         Self {
             broker,
