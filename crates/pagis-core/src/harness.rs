@@ -15,6 +15,11 @@
 //! entry on a Host runs the Person's own installed program. Its version
 //! is the version that the release is tested with, and its archives pin
 //! the build of each platform at that version with their SHA-256.
+//!
+//! A harness that a Harness Model Endpoint can serve also has a Computer
+//! launch: the Computer Image ships it at the same pins
+//! (`computer/harnesses/package.json` and `ARG OPENCODE_VERSION` in
+//! `computer/Dockerfile`), and the launch runs the installed program.
 
 /// One Coding Harness that Pagis starts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -38,6 +43,22 @@ pub struct HarnessEntry {
     pub asks_permission: bool,
     /// One Harness Sign-In for each sign-in method that the harness has.
     pub sign_in: &'static [SignIn],
+    /// How the harness starts in the Agent's Computer, or `None` for a
+    /// harness that does not run there.
+    pub computer: Option<ComputerLaunch>,
+}
+
+/// How a harness starts in the Agent's Computer. The Computer Image
+/// installs the harness, so a launch never names `npx` and a session
+/// downloads nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ComputerLaunch {
+    /// The npm packages that the Computer Image installs from
+    /// `computer/harnesses/package.json`, as `<name>@<version>`.
+    pub packages: &'static [&'static str],
+    /// The program on the `PATH` of the Computer.
+    pub program: &'static str,
+    pub args: &'static [&'static str],
 }
 
 /// How a harness starts, from its distribution in the ACP registry.
@@ -101,6 +122,20 @@ pub struct SignIn {
 /// `@agentclientprotocol/codex-acp` 2.1.1 names.
 const CODEX_CLI: &str = "@openai/codex@0.159.1";
 
+/// The ACP adapters of Claude Code, Codex and pi, which a Host runs with
+/// `npx` and the Computer Image installs.
+const CLAUDE_ACP: &str = "@agentclientprotocol/claude-agent-acp@0.87.0";
+const CODEX_ACP: &str = "@agentclientprotocol/codex-acp@2.1.1";
+const PI_ACP: &str = "pi-acp@0.0.34";
+
+/// The pi program that `pi-acp` runs in a Computer. A Host runs the
+/// Person's own `pi`, so the catalog pins it only for the Computer
+/// Image. pi 1.0.1 and later ship no `npm-shrinkwrap.json`: npm installs
+/// the optional platform packages of a shrinkwrap for every platform,
+/// and the shrinkwrap of pi 0.87 gives no `integrity` for the pi
+/// packages in it.
+const PI_CLI: &str = "@earendil-works/pi-coding-agent@1.0.4";
+
 /// The Gemini CLI, from the `gemini` entry of the ACP registry. The npm
 /// package is the vendor program itself.
 const GEMINI_CLI: &str = "@google/gemini-cli@0.63.0";
@@ -123,7 +158,7 @@ const CLAUDE: HarnessEntry = HarnessEntry {
     registry_id: "claude-acp",
     version: "0.87.0",
     launch: Launch::Npx {
-        package: "@agentclientprotocol/claude-agent-acp@0.87.0",
+        package: CLAUDE_ACP,
         args: &[],
     },
     requires: &[],
@@ -138,6 +173,11 @@ const CLAUDE: HarnessEntry = HarnessEntry {
             how: SignInAction::TerminalAuth("console-login"),
         },
     ],
+    computer: Some(ComputerLaunch {
+        packages: &[CLAUDE_ACP],
+        program: "claude-agent-acp",
+        args: &[],
+    }),
 };
 
 /// Codex, from the `codex-acp` entry of the ACP registry. The npm package
@@ -154,7 +194,7 @@ const CODEX: HarnessEntry = HarnessEntry {
     registry_id: "codex-acp",
     version: "2.1.1",
     launch: Launch::Npx {
-        package: "@agentclientprotocol/codex-acp@2.1.1",
+        package: CODEX_ACP,
         args: &[],
     },
     requires: &[],
@@ -169,6 +209,11 @@ const CODEX: HarnessEntry = HarnessEntry {
             how: SignInAction::Command(&["npx", "--yes", CODEX_CLI, "login", "--with-api-key"]),
         },
     ],
+    computer: Some(ComputerLaunch {
+        packages: &[CODEX_ACP],
+        program: "codex-acp",
+        args: &[],
+    }),
 };
 
 /// The OpenCode release archives, with their SHA-256, from the `opencode`
@@ -227,6 +272,13 @@ const OPENCODE: HarnessEntry = HarnessEntry {
             how: SignInAction::Command(&["opencode", "auth", "login"]),
         },
     ],
+    // The Computer Image downloads the release archive of its
+    // architecture, so the launch installs no npm package.
+    computer: Some(ComputerLaunch {
+        packages: &[],
+        program: "opencode",
+        args: &["acp"],
+    }),
 };
 
 /// pi, from the `pi-acp` entry of the ACP registry. The npm package
@@ -243,7 +295,7 @@ const PI: HarnessEntry = HarnessEntry {
     registry_id: "pi-acp",
     version: "0.0.34",
     launch: Launch::Npx {
-        package: "pi-acp@0.0.34",
+        package: PI_ACP,
         args: &[],
     },
     requires: &["pi"],
@@ -258,6 +310,11 @@ const PI: HarnessEntry = HarnessEntry {
             how: SignInAction::TerminalAuth("pi_terminal_login"),
         },
     ],
+    computer: Some(ComputerLaunch {
+        packages: &[PI_ACP, PI_CLI],
+        program: "pi-acp",
+        args: &[],
+    }),
 };
 
 /// Gemini CLI, from the `gemini` entry of the ACP registry. The sign-in
@@ -285,6 +342,7 @@ const GEMINI: HarnessEntry = HarnessEntry {
             how: SignInAction::Command(&["npx", "--yes", GEMINI_CLI]),
         },
     ],
+    computer: None,
 };
 
 /// GitHub Copilot CLI, from the `github-copilot-cli` entry of the ACP
@@ -307,6 +365,7 @@ const COPILOT: HarnessEntry = HarnessEntry {
         method: SignInMethod::Subscription,
         how: SignInAction::Command(&["npx", "--yes", COPILOT_CLI, "login"]),
     }],
+    computer: None,
 };
 
 /// The Cursor CLI release archives, from the `cursor` entry of the ACP
@@ -361,6 +420,7 @@ const CURSOR: HarnessEntry = HarnessEntry {
         method: SignInMethod::Subscription,
         how: SignInAction::Command(&["cursor-agent", "login"]),
     }],
+    computer: None,
 };
 
 const CATALOG: &[HarnessEntry] = &[CLAUDE, CODEX, OPENCODE, PI, GEMINI, COPILOT, CURSOR];
@@ -571,5 +631,129 @@ mod tests {
         assert_eq!(capability("pi"), "harness:pi");
         assert_eq!(launchers(harness("pi")), ["npx", "pi"]);
         assert_eq!(launchers(harness("cursor")), ["cursor-agent"]);
+    }
+
+    /// A file of the repository, read at run time: a test binary that
+    /// another worktree built must not hold the path of this one.
+    fn repository_file(path: &str) -> String {
+        let manifest =
+            std::env::var_os("CARGO_MANIFEST_DIR").expect("cargo sets CARGO_MANIFEST_DIR");
+        let path = std::path::Path::new(&manifest).join("../..").join(path);
+        std::fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("cannot read {}: {error}", path.display()))
+    }
+
+    /// The default value of `ARG <name>=<value>` in a Dockerfile.
+    fn dockerfile_arg<'a>(dockerfile: &'a str, name: &str) -> Option<&'a str> {
+        dockerfile
+            .lines()
+            .find_map(|line| line.trim().strip_prefix(&format!("ARG {name}=")))
+    }
+
+    fn computer_launches() -> Vec<(&'static str, ComputerLaunch)> {
+        catalog()
+            .iter()
+            .filter_map(|entry| entry.computer.map(|launch| (entry.id, launch)))
+            .collect()
+    }
+
+    #[test]
+    fn the_four_harnesses_that_a_harness_model_endpoint_serves_run_in_a_computer() {
+        let ids: Vec<&str> = computer_launches().iter().map(|(id, _)| *id).collect();
+        assert_eq!(ids, ["claude", "codex", "opencode", "pi"]);
+        for id in ["gemini", "copilot", "cursor"] {
+            assert_eq!(harness(id).computer, None, "{id}");
+        }
+    }
+
+    #[test]
+    fn a_computer_launch_runs_the_installed_program_and_never_npx() {
+        let launch = |id| {
+            let launch = harness(id).computer.expect("a Computer launch");
+            (launch.program, launch.args)
+        };
+        assert_eq!(launch("claude"), ("claude-agent-acp", &[][..]));
+        assert_eq!(launch("codex"), ("codex-acp", &[][..]));
+        assert_eq!(launch("opencode"), ("opencode", &["acp"][..]));
+        assert_eq!(launch("pi"), ("pi-acp", &[][..]));
+        for (id, launch) in computer_launches() {
+            assert_ne!(launch.program, "npx", "{id}");
+            for package in launch.packages {
+                let version = package_version(package)
+                    .unwrap_or_else(|| panic!("{id} installs {package} with no version"));
+                assert!(is_exact_version(version), "{id} installs {package}");
+            }
+        }
+    }
+
+    /// The Computer Image installs `computer/harnesses/package.json`, so
+    /// its dependencies are exactly the packages of the Computer
+    /// launches, and each of these holds the npx package of its entry.
+    #[test]
+    fn the_computer_image_installs_the_packages_of_the_computer_launches() {
+        let manifest: serde_json::Value =
+            serde_json::from_str(&repository_file("computer/harnesses/package.json"))
+                .expect("package.json is JSON");
+        let mut installed: Vec<String> = manifest["dependencies"]
+            .as_object()
+            .expect("package.json has dependencies")
+            .iter()
+            .map(|(name, version)| format!("{name}@{}", version.as_str().unwrap_or_default()))
+            .collect();
+        installed.sort();
+        let mut packages: Vec<String> = computer_launches()
+            .iter()
+            .flat_map(|(_, launch)| launch.packages.iter().map(|package| package.to_string()))
+            .collect();
+        packages.sort();
+        assert_eq!(installed, packages);
+
+        for (id, launch) in computer_launches() {
+            if let Launch::Npx { package, .. } = harness(id).launch {
+                assert!(launch.packages.contains(&package), "{id}");
+            }
+        }
+    }
+
+    /// `npm ci` checks each package against the `integrity` of the lock,
+    /// so a lock entry with no `integrity` is a download that nothing
+    /// pins.
+    #[test]
+    fn the_harness_lock_pins_each_package_with_its_integrity() {
+        let lock: serde_json::Value =
+            serde_json::from_str(&repository_file("computer/harnesses/package-lock.json"))
+                .expect("package-lock.json is JSON");
+        let packages = lock["packages"].as_object().expect("the lock has packages");
+        assert!(packages.len() > 1);
+        for (path, package) in packages.iter().filter(|(path, _)| !path.is_empty()) {
+            let integrity = package["integrity"].as_str().unwrap_or_default();
+            assert!(integrity.starts_with("sha512-"), "{path} has no sha512");
+        }
+    }
+
+    /// The Computer Image downloads the OpenCode archive of the catalog
+    /// for its architecture.
+    #[test]
+    fn the_computer_image_downloads_the_opencode_archive_of_the_catalog() {
+        let dockerfile = repository_file("computer/Dockerfile");
+        let opencode = harness("opencode");
+        assert_eq!(
+            dockerfile_arg(&dockerfile, "OPENCODE_VERSION"),
+            Some(opencode.version)
+        );
+        let Launch::Binary { archives, .. } = opencode.launch else {
+            panic!("opencode is a binary harness");
+        };
+        for (arch, platform) in [("amd64", "linux-x86_64"), ("arm64", "linux-aarch64")] {
+            let archive = archives
+                .iter()
+                .find(|archive| archive.platform == platform)
+                .unwrap_or_else(|| panic!("opencode has no {platform} archive"));
+            assert_eq!(
+                dockerfile_arg(&dockerfile, &format!("OPENCODE_SHA256_{arch}")),
+                Some(archive.sha256),
+                "{platform}"
+            );
+        }
     }
 }

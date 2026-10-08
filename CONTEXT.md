@@ -79,7 +79,9 @@ not the first release that serves Notifications (ADR-0032).
 ### Computer Image
 The container image every Computer and Plugin Computer runs. It has a
 version number of its own, and each release pins one digest of it
-(ADR-0025).
+(ADR-0025). It ships the Coding Harnesses that run in a Computer: Claude
+Code, Codex, OpenCode and pi, at the pins of the Harness Catalog
+(ADR-0033).
 
 ### Headless Server
 The Pagis server as a Linux container image, for a team that runs it on
@@ -1043,9 +1045,9 @@ _Avoid_: harness session
 
 ### Harness Catalog
 The list of Coding Harnesses that ships with each release, with the pinned
-version, the launch command, whether the harness asks permission, and the
-vendor's own sign-in commands. Pagis does not fetch it at run time
-(ADR-0033).
+version, the launch command, the launch in the Agent's Computer, whether
+the harness asks permission, and the vendor's own sign-in commands. Pagis
+does not fetch it at run time (ADR-0033).
 
 ### Harness Model Endpoint
 The model API that the daemon serves to the Computers for a Coding Session

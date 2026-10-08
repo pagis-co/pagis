@@ -987,6 +987,157 @@ async fn python_opens_an_https_connection() {
     );
 }
 
+/// The ACP `initialize` request of a client with no file system and no
+/// terminal, as one line of newline-delimited JSON-RPC.
+const ACP_INITIALIZE: &str = r#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false}}}"#;
+
+/// Start one Computer launch as the agent uid in a container with no
+/// network, write `initialize` on its stdin, and return the JSON-RPC
+/// answer that it writes on stdout within 30 seconds. A harness keeps
+/// its state in the home of the agent uid, which the volume of a
+/// Computer holds, so an empty home of the agent uid stands in for it.
+fn acp_initialize(
+    docker: &TestDocker,
+    launch: pagis_core::harness::ComputerLaunch,
+) -> Result<serde_json::Value, String> {
+    use std::io::{BufRead, Read, Write};
+    use std::process::Stdio;
+
+    let mut command = Command::new("docker");
+    command.args(["run", "--rm", "--interactive", "--network", "none"]);
+    command.args([
+        "--user",
+        "agent",
+        "--tmpfs",
+        "/data/agent:uid=1000,gid=1000",
+    ]);
+    for (key, value) in docker.labels() {
+        command.arg("--label").arg(format!("{key}={value}"));
+    }
+    command
+        .args(["--entrypoint", launch.program, IMAGE])
+        .args(launch.args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = command
+        .spawn()
+        .map_err(|error| format!("docker run: {error}"))?;
+    let mut stdin = child.stdin.take().expect("stdin is piped");
+    writeln!(stdin, "{ACP_INITIALIZE}").map_err(|error| format!("write initialize: {error}"))?;
+
+    let (lines, received) = std::sync::mpsc::channel();
+    let stdout = child.stdout.take().expect("stdout is piped");
+    std::thread::spawn(move || {
+        for line in std::io::BufReader::new(stdout).lines() {
+            if lines.send(line).is_err() {
+                break;
+            }
+        }
+    });
+    let mut stderr = child.stderr.take().expect("stderr is piped");
+    let errors = std::thread::spawn(move || {
+        let mut text = String::new();
+        let _ = stderr.read_to_string(&mut text);
+        text
+    });
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    let answer = loop {
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        match received.recv_timeout(remaining) {
+            Ok(Ok(line)) => {
+                let message = serde_json::from_str::<serde_json::Value>(&line);
+                if let Ok(message) = message
+                    && message["id"] == 0
+                {
+                    break Ok(message);
+                }
+            }
+            Ok(Err(error)) => break Err(format!("read stdout: {error}")),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                break Err("no answer within 30 seconds".to_string());
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                break Err("stdout closed with no answer".to_string());
+            }
+        }
+    };
+    // A harness exits at the end of its stdin, and `docker run --rm`
+    // returns when Docker has removed the container.
+    drop(stdin);
+    let exit_deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while matches!(child.try_wait(), Ok(None)) && std::time::Instant::now() < exit_deadline {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    answer.map_err(|reason| {
+        let stderr = errors.join().unwrap_or_default();
+        format!("{reason}; stderr: {}", stderr.trim())
+    })
+}
+
+/// Each Coding Harness that runs in a Computer starts from the image
+/// alone: with no network, it answers ACP `initialize` with protocol
+/// version 1. So a Coding Session in a Computer downloads nothing.
+#[test]
+#[ignore = "needs Docker; run via cargo test -- --ignored"]
+fn each_harness_of_the_image_answers_initialize_with_no_network() {
+    require_image();
+    let docker = TestDocker::new();
+    let launches: Vec<_> = pagis_core::harness::catalog()
+        .iter()
+        .filter_map(|entry| entry.computer.map(|launch| (entry.id, launch)))
+        .collect();
+    assert_eq!(launches.len(), 4);
+
+    let mut failures = Vec::new();
+    for (id, launch) in launches {
+        match acp_initialize(&docker, launch) {
+            Ok(answer) if answer["result"]["protocolVersion"] == 1 => {}
+            Ok(answer) => failures.push(format!("{id} answers {answer}")),
+            Err(reason) => failures.push(format!("{id}: {reason}")),
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// Root owns the Coding Harnesses of the image, so the agent uid cannot
+/// change a harness and a harness cannot update itself.
+#[test]
+#[ignore = "needs Docker; run via cargo test -- --ignored"]
+fn the_agent_cannot_write_the_harnesses_of_the_image() {
+    require_image();
+    let output = Command::new("docker")
+        .args(["run", "--rm", "--network", "none", "--user", "agent"])
+        .args(["--entrypoint", "find", IMAGE])
+        .args(["/opt/pagis/harnesses", "/usr/local/bin/opencode"])
+        .args(["(", "-writable", "-o", "!", "-user", "root", ")", "-print"])
+        .output()
+        .expect("docker run runs");
+    assert!(
+        output.status.success(),
+        "find failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let writable = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        writable.trim().is_empty(),
+        "the agent can write or owns: {writable}"
+    );
+    let touch = Command::new("docker")
+        .args(["run", "--rm", "--network", "none", "--user", "agent"])
+        .args(["--entrypoint", "touch", IMAGE])
+        .arg("/opt/pagis/harnesses/node_modules/pi-acp/package.json")
+        .output()
+        .expect("docker run runs");
+    assert!(
+        !touch.status.success(),
+        "the agent changed a file of a harness"
+    );
+}
+
 /// Open one URL in the browser the supervisor runs. A second Chromium
 /// hands the URL to the session that already holds the profile, and
 /// exits. The page therefore renders under the supervisor's flags, not

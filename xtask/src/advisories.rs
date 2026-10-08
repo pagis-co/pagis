@@ -162,10 +162,15 @@ pub(crate) fn computer_vuln_scan_step(
 /// The components of the Computer Image that Trivy does not identify, as
 /// `<name> <version>`, from `dockerfile`, the text of
 /// `computer/Dockerfile`: each component that it builds from a tagged
-/// source checkout (`git clone --branch <tag> <url>/<name>.git`), and the
-/// Node runtime (`ARG NODE_VERSION`), whose executable holds no package
-/// metadata. Trivy identifies the npm packages that Node ships.
+/// source checkout (`git clone --branch <tag> <url>/<name>.git`), the
+/// Node runtime (`ARG NODE_VERSION`) and the OpenCode program
+/// (`ARG OPENCODE_VERSION`), whose executables hold no package metadata.
+/// Trivy identifies the npm packages of Node and of the Coding Harnesses.
 pub fn computer_image_components(dockerfile: &str) -> Vec<String> {
+    const PROGRAMS: [(&str, &str); 2] = [
+        ("node", "ARG NODE_VERSION="),
+        ("opencode", "ARG OPENCODE_VERSION="),
+    ];
     let plain = |word: &str| {
         !word.is_empty()
             && word
@@ -174,9 +179,13 @@ pub fn computer_image_components(dockerfile: &str) -> Vec<String> {
     };
     let mut components = Vec::new();
     for line in dockerfile.lines() {
-        if let Some(version) = line.trim().strip_prefix("ARG NODE_VERSION=") {
+        let program = PROGRAMS.iter().find_map(|(name, prefix)| {
+            let version = line.trim().strip_prefix(prefix)?;
+            Some((name, version))
+        });
+        if let Some((name, version)) = program {
             if plain(version) {
-                components.push(format!("node {version}"));
+                components.push(format!("{name} {version}"));
             }
             continue;
         }

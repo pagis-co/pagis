@@ -533,7 +533,8 @@ fn each_archive_of_the_computer_image_is_extracted_as_root() {
             "/tmp/uv.tar.gz",
             "/tmp/node.tar.xz",
             "/tmp/npm.tgz",
-            "/tmp/pnpm.tgz"
+            "/tmp/pnpm.tgz",
+            "/tmp/opencode.tar.gz"
         ]
     );
 }

@@ -1,9 +1,9 @@
 //! Release versions shared by runtime crates and development tools.
 
-pub const COMPUTER_IMAGE_VERSION: &str = "0.20.1";
+pub const COMPUTER_IMAGE_VERSION: &str = "0.21.0";
 pub const COMPUTER_IMAGE: &str = match option_env!("PAGIS_COMPUTER_IMAGE") {
     Some(image) => image,
-    None => "ghcr.io/pagis-co/pagis-computer:0.20.1",
+    None => "ghcr.io/pagis-co/pagis-computer:0.21.0",
 };
 /// gog, the runner of the Google Connections, which each release bundles
 /// and the gate checks the Google adapter against.

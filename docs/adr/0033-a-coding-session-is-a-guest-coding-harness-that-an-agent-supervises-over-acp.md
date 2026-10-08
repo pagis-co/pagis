@@ -135,6 +135,8 @@ The **Harness Catalog** ships with each release, as the Provider Catalog does
 - an exact pinned version;
 - the launch command for each platform, from the ACP registry:
   `npx <package>@<version>`, or a binary with arguments;
+- for a harness that runs in the Agent's Computer, the npm packages that the
+  Computer Image installs and the program and arguments that start it there;
 - whether the harness asks permission (pi does not);
 - the vendor's own sign-in command for each sign-in method (subscription,
   API key), where ACP `initialize` gives no terminal method.
@@ -189,9 +191,25 @@ Host.
 ### In the Agent's Computer, a session runs in the `auto` mode
 
 The daemon starts the harness with `docker exec` and attached stdio, the path
-of the stdio MCP servers of the Plugin Computer (ADR-0017). The Computer
-Image ships Node and the pinned harness adapters. A Computer session needs no
-card, because the container is the sandbox, as for `computer_shell`.
+of the stdio MCP servers of the Plugin Computer (ADR-0017). A Computer
+session needs no card, because the container is the sandbox, as for
+`computer_shell`.
+
+The Computer Image ships the four harnesses that a Harness Model Endpoint
+can serve: Claude Code, Codex, OpenCode and pi. It ships no harness that
+needs a subscription sign-in or a Gemini API. The image installs the npm
+packages of `computer/harnesses/package-lock.json` with `npm ci`, which
+checks each package against its sha512, and the OpenCode release archive of
+its architecture, checked against its sha256. The versions are the pins of
+the Harness Catalog. Root owns the harnesses, so the `agent` uid cannot
+change a harness, and a harness cannot update itself. A Computer launch runs
+the installed program and never `npx`, so a session downloads nothing.
+
+The harnesses add about 1 GB to the image, mostly the native programs of
+Claude Code and Codex. A Docker host pulls the image once for each release,
+and every Computer of the host shares it. A second image or a volume for the
+harnesses is one more artifact to pin, pull, scan and match to a release,
+for no gain in a product that ships one image.
 
 No credential enters the Computer (ADR-0005). The daemon serves the
 **Harness Model Endpoint**: the Anthropic Messages API, the OpenAI Responses
