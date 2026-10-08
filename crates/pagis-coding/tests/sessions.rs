@@ -18,17 +18,17 @@ use pagis_coding::{
     CloseReason, CodingSessions, CodingSessionsDeps, NewCodingSession, OpenFailure,
     OpenFailureCode, OpenRequest, OpenedStream, PERMISSION_DECIDED_EVENT, Pending,
     PermissionAnswer, PermissionAsk, PolicyDecisions, PromptOutcome, QuestionAnswer, QuestionAsk,
-    RefuseDecisions, SessionDecisions, SessionError, SessionExit, SessionPlace, StartFailure,
-    WaitsFor, WorktreeRequest,
+    RefuseDecisions, SessionDecisions, SessionError, SessionEvents, SessionExit, SessionPlace,
+    SessionRuleError, SessionRules, StartFailure, WaitsFor, WorktreeRequest,
 };
 use pagis_core::{
     Agent, AgentId, AgentStatus, AgentStore, AuthorKind, Block, Channel, ChannelId, ChannelKind,
     ChannelStore, CodingSession, CodingSessionEvent, CodingSessionEventKind as Kind,
     CodingSessionId, CodingSessionPlace, CodingSessionState as State, CodingSessionStore, Event,
     EventBus, EventId, EventLog, EventScope, EventStream, Grant, GrantId, GrantStore, HostId,
-    HostStore, Message, MessageId, MessageStatus, MessageStore, NewEvent, Run, RunId, RunState,
-    RunStore, SessionApprovalMode, StoreError, SystemClock, TriggerKind, Workspace, WorkspaceId,
-    WorkspaceStore, now_ms,
+    HostStore, IngestBatch, Message, MessageId, MessageStatus, MessageStore, NewEvent, Run, RunId,
+    RunState, RunStore, SessionApprovalMode, StoreError, SystemClock, TriggerKind, Workspace,
+    WorkspaceId, WorkspaceStore, now_ms,
 };
 use pagis_storage_sqlite::{
     SqliteAgentStore, SqliteChannelStore, SqliteCodingSessionStore, SqliteEventLog,
@@ -57,6 +57,8 @@ struct World {
     host_id: HostId,
     /// A Run in the Channel, outside any Thread.
     run_id: RunId,
+    /// The Trigger module, as the sessions see it.
+    rules: Arc<RecordedRules>,
 }
 
 async fn world(pool: SqlitePool) -> World {
@@ -108,6 +110,7 @@ async fn world(pool: SqlitePool) -> World {
         channel_id: channel.id,
         host_id: host.id,
         run_id: RunId::generate(),
+        rules: Arc::default(),
     };
     world.run_id = world.run(Some(world.channel_id.clone()), None).await;
     world
@@ -199,6 +202,8 @@ impl World {
             bus: Arc::new(SilentBus),
             place,
             decisions,
+            rules: self.rules.clone(),
+            events: self.rules.clone(),
             clock: Arc::new(SystemClock),
             cancel: CancellationToken::new(),
         })
@@ -332,6 +337,88 @@ impl World {
             );
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
+    }
+}
+
+/// One call of a session to the Trigger module.
+#[derive(Debug, Clone)]
+enum RuleCall {
+    Create(CodingSessionId),
+    Ingest(IngestBatch),
+    End(CodingSessionId),
+}
+
+/// The Session Rules and the `ingest` of the Trigger module. It records
+/// each call in order, and refuses to make a rule when told to.
+#[derive(Default)]
+struct RecordedRules {
+    calls: Mutex<Vec<RuleCall>>,
+    refuse_create: AtomicBool,
+}
+
+impl RecordedRules {
+    fn calls(&self) -> Vec<RuleCall> {
+        self.calls.lock().unwrap().clone()
+    }
+
+    /// The batches of `kind`, oldest first.
+    fn batches(&self, kind: &str) -> Vec<IngestBatch> {
+        self.calls()
+            .into_iter()
+            .filter_map(|call| match call {
+                RuleCall::Ingest(batch) if batch.event_kind == kind => Some(batch),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Waits until the rules got `count` batches of `kind`.
+    async fn wait_for_batches(&self, kind: &str, count: usize) -> Vec<IngestBatch> {
+        let deadline = tokio::time::Instant::now() + WAIT;
+        loop {
+            let batches = self.batches(kind);
+            if batches.len() >= count {
+                return batches;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "fewer than {count} {kind} batches in {:?}",
+                self.calls()
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+}
+
+#[async_trait]
+impl SessionRules for RecordedRules {
+    async fn create(&self, session: &CodingSession) -> Result<(), SessionRuleError> {
+        if self.refuse_create.load(Ordering::SeqCst) {
+            return Err(SessionRuleError(
+                "the trigger module is not ready".to_string(),
+            ));
+        }
+        self.calls
+            .lock()
+            .unwrap()
+            .push(RuleCall::Create(session.id.clone()));
+        Ok(())
+    }
+
+    async fn end(&self, session: &CodingSession) -> Result<(), SessionRuleError> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push(RuleCall::End(session.id.clone()));
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl SessionEvents for RecordedRules {
+    async fn ingest(&self, batch: IngestBatch) -> Result<(), SessionRuleError> {
+        self.calls.lock().unwrap().push(RuleCall::Ingest(batch));
+        Ok(())
     }
 }
 
@@ -1406,4 +1493,163 @@ async fn an_exit_on_the_session_socket_fails_the_session_and_an_exit_after_close
     let record = world.record(&closed.id).await;
     assert_eq!(record.state, State::Closed);
     assert_eq!(record.end_reason.as_deref(), Some("closed"));
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn the_end_of_a_turn_raises_turn_ended_with_the_row_of_the_end(pool: SqlitePool) {
+    let world = world(pool).await;
+    let place = DuplexPlace::new(
+        Script::default().turn(Turn::new(vec![message("Done.")], acp::StopReason::EndTurn)),
+    );
+    let sessions = world.coding_sessions(place, Arc::new(RefuseDecisions));
+
+    let session = sessions
+        .start(world.new_session(&world.run_id))
+        .await
+        .unwrap();
+
+    let batches = world
+        .rules
+        .wait_for_batches("coding_session.turn_ended", 1)
+        .await;
+    assert!(
+        matches!(&world.rules.calls()[0], RuleCall::Create(id) if *id == session.id),
+        "the rule is made before any news: {:?}",
+        world.rules.calls()
+    );
+    let rows = world.rows(&session.id).await;
+    let end = rows_of(&rows, Kind::TurnEnd)[0];
+    let batch = &batches[0];
+    assert_eq!(batch.workspace_id, world.workspace_id);
+    assert_eq!(batch.agent_id.as_ref(), Some(&world.agent_id));
+    assert_eq!(batch.source.coding_session_id(), Some(&session.id));
+    let event = &batch.events[0];
+    assert_eq!(
+        event.provider_event_id,
+        format!("{}:{}", session.id, end.seq)
+    );
+    assert_eq!(event.metadata["stop_reason"], "end_turn");
+    assert_eq!(event.metadata["seq"], end.seq);
+    assert_eq!(event.metadata["harness"], "claude");
+    assert_eq!(event.metadata["machine"], "Air");
+    assert_eq!(event.metadata["title"], "Fix the login");
+    assert!(
+        !event.metadata.to_string().contains("Done."),
+        "the metadata holds no harness text"
+    );
+    assert!(world.rules.batches("coding_session.ended").is_empty());
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_permission_that_waits_raises_needs_decision(pool: SqlitePool) {
+    let world = world(pool).await;
+    let (decisions, _gate) = GatedDecisions::new();
+    let place = DuplexPlace::new(Script::default().turn(asks_permission()));
+    let sessions = world.coding_sessions(place, decisions);
+    let session = sessions
+        .start(world.new_session(&world.run_id))
+        .await
+        .unwrap();
+
+    let batches = world
+        .rules
+        .wait_for_batches("coding_session.needs_decision", 1)
+        .await;
+
+    let rows = world.rows(&session.id).await;
+    let asked = rows_of(&rows, Kind::Permission)[0];
+    let event = &batches[0].events[0];
+    assert_eq!(event.metadata["decision_kind"], "permission");
+    assert_eq!(event.metadata["seq"], asked.seq);
+    assert_eq!(
+        event.provider_event_id,
+        format!("{}:{}", session.id, asked.seq)
+    );
+    assert!(world.rules.batches("coding_session.turn_ended").is_empty());
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn close_raises_ended_and_then_ends_the_rules(pool: SqlitePool) {
+    let world = world(pool).await;
+    let place = DuplexPlace::new(Script::default().turn(Turn::until_cancel(vec![])));
+    let sessions = world.coding_sessions(place, Arc::new(RefuseDecisions));
+    let session = sessions
+        .start(world.new_session(&world.run_id))
+        .await
+        .unwrap();
+
+    sessions
+        .close(&world.workspace_id, &session.id, CloseReason::Stopped)
+        .await
+        .unwrap();
+
+    let calls = world.rules.calls();
+    let [.., RuleCall::Ingest(ended), RuleCall::End(ended_id)] = calls.as_slice() else {
+        panic!("close raises the end and then ends the rules: {calls:?}");
+    };
+    assert_eq!(*ended_id, session.id);
+    assert_eq!(ended.event_kind, "coding_session.ended");
+    let event = &ended.events[0];
+    assert_eq!(
+        event.provider_event_id,
+        format!("{}:ended:closed", session.id)
+    );
+    assert_eq!(event.metadata["state"], "closed");
+    assert_eq!(event.metadata["reason"], "stopped");
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_harness_that_exits_raises_ended_and_then_ends_the_rules(pool: SqlitePool) {
+    let world = world(pool).await;
+    let place = DuplexPlace::new(Script::default().turn(Turn::until_cancel(vec![])));
+    let sessions = world.coding_sessions(place.clone(), Arc::new(RefuseDecisions));
+    let session = sessions
+        .start(world.new_session(&world.run_id))
+        .await
+        .unwrap();
+
+    assert!(place.exit(SessionExit::new(Some(3), "panic".to_string())));
+
+    let batches = world
+        .rules
+        .wait_for_batches("coding_session.ended", 1)
+        .await;
+    let event = &batches[0].events[0];
+    assert_eq!(event.metadata["state"], "failed");
+    assert_eq!(event.metadata["reason"], "harness_exited");
+    let deadline = tokio::time::Instant::now() + WAIT;
+    while !matches!(world.rules.calls().last(), Some(RuleCall::End(id)) if *id == session.id) {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the rules do not end: {:?}",
+            world.rules.calls()
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_start_whose_session_rule_is_not_made_fails_before_the_stream_opens(pool: SqlitePool) {
+    let world = world(pool).await;
+    world.rules.refuse_create.store(true, Ordering::SeqCst);
+    let place = DuplexPlace::new(Script::default().turn(Turn::until_cancel(vec![])));
+    let sessions = world.coding_sessions(place.clone(), Arc::new(RefuseDecisions));
+
+    let failed = sessions.start(world.new_session(&world.run_id)).await;
+
+    let Err(StartFailure::Rules { session_id, .. }) = failed else {
+        panic!("the start fails: {failed:?}");
+    };
+    assert!(place.requests.lock().unwrap().is_empty(), "no stream opens");
+    let record = world.record(&session_id).await;
+    assert_eq!(record.state, State::Failed);
+    assert_eq!(
+        record.end_reason.as_deref(),
+        Some("temporarily_unavailable")
+    );
+    let calls = world.rules.calls();
+    assert!(
+        matches!(calls.as_slice(), [RuleCall::End(id)] if *id == session_id),
+        "a part of the rule that was made ends, and no news goes out: {calls:?}"
+    );
 }

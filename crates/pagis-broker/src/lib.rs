@@ -1,6 +1,7 @@
 //! Stable capability manifests, run snapshots, authorization, and dispatch.
 
 mod call;
+mod coding_session;
 pub mod credentials;
 pub mod fake;
 mod harness_policy;
@@ -26,6 +27,11 @@ use sha2::{Digest, Sha256};
 pub use call::{
     CALL_ENDED, CALL_MATCHER, CALL_NAMESPACE, CARRIER_PROVIDERS, PLIVO_PROVIDER, TELNYX_PROVIDER,
     TWILIO_PROVIDER, call_ended, call_manifest, is_carrier,
+};
+pub use coding_session::{
+    CODING_SESSION_ENDED, CODING_SESSION_EVENT_KINDS, CODING_SESSION_MATCHER,
+    CODING_SESSION_NAMESPACE, CODING_SESSION_NEEDS_DECISION, CODING_SESSION_TURN_ENDED,
+    coding_session_manifest,
 };
 pub use credentials::{
     CredentialAction, CredentialActionKind, MAX_CREDENTIAL_RULES, domain_allowed, normalize_domain,
@@ -610,6 +616,7 @@ impl Registry {
         for manifest in [
             core_manifest(),
             call::call_manifest(),
+            coding_session::coding_session_manifest(),
             mail::mail_manifest(),
             ui_manifest(),
         ] {

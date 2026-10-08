@@ -13,13 +13,14 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures::StreamExt;
+use pagis_agent::TurnRole;
 use pagis_broker::fake::FakeClientApp;
 use pagis_coding::fake::{Ask, FakeHarness, Script, Turn, acp, serve_client_app};
-use pagis_coding::{NewCodingSession, PERMISSION_DECIDED_EVENT};
+use pagis_coding::{CloseReason, NewCodingSession, PERMISSION_DECIDED_EVENT, PromptOutcome};
 use pagis_core::{
     AgentId, AuthorKind, Block, ChannelId, CodingSession, CodingSessionEventKind, CodingSessionId,
-    CodingSessionState, Event, HostId, Message, MessageId, NewCodingSessionEvent, RunId,
-    SessionApprovalMode, harness, now_ms,
+    CodingSessionState, Event, EventSource, HostId, Message, MessageId, NewCodingSessionEvent, Run,
+    RunId, RunOrigin, RunState, SessionApprovalMode, TriggerKind, WakeupState, harness, now_ms,
 };
 use pagis_testkit::{
     HostAnswer, HostClient, ScriptedBrain, SessionClient, Socket, TestDaemon, TestDaemonOptions,
@@ -154,13 +155,18 @@ async fn start_session(daemon: &TestDaemon) -> CodingSession {
 /// A Coding Session that `run_id` starts, with a turn that runs until a
 /// cancel.
 async fn start_session_from(daemon: &TestDaemon, run_id: RunId) -> CodingSession {
-    let host_id = host(daemon).await;
-    open_session_socket(
+    start_session_with(
         daemon,
-        &host_id,
+        run_id,
         Script::default().turn(Turn::until_cancel(vec![])),
     )
-    .await;
+    .await
+}
+
+/// A Coding Session that `run_id` starts, whose harness plays `script`.
+async fn start_session_with(daemon: &TestDaemon, run_id: RunId, script: Script) -> CodingSession {
+    let host_id = host(daemon).await;
+    open_session_socket(daemon, &host_id, script).await;
     daemon
         .coding_sessions
         .start(NewCodingSession {
@@ -432,13 +438,16 @@ async fn the_tool_result(firehose: &mut Socket, brain: &ScriptedBrain) -> String
             break;
         }
     }
+    // The end of a turn wakes the Agent, so the last request, or the last
+    // message of a request, can be a briefing. The tool result is the
+    // newest tool message.
     brain
         .requests()
-        .last()
+        .iter()
+        .rev()
+        .flat_map(|request| request.messages.iter().rev())
+        .find(|message| message.role == TurnRole::Tool)
         .expect("the model read the tool result")
-        .messages
-        .last()
-        .expect("the tool result")
         .text
         .clone()
 }
@@ -978,4 +987,266 @@ async fn a_grant_revision_that_removes_the_rule_makes_the_next_same_command_wait
         1,
         "a waiting permission has no fact"
     );
+}
+
+/// A queued Run in the Thread of a new message of the Person in the
+/// seeded DM channel, and the root of that Thread.
+async fn run_in_a_thread(daemon: &TestDaemon) -> (RunId, MessageId) {
+    let root = fixture::user_message(
+        &daemon.workspace_id,
+        &ChannelId::from(daemon.dm_channel_id.clone()),
+        "Fix the login bug.",
+    );
+    daemon
+        .stores()
+        .messages
+        .insert(&root)
+        .await
+        .expect("write the root message");
+    (run_in(daemon, Some(root.id.clone())).await, root.id)
+}
+
+/// The Runs that a Wake-up of an Incoming Event started, oldest first,
+/// once `count` of them reached `state`.
+async fn wait_for_event_runs(daemon: &TestDaemon, state: RunState, count: usize) -> Vec<Run> {
+    let deadline = tokio::time::Instant::now() + WAIT;
+    loop {
+        let mut runs: Vec<Run> = daemon
+            .stores()
+            .runs
+            .list(&daemon.workspace_id, None, None, &[], None, 100)
+            .await
+            .expect("read the Runs")
+            .into_iter()
+            .filter(|run| run.trigger_kind == TriggerKind::Event)
+            .collect();
+        if runs.iter().filter(|run| run.state == state).count() >= count {
+            runs.sort_by_key(|run| run.created_at);
+            return runs;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "fewer than {count} event Runs are {state:?}: {runs:?}"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+/// The text inside the untrusted envelope of a Coding Session in the
+/// briefing of the event Run of `event_kind`.
+fn session_envelope(brain: &ScriptedBrain, session: &CodingSession, event_kind: &str) -> String {
+    let request = brain
+        .requests()
+        .into_iter()
+        .find(|request| {
+            request
+                .system
+                .contains(&format!("Event kind: {event_kind}"))
+        })
+        .unwrap_or_else(|| panic!("no briefing of {event_kind}"));
+    let source = format!("source=coding_session:{}", session.id);
+    let begin = request
+        .system
+        .find(&format!("[BEGIN UNTRUSTED {source}"))
+        .expect("the envelope of the session");
+    let end = request
+        .system
+        .find(&format!("[END UNTRUSTED {source}"))
+        .expect("the end of the envelope");
+    assert!(
+        !request.system.contains("Sender trust:"),
+        "a session is no mail"
+    );
+    request.system[begin..end].to_string()
+}
+
+/// The Session Rule of a session, in the given states.
+async fn session_rules(
+    daemon: &TestDaemon,
+    session: &CodingSession,
+    states: &[&str],
+) -> Vec<pagis_core::EventSubscription> {
+    daemon
+        .stores()
+        .subscriptions
+        .list_for_source(
+            &daemon.workspace_id,
+            &EventSource::coding_session(session.id.clone()),
+            states,
+        )
+        .await
+        .expect("read the Session Rule")
+}
+
+#[tokio::test]
+async fn a_turn_end_and_the_end_of_the_session_wake_the_agent_in_the_thread_of_the_session() {
+    let brain = Arc::new(ScriptedBrain::default());
+    brain.push(pagis_testkit::Script::reply(&["The turn ended."]));
+    brain.push(pagis_testkit::Script::reply(&["The session ended."]));
+    let daemon = daemon_with(&brain).await;
+    let (run_id, root) = run_in_a_thread(&daemon).await;
+
+    let session = start_session_with(
+        &daemon,
+        run_id,
+        Script::default().turn(Turn::new(vec![], acp::StopReason::EndTurn)),
+    )
+    .await;
+    assert_eq!(session_rules(&daemon, &session, &["active"]).await.len(), 3);
+
+    let runs = wait_for_event_runs(&daemon, RunState::Completed, 1).await;
+    let woken = &runs[0];
+    let agent_id = AgentId::from(daemon.agent_id.clone());
+    let channel_id = ChannelId::from(daemon.dm_channel_id.clone());
+    assert_eq!(woken.agent_id, agent_id);
+    assert_eq!(woken.channel_id.as_ref(), Some(&channel_id));
+    assert_eq!(woken.root_message_id.as_ref(), Some(&root));
+    assert_eq!(woken.hop_count, 0);
+    assert_eq!(
+        woken.origin,
+        Some(RunOrigin {
+            agent_id: agent_id.clone(),
+            channel_id: channel_id.clone(),
+            root_message_id: Some(root.clone()),
+        }),
+        "the Thread of the session is the Origin"
+    );
+    let rows = session_envelope(&brain, &session, "coding_session.turn_ended");
+    assert!(rows.contains(session.id.as_str()), "{rows}");
+    assert!(rows.contains("stop_reason: end_turn"), "{rows}");
+    assert!(rows.contains("machine: Air"), "{rows}");
+
+    daemon
+        .coding_sessions
+        .close(&daemon.workspace_id, &session.id, CloseReason::Closed)
+        .await
+        .expect("close the session");
+
+    let runs = wait_for_event_runs(&daemon, RunState::Completed, 2).await;
+    assert_eq!(runs[1].root_message_id.as_ref(), Some(&root));
+    let rows = session_envelope(&brain, &session, "coding_session.ended");
+    assert!(rows.contains("state: closed"), "{rows}");
+    assert!(rows.contains("reason: closed"), "{rows}");
+    assert!(
+        session_rules(&daemon, &session, &["active"])
+            .await
+            .is_empty()
+    );
+    assert_eq!(
+        session_rules(&daemon, &session, &["archived"]).await.len(),
+        3,
+        "the end archives the Session Rule"
+    );
+}
+
+#[tokio::test]
+async fn two_turn_ends_while_the_woken_run_is_active_make_one_pending_wakeup() {
+    let brain = Arc::new(ScriptedBrain::default());
+    let entered = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Notify::new());
+    brain.push(pagis_testkit::Script::gate_reply(
+        &["Reading the session."],
+        Arc::clone(&entered),
+        Arc::clone(&release),
+    ));
+    let daemon = daemon_with(&brain).await;
+    let ends = || Turn::new(vec![], acp::StopReason::EndTurn);
+    let session = start_session_with(
+        &daemon,
+        run(&daemon).await,
+        Script::default().turn(ends()).turn(ends()).turn(ends()),
+    )
+    .await;
+    tokio::time::timeout(WAIT, entered.notified())
+        .await
+        .expect("the first turn end wakes the Agent");
+
+    for (text, turns) in [("Go on.", 2), ("And finish.", 3)] {
+        let outcome = daemon
+            .coding_sessions
+            .prompt(&daemon.workspace_id, &session.id, text.to_string())
+            .await
+            .expect("send a prompt");
+        assert_eq!(outcome, PromptOutcome::Sent);
+        wait_for_turn_ends(&daemon, &session, turns).await;
+    }
+
+    let rule = session_rules(&daemon, &session, &["active"])
+        .await
+        .into_iter()
+        .find(|rule| rule.event_kind == "coding_session.turn_ended")
+        .expect("the turn_ended rule");
+    let deadline = tokio::time::Instant::now() + WAIT;
+    let wakeups = loop {
+        let wakeups = daemon
+            .stores()
+            .subscriptions
+            .list_wakeups(&daemon.workspace_id, &rule.id, None, 10)
+            .await
+            .expect("read the Wake-ups");
+        if wakeups
+            .iter()
+            .map(|wakeup| wakeup.source_count)
+            .sum::<u32>()
+            == 3
+        {
+            break wakeups;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the three turn ends do not reach the rule: {wakeups:?}"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
+    let pending: Vec<_> = wakeups
+        .iter()
+        .filter(|wakeup| wakeup.state == WakeupState::Pending)
+        .collect();
+    assert_eq!(wakeups.len(), 2, "{wakeups:?}");
+    assert_eq!(pending.len(), 1, "{wakeups:?}");
+    assert_eq!(pending[0].source_count, 2);
+    let event_runs = daemon
+        .stores()
+        .runs
+        .list(&daemon.workspace_id, None, None, &[], None, 100)
+        .await
+        .expect("read the Runs")
+        .into_iter()
+        .filter(|run| run.trigger_kind == TriggerKind::Event)
+        .count();
+    assert_eq!(event_runs, 1, "the woken Run is the only one");
+    release.notify_one();
+}
+
+/// Waits until the transcript holds `count` ends of a turn and the
+/// session is `idle`.
+async fn wait_for_turn_ends(daemon: &TestDaemon, session: &CodingSession, count: usize) {
+    let deadline = tokio::time::Instant::now() + WAIT;
+    loop {
+        let rows = daemon
+            .stores()
+            .coding_sessions
+            .list_events(&daemon.workspace_id, &session.id, None, 1_000)
+            .await
+            .expect("read the transcript");
+        let ends = rows
+            .iter()
+            .filter(|row| row.kind == CodingSessionEventKind::TurnEnd)
+            .count();
+        let record = daemon
+            .coding_sessions
+            .get(&daemon.workspace_id, &session.id)
+            .await
+            .expect("read the session")
+            .expect("the session");
+        if ends >= count && record.state == CodingSessionState::Idle {
+            return;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "{ends} turn ends, the session is {:?}",
+            record.state
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
 }

@@ -26,10 +26,11 @@ use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
+use crate::events::{DecisionKind, SessionNews, is_end, session_batch};
 use crate::{
     AcpSession, AskHandler, CodingError, OpenFailure, OpenRequest, Opening, Pending,
     PermissionAnswer, PermissionAsk, QuestionAnswer, QuestionAsk, SessionDecisions, SessionEvent,
-    SessionExit, SessionPlace, WorktreeRequest,
+    SessionEvents, SessionExit, SessionPlace, SessionRules, WorktreeRequest,
 };
 
 /// How long a session waits for the exit report of its process after
@@ -50,6 +51,10 @@ pub struct CodingSessionsDeps {
     pub bus: Arc<dyn EventBus>,
     pub place: Arc<dyn SessionPlace>,
     pub decisions: Arc<dyn SessionDecisions>,
+    /// The Session Rule of each session, which wakes the owning Agent.
+    pub rules: Arc<dyn SessionRules>,
+    /// Where the news of each session goes to its Session Rule.
+    pub events: Arc<dyn SessionEvents>,
     pub clock: Arc<dyn Clock>,
     /// Ends the task of each live session when the daemon stops.
     pub cancel: CancellationToken,
@@ -88,6 +93,13 @@ pub enum StartFailure {
     /// The Run has no Channel, so no Thread can show the session.
     #[error("the Run has no conversation that can show the session")]
     NoConversation,
+    /// The Session Rule was not made, so the Agent would not hear of
+    /// the session.
+    #[error("the session cannot wake its Agent: {message}")]
+    Rules {
+        session_id: CodingSessionId,
+        message: String,
+    },
     #[error("{failure}")]
     Open {
         session_id: CodingSessionId,
@@ -171,6 +183,8 @@ impl CodingSessions {
         Self {
             records: Records {
                 store: deps.sessions,
+                rules: deps.rules,
+                events: deps.events,
                 clock: deps.clock,
             },
             runs: deps.runs,
@@ -240,6 +254,18 @@ impl CodingSessions {
         // The Person sees the session from `starting` on.
         self.post_session_block(&record, entry.label, &host.name)
             .await?;
+        // The Trigger module checks that the root of the rule's Thread is
+        // a message of the Channel, so the rule comes after the block. It
+        // comes before the stream opens, so no news of the session is
+        // lost.
+        if let Err(error) = self.records.rules.create(&record).await {
+            let end = End::new(RULES_UNAVAILABLE, None);
+            self.records.end_start(&mut record, end).await;
+            return Err(StartFailure::Rules {
+                session_id: record.id,
+                message: error.to_string(),
+            });
+        }
 
         let (command, args) = harness::launch_command(entry);
         let request = OpenRequest {
@@ -311,6 +337,7 @@ impl CodingSessions {
         let task = Task {
             records: self.records.clone(),
             record: record.clone(),
+            machine: host.name,
             snapshot,
             acp: Some(acp),
             queue: Vec::new(),
@@ -490,6 +517,9 @@ impl CodingSessions {
 /// The end reason of a harness that failed a request.
 const HARNESS_ERROR: &str = "harness_error";
 
+/// The end reason of a start whose Session Rule was not made.
+const RULES_UNAVAILABLE: &str = "temporarily_unavailable";
+
 /// The end reason of a harness process that exited by itself.
 const HARNESS_EXITED: &str = "harness_exited";
 
@@ -512,9 +542,13 @@ impl End {
 
 /// The writes of a session: its record and its transcript. The store
 /// reports each write to the clients.
+///
+/// The Session Rule hears the news of the session from here.
 #[derive(Clone)]
 struct Records {
     store: Arc<dyn CodingSessionStore>,
+    rules: Arc<dyn SessionRules>,
+    events: Arc<dyn SessionEvents>,
     clock: Arc<dyn Clock>,
 }
 
@@ -545,6 +579,23 @@ impl Records {
         self.write(record).await
     }
 
+    /// Gives one piece of news of a session to its Session Rule. The
+    /// session goes on when the news does not arrive, as a Call does.
+    async fn raise(&self, record: &CodingSession, machine: &str, news: SessionNews) {
+        let batch = session_batch(record, machine, news, self.clock.now_ms());
+        if let Err(error) = self.events.ingest(batch).await {
+            tracing::warn!(session = %record.id, %error, kind = news.event_kind(), "the news of a Coding Session did not reach its Session Rule");
+        }
+    }
+
+    /// Ends the Session Rule of a session that closed or failed. The
+    /// Wake-up of the last event stays.
+    async fn end_rules(&self, record: &CodingSession) {
+        if let Err(error) = self.rules.end(record).await {
+            tracing::warn!(session = %record.id, %error, "the Session Rule of a Coding Session did not end");
+        }
+    }
+
     /// Writes the whole record again.
     async fn write(&self, record: &mut CodingSession) -> Result<(), StoreError> {
         record.updated_at = self.clock.now_ms();
@@ -554,30 +605,35 @@ impl Records {
         Ok(())
     }
 
-    /// Adds one update to the transcript.
+    /// Adds one update to the transcript, and answers the `seq` of the
+    /// row that holds it.
     async fn append(
         &self,
         record: &CodingSession,
         kind: Kind,
         payload: Value,
-    ) -> Result<(), StoreError> {
+    ) -> Result<Option<i64>, StoreError> {
         let event = NewCodingSessionEvent {
             at: self.clock.now_ms(),
             kind,
             payload,
         };
-        self.store
+        let rows = self
+            .store
             .append_event(&record.workspace_id, &record.id, event)
             .await?;
-        Ok(())
+        Ok(rows.last().map(|row| row.seq))
     }
 
-    /// Fails a session that did not start. The failure of the start is
-    /// what the caller hears, so a failed write is only logged.
+    /// Fails a session that did not start, and ends its Session Rule.
+    /// The failure of the start is what the caller hears, so a failed
+    /// write is only logged, and the rule raises no news: the starting
+    /// Run reads the failure in its tool result.
     async fn end_start(&self, record: &mut CodingSession, end: End) {
         if let Err(error) = self.transition(record, State::Failed, Some(end)).await {
             tracing::warn!(session = %record.id, %error, "a failed Coding Session was not written");
         }
+        self.end_rules(record).await;
     }
 }
 
@@ -614,6 +670,13 @@ enum AskKind {
 }
 
 impl AskKind {
+    fn decision_kind(self) -> DecisionKind {
+        match self {
+            AskKind::Permission => DecisionKind::Permission,
+            AskKind::Question => DecisionKind::Question,
+        }
+    }
+
     fn asked(self) -> Kind {
         match self {
             AskKind::Permission => Kind::Permission,
@@ -721,6 +784,8 @@ enum Flow {
 struct Task {
     records: Records,
     record: CodingSession,
+    /// The name of the Host, which the news of the session names.
+    machine: String,
     /// The record as the task last wrote it, for the asks.
     snapshot: watch::Sender<CodingSession>,
     acp: Option<AcpSession>,
@@ -820,14 +885,8 @@ impl Task {
                     acp.close();
                 }
                 let closed = self
-                    .records
-                    .transition(
-                        &mut self.record,
-                        State::Closed,
-                        Some(End::new(reason.as_str(), None)),
-                    )
+                    .move_to(State::Closed, Some(End::new(reason.as_str(), None)))
                     .await;
-                self.snapshot.send_replace(self.record.clone());
                 let _ = reply.send(closed.map_err(SessionError::from));
                 Flow::End
             }
@@ -838,9 +897,16 @@ impl Task {
                 waits,
             } => {
                 self.asks.insert(ask_id, ask);
-                self.append(ask.asked(), payload).await;
+                let seq = self.append(ask.asked(), payload).await;
                 if waits && self.record.state == State::Working {
                     self.transition(State::NeedsDecision, None).await;
+                    if let Some(seq) = seq {
+                        let news = SessionNews::NeedsDecision {
+                            decision_kind: ask.decision_kind(),
+                            seq,
+                        };
+                        self.raise(news).await;
+                    }
                 }
                 Flow::Go
             }
@@ -863,7 +929,9 @@ impl Task {
             SessionEvent::Thought { text } => {
                 self.append(Kind::Thought, text_payload(&text, None)).await;
             }
-            SessionEvent::ToolCall { raw, .. } => self.append(Kind::ToolCall, raw).await,
+            SessionEvent::ToolCall { raw, .. } => {
+                self.append(Kind::ToolCall, raw).await;
+            }
             SessionEvent::ToolCallUpdate { raw, .. } => {
                 self.append(Kind::ToolCallUpdate, raw).await;
             }
@@ -889,9 +957,14 @@ impl Task {
                 .await;
             }
             SessionEvent::TurnEnded { stop_reason } => {
-                self.append(Kind::TurnEnd, json!({ "stop_reason": stop_reason }))
+                let seq = self
+                    .append(Kind::TurnEnd, json!({ "stop_reason": stop_reason }))
                     .await;
                 self.transition(State::Idle, None).await;
+                if let Some(seq) = seq {
+                    self.raise(SessionNews::TurnEnded { stop_reason, seq })
+                        .await;
+                }
                 if !self.queue.is_empty() {
                     let text = std::mem::take(&mut self.queue).join("\n\n");
                     if let Err(error) = self.send_prompt(text).await {
@@ -962,16 +1035,41 @@ impl Task {
         }
     }
 
+    /// Moves the session, and logs a record that was not written.
     async fn transition(&mut self, state: State, end: Option<End>) {
-        if let Err(error) = self.records.transition(&mut self.record, state, end).await {
+        if let Err(error) = self.move_to(state, end).await {
             tracing::warn!(session = %self.record.id, %error, "a Coding Session record was not written");
         }
-        self.snapshot.send_replace(self.record.clone());
     }
 
-    async fn append(&self, kind: Kind, payload: Value) {
-        if let Err(error) = self.records.append(&self.record, kind, payload).await {
-            tracing::warn!(session = %self.record.id, %error, "a transcript row of a Coding Session was not written");
+    /// Moves the session. An end goes to the Session Rule, and a terminal
+    /// state then ends the rule, also when the record was not written:
+    /// the session ends all the same.
+    async fn move_to(&mut self, state: State, end: Option<End>) -> Result<(), StoreError> {
+        let ended_before = self.record.state.is_terminal();
+        let written = self.records.transition(&mut self.record, state, end).await;
+        self.snapshot.send_replace(self.record.clone());
+        if !ended_before && is_end(state) {
+            self.raise(SessionNews::Ended).await;
+            if state.is_terminal() {
+                self.records.end_rules(&self.record).await;
+            }
+        }
+        written
+    }
+
+    async fn raise(&self, news: SessionNews) {
+        self.records.raise(&self.record, &self.machine, news).await;
+    }
+
+    /// Adds one row to the transcript, and answers its `seq`.
+    async fn append(&self, kind: Kind, payload: Value) -> Option<i64> {
+        match self.records.append(&self.record, kind, payload).await {
+            Ok(seq) => seq,
+            Err(error) => {
+                tracing::warn!(session = %self.record.id, %error, "a transcript row of a Coding Session was not written");
+                None
+            }
         }
     }
 }

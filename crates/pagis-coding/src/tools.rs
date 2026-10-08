@@ -113,6 +113,9 @@ fn start_failure(failure: StartFailure) -> ToolResult {
                 &message,
             ),
         ),
+        StartFailure::Rules { .. } => {
+            ToolResult::error("temporarily_unavailable", failure.to_string())
+        }
         StartFailure::Store(error) => {
             ToolResult::error("temporarily_unavailable", error.to_string())
         }

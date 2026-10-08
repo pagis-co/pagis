@@ -17,8 +17,8 @@ use pagis_core::{
     Connection, ConnectionId, ConnectionStore, CreatorKind, EventBus, EventCatalog,
     EventDeclaration, EventMatcher, EventSource, EventSubscription, EventSubscriptionId,
     EventSubscriptionState, EventSubscriptionStore, ForgetKeys, Grant, GrantStore, IncomingEvent,
-    IncomingEventId, IngestBatch, IngestOutcome, MessageId, MessageStore, NewEvent, Schedule,
-    ScheduleId, ScheduleKind, ScheduleOccurrence, ScheduleOccurrenceId, ScheduleRevision,
+    IncomingEventId, IngestBatch, IngestOutcome, MessageId, MessageStore, NewEvent, PAGIS_PROVIDER,
+    Schedule, ScheduleId, ScheduleKind, ScheduleOccurrence, ScheduleOccurrenceId, ScheduleRevision,
     ScheduleState, ScheduleStore, SourceBatch, StoreError, TriggerStore, Wakeup, WakeupClaim,
     WakeupId, WorkspaceId,
 };
@@ -30,9 +30,6 @@ pub use subscriptions::{NewSubscription, SubscriptionAction};
 /// The namespaces Pagis owns. A subscription never names one: an
 /// internal audit Event is not a provider occurrence (ADR-0006).
 const NATIVE_NAMESPACES: [&str; 3] = ["core", "ui", "vault"];
-/// The provider of each Incoming Event kind that Pagis itself raises,
-/// such as the events of a Coding Session (ADR-0033).
-pub const PAGIS_PROVIDER: &str = "pagis";
 const SUBJECT_COOLDOWN_MS: i64 = 14 * 24 * 60 * 60 * 1_000;
 
 #[derive(Debug, Clone)]

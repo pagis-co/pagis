@@ -925,6 +925,63 @@ async fn ending_a_source_archives_its_rules_and_keeps_their_pending_wakeup() {
 }
 
 #[tokio::test]
+async fn events_during_the_active_run_of_a_rule_join_one_pending_wakeup() {
+    let world = common::world().await;
+    let session = common::coding_session(&world).await;
+    let rule = session_rule(&world, &session, TEST_SESSION_EVENT_KIND)
+        .await
+        .expect("a session rule");
+    let slots = pagis_core::RunSlots {
+        conversation: 3,
+        arrival: 0,
+    };
+    world
+        .trigger
+        .ingest(session_event(&world, &session, "turn-1", NOW + 10))
+        .await
+        .expect("ingest the first event");
+    let active = world
+        .trigger
+        .claim_wakeups(&world.workspace_id, &world.agent_id, slots, NOW + 11)
+        .await
+        .expect("claim the first Wake-up");
+    assert_eq!(active.len(), 1);
+
+    world
+        .trigger
+        .ingest(session_event(&world, &session, "turn-2", NOW + 20))
+        .await
+        .expect("ingest the second event");
+    let claimed = world
+        .trigger
+        .claim_wakeups(&world.workspace_id, &world.agent_id, slots, NOW + 21)
+        .await
+        .expect("claim while the Run of the rule is active");
+    assert!(
+        claimed.is_empty(),
+        "a rule has at most one active Run, even with free slots"
+    );
+    world
+        .trigger
+        .ingest(session_event(&world, &session, "turn-3", NOW + 30))
+        .await
+        .expect("ingest the third event");
+
+    let wakeups = world
+        .trigger
+        .list_subscription_wakeups(&world.workspace_id, &rule.id, None, 10)
+        .await
+        .expect("wakeups");
+    assert_eq!(wakeups.len(), 2);
+    let pending: Vec<_> = wakeups
+        .iter()
+        .filter(|wakeup| wakeup.state == WakeupState::Pending)
+        .collect();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].source_count, 2);
+}
+
+#[tokio::test]
 async fn archiving_a_connection_rule_withdraws_its_pending_wakeup() {
     let world = common::world().await;
     let subscription = subscribe(&world, "inbox", &["a@example.com"]).await;

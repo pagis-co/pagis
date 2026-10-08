@@ -529,7 +529,7 @@ An occurrence that may wake an Agent: a provider occurrence received
 through a Connection, an Agent Mailbox or an Agent Phone Number, or an
 event of a Coding Session. It is not an audit event (ADR-0006). The events
 of a Coding Session are the end of a turn, a decision that waits, and the
-end of the session. These kinds are not built (ADR-0033).
+end of the session (ADR-0033).
 
 ### Review Run
 The Run that reflects one claimed batch of due Pending Evidence. It uses
@@ -1085,9 +1085,9 @@ answer of the Person and of the Agent (ADR-0033).
 _Avoid_: permission mode
 
 ### Session Rule
-The Event Subscription that the daemon makes when a Coding Session starts
-and archives when it ends. It wakes the owning Agent in the session's
-Thread. Not built (ADR-0033).
+The Event Subscriptions that the daemon makes when a Coding Session starts,
+one for each kind of session event, and archives when it ends. They wake
+the owning Agent in the session's Thread (ADR-0033).
 
 ## Telephony
 
