@@ -13,6 +13,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   EXIT_CAPABILITY,
+  type HarnessFinder,
+  harnessesOnPath,
   HostAgent,
   HostLink,
   type HostSocket,
@@ -139,6 +141,107 @@ describe('the host registration', () => {
     expect(platformName('darwin')).toBe('macos')
     expect(platformName('win32')).toBe('windows')
     expect(platformName('linux')).toBe('linux')
+  })
+})
+
+/** The answer to a registration names the Harness Catalog. The client
+ *  looks for the programs of each harness on the PATH of the login shell
+ *  and registers again with a `harness:<id>` capability for each harness
+ *  it found. */
+describe('the Coding Harnesses of the machine', () => {
+  const CATALOG = [
+    { id: 'claude', launchers: ['npx'] },
+    { id: 'opencode', launchers: ['opencode'] },
+    { id: 'pi', launchers: ['npx', 'pi'] },
+  ]
+
+  /** A directory on the PATH that holds an executable for each name. */
+  function pathWith(...programs: string[]): string {
+    const directory = mkdtempSync(path.join(os.tmpdir(), 'pagis-path-'))
+    for (const program of programs) {
+      const file = path.join(directory, program)
+      writeFileSync(file, '#!/bin/sh\n')
+      chmodSync(file, 0o755)
+    }
+    return directory
+  }
+
+  function finderOn(pathValue: string): HarnessFinder {
+    return (catalog) => harnessesOnPath(catalog, async () => ({ PATH: pathValue }))
+  }
+
+  function registered(capabilities: string[], harnesses?: unknown) {
+    return {
+      type: 'host.registered',
+      payload: { host_id: 'h-1', platform: 'macos', capabilities, harnesses },
+    }
+  }
+
+  /** Wait until the client has handled every frame it received. */
+  async function settle(): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+
+  it('registers again with each harness whose launchers are on the PATH, and not a third time', async () => {
+    const socket = new FakeSocket()
+    const agent = new HostAgent(socket, 'Air', 'macos', runInShell, [SHELL_CAPABILITY, EXIT_CAPABILITY], finderOn(pathWith('npx')))
+    agent.start()
+
+    socket.receive(registered(['shell', 'exit'], CATALOG))
+    await vi.waitFor(() => expect(socket.sent).toHaveLength(3))
+
+    expect(socket.sent[2]).toEqual({
+      type: 'register_host',
+      name: 'Air',
+      platform: 'macos',
+      capabilities: ['shell', 'exit', 'harness:claude'],
+    })
+
+    socket.receive(registered(['shell', 'exit', 'harness:claude'], CATALOG))
+    await settle()
+
+    expect(socket.sent).toHaveLength(3)
+    expect(agent.registeredCapabilities()).toEqual(['shell', 'exit', 'harness:claude'])
+  })
+
+  /** pi needs its own program beside `npx`. */
+  it('adds no capability for a harness whose launcher is not on the PATH', async () => {
+    const socket = new FakeSocket()
+    new HostAgent(socket, 'Air', 'macos', runInShell, [SHELL_CAPABILITY], finderOn(pathWith('pi'))).start()
+
+    socket.receive(registered(['shell'], CATALOG))
+    await settle()
+
+    expect(socket.sent).toHaveLength(2)
+  })
+
+  it('declares no harness and writes the message to the log when the login shell fails', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const socket = new FakeSocket()
+    new HostAgent(socket, 'Air', 'macos', runInShell, [SHELL_CAPABILITY], (catalog) =>
+      harnessesOnPath(catalog, async () => {
+        throw new Error('the login shell /bin/zsh exited with code 1')
+      }),
+    ).start()
+
+    socket.receive(registered(['shell'], CATALOG))
+    await settle()
+
+    expect(socket.sent).toHaveLength(2)
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('the login shell /bin/zsh exited with code 1'))
+    log.mockRestore()
+  })
+
+  it('looks for nothing when the answer names no harnesses', async () => {
+    const socket = new FakeSocket()
+    const find = vi.fn(async () => ['claude'])
+    new HostAgent(socket, 'Air', 'macos', runInShell, [SHELL_CAPABILITY], find).start()
+
+    socket.receive(registered(['shell']))
+    await settle()
+
+    expect(find).not.toHaveBeenCalled()
+    expect(socket.sent).toHaveLength(2)
   })
 })
 

@@ -145,7 +145,25 @@ The **Harness Catalog** ships with each release, as the Provider Catalog does
 Pagis does not fetch the registry at run time. The Client App declares
 `harness:<id>` as a Host capability for each harness whose launcher it finds
 on the Person's `PATH`: `npx` for an npx entry, and the binary for a binary
-entry.
+entry. A harness that needs a further program, such as `pi`, needs that
+program on the `PATH` too.
+
+The daemon is the one source of the catalog, and the Client App ships no
+copy. The answer to a Host registration names, for each harness that has a
+launch command for the platform of the Host, its id and the programs it
+needs on the `PATH`. The Client App reads the environment of the Person's
+login shell and looks for those programs. When the harnesses it finds
+differ from the `harness:` capabilities of the answer, it registers again
+with its own capabilities and `harness:<id>` for each harness it found, in
+the order of the catalog. The client stays the authority for its
+capabilities (ADR-0015), and the daemon gets no new frame. The second
+registration replaces the presence connection, so a host command that
+arrives between the two answers reads the machine as absent, at most once
+for each connection of the Host socket. The Client App looks at each
+connection of the Host socket, so a person who installs Node sees the
+harnesses after the next reconnection. A login shell that fails declares no
+harness, and the Client App writes the message to its log. `harness:<id>`
+means that the programs are on the `PATH`, not that the Person signed in.
 
 ### On a Host, the session socket carries each Coding Session
 
@@ -409,7 +427,6 @@ Other ways were considered:
 
 ## Not built
 
-- The harness capabilities of a Host.
 - The core tools.
 - The REST routes and the `coding_session` block.
 - The Session Rule.

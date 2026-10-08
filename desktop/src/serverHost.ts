@@ -25,7 +25,14 @@ import { exchangeClientCredential, reusableSession, SESSION_COOKIE } from './cli
 import type { Dial, ExitTraffic } from './exit'
 import { ExitLink, openExitSocket } from './exit'
 import type { CommandRunner, HostSocket } from './host'
-import { EXIT_CAPABILITY, HARNESS_CAPABILITY_PREFIX, HostLink, openWebSocket, SHELL_CAPABILITY } from './host'
+import {
+  EXIT_CAPABILITY,
+  HARNESS_CAPABILITY_PREFIX,
+  harnessesOnPath,
+  HostLink,
+  openWebSocket,
+  SHELL_CAPABILITY,
+} from './host'
 import { openSessionSocket, SessionLink } from './sessions'
 
 export interface HostLinkDeps {
@@ -36,8 +43,9 @@ export interface HostLinkDeps {
   /** The Client Credential of a local installation, or `null` on a server
    *  this client did not start. */
   credential: () => string | null
-  /** What the machine declares. The default is the shell alone. A machine
-   *  that declares the exit also opens the exit socket. */
+  /** What the machine declares besides its Coding Harnesses. The default
+   *  is the shell alone. A machine that declares the exit also opens the
+   *  exit socket. */
   capabilities?: readonly string[]
   /** How the socket opens. The default is the real WebSocket. */
   open?: (url: string, secret: string) => Promise<HostSocket>
@@ -45,8 +53,9 @@ export interface HostLinkDeps {
   openExit?: (url: string, secret: string, hostId: string) => Promise<ByteSocket>
   /** How the session socket opens. The default is the real WebSocket. */
   openSessions?: (url: string, secret: string, hostId: string) => Promise<ByteSocket>
-  /** How a Coding Session reads the login-shell environment. The default
-   *  runs the person's login shell. */
+  /** How the client reads the login-shell environment, for the search of
+   *  the Coding Harnesses and for each Coding Session. The default runs
+   *  the person's login shell. */
   environment?: () => Promise<Record<string, string>>
   /** How a dispatched command runs. The default is the real shell. */
   run?: CommandRunner
@@ -98,9 +107,11 @@ export async function hostSession(deps: HostLinkDeps): Promise<string> {
  * sign in again; on a local installation it trades the Client Credential
  * for a new Session.
  *
- * The session socket and the exit socket open once the Host socket
- * registered, with the id of that registration and the Session of that
- * socket. The session socket opens once the daemon acknowledged a
+ * The Host socket declares each Coding Harness of the catalog whose
+ * programs are on the PATH of the login shell, with a second
+ * registration. The session socket and the exit socket open once the Host
+ * socket registered, with the id of that registration and the Session of
+ * that socket. The session socket opens once the daemon acknowledged a
  * registration that holds a `harness:` capability, on a Local
  * Installation too, because the daemon is never a Host (ADR-0015). The
  * exit socket opens only on a machine that declares the exit. A Session
@@ -126,6 +137,7 @@ export function hostLinkFor(deps: HostLinkDeps): HostLinks {
       ended = current
     },
     capabilities,
+    (catalog) => harnessesOnPath(catalog, deps.environment),
   )
   /** The host id and the Session of the registered Host socket. */
   const registration = (): { hostId: string; secret: string } => {
