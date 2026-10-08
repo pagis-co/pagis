@@ -1082,9 +1082,11 @@ once, never "always", and each decision writes one audit fact (ADR-0033).
 The Person signs in to a Coding Harness on their Host with their own
 subscription or API key, in the vendor's own program. The Person starts it,
 the daemon names the command, and the Client App runs it in a terminal
-window. Pagis never reads, copies, stores or relays the credential. Not
-built: the report of a harness that needs a sign-in, and the sign-in in
-Settings (ADR-0033).
+window. Pagis never reads, copies, stores or relays the credential. When a
+harness refuses a session for a sign-in, the session fails with
+`sign_in_required`, and the daemon reports that the harness needs a
+sign-in on that Host until a session opens or a sign-in exits with code 0.
+Not built: the sign-in in Settings (ADR-0033).
 _Avoid_: harness login
 
 ### Session Approval Mode

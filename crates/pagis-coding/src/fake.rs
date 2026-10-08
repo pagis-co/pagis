@@ -132,6 +132,7 @@ pub struct Turn {
 enum TurnEnd {
     Stop(acp::StopReason),
     UntilCancel,
+    AuthRequired,
 }
 
 impl Turn {
@@ -152,6 +153,17 @@ impl Turn {
         Self {
             updates,
             end: TurnEnd::UntilCancel,
+            ask: None,
+        }
+    }
+
+    /// Fails the prompt with `AuthRequired`, as a harness whose sign-in
+    /// ended does.
+    #[must_use]
+    pub fn auth_required() -> Self {
+        Self {
+            updates: Vec::new(),
+            end: TurnEnd::AuthRequired,
             ask: None,
         }
     }
@@ -567,6 +579,9 @@ where
                             TurnEnd::UntilCancel => {
                                 state.cancel.notified().await;
                                 acp::StopReason::Cancelled
+                            }
+                            TurnEnd::AuthRequired => {
+                                return responder.respond_with_error(Error::auth_required());
                             }
                         };
                         responder.respond(acp::PromptResponse::new(stop_reason))

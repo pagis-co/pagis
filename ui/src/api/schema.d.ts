@@ -1235,7 +1235,7 @@ export interface paths {
             cookie?: never;
         };
         /** The signed-in person's own machines, with presence. */
-        get: operations["list_hosts"];
+        get: operations["list_my_hosts"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4396,6 +4396,11 @@ export interface components {
         HostDto: {
             /** @description What the client declared it can do, for example `shell`. */
             capabilities: string[];
+            /**
+             * @description One entry for each `harness:<id>` capability, in the order of the
+             *     capabilities.
+             */
+            harnesses: components["schemas"]["HostHarnessDto"][];
             id: string;
             /** Format: int64 */
             last_seen_at: number;
@@ -4407,6 +4412,17 @@ export interface components {
              *     action runs only on a present machine.
              */
             present: boolean;
+        };
+        /** @description One Coding Harness that a Host declares. */
+        HostHarnessDto: {
+            /** @description The id of the harness in the Harness Catalog. */
+            id: string;
+            /**
+             * @description True when the last attempt showed that the harness needs a Harness
+             *     Sign-In on this machine. After a restart of the daemon it is false
+             *     until a start fails again.
+             */
+            needs_sign_in: boolean;
         };
         HostsDto: {
             items: components["schemas"]["HostDto"][];
@@ -10384,7 +10400,7 @@ export interface operations {
             };
         };
     };
-    list_hosts: {
+    list_my_hosts: {
         parameters: {
             query?: never;
             header?: never;

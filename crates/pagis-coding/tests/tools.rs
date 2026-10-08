@@ -14,6 +14,7 @@ use pagis_coding::fake::{Script, Turn, acp, serve_client_app};
 use pagis_coding::{
     AgentAsks, CodingSessionStarts, CodingSessions, CodingSessionsDeps, CodingToolRuntime,
     NewCodingSession, RefuseDecisions, SessionEvents, SessionRuleError, SessionRules,
+    SignInReports,
 };
 use pagis_core::{
     Agent, AgentId, AgentStatus, AgentStore, Channel, ChannelId, ChannelKind, ChannelStore,
@@ -132,6 +133,10 @@ async fn world(pool: SqlitePool, script: Script) -> World {
         decisions: Arc::new(RefuseDecisions),
         rules: Arc::new(SilentRules),
         events: Arc::new(SilentRules),
+        sign_in_reports: Arc::new(SignInReports::new(
+            Arc::new(SilentBus),
+            Arc::new(SystemClock),
+        )),
         clock: Arc::new(SystemClock),
         departures: pagis_broker::HostPresence::new().departures(),
         cancel: CancellationToken::new(),

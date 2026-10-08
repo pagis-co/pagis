@@ -13,8 +13,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use pagis_broker::{
-    AuthorizedCall, CoreTool, Decider, SessionStarts, ToolExecutor, ToolResult, ToolRoute,
-    WorktreeRequest,
+    AuthorizedCall, CoreTool, Decider, SIGN_IN_REQUIRED, SessionStarts, ToolExecutor, ToolResult,
+    ToolRoute, WorktreeRequest,
 };
 use pagis_core::{
     CodingSession, CodingSessionId, CodingSessionState as State, CodingSessionStore, EventSource,
@@ -487,6 +487,10 @@ fn start_failure(failure: StartFailure) -> ToolResult {
             session_id,
             message,
         } => harness_error(session_id, &message),
+        // The daemon's own words, which name where the Person signs in.
+        StartFailure::SignInRequired { .. } => {
+            ToolResult::plain_error(SIGN_IN_REQUIRED, failure.to_string())
+        }
         StartFailure::Rules { .. } => {
             ToolResult::error("temporarily_unavailable", failure.to_string())
         }

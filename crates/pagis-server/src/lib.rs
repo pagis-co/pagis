@@ -156,6 +156,9 @@ pub struct AppState {
     /// The Harness Sign-Ins that the Person starts on their Hosts
     /// (ADR-0033).
     pub sign_ins: Arc<pagis_coding::SignIns>,
+    /// The harnesses that need a Harness Sign-In on each Host. The Host
+    /// list reads it.
+    pub sign_in_reports: Arc<pagis_coding::SignInReports>,
     /// The Coding Session records and their transcripts. Each write
     /// reports itself as an event.
     pub coding_session_store: Arc<dyn pagis_core::CodingSessionStore>,
@@ -438,7 +441,7 @@ fn product_router(state: Arc<AppState>) -> Router {
             "/api/v1/agents/{agent_id}/sync-connections",
             get(knowledge::agent_sync_connections),
         )
-        .route("/api/v1/hosts", get(hosts::list_hosts))
+        .route("/api/v1/hosts", get(hosts::list_my_hosts))
         .route(
             "/api/v1/hosts/{host_id}/harnesses/{harness_id}/sign-in",
             post(harnesses::start_sign_in),

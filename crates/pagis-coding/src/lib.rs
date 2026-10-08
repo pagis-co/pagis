@@ -30,7 +30,8 @@
 //! prompt, read, cancel, close, list and resume the Agent's own sessions,
 //! and that decide or escalate their Harness Permissions.
 //!
-//! [`SignIns`] starts a Harness Sign-In on a Host for the Person.
+//! [`SignIns`] starts a Harness Sign-In on a Host for the Person, and
+//! [`SignInReports`] tells which harness needs one on which Host.
 
 mod agent;
 mod ask;
@@ -75,6 +76,6 @@ pub use sessions::{
     CloseReason, CodingSessions, CodingSessionsDeps, NewCodingSession, PromptOutcome,
     ResumeFailure, SessionError, StartFailure,
 };
-pub use sign_in::{SignInFailure, SignIns};
+pub use sign_in::{SIGN_IN_CHANGED_EVENT, SignInFailure, SignInReports, SignIns};
 pub use starts::{CodingSessionStarts, MAX_OPEN_SESSIONS, worktree_branch};
 pub use tools::CodingToolRuntime;

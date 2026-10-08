@@ -37,6 +37,20 @@ pub const CODING_SESSION_EVENT_KINDS: [&str; 3] = [
 /// The name of the trusted matcher of the three kinds.
 pub const CODING_SESSION_MATCHER: &str = "coding_session";
 
+/// The end reason of a session whose harness needs a Harness Sign-In on
+/// its machine.
+pub const SIGN_IN_REQUIRED: &str = "sign_in_required";
+
+/// What the Agent hears when `harness` needs a Harness Sign-In on
+/// `machine`. It names the place in Settings where the Person signs in,
+/// so the Agent never asks the Person for a key or a password.
+pub fn sign_in_required_message(harness: &str, machine: &str) -> String {
+    format!(
+        "{harness} is not signed in on your {machine}. Ask the user to sign in: Settings › Hosts › \
+         {machine}."
+    )
+}
+
 /// The Coding Session manifest. It declares the three Incoming Event
 /// kinds and no tool.
 pub fn coding_session_manifest() -> CapabilityManifest {

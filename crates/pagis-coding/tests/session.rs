@@ -381,6 +381,16 @@ async fn a_session_new_that_needs_a_sign_in_is_auth_required() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_prompt_that_needs_a_sign_in_ends_the_turn_with_sign_in_required() {
+    let script = Script::default().turn(Turn::auth_required());
+    let (_harness, session, mut events) = open(script, fake::new_session("/work/repo")).await;
+
+    session.prompt("Refactor").expect("the prompt is sent");
+
+    assert_eq!(next(&mut events).await, SessionEvent::SignInRequired);
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn another_protocol_version_is_a_protocol_error() {
     let script = Script::default().protocol_version(2);
     let (harness, opened) = pair(script, fake::new_session("/work/repo")).await;

@@ -11,6 +11,10 @@
 //! end of the session socket, which ends the exit of each of its streams.
 //! A restart of the daemon interrupts each session that was open. The
 //! harness keeps its own session on the Host, so the Agent can resume it.
+//!
+//! A harness that needs a Harness Sign-In fails its session with the end
+//! reason `sign_in_required`, at `session/new` or at a later prompt, and
+//! the sign-in report then names the harness on the Host.
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
@@ -20,6 +24,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use futures::io::AsyncReadExt;
+use pagis_broker::{SIGN_IN_REQUIRED, sign_in_required_message};
 use pagis_core::{
     AgentId, AuthorKind, Block, Clock, CodingSession, CodingSessionEventKind as Kind,
     CodingSessionId, CodingSessionPlace, CodingSessionState as State, CodingSessionStore,
@@ -35,8 +40,8 @@ use crate::events::{DecisionKind, InterruptReason, SessionNews, session_batch};
 use crate::{
     AcpSession, AskHandler, CodingError, DecidedBy, OpenFailure, OpenFailureCode, OpenRequest,
     Opening, Pending, PermissionAnswer, PermissionAsk, QuestionAnswer, QuestionAsk,
-    SessionDecisions, SessionEvent, SessionEvents, SessionExit, SessionPlace, SessionRules, Waited,
-    WaitsFor, WorktreeRequest,
+    SessionDecisions, SessionEvent, SessionEvents, SessionExit, SessionPlace, SessionRules,
+    SignInReports, Waited, WaitsFor, WorktreeRequest,
 };
 
 /// How long a session waits for the exit report of its process after
@@ -61,6 +66,8 @@ pub struct CodingSessionsDeps {
     pub rules: Arc<dyn SessionRules>,
     /// Where the news of each session goes to its Session Rule.
     pub events: Arc<dyn SessionEvents>,
+    /// Hears whether a harness needs a Harness Sign-In on its Host.
+    pub sign_in_reports: Arc<SignInReports>,
     pub clock: Arc<dyn Clock>,
     /// The Hosts that go away. Each live session of such a Host is
     /// interrupted.
@@ -120,6 +127,14 @@ pub enum StartFailure {
     Harness {
         session_id: CodingSessionId,
         message: String,
+    },
+    /// The harness needs a Harness Sign-In on the machine. `harness` is
+    /// its display name.
+    #[error("{}", sign_in_required_message(.harness, .machine))]
+    SignInRequired {
+        session_id: CodingSessionId,
+        harness: String,
+        machine: String,
     },
     #[error(transparent)]
     Store(#[from] StoreError),
@@ -222,6 +237,7 @@ pub struct CodingSessions {
     bus: Arc<dyn EventBus>,
     place: Arc<dyn SessionPlace>,
     decisions: Arc<dyn SessionDecisions>,
+    sign_in_reports: Arc<SignInReports>,
     cancel: CancellationToken,
     live: LiveSessions,
 }
@@ -258,6 +274,7 @@ impl CodingSessions {
             bus: deps.bus,
             place: deps.place,
             decisions: deps.decisions,
+            sign_in_reports: deps.sign_in_reports,
             cancel: deps.cancel,
             live,
         }
@@ -375,8 +392,24 @@ impl CodingSessions {
         // A failed `open` drops its connection, which closes the stream.
         let (acp, events) = match AcpSession::open(outgoing, incoming, opening, asks).await {
             Ok(opened) => opened,
+            Err(CodingError::AuthRequired) => {
+                self.sign_in_reports
+                    .needs_sign_in(&record.workspace_id, &new.host_id, entry.id)
+                    .await;
+                self.records
+                    .end_start(&mut record, End::new(SIGN_IN_REQUIRED, None))
+                    .await;
+                return Err(StartFailure::SignInRequired {
+                    session_id: record.id,
+                    harness: entry.label.to_string(),
+                    machine: host.name,
+                });
+            }
             Err(error) => return Err(self.harness_failed(&mut record, error).await),
         };
+        self.sign_in_reports
+            .signed_in(&record.workspace_id, &new.host_id, entry.id)
+            .await;
         record.acp_session_id = Some(acp.acp_session_id().to_string());
         self.records.write(&mut record).await?;
 
@@ -406,6 +439,7 @@ impl CodingSessions {
             machine: host.name,
             snapshot,
             acp: Some(acp),
+            sign_in_reports: Arc::clone(&self.sign_in_reports),
             queue: Vec::new(),
             asks: HashMap::new(),
         };
@@ -690,6 +724,7 @@ impl CodingSessions {
             machine: host.name,
             snapshot,
             acp: Some(acp),
+            sign_in_reports: Arc::clone(&self.sign_in_reports),
             queue: Vec::new(),
             asks: HashMap::new(),
         };
@@ -1217,6 +1252,8 @@ struct Task {
     /// The record as the task last wrote it, for the asks.
     snapshot: watch::Sender<CodingSession>,
     acp: Option<AcpSession>,
+    /// Hears a harness that needs a Harness Sign-In.
+    sign_in_reports: Arc<SignInReports>,
     /// The prompts that wait for the end of the turn.
     queue: Vec<String>,
     /// The asks that wait for their answer, by `ask_id`.
@@ -1429,6 +1466,18 @@ impl Task {
             }
             SessionEvent::TurnFailed { message } => {
                 self.transition(State::Failed, Some(End::new(HARNESS_ERROR, Some(message))))
+                    .await;
+                return Flow::End;
+            }
+            SessionEvent::SignInRequired => {
+                // The report comes first, so the Agent that the end wakes
+                // reads it.
+                if let Some(host_id) = &self.record.host_id {
+                    self.sign_in_reports
+                        .needs_sign_in(&self.record.workspace_id, host_id, &self.record.harness_id)
+                        .await;
+                }
+                self.transition(State::Failed, Some(End::new(SIGN_IN_REQUIRED, None)))
                     .await;
                 return Flow::End;
             }

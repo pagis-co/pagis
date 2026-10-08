@@ -51,6 +51,9 @@ pub enum SessionEvent {
     TurnEnded { stop_reason: StopReason },
     /// The prompt request failed. The session can take a new prompt.
     TurnFailed { message: String },
+    /// The prompt request failed because the harness needs a Harness
+    /// Sign-In.
+    SignInRequired,
     /// A permission request or a question that waits for its answer ended
     /// without one: the session was cancelled, or the harness withdrew the
     /// request. `ask_id` is the `ask_id` of its ask.
