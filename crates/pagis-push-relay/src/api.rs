@@ -28,7 +28,7 @@ use sqlx::SqlitePool;
 
 use crate::clock::Clock;
 use crate::limit::RegistrationLimit;
-use crate::registration::{self, Invalid, RegistrationId, Secret, secret_hash};
+use crate::registration::{self, Invalid, Platform, RegistrationId, Secret, secret_hash};
 use crate::store::Registrations;
 use crate::transport::{Delivery, Message, Transports, Urgency};
 use crate::vapid::{self, InvalidToken};
@@ -120,10 +120,7 @@ async fn register(
         .map_err(Refusal::TooMany)?;
     let registration = registration::new_registration(&body)?;
     if relay.transports.of(registration.platform).is_none() {
-        return Err(Refusal::Invalid(Invalid(format!(
-            "the relay does not serve platform {}",
-            registration.platform.name()
-        ))));
+        return Err(Refusal::Invalid(Invalid(not_served(registration.platform))));
     }
     let id = RegistrationId::random();
     let secret = Secret::random();
@@ -139,6 +136,18 @@ async fn register(
         endpoint,
     };
     Ok((StatusCode::CREATED, Extension(LoggedId(id)), Json(body)).into_response())
+}
+
+/// Why the relay takes no registration of `platform`: it has no
+/// transport for the platform, or for its APNs environment.
+fn not_served(platform: Platform) -> String {
+    match platform.environment() {
+        Some(environment) => format!(
+            "the relay does not serve platform {} in the APNs environment {environment}",
+            platform.name()
+        ),
+        None => format!("the relay does not serve platform {}", platform.name()),
+    }
 }
 
 async fn change_token(
@@ -259,10 +268,7 @@ async fn receive(
     let platform = stored.registration.platform;
     let delivery = match relay.transports.of(platform) {
         Some(transport) => transport.send(&stored.registration, &message).await,
-        None => Delivery::Failed(format!(
-            "the relay does not serve platform {}",
-            platform.name()
-        )),
+        None => Delivery::Failed(not_served(platform)),
     };
     // The answer tells the sender what became of the push, so a store
     // error after the forward is logged and does not change it.

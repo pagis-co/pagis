@@ -2,7 +2,7 @@
 # for TLS. `docs/PUSH-RELAY.md` holds the deployment.
 #
 #   cp .env.example .env      # and fill it in
-#   mkdir -p secrets          # and put the two key files in it
+#   mkdir -p secrets          # and put the three key files in it
 #   docker compose up -d
 #
 # Every setting is stated once, in `.env`. Nothing here is edited for a
@@ -33,8 +33,11 @@ services:
       PUSH_RELAY_PUBLIC_ORIGIN: https://${PUSH_RELAY_DOMAIN:?set PUSH_RELAY_DOMAIN in .env}
       # The fixed address of Caddy below.
       PUSH_RELAY_TRUSTED_PROXY: 10.231.0.2
-      PUSH_RELAY_APNS_KEY_PATH: /run/secrets/apns-key
-      PUSH_RELAY_APNS_KEY_ID: ${PUSH_RELAY_APNS_KEY_ID:?set PUSH_RELAY_APNS_KEY_ID in .env}
+      # One APNs key for each environment.
+      PUSH_RELAY_APNS_PRODUCTION_KEY_PATH: /run/secrets/apns-production-key
+      PUSH_RELAY_APNS_PRODUCTION_KEY_ID: ${PUSH_RELAY_APNS_PRODUCTION_KEY_ID:?set PUSH_RELAY_APNS_PRODUCTION_KEY_ID in .env}
+      PUSH_RELAY_APNS_SANDBOX_KEY_PATH: /run/secrets/apns-sandbox-key
+      PUSH_RELAY_APNS_SANDBOX_KEY_ID: ${PUSH_RELAY_APNS_SANDBOX_KEY_ID:?set PUSH_RELAY_APNS_SANDBOX_KEY_ID in .env}
       PUSH_RELAY_APNS_TEAM_ID: ${PUSH_RELAY_APNS_TEAM_ID:?set PUSH_RELAY_APNS_TEAM_ID in .env}
       PUSH_RELAY_APNS_TOPIC: ${PUSH_RELAY_APNS_TOPIC:?set PUSH_RELAY_APNS_TOPIC in .env}
       PUSH_RELAY_FCM_CREDENTIALS_PATH: /run/secrets/fcm-credentials
@@ -43,7 +46,8 @@ services:
       # Compose outside Swarm mounts each file read only, with its owner
       # and its mode on the host. The relay runs as the user 10001, so
       # each file on the host has the owner 10001 and the mode 400.
-      - apns-key
+      - apns-production-key
+      - apns-sandbox-key
       - fcm-credentials
     volumes:
       # The state directory: the SQLite file of the registrations.
@@ -81,8 +85,10 @@ networks:
         - subnet: 10.231.0.0/24
 
 secrets:
-  apns-key:
-    file: ./secrets/apns-key.p8
+  apns-production-key:
+    file: ./secrets/apns-production-key.p8
+  apns-sandbox-key:
+    file: ./secrets/apns-sandbox-key.p8
   fcm-credentials:
     file: ./secrets/fcm-credentials.json
 

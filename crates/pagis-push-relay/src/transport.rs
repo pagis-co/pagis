@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 
-use crate::registration::Platform;
+use crate::registration::{Environment, Platform};
 
 /// The device of one registration: its platform and its device token.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -80,18 +80,23 @@ pub trait Transport: Send + Sync {
     async fn send(&self, registration: &Registration, message: &Message) -> Delivery;
 }
 
-/// The transport of each platform that the relay serves. A platform with
-/// no transport takes no registration.
+/// The transport of each platform that the relay serves. A platform, or
+/// an APNs environment of `ios`, with no transport takes no
+/// registration.
 #[derive(Clone, Default)]
 pub struct Transports {
-    ios: Option<Arc<dyn Transport>>,
+    ios_production: Option<Arc<dyn Transport>>,
+    ios_sandbox: Option<Arc<dyn Transport>>,
     android: Option<Arc<dyn Transport>>,
 }
 
 impl Transports {
-    /// Serve the `ios` platform, in both APNs environments.
-    pub fn with_ios(mut self, transport: Arc<dyn Transport>) -> Self {
-        self.ios = Some(transport);
+    /// Serve the `ios` platform in the APNs `environment`.
+    pub fn with_ios(mut self, environment: Environment, transport: Arc<dyn Transport>) -> Self {
+        match environment {
+            Environment::Production => self.ios_production = Some(transport),
+            Environment::Sandbox => self.ios_sandbox = Some(transport),
+        }
         self
     }
 
@@ -103,7 +108,8 @@ impl Transports {
 
     pub(crate) fn of(&self, platform: Platform) -> Option<&dyn Transport> {
         let transport = match platform {
-            Platform::Ios(_) => &self.ios,
+            Platform::Ios(Environment::Production) => &self.ios_production,
+            Platform::Ios(Environment::Sandbox) => &self.ios_sandbox,
             Platform::Android => &self.android,
         };
         transport.as_deref()

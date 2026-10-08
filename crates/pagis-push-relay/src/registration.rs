@@ -73,8 +73,7 @@ impl Platform {
 
     pub(crate) fn environment(self) -> Option<&'static str> {
         match self {
-            Self::Ios(Environment::Production) => Some("production"),
-            Self::Ios(Environment::Sandbox) => Some("sandbox"),
+            Self::Ios(environment) => Some(environment.as_str()),
             Self::Android => None,
         }
     }
@@ -96,6 +95,16 @@ impl Platform {
 pub enum Environment {
     Production,
     Sandbox,
+}
+
+impl Environment {
+    /// The value of the field `environment` of a registration.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Production => "production",
+            Self::Sandbox => "sandbox",
+        }
+    }
 }
 
 /// The device token that APNs or FCM gives the app: 1 to 4096

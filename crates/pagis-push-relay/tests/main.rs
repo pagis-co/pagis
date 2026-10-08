@@ -16,7 +16,8 @@ use std::time::{Duration, SystemTime};
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use pagis_push_relay::{
-    Clock, Delivery, Message, PublicOrigin, Registration, Transport, Transports, TrustedProxy,
+    Clock, Delivery, Environment, Message, PublicOrigin, Registration, Transport, Transports,
+    TrustedProxy,
 };
 use reqwest::StatusCode;
 use serde_json::{Value, json};
@@ -102,6 +103,7 @@ impl Clock for TestClock {
 enum Serves {
     Both,
     IosOnly,
+    IosProductionOnly,
 }
 
 /// A relay that serves on a loopback port, and the pool behind it. Its
@@ -131,11 +133,15 @@ impl Relay {
         let origin = format!("http://{address}");
         let public_origin = PublicOrigin::parse(&origin).expect("the loopback origin");
         let transport = FakeTransport::new();
+        let ios = Transports::default()
+            .with_ios(Environment::Production, transport.clone())
+            .with_ios(Environment::Sandbox, transport.clone());
         let transports = match serves {
-            Serves::Both => Transports::default()
-                .with_ios(transport.clone())
-                .with_android(transport.clone()),
-            Serves::IosOnly => Transports::default().with_ios(transport.clone()),
+            Serves::Both => ios.with_android(transport.clone()),
+            Serves::IosOnly => ios,
+            Serves::IosProductionOnly => {
+                Transports::default().with_ios(Environment::Production, transport.clone())
+            }
         };
         let clock = Arc::new(TestClock::default());
         let router = pagis_push_relay::router(
@@ -531,6 +537,25 @@ async fn a_platform_with_no_transport_answers_unprocessable_and_names_the_platfo
     assert_eq!(rows, 1, "the refused registration is not kept");
 }
 
+#[tokio::test]
+async fn an_apns_environment_with_no_transport_answers_unprocessable_and_names_it() {
+    let relay = Relay::start_serving(TrustedProxy::none(), Serves::IosProductionOnly).await;
+
+    let message = refusal(&relay, ios_body()).await;
+    let production = relay
+        .register(with(ios_body(), "environment", json!("production")))
+        .await;
+
+    assert!(message.contains("ios"), "{message}");
+    assert!(message.contains("sandbox"), "{message}");
+    assert_eq!(production.status(), StatusCode::CREATED);
+    let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM registrations")
+        .fetch_one(&relay.pool)
+        .await
+        .expect("count the registrations");
+    assert_eq!(rows, 1, "the refused registration is not kept");
+}
+
 const PROXY: IpAddr = IpAddr::V4(std::net::Ipv4Addr::LOCALHOST);
 
 #[tokio::test]
@@ -697,11 +722,11 @@ fn relay_command(directory: &std::path::Path, extra: &[(&str, &str)]) -> Command
     command
 }
 
-/// The four APNs variables, with the key in `key_path`.
-fn apns_variables(key_path: &str) -> [(&'static str, &str); 4] {
+/// The APNs variables of a sandbox key only, with the key in `key_path`.
+fn apns_sandbox_variables(key_path: &str) -> [(&'static str, &str); 4] {
     [
-        ("PUSH_RELAY_APNS_KEY_PATH", key_path),
-        ("PUSH_RELAY_APNS_KEY_ID", "ABC123DEFG"),
+        ("PUSH_RELAY_APNS_SANDBOX_KEY_PATH", key_path),
+        ("PUSH_RELAY_APNS_SANDBOX_KEY_ID", "SBX123DEFG"),
         ("PUSH_RELAY_APNS_TEAM_ID", "DEF123GHIJ"),
         ("PUSH_RELAY_APNS_TOPIC", "co.pagis.mobile"),
     ]
@@ -710,16 +735,26 @@ fn apns_variables(key_path: &str) -> [(&'static str, &str); 4] {
 #[test]
 fn a_partial_apns_setting_stops_the_binary_and_names_the_missing_variable() {
     let directory = tempfile::tempdir().expect("a temporary directory");
-    let all = apns_variables("/run/secrets/apns.p8");
-    let partial = [all[0], all[1], all[3]];
+    let all = apns_sandbox_variables("/run/secrets/apns-sandbox-key");
+    let no_team = [all[0], all[1], all[3]];
+    let half_pair = [all[0], all[2], all[3]];
 
-    let output = relay_command(directory.path(), &partial)
+    let no_team = relay_command(directory.path(), &no_team)
+        .output()
+        .expect("the relay runs");
+    let half_pair = relay_command(directory.path(), &half_pair)
         .output()
         .expect("the relay runs");
 
-    assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!no_team.status.success());
+    let stderr = String::from_utf8_lossy(&no_team.stderr);
     assert!(stderr.contains("PUSH_RELAY_APNS_TEAM_ID"), "{stderr}");
+    assert!(!half_pair.status.success());
+    let stderr = String::from_utf8_lossy(&half_pair.stderr);
+    assert!(
+        stderr.contains("PUSH_RELAY_APNS_SANDBOX_KEY_ID"),
+        "{stderr}"
+    );
     assert!(!directory.path().join("relay.sqlite").exists());
 }
 
@@ -730,19 +765,22 @@ fn an_apns_key_that_does_not_parse_stops_the_binary() {
     std::fs::write(&key_path, "this is not a PEM key").expect("write the file");
     let key_path = key_path.to_str().expect("a UTF-8 path");
 
-    let output = relay_command(directory.path(), &apns_variables(key_path))
+    let output = relay_command(directory.path(), &apns_sandbox_variables(key_path))
         .output()
         .expect("the relay runs");
 
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("PUSH_RELAY_APNS_KEY_PATH"), "{stderr}");
+    assert!(
+        stderr.contains("PUSH_RELAY_APNS_SANDBOX_KEY_PATH"),
+        "{stderr}"
+    );
     assert!(stderr.contains(key_path), "{stderr}");
     assert!(!directory.path().join("relay.sqlite").exists());
 }
 
 #[tokio::test]
-async fn the_binary_with_an_apns_key_serves_ios_and_no_other_platform() {
+async fn the_binary_with_a_sandbox_key_serves_ios_sandbox_and_no_other_registration() {
     use p256::pkcs8::{EncodePrivateKey, LineEnding};
 
     let directory = tempfile::tempdir().expect("a temporary directory");
@@ -752,7 +790,7 @@ async fn the_binary_with_an_apns_key_serves_ios_and_no_other_platform() {
     std::fs::write(&key_path, pem.as_bytes()).expect("write the key");
     let mut child = relay_command(
         directory.path(),
-        &apns_variables(key_path.to_str().expect("a UTF-8 path")),
+        &apns_sandbox_variables(key_path.to_str().expect("a UTF-8 path")),
     )
     .stdout(Stdio::piped())
     .stderr(Stdio::null())
@@ -768,14 +806,19 @@ async fn the_binary_with_an_apns_key_serves_ios_and_no_other_platform() {
             .send()
     };
 
-    let ios = register(ios_body()).await;
+    let sandbox = register(ios_body()).await;
+    let production = register(with(ios_body(), "environment", json!("production"))).await;
     let android = register(android_body()).await;
 
     let _ = child.kill();
     let _ = child.wait();
     assert_eq!(
-        ios.expect("the relay answers").status(),
+        sandbox.expect("the relay answers").status(),
         StatusCode::CREATED
+    );
+    assert_eq!(
+        production.expect("the relay answers").status(),
+        StatusCode::UNPROCESSABLE_ENTITY
     );
     assert_eq!(
         android.expect("the relay answers").status(),

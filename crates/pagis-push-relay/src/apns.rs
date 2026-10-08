@@ -2,7 +2,9 @@
 //! each push.
 //!
 //! The relay connects to APNs with a provider token: an ES256 JWT that it
-//! signs with the `.p8` key of the project. The client is `reqwest` and
+//! signs with the `.p8` key of the APNs environment of the registration.
+//! Each environment has its own key, as Apple scopes a key for both
+//! environments to the whole team. The client is `reqwest` and
 //! `p256`. `apns-h2` is not used, because it needs `aws-lc-rs` or OpenSSL
 //! and the workspace uses ring.
 
@@ -21,7 +23,7 @@ use serde_json::{Value, json};
 
 use crate::clock::Clock;
 use crate::registration::{Environment, Platform};
-use crate::settings::ApnsSettings;
+use crate::settings::{ApnsKey, ApnsSettings, apns_key_path_variable};
 use crate::transport::{Delivery, Message, Registration, Transport, Urgency, error_chain};
 
 /// How long the transport keeps one provider token. APNs refuses a token
@@ -66,17 +68,21 @@ impl ApnsBaseUrls {
 /// variable and the file, and never holds the key.
 #[derive(Debug, thiserror::Error)]
 pub enum ApnsError {
-    #[error("PUSH_RELAY_APNS_KEY_PATH names {}, which cannot be read", .path.display())]
+    #[error("{variable} names {}, which cannot be read", .path.display())]
     Read {
+        variable: &'static str,
         path: PathBuf,
         source: std::io::Error,
     },
     #[error(
-        "PUSH_RELAY_APNS_KEY_PATH names {}, which is not an APNs key: the .p8 file, \
-         a P-256 private key in PKCS#8 PEM",
+        "{variable} names {}, which is not an APNs key: the .p8 file, a P-256 \
+         private key in PKCS#8 PEM",
         .path.display()
     )]
-    Key { path: PathBuf },
+    Key {
+        variable: &'static str,
+        path: PathBuf,
+    },
     #[error("build the APNs client: {0}")]
     Client(#[from] reqwest::Error),
 }
@@ -87,48 +93,27 @@ struct Kept {
     made_at: SystemTime,
 }
 
-/// The client of APNs for the Mobile App of one topic.
-pub struct ApnsTransport {
-    client: reqwest::Client,
-    base_urls: ApnsBaseUrls,
+/// The key of one APNs environment and the provider token that it
+/// signed last.
+struct TokenSigner {
     key: SigningKey,
     key_id: String,
-    team_id: String,
-    topic: String,
     kept: Mutex<Option<Kept>>,
-    clock: Arc<dyn Clock>,
 }
 
-impl ApnsTransport {
-    /// Read the key of `settings` and make a transport that sends to
-    /// `base_urls` and reads the time from `clock`.
-    pub fn new(
-        settings: &ApnsSettings,
-        base_urls: ApnsBaseUrls,
-        clock: Arc<dyn Clock>,
-    ) -> Result<Self, ApnsError> {
-        let key = read_key(&settings.key_path)?;
-        let client = reqwest::Client::builder()
-            .http2_prior_knowledge()
-            .timeout(REQUEST_TIMEOUT)
-            .redirect(reqwest::redirect::Policy::none())
-            .build()?;
+impl TokenSigner {
+    fn read(environment: Environment, key: &ApnsKey) -> Result<Self, ApnsError> {
         Ok(Self {
-            client,
-            base_urls,
-            key,
-            key_id: settings.key_id.clone(),
-            team_id: settings.team_id.clone(),
-            topic: settings.topic.clone(),
+            key: read_key(apns_key_path_variable(environment), &key.path)?,
+            key_id: key.id.clone(),
             kept: Mutex::new(None),
-            clock,
         })
     }
 
     /// The kept provider token, or a new one when it is older than
     /// [`TOKEN_LIFETIME`]. The lock covers the signature, so concurrent
     /// pushes make one token and not one each.
-    fn provider_token(&self, now: SystemTime) -> String {
+    fn provider_token(&self, team_id: &str, now: SystemTime) -> String {
         let mut kept = self.kept.lock().unwrap_or_else(PoisonError::into_inner);
         match &*kept {
             // A clock that went back gives no age, and the token stays.
@@ -138,7 +123,7 @@ impl ApnsTransport {
                 token.token.clone()
             }
             _ => {
-                let token = provider_token(&self.key, &self.key_id, &self.team_id, now);
+                let token = provider_token(&self.key, &self.key_id, team_id, now);
                 *kept = Some(Kept {
                     token: token.clone(),
                     made_at: now,
@@ -158,14 +143,79 @@ impl ApnsTransport {
     }
 }
 
+/// The client of APNs for the Mobile App of one topic, with a key for
+/// each APNs environment that it serves.
+pub struct ApnsTransport {
+    client: reqwest::Client,
+    base_urls: ApnsBaseUrls,
+    team_id: String,
+    topic: String,
+    production: Option<TokenSigner>,
+    sandbox: Option<TokenSigner>,
+    clock: Arc<dyn Clock>,
+}
+
+impl ApnsTransport {
+    /// Read the key of each environment of `settings` and make a transport
+    /// that sends to `base_urls` and reads the time from `clock`.
+    pub fn new(
+        settings: &ApnsSettings,
+        base_urls: ApnsBaseUrls,
+        clock: Arc<dyn Clock>,
+    ) -> Result<Self, ApnsError> {
+        let signer = |environment, key: &Option<ApnsKey>| {
+            key.as_ref()
+                .map(|key| TokenSigner::read(environment, key))
+                .transpose()
+        };
+        let production = signer(Environment::Production, &settings.production)?;
+        let sandbox = signer(Environment::Sandbox, &settings.sandbox)?;
+        let client = reqwest::Client::builder()
+            .http2_prior_knowledge()
+            .timeout(REQUEST_TIMEOUT)
+            .redirect(reqwest::redirect::Policy::none())
+            .build()?;
+        Ok(Self {
+            client,
+            base_urls,
+            team_id: settings.team_id.clone(),
+            topic: settings.topic.clone(),
+            production,
+            sandbox,
+            clock,
+        })
+    }
+
+    /// The APNs environments that the transport holds a key for.
+    pub fn environments(&self) -> Vec<Environment> {
+        [Environment::Production, Environment::Sandbox]
+            .into_iter()
+            .filter(|environment| self.signer(*environment).is_some())
+            .collect()
+    }
+
+    fn signer(&self, environment: Environment) -> Option<&TokenSigner> {
+        match environment {
+            Environment::Production => self.production.as_ref(),
+            Environment::Sandbox => self.sandbox.as_ref(),
+        }
+    }
+}
+
 #[async_trait]
 impl Transport for ApnsTransport {
     async fn send(&self, registration: &Registration, message: &Message) -> Delivery {
         let Platform::Ios(environment) = registration.platform else {
             return Delivery::Failed("APNs serves only platform ios".to_string());
         };
+        let Some(signer) = self.signer(environment) else {
+            return Delivery::Failed(format!(
+                "the relay holds no APNs key for the environment {}",
+                environment.as_str()
+            ));
+        };
         let now = self.clock.now();
-        let token = self.provider_token(now);
+        let token = signer.provider_token(&self.team_id, now);
         let request = request(&registration.token, &self.topic, &token, message, now);
         let mut builder = self
             .client
@@ -192,7 +242,7 @@ impl Transport for ApnsTransport {
         let body = response.bytes().await.unwrap_or_default();
         let reason = reason(&body);
         if is_refused_provider_token(status, reason.as_deref()) {
-            self.drop_provider_token(&token);
+            signer.drop_provider_token(&token);
         }
         let delivery = delivery(status, reason.as_deref());
         if delivery == Delivery::Gone {
@@ -206,12 +256,14 @@ impl Transport for ApnsTransport {
     }
 }
 
-fn read_key(path: &Path) -> Result<SigningKey, ApnsError> {
+fn read_key(variable: &'static str, path: &Path) -> Result<SigningKey, ApnsError> {
     let pem = std::fs::read_to_string(path).map_err(|source| ApnsError::Read {
+        variable,
         path: path.to_path_buf(),
         source,
     })?;
     SigningKey::from_pkcs8_pem(&pem).map_err(|_| ApnsError::Key {
+        variable,
         path: path.to_path_buf(),
     })
 }
