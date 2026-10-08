@@ -1,7 +1,8 @@
 // The Access section of an Agent profile: what this Agent may
-// reach. One card per Connection with its named capabilities,
-// the host and Vault rules (ADR-0022), and the Software List
-// that every Agent reads.
+// reach. One card per Connection with its named capabilities, the
+// widest Session Approval Mode on each computer (ADR-0033), the host
+// and Vault rules (ADR-0022), and the Software List that every Agent
+// reads.
 
 import { useState } from 'react'
 
@@ -21,6 +22,7 @@ import {
   CONNECTION_CAPABILITIES,
 } from '../ConnectionCapabilities'
 import { GrantRow } from '../GrantsSettings'
+import { CodingSessionAccess } from './CodingSessionAccess'
 import type { GrantDto, HostDto } from '../../api/client'
 
 import '../agent.css'
@@ -147,6 +149,7 @@ export function AgentAccess({ api, agent }: { api: ApiClient; agent: AgentDto })
           </div>
         )
       })}
+      <CodingSessionAccess api={api} agent={agent} />
       {(grants.data ?? [])
         .filter(
           (grant) =>

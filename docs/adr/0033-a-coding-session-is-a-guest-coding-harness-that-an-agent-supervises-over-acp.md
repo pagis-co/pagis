@@ -313,8 +313,10 @@ and a revoked Grant, read as `person`. A change is a Grant revision, and it
 withholds no message, because only a Connection Grant is stamped. The Agent
 picks a mode for each session within it.
 
-The Person sets the widest mode for an Agent and a machine, with
-`PUT /api/v1/agents/{agent_id}/hosts/{host_id}/session-approval-mode`. When the
+The Person sets the widest mode for an Agent and a machine on the Access tab
+of the Agent, with
+`PUT /api/v1/agents/{agent_id}/hosts/{host_id}/session-approval-mode`. The tab
+shows each machine of the Person that declares a `harness:` capability. When the
 Agent holds no live host Grant on that machine, the write makes one with no
 Allow Rules. That Grant is the Person's own act, as a Connection Grant is, and
 it makes the machine a host candidate of the Agent (ADR-0015).
@@ -441,6 +443,5 @@ Other ways were considered:
 - The session page.
 - The diffs on the session page.
 - The Coding place.
-- The mode setting in the Access tab.
 - Harness Sign-In in Settings.
 - The Computer place.

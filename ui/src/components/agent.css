@@ -44,6 +44,19 @@
   padding-top: var(--space-3);
 }
 
+/* One computer of the Coding sessions section: its name, the mode and
+   what the mode does. */
+.coding-session-access-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1-5);
+}
+
+.coding-session-access-row p {
+  margin: 0;
+}
+
 .agent-form-actions {
   display: flex;
   gap: var(--space-1-5);
