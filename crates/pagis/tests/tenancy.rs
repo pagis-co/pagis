@@ -420,3 +420,44 @@ async fn person_b_cannot_read_or_delete_person_as_push_subscription() {
         vec![a_subscription]
     );
 }
+
+/// The sweep sends an empty body, which the extractor refuses before the
+/// handler reads a record. With a valid mode, person B still reaches
+/// neither person A's Agent nor A's Host, and A's host Grant keeps its
+/// mode.
+#[tokio::test]
+async fn person_b_cannot_set_the_session_approval_mode_of_person_as_agent() {
+    let world = TwoTenants::start().await;
+    let agent_id = world.a_id("agent_id").to_string();
+    let host_id = world.a_id("host_id").to_string();
+
+    let as_b = reqwest::Client::new()
+        .put(format!(
+            "{}/api/v1/agents/{agent_id}/hosts/{host_id}/session-approval-mode",
+            world.daemon.base_url
+        ))
+        .header("cookie", &world.b.cookie)
+        .json(&serde_json::json!({ "mode": "auto" }))
+        .send()
+        .await
+        .expect("PUT as B");
+    assert_eq!(as_b.status(), 404);
+
+    let grants: serde_json::Value = reqwest::Client::new()
+        .get(format!("{}/api/v1/grants", world.daemon.base_url))
+        .header("cookie", &world.a.cookie)
+        .send()
+        .await
+        .expect("GET as A")
+        .json()
+        .await
+        .expect("the grants");
+    let host_grant = grants["items"]
+        .as_array()
+        .expect("the items")
+        .iter()
+        .find(|grant| grant["resource_id"] == host_id.as_str())
+        .expect("A's host grant");
+    assert_eq!(host_grant["session_approval_mode"], "person");
+    assert_eq!(host_grant["revision"], 1);
+}

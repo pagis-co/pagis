@@ -752,6 +752,11 @@ pub const ROUTES: &[Route] = &[
         authenticated: true,
     },
     Route {
+        path: "/api/v1/agents/{agent_id}/hosts/{host_id}/session-approval-mode",
+        methods: &["put"],
+        authenticated: true,
+    },
+    Route {
         path: "/api/v1/user",
         methods: &["get"],
         authenticated: true,

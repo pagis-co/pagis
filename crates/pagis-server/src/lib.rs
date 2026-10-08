@@ -608,6 +608,10 @@ fn product_router(state: Arc<AppState>) -> Router {
             put(grants::set_grant_capabilities),
         )
         .route("/api/v1/grants/{grant_id}", delete(grants::revoke_grant))
+        .route(
+            "/api/v1/agents/{agent_id}/hosts/{host_id}/session-approval-mode",
+            put(grants::set_session_approval_mode),
+        )
         .route("/api/v1/user", get(user::get_user))
         .route("/api/v1/workspace", get(workspace::get_workspace))
         .route(

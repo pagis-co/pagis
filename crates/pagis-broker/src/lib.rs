@@ -7,6 +7,7 @@ pub mod host_sessions;
 pub mod hosts;
 mod mail;
 pub mod rules;
+mod session_approval;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::{Arc, Mutex, RwLock};
@@ -42,6 +43,7 @@ pub use mail::{
     validate_arguments,
 };
 pub use rules::{MAX_PROPOSED_RULES, command_allowed, derive_rules, runs_other_programs};
+pub use session_approval::widest_session_approval_mode;
 
 pub const HOST_SHELL: &str = "host_shell";
 /// The Computer shell tool: one command inside the
