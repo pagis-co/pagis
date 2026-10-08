@@ -623,6 +623,27 @@ async fn an_agent_starts_a_coding_session_on_a_host_after_the_person_approves_it
     assert_eq!(items[0]["resource_id"], host.host_id());
 }
 
+/// Person B's Agent, in a DM with B, on the model aliases of B's
+/// Workspace. It answers the DM.
+async fn person_bs_agent(tenants: &TwoTenants) -> ChannelId {
+    let stores = tenants.daemon.stores();
+    pagis_server::provisioning::WorkspaceSeed::from(stores)
+        .ensure_aliases(&tenants.b.workspace_id)
+        .await
+        .unwrap();
+    let agent = fixture::agent(&tenants.b.workspace_id);
+    stores.agents.create(&agent).await.unwrap();
+    let channel = fixture::channel(&tenants.b.workspace_id);
+    stores.channels.create(&channel).await.unwrap();
+    for participant in [
+        fixture::agent_participant(&tenants.b.workspace_id, &channel.id, &agent.id),
+        fixture::user_participant(&tenants.b.workspace_id, &channel.id),
+    ] {
+        stores.participants.create(&participant).await.unwrap();
+    }
+    channel.id
+}
+
 /// Person B's Agent names person A's machine. The Host read names B's
 /// Workspace, so A's machine is no candidate, and the answer names B's
 /// own machines. Nothing reaches A's machine, and B is asked nothing.
@@ -660,29 +681,14 @@ async fn person_bs_agent_that_names_person_as_machine_gets_machine_not_found() {
         HostAnswer::ok(),
     )
     .await;
-    // Person B's Agent, in a DM with B, on the model aliases of B's
-    // Workspace.
+    let channel_id = person_bs_agent(&tenants).await;
     let stores = daemon.stores();
-    pagis_server::provisioning::WorkspaceSeed::from(stores)
-        .ensure_aliases(&tenants.b.workspace_id)
-        .await
-        .unwrap();
-    let agent = fixture::agent(&tenants.b.workspace_id);
-    stores.agents.create(&agent).await.unwrap();
-    let channel = fixture::channel(&tenants.b.workspace_id);
-    stores.channels.create(&channel).await.unwrap();
-    for participant in [
-        fixture::agent_participant(&tenants.b.workspace_id, &channel.id, &agent.id),
-        fixture::user_participant(&tenants.b.workspace_id, &channel.id),
-    ] {
-        stores.participants.create(&participant).await.unwrap();
-    }
     let mut firehose = daemon.event_socket(&tenants.b.cookie).await;
 
     send(
         daemon,
         &tenants.b.cookie,
-        channel.id.as_str(),
+        channel_id.as_str(),
         "fix it on Air",
     )
     .await;
@@ -1350,4 +1356,170 @@ async fn an_always_approve_of_a_start_lets_a_later_start_under_its_directory_run
         .unwrap();
     assert!(pending.is_empty(), "{pending:?}");
     assert_eq!(started.harnesses.lock().unwrap().len(), 2);
+}
+
+/// The error code of the last call of `tool` in the audit log of a
+/// Workspace.
+async fn error_code_of(
+    daemon: &TestDaemon,
+    workspace_id: &pagis_core::WorkspaceId,
+    tool: &str,
+) -> Value {
+    daemon
+        .stores()
+        .events
+        .list_by_types(workspace_id, &["tool.completed"], None, 20)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|event| event.payload["name"] == tool)
+        .unwrap_or_else(|| panic!("{tool} is in the audit log"))
+        .payload["error_code"]
+        .clone()
+}
+
+/// Sends the Person's `text` and answers the tool result that the model
+/// read in the Run that it starts.
+async fn tool_result_after(started: &Started, text: &str) -> String {
+    let daemon = &started.daemon;
+    let mut firehose = daemon.event_socket(daemon.cookie()).await;
+    send(daemon, daemon.cookie(), &daemon.dm_channel_id, text).await;
+    the_tool_result(&mut firehose, &started.brain).await
+}
+
+/// One call of `tool` on the started session, then a reply.
+fn session_call(started: &Started, tool: &str, mut arguments: Value) {
+    arguments["session"] = started.session_id.as_str().into();
+    started
+        .brain
+        .push(pagis_testkit::Script::tool_call(&[], tool, arguments));
+    started.brain.push(pagis_testkit::Script::reply(&["Done."]));
+}
+
+impl Started {
+    /// Waits until the transcript holds `count` ends of a turn.
+    async fn wait_for_turn_ends(&self, count: usize) {
+        let deadline = tokio::time::Instant::now() + WAIT;
+        loop {
+            let ends = self
+                .daemon
+                .stores()
+                .coding_sessions
+                .list_events(&self.daemon.workspace_id, &self.session_id, None, 1_000)
+                .await
+                .unwrap()
+                .into_iter()
+                .filter(|row| row.kind == CodingSessionEventKind::TurnEnd)
+                .count();
+            if ends >= count {
+                return;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "{ends} ends of a turn, not {count}"
+            );
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }
+}
+
+/// The Agent sends a prompt while a turn runs, so the prompt waits. The
+/// first turn ends, the prompt starts the second, and a read after it
+/// ends holds the agent message of the harness inside the envelope of
+/// the session.
+#[tokio::test]
+async fn an_agent_sends_a_prompt_while_a_turn_runs_and_reads_the_message_after_it_ends() {
+    let waits = permission(acp::ToolKind::Execute, &[], Some("rm -rf /")).withdrawn();
+    let answer = acp::SessionUpdate::AgentMessageChunk(acp::ContentChunk::new(
+        acp::ContentBlock::Text(acp::TextContent::new("The login works now.")),
+    ));
+    let started = start_approved_session(
+        Script::default()
+            .turn(ends_after(waits))
+            .turn(Turn::new(vec![answer], acp::StopReason::EndTurn)),
+    )
+    .await;
+    started
+        .wait_for_state(CodingSessionState::NeedsDecision)
+        .await;
+
+    session_call(
+        &started,
+        "coding_session_send",
+        json!({"prompt": "Add a test."}),
+    );
+    let sent = tool_result_after(&started, "add a test").await;
+
+    assert_eq!(sent, "A turn runs. Your prompt goes when it ends.");
+    started.harness().withdraw_ask();
+    started.wait_for_turn_ends(2).await;
+    started.wait_for_state(CodingSessionState::Idle).await;
+    let prompts = started.harness().params("session/prompt");
+    assert_eq!(prompts.len(), 2);
+    assert!(
+        prompts[1].to_string().contains("Add a test."),
+        "{prompts:?}"
+    );
+
+    session_call(&started, "coding_session_read", json!({}));
+    let read = tool_result_after(&started, "how is it going").await;
+
+    let read: Value = serde_json::from_str(&read)
+        .unwrap_or_else(|error| panic!("the tool result is JSON ({error}): {read}"));
+    assert_eq!(read["state"], "idle");
+    assert_eq!(read["machine"], "Air");
+    let output = read["harness_output"].as_str().unwrap();
+    let begin = format!(
+        "[BEGIN UNTRUSTED source=coding_session:{}]",
+        started.session_id
+    );
+    assert!(output.starts_with(&begin), "{output}");
+    assert!(output.contains("The login works now."), "{output}");
+}
+
+/// Person B's Agent names the id of person A's session. The read names
+/// B's Workspace, so the session reads as absent.
+#[tokio::test]
+async fn person_bs_agent_that_reads_person_as_session_gets_session_not_found() {
+    let brain = Arc::new(ScriptedBrain::default());
+    let tenants = TwoTenants::on(daemon_with(&brain).await).await;
+    let daemon = &tenants.daemon;
+    let a_session = tenants.a_id("coding_session_id").to_string();
+    brain.push(pagis_testkit::Script::tool_call(
+        &[],
+        "coding_session_read",
+        json!({ "session": a_session }),
+    ));
+    brain.push(pagis_testkit::Script::reply(&["No such session."]));
+    // B's machine declares a harness, so B's Agent holds the tool.
+    daemon
+        .stores()
+        .hosts
+        .register(
+            &tenants.b.workspace_id,
+            "Mini",
+            "macos",
+            &["harness:claude".to_string()],
+            now_ms(),
+        )
+        .await
+        .unwrap();
+    let channel_id = person_bs_agent(&tenants).await;
+    let mut firehose = daemon.event_socket(&tenants.b.cookie).await;
+
+    send(
+        daemon,
+        &tenants.b.cookie,
+        channel_id.as_str(),
+        "read that session",
+    )
+    .await;
+
+    let result = the_tool_result(&mut firehose, &brain).await;
+    assert!(result.contains("session_not_found"), "{result}");
+    assert!(!result.contains("Fix the failing test"), "{result}");
+    assert_eq!(
+        error_code_of(daemon, &tenants.b.workspace_id, "coding_session_read").await,
+        "session_not_found"
+    );
 }

@@ -383,17 +383,76 @@ impl CodingSessions {
     /// Cancels the turn that runs, closes the stream and moves the
     /// session to `closed` with the end reason of `reason`. The Client
     /// App stops the process when its stream closes.
+    ///
+    /// A session with no task, such as an `interrupted` one, has no
+    /// stream, so it moves to `closed` at once. A `starting` session is
+    /// the exception: its start runs and writes the record, so it does
+    /// not close until its task runs.
     pub async fn close(
         &self,
         workspace_id: &WorkspaceId,
         session_id: &CodingSessionId,
         reason: CloseReason,
     ) -> Result<(), SessionError> {
-        self.command(workspace_id, session_id, |reply| Command::Close {
-            reason,
-            reply,
-        })
-        .await
+        let closed = self
+            .command(workspace_id, session_id, |reply| Command::Close {
+                reason,
+                reply,
+            })
+            .await;
+        match closed {
+            Err(SessionError::NotOpen(state))
+                if !state.is_terminal() && state != State::Starting =>
+            {
+                self.close_record(workspace_id, session_id, reason).await
+            }
+            other => other,
+        }
+    }
+
+    /// Closes a session that has no task, from its record. The close is
+    /// the end of the session, so it goes to the Session Rule, which then
+    /// ends, as the close of a session with a task does.
+    async fn close_record(
+        &self,
+        workspace_id: &WorkspaceId,
+        session_id: &CodingSessionId,
+        reason: CloseReason,
+    ) -> Result<(), SessionError> {
+        let mut record = self
+            .records
+            .store
+            .get(workspace_id, session_id)
+            .await?
+            .ok_or(SessionError::NotFound)?;
+        if record.state.is_terminal() || record.state == State::Starting {
+            return Err(SessionError::NotOpen(record.state));
+        }
+        let end = End::new(reason.as_str(), None);
+        self.records
+            .transition(&mut record, State::Closed, Some(end))
+            .await?;
+        let machine = self.machine(&record).await;
+        self.records
+            .raise(&record, &machine, SessionNews::Ended)
+            .await;
+        self.records.end_rules(&record).await;
+        Ok(())
+    }
+
+    /// The name of the Host of a session, which its news names. A Host
+    /// that cannot be read leaves the name empty: the news goes on.
+    async fn machine(&self, record: &CodingSession) -> String {
+        let Some(host_id) = &record.host_id else {
+            return String::new();
+        };
+        match self.hosts.get(&record.workspace_id, host_id).await {
+            Ok(host) => host.map(|host| host.name).unwrap_or_default(),
+            Err(error) => {
+                tracing::warn!(session = %record.id, %error, "the Host of a closed Coding Session was not read");
+                String::new()
+            }
+        }
     }
 
     /// The session of one Workspace. A session of another Workspace reads

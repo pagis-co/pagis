@@ -1044,8 +1044,10 @@ shows it. It is not a Run. On a Host it runs over the **session socket**, a
 WebSocket of the Client App that carries one stream for each Coding Session.
 An Agent starts it on a Host with `coding_session_start`, after the Person
 approves the card or under a session Allow Rule of the host Grant, and the
-daemon stores its record and its transcript. Not
-built: a session in the Agent's Computer (ADR-0033).
+daemon stores its record and its transcript. The Agent then prompts,
+reads, cancels, closes and lists its own sessions with core tools, and a
+session of another Agent reads as absent. Not built: a session in the
+Agent's Computer (ADR-0033).
 _Avoid_: harness session
 
 ### Harness Catalog
