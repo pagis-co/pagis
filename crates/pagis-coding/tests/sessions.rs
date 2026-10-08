@@ -309,15 +309,25 @@ impl World {
     /// Waits until the transcript holds a row of `kind`, and answers the
     /// transcript.
     async fn wait_for_row(&self, id: &CodingSessionId, kind: Kind) -> Vec<CodingSessionEvent> {
+        self.wait_for_rows(id, kind, 1).await
+    }
+
+    /// Waits until the transcript holds `count` rows of `kind`.
+    async fn wait_for_rows(
+        &self,
+        id: &CodingSessionId,
+        kind: Kind,
+        count: usize,
+    ) -> Vec<CodingSessionEvent> {
         let deadline = tokio::time::Instant::now() + WAIT;
         loop {
             let rows = self.rows(id).await;
-            if rows.iter().any(|row| row.kind == kind) {
+            if rows.iter().filter(|row| row.kind == kind).count() >= count {
                 return rows;
             }
             assert!(
                 tokio::time::Instant::now() < deadline,
-                "no {kind:?} row in {:?}",
+                "fewer than {count} {kind:?} rows in {:?}",
                 kinds(&rows)
             );
             tokio::time::sleep(Duration::from_millis(10)).await;
@@ -788,7 +798,10 @@ async fn two_prompts_sent_while_a_turn_runs_go_as_one_prompt_when_the_turn_ends(
         assert_eq!(outcome, PromptOutcome::Queued);
     }
     gate.notify_one();
-    world.wait_for_row(&session.id, Kind::TurnEnd).await;
+    // The queued prompts start a second turn when the first ends, so the
+    // session is idle for a moment between the two turns. Wait for the
+    // end of the second turn.
+    world.wait_for_rows(&session.id, Kind::TurnEnd, 2).await;
     world.wait_for_state(&session.id, State::Idle).await;
 
     assert_eq!(
