@@ -132,6 +132,53 @@ fn every_example_setting_reaches_the_relay() {
     }
 }
 
+/// Each setting that the relay reads from `.env` is in `.env.example`, so
+/// an operator who fills in the example sets each of them.
+#[test]
+fn every_setting_of_the_relay_is_in_the_example() {
+    let relay = compose_config()["services"]["relay"].to_string();
+    let settings = example_settings();
+
+    let read: Vec<&str> = relay
+        .split("${")
+        .skip(1)
+        .map(|rest| rest.split([':', '}']).next().expect("a name after ${"))
+        .collect();
+
+    assert!(!read.is_empty());
+    for name in read {
+        assert!(
+            settings.iter().any(|setting| setting == name),
+            "the relay of deploy/push-relay/compose.yaml reads {name}, and \
+             .env.example does not set it"
+        );
+    }
+}
+
+/// The deployment serves both APNs environments, each with a key pair of
+/// its own.
+#[test]
+fn the_deployment_holds_a_key_pair_for_each_apns_environment() {
+    let config = example_config();
+    let environment = &config["services"]["relay"]["environment"];
+
+    for name in [
+        "PUSH_RELAY_APNS_PRODUCTION_KEY_PATH",
+        "PUSH_RELAY_APNS_PRODUCTION_KEY_ID",
+        "PUSH_RELAY_APNS_SANDBOX_KEY_PATH",
+        "PUSH_RELAY_APNS_SANDBOX_KEY_ID",
+        "PUSH_RELAY_APNS_TEAM_ID",
+        "PUSH_RELAY_APNS_TOPIC",
+    ] {
+        assert!(
+            environment[name]
+                .as_str()
+                .is_some_and(|value| !value.is_empty()),
+            "the relay of deploy/push-relay/compose.yaml sets no {name}: {environment}"
+        );
+    }
+}
+
 /// The relay believes `X-Forwarded-For` only from the address that
 /// `PUSH_RELAY_TRUSTED_PROXY` names. Caddy has that fixed address on the
 /// network of the deployment, so the registration limit counts the
@@ -178,8 +225,8 @@ fn the_relay_trusts_the_fixed_address_of_the_proxy() {
     );
 }
 
-/// The APNs key and the FCM credentials are Compose secrets, at the
-/// paths that the relay reads. Compose outside Swarm mounts a secret
+/// The APNs key of each environment and the FCM credentials are Compose
+/// secrets, at the paths that the relay reads. Compose outside Swarm mounts a secret
 /// read only and ignores `uid`, `gid` and `mode`, so the deployment
 /// states none of them.
 #[test]
@@ -202,7 +249,8 @@ fn the_keys_are_secrets_at_the_paths_that_the_relay_reads() {
         .collect();
 
     for variable in [
-        "PUSH_RELAY_APNS_KEY_PATH",
+        "PUSH_RELAY_APNS_PRODUCTION_KEY_PATH",
+        "PUSH_RELAY_APNS_SANDBOX_KEY_PATH",
         "PUSH_RELAY_FCM_CREDENTIALS_PATH",
     ] {
         let path = relay["environment"][variable]
@@ -215,6 +263,10 @@ fn the_keys_are_secrets_at_the_paths_that_the_relay_reads() {
             "{variable} is {path}, and the secrets are at {targets:?}"
         );
     }
+    let mut unique = targets.clone();
+    unique.sort_unstable();
+    unique.dedup();
+    assert_eq!(unique.len(), targets.len(), "each key is its own secret");
 }
 
 /// The SQLite file of the image is in its state directory, and the

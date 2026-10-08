@@ -368,8 +368,9 @@ and the endpoint `<origin>/v1/push/<id>`:
   `X-Forwarded-For` only from the proxy address that
   `PUSH_RELAY_TRUSTED_PROXY` names, by the rule of the daemon's Trusted
   Proxy.
-- The relay holds one transport for each platform that it serves. A
-  registration for a platform with no transport gets `422`.
+- The relay holds one transport for each platform, and for each APNs
+  environment of `ios`, that it serves. A registration for a platform or
+  an APNs environment with no transport gets `422`.
 
 A server posts a Web Push to `POST /v1/push/<id>`. The relay does these
 checks in this order:
@@ -426,24 +427,39 @@ The relay sends to APNs with its own small client on `reqwest`, with its
 release since 2024. The client is one request and one JWT, and the relay
 verifies ES256 with the same `p256` crate.
 
-The relay serves `ios` when these four variables are set:
+The relay holds one APNs key for each APNs environment. Each key is
+Topic Specific to the bundle id. Apple lets a key for both environments
+be Team Scoped only, and such a key that leaks from the internet-facing
+relay can send to each app of the team. These variables set the keys:
 
-- `PUSH_RELAY_APNS_KEY_PATH`: the `.p8` file of the APNs key;
-- `PUSH_RELAY_APNS_KEY_ID`;
-- `PUSH_RELAY_APNS_TEAM_ID`;
+- `PUSH_RELAY_APNS_PRODUCTION_KEY_PATH`: the `.p8` file of the key of
+  the production environment;
+- `PUSH_RELAY_APNS_PRODUCTION_KEY_ID`;
+- `PUSH_RELAY_APNS_SANDBOX_KEY_PATH`: the `.p8` file of the key of the
+  sandbox environment;
+- `PUSH_RELAY_APNS_SANDBOX_KEY_ID`;
+- `PUSH_RELAY_APNS_TEAM_ID`: the team of both keys;
 - `PUSH_RELAY_APNS_TOPIC`: the bundle id, `co.pagis.mobile` (ADR-0032).
 
-With none of them, the relay serves no `ios` registration. With some of
-them, the relay stops at start with a message that names each missing
-variable. A key file that is not a P-256 private key in PKCS#8 PEM also
-stops it.
+The relay serves `ios` in an environment when the key pair of that
+environment is set, with the team id and the topic. A relay serves the
+production environment, the sandbox environment, or both. A
+registration for an environment without a key gets `422`, as a
+registration for a platform that the relay does not serve does. With no
+APNs variable, the relay serves no `ios` registration. Half of a key
+pair, a key pair without the team id or the topic, or a team id or a
+topic without a key pair stops the relay at start with a message that
+names the variables. A key file that is not a P-256 private key in
+PKCS#8 PEM also stops it.
 
 The provider token is an ES256 JWT with `alg` and `kid` (the key id) in
-its header, and `iss` (the team id) and `iat` in its claims. APNs refuses
-a token older than one hour, and a new token more often than once in 20
-minutes. So the relay keeps one token for 50 minutes and then makes a new
-one. After a `403` with `ExpiredProviderToken` or `InvalidProviderToken`,
-the relay drops the token, and the next push makes a new one.
+its header, and `iss` (the team id) and `iat` in its claims. The relay
+signs it with the key of the environment of the registration. APNs
+refuses a token older than one hour, and a new token more often than
+once in 20 minutes. So the relay keeps one token for each key for 50
+minutes and then makes a new one. After a `403` with
+`ExpiredProviderToken` or `InvalidProviderToken`, the relay drops the
+token of that key, and the next push makes a new one.
 
 Each push is one `POST /3/device/<device token>` over HTTP/2, to
 `https://api.push.apple.com` or `https://api.sandbox.push.apple.com`, as

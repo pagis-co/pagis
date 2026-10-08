@@ -7,8 +7,8 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use pagis_push_relay::{
-    ApnsBaseUrls, ApnsTransport, Clock, FCM_BASE_URL, FcmTransport, ServiceAccount, Settings,
-    SystemClock, Transports,
+    ApnsBaseUrls, ApnsTransport, Clock, Environment, FCM_BASE_URL, FcmTransport, ServiceAccount,
+    Settings, SystemClock, Transports,
 };
 use tokio::signal::unix::{SignalKind, signal};
 use tracing_subscriber::EnvFilter;
@@ -27,8 +27,22 @@ async fn main() -> anyhow::Result<()> {
     let mut transports = Transports::default();
     match &settings.apns {
         Some(apns) => {
-            let apns = ApnsTransport::new(apns, ApnsBaseUrls::apple(), clock.clone())?;
-            transports = transports.with_ios(Arc::new(apns));
+            let apns = Arc::new(ApnsTransport::new(
+                apns,
+                ApnsBaseUrls::apple(),
+                clock.clone(),
+            )?);
+            for environment in [Environment::Production, Environment::Sandbox] {
+                if apns.environments().contains(&environment) {
+                    transports = transports.with_ios(environment, apns.clone());
+                } else {
+                    tracing::info!(
+                        "no APNs key is set for the environment {}, so the relay serves \
+                         no ios registration in it",
+                        environment.as_str()
+                    );
+                }
+            }
         }
         None => tracing::info!(
             "no PUSH_RELAY_APNS_* variable is set, so the relay serves no ios registration"

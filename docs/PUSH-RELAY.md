@@ -13,14 +13,14 @@ Store or Google Play cannot get a Web Push in this way. APNs and FCM
 accept a push only with a key of the publisher of the app, and a
 self-hosted server does not hold that key.
 
-The Push Relay holds the APNs key and the FCM credentials of the
+The Push Relay holds the APNs keys and the FCM credentials of the
 publisher. An installation of the Mobile App registers with the relay
 and gets a Web Push endpoint. The server of the Person sends to that
 endpoint as it sends to the push service of a browser. The relay checks
 the push and forwards the ciphertext to APNs or FCM.
 
 The store apps use the relay that the project runs. A person who builds
-the Mobile App with their own APNs key and Firebase project deploys a
+the Mobile App with their own APNs keys and Firebase project deploys a
 relay of their own with this guide.
 
 A build of the Mobile App names its relay in the build constant
@@ -107,21 +107,40 @@ the variable.
 | `PUSH_RELAY_DATABASE` | Required. The path of the SQLite file. The relay makes the file and its tables when they are missing. | The image: `/var/lib/pagis-push-relay/relay.sqlite` |
 | `PUSH_RELAY_BIND` | The IP address and the port that the relay listens on. The default is `127.0.0.1:8080`. | The image: `0.0.0.0:8080` |
 | `PUSH_RELAY_TRUSTED_PROXY` | The IP address of the reverse proxy. The relay reads `X-Forwarded-For` only from this address. Without it, the relay believes no `X-Forwarded-For`. | `compose.yaml`: `10.231.0.2`, the address of Caddy |
-| `PUSH_RELAY_APNS_KEY_PATH` | The `.p8` file of the APNs key: a P-256 private key in PKCS#8 PEM. | The secret `apns-key` |
-| `PUSH_RELAY_APNS_KEY_ID` | The 10-character ID of the APNs key. | `.env` |
-| `PUSH_RELAY_APNS_TEAM_ID` | The 10-character ID of the Apple developer team. | `.env` |
+| `PUSH_RELAY_APNS_PRODUCTION_KEY_PATH` | The `.p8` file of the APNs key of the production environment: a P-256 private key in PKCS#8 PEM. | The secret `apns-production-key` |
+| `PUSH_RELAY_APNS_PRODUCTION_KEY_ID` | The 10-character ID of the APNs key of the production environment. | `.env` |
+| `PUSH_RELAY_APNS_SANDBOX_KEY_PATH` | The `.p8` file of the APNs key of the sandbox environment: a P-256 private key in PKCS#8 PEM. | The secret `apns-sandbox-key` |
+| `PUSH_RELAY_APNS_SANDBOX_KEY_ID` | The 10-character ID of the APNs key of the sandbox environment. | `.env` |
+| `PUSH_RELAY_APNS_TEAM_ID` | The 10-character ID of the Apple developer team that holds the APNs keys. | `.env` |
 | `PUSH_RELAY_APNS_TOPIC` | The bundle ID of the Mobile App, `co.pagis.mobile`. | `.env` |
 | `PUSH_RELAY_FCM_CREDENTIALS_PATH` | The JSON key of the Google service account that sends. | The secret `fcm-credentials` |
 | `PUSH_RELAY_FCM_PROJECT_ID` | The ID of the Firebase project of the Mobile App. | `.env` |
 | `RUST_LOG` | The filter of the log lines. The default is `info`. | Not set |
 
-The relay serves `ios` registrations when the four `PUSH_RELAY_APNS_*`
-variables are set, and `android` registrations when the two
-`PUSH_RELAY_FCM_*` variables are set. With none of the variables of a
-platform, the relay serves no registration of that platform. With some
-but not all of them, the relay stops and names each missing variable.
-The deployment in `deploy/push-relay/` serves both platforms, so it
-requires each of them.
+The relay serves `ios` registrations of an APNs environment when the key
+pair of that environment (its `_KEY_PATH` and its `_KEY_ID`) is set,
+together with `PUSH_RELAY_APNS_TEAM_ID` and `PUSH_RELAY_APNS_TOPIC`. A
+relay can serve the production environment, the sandbox environment, or
+both. A registration for an environment without a key gets `422`, and
+the message names the platform and the environment. The relay serves
+`android` registrations when the two `PUSH_RELAY_FCM_*` variables are
+set.
+
+With none of the variables of a platform, the relay serves no
+registration of that platform. With half of a key pair, or some but not
+all of the FCM variables, the relay stops and names each missing
+variable. A team ID or a topic without a key pair also stops it. The
+deployment in `deploy/push-relay/` serves both platforms and both APNs
+environments, so it requires each of these variables.
+
+Each APNs key is Topic Specific to the bundle ID of the Mobile App, and
+the relay has one key for each environment. Apple lets a key for both
+environments be Team Scoped only, so such a key can send to each app of
+the team. With a Topic Specific key for each environment, a key that
+leaks from the relay can send only to the Mobile App, and only in the
+environment of that key. The production environment serves the
+TestFlight and App Store builds, and the sandbox environment serves the
+debug builds.
 
 The relay reads the key files when it starts. A key file that it cannot
 read or parse stops it.
@@ -143,8 +162,10 @@ You need:
   limit;
 - the ports 80 and 443 open to the internet. Caddy uses port 80 to get
   its certificate;
-- the `.p8` file of an APNs key of the Apple developer team that
-  publishes the Mobile App;
+- two APNs keys of the Apple developer team that publishes the Mobile
+  App, each Topic Specific to the bundle ID of the Mobile App: a key for
+  the sandbox environment and a key for the production environment. Keep
+  the `.p8` file of each key;
 - a JSON key of a service account of the Firebase project of the Mobile
   App that can send with the FCM HTTP v1 API.
 
@@ -153,11 +174,12 @@ Do these steps on the host:
 1. Copy `deploy/push-relay/` from the tag of the relay version that you
    deploy.
 2. Copy `.env.example` to `.env`, and set each value in it.
-3. Put the two key files in `secrets/`:
+3. Put the three key files in `secrets/`:
 
    ```bash
    mkdir -p secrets
-   cp /path/to/AuthKey_ABC123DEFG.p8 secrets/apns-key.p8
+   cp /path/to/AuthKey_ABC123DEFG.p8 secrets/apns-production-key.p8
+   cp /path/to/AuthKey_GHI456JKLM.p8 secrets/apns-sandbox-key.p8
    cp /path/to/service-account.json secrets/fcm-credentials.json
    ```
 
@@ -166,8 +188,10 @@ Do these steps on the host:
    the relay runs as the user ID 10001:
 
    ```bash
-   sudo chown 10001:10001 secrets/apns-key.p8 secrets/fcm-credentials.json
-   sudo chmod 400 secrets/apns-key.p8 secrets/fcm-credentials.json
+   sudo chown 10001:10001 secrets/apns-production-key.p8 \
+     secrets/apns-sandbox-key.p8 secrets/fcm-credentials.json
+   sudo chmod 400 secrets/apns-production-key.p8 \
+     secrets/apns-sandbox-key.p8 secrets/fcm-credentials.json
    ```
 
 5. Start the deployment:
@@ -198,12 +222,17 @@ effect when Compose makes the relay container again. A registration does
 not change when a key changes: a device token stays valid with each key
 of the team or of the project.
 
-To rotate the APNs key:
+Rotate the APNs key of each environment apart from the other. To rotate
+the key of one environment:
 
-1. In the Apple developer account, make a new APNs key. Keep the old key.
-2. Put the `.p8` file of the new key at `secrets/apns-key.p8`, with the
-   owner 10001 and the mode 400.
-3. Set `PUSH_RELAY_APNS_KEY_ID` in `.env` to the ID of the new key.
+1. In the Apple developer account, make a new APNs key for the same
+   environment, Topic Specific to the bundle ID of the Mobile App. Keep
+   the old key.
+2. Put the `.p8` file of the new key at `secrets/apns-production-key.p8`
+   for the production environment, or at `secrets/apns-sandbox-key.p8`
+   for the sandbox environment, with the owner 10001 and the mode 400.
+3. Set `PUSH_RELAY_APNS_PRODUCTION_KEY_ID` or
+   `PUSH_RELAY_APNS_SANDBOX_KEY_ID` in `.env` to the ID of the new key.
 4. Make the relay container again:
 
    ```bash
