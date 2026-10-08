@@ -1053,7 +1053,8 @@ does not fetch it at run time (ADR-0033).
 ### Harness Model Endpoint
 The model API that the daemon serves to the Computers for a Coding Session
 there. A per-session token authenticates a harness, and the daemon forwards
-each request with the Org's provider key under the Spend Cap. Not built
+each request with the Org's provider key under the Spend Cap. The endpoint
+serves the Anthropic Messages API. The OpenAI APIs are not built
 (ADR-0033).
 
 ### Harness Permission

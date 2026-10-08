@@ -50,6 +50,10 @@ pub const DEFAULT_REMOTE_ACCESS_TURN_PORT: u16 = 4402;
 /// next to the other ports of the daemon, and the egress rules of the
 /// deployment open it to the Computers, so it is fixed and never random.
 pub const DEFAULT_COMPUTER_EXIT_PORT: u16 = 4403;
+/// The TCP port of the Harness Model Endpoint (ADR-0033). It sits next to
+/// the exit port, and the egress rules of a Server open it to the
+/// Computers, so it is fixed and never random.
+pub const DEFAULT_COMPUTER_MODEL_PORT: u16 = 4404;
 /// The Media Relay implementations `screen.relay` names.
 pub const RELAY_DAEMON: &str = "daemon";
 pub const RELAY_TURN: &str = "turn";
@@ -330,6 +334,10 @@ pub struct Computer {
     /// connection there, and the egress rules open it to the Computers.
     /// A Local Installation opens no exit listener.
     pub exit_port: u16,
+    /// The TCP port of the Harness Model Endpoint (ADR-0033). The
+    /// harness of a Coding Session in a Computer sends its model requests
+    /// there. Both kinds of installation open it.
+    pub model_port: u16,
     /// The Home Exit System Setting of a Server (ADR-0029): whether its
     /// People may send their Computers' connections through a Home Exit.
     /// On by default; an Administrator turns it off for the installation
@@ -351,6 +359,7 @@ impl Default for Computer {
             volume_gb: 10,
             layer_gb: 10,
             exit_port: DEFAULT_COMPUTER_EXIT_PORT,
+            model_port: DEFAULT_COMPUTER_MODEL_PORT,
             home_exit: true,
         }
     }
@@ -391,6 +400,17 @@ impl Computer {
              rules open to the Computers, such as {DEFAULT_COMPUTER_EXIT_PORT}"
         );
         Ok(self.exit_port)
+    }
+
+    /// The port of the Harness Model Endpoint. Zero would be a random
+    /// port, which the egress rules cannot name.
+    pub fn model_port(&self) -> anyhow::Result<u16> {
+        anyhow::ensure!(
+            self.model_port > 0,
+            "computer.model_port is 0; it is the fixed port of the Harness Model Endpoint that \
+             the egress rules open to the Computers, such as {DEFAULT_COMPUTER_MODEL_PORT}"
+        );
+        Ok(self.model_port)
     }
 }
 
@@ -712,6 +732,11 @@ impl Config {
         // The exit port, which the deployment also gives the egress rules.
         if let Some(port) = var("PAGIS_COMPUTER_EXIT_PORT") {
             self.computer.exit_port = parse_env("PAGIS_COMPUTER_EXIT_PORT", &port)?;
+        }
+        // The port of the Harness Model Endpoint, which the egress rules
+        // name too.
+        if let Some(port) = var("PAGIS_COMPUTER_MODEL_PORT") {
+            self.computer.model_port = parse_env("PAGIS_COMPUTER_MODEL_PORT", &port)?;
         }
         Ok(())
     }
@@ -1699,5 +1724,42 @@ mod tests {
         config.computer.exit_port = 0;
         let error = config.computer.exit_port().unwrap_err();
         assert!(error.to_string().contains("computer.exit_port"));
+    }
+
+    /// The port of the Harness Model Endpoint comes from the file or from
+    /// the environment, and it is never zero: the egress rules name it.
+    #[test]
+    fn the_model_port_comes_from_the_file_or_the_environment() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+
+        let config = Config::load_or_init(&path).unwrap();
+        assert_eq!(config.computer.model_port().unwrap(), 4404);
+        assert!(
+            std::fs::read_to_string(&path)
+                .unwrap()
+                .contains("model_port = 4404")
+        );
+
+        std::fs::write(&path, "[computer]\nmodel_port = 4500\n").unwrap();
+        let mut config = Config::read_file(&path).unwrap();
+        assert_eq!(config.computer.model_port().unwrap(), 4500);
+        config
+            .apply_environment(&|key: &str| {
+                (key == "PAGIS_COMPUTER_MODEL_PORT").then(|| "4600".to_string())
+            })
+            .unwrap();
+        assert_eq!(config.computer.model_port().unwrap(), 4600);
+
+        let error = config
+            .clone()
+            .apply_environment(&|key: &str| {
+                (key == "PAGIS_COMPUTER_MODEL_PORT").then(|| "model".to_string())
+            })
+            .unwrap_err();
+        assert!(error.to_string().contains("PAGIS_COMPUTER_MODEL_PORT"));
+        config.computer.model_port = 0;
+        let error = config.computer.model_port().unwrap_err();
+        assert!(error.to_string().contains("computer.model_port"));
     }
 }

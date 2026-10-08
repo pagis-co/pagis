@@ -17,6 +17,7 @@ mod exit_socket;
 pub mod forget;
 pub mod forwarded;
 mod grants;
+pub mod harness_model;
 mod home_exit;
 mod hosts;
 mod knowledge;
@@ -75,6 +76,7 @@ use pagis_core::{
 
 pub use auth::{SESSION_COOKIE, Tenant, hash_secret};
 pub use forwarded::TrustedProxy;
+pub use harness_model::{HarnessModelDeps, HarnessModelTokens};
 pub use live_connections::LiveConnections;
 pub use needs_you::{NeedsYou, spawn_needs_you};
 pub use notifications::{Notifications, spawn_notifications};

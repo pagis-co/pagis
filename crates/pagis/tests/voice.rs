@@ -490,7 +490,7 @@ async fn openrouter_desk() -> (Desk, wiremock::MockServer) {
         FakeVoice::default(),
         TestDaemonOptions {
             keys: test_provider_keys(vec![("OPENROUTER_API_KEY", "sk-test")]),
-            model_list_base_url: Some(provider.uri()),
+            provider_base_url: Some(provider.uri()),
             ..TestDaemonOptions::default()
         },
     )

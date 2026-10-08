@@ -552,7 +552,7 @@ async fn serve_elevenlabs(server: &MockServer) {
 
 async fn daemon_listing(provider: &MockServer) -> TestDaemon {
     TestDaemon::start_with(TestDaemonOptions {
-        model_list_base_url: Some(provider.uri()),
+        provider_base_url: Some(provider.uri()),
         ..TestDaemonOptions::default()
     })
     .await
@@ -665,7 +665,7 @@ async fn the_key_check_lists_the_models_and_generates_nothing() {
     let brain = Arc::new(ScriptedBrain::default());
     let daemon = TestDaemon::start_with(TestDaemonOptions {
         brain: Arc::clone(&brain) as _,
-        model_list_base_url: Some(provider.uri()),
+        provider_base_url: Some(provider.uri()),
         ..TestDaemonOptions::default()
     })
     .await;
@@ -830,7 +830,7 @@ async fn a_checked_key_allows_completion_and_survives_a_restart() {
     let keys = test_provider_keys(Vec::new());
     let daemon = TestDaemon::start_with(TestDaemonOptions {
         keys: Arc::clone(&keys),
-        model_list_base_url: Some(provider.uri()),
+        provider_base_url: Some(provider.uri()),
         ..TestDaemonOptions::default()
     })
     .await;
@@ -845,7 +845,7 @@ async fn a_checked_key_allows_completion_and_survives_a_restart() {
     let daemon = daemon
         .restart(TestDaemonOptions {
             keys,
-            model_list_base_url: Some(provider.uri()),
+            provider_base_url: Some(provider.uri()),
             ..TestDaemonOptions::default()
         })
         .await;
@@ -1208,7 +1208,7 @@ async fn a_new_key_routes_to_the_first_preferred_model_a_provider_lists() {
     .await;
     let daemon = TestDaemon::start_with(TestDaemonOptions {
         keys: test_provider_keys(vec![("OPENROUTER_API_KEY", "sk-test")]),
-        model_list_base_url: Some(provider.uri()),
+        provider_base_url: Some(provider.uri()),
         ..TestDaemonOptions::default()
     })
     .await;
@@ -1488,7 +1488,7 @@ async fn a_listed_model_no_table_knows_runs_end_to_end() {
     let daemon = TestDaemon::start_with(TestDaemonOptions {
         brain,
         keys,
-        model_list_base_url: Some(provider.uri()),
+        provider_base_url: Some(provider.uri()),
         ..TestDaemonOptions::default()
     })
     .await;

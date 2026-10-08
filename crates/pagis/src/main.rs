@@ -222,6 +222,16 @@ async fn run(flags: RunFlags) -> anyhow::Result<i32> {
         }
         pagis::Installation::Local => None,
     };
+    // The Harness Model Endpoint (ADR-0033), on both kinds of
+    // installation. It binds every interface for the reason the exit
+    // listener does: the token of a Coding Session stands in for a
+    // narrower bind.
+    let model_listener = bind_listener(
+        std::net::Ipv4Addr::UNSPECIFIED.into(),
+        booted.config.computer.model_port()?,
+        pagis::taken_model_port_message,
+    )
+    .await?;
     let addr = listener.local_addr()?;
     let port = addr.port();
     // The origin a browser reaches this installation at, and the one
@@ -242,6 +252,7 @@ async fn run(flags: RunFlags) -> anyhow::Result<i32> {
     options.runtime_port = port;
     options.remote_access_turn_listener = remote_access_turn_listener;
     options.exit_listener = exit_listener;
+    options.model_listener = Some(model_listener);
     if flags.port.is_some() {
         options.port_override = Some("--port");
     }

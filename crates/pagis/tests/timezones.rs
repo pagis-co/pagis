@@ -226,7 +226,7 @@ async fn a_schedule_that_finds_no_model_key_waits_for_one() {
     let daemon = TestDaemon::start_with(TestDaemonOptions {
         brain,
         keys,
-        model_list_base_url: Some(provider.uri()),
+        provider_base_url: Some(provider.uri()),
         clock: Arc::new(clock.clone()),
         ..TestDaemonOptions::default()
     })

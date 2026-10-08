@@ -744,7 +744,7 @@ async fn a_server_with_only_an_openai_key_answers_the_first_message() {
     let Some(daemon) = TestDaemon::start_on_postgres_with(TestDaemonOptions {
         brain,
         keys,
-        model_list_base_url: Some(provider.uri()),
+        provider_base_url: Some(provider.uri()),
         ..TestDaemonOptions::default()
     })
     .await

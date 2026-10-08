@@ -408,4 +408,4 @@ Other ways were considered:
 - Harness Sign-In in Settings.
 - The quit question of the Client App.
 - The Computer place.
-- The Harness Model Endpoint for the Anthropic and the OpenAI APIs.
+- The Harness Model Endpoint for the OpenAI APIs.

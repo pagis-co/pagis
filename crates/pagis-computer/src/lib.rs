@@ -134,6 +134,14 @@ pub fn exit_daemon(port: u16) -> String {
     format!("{RELAY_HOST}:{port}")
 }
 
+/// The base URL at which the harness of a Coding Session in a Computer
+/// reaches the Harness Model Endpoint of the daemon on `port`: the Docker
+/// host. `NO_PROXY` holds that name, so the requests do not pass the Exit
+/// Proxy.
+pub fn model_endpoint(port: u16) -> String {
+    format!("http://{RELAY_HOST}:{port}")
+}
+
 /// The exit of the Computers of a Server (ADR-0029): the exit listener
 /// that each Agent's Computer names at its start, and the Home Exits of
 /// the People, which say which mode is in effect for each Person. A Local
@@ -1035,6 +1043,21 @@ mod tests {
         assert_eq!(
             serde_json::to_value(super::ExitMode::Home).expect("JSON"),
             serde_json::json!("home")
+        );
+    }
+
+    /// A harness in a Computer reaches the Harness Model Endpoint at the
+    /// Docker host, which `NO_PROXY` holds.
+    #[test]
+    fn the_model_endpoint_is_at_the_docker_host() {
+        assert_eq!(
+            super::model_endpoint(4404),
+            "http://host.docker.internal:4404"
+        );
+        assert!(
+            super::container_env("UTC", None)
+                .iter()
+                .any(|entry| entry.starts_with("NO_PROXY=") && entry.contains(super::RELAY_HOST))
         );
     }
 

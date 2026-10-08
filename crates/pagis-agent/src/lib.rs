@@ -35,7 +35,7 @@ pub use mention::is_mentioned;
 pub use model_catalog::{MODEL_LIST_REFRESH, ModelCatalog, ModelListError};
 pub use progress::{ProgressFrame, ProgressHub};
 pub use recover::{RESTART_ERROR, fail_unfinished_runs};
-pub use spend::CAP_NOTE;
+pub use spend::{CapReads, CapStop, cap_stop};
 pub use system::{AgentDeps, AgentLoopConfig, AgentSystem, CancelOutcome};
 pub use tool_runtime::{CoreToolRuntime, ToolRuntimeDeps};
 pub use ui::{MAX_BLOCKS, MAX_BLOCKS_BYTES, MAX_TABLE_ROWS};

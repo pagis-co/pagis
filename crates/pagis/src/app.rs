@@ -66,15 +66,21 @@ pub struct AppOptions {
     /// Computer in Home mode sends its connections there. A Local
     /// Installation has none, and its Computers run in Direct mode alone.
     pub exit_listener: Option<tokio::net::TcpListener>,
+    /// The listener of the Harness Model Endpoint (ADR-0033): `[computer]
+    /// model_port`. `main` binds it on both kinds of installation, and the
+    /// testkit binds a loopback port. The harness of a Coding Session in a
+    /// Computer sends its model requests there.
+    pub model_listener: Option<tokio::net::TcpListener>,
     pub ring: RingConfig,
     /// `None` builds the production router brain over `keys`.
     pub brain: Option<Arc<dyn Brain>>,
     pub agents: AgentLoopConfig,
     pub keys: Arc<ProviderKeys>,
-    /// Base URL overrides for the Provider Model Lists. Production
-    /// keeps the provider defaults; the testkit points every provider
-    /// at a local address, because no test may reach a real provider.
-    pub model_list_base_urls: std::collections::HashMap<pagis_core::Provider, String>,
+    /// Base URL overrides per provider, for the Provider Model Lists and
+    /// the Harness Model Endpoint. Production keeps the provider
+    /// defaults; the testkit points every provider at a local address,
+    /// because no test may reach a real provider.
+    pub provider_base_urls: std::collections::HashMap<pagis_core::Provider, String>,
     /// Docker discovery (ADR-0024). One instance serves the computer
     /// runtime, the onboarding status and the System tab.
     pub docker_discovery: Arc<pagis_computer::DockerDiscovery>,
@@ -216,6 +222,8 @@ impl AppOptions {
             remote_access_turn_listener: None,
             // `main` binds it on a Server.
             exit_listener: None,
+            // `main` binds it.
+            model_listener: None,
             ring: RingConfig::default(),
             brain: None,
             agents: AgentLoopConfig::default(),
@@ -223,7 +231,7 @@ impl AppOptions {
                 booted.config.provider_keys(),
                 Arc::clone(&secrets),
             )),
-            model_list_base_urls: std::collections::HashMap::new(),
+            provider_base_urls: std::collections::HashMap::new(),
             docker_discovery,
             system: Arc::new(crate::system::FileSystemConfig::new(&booted.home)),
             restart,
@@ -364,7 +372,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     // The Provider Model Lists: one cache for the installation's keys,
     // refreshed in the background, which the brain, the context budget,
     // the Spend Cap and the Models settings all read.
-    let models = Arc::new(options.model_list_base_urls.into_iter().fold(
+    let models = Arc::new(options.provider_base_urls.clone().into_iter().fold(
         pagis_agent::ModelCatalog::new(Arc::clone(&keys)),
         |catalog, (provider, base_url)| catalog.with_base_url(provider, base_url),
     ));
@@ -455,6 +463,31 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
             pagis_computer::ExitListener::new(Arc::clone(&computers) as _, Arc::clone(&home_exits));
         tokio::spawn(exit.serve(listener, options.cancel.child_token()));
         tracing::info!(%address, "the exit listener carries the connections of the Computers");
+    }
+    // The Harness Model Endpoint (ADR-0033): the model API of the harness
+    // of a Coding Session in a Computer, on its own listener.
+    if let Some(listener) = options.model_listener.take() {
+        let address = listener.local_addr()?;
+        let endpoint = pagis_server::harness_model::router(pagis_server::HarnessModelDeps {
+            sessions: stores.coding_sessions.clone(),
+            keys: Arc::clone(&keys),
+            provider_base_urls: options.provider_base_urls.clone(),
+            workspaces: Arc::clone(&workspaces) as _,
+            users: stores.users.clone(),
+            usage: stores.usage.clone(),
+            models: Arc::clone(&models),
+            clock: Arc::clone(&options.clock),
+        });
+        let stop = options.cancel.child_token();
+        tokio::spawn(async move {
+            let served = axum::serve(listener, endpoint)
+                .with_graceful_shutdown(stop.cancelled_owned())
+                .await;
+            if let Err(error) = served {
+                tracing::error!(%error, "the Harness Model Endpoint stopped");
+            }
+        });
+        tracing::info!(%address, "the Harness Model Endpoint serves the harnesses of the Computers");
     }
     // The Computers that a restart left running belong to this daemon
     // now, also the Computer of a Person who does not come back: the

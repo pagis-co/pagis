@@ -143,10 +143,11 @@ pub struct TestDaemonOptions {
     pub brain: Arc<dyn Brain>,
     pub agents: AgentLoopConfig,
     pub keys: Arc<ProviderKeys>,
-    /// The base URL every provider's model list is fetched from. `None`
-    /// names a closed local port, because no test may reach a real
-    /// provider; a test that needs a list names a fake provider here.
-    pub model_list_base_url: Option<String>,
+    /// The base URL at which the daemon reaches every provider: the
+    /// model lists and the Harness Model Endpoint. `None` names a closed
+    /// local port, because no test may reach a real provider; a test that
+    /// needs a provider names a fake one here.
+    pub provider_base_url: Option<String>,
     /// Docker discovery (ADR-0024). The default finds nothing, because
     /// no test may reach the machine's Docker. Keep an `Arc` to script
     /// the ping.
@@ -244,7 +245,7 @@ impl Default for TestDaemonOptions {
             brain: Arc::new(ScriptedBrain::default()),
             agents: AgentLoopConfig::default(),
             keys: test_provider_keys(Vec::new()),
-            model_list_base_url: None,
+            provider_base_url: None,
             docker_discovery: Arc::new(pagis_computer::DockerDiscovery::new(
                 empty_docker_search(),
                 Arc::new(RefusingDockerPing),
@@ -311,6 +312,9 @@ pub struct TestDaemon {
     /// (ADR-0029), on an ephemeral port, or `None` on a Local
     /// Installation, which opens none.
     pub exit_addr: Option<SocketAddr>,
+    /// The loopback address of the Harness Model Endpoint, on an
+    /// ephemeral port. Both kinds of installation serve it.
+    pub model_addr: SocketAddr,
     /// The exit sockets of the Hosts of this daemon, which carry the
     /// connections of their Person's Computers as the Home Exit.
     pub home_exits: Arc<pagis_computer::HomeExits>,
@@ -518,6 +522,11 @@ impl TestDaemon {
         let exit_addr = exit_listener
             .as_ref()
             .map(|listener| listener.local_addr().expect("local addr"));
+        // The Harness Model Endpoint, on loopback.
+        let model_listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+            .await
+            .expect("bind an ephemeral model port");
+        let model_addr = model_listener.local_addr().expect("local addr");
         let live_calls = Arc::new(pagis_telephony::LiveCalls::default());
         let live_tiers = Arc::new(pagis_telephony::LiveTiers::default());
         let interfaces = pagis::app(
@@ -539,17 +548,18 @@ impl TestDaemon {
                     .remote_access
                     .then_some(remote_access_turn_listener),
                 exit_listener,
+                model_listener: Some(model_listener),
                 ring: options.ring,
                 brain: Some(options.brain),
                 agents: options.agents,
                 keys: options.keys,
-                model_list_base_urls: pagis_core::PROVIDERS
+                provider_base_urls: pagis_core::PROVIDERS
                     .into_iter()
                     .map(|provider| {
                         (
                             provider,
                             options
-                                .model_list_base_url
+                                .provider_base_url
                                 .clone()
                                 .unwrap_or_else(|| "http://127.0.0.1:1".to_string()),
                         )
@@ -683,6 +693,7 @@ impl TestDaemon {
             administration_base_url: format!("http://{administration_addr}"),
             remote_access_turn_addr,
             exit_addr,
+            model_addr,
             home_exits,
             host_sessions,
             public_origin,
