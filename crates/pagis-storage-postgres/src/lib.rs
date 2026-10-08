@@ -15,6 +15,7 @@ mod brief_store;
 mod call_store;
 mod capability_snapshot_store;
 mod channel_store;
+mod coding_session_store;
 mod continuation_store;
 mod contribution_store;
 mod conversation_evidence_store;
@@ -63,6 +64,7 @@ pub use brief_store::PostgresBriefStore;
 pub use call_store::PostgresCallStore;
 pub use capability_snapshot_store::PostgresCapabilitySnapshotStore;
 pub use channel_store::PostgresChannelStore;
+pub use coding_session_store::PostgresCodingSessionStore;
 pub use continuation_store::PostgresContinuationStore;
 pub use contribution_store::PostgresContributionStore;
 pub use conversation_evidence_store::PostgresConversationEvidenceStore;
@@ -129,6 +131,7 @@ pub fn stores(pool: PgPool) -> pagis_core::Stores {
         calls: Arc::new(PostgresCallStore::new(pool.clone())),
         capability_snapshots: Arc::new(PostgresCapabilitySnapshotStore::new(pool.clone())),
         channels: Arc::new(PostgresChannelStore::new(pool.clone())),
+        coding_sessions: Arc::new(PostgresCodingSessionStore::new(pool.clone())),
         connections: Arc::new(PostgresConnectionStore::new(pool.clone())),
         continuations: Arc::new(PostgresContinuationStore::new(pool.clone())),
         contributions: Arc::new(PostgresContributionStore::new(pool.clone())),

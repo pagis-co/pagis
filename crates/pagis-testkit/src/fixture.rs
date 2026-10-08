@@ -6,8 +6,11 @@ use pagis_core::{
     Request, RequestState, Run, RunState, TriggerKind, TrustTier, Workspace, now_ms,
 };
 use pagis_core::{
-    AgentId, ArtifactId, CallId, ChannelId, GrantId, MessageId, ParticipantId, PhoneNumberId,
-    RequestId, RunId, UserId, WorkspaceId,
+    AgentId, ArtifactId, CallId, ChannelId, CodingSessionId, GrantId, HostId, MessageId,
+    ParticipantId, PhoneNumberId, RequestId, RunId, UserId, WorkspaceId,
+};
+use pagis_core::{
+    CodingSession, CodingSessionPlace, CodingSessionState, CodingSessionUsage, SessionApprovalMode,
 };
 
 /// A Workspace that belongs to a person, and the Org and the person to
@@ -130,6 +133,45 @@ pub fn missed_call(workspace_id: &WorkspaceId, agent_id: &AgentId, run_id: &RunI
         answered_at: None,
         ended_at: Some(at),
         dismissed_at: None,
+    }
+}
+
+/// A Coding Session of Claude Code on a Host, idle after its first
+/// turn, in the Thread of `channel_id`.
+pub fn coding_session(
+    workspace_id: &WorkspaceId,
+    agent_id: &AgentId,
+    run_id: &RunId,
+    channel_id: &ChannelId,
+    host_id: &HostId,
+) -> CodingSession {
+    let at = now_ms();
+    let harness = pagis_core::harness::entry("claude").expect("the catalog holds Claude Code");
+    CodingSession {
+        id: CodingSessionId::generate(),
+        workspace_id: workspace_id.clone(),
+        agent_id: agent_id.clone(),
+        harness_id: harness.id.to_string(),
+        harness_version: harness.version.to_string(),
+        place: CodingSessionPlace::Host,
+        host_id: Some(host_id.clone()),
+        directory: "/Users/person/code/app".to_string(),
+        working_directory: Some("/Users/person/code/app".to_string()),
+        worktree_branch: None,
+        approval_mode: SessionApprovalMode::Person,
+        title: "Fix the failing test".to_string(),
+        state: CodingSessionState::Idle,
+        end_reason: None,
+        end_detail: None,
+        acp_session_id: Some("acp-session-1".to_string()),
+        channel_id: channel_id.clone(),
+        root_message_id: MessageId::generate(),
+        message_id: MessageId::generate(),
+        run_id: run_id.clone(),
+        usage: CodingSessionUsage::default(),
+        created_at: at,
+        updated_at: at,
+        ended_at: None,
     }
 }
 

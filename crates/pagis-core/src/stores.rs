@@ -8,6 +8,7 @@
 
 use std::sync::Arc;
 
+use crate::coding_session::CodingSessionStore;
 use crate::continuation::ContinuationStore;
 use crate::conversation_evidence::ConversationEvidenceStore;
 use crate::forget::ForgetStore;
@@ -42,6 +43,7 @@ pub struct Stores {
     pub calls: Arc<dyn CallStore>,
     pub capability_snapshots: Arc<dyn CapabilitySnapshotStore>,
     pub channels: Arc<dyn ChannelStore>,
+    pub coding_sessions: Arc<dyn CodingSessionStore>,
     pub connections: Arc<dyn ConnectionStore>,
     pub continuations: Arc<dyn ContinuationStore>,
     pub contributions: Arc<dyn ContributionStore>,
