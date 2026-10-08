@@ -41,6 +41,67 @@ async fn a_client_registers_and_the_person_sees_it_as_present() {
     assert_eq!(hosts[0]["present"], true);
 }
 
+/// The answer to a registration names the Harness Catalog with the
+/// programs each harness needs on the `PATH` of the machine. The client
+/// looks for them and registers again with a `harness:<id>` capability
+/// for each harness it found, and the record holds what it declared.
+#[tokio::test]
+async fn the_registration_answer_names_the_catalog_and_a_second_registration_declares_a_harness() {
+    use futures::SinkExt;
+    use tokio_tungstenite::tungstenite::Message;
+
+    let daemon = TestDaemon::start().await;
+    let mut socket = daemon.event_socket(daemon.cookie()).await;
+    let register = |capabilities: &[&str]| {
+        Message::text(
+            serde_json::json!({
+                "type": "register_host",
+                "name": "Air",
+                "platform": "macos",
+                "capabilities": capabilities,
+            })
+            .to_string(),
+        )
+    };
+
+    socket.send(register(&["shell"])).await.unwrap();
+    let first = next_frame_of(&mut socket, "host.registered").await;
+
+    assert_eq!(
+        first["payload"]["harnesses"],
+        serde_json::json!([
+            { "id": "claude", "launchers": ["npx"] },
+            { "id": "codex", "launchers": ["npx"] },
+            { "id": "opencode", "launchers": ["opencode"] },
+            { "id": "pi", "launchers": ["npx", "pi"] },
+            { "id": "gemini", "launchers": ["npx"] },
+            { "id": "copilot", "launchers": ["npx"] },
+            { "id": "cursor", "launchers": ["cursor-agent"] },
+        ])
+    );
+    assert_eq!(
+        first["payload"]["capabilities"],
+        serde_json::json!(["shell"])
+    );
+
+    socket
+        .send(register(&["shell", "harness:claude"]))
+        .await
+        .unwrap();
+    let second = next_frame_of(&mut socket, "host.registered").await;
+
+    assert_eq!(second["payload"]["host_id"], first["payload"]["host_id"]);
+    assert_eq!(
+        second["payload"]["harnesses"],
+        first["payload"]["harnesses"]
+    );
+    let declared = serde_json::json!(["shell", "harness:claude"]);
+    assert_eq!(second["payload"]["capabilities"], declared);
+    let hosts = hosts_of(&daemon, daemon.cookie()).await;
+    assert_eq!(hosts.len(), 1, "one machine is one record: {hosts:?}");
+    assert_eq!(hosts[0]["capabilities"], declared);
+}
+
 /// The machine is absent the moment its socket closes, and the record
 /// says when it was last here. The same machine that comes back is the
 /// same Host, so a Grant that names it still reaches it.

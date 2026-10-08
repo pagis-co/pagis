@@ -13,6 +13,7 @@
 import { exec } from 'node:child_process'
 import os from 'node:os'
 
+import { findOnPath, loginShellEnvironment } from './loginShell'
 import { isTrustedServerOrigin } from './origin'
 
 /** What the client can do, as the daemon reads it. A machine that runs
@@ -29,6 +30,50 @@ export const EXIT_CAPABILITY = 'exit'
  *  `harness:<id>`. A machine whose registration holds one opens the
  *  session socket (`sessions.ts`). */
 export const HARNESS_CAPABILITY_PREFIX = 'harness:'
+
+/** One harness of the Harness Catalog, as the answer to a registration
+ *  names it: its id and the programs that it needs on the PATH. */
+export interface CatalogHarness {
+  id: string
+  launchers: readonly string[]
+}
+
+/** Gives the id of each harness of the catalog that this machine can
+ *  start, in the order of the catalog. */
+export type HarnessFinder = (catalog: readonly CatalogHarness[]) => Promise<string[]>
+
+/**
+ * Find each harness of the catalog whose launchers are all on the PATH of
+ * the person's login shell.
+ *
+ * The daemon is the one source of the catalog, so the Client App ships no
+ * copy. A found harness means only that its programs are on the PATH, not
+ * that the person signed in to it.
+ */
+export async function harnessesOnPath(
+  catalog: readonly CatalogHarness[],
+  environment: () => Promise<Record<string, string>> = () => loginShellEnvironment(),
+): Promise<string[]> {
+  const pathValue = (await environment()).PATH ?? ''
+  const found: string[] = []
+  for (const harness of catalog) {
+    const programs = await Promise.all(harness.launchers.map((launcher) => findOnPath(launcher, pathValue)))
+    if (programs.every((program) => program !== null)) found.push(harness.id)
+  }
+  return found
+}
+
+/** The harnesses of a registration answer, or null when it names none.
+ *  An entry that is not an id with a list of programs is left out. */
+function catalogOf(value: unknown): CatalogHarness[] | null {
+  if (!Array.isArray(value)) return null
+  return value.filter(
+    (entry): entry is CatalogHarness =>
+      typeof entry?.id === 'string' &&
+      Array.isArray(entry.launchers) &&
+      entry.launchers.every((launcher: unknown) => typeof launcher === 'string'),
+  )
+}
 
 /** One command the daemon dispatched. */
 export interface HostDispatch {
@@ -137,10 +182,18 @@ export const runInShell: CommandRunner = (dispatch) =>
  * dispatch it receives, whatever the command did: a command that fails is
  * an answer the person reads, and silence would leave the sprite waiting
  * out the daemon's deadline for nothing.
+ *
+ * The answer to a registration names the Harness Catalog. At the first
+ * such answer of the socket, the agent finds the harnesses of the
+ * machine, and when they differ from the `harness:` capabilities of that
+ * answer, it registers again with its own capabilities and `harness:<id>` for each
+ * harness it found. A failed search declares no harness, and the Client
+ * App writes the message to its log.
  */
 export class HostAgent {
   private hostId: string | null = null
   private capabilitiesHeld: string[] = []
+  private harnessesSearched = false
 
   constructor(
     private readonly socket: HostSocket,
@@ -148,6 +201,7 @@ export class HostAgent {
     private readonly platform: string = platformName(),
     private readonly run: CommandRunner = runInShell,
     private readonly capabilities: readonly string[] = [SHELL_CAPABILITY],
+    private readonly findHarnesses: HarnessFinder = harnessesOnPath,
   ) {
     this.socket.onMessage((frame) => {
       void this.receive(frame)
@@ -157,14 +211,7 @@ export class HostAgent {
   /** Authenticate the socket and register this machine. */
   start(): void {
     this.socket.send(JSON.stringify({ type: 'auth' }))
-    this.socket.send(
-      JSON.stringify({
-        type: 'register_host',
-        name: this.name,
-        platform: this.platform,
-        capabilities: this.capabilities,
-      }),
-    )
+    this.register(this.capabilities)
   }
 
   /** The id the daemon knows this machine by, once it has acknowledged
@@ -177,6 +224,33 @@ export class HostAgent {
    *  last acknowledgement of the registration. */
   registeredCapabilities(): readonly string[] {
     return this.capabilitiesHeld
+  }
+
+  private register(capabilities: readonly string[]): void {
+    this.socket.send(
+      JSON.stringify({
+        type: 'register_host',
+        name: this.name,
+        platform: this.platform,
+        capabilities,
+      }),
+    )
+  }
+
+  private async declareHarnesses(catalog: readonly CatalogHarness[]): Promise<void> {
+    let found: string[]
+    try {
+      found = await this.findHarnesses(catalog)
+    } catch (error) {
+      console.error(`pagis: the machine declares no Coding Harness: ${(error as Error).message}`)
+      found = []
+    }
+    const declared = found.map((id) => `${HARNESS_CAPABILITY_PREFIX}${id}`)
+    const held = this.capabilitiesHeld.filter((capability) => capability.startsWith(HARNESS_CAPABILITY_PREFIX))
+    if (declared.length === held.length && declared.every((capability, index) => capability === held[index])) {
+      return
+    }
+    this.register([...this.capabilities, ...declared])
   }
 
   private async receive(frame: string): Promise<void> {
@@ -193,6 +267,11 @@ export class HostAgent {
       this.capabilitiesHeld = Array.isArray(held)
         ? held.filter((capability): capability is string => typeof capability === 'string')
         : []
+      const catalog = catalogOf(parsed.payload?.harnesses)
+      if (catalog !== null && !this.harnessesSearched) {
+        this.harnessesSearched = true
+        await this.declareHarnesses(catalog)
+      }
       return
     }
     if (parsed.type !== 'dispatch') return
@@ -239,6 +318,7 @@ export class HostLink {
     private readonly run: CommandRunner = runInShell,
     private readonly sessionEnded: () => void = () => {},
     private readonly capabilities: readonly string[] = [SHELL_CAPABILITY],
+    private readonly findHarnesses: HarnessFinder = harnessesOnPath,
   ) {}
 
   /** Open the socket and register, and keep doing so until [`stop`]. */
@@ -296,7 +376,14 @@ export class HostLink {
       if (code === SESSION_ENDED) this.sessionEnded()
       this.retry()
     })
-    this.agent = new HostAgent(socket, machineName(), platformName(), this.run, this.capabilities)
+    this.agent = new HostAgent(
+      socket,
+      machineName(),
+      platformName(),
+      this.run,
+      this.capabilities,
+      this.findHarnesses,
+    )
     this.agent.start()
   }
 

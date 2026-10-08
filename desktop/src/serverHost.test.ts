@@ -335,15 +335,19 @@ describe('a Local Installation with Remote Access off', () => {
 
 /** A Host socket of a daemon that registers the machine under an id, as
  *  the daemon answers `register_host`. */
+/** A Host socket whose daemon answers each registration. The answer
+ *  names `harnesses` as the catalog when the test gives one. */
 class RegisteringSocket implements HostSocket {
   readonly hostId: string
+  readonly harnesses: unknown
   sent: Record<string, unknown>[] = []
   closed = false
   private listener: ((frame: string) => void) | null = null
   private closeListener: ((code: number) => void) | null = null
 
-  constructor(hostId: string) {
+  constructor(hostId: string, harnesses?: unknown) {
     this.hostId = hostId
+    this.harnesses = harnesses
   }
 
   send(frame: string): void {
@@ -354,7 +358,7 @@ class RegisteringSocket implements HostSocket {
         this.listener?.(
           JSON.stringify({
             type: 'host.registered',
-            payload: { host_id: this.hostId, capabilities: parsed.capabilities },
+            payload: { host_id: this.hostId, capabilities: parsed.capabilities, harnesses: this.harnesses },
           }),
         ),
       )
@@ -591,7 +595,9 @@ describe('the exit socket of a Host', () => {
  *  once the daemon acknowledged a registration that holds a Coding
  *  Harness. The daemon opens one stream on it for each Coding Session. */
 describe('the session socket of a Host', () => {
-  const HARNESS = 'harness:claude'
+  /** A catalog whose one harness runs the Node.js of the test, which the
+   *  login-shell environment of the test has on its PATH. */
+  const CATALOG = [{ id: 'claude', launchers: [path.basename(process.execPath)] }]
 
   /** The open request of a Coding Session whose process runs `script`
    *  under the Node.js of the test. */
@@ -608,8 +614,8 @@ describe('the session socket of a Host', () => {
 
   const environment = async () => ({ PATH: path.dirname(process.execPath) })
 
-  it('opens with the registered host id and the Session of the Host socket, once the registration holds a harness', async () => {
-    const hostSocket = new RegisteringSocket('host-1')
+  it('opens with the registered host id and the Session of the Host socket, after the second registration declared a harness', async () => {
+    const hostSocket = new RegisteringSocket('host-1', CATALOG)
     const openSessions = vi.fn(async (_url: string, _secret: string, _hostId: string) => new FakeExitSocket() as ByteSocket)
     const links = hostLinkFor({
       url: SERVER,
@@ -617,7 +623,7 @@ describe('the session socket of a Host', () => {
       credential: () => null,
       open: async () => hostSocket,
       openSessions,
-      capabilities: [SHELL_CAPABILITY, HARNESS],
+      environment,
       retryMs: 1,
       request: async () => live(),
     })
@@ -626,7 +632,8 @@ describe('the session socket of a Host', () => {
     await vi.waitFor(() => expect(openSessions).toHaveBeenCalled())
     await links.stop()
 
-    expect(hostSocket.sent[1]).toMatchObject({ type: 'register_host', capabilities: ['shell', HARNESS] })
+    const registrations = hostSocket.sent.filter((frame) => frame.type === 'register_host')
+    expect(registrations.map((frame) => frame.capabilities)).toEqual([['shell'], ['shell', 'harness:claude']])
     expect(openSessions).toHaveBeenCalledTimes(1)
     expect(openSessions).toHaveBeenCalledWith(SERVER, 'the-persons-session', 'host-1')
   })
@@ -637,7 +644,8 @@ describe('the session socket of a Host', () => {
       url: SERVER,
       jar: { get: async () => [{ value: 'the-persons-session' }] },
       credential: () => null,
-      open: async () => new RegisteringSocket('host-1'),
+      open: async () => new RegisteringSocket('host-1', CATALOG),
+      environment: async () => ({ PATH: os.tmpdir() }),
       openSessions,
       capabilities: [SHELL_CAPABILITY, EXIT_CAPABILITY],
       openExit: async () => new FakeExitSocket(),
@@ -653,7 +661,7 @@ describe('the session socket of a Host', () => {
   })
 
   it('opens the session socket and no exit socket on a Local Installation', async () => {
-    const hostSocket = new RegisteringSocket('host-1')
+    const hostSocket = new RegisteringSocket('host-1', CATALOG)
     const openExit = vi.fn(async () => new FakeExitSocket() as ByteSocket)
     const openSessions = vi.fn(async (_url: string, _secret: string, _hostId: string) => new FakeExitSocket() as ByteSocket)
     const links = hostLinkFor({
@@ -663,7 +671,7 @@ describe('the session socket of a Host', () => {
       open: async () => hostSocket,
       openExit,
       openSessions,
-      capabilities: [SHELL_CAPABILITY, HARNESS],
+      environment,
       retryMs: 1,
       request: async () => live(),
     })
@@ -692,7 +700,7 @@ describe('the session socket of a Host', () => {
       credential: () => null,
       open: async (_url, secret) => {
         opened.push(secret)
-        const socket = new RegisteringSocket('host-1')
+        const socket = new RegisteringSocket('host-1', CATALOG)
         hostSockets.push(socket)
         return socket
       },
@@ -706,7 +714,8 @@ describe('the session socket of a Host', () => {
         sessionSockets.push(socket)
         return socket
       },
-      capabilities: [SHELL_CAPABILITY, EXIT_CAPABILITY, HARNESS],
+      environment,
+      capabilities: [SHELL_CAPABILITY, EXIT_CAPABILITY],
       retryMs: 1,
       request: async () => live(),
     })
@@ -731,7 +740,7 @@ describe('the session socket of a Host', () => {
   })
 
   it('sends the exit of a process on the Host socket', async () => {
-    const hostSocket = new RegisteringSocket('host-1')
+    const hostSocket = new RegisteringSocket('host-1', CATALOG)
     const sessionSocket = new FakeExitSocket()
     const links = hostLinkFor({
       url: SERVER,
@@ -740,7 +749,6 @@ describe('the session socket of a Host', () => {
       open: async () => hostSocket,
       openSessions: async () => sessionSocket,
       environment,
-      capabilities: [SHELL_CAPABILITY, HARNESS],
       retryMs: 1,
       request: async () => live(),
     })
@@ -766,10 +774,9 @@ describe('the session socket of a Host', () => {
       url: SERVER,
       jar: { get: async () => [{ value: 'the-persons-session' }] },
       credential: () => null,
-      open: async () => new RegisteringSocket('host-1'),
+      open: async () => new RegisteringSocket('host-1', CATALOG),
       openSessions: async () => sessionSocket,
       environment,
-      capabilities: [SHELL_CAPABILITY, HARNESS],
       retryMs: 1,
       request: async () => live(),
     })

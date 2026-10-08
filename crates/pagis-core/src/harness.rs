@@ -471,6 +471,26 @@ pub fn launchers(entry: &HarnessEntry) -> Vec<&'static str> {
         .collect()
 }
 
+/// Whether the harness has a launch command for the platform of a Host,
+/// as the client reports it: `macos`, `linux`, `windows` and so on. An
+/// npx entry runs on each platform. A binary entry runs on the operating
+/// systems of its archives, which the ACP registry names `darwin`,
+/// `linux` and `windows`.
+pub fn launches_on(entry: &HarnessEntry, host_platform: &str) -> bool {
+    match entry.launch {
+        Launch::Npx { .. } => true,
+        Launch::Binary { archives, .. } => {
+            let system = match host_platform {
+                "macos" => "darwin",
+                other => other,
+            };
+            archives
+                .iter()
+                .any(|archive| archive.platform.split('-').next() == Some(system))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

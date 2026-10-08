@@ -982,8 +982,9 @@ One machine of one Person that their Agents can act on: the Client App
 running there, with its name, platform, capabilities and last-seen time. A
 host action runs there as the Person's own OS user, never in the daemon.
 Pagis sandboxes nothing on a Host, so the approval stands in its place, and
-the Grant names the machine (ADR-0015). A Coding Session can run there. Not
-built (ADR-0033).
+the Grant names the machine (ADR-0015). It declares `harness:<id>` for each
+Coding Harness whose programs are on the `PATH` of the Person's login
+shell, and a Coding Session of that harness can run there (ADR-0033).
 _Avoid_: device, the user's computer
 
 ### Media Relay
@@ -1048,7 +1049,8 @@ _Avoid_: harness session
 The list of Coding Harnesses that ships with each release, with the pinned
 version, the launch command, the launch in the Agent's Computer, whether
 the harness asks permission, and the vendor's own sign-in commands. Pagis
-does not fetch it at run time (ADR-0033).
+does not fetch it at run time. The daemon sends it to each Host in the
+answer to its registration, and the Client App ships no copy (ADR-0033).
 
 ### Harness Model Endpoint
 The model API that the daemon serves to the Computers for a Coding Session

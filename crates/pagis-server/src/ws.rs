@@ -31,7 +31,7 @@ use axum::response::Response;
 use futures::StreamExt;
 use pagis_agent::{DeltaFrame, ProgressFrame};
 use pagis_broker::{HostCommand, HostConnection, HostOutcome, SessionExit};
-use pagis_core::{ChannelId, CodingSessionId, Event, EventScope, Host};
+use pagis_core::{ChannelId, CodingSessionId, Event, EventScope, Host, harness};
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
@@ -175,7 +175,24 @@ impl ServerFrame {
 
     /// The Host the client registered, so the client knows the id
     /// its machine is known by and the person's surfaces name one record.
+    ///
+    /// `harnesses` is the Harness Catalog for the platform of the Host:
+    /// each harness with the programs it needs on the Person's `PATH`.
+    /// The client looks for them and declares `harness:<id>` for each
+    /// harness it finds with a second registration, because the client
+    /// is the authority for its capabilities (ADR-0015). The daemon is
+    /// the one source of the catalog, so the client ships no copy.
     fn host_registered(host: &Host) -> Self {
+        let harnesses: Vec<serde_json::Value> = harness::catalog()
+            .iter()
+            .filter(|entry| harness::launches_on(entry, &host.platform))
+            .map(|entry| {
+                serde_json::json!({
+                    "id": entry.id,
+                    "launchers": harness::launchers(entry),
+                })
+            })
+            .collect();
         ServerFrame {
             seq: None,
             replay: None,
@@ -185,6 +202,7 @@ impl ServerFrame {
                 "name": host.name,
                 "platform": host.platform,
                 "capabilities": host.capabilities,
+                "harnesses": harnesses,
             })),
         }
     }
@@ -685,5 +703,51 @@ fn handle_client_frame(text: &str, subscriptions: &mut HashSet<String>) -> Frame
             FrameAction::Reply(ServerFrame::error("validation", "already authenticated"))
         }
         Err(_) => FrameAction::Reply(ServerFrame::error("validation", "unknown frame")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pagis_core::{HostId, WorkspaceId};
+
+    use super::*;
+
+    fn host_on(platform: &str) -> Host {
+        Host {
+            id: HostId::from("host-1".to_string()),
+            workspace_id: WorkspaceId::from("workspace-1".to_string()),
+            name: "Air".to_string(),
+            platform: platform.to_string(),
+            capabilities: vec!["shell".to_string()],
+            last_seen_at: 0,
+            created_at: 0,
+        }
+    }
+
+    fn harness_ids(platform: &str) -> Vec<String> {
+        let frame = ServerFrame::host_registered(&host_on(platform));
+        frame.payload.expect("the answer has a payload")["harnesses"]
+            .as_array()
+            .expect("the answer names the harnesses")
+            .iter()
+            .map(|harness| harness["id"].as_str().unwrap().to_string())
+            .collect()
+    }
+
+    /// A binary harness has a launch command only for the platforms of
+    /// its archives, so a Windows machine is not told about OpenCode or
+    /// the Cursor CLI. An npx harness runs on each platform.
+    #[test]
+    fn a_harness_with_no_command_for_the_platform_of_the_host_is_not_in_the_answer() {
+        assert_eq!(
+            harness_ids("windows"),
+            ["claude", "codex", "pi", "gemini", "copilot"]
+        );
+        assert_eq!(
+            harness_ids("linux"),
+            [
+                "claude", "codex", "opencode", "pi", "gemini", "copilot", "cursor"
+            ]
+        );
     }
 }
