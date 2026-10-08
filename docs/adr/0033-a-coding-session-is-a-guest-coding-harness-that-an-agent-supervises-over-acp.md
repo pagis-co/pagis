@@ -69,7 +69,8 @@ The record holds:
   branch or none;
 - the Session Approval Mode;
 - the title, the state and the end reason, and for a failed harness the end
-  detail: its exit code and the last 4 KB of its stderr;
+  detail: its exit code and the last 4 KB of its stderr, or the message of
+  the request that it failed;
 - the harness's own ACP session id;
 - the Channel and the root message of its Thread, and the message that holds
   its block;
@@ -409,7 +410,6 @@ Other ways were considered:
 ## Not built
 
 - The harness capabilities of a Host.
-- The start and the updates in the daemon.
 - The core tools.
 - The REST routes and the `coding_session` block.
 - The Session Rule.

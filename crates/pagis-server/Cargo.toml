@@ -22,6 +22,7 @@ pagis-agent.workspace = true
 pagis-analytics.workspace = true
 llm-router.workspace = true
 pagis-broker.workspace = true
+pagis-coding.workspace = true
 pagis-computer.workspace = true
 pagis-connect.workspace = true
 pagis-google.workspace = true

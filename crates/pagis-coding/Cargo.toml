@@ -8,6 +8,9 @@ license.workspace = true
 agent-client-protocol.workspace = true
 async-trait.workspace = true
 futures.workspace = true
+# The session socket of a Host is the first place of a Coding Session.
+pagis-broker.workspace = true
+pagis-core.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
@@ -19,4 +22,10 @@ tokio-util = { workspace = true, features = ["compat"] }
 tracing.workspace = true
 
 [dev-dependencies]
+# The bus of the session tests writes to the SQLite event log.
+pagis-audit.workspace = true
+pagis-storage-sqlite.workspace = true
+sqlx.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+# The Client App end of a session socket in the tests.
+yamux.workspace = true

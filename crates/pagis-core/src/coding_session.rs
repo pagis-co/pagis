@@ -303,8 +303,8 @@ pub struct CodingSession {
     /// Why the session ended. A terminal session has one, and no other
     /// session has one.
     pub end_reason: Option<String>,
-    /// The exit code and the last 4 KB of stderr of a failed harness.
-    /// It is harness text.
+    /// The exit code and the last 4 KB of stderr of a failed harness, or
+    /// the message of the request that it failed. It is harness text.
     pub end_detail: Option<String>,
     /// The harness's own ACP session id, which a resume names.
     pub acp_session_id: Option<String>,
