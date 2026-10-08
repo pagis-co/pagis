@@ -1489,6 +1489,8 @@ impl Task {
                     self.settle().await;
                 }
             }
+            // The record holds no Harness Mode.
+            SessionEvent::ModeChanged { .. } => {}
             // `run` reads the end of the stream.
             SessionEvent::Closed => {}
         }

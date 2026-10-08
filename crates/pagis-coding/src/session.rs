@@ -12,6 +12,7 @@ use agent_client_protocol::{
     RequestCancellation, Responder,
 };
 use futures::io::{AsyncRead, AsyncWrite};
+use pagis_core::HarnessModeInfo;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot, watch};
 
@@ -60,6 +61,32 @@ pub struct SignInMethod {
     pub env: BTreeMap<String, String>,
 }
 
+/// The Harness Modes that the harness answered when the session opened.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionModes {
+    /// The id of the current mode.
+    pub current: String,
+    /// The modes that the harness offers, in its order.
+    pub available: Vec<HarnessModeInfo>,
+}
+
+impl SessionModes {
+    fn from_acp(state: acp::SessionModeState) -> Self {
+        Self {
+            current: state.current_mode_id.0.to_string(),
+            available: state
+                .available_modes
+                .into_iter()
+                .map(|mode| HarnessModeInfo {
+                    id: mode.id.0.to_string(),
+                    name: mode.name,
+                    description: mode.description,
+                })
+                .collect(),
+        }
+    }
+}
+
 /// One ACP session of one Coding Harness, over one byte stream.
 ///
 /// Dropping the session ends the connection, as `close` does.
@@ -67,6 +94,7 @@ pub struct AcpSession {
     connection: ConnectionTo<Agent>,
     harness: HarnessInfo,
     session_id: acp::SessionId,
+    modes: Option<SessionModes>,
     flags: Arc<Flags>,
     events: mpsc::UnboundedSender<SessionEvent>,
     /// Counts the cancels, so that each ask that waits at a cancel ends.
@@ -129,37 +157,39 @@ impl AcpSession {
             .map_err(CodingError::from_acp)?;
         let harness = HarnessInfo::from_initialize(initialized)?;
 
-        let session_id = match opening {
+        let (session_id, modes) = match opening {
             Opening::New { cwd } => {
-                connection
+                let opened = connection
                     .send_request(acp::NewSessionRequest::new(cwd))
                     .block_task()
                     .await
-                    .map_err(CodingError::from_acp)?
-                    .session_id
+                    .map_err(CodingError::from_acp)?;
+                (opened.session_id, opened.modes)
             }
             Opening::Restore {
                 acp_session_id,
                 cwd,
             } => {
                 let session_id = acp::SessionId::new(acp_session_id);
-                if harness.can_resume {
+                let modes = if harness.can_resume {
                     connection
                         .send_request(acp::ResumeSessionRequest::new(session_id.clone(), cwd))
                         .block_task()
                         .await
-                        .map_err(CodingError::from_acp)?;
+                        .map_err(CodingError::from_acp)?
+                        .modes
                 } else if harness.can_load {
                     load(
                         &connection,
                         &flags,
                         acp::LoadSessionRequest::new(session_id.clone(), cwd),
                     )
-                    .await?;
+                    .await?
+                    .modes
                 } else {
                     return Err(CodingError::CannotRestore);
-                }
-                session_id
+                };
+                (session_id, modes)
             }
         };
 
@@ -167,6 +197,7 @@ impl AcpSession {
             connection,
             harness,
             session_id,
+            modes: modes.map(SessionModes::from_acp),
             flags,
             events,
             cancels,
@@ -212,6 +243,32 @@ impl AcpSession {
     #[must_use]
     pub fn acp_session_id(&self) -> &str {
         &self.session_id.0
+    }
+
+    /// The Harness Modes that the harness answered when the session
+    /// opened, or `None` when it answered none. A later change of the mode
+    /// comes as `SessionEvent::ModeChanged`.
+    #[must_use]
+    pub fn modes(&self) -> Option<&SessionModes> {
+        self.modes.as_ref()
+    }
+
+    /// Sends `session/set_mode` and waits for the answer of the harness.
+    ///
+    /// The harness refuses a mode that it does not offer.
+    pub async fn set_mode(&self, mode_id: &str) -> Result<(), CodingError> {
+        if self.is_closed() {
+            return Err(CodingError::Closed);
+        }
+        self.connection
+            .send_request(acp::SetSessionModeRequest::new(
+                self.session_id.clone(),
+                mode_id.to_owned(),
+            ))
+            .block_task()
+            .await
+            .map_err(CodingError::from_acp)?;
+        Ok(())
     }
 
     /// Sends one `session/prompt` with one text block, and returns at once.
@@ -352,14 +409,15 @@ fn initialize_request() -> acp::InitializeRequest {
         .client_info(acp::Implementation::new("pagis", env!("CARGO_PKG_VERSION")))
 }
 
-/// Sends `session/load` and drops the history that it replays. The
-/// callback ends the replay in dispatch order, so the first update after
-/// the answer is an event again.
+/// Sends `session/load` and drops the history that it replays, a change
+/// of the mode included: the answer holds the current mode. The callback
+/// ends the replay in dispatch order, so the first update after the
+/// answer is an event again.
 async fn load(
     connection: &ConnectionTo<Agent>,
     flags: &Arc<Flags>,
     request: acp::LoadSessionRequest,
-) -> Result<(), CodingError> {
+) -> Result<acp::LoadSessionResponse, CodingError> {
     let (answer_tx, answer_rx) = oneshot::channel();
     flags.replaying.store(true, Ordering::SeqCst);
     let replay_flags = flags.clone();
@@ -375,8 +433,7 @@ async fn load(
     answer_rx
         .await
         .map_err(|_| CodingError::Closed)?
-        .map_err(CodingError::from_acp)?;
-    Ok(())
+        .map_err(CodingError::from_acp)
 }
 
 /// Runs the ACP client until the incoming side closes or `close` is

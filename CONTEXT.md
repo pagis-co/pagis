@@ -1059,9 +1059,20 @@ _Avoid_: harness session
 ### Harness Catalog
 The list of Coding Harnesses that ships with each release, with the pinned
 version, the launch command, the launch in the Agent's Computer, whether
-the harness asks permission, and the vendor's own sign-in commands. Pagis
-does not fetch it at run time. The daemon sends it to each Host in the
-answer to its registration, and the Client App ships no copy (ADR-0033).
+the harness asks permission, its Harness Modes, and the vendor's own
+sign-in commands. Pagis does not fetch it at run time. The daemon sends it
+to each Host in the answer to its registration, and the Client App ships
+no copy (ADR-0033).
+
+### Harness Mode
+A session mode that a Coding Harness offers over ACP, such as Manual, Plan
+or Bypass permissions of Claude Code, or Read-only and Full access of
+Codex. The harness names its modes when a session opens. The Harness
+Catalog says in which modes the harness asks before each action. The
+Session Approval Mode says who answers a Harness Permission, and the
+Harness Mode says when the harness asks one (ADR-0033). Not built: the
+Harness Mode of a Coding Session.
+_Avoid_: permission mode, agent mode
 
 ### Harness Model Endpoint
 The model API that the daemon serves to the Computers for a Coding Session

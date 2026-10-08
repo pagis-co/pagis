@@ -47,6 +47,8 @@ pub enum SessionEvent {
         size: u64,
         cost: Option<Cost>,
     },
+    /// The harness changed its Harness Mode to the mode `mode_id`.
+    ModeChanged { mode_id: String },
     /// The turn ended. The updates of the turn always come before it.
     TurnEnded { stop_reason: StopReason },
     /// The prompt request failed. The session can take a new prompt.
@@ -197,8 +199,11 @@ impl SessionEvent {
                     currency: cost.currency,
                 }),
             }),
-            // The prompt, the commands, the mode, the config options and
-            // the session title are not part of the transcript.
+            acp::SessionUpdate::CurrentModeUpdate(update) => Some(Self::ModeChanged {
+                mode_id: update.current_mode_id.0.to_string(),
+            }),
+            // The prompt, the commands, the config options and the session
+            // title are not part of the transcript.
             _ => None,
         }
     }

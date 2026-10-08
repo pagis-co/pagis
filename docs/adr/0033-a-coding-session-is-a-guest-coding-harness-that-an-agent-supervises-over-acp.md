@@ -154,6 +154,8 @@ The **Harness Catalog** ships with each release, as the Provider Catalog does
 - for a harness that runs in the Agent's Computer, the npm packages that the
   Computer Image installs and the program and arguments that start it there;
 - whether the harness asks permission (pi does not);
+- the Harness Modes of the pinned version, each with its name and whether
+  the harness asks before each action in it;
 - the vendor's own sign-in command for each sign-in method (subscription,
   API key), where ACP `initialize` gives no terminal method.
 

@@ -45,7 +45,7 @@ pub use block::{
 pub use bus::{EventBus, EventScope, EventStream};
 pub use coding_session::{
     CodingSession, CodingSessionEvent, CodingSessionEventKind, CodingSessionPlace,
-    CodingSessionState, CodingSessionStore, CodingSessionUsage, ModelTokenOwner,
+    CodingSessionState, CodingSessionStore, CodingSessionUsage, HarnessModeInfo, ModelTokenOwner,
     NewCodingSessionEvent, SessionAllowRule, SessionApprovalMode, TranscriptWrite, path_is_inside,
 };
 pub use continuation::{
