@@ -16,7 +16,8 @@
 //! top of the ACP client: it starts each session on a [`SessionPlace`],
 //! records its updates through the Coding Session store, and asks
 //! [`SessionDecisions`] for the answer to each permission request and
-//! question.
+//! question. [`PolicyDecisions`] applies Pagis policy to each permission
+//! request and writes its audit fact.
 //!
 //! [`CodingSessionStarts`] holds the checks of a start, which the broker
 //! asks before the card, and [`CodingToolRuntime`] executes the core
@@ -28,12 +29,15 @@ mod error;
 mod event;
 pub mod fake;
 mod place;
+mod policy;
 mod session;
 mod sessions;
 mod starts;
 mod tools;
 
-pub use ask::{AskHandler, PermissionAnswer, PermissionAsk, QuestionAnswer, QuestionAsk};
+pub use ask::{
+    AskHandler, PermissionAnswer, PermissionAsk, PermissionOptionKind, QuestionAnswer, QuestionAsk,
+};
 pub use decisions::{Pending, RefuseDecisions, SessionDecisions, WaitsFor};
 pub use error::CodingError;
 pub use event::{
@@ -43,6 +47,7 @@ pub use place::{
     OpenFailure, OpenFailureCode, OpenRequest, OpenedStream, PlaceStream, SessionExit,
     SessionPlace, WorktreeRequest,
 };
+pub use policy::{PERMISSION_DECIDED_EVENT, PolicyDecisions};
 pub use session::{AcpSession, HarnessInfo, Opening, SignInMethod};
 pub use sessions::{
     CloseReason, CodingSessions, CodingSessionsDeps, NewCodingSession, PromptOutcome, SessionError,

@@ -2,22 +2,23 @@
 //!
 //! An Agent calls `coding_session_start`, the Person approves the card,
 //! and the daemon starts the harness on the Person's machine over its
-//! session socket. The REST routes read the records and the transcripts
-//! that the stores hold. The Client App's end of the socket runs the fake
-//! Coding Harness of `pagis_coding` on each stream in place of the
-//! process: through `serve_client_app`, or through the fake Client App of
-//! `pagis_broker` when a test reads the open requests.
+//! session socket. Pagis policy then answers each Harness Permission. The
+//! REST routes read the records and the transcripts that the stores hold.
+//! The Client App's end of the socket runs the fake Coding Harness of
+//! `pagis_coding` on each stream in place of the process: through
+//! `serve_client_app`, or through the fake Client App of `pagis_broker`
+//! when a test reads the open requests.
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures::StreamExt;
 use pagis_broker::fake::FakeClientApp;
-use pagis_coding::NewCodingSession;
-use pagis_coding::fake::{FakeHarness, Script, Turn, serve_client_app};
+use pagis_coding::fake::{Ask, FakeHarness, Script, Turn, acp, serve_client_app};
+use pagis_coding::{NewCodingSession, PERMISSION_DECIDED_EVENT};
 use pagis_core::{
     AgentId, AuthorKind, Block, ChannelId, CodingSession, CodingSessionEventKind, CodingSessionId,
-    CodingSessionState, HostId, Message, MessageId, NewCodingSessionEvent, RunId,
+    CodingSessionState, Event, HostId, Message, MessageId, NewCodingSessionEvent, RunId,
     SessionApprovalMode, harness, now_ms,
 };
 use pagis_testkit::{
@@ -665,4 +666,316 @@ async fn person_bs_agent_that_names_person_as_machine_gets_machine_not_found() {
         .await
         .unwrap();
     assert!(pending.is_empty(), "{pending:?}");
+}
+
+/// A Coding Session that an Agent started on a Host, after the Person
+/// approved its card, with the harness of `script`.
+struct Started {
+    daemon: TestDaemon,
+    _host: HostClient,
+    _sessions: SessionClient,
+    harnesses: Arc<Mutex<Vec<FakeHarness>>>,
+    session_id: CodingSessionId,
+    /// The host Grant that the approval wrote.
+    grant_id: String,
+}
+
+async fn start_approved_session(script: Script) -> Started {
+    let brain = Arc::new(ScriptedBrain::default());
+    brain.push(start_call(None));
+    brain.push(pagis_testkit::Script::reply(&["Started."]));
+    let daemon = daemon_with(&brain).await;
+    let harnesses: Arc<Mutex<Vec<FakeHarness>>> = Arc::default();
+    let client_app = FakeClientApp::running(WORKTREE, {
+        let harnesses = Arc::clone(&harnesses);
+        move |stream| {
+            let (read, write) = futures::io::AsyncReadExt::split(stream);
+            harnesses
+                .lock()
+                .unwrap()
+                .push(FakeHarness::serve(script.clone(), write, read));
+        }
+    });
+    let host = HostClient::connect(
+        &daemon,
+        "Air",
+        "macos",
+        &["shell", "harness:claude"],
+        HostAnswer::ok(),
+    )
+    .await;
+    let host_id = HostId::from(host.host_id().to_string());
+    let sessions = SessionClient::connect(&daemon, daemon.cookie(), host.host_id(), client_app)
+        .await
+        .expect("the session socket opens");
+    wait_until("the session socket is not open", || {
+        daemon.host_sessions.is_open(&host_id)
+    })
+    .await;
+    let mut firehose = daemon.event_socket(daemon.cookie()).await;
+    send(
+        &daemon,
+        daemon.cookie(),
+        &daemon.dm_channel_id,
+        "fix the login",
+    )
+    .await;
+    let created = next_frame_of(&mut firehose, "request.created").await;
+    let request_id = created["payload"]["payload"]["request_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let decided = reqwest::Client::new()
+        .post(format!(
+            "{}/api/v1/requests/{request_id}/decision",
+            daemon.base_url
+        ))
+        .header("cookie", daemon.cookie())
+        .json(&json!({"decision": "approved"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(decided.status(), 200);
+    let result: Value =
+        serde_json::from_str(&the_tool_result(&mut firehose, &brain).await).unwrap();
+    let session_id = CodingSessionId::from(result["session_id"].as_str().unwrap().to_string());
+    let grants = get(&daemon, "/api/v1/grants").await;
+    let grant_id = grants["items"][0]["id"].as_str().unwrap().to_string();
+    Started {
+        daemon,
+        _host: host,
+        _sessions: sessions,
+        harnesses,
+        session_id,
+        grant_id,
+    }
+}
+
+impl Started {
+    fn harness(&self) -> FakeHarness {
+        self.harnesses.lock().unwrap()[0].clone()
+    }
+
+    /// The answers that the harness got to its permission requests.
+    fn answers(&self) -> Vec<Value> {
+        self.harness()
+            .answers()
+            .into_iter()
+            .map(|answer| answer.expect("an answer and no error"))
+            .collect()
+    }
+
+    /// Replaces the Allow Rules of the host Grant, as the Access tab does.
+    async fn set_rules(&self, rules: &[&str]) {
+        let set = reqwest::Client::new()
+            .put(format!(
+                "{}/api/v1/grants/{}/rules",
+                self.daemon.base_url, self.grant_id
+            ))
+            .header("cookie", self.daemon.cookie())
+            .json(&json!({ "allow": rules }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(set.status(), 200);
+    }
+
+    async fn prompt(&self, text: &str) {
+        self.daemon
+            .coding_sessions
+            .prompt(
+                &self.daemon.workspace_id,
+                &self.session_id,
+                text.to_string(),
+            )
+            .await
+            .unwrap();
+    }
+
+    async fn state(&self) -> CodingSessionState {
+        self.daemon
+            .stores()
+            .coding_sessions
+            .get(&self.daemon.workspace_id, &self.session_id)
+            .await
+            .unwrap()
+            .expect("the session record")
+            .state
+    }
+
+    async fn wait_for_state(&self, state: CodingSessionState) {
+        let deadline = tokio::time::Instant::now() + WAIT;
+        loop {
+            let now = self.state().await;
+            if now == state {
+                return;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "the session is {now:?}, not {state:?}"
+            );
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }
+
+    /// Waits until the bus holds `count` audit facts of Harness
+    /// Permissions, and answers them, oldest first.
+    async fn wait_for_facts(&self, count: usize) -> Vec<Event> {
+        let deadline = tokio::time::Instant::now() + WAIT;
+        loop {
+            let mut facts = self
+                .daemon
+                .stores()
+                .events
+                .list_by_types(
+                    &self.daemon.workspace_id,
+                    &[PERMISSION_DECIDED_EVENT],
+                    None,
+                    100,
+                )
+                .await
+                .unwrap();
+            if facts.len() >= count {
+                facts.sort_by_key(|fact| fact.seq);
+                return facts;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "{} audit facts, not {count}",
+                facts.len()
+            );
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }
+}
+
+fn permission(kind: acp::ToolKind, locations: &[&str], command: Option<&str>) -> Ask {
+    let mut fields = acp::ToolCallUpdateFields::new()
+        .title("A tool")
+        .kind(kind)
+        .locations(
+            locations
+                .iter()
+                .map(|path| acp::ToolCallLocation::new(*path))
+                .collect::<Vec<_>>(),
+        );
+    if let Some(command) = command {
+        fields = fields.raw_input(json!({ "command": command }));
+    }
+    let options = [
+        ("allow-always", acp::PermissionOptionKind::AllowAlways),
+        ("allow-once", acp::PermissionOptionKind::AllowOnce),
+        ("reject-once", acp::PermissionOptionKind::RejectOnce),
+    ]
+    .into_iter()
+    .map(|(id, kind)| acp::PermissionOption::new(id, id, kind))
+    .collect();
+    Ask::permission(acp::ToolCallUpdate::new("call-1", fields), options)
+}
+
+fn git_status() -> Ask {
+    permission(acp::ToolKind::Execute, &[], Some("git status"))
+}
+
+fn ends_after(ask: Ask) -> Turn {
+    Turn::new(vec![], acp::StopReason::EndTurn).asks(ask)
+}
+
+fn allow_once() -> Value {
+    json!({"outcome": {"outcome": "selected", "optionId": "allow-once"}})
+}
+
+fn cancelled() -> Value {
+    json!({"outcome": {"outcome": "cancelled"}})
+}
+
+/// An edit inside the session's directory passes on its scope, an
+/// `execute` that a Host Allow Rule matches passes on the rule, and
+/// `rm -rf /` waits until a cancel answers it `cancelled`. Each decision
+/// writes one audit fact.
+#[tokio::test]
+async fn pagis_policy_allows_by_scope_and_by_rule_and_a_cancel_ends_what_waits() {
+    let edit = permission(
+        acp::ToolKind::Edit,
+        &[&format!("{WORKTREE}/src/login.rs")],
+        None,
+    );
+    let remove_all = permission(acp::ToolKind::Execute, &[], Some("rm -rf /"));
+    let started = start_approved_session(
+        Script::default()
+            .turn(ends_after(edit))
+            .turn(ends_after(git_status()))
+            .turn(Turn::until_cancel(vec![]).asks(remove_all)),
+    )
+    .await;
+
+    let facts = started.wait_for_facts(1).await;
+    assert_eq!(facts[0].payload["decider"], "scope");
+    assert_eq!(facts[0].payload["outcome"], "allowed");
+    assert_eq!(facts[0].payload["option_kind"], "allow_once");
+    assert_eq!(facts[0].payload["session_id"], started.session_id.as_str());
+    assert_eq!(facts[0].run_id, None);
+    started.wait_for_state(CodingSessionState::Idle).await;
+
+    started.set_rules(&["git status"]).await;
+    started.prompt("Check the tree.").await;
+    let facts = started.wait_for_facts(2).await;
+    assert_eq!(facts[1].payload["decider"], "rule");
+    assert_eq!(facts[1].payload["command"], "git status");
+    assert_eq!(facts[1].payload["tool_kind"], "execute");
+    assert_eq!(facts[1].payload["outcome"], "allowed");
+    assert!(facts[1].payload["grant_revision"].as_i64().unwrap() > 1);
+    started.wait_for_state(CodingSessionState::Idle).await;
+
+    started.prompt("Clean up.").await;
+    started
+        .wait_for_state(CodingSessionState::NeedsDecision)
+        .await;
+    assert_eq!(started.answers(), [allow_once(), allow_once()]);
+
+    started
+        .daemon
+        .coding_sessions
+        .cancel(&started.daemon.workspace_id, &started.session_id)
+        .await
+        .unwrap();
+
+    let facts = started.wait_for_facts(3).await;
+    assert_eq!(facts[2].payload["command"], "rm -rf /");
+    assert_eq!(facts[2].payload["outcome"], "cancelled");
+    assert_eq!(facts[2].payload["decider"], Value::Null);
+    started.wait_for_state(CodingSessionState::Idle).await;
+    assert_eq!(started.answers(), [allow_once(), allow_once(), cancelled()]);
+}
+
+/// The policy reads the live host Grant at each permission, so a
+/// revision that removes the rule makes the next same command wait.
+#[tokio::test]
+async fn a_grant_revision_that_removes_the_rule_makes_the_next_same_command_wait() {
+    let started = start_approved_session(
+        Script::default()
+            .turn(Turn::new(vec![], acp::StopReason::EndTurn))
+            .turn(ends_after(git_status()))
+            .turn(Turn::until_cancel(vec![]).asks(git_status())),
+    )
+    .await;
+    started.wait_for_state(CodingSessionState::Idle).await;
+    started.set_rules(&["git status"]).await;
+    started.prompt("Check the tree.").await;
+    let facts = started.wait_for_facts(1).await;
+    assert_eq!(facts[0].payload["decider"], "rule");
+    started.wait_for_state(CodingSessionState::Idle).await;
+
+    started.set_rules(&[]).await;
+    started.prompt("Check it again.").await;
+
+    started
+        .wait_for_state(CodingSessionState::NeedsDecision)
+        .await;
+    assert_eq!(started.answers(), [allow_once()]);
+    assert_eq!(
+        started.wait_for_facts(1).await.len(),
+        1,
+        "a waiting permission has no fact"
+    );
 }

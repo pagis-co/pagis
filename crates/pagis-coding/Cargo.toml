@@ -26,6 +26,8 @@ utoipa.workspace = true
 yamux.workspace = true
 
 [dev-dependencies]
+# The bus of the policy tests writes to the SQLite event log.
+pagis-audit.workspace = true
 pagis-storage-sqlite.workspace = true
 sqlx.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }

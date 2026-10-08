@@ -9,8 +9,8 @@ use std::time::Duration;
 use async_trait::async_trait;
 use pagis_coding::fake::{self, Ask, Script, Turn, acp};
 use pagis_coding::{
-    AcpSession, AskHandler, PermissionAnswer, PermissionAsk, QuestionAnswer, QuestionAsk,
-    SessionEvent, StopReason, ToolKind,
+    AcpSession, AskHandler, PermissionAnswer, PermissionAsk, PermissionOptionKind, QuestionAnswer,
+    QuestionAsk, SessionEvent, StopReason, ToolKind,
 };
 use serde_json::{Map, Value, json};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
@@ -207,6 +207,12 @@ async fn a_permission_request_reaches_the_handler_and_its_answer_selects_the_onc
             kind: ToolKind::Execute,
             locations: vec![PathBuf::from("/work/repo")],
             raw_input: Some(json!({ "command": "cargo test" })),
+            options: vec![
+                PermissionOptionKind::AllowAlways,
+                PermissionOptionKind::AllowOnce,
+                PermissionOptionKind::RejectAlways,
+                PermissionOptionKind::RejectOnce,
+            ],
         }
     );
     answer
@@ -227,6 +233,99 @@ async fn a_permission_request_reaches_the_handler_and_its_answer_selects_the_onc
         answers(&harness),
         [Ok(selected("allow-once")), Ok(selected("reject-once"))]
     );
+}
+
+/// The Codex adapter reports a command in a `tool_call` update, and then
+/// asks for it with a tool call that holds only its id.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_permission_takes_each_field_that_it_leaves_out_from_the_reported_tool_call() {
+    let reported = acp::SessionUpdate::ToolCall(
+        acp::ToolCall::new("call-1", "Run cargo test")
+            .kind(acp::ToolKind::Execute)
+            .locations(vec![acp::ToolCallLocation::new("/work/repo")])
+            .raw_input(json!({ "command": "cargo test" })),
+    );
+    let other = acp::SessionUpdate::ToolCall(
+        acp::ToolCall::new("call-2", "Read the notes").kind(acp::ToolKind::Read),
+    );
+    let ask = Ask::permission(
+        acp::ToolCallUpdate::new(
+            "call-1",
+            acp::ToolCallUpdateFields::new().title("Run cargo test --all"),
+        ),
+        every_option(),
+    )
+    .after_updates();
+    let script = Script::default()
+        .turn(Turn::new(vec![reported, other], acp::StopReason::EndTurn).asks(ask));
+    let Opened {
+        session, mut asks, ..
+    } = open(script).await;
+
+    session.prompt("Run the tests").expect("the prompt is sent");
+    let (ask, answer) = next_permission(&mut asks).await;
+
+    assert_eq!(ask.tool_call_id, "call-1");
+    assert_eq!(ask.kind, ToolKind::Execute);
+    assert_eq!(ask.title.as_deref(), Some("Run cargo test --all"));
+    assert_eq!(ask.locations, [PathBuf::from("/work/repo")]);
+    assert_eq!(ask.raw_input, Some(json!({ "command": "cargo test" })));
+    answer
+        .send(PermissionAnswer::AllowOnce)
+        .expect("the handler waits");
+}
+
+/// A tool call that the harness reported as finished gets no permission,
+/// so a request with its id has only its own fields.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_permission_for_a_finished_tool_call_has_only_its_own_fields() {
+    let reported = acp::SessionUpdate::ToolCall(
+        acp::ToolCall::new("call-1", "Run cargo test").kind(acp::ToolKind::Execute),
+    );
+    let finished = acp::SessionUpdate::ToolCallUpdate(acp::ToolCallUpdate::new(
+        "call-1",
+        acp::ToolCallUpdateFields::new().status(acp::ToolCallStatus::Completed),
+    ));
+    let ask = Ask::permission(
+        acp::ToolCallUpdate::new("call-1", acp::ToolCallUpdateFields::new()),
+        every_option(),
+    )
+    .after_updates();
+    let script = Script::default()
+        .turn(Turn::new(vec![reported, finished], acp::StopReason::EndTurn).asks(ask));
+    let Opened {
+        session, mut asks, ..
+    } = open(script).await;
+
+    session.prompt("Run the tests").expect("the prompt is sent");
+    let (ask, answer) = next_permission(&mut asks).await;
+
+    assert_eq!(ask.kind, ToolKind::Other);
+    assert_eq!(ask.title, None);
+    answer
+        .send(PermissionAnswer::AllowOnce)
+        .expect("the handler waits");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_cancel_answer_selects_no_option() {
+    let script = Script::default()
+        .turn(Turn::new(vec![], acp::StopReason::EndTurn).asks(asks_to_run_tests()));
+    let Opened {
+        harness,
+        session,
+        mut events,
+        mut asks,
+    } = open(script).await;
+
+    session.prompt("Run the tests").expect("the prompt is sent");
+    let (_ask, answer) = next_permission(&mut asks).await;
+    answer
+        .send(PermissionAnswer::Cancel)
+        .expect("the handler waits");
+
+    assert_eq!(next(&mut events).await, ended(StopReason::EndTurn));
+    assert_eq!(answers(&harness), [Ok(cancelled())]);
 }
 
 #[tokio::test(flavor = "multi_thread")]

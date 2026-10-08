@@ -15,10 +15,10 @@ use crate::{PermissionAnswer, PermissionAsk, QuestionAnswer, QuestionAsk};
 
 /// Answers the asks of the harness of a Coding Session.
 ///
-/// Each method says at once who answers, so the transcript names who the
-/// session waits for, and gives the answer as a future that can wait for
-/// hours. The session drops the future when the harness withdraws the
-/// ask or the turn is cancelled.
+/// Each method gives the answer at once, or says at once who answers, so
+/// the transcript names who the session waits for, and gives the answer
+/// as a future that can wait for hours. The session drops the future
+/// when the harness withdraws the ask or the turn is cancelled.
 #[async_trait]
 pub trait SessionDecisions: Send + Sync {
     async fn permission(
@@ -30,16 +30,23 @@ pub trait SessionDecisions: Send + Sync {
     async fn question(&self, session: &CodingSession, ask: QuestionAsk) -> Pending<QuestionAnswer>;
 }
 
-/// An ask that waits for its answer.
-pub struct Pending<T> {
-    pub waits_for: WaitsFor,
-    pub answer: BoxFuture<'static, T>,
+/// The answer to an ask.
+pub enum Pending<T> {
+    /// The daemon answers at once, and the session does not wait.
+    Decided(T),
+    /// The ask waits for its answer, and the session is `needs_decision`
+    /// until it comes.
+    Waits {
+        waits_for: WaitsFor,
+        answer: BoxFuture<'static, T>,
+    },
 }
 
 impl<T: Send + 'static> Pending<T> {
-    /// An answer that is ready now.
+    /// An ask that waits for `waits_for`, with an answer that is ready
+    /// now.
     pub fn ready(waits_for: WaitsFor, answer: T) -> Self {
-        Self {
+        Self::Waits {
             waits_for,
             answer: Box::pin(std::future::ready(answer)),
         }

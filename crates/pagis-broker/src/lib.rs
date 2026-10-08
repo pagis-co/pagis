@@ -3,6 +3,7 @@
 mod call;
 pub mod credentials;
 pub mod fake;
+mod harness_policy;
 pub mod host_sessions;
 pub mod hosts;
 mod mail;
@@ -29,6 +30,7 @@ pub use call::{
 pub use credentials::{
     CredentialAction, CredentialActionKind, MAX_CREDENTIAL_RULES, domain_allowed, normalize_domain,
 };
+pub use harness_policy::{Decider, HarnessToolKind, PolicyOutcome, evaluate};
 pub use host_sessions::{
     HostSessions, OpenAnswer, OpenFailure, OpenRequest, OpenedSession, SessionExit,
     SessionOpenError, WorktreeRequest,

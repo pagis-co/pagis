@@ -11,25 +11,28 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use futures::io::{AsyncRead, AsyncWrite};
+use pagis_audit::AuditEventBus;
 use pagis_broker::HostSessions;
 use pagis_coding::fake::{Ask, FakeHarness, NEW_SESSION_ID, Script, Turn, acp, serve_client_app};
 use pagis_coding::{
     CloseReason, CodingSessions, CodingSessionsDeps, NewCodingSession, OpenFailure,
-    OpenFailureCode, OpenRequest, OpenedStream, Pending, PermissionAnswer, PermissionAsk,
-    PromptOutcome, QuestionAnswer, QuestionAsk, RefuseDecisions, SessionDecisions, SessionError,
-    SessionExit, SessionPlace, StartFailure, WorktreeRequest,
+    OpenFailureCode, OpenRequest, OpenedStream, PERMISSION_DECIDED_EVENT, Pending,
+    PermissionAnswer, PermissionAsk, PolicyDecisions, PromptOutcome, QuestionAnswer, QuestionAsk,
+    RefuseDecisions, SessionDecisions, SessionError, SessionExit, SessionPlace, StartFailure,
+    WaitsFor, WorktreeRequest,
 };
 use pagis_core::{
     Agent, AgentId, AgentStatus, AgentStore, AuthorKind, Block, Channel, ChannelId, ChannelKind,
     ChannelStore, CodingSession, CodingSessionEvent, CodingSessionEventKind as Kind,
     CodingSessionId, CodingSessionPlace, CodingSessionState as State, CodingSessionStore, Event,
-    EventBus, EventId, EventScope, EventStream, HostId, HostStore, Message, MessageId,
-    MessageStatus, MessageStore, NewEvent, Run, RunId, RunState, RunStore, SessionApprovalMode,
-    StoreError, SystemClock, TriggerKind, Workspace, WorkspaceId, WorkspaceStore, now_ms,
+    EventBus, EventId, EventLog, EventScope, EventStream, Grant, GrantId, GrantStore, HostId,
+    HostStore, Message, MessageId, MessageStatus, MessageStore, NewEvent, Run, RunId, RunState,
+    RunStore, SessionApprovalMode, StoreError, SystemClock, TriggerKind, Workspace, WorkspaceId,
+    WorkspaceStore, now_ms,
 };
 use pagis_storage_sqlite::{
-    SqliteAgentStore, SqliteChannelStore, SqliteCodingSessionStore, SqliteHostStore,
-    SqliteMessageStore, SqliteRunStore, SqliteWorkspaceStore,
+    SqliteAgentStore, SqliteChannelStore, SqliteCodingSessionStore, SqliteEventLog,
+    SqliteGrantStore, SqliteHostStore, SqliteMessageStore, SqliteRunStore, SqliteWorkspaceStore,
 };
 use serde_json::{Value, json};
 use sqlx::SqlitePool;
@@ -46,6 +49,8 @@ const WORKTREE_DIRECTORY: &str = "/Users/bo/.pagis-worktrees/app/pagis/fix-login
 struct World {
     pool: SqlitePool,
     sessions: Arc<SqliteCodingSessionStore>,
+    /// The event log that Pagis policy writes its audit facts to.
+    events: Arc<SqliteEventLog>,
     workspace_id: WorkspaceId,
     agent_id: AgentId,
     channel_id: ChannelId,
@@ -96,6 +101,7 @@ async fn world(pool: SqlitePool) -> World {
         .unwrap();
     let mut world = World {
         sessions: Arc::new(SqliteCodingSessionStore::new(pool.clone())),
+        events: Arc::new(SqliteEventLog::new(pool.clone())),
         pool,
         workspace_id,
         agent_id: agent.id,
@@ -214,6 +220,57 @@ impl World {
             approval_mode: SessionApprovalMode::Person,
             title: "Fix the login".to_string(),
             prompt: "Fix the login bug.".to_string(),
+        }
+    }
+
+    /// Pagis policy on the SQLite Grant store and the bus of the tests.
+    fn policy(&self) -> Arc<PolicyDecisions> {
+        Arc::new(PolicyDecisions::new(
+            Arc::new(SqliteGrantStore::new(self.pool.clone())),
+            Arc::new(AuditEventBus::new(self.events.clone())),
+        ))
+    }
+
+    /// A live host Grant of the Agent on the machine, with a widest
+    /// Session Approval Mode and Allow Rules.
+    async fn host_grant(&self, mode: SessionApprovalMode, allow: &[&str]) {
+        let grant = Grant {
+            id: GrantId::generate(),
+            workspace_id: self.workspace_id.clone(),
+            agent_id: self.agent_id.clone(),
+            resource_kind: Grant::HOST_KIND.to_string(),
+            resource_id: Some(self.host_id.to_string()),
+            scope: json!({"allow": allow, "session_approval_mode": mode.as_str()}),
+            revision: 1,
+            created_at: now_ms(),
+            revoked_at: None,
+        };
+        SqliteGrantStore::new(self.pool.clone())
+            .create(&grant)
+            .await
+            .unwrap();
+    }
+
+    /// Waits until the bus holds `count` audit facts of Harness
+    /// Permissions, and answers them, oldest first.
+    async fn wait_for_facts(&self, count: usize) -> Vec<Event> {
+        let deadline = tokio::time::Instant::now() + WAIT;
+        loop {
+            let mut facts = self
+                .events
+                .list_by_types(&self.workspace_id, &[PERMISSION_DECIDED_EVENT], None, 100)
+                .await
+                .unwrap();
+            if facts.len() >= count {
+                facts.sort_by_key(|fact| fact.seq);
+                return facts;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "{} audit facts, not {count}",
+                facts.len()
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
     }
 
@@ -449,28 +506,30 @@ impl GatedDecisions {
 impl SessionDecisions for GatedDecisions {
     async fn permission(
         &self,
-        session: &CodingSession,
-        ask: PermissionAsk,
+        _session: &CodingSession,
+        _ask: PermissionAsk,
     ) -> Pending<PermissionAnswer> {
-        let refused = RefuseDecisions.permission(session, ask).await;
         let gate = self.gate.clone();
-        Pending {
-            waits_for: refused.waits_for,
+        Pending::Waits {
+            waits_for: WaitsFor::Person,
             answer: Box::pin(async move {
                 gate.notified().await;
-                refused.answer.await
+                PermissionAnswer::RejectOnce
             }),
         }
     }
 
-    async fn question(&self, session: &CodingSession, ask: QuestionAsk) -> Pending<QuestionAnswer> {
-        let refused = RefuseDecisions.question(session, ask).await;
+    async fn question(
+        &self,
+        _session: &CodingSession,
+        _ask: QuestionAsk,
+    ) -> Pending<QuestionAnswer> {
         let gate = self.gate.clone();
-        Pending {
-            waits_for: refused.waits_for,
+        Pending::Waits {
+            waits_for: WaitsFor::Person,
             answer: Box::pin(async move {
                 gate.notified().await;
-                refused.answer.await
+                QuestionAnswer::Cancel
             }),
         }
     }
@@ -1031,6 +1090,236 @@ async fn get_with_the_id_of_another_workspaces_session_answers_none(pool: Sqlite
     assert!(
         matches!(refused, Err(SessionError::NotFound)),
         "{refused:?}"
+    );
+}
+
+/// A permission of `kind` for the tool call `call-1`.
+fn tool_call(
+    kind: acp::ToolKind,
+    locations: &[&str],
+    command: Option<&str>,
+) -> acp::ToolCallUpdate {
+    let mut fields = acp::ToolCallUpdateFields::new()
+        .title("A tool")
+        .kind(kind)
+        .locations(
+            locations
+                .iter()
+                .map(|path| acp::ToolCallLocation::new(*path))
+                .collect::<Vec<_>>(),
+        );
+    if let Some(command) = command {
+        fields = fields.raw_input(json!({ "command": command }));
+    }
+    acp::ToolCallUpdate::new("call-1", fields)
+}
+
+fn every_option() -> Vec<acp::PermissionOption> {
+    [
+        ("allow-always", acp::PermissionOptionKind::AllowAlways),
+        ("allow-once", acp::PermissionOptionKind::AllowOnce),
+        ("reject-always", acp::PermissionOptionKind::RejectAlways),
+        ("reject-once", acp::PermissionOptionKind::RejectOnce),
+    ]
+    .into_iter()
+    .map(|(id, kind)| acp::PermissionOption::new(id, id, kind))
+    .collect()
+}
+
+fn edit_inside() -> acp::ToolCallUpdate {
+    tool_call(
+        acp::ToolKind::Edit,
+        &[&format!("{WORKTREE_DIRECTORY}/src/login.rs")],
+        None,
+    )
+}
+
+/// An allow selects the `allow_once` option, even when the harness offers
+/// `allow_always` first. The session does not wait, and the audit fact
+/// names the scope.
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn policy_allows_an_edit_inside_the_directory_once_with_the_scope_as_decider(
+    pool: SqlitePool,
+) {
+    let world = world(pool).await;
+    let ask = Ask::permission(edit_inside(), every_option());
+    let place = DuplexPlace::new(
+        Script::default().turn(Turn::new(vec![], acp::StopReason::EndTurn).asks(ask)),
+    );
+    let sessions = world.coding_sessions(place.clone(), world.policy());
+    let session = sessions
+        .start(world.new_session(&world.run_id))
+        .await
+        .unwrap();
+
+    let rows = world.wait_for_row(&session.id, Kind::TurnEnd).await;
+
+    assert_eq!(
+        place.harness().answers()[0].as_ref().unwrap(),
+        &json!({"outcome": {"outcome": "selected", "optionId": "allow-once"}})
+    );
+    let asked = &rows_of(&rows, Kind::Permission)[0].payload;
+    assert_eq!(asked["waits_for"], Value::Null);
+    assert_eq!(asked["kind"], "edit");
+    assert_eq!(
+        rows_of(&rows, Kind::Decision)[0].payload["decision"],
+        "allow_once"
+    );
+    let facts = world.wait_for_facts(1).await;
+    assert_eq!(facts[0].agent_id.as_ref(), Some(&world.agent_id));
+    assert_eq!(facts[0].run_id, None);
+    assert_eq!(
+        facts[0].payload,
+        json!({
+            "session_id": session.id,
+            "agent_id": world.agent_id,
+            "host_id": world.host_id,
+            "tool_call_id": "call-1",
+            "tool_kind": "edit",
+            "command": null,
+            "locations": [format!("{WORKTREE_DIRECTORY}/src/login.rs")],
+            "grant_revision": null,
+            "decider": "scope",
+            "outcome": "allowed",
+            "option_kind": "allow_once",
+        })
+    );
+    world.wait_for_state(&session.id, State::Idle).await;
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn an_allow_with_no_allow_once_option_answers_cancelled(pool: SqlitePool) {
+    let world = world(pool).await;
+    let options = vec![
+        acp::PermissionOption::new(
+            "allow-always",
+            "Always",
+            acp::PermissionOptionKind::AllowAlways,
+        ),
+        acp::PermissionOption::new("reject-once", "No", acp::PermissionOptionKind::RejectOnce),
+    ];
+    let ask = Ask::permission(edit_inside(), options);
+    let place = DuplexPlace::new(
+        Script::default().turn(Turn::new(vec![], acp::StopReason::EndTurn).asks(ask)),
+    );
+    let sessions = world.coding_sessions(place.clone(), world.policy());
+    let session = sessions
+        .start(world.new_session(&world.run_id))
+        .await
+        .unwrap();
+
+    world.wait_for_row(&session.id, Kind::TurnEnd).await;
+
+    assert_eq!(
+        place.harness().answers()[0].as_ref().unwrap(),
+        &json!({"outcome": {"outcome": "cancelled"}})
+    );
+    let facts = world.wait_for_facts(1).await;
+    assert_eq!(facts[0].payload["decider"], "scope");
+    assert_eq!(facts[0].payload["outcome"], "cancelled");
+    assert_eq!(facts[0].payload["option_kind"], Value::Null);
+}
+
+/// A command that no rule allows waits for the Person. A cancel answers
+/// it `cancelled`, as ACP requires, and its audit fact has no decider.
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_permission_that_policy_does_not_allow_waits_until_a_cancel(pool: SqlitePool) {
+    let world = world(pool).await;
+    let ask = Ask::permission(
+        tool_call(acp::ToolKind::Execute, &[], Some("rm -rf /")),
+        every_option(),
+    );
+    let place = DuplexPlace::new(Script::default().turn(Turn::until_cancel(vec![]).asks(ask)));
+    let sessions = world.coding_sessions(place.clone(), world.policy());
+    let session = sessions
+        .start(world.new_session(&world.run_id))
+        .await
+        .unwrap();
+
+    world
+        .wait_for_state(&session.id, State::NeedsDecision)
+        .await;
+    let rows = world.wait_for_row(&session.id, Kind::Permission).await;
+    assert_eq!(
+        rows_of(&rows, Kind::Permission)[0].payload["waits_for"],
+        "person"
+    );
+    assert!(place.harness().answers().is_empty(), "the permission waits");
+
+    sessions
+        .cancel(&world.workspace_id, &session.id)
+        .await
+        .unwrap();
+
+    let rows = world.wait_for_row(&session.id, Kind::TurnEnd).await;
+    assert_eq!(
+        rows_of(&rows, Kind::Decision)[0].payload["decision"],
+        "withdrawn"
+    );
+    assert_eq!(
+        place.harness().answers()[0].as_ref().unwrap(),
+        &json!({"outcome": {"outcome": "cancelled"}})
+    );
+    let facts = world.wait_for_facts(1).await;
+    assert_eq!(facts[0].payload["command"], "rm -rf /");
+    assert_eq!(facts[0].payload["tool_kind"], "execute");
+    assert_eq!(facts[0].payload["decider"], Value::Null);
+    assert_eq!(facts[0].payload["outcome"], "cancelled");
+    world.wait_for_state(&session.id, State::Idle).await;
+}
+
+/// The effective mode is the narrower of the session's mode and the
+/// widest mode of the live host Grant, so an `auto` session on a Grant
+/// that allows `agent` asks the Agent.
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn the_host_grant_narrows_the_mode_of_the_session(pool: SqlitePool) {
+    let world = world(pool).await;
+    world.host_grant(SessionApprovalMode::Agent, &[]).await;
+    let ask = Ask::permission(
+        tool_call(acp::ToolKind::Execute, &[], Some("cargo test")),
+        every_option(),
+    );
+    let place = DuplexPlace::new(Script::default().turn(Turn::until_cancel(vec![]).asks(ask)));
+    let sessions = world.coding_sessions(place.clone(), world.policy());
+    let mut new = world.new_session(&world.run_id);
+    new.approval_mode = SessionApprovalMode::Auto;
+    let session = sessions.start(new).await.unwrap();
+
+    world
+        .wait_for_state(&session.id, State::NeedsDecision)
+        .await;
+    let rows = world.wait_for_row(&session.id, Kind::Permission).await;
+    assert_eq!(
+        rows_of(&rows, Kind::Permission)[0].payload["waits_for"],
+        "agent"
+    );
+}
+
+/// An `auto` session on a Grant that allows `auto` allows each request.
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn an_auto_session_on_an_auto_grant_allows_with_auto_as_decider(pool: SqlitePool) {
+    let world = world(pool).await;
+    world.host_grant(SessionApprovalMode::Auto, &[]).await;
+    let ask = Ask::permission(
+        tool_call(acp::ToolKind::Execute, &[], Some("rm -rf /")),
+        every_option(),
+    );
+    let place = DuplexPlace::new(
+        Script::default().turn(Turn::new(vec![], acp::StopReason::EndTurn).asks(ask)),
+    );
+    let sessions = world.coding_sessions(place.clone(), world.policy());
+    let mut new = world.new_session(&world.run_id);
+    new.approval_mode = SessionApprovalMode::Auto;
+    let session = sessions.start(new).await.unwrap();
+
+    world.wait_for_row(&session.id, Kind::TurnEnd).await;
+
+    let facts = world.wait_for_facts(1).await;
+    assert_eq!(facts[0].payload["decider"], "auto");
+    assert_eq!(facts[0].payload["grant_revision"], 1);
+    assert_eq!(
+        place.harness().answers()[0].as_ref().unwrap(),
+        &json!({"outcome": {"outcome": "selected", "optionId": "allow-once"}})
     );
 }
 

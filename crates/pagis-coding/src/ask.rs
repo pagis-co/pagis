@@ -23,6 +23,11 @@ pub trait AskHandler: Send + Sync {
 }
 
 /// One permission request of the harness, for one tool call.
+///
+/// The fields of the tool call are those of the request merged onto the
+/// tool call that the harness reported with the same `tool_call_id`: a
+/// field that the request leaves out keeps its reported value (ACP
+/// `ToolCallUpdate`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PermissionAsk {
     /// The JSON-RPC id of the request, as text.
@@ -36,6 +41,18 @@ pub struct PermissionAsk {
     pub locations: Vec<PathBuf>,
     /// The input of the tool call, as the harness sends it.
     pub raw_input: Option<Value>,
+    /// The kinds of the options that the harness offers, in its order.
+    pub options: Vec<PermissionOptionKind>,
+}
+
+/// The kind of an option of a permission request, as ACP names it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PermissionOptionKind {
+    AllowOnce,
+    AllowAlways,
+    RejectOnce,
+    RejectAlways,
 }
 
 /// The answer to a permission request. The crate answers with the offered
@@ -45,6 +62,8 @@ pub struct PermissionAsk {
 pub enum PermissionAnswer {
     AllowOnce,
     RejectOnce,
+    /// The answer `cancelled`, which selects no option.
+    Cancel,
 }
 
 /// One question of the harness, in form mode.
