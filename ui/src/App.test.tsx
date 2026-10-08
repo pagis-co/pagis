@@ -7,7 +7,7 @@ import type { ApiClient, CodingSessionEventDto } from './api/client'
 import type { SocketHandlers, SocketOptions } from './ws/socket'
 import { App } from './App'
 import { useCallInspector } from './state/stores'
-import { shellResponse } from './test/appStub'
+import { codingSession, shellResponse } from './test/appStub'
 
 const { api, socket } = vi.hoisted(() => ({
   socket: { handlers: null as SocketHandlers | null },
@@ -259,6 +259,72 @@ describe('the session page', () => {
     )
 
     expect(await screen.findByText('The token expired early.')).toBeTruthy()
+  })
+})
+
+describe('the session block', () => {
+  // The block reads the session record. A frame of the session carries
+  // no text, and it makes the block read the record again. The block
+  // is a System message in the Thread of the Run that started the
+  // session.
+  it('shows the block in a message and follows a frame of the session, with no reload', async () => {
+    let state = 'working'
+    api.GET.mockImplementation(async (path: string) => {
+      if (path === '/api/v1/channels/{channel_id}/threads/{root_message_id}') {
+        const { data } = shellResponse(path) as { data: { root: object } }
+        return {
+          data: {
+            root: data.root,
+            replies: [
+              {
+                id: 'message-2',
+                channel_id: 'channel-2',
+                parent_message_id: 'message-1',
+                author_kind: 'system',
+                author_agent_id: null,
+                status: 'complete',
+                run_id: 'run-1',
+                blocks: [
+                  {
+                    type: 'coding_session',
+                    coding_session_id: 'session-1',
+                    harness: 'Claude Code',
+                    machine: 'Ada’s laptop',
+                    directory: '/Users/ada/src/app',
+                    title: 'Fix the login bug',
+                  },
+                ],
+                text_content: '[coding session]',
+                created_at: 2,
+              },
+            ],
+          },
+        }
+      }
+      if (path === '/api/v1/coding-sessions/{coding_session_id}') {
+        return { data: { ...codingSession, state } }
+      }
+      return shellResponse(path)
+    })
+    mount('/c/channel-2/t/message-1')
+    const block = await screen.findByTestId('coding-session-block')
+    expect(within(block).getByText('Running')).toBeTruthy()
+
+    state = 'idle'
+    act(() =>
+      socket.handlers!.onEvent({
+        type: 'coding_session.changed',
+        payload: {
+          id: 'event-1',
+          event_type: 'coding_session.changed',
+          created_at: Date.now(),
+          payload: { coding_session_id: 'session-1' },
+        },
+      }),
+    )
+
+    expect(await within(block).findByText('Ready')).toBeTruthy()
+    expect(within(block).queryByText('Running')).toBeNull()
   })
 })
 

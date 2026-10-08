@@ -1,0 +1,93 @@
+/* The `coding_session` block (ADR-0033): one card, running or settled.
+ * Every value comes from `tokens.css`. On a narrow screen the facts
+ * wrap, and the footer stays on one line. */
+
+.coding-block-waiting {
+  color: var(--muted);
+}
+
+.coding-block-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+}
+
+/* The machine, the directory and the branch. A long path is cut with
+   an ellipsis, and its `title` holds the whole path. */
+.coding-block-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+  min-width: 0;
+}
+
+.coding-block-facts li {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.coding-block-path {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.coding-block-branch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.coding-block-branch svg {
+  flex: none;
+}
+
+.coding-block-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1-5);
+}
+
+.coding-block-usage {
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+.coding-block-pending {
+  color: var(--waiting-ink);
+}
+
+/* Harness text, on one line. */
+.coding-block-activity {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.coding-block-end {
+  color: var(--muted);
+}
+
+.coding-block-footer {
+  flex-wrap: nowrap;
+}
+
+.coding-block-open {
+  flex: none;
+  color: var(--accent-ink);
+  font-weight: var(--weight-medium);
+  text-decoration: none;
+}
+
+.coding-block-footer .coding-stop {
+  margin-left: auto;
+}

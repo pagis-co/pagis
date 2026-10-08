@@ -1,6 +1,6 @@
 // Rich message blocks (ADR-0004): the daemon owns the union, the
 // generated `KnownBlock` type is its only definition here, and one
-// renderer serves each of the eleven types. A block that views a
+// renderer serves each type that has one. A block that views a
 // Request — approval card, form, choice card — carries only its
 // identifier and its display fields; the state and the submitted
 // answer come from the row. The fallback is mandatory:
@@ -21,6 +21,7 @@ import { Prose } from '../prose'
 import { ApprovalCard } from './ApprovalCard'
 import { Card, CardBody, CardFooter } from './Card'
 import { CallBlock } from './CallBlock'
+import { CodingSessionBlock } from './CodingSessionBlock'
 import { ChoiceCard } from './ChoiceCard'
 import { MailBlock } from './MailBlock'
 import { RequestForm } from './RequestForm'
@@ -280,8 +281,12 @@ function KnownBlockView({ block, api }: { block: KnownBlock; api: ApiClient }) {
       // inspector, which reads the words live.
       if (typeof block.message_id !== 'string') break
       return <MailBlock block={block} />
-    case 'screen':
     case 'coding_session':
+      // One card, running or settled (ADR-0033). It reads the session
+      // record, and "Open" goes to the session page.
+      if (typeof block.coding_session_id !== 'string') break
+      return <CodingSessionBlock sessionId={block.coding_session_id} api={api} />
+    case 'screen':
       // Typed here with no renderer: it takes the same fallback an
       // unknown type takes.
       break

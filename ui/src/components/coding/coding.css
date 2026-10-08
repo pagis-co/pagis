@@ -33,12 +33,14 @@
 
 .coding-head-top {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-3);
 }
 
+/* On a narrow screen the badges and Stop wrap under the title. */
 .coding-head-what {
-  flex: 1;
+  flex: 1 1 12rem;
   min-width: 0;
 }
 
@@ -81,6 +83,22 @@
 .coding-facts dd {
   margin: 0;
   font-size: var(--text-sm);
+}
+
+/* Stop and its error. The error takes its own line under Stop. */
+.coding-stop {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-1-5);
+}
+
+.coding-stop-error {
+  flex-basis: 100%;
+  color: var(--failed-ink);
+  font-size: var(--text-xs);
+  text-align: right;
 }
 
 .coding-thread-link {

@@ -12,6 +12,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { fetchArtifactBlob, type ApiClient, type MessageDto } from '../api/client'
 import { externalImages } from '../test/images'
+import { renderInRouter } from '../test/router'
 import { Blocks } from './BlockView'
 
 vi.mock('../api/client', () => ({
@@ -25,6 +26,15 @@ beforeEach(() => {
   URL.createObjectURL = vi.fn(() => 'blob:fake-url')
   URL.revokeObjectURL = vi.fn()
 })
+
+const codingSessionBlock = {
+  type: 'coding_session',
+  coding_session_id: 'cs1',
+  harness: 'Claude Code',
+  machine: 'Air',
+  directory: '/Users/bo/code/app',
+  title: 'Fix the login bug',
+}
 
 // The wire can carry what the generated union does not describe: a
 // block from a newer daemon, with a type or a shape this build does not
@@ -177,18 +187,30 @@ describe('Blocks', () => {
     expect(fallback.textContent).toContain('screen')
   })
 
-  it('renders the fallback for a coding session block', () => {
-    // The union types it, and it has no renderer yet.
-    mount([
-      {
-        type: 'coding_session',
-        coding_session_id: 'cs1',
-        harness: 'Claude Code',
-        machine: 'Air',
-        directory: '/Users/bo/code/app',
-        title: 'Fix the login bug',
-      },
-    ])
+  it('renders a coding session block as the session card', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    // The record never arrives, so the card waits for it.
+    const waiting = { GET: vi.fn(() => new Promise(() => {})) }
+    renderInRouter(
+      <QueryClientProvider client={queryClient}>
+        <Blocks
+          blocks={[codingSessionBlock] as MessageDto['blocks']}
+          api={waiting as unknown as ApiClient}
+        />
+      </QueryClientProvider>,
+    )
+    expect(await screen.findByText('Opening the coding session…')).toBeTruthy()
+    expect(waiting.GET).toHaveBeenCalledWith(
+      '/api/v1/coding-sessions/{coding_session_id}',
+      { params: { path: { coding_session_id: 'cs1' } } },
+    )
+    expect(screen.queryByTestId('unknown-block')).toBeNull()
+  })
+
+  it('renders the fallback for a coding session block with no session id', () => {
+    mount([{ ...codingSessionBlock, coding_session_id: undefined }])
     const fallback = screen.getByTestId('unknown-block')
     expect(fallback.textContent).toContain('coding_session')
   })

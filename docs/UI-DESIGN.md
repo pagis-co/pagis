@@ -61,12 +61,12 @@ a URL, so a refresh keeps the place and any view is linkable.
 - **Coding** (`/coding/<id>`) — one Coding Session as its transcript,
   its plan and its tool calls. The head shows the sprite, the coding
   harness, the title, the machine, the directory, the branch, the state,
-  the approval mode and the usage, with a link to the session's Thread.
-  The plan is a checklist. A message of the harness draws as prose, a
-  tool call is a card with its status and its files, and a permission
-  or a question is one line that says how it ended. A changed file shows
-  its path. Not built: the diff, the Stop button and the list at
-  `/coding`.
+  the approval mode and the usage, with a link to the session's Thread,
+  and Stop while the session is not closed or failed. The plan is a
+  checklist. A message of the harness draws as prose, a tool call is a
+  card with its status and its files, and a permission or a question is
+  one line that says how it ended. A changed file shows its path. Not
+  built: the diff and the list at `/coding`.
 - **Memory** (`/memory`) — the page list and the learning feed, with a
   diff preview and a revert on each change.
 - **Automations** (`/automations`) and **Software** (`/software`) — the
@@ -98,6 +98,16 @@ transcribing. Enter sends, and Shift with Enter starts a line.
 An approval is one card: the title, what and where, Approve as the
 primary action, an always-allow checkbox where a rule exists, and Deny
 as a ghost. A settled card collapses to one line.
+
+A Coding Session is one card in its Thread, running or settled: the
+sprite's face with no presence ring, the coding harness, the title, the
+machine, the directory, the branch, the state, the approval mode, the
+usage and the last line of activity as plain text. A session that waits
+for a decision says where the decision waits. The approval card is its
+own message. A closed or failed session shows its end reason and its end
+time. The footer holds "Open", which goes to the session page, and Stop
+while the session is not closed or failed. Stop asks for no
+confirmation, as Hang up does.
 
 ## Type, color and shape
 
