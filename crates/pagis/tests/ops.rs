@@ -336,9 +336,9 @@ async fn deleting_connections_and_credentials_revokes_their_grants() {
         .remove(0);
     sqlx::query(
         "INSERT INTO connections \
-         (id, workspace_id, provider, alias, display_name, status, auth_mode, config, \
+         (id, workspace_id, provider, alias, display_name, status, config, \
          created_at) \
-         VALUES ('conn-1', ?, 'google', 'work', 'Work Google', 'connected', 'byo', '{}', ?)",
+         VALUES ('conn-1', ?, 'google', 'work', 'Work Google', 'connected', '{}', ?)",
     )
     .bind(workspace.id.as_str())
     .bind(now_ms())

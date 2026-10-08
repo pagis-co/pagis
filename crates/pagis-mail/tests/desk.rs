@@ -269,7 +269,6 @@ fn mail_connection(
         alias: alias.to_string(),
         display_name: "Agent mail".to_string(),
         status: Connection::CONNECTED.to_string(),
-        auth_mode: Connection::AUTH_MODE_BYO.to_string(),
         authorized_capabilities: Vec::new(),
         config: settings.config(),
         created_at: now_ms(),

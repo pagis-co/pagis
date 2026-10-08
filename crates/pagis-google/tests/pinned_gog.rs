@@ -21,8 +21,7 @@ use std::process::{Command, Stdio};
 
 use pagis_google::{
     AdapterError, BROWSE_QUERY, CalendarEvent, CalendarEventPatch, ConnectionBinding, EmailDraft,
-    GOG_VERSION, GmailSearch, GogCommand, GoogleCall, desktop_client_document,
-    install_client_command,
+    GOG_VERSION, GmailSearch, GogCommand, GoogleCall,
 };
 
 const ACCOUNT: &str = "alice@example.com";
@@ -211,14 +210,34 @@ fn calls(text: &str) -> Vec<(&'static str, GoogleCall)> {
     ]
 }
 
-/// A `gog` home with the Desktop client of the bound Connection and no
-/// token. The client goes in through stdin, as the connect flow does.
+/// A `gog` home with a client under the name of the bound Connection and
+/// no token, so each call stops on the missing token and not on the
+/// missing client. The daemon stores no client: it gives `gog` an access
+/// token for each call.
 fn home_with_a_client(gog: &Path) -> (tempfile::TempDir, ConnectionBinding) {
     let home = tempfile::tempdir().unwrap();
     let binding = ConnectionBinding::new(ACCOUNT, "pagis-google-01", home.path()).unwrap();
-    let client = desktop_client_document("id.apps.googleusercontent.com", "not-a-secret").unwrap();
-    let install = install_client_command(&binding, &client).unwrap();
-    let installed = run(gog, home.path(), install.args(), install.stdin());
+    let client = serde_json::json!({
+        "installed": {
+            "client_id": "id.apps.googleusercontent.com",
+            "client_secret": "not-a-secret",
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+        }
+    })
+    .to_string();
+    let args = [
+        "--client",
+        "pagis-google-01",
+        "--no-input",
+        "--json",
+        "auth",
+        "credentials",
+        "set",
+        "-",
+    ]
+    .map(String::from);
+    let installed = run(gog, home.path(), &args, Some(client.as_bytes()));
     assert_eq!(installed.code, Some(0), "{}", installed.output);
     (home, binding)
 }

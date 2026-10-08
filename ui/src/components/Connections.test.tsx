@@ -1,6 +1,6 @@
-// The Connection list and the connect flow (ADR-0022): the four
-// steps, the waiting state that says where the browser went, what a
-// refused exchange leaves on screen, and reauthorizing by capability.
+// The Connection list and the connect flow (ADR-0022): the steps, the
+// waiting state that says where the browser went, what a refused
+// exchange leaves on screen, and reauthorizing by capability.
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
@@ -17,44 +17,20 @@ const PROVIDERS: ProviderEntryDto[] = [
   {
     id: 'google',
     label: 'Google account',
-    blurb: 'Pagis signs in with an OAuth client you own.',
+    blurb: 'Sign in at Google and allow Pagis.',
     kind: 'oauth',
-    // The local shape of the entry: the person supplies their own
-    // Desktop client. A brokered installation serves the account alone.
-    fields: [
-      {
-        key: 'account',
-        label: 'Google account',
-        hint: 'Google account, e.g. alice@example.com',
-        kind: 'text',
-        secret: false,
-        default: null,
-      },
-      {
-        key: 'client_id',
-        label: 'Client ID',
-        hint: 'Client ID',
-        kind: 'text',
-        secret: false,
-        default: null,
-      },
-      {
-        key: 'client_secret',
-        label: 'Client secret',
-        hint: 'Client secret',
-        kind: 'text',
-        secret: true,
-        default: null,
-      },
-    ],
+    // The person types nothing for Google: the account comes from
+    // Google's account chooser, and the client is the installation's.
+    fields: [],
     capabilities: ['mail', 'calendar'],
     absent_capabilities: [],
     max_instances: null,
     default_display_name: 'Google',
     default_alias: '',
-    portal: 'the Google Cloud console',
-    // A local entry has no start route, so no browser step asks for a
-    // sign-in to Pagis.
+    portal: null,
+    set_up: true,
+    // A Local Installation with Remote Access off asks the browser step
+    // for no sign-in to Pagis.
     browser_sign_in: false,
   },
 ]
@@ -80,7 +56,6 @@ function connected(overrides: Partial<ConnectionDto> = {}): ConnectionDto {
     alias: 'work',
     display_name: 'Work Google',
     status: 'connected',
-    auth_mode: 'byo',
     account: 'alice@example.com',
     authorized_capabilities: ['gmail_read', 'calendar_read'],
     created_at: 1,
@@ -129,27 +104,6 @@ function mount(api: unknown, onOpen: (connectionId: string) => void = () => {}) 
       <Connections api={api as unknown as ApiClient} onOpen={onOpen} />
     </QueryClientProvider>,
   )
-}
-
-async function openTheClientStep() {
-  fireEvent.click(await screen.findByText('Add a connection'))
-  fireEvent.click(screen.getByText('Google account'))
-}
-
-function fillTheClientStep() {
-  fireEvent.change(screen.getByLabelText('Connection name'), {
-    target: { value: 'Work Google' },
-  })
-  fireEvent.change(screen.getByLabelText('Short name'), {
-    target: { value: 'work' },
-  })
-  fireEvent.change(screen.getByLabelText('Google account'), {
-    target: { value: 'alice@example.com' },
-  })
-  fireEvent.change(screen.getByLabelText('Client ID'), { target: { value: '1234.apps' } })
-  fireEvent.change(screen.getByLabelText('Client secret'), {
-    target: { value: 'GOCSPX-secret' },
-  })
 }
 
 describe('Connections', () => {
@@ -240,102 +194,6 @@ describe('Connections', () => {
     await waitFor(() =>
       expect(api.GET.mock.calls.length).toBeGreaterThan(readsBeforeReconnect),
     )
-  })
-
-  it('connects an account in four steps and says where the browser went', async () => {
-    // The exchange stays open until the test resolves it, so the
-    // waiting step is observable.
-    let finishExchange = () => {}
-    const api = stubApi([], async (path) => {
-      if (path === '/api/v1/settings/connections') {
-        return { data: connected({ status: 'disconnected' }) }
-      }
-      await new Promise<void>((resolve) => {
-        finishExchange = resolve
-      })
-      return { data: connected() }
-    })
-    mount(api)
-
-    await openTheClientStep()
-    expect(screen.getByText('Your Google client')).toBeTruthy()
-    fillTheClientStep()
-    fireEvent.click(screen.getByText('Continue at Google'))
-
-    // The third step is explicit: the browser left, this page waits,
-    // and the daemon listens on the loopback.
-    expect(await screen.findByText('Finish at Google')).toBeTruthy()
-    expect(screen.getByText(/left for Google/)).toBeTruthy()
-    expect(screen.getByText(/127\.0\.0\.1/)).toBeTruthy()
-
-    await waitFor(() =>
-      expect(api.POST).toHaveBeenCalledWith('/api/v1/settings/connections', {
-        body: {
-          provider: 'google',
-          alias: 'work',
-          display_name: 'Work Google',
-          fields: {
-            account: 'alice@example.com',
-            client_id: '1234.apps',
-            client_secret: 'GOCSPX-secret',
-          },
-        },
-      }),
-    )
-    // A new connection starts read-only.
-    expect(api.POST).toHaveBeenCalledWith(
-      '/api/v1/settings/connections/{connection_id}/authorize',
-      {
-        params: { path: { connection_id: 'conn-1' } },
-        body: { capabilities: ['gmail_read', 'calendar_read'] },
-      },
-    )
-
-    finishExchange()
-    expect(await screen.findByText('Work Google is connected')).toBeTruthy()
-  })
-
-  it('a refused exchange returns to the second step with the values kept', async () => {
-    const api = stubApi([], async (path) =>
-      path === '/api/v1/settings/connections'
-        ? { data: connected({ status: 'disconnected' }) }
-        : { error: { error: { code: 'validation', message: 'Google said no.' } } },
-    )
-    mount(api)
-
-    await openTheClientStep()
-    fillTheClientStep()
-    fireEvent.click(screen.getByText('Continue at Google'))
-
-    expect(await screen.findByText('Google said no.')).toBeTruthy()
-    expect(screen.getByText('Your Google client')).toBeTruthy()
-    expect((screen.getByLabelText('Short name') as HTMLInputElement).value).toBe(
-      'work',
-    )
-    expect((screen.getByLabelText('Google account') as HTMLInputElement).value).toBe(
-      'alice@example.com',
-    )
-    // The record that cannot be authorized frees its name for the retry.
-    await waitFor(() =>
-      expect(api.DELETE).toHaveBeenCalledWith(
-        '/api/v1/settings/connections/{connection_id}',
-        { params: { path: { connection_id: 'conn-1' } } },
-      ),
-    )
-  })
-
-  it('a duplicate name is refused in the words the daemon used', async () => {
-    const api = stubApi([], async () => ({
-      error: { error: { code: 'conflict', message: 'alias work is taken' } },
-    }))
-    mount(api)
-
-    await openTheClientStep()
-    fillTheClientStep()
-    fireEvent.click(screen.getByText('Continue at Google'))
-
-    expect(await screen.findByText('alias work is taken')).toBeTruthy()
-    expect(screen.getByText('Your Google client')).toBeTruthy()
   })
 
   it('widens scopes by reauthorizing for the capabilities the user grants', async () => {
@@ -703,33 +561,49 @@ describe('Connections mailbox providers', () => {
   })
 })
 
-/** The brokered Google flow: the installation holds the OAuth
- *  client, so the form asks for the account alone, the page opens the
- *  start route in a new tab, which goes on to Google, and the card
- *  catches up when the redirect lands. */
-describe('Connections brokered Google', () => {
-  /** The catalog a brokered installation serves: the account field
-   *  alone. `browserSignIn` is false on a Local Installation with
-   *  Remote Access off, where the browser needs no Session. */
-  function brokeredCatalog(browserSignIn: boolean): ProviderEntryDto[] {
+/** The Google flow: the installation holds the OAuth client, so the
+ *  person types nothing of Google. The page opens the start route in a
+ *  new tab, which goes on to Google, where the person picks the
+ *  account, and the card catches up when the redirect lands. */
+describe('Connections Google sign-in', () => {
+  /** The catalog an installation serves. `browserSignIn` is false on a
+   *  Local Installation with Remote Access off, where the browser needs
+   *  no Session. `setUp` is false where the Org holds no Installation
+   *  OAuth Client. */
+  function googleCatalog(browserSignIn: boolean, setUp = true): ProviderEntryDto[] {
     return PROVIDERS.map((entry) =>
       entry.id === 'google'
         ? {
             ...entry,
-            blurb: "Pagis signs in with this installation's own Google client.",
-            fields: entry.fields.filter((field) => field.key === 'account'),
-            browser_sign_in: browserSignIn,
+            blurb: setUp
+              ? entry.blurb
+              : 'An administrator sets up Google sign-in in the Administration Interface.',
+            set_up: setUp,
+            browser_sign_in: browserSignIn && setUp,
           }
         : entry,
     )
   }
 
   const SIGN_IN = /If that tab asks you to sign in to Pagis, sign in as yourself/
+  const START = 'https://pagis.example.net/api/v1/connections/google/start?state=abc'
 
-  function brokeredApi(
+  function googleApi(
     items: ConnectionDto[],
-    authorizationUrl: string | null = 'https://pagis.example.net/api/v1/connections/google/start?state=abc',
-    browserSignIn = true,
+    {
+      browserSignIn = true,
+      setUp = true,
+      authorize = async () => ({
+        data: {
+          connection: connected({ status: 'connecting' }),
+          authorization_url: START,
+        },
+      }),
+    }: {
+      browserSignIn?: boolean
+      setUp?: boolean
+      authorize?: () => Promise<PostResult>
+    } = {},
   ) {
     return {
       GET: vi.fn(async (path: string) => ({
@@ -738,54 +612,52 @@ describe('Connections brokered Google', () => {
             path === '/api/v1/settings/connections'
               ? [...items]
               : path === '/api/v1/settings/connections/providers'
-                ? brokeredCatalog(browserSignIn)
+                ? googleCatalog(browserSignIn, setUp)
                 : [],
           carrier: null,
         },
       })),
       POST: vi.fn(async (path: string) =>
         path === '/api/v1/settings/connections'
-          ? {
-              data: connected({ status: 'disconnected', auth_mode: 'brokered' }),
-            }
-          : {
-              data: {
-                connection: connected({
-                  status: 'connecting',
-                  auth_mode: 'brokered',
-                }),
-                authorization_url: authorizationUrl,
-              },
-            },
+          ? { data: connected({ status: 'disconnected', account: null }) }
+          : authorize(),
       ),
       DELETE: vi.fn(async () => ({ error: undefined, response: { ok: true } })),
     }
   }
 
-  it('asks for the account alone and opens the start route in a new tab', async () => {
-    const open = vi.fn()
-    vi.stubGlobal('open', open)
-    const items: ConnectionDto[] = []
-    const api = brokeredApi(items)
-    mount(api)
-
+  async function openGoogle() {
     fireEvent.click(await screen.findByText('Add a connection'))
     fireEvent.click(screen.getByText('Google account'))
+  }
 
-    expect(screen.getByText('The account to connect')).toBeTruthy()
-    expect(
-      screen.getByText(/this installation's own Google client/),
-    ).toBeTruthy()
-    // The person supplies nothing of the client.
-    expect(screen.queryByLabelText('Client ID')).toBeNull()
-    expect(screen.queryByLabelText('Client secret')).toBeNull()
-
+  function nameTheConnection() {
+    fireEvent.change(screen.getByLabelText('Connection name'), {
+      target: { value: 'Work Google' },
+    })
     fireEvent.change(screen.getByLabelText('Short name'), {
       target: { value: 'work' },
     })
-    fireEvent.change(screen.getByLabelText('Google account'), {
-      target: { value: 'alice@example.com' },
-    })
+  }
+
+  it('asks for nothing of Google and opens the start route in a new tab', async () => {
+    const open = vi.fn()
+    vi.stubGlobal('open', open)
+    const items: ConnectionDto[] = []
+    const api = googleApi(items)
+    mount(api)
+
+    await openGoogle()
+
+    expect(screen.getByText('Connect Google')).toBeTruthy()
+    expect(screen.getByText(/Sign in at Google and allow Pagis/)).toBeTruthy()
+    // The person types no client and no account: Google's account
+    // chooser picks the account.
+    for (const label of ['Client ID', 'Client secret', 'Google account']) {
+      expect(screen.queryByLabelText(label)).toBeNull()
+    }
+
+    nameTheConnection()
     fireEvent.click(screen.getByText('Continue at Google'))
 
     await waitFor(() =>
@@ -793,18 +665,20 @@ describe('Connections brokered Google', () => {
         body: {
           provider: 'google',
           alias: 'work',
-          display_name: 'Google',
-          fields: { account: 'alice@example.com' },
+          display_name: 'Work Google',
+          fields: {},
         },
       }),
     )
-    await waitFor(() =>
-      expect(open).toHaveBeenCalledWith(
-        'https://pagis.example.net/api/v1/connections/google/start?state=abc',
-        '_blank',
-        'noopener',
-      ),
+    // A new connection starts read-only.
+    expect(api.POST).toHaveBeenCalledWith(
+      '/api/v1/settings/connections/{connection_id}/authorize',
+      {
+        params: { path: { connection_id: 'conn-1' } },
+        body: { capabilities: ['gmail_read', 'calendar_read'] },
+      },
     )
+    await waitFor(() => expect(open).toHaveBeenCalledWith(START, '_blank', 'noopener'))
     // The flow waits for the redirect: it does not claim the account is
     // connected because the request returned.
     expect(await screen.findByText('Finish at Google')).toBeTruthy()
@@ -814,13 +688,11 @@ describe('Connections brokered Google', () => {
     expect(screen.getByText(SIGN_IN)).toBeTruthy()
 
     // Google sends the person back, the callback lands, and the list is
-    // what tells the page.
-    items.push(connected({ auth_mode: 'brokered' }))
-    // The page polls the list while it waits, so the record reaching
-    // `connected` is what turns the step over. An open client is also
-    // told by the `connection.changed` event the callback publishes.
+    // what tells the page. The page polls the list while it waits, and
+    // an open client is also told by the `connection.changed` event.
+    items.push(connected())
     expect(
-      await screen.findByText('Google is connected', undefined, {
+      await screen.findByText('Work Google is connected', undefined, {
         timeout: 5000,
       }),
     ).toBeTruthy()
@@ -831,19 +703,11 @@ describe('Connections brokered Google', () => {
    *  and its start route asks the new tab for no sign-in. The copy does
    *  not mention one. */
   it('mentions no sign-in in the new tab on a single-Person installation', async () => {
-    const open = vi.fn()
-    vi.stubGlobal('open', open)
-    const api = brokeredApi([], undefined, false)
-    mount(api)
+    vi.stubGlobal('open', vi.fn())
+    mount(googleApi([], { browserSignIn: false }))
 
-    fireEvent.click(await screen.findByText('Add a connection'))
-    fireEvent.click(screen.getByText('Google account'))
-    fireEvent.change(screen.getByLabelText('Short name'), {
-      target: { value: 'work' },
-    })
-    fireEvent.change(screen.getByLabelText('Google account'), {
-      target: { value: 'alice@example.com' },
-    })
+    await openGoogle()
+    nameTheConnection()
     fireEvent.click(screen.getByText('Continue at Google'))
 
     expect(await screen.findByText('Finish at Google')).toBeTruthy()
@@ -852,12 +716,72 @@ describe('Connections brokered Google', () => {
     vi.unstubAllGlobals()
   })
 
+  /** Without the Installation OAuth Client nobody connects Google. The
+   *  entry says who sets it up and offers no way to continue. */
+  it('shows the administrator step and no connect button where Google is not set up', async () => {
+    const api = googleApi([], { setUp: false })
+    mount(api)
+
+    await openGoogle()
+
+    expect(
+      screen.getByText(/An administrator sets it up in the Administration Interface/),
+    ).toBeTruthy()
+    expect(screen.queryByText('Continue at Google')).toBeNull()
+    expect(screen.queryByLabelText('Short name')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(await screen.findByText('Add a connection')).toBeTruthy()
+    expect(api.POST).not.toHaveBeenCalled()
+  })
+
+  it('a refused authorization returns to the first step with the names kept', async () => {
+    vi.stubGlobal('open', vi.fn())
+    const api = googleApi([], {
+      authorize: async () => ({
+        error: { error: { code: 'validation', message: 'Google said no.' } },
+      }),
+    })
+    mount(api)
+
+    await openGoogle()
+    nameTheConnection()
+    fireEvent.click(screen.getByText('Continue at Google'))
+
+    expect(await screen.findByText('Google said no.')).toBeTruthy()
+    expect(screen.getByText('Connect Google')).toBeTruthy()
+    expect((screen.getByLabelText('Short name') as HTMLInputElement).value).toBe(
+      'work',
+    )
+    // The record that cannot be authorized frees its name for the retry.
+    await waitFor(() =>
+      expect(api.DELETE).toHaveBeenCalledWith(
+        '/api/v1/settings/connections/{connection_id}',
+        { params: { path: { connection_id: 'conn-1' } } },
+      ),
+    )
+    vi.unstubAllGlobals()
+  })
+
+  it('a duplicate name is refused in the words the daemon used', async () => {
+    const api = googleApi([])
+    api.POST.mockImplementation(async () => ({
+      error: { error: { code: 'conflict', message: 'alias work is taken' } },
+    }))
+    mount(api)
+
+    await openGoogle()
+    nameTheConnection()
+    fireEvent.click(screen.getByText('Continue at Google'))
+
+    expect(await screen.findByText('alias work is taken')).toBeTruthy()
+    expect(screen.getByText('Connect Google')).toBeTruthy()
+  })
+
   it.each([
     ['names the sign-in on a Server or in Remote Access', true],
     ['names no sign-in on a single-Person installation', false],
   ])('the card that changes access %s', async (_, browserSignIn) => {
-    const api = brokeredApi([connected({ auth_mode: 'brokered' })], undefined, browserSignIn)
-    mount(api)
+    mount(googleApi([connected()], { browserSignIn }))
 
     fireEvent.click(
       await screen.findByRole('button', { name: 'Change access for Work Google' }),
@@ -867,11 +791,8 @@ describe('Connections brokered Google', () => {
     expect(screen.queryByText(SIGN_IN) !== null).toBe(browserSignIn)
   })
 
-  it('a brokered card that is connecting says to finish at Google', async () => {
-    const api = brokeredApi([
-      connected({ status: 'connecting', auth_mode: 'brokered' }),
-    ])
-    mount(api)
+  it('a card that is connecting says to finish at Google', async () => {
+    mount(googleApi([connected({ status: 'connecting' })]))
 
     fireEvent.click(await screen.findByText('Work Google'))
 

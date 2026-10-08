@@ -308,7 +308,6 @@ async fn mail_connection_of_a(world: &TwoTenants) -> String {
         alias: "home".to_string(),
         display_name: "Home".to_string(),
         status: Connection::CONNECTED.to_string(),
-        auth_mode: Connection::AUTH_MODE_BYO.to_string(),
         authorized_capabilities: vec!["gmail_read".to_string()],
         config: json!({"account": "a@example.com", "client": "home"}),
         created_at: now_ms(),

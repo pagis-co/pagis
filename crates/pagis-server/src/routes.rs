@@ -45,7 +45,7 @@ pub const PUBLIC_ROUTES: &[(&str, &str)] = &[
     ),
     (
         "/api/v1/connections/google/start",
-        "The start route of a brokered Google authorization, which the \
+        "The start route of a Google authorization, which the \
          authorize request answers. It cannot sit behind the session \
          middleware: a browser with no Session, such as the system \
          browser that the Client App opens, must sign in and come back, \

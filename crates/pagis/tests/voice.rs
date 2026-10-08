@@ -750,7 +750,6 @@ async fn speech_refuses_retained_sourced_text_after_revocation_before_calling_th
         alias: "source".into(),
         display_name: "Source".into(),
         status: "connected".into(),
-        auth_mode: "byo".into(),
         authorized_capabilities: vec!["gmail_read".into()],
         config: serde_json::json!({}),
         created_at: now_ms(),

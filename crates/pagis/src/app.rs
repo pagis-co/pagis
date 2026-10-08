@@ -118,14 +118,12 @@ pub struct AppOptions {
     /// How long one provider call may run before the daemon stops
     /// waiting for it.
     pub connection_call_timeout: std::time::Duration,
-    /// Google's OAuth endpoints for the brokered flow. `None`
+    /// Google's OAuth endpoints for the connect flow. `None`
     /// uses Google's own, which no test may reach.
     pub google_oauth: Option<Arc<pagis_google::GoogleOAuth>>,
-    /// How the connect flow reaches `gog`; `None` starts the
-    /// distributed binary. Tests inject a fake so no process runs.
+    /// How a Connection reaches `gog`; `None` starts the distributed
+    /// binary. Tests inject a fake so no process runs.
     pub gog: Option<Arc<dyn pagis_google::GogRunner>>,
-    /// How long the daemon waits for the user to finish at Google.
-    pub authorize_timeout: std::time::Duration,
     /// How often each Connection with a live Event Subscription is
     /// polled. Tests shrink it.
     pub collector_interval: std::time::Duration,
@@ -247,7 +245,6 @@ impl AppOptions {
             connection_call_timeout: crate::connections::DEFAULT_CALL_TIMEOUT,
             google_oauth: None,
             gog: None,
-            authorize_timeout: pagis_connect::DEFAULT_AUTHORIZE_TIMEOUT,
             collector_interval: crate::collectors::DEFAULT_POLL_INTERVAL,
             number_catalogs: None,
             text_transports: None,
@@ -596,10 +593,9 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         clock: Arc::clone(&options.clock),
         context_messages: options.agents.context_messages,
     }));
-    // The brokered Google half. The Org's Web OAuth client is
-    // what decides whether a new Google Connection is `brokered` or
-    // `byo`; the tokens of a brokered one are sealed with the Tenant
-    // Data Key of the person who consented. It reads the Sessions on
+    // The Google half. Every person consents against the Org's Web
+    // OAuth client, and the tokens of each Connection are sealed with
+    // the Tenant Data Key of the person who consented. It reads the Sessions on
     // the clock that `auth::resolve` reads, so an authorization ends
     // with the Session that started it.
     let gog_root = booted.home.join("gog");
@@ -721,13 +717,10 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     let connector = Arc::new(pagis_connect::Connector::new(
         pagis_connect::ConnectorDeps {
             connections: Arc::clone(&connections) as _,
-            runner: Arc::clone(&gog),
             catalogs: Arc::clone(&number_catalogs),
             mail_host: Arc::clone(&mail_host),
             secrets: Arc::clone(&options.secrets),
-            authorize_timeout: options.authorize_timeout,
             google: Arc::clone(&google_broker),
-            gog_root: gog_root.clone(),
         },
     ));
     // The mailbox desk (ADR-0019): the one path that makes, proves,

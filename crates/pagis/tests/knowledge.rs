@@ -1,8 +1,7 @@
 use pagis_core::{
-    AgentId, AgentStore, Connection, ConnectionId, ConnectionStore, Grant, GrantId, GrantStore,
-    now_ms,
+    AgentId, AgentStore, Connection, ConnectionId, Grant, GrantId, GrantStore, now_ms,
 };
-use pagis_storage_sqlite::{SqliteAgentStore, SqliteConnectionStore, SqliteGrantStore};
+use pagis_storage_sqlite::{SqliteAgentStore, SqliteGrantStore};
 use pagis_testkit::TestDaemon;
 
 #[tokio::test]
@@ -67,15 +66,11 @@ async fn sync_is_explicit_and_requires_the_responsible_agents_read_grant() {
         alias: "personal".into(),
         display_name: "Personal".into(),
         status: Connection::CONNECTED.into(),
-        auth_mode: Connection::AUTH_MODE_BYO.into(),
         authorized_capabilities: vec!["gmail_read".into()],
         config: serde_json::json!({"account":"user@example.com", "client":"test"}),
         created_at: now_ms(),
     };
-    SqliteConnectionStore::new(daemon.pool().clone())
-        .create(&connection)
-        .await
-        .unwrap();
+    daemon.plant_google_connection(&connection).await;
     let url = format!(
         "{}/api/v1/connections/{}/sync",
         daemon.base_url, connection.id
@@ -272,15 +267,11 @@ async fn historical_sync_appends_the_backfill_reflects_live_follows_and_resync_i
         alias: "personal".into(),
         display_name: "Personal".into(),
         status: Connection::CONNECTED.into(),
-        auth_mode: Connection::AUTH_MODE_BYO.into(),
         authorized_capabilities: vec!["gmail_read".into()],
         config: json!({"account":"user@example.com","client":"test"}),
         created_at: now_ms(),
     };
-    SqliteConnectionStore::new(pool.clone())
-        .create(&connection)
-        .await
-        .unwrap();
+    daemon.plant_google_connection(&connection).await;
     let client = reqwest::Client::new();
     let grant = client.post(format!("{}/api/v1/grants",daemon.base_url)).header("cookie", daemon.cookie()).json(&json!({"agent_id":daemon.agent_id,"connection_id":connection.id,"capabilities":["gmail_read"]})).send().await.unwrap();
     assert_eq!(grant.status(), 201);
@@ -638,15 +629,11 @@ async fn an_arrival_the_source_rejects_is_skipped_and_the_others_arrive() {
         alias: "personal".into(),
         display_name: "Personal".into(),
         status: Connection::CONNECTED.into(),
-        auth_mode: Connection::AUTH_MODE_BYO.into(),
         authorized_capabilities: vec!["gmail_read".into()],
         config: json!({"account":"user@example.com","client":"test"}),
         created_at: now_ms(),
     };
-    SqliteConnectionStore::new(pool.clone())
-        .create(&connection)
-        .await
-        .unwrap();
+    daemon.plant_google_connection(&connection).await;
     let client = reqwest::Client::new();
     assert_eq!(
         client.post(format!("{}/api/v1/grants", daemon.base_url)).header("cookie", daemon.cookie())

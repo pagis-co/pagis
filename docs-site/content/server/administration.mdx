@@ -106,3 +106,23 @@ Interface: the Google OAuth client, the carrier account and its SIP
 sign-in, and the mail domain. A Person then connects their own Google
 account, buys an Agent Phone Number or makes an Agent Mailbox in the
 Product App.
+
+### The Google OAuth client
+
+No Person connects a Google account until an Administrator sets up the
+Google OAuth client. On a Local Installation the owner is the
+Administrator. A Person then signs in at Google and allows Pagis, and
+types no client and no account
+([ADR-0012](https://github.com/pagis-co/pagis/blob/main/docs/adr/0012-the-installation-holds-the-oauth-client.md)).
+
+1. In the Google Cloud console, enable the Gmail and Google Calendar APIs.
+2. Make an OAuth client of the type Web application, with the redirect
+   URI that the Administration Interface shows.
+3. Publish the consent screen, or make it Internal for a Google Workspace
+   organization. While the consent screen is in Testing, Google ends each
+   sign-in after seven days.
+4. Paste the client ID and the client secret in the Administration
+   Interface. The secret goes to `secrets.enc`.
+
+Removing the client stops every Google Connection from refreshing its
+token, and each Person connects again against the next client.

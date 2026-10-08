@@ -23,7 +23,6 @@ async fn google_connection(daemon: &TestDaemon, alias: &str, display_name: &str)
         alias: alias.into(),
         display_name: display_name.into(),
         status: Connection::CONNECTED.into(),
-        auth_mode: Connection::AUTH_MODE_BYO.into(),
         authorized_capabilities: vec!["gmail_read".into()],
         config: serde_json::json!({"account": format!("{alias}@example.com"), "client": "test"}),
         created_at: now_ms(),

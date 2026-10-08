@@ -293,12 +293,12 @@ async fn a_model_key_is_set_and_removed_through_the_provider_routes() {
     assert_eq!(status, 422, "{refused}");
 }
 
-/// The Installation OAuth Client makes a person's Google connection
-/// brokered; the person then types the account alone.
+/// The Installation OAuth Client sets up Google for every person, who
+/// then types nothing; without it nobody connects Google.
 #[tokio::test]
 async fn the_google_oauth_client_is_set_up_for_every_person_and_removed() {
     let daemon = boot().await;
-    let google_fields = || async {
+    let google = || async {
         let (status, page) = send(
             &daemon,
             reqwest::Method::GET,
@@ -307,14 +307,11 @@ async fn the_google_oauth_client_is_set_up_for_every_person_and_removed() {
         )
         .await;
         assert_eq!(status, 200);
-        page["items"][0]["fields"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|field| field["key"].as_str().unwrap().to_string())
-            .collect::<Vec<_>>()
+        let google = page["items"][0].clone();
+        assert_eq!(google["fields"], serde_json::json!([]), "{google}");
+        google["set_up"].as_bool().unwrap()
     };
-    assert!(google_fields().await.contains(&"client_id".to_string()));
+    assert!(!google().await);
 
     let (status, setup) = daemon
         .set_up_provider(
@@ -334,12 +331,12 @@ async fn the_google_oauth_client_is_set_up_for_every_person_and_removed() {
         Some("installation.apps.googleusercontent.com")
     );
     assert!(!setup.to_string().contains("GOCSPX"));
-    assert_eq!(google_fields().await, vec!["account".to_string()]);
+    assert!(google().await);
 
     let (status, setup) = remove_part(&daemon, "google", "oauth-client").await;
     assert_eq!(status, 200, "{setup}");
     assert_eq!(part_of(&setup, "oauth-client")["configured"], false);
-    assert!(google_fields().await.contains(&"client_id".to_string()));
+    assert!(!google().await);
 }
 
 /// The carrier account and its SIP sign-in are the installation's. The

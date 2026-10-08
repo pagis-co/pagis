@@ -22,7 +22,7 @@ records that touch an area before you change it.
 
 ## Accounts, secrets, Computers and tools
 
-- [0012](0012-a-connection-carries-its-own-auth-mode.md): A Connection carries its own auth mode, and the daemon serves the catalog
+- [0012](0012-the-installation-holds-the-oauth-client.md): The installation holds the OAuth client, and the daemon serves the catalog
 - [0013](0013-the-daemon-types-secrets-the-model-never-sees.md): The daemon keeps the secrets and types them where the model never sees them
 - [0014](0014-the-computer-is-pixels-and-pagis-owns-the-stream.md): The Computer is pixels, and Pagis owns the stream
 - [0015](0015-a-host-action-runs-on-a-present-client.md): A host action runs on a present client, never in the daemon

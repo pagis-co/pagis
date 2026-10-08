@@ -68,7 +68,6 @@ async fn setup() -> (Arc<SqliteKnowledgeStore>, SourceKey) {
         alias: "g".into(),
         display_name: "Gmail".into(),
         status: Connection::CONNECTED.into(),
-        auth_mode: Connection::AUTH_MODE_BYO.into(),
         authorized_capabilities: vec!["gmail_read".into()],
         config: serde_json::json!({}),
         created_at: 1,

@@ -16,7 +16,6 @@ pub use oauth::{
     oauth_scopes, random_token, redirect_uri,
 };
 
-use std::collections::BTreeSet;
 use std::ffi::OsString;
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -25,7 +24,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde::Serialize;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncReadExt;
 
 /// The `gog` release distributed with Pagis and covered by these contracts.
 pub use pagis_versions::GOG_VERSION;
@@ -48,15 +47,6 @@ pub struct GoogleToolDefinition {
     pub description: String,
     pub parameters: serde_json::Value,
     pub capability: GoogleCapability,
-}
-
-/// The stock `gog auth add` service and scope flags for a capability set.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ScopeProfile {
-    pub services: &'static str,
-    pub gmail_scope: Option<&'static str>,
-    pub extra_scopes: Vec<&'static str>,
-    pub readonly: bool,
 }
 
 /// Return the Google tool manifest. Mail is not here: the `mail__*`
@@ -210,56 +200,6 @@ fn event_patch_schema() -> serde_json::Value {
     value
 }
 
-/// Select the complete stock `gog` scope profile for a reauthorization.
-pub fn scope_profile(capabilities: impl IntoIterator<Item = GoogleCapability>) -> ScopeProfile {
-    use GoogleCapability::*;
-
-    let capabilities: BTreeSet<_> = capabilities.into_iter().collect();
-    let gmail = capabilities
-        .iter()
-        .any(|capability| matches!(capability, GmailRead | GmailSend | GmailModify));
-    let calendar = capabilities
-        .iter()
-        .any(|capability| matches!(capability, CalendarRead | CalendarWrite));
-    let writes = capabilities
-        .iter()
-        .any(|capability| matches!(capability, GmailSend | GmailModify | CalendarWrite));
-
-    let gmail_read = capabilities.contains(&GmailRead);
-    let gmail_send = capabilities.contains(&GmailSend);
-    let gmail_modify = capabilities.contains(&GmailModify);
-    let gmail_scope = if gmail_modify {
-        Some("readonly")
-    } else if gmail_read && gmail_send {
-        Some("read-send")
-    } else if gmail_send {
-        Some("send")
-    } else if gmail_read {
-        Some("readonly")
-    } else {
-        None
-    };
-    let mut extra_scopes = Vec::new();
-    if gmail_modify {
-        extra_scopes.push("https://www.googleapis.com/auth/gmail.modify");
-    }
-    if gmail_modify && gmail_send {
-        extra_scopes.push("https://www.googleapis.com/auth/gmail.send");
-    }
-
-    ScopeProfile {
-        services: match (gmail, calendar) {
-            (true, true) => "gmail,calendar",
-            (true, false) => "gmail",
-            (false, true) => "calendar",
-            (false, false) => "",
-        },
-        gmail_scope,
-        extra_scopes,
-        readonly: !writes,
-    }
-}
-
 /// Trusted account, OAuth-client and `gog` home binding from one
 /// Connection.
 ///
@@ -315,12 +255,11 @@ impl ConnectionBinding {
 /// The password of the file keyring under one `GOG_HOME`
 /// (ADR-0012).
 ///
-/// `gog` keeps its own tokens in the platform keyring. On macOS that is
-/// the one system keychain, which `GOG_HOME` does not move: two people of
-/// one installation who both name a Connection `google` would share a
-/// keychain item, so one person's `byo` token would be the other person's
-/// too. The daemon therefore puts `gog` on its file backend, under the
-/// per-Workspace home, with a password of that home's own. The daemon
+/// `gog` reads and writes the platform keyring by default. On macOS that
+/// is the one system keychain, which `GOG_HOME` does not move: two people
+/// of one installation who both name a Connection `google` would share a
+/// keychain item. The daemon therefore puts `gog` on its file backend,
+/// under the per-Workspace home, with a password of that home's own. The daemon
 /// holds the password in its own secret store and nobody types it.
 pub trait GogKeyring: Send + Sync {
     /// The password of the keyring under `home`, made on first use and
@@ -493,7 +432,7 @@ struct CommandInput(Vec<u8>);
 
 impl fmt::Debug for CommandInput {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("<redacted stdin>")
+        f.write_str("<redacted>")
     }
 }
 
@@ -501,15 +440,13 @@ impl fmt::Debug for CommandInput {
 #[derive(Clone, PartialEq, Eq)]
 pub struct GogCommand {
     args: Vec<String>,
-    stdin: Option<CommandInput>,
     write: bool,
     /// The `GOG_HOME` the child runs under: one directory per Workspace.
     home: PathBuf,
-    /// An access token the daemon minted for this call, for a
-    /// `brokered` Connection whose refresh token the daemon owns.
+    /// An access token the daemon minted for this call, from the
+    /// refresh token the daemon holds for the Connection.
     /// `gog` takes it through `GOG_ACCESS_TOKEN` and makes no
-    /// token call of its own. `None` leaves `gog` to resolve the token
-    /// from its own store, which is the `byo` path.
+    /// token call of its own.
     access_token: Option<CommandInput>,
 }
 
@@ -517,7 +454,6 @@ impl fmt::Debug for GogCommand {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("GogCommand")
             .field("args", &self.args)
-            .field("stdin", &self.stdin)
             .field("write", &self.write)
             .field("home", &self.home)
             .field("has_access_token", &self.access_token.is_some())
@@ -532,7 +468,6 @@ impl GogCommand {
         args.extend(operation.into_args());
         Ok(Self {
             args,
-            stdin: None,
             write,
             home: binding.home.clone(),
             access_token: None,
@@ -564,15 +499,10 @@ impl GogCommand {
     pub(crate) fn read_only(args: Vec<String>, home: &Path) -> Self {
         Self {
             args,
-            stdin: None,
             write: false,
             home: home.to_path_buf(),
             access_token: None,
         }
-    }
-
-    pub fn stdin(&self) -> Option<&[u8]> {
-        self.stdin.as_ref().map(|input| input.0.as_slice())
     }
 
     pub fn is_write(&self) -> bool {
@@ -874,88 +804,6 @@ fn validate_send_updates(value: &Option<String>) -> Result<(), AdapterError> {
     }
 }
 
-/// Build the Desktop OAuth client document `gog` stores, from the two
-/// values the Google console shows the user. The bytes go straight to
-/// the provider over stdin: no credential file is ever written.
-pub fn desktop_client_document(
-    client_id: &str,
-    client_secret: &str,
-) -> Result<Vec<u8>, AdapterError> {
-    let invalid = |value: &str| value.trim().is_empty() || value.contains('\0');
-    if invalid(client_id) || invalid(client_secret) {
-        return Err(AdapterError::InvalidConfiguration("desktop_oauth_client"));
-    }
-    Ok(serde_json::json!({
-        "installed": {
-            "client_id": client_id.trim(),
-            "client_secret": client_secret.trim(),
-            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-            "token_uri": "https://oauth2.googleapis.com/token",
-        }
-    })
-    .to_string()
-    .into_bytes())
-}
-
-/// Store the Desktop OAuth client through stdin, without a credential path.
-pub fn install_client_command(
-    binding: &ConnectionBinding,
-    credentials: &[u8],
-) -> Result<GogCommand, AdapterError> {
-    let parsed: serde_json::Value = serde_json::from_slice(credentials)
-        .map_err(|_| AdapterError::InvalidConfiguration("desktop_oauth_client"))?;
-    if parsed.get("installed").is_none() {
-        return Err(AdapterError::InvalidConfiguration("desktop_oauth_client"));
-    }
-    Ok(GogCommand {
-        args: strings(&[
-            "--client",
-            &binding.client,
-            "--no-input",
-            "--json",
-            "auth",
-            "credentials",
-            "set",
-            "-",
-        ]),
-        stdin: Some(CommandInput(credentials.to_vec())),
-        write: false,
-        home: binding.home.clone(),
-        access_token: None,
-    })
-}
-
-/// Start stock `gog` loopback plus PKCE authorization on localhost.
-pub fn authorize_command(binding: &ConnectionBinding, profile: ScopeProfile) -> GogCommand {
-    let mut args = strings(&[
-        "--client",
-        &binding.client,
-        "--json",
-        "auth",
-        "add",
-        &binding.account,
-        "--services",
-        profile.services,
-    ]);
-    if let Some(gmail_scope) = profile.gmail_scope {
-        args.extend(["--gmail-scope".into(), gmail_scope.into()]);
-    }
-    if !profile.extra_scopes.is_empty() {
-        args.extend(["--extra-scopes".into(), profile.extra_scopes.join(",")]);
-    }
-    if profile.readonly {
-        args.push("--readonly".into());
-    }
-    args.extend(["--listen-addr".into(), "127.0.0.1:0".into()]);
-    GogCommand {
-        args,
-        stdin: None,
-        write: false,
-        home: binding.home.clone(),
-        access_token: None,
-    }
-}
-
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum AdapterError {
     #[error("invalid trusted Google configuration: {0}")]
@@ -1192,11 +1040,7 @@ impl GogRunner for SystemGogRunner {
         let mut process = tokio::process::Command::new(&self.binary);
         process
             .args(&command.args)
-            .stdin(if command.stdin.is_some() {
-                Stdio::piped()
-            } else {
-                Stdio::null()
-            })
+            .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
@@ -1235,13 +1079,6 @@ impl GogRunner for SystemGogRunner {
             }
             prefix
         });
-        if let Some(input) = &command.stdin {
-            let mut stdin = child.stdin.take().ok_or(ProcessFailure::Interrupted)?;
-            stdin
-                .write_all(&input.0)
-                .await
-                .map_err(|_| ProcessFailure::Interrupted)?;
-        }
         // Standard output is read in chunks and stops at the caller's limit.
         // An oversized answer is never held whole, and the stopped process is
         // reaped before this call returns.
@@ -1365,7 +1202,7 @@ impl<R: fmt::Debug> fmt::Debug for GoogleProvider<R> {
     }
 }
 
-/// Where a `brokered` Connection's access token comes from. The
+/// Where a Connection's access token comes from. The
 /// daemon owns the refresh token, so it mints the access token and
 /// hands it to `gog` for the one call.
 #[async_trait]
@@ -1388,7 +1225,7 @@ where
     }
 
     /// Mint the access token for every call instead of leaving `gog` to
-    /// resolve one from its own store. This is what makes a `brokered`
+    /// resolve one from its own store. This is what makes a Google
     /// Connection work: the refresh token is the daemon's, sealed with
     /// the Tenant Data Key, and `gog` keeps nothing.
     pub fn with_access_tokens(mut self, tokens: std::sync::Arc<dyn AccessTokens>) -> Self {
@@ -1419,32 +1256,5 @@ where
             .await
             .map_err(|failure| failure.into_provider_error(write))?;
         normalize_output(output, write)
-    }
-
-    pub async fn install_client(
-        &self,
-        credentials: &[u8],
-    ) -> Result<serde_json::Value, ProviderError> {
-        let command = install_client_command(&self.binding, credentials)
-            .map_err(|_| ProviderError::new(ProviderErrorCode::InvalidRequest, false))?;
-        let output = self
-            .runner
-            .run(&command)
-            .await
-            .map_err(|failure| failure.into_provider_error(false))?;
-        normalize_output(output, false)
-    }
-
-    pub async fn authorize(
-        &self,
-        profile: ScopeProfile,
-    ) -> Result<serde_json::Value, ProviderError> {
-        let command = authorize_command(&self.binding, profile);
-        let output = self
-            .runner
-            .run(&command)
-            .await
-            .map_err(|failure| failure.into_provider_error(false))?;
-        normalize_output(output, false)
     }
 }

@@ -629,7 +629,7 @@ pub trait ConnectionStore: Send + Sync {
         id: &crate::ConnectionId,
         revoked_at: UnixMillis,
     ) -> Result<bool, StoreError>;
-    /// Keep the sealed OAuth refresh token of one `brokered` Connection,
+    /// Keep the sealed OAuth refresh token of one Google Connection,
     /// or clear it with `None`.
     ///
     /// The bytes are sealed with the Tenant Data Key of this Workspace,

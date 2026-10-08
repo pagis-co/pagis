@@ -16,7 +16,6 @@ fn connection(provider: &str, config: serde_json::Value) -> Connection {
         alias: "mail".to_string(),
         display_name: "Mail".to_string(),
         status: Connection::CONNECTED.to_string(),
-        auth_mode: Connection::AUTH_MODE_BYO.to_string(),
         authorized_capabilities: Vec::new(),
         config,
         created_at: 0,

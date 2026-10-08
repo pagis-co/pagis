@@ -441,7 +441,6 @@ describe('Automations', () => {
             alias: 'work',
             display_name: 'Work Gmail',
             account: 'a@example.com',
-            auth_mode: 'byo',
             status: 'reauth_required',
             created_at: 1,
           },

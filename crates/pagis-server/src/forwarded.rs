@@ -232,20 +232,6 @@ fn media_range(entry: &str) -> Option<(String, f32)> {
     Some((range, quality))
 }
 
-/// The connect flow's view of [`is_from_this_machine`]: a `byo` Google
-/// consent runs on the daemon host, so it starts only for a request
-/// from this machine (ADR-0025).
-pub(crate) fn request_source(
-    peer: SocketAddr,
-    headers: &HeaderMap,
-) -> pagis_connect::RequestSource {
-    if is_from_this_machine(peer, headers) {
-        pagis_connect::RequestSource::ThisMachine
-    } else {
-        pagis_connect::RequestSource::Elsewhere
-    }
-}
-
 /// Whether a `Host` value names this machine: `localhost` or a loopback
 /// address, with or without a port.
 fn is_loopback_host(value: &str) -> bool {

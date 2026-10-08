@@ -1,30 +1,37 @@
-//! Full-daemon connect tests (ADR-0012): the settings path that
-//! puts a Google Connection in the table, takes it to `connected`, and
-//! hands a granted Agent an account that answers. One scripted `gog`
-//! stands in for the provider, so no process and no browser run.
+//! Full-daemon connect tests (ADR-0012): the settings path that puts a
+//! Google Connection in the table, takes it to `connected` through the
+//! Installation OAuth Client, and hands a granted Agent an account that
+//! answers. A fake Google answers the token calls, and one scripted
+//! `gog` stands in for the provider calls, so no process and no browser
+//! run.
 
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use futures::{SinkExt, StreamExt};
 use pagis_core::GrantId;
 use pagis_google::{GogCommand, GogRunner, ProcessFailure, ProcessOutput};
-use pagis_testkit::{Script, ScriptedBrain, TestDaemon, TestDaemonOptions};
+use pagis_testkit::TestDaemon;
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
 
 type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
+/// One call that reached `gog`: its arguments, and whether the daemon
+/// handed it an access token.
+#[derive(Clone, Debug)]
+struct Call {
+    args: Vec<String>,
+    has_access_token: bool,
+}
+
 /// A `gog` that records what it was asked and answers from a script.
 /// The exits are the ones that the pinned `gog` documents.
 #[derive(Default)]
 struct FakeGog {
-    commands: Mutex<Vec<Vec<String>>>,
-    stdin: Mutex<Vec<Vec<u8>>>,
-    /// The exit every `auth add` returns; 0 unless a test says else.
-    authorize_status: Mutex<i32>,
+    calls: Mutex<Vec<Call>>,
     /// The exit every tool call returns.
     call_status: Mutex<i32>,
     /// A process failure returned before a provider exit can be read.
@@ -32,16 +39,8 @@ struct FakeGog {
 }
 
 impl FakeGog {
-    fn commands(&self) -> Vec<Vec<String>> {
-        self.commands.lock().unwrap().clone()
-    }
-
-    fn stdin(&self) -> Vec<Vec<u8>> {
-        self.stdin.lock().unwrap().clone()
-    }
-
-    fn refuse_authorization(&self, status: i32) {
-        *self.authorize_status.lock().unwrap() = status;
+    fn calls(&self) -> Vec<Call> {
+        self.calls.lock().unwrap().clone()
     }
 
     fn refuse_calls(&self, status: i32) {
@@ -56,24 +55,10 @@ impl FakeGog {
 #[async_trait]
 impl GogRunner for FakeGog {
     async fn run(&self, command: &GogCommand) -> Result<ProcessOutput, ProcessFailure> {
-        let args = command.args().to_vec();
-        self.commands.lock().unwrap().push(args.clone());
-        if let Some(input) = command.stdin() {
-            self.stdin.lock().unwrap().push(input.to_vec());
-        }
-        let subcommand: Vec<&str> = args.iter().map(String::as_str).collect();
-        if subcommand.contains(&"auth") && subcommand.contains(&"add") {
-            return Ok(ProcessOutput {
-                status: Some(*self.authorize_status.lock().unwrap()),
-                stdout: b"{}".to_vec(),
-            });
-        }
-        if subcommand.contains(&"credentials") {
-            return Ok(ProcessOutput {
-                status: Some(0),
-                stdout: b"{}".to_vec(),
-            });
-        }
+        self.calls.lock().unwrap().push(Call {
+            args: command.args().to_vec(),
+            has_access_token: command.has_access_token(),
+        });
         if let Some(failure) = *self.call_failure.lock().unwrap() {
             return Err(failure);
         }
@@ -84,157 +69,22 @@ impl GogRunner for FakeGog {
     }
 }
 
-#[tokio::test]
-async fn an_expired_google_token_publishes_the_connection_repair_state() {
-    let h = boot().await;
-    let (_, created) = create_connection(&h.daemon, "work", "alice@example.com").await;
-    let id = created["id"].as_str().unwrap().to_string();
-    authorize(&h.daemon, &id, &["gmail_read"]).await;
-    grant(&h.daemon, &id, &["gmail_read"]).await;
-    let mut socket = firehose(&h.daemon).await;
-    h.gog.fail_calls(ProcessFailure::ReauthRequired);
-
-    let response = client()
-        .put(format!(
-            "{}/api/v1/connections/{id}/sync",
-            h.daemon.base_url
-        ))
-        .header("cookie", h.daemon.cookie())
-        .json(&serde_json::json!({
-            "agent_id": h.daemon.agent_id,
-            "enabled": true,
-            "filter": pagis_google::gmail_filter::default_filter(),
-            "since": 0,
-        }))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(response.status(), 200);
-
-    let changed = loop {
-        let frame = next_frame_of(&mut socket, "connection.changed").await;
-        if frame["payload"]["payload"]["status"] == "reauth_required" {
-            break frame;
-        }
-    };
-    assert_eq!(changed["payload"]["payload"]["connection_id"], id.as_str());
-    assert_eq!(
-        list_connections(&h.daemon).await["items"][0]["status"],
-        "reauth_required"
-    );
-}
-
-struct Harness {
-    daemon: TestDaemon,
-    brain: Arc<ScriptedBrain>,
-    gog: Arc<FakeGog>,
-}
-
-async fn boot() -> Harness {
-    let brain = Arc::new(ScriptedBrain::default());
-    let gog = Arc::new(FakeGog::default());
-    let daemon = TestDaemon::start_with(TestDaemonOptions {
-        brain: Arc::clone(&brain) as _,
-        gog: Some(Arc::clone(&gog) as _),
-        authorize_timeout: Duration::from_secs(5),
-        ..TestDaemonOptions::default()
-    })
-    .await;
-    Harness { daemon, brain, gog }
-}
-
-/// A local installation in Remote Access: People on other machines reach
-/// it through the Funnel on this machine. With Remote Access off, the
-/// daemon refuses every forwarded request outright.
-async fn boot_in_remote_access() -> Harness {
-    let brain = Arc::new(ScriptedBrain::default());
-    let gog = Arc::new(FakeGog::default());
-    let daemon = TestDaemon::start_with(TestDaemonOptions {
-        brain: Arc::clone(&brain) as _,
-        gog: Some(Arc::clone(&gog) as _),
-        authorize_timeout: Duration::from_secs(5),
-        public_origin: "https://pagis.owner.example".to_string(),
-        trusted_proxy: Some(std::net::Ipv4Addr::LOCALHOST.into()),
-        remote_access: true,
-        ..TestDaemonOptions::default()
-    })
-    .await;
-    Harness { daemon, brain, gog }
-}
-
 fn client() -> reqwest::Client {
     reqwest::Client::new()
 }
 
-/// The Desktop client secret the user types in the connect flow. No
-/// interface the daemon retains may echo it back.
-const CLIENT_SECRET: &str = "GOCSPX-connect-flow-secret";
-
-async fn create_connection(
-    daemon: &TestDaemon,
-    alias: &str,
-    account: &str,
-) -> (reqwest::StatusCode, serde_json::Value) {
+async fn providers(daemon: &TestDaemon) -> serde_json::Value {
     let response = client()
-        .post(format!("{}/api/v1/settings/connections", daemon.base_url))
-        .header("cookie", daemon.cookie())
-        .json(&serde_json::json!({
-            "provider": "google",
-            "alias": alias,
-            "display_name": "Work Google",
-            "fields": {
-                "account": account,
-                "client_id": "1234.apps.googleusercontent.com",
-                "client_secret": CLIENT_SECRET,
-            },
-        }))
-        .send()
-        .await
-        .unwrap();
-    let status = response.status();
-    (
-        status,
-        response.json().await.unwrap_or(serde_json::json!({})),
-    )
-}
-
-/// The whole answer of the authorize route: the connection, and
-/// the address to send the person to when the flow is brokered.
-async fn authorize_answer(
-    daemon: &TestDaemon,
-    connection_id: &str,
-    capabilities: &[&str],
-) -> (reqwest::StatusCode, serde_json::Value) {
-    let response = client()
-        .post(format!(
-            "{}/api/v1/settings/connections/{connection_id}/authorize",
+        .get(format!(
+            "{}/api/v1/settings/connections/providers",
             daemon.base_url
         ))
         .header("cookie", daemon.cookie())
-        .json(&serde_json::json!({ "capabilities": capabilities }))
         .send()
         .await
         .unwrap();
-    let status = response.status();
-    (
-        status,
-        response.json().await.unwrap_or(serde_json::json!({})),
-    )
-}
-
-/// The connection the authorize route answered, for the paths that
-/// finish inside the request.
-async fn authorize(
-    daemon: &TestDaemon,
-    connection_id: &str,
-    capabilities: &[&str],
-) -> (reqwest::StatusCode, serde_json::Value) {
-    let (status, answer) = authorize_answer(daemon, connection_id, capabilities).await;
-    // An error body carries no connection, so the caller reads it whole.
-    match answer.get("connection").cloned() {
-        Some(connection) if !connection.is_null() => (status, connection),
-        _ => (status, answer),
-    }
+    assert_eq!(response.status(), 200);
+    response.json().await.unwrap()
 }
 
 async fn list_connections(daemon: &TestDaemon) -> serde_json::Value {
@@ -339,110 +189,42 @@ fn tool_fact<'a>(frames: &'a [serde_json::Value], name: &str) -> &'a serde_json:
         .unwrap_or_else(|| panic!("no tool.completed fact for {name}"))
 }
 
-/// The Provider Catalog (ADR-0012): the picker draws the list
-/// the daemon serves, and holds none of its own. A person picks only
-/// what a person connects: the carrier account and the mail domain are
-/// the installation's, and the Administration Interface sets them up.
+/// No person connects Google where the Org holds no Installation OAuth
+/// Client. The picker still lists Google, says that an administrator
+/// sets it up, and offers no connect step; the daemon refuses a create
+/// with the same words and writes no row.
 #[tokio::test]
-async fn the_daemon_serves_the_provider_catalog_the_picker_draws() {
-    let h = boot().await;
+async fn without_the_installation_client_google_is_not_set_up_and_a_create_is_refused() {
+    let daemon = TestDaemon::start().await;
 
-    let response = client()
-        .get(format!(
-            "{}/api/v1/settings/connections/providers",
-            h.daemon.base_url
-        ))
-        .header("cookie", h.daemon.cookie())
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(response.status(), 200);
-    let page: serde_json::Value = response.json().await.unwrap();
+    let page = providers(&daemon).await;
     let items = page["items"].as_array().unwrap();
     let ids: Vec<&str> = items
         .iter()
         .map(|item| item["id"].as_str().unwrap())
         .collect();
     assert_eq!(ids, vec!["google"]);
-
     let google = &items[0];
     assert_eq!(google["kind"], "oauth");
-    assert_eq!(
-        google["capabilities"],
-        serde_json::json!(["mail", "calendar"])
+    assert_eq!(google["set_up"], false);
+    assert_eq!(google["browser_sign_in"], false);
+    assert_eq!(google["fields"], serde_json::json!([]));
+    assert!(
+        google["blurb"]
+            .as_str()
+            .unwrap()
+            .contains("Administration Interface"),
+        "{google}"
     );
-    assert_eq!(google["max_instances"], serde_json::Value::Null);
-
-    // A Connection names what it gives, so the card follows that and
-    // not the provider name.
-    let (status, created) = create_connection(&h.daemon, "work", "alice@example.com").await;
-    assert_eq!(status, 201);
-    assert_eq!(
-        created["capabilities"],
-        serde_json::json!(["mail", "calendar"])
-    );
-}
-
-#[tokio::test]
-async fn connecting_google_records_the_account_and_reaches_connected() {
-    let h = boot().await;
-
-    let (status, created) = create_connection(&h.daemon, "work", "alice@example.com").await;
-    assert_eq!(status, 201);
-    assert_eq!(created["status"], "disconnected");
-    assert_eq!(created["auth_mode"], "byo");
-    assert_eq!(created["account"], "alice@example.com");
-    assert_eq!(created["alias"], "work");
-    assert_eq!(created["authorized_capabilities"], serde_json::json!([]));
-
-    let id = created["id"].as_str().unwrap();
-    let (status, connected) = authorize(&h.daemon, id, &[]).await;
-    assert_eq!(status, 200);
-    assert_eq!(connected["status"], "connected");
-    assert_eq!(
-        connected["authorized_capabilities"],
-        serde_json::json!(["gmail_read", "calendar_read"])
-    );
-
-    // The card reads the same on a fresh list.
-    let listed = list_connections(&h.daemon).await;
-    assert_eq!(listed["items"][0]["status"], "connected");
-    assert_eq!(listed["items"][0]["account"], "alice@example.com");
-    assert_eq!(listed["items"][0]["auth_mode"], "byo");
-    assert_eq!(
-        listed["items"][0]["authorized_capabilities"],
-        serde_json::json!(["gmail_read", "calendar_read"])
-    );
-
-    // The provider saw the client install, then the loopback exchange
-    // on 127.0.0.1 with the read-only profile a Connection starts at.
-    let commands = h.gog.commands();
-    assert_eq!(commands.len(), 2);
-    assert!(commands[0].contains(&"credentials".to_string()));
-    assert!(commands[1].contains(&"127.0.0.1:0".to_string()));
-    assert!(commands[1].contains(&"--readonly".to_string()));
-}
-
-/// A `byo` Google consent runs on the daemon host, so a request that
-/// came through a proxy starts none. On a local installation in Remote
-/// Access, a person on another machine reaches the daemon that way. The answer names the fix: the Installation OAuth Client.
-#[tokio::test]
-async fn a_byo_google_connection_through_a_proxy_is_refused_and_names_the_fix() {
-    let h = boot_in_remote_access().await;
 
     let response = client()
-        .post(format!("{}/api/v1/settings/connections", h.daemon.base_url))
-        .header("cookie", h.daemon.cookie())
-        .header("x-forwarded-for", "203.0.113.7")
+        .post(format!("{}/api/v1/settings/connections", daemon.base_url))
+        .header("cookie", daemon.cookie())
         .json(&serde_json::json!({
             "provider": "google",
             "alias": "work",
             "display_name": "Work Google",
-            "fields": {
-                "account": "alice@example.com",
-                "client_id": "1234.apps.googleusercontent.com",
-                "client_secret": CLIENT_SECRET,
-            },
+            "fields": {},
         }))
         .send()
         .await
@@ -452,254 +234,44 @@ async fn a_byo_google_connection_through_a_proxy_is_refused_and_names_the_fix() 
     let body: serde_json::Value = response.json().await.unwrap();
     let message = body["error"]["message"].as_str().unwrap();
     assert!(
-        message.contains(
-            "an administrator sets up the Google OAuth client in the Administration Interface"
-        ),
+        message.contains("sets up Google sign-in in the Administration Interface"),
         "{message}"
     );
     assert_eq!(
-        list_connections(&h.daemon).await["items"],
+        list_connections(&daemon).await["items"],
         serde_json::json!([])
-    );
-    assert!(h.gog.commands().is_empty(), "gog never ran");
-}
-
-/// The consent of a `byo` Connection made at the machine follows the
-/// same rule when the person asks again from elsewhere.
-#[tokio::test]
-async fn authorizing_a_byo_google_connection_through_a_proxy_is_refused() {
-    let h = boot_in_remote_access().await;
-    let (status, created) = create_connection(&h.daemon, "work", "alice@example.com").await;
-    assert_eq!(status, 201);
-    let id = created["id"].as_str().unwrap();
-
-    let response = client()
-        .post(format!(
-            "{}/api/v1/settings/connections/{id}/authorize",
-            h.daemon.base_url
-        ))
-        .header("cookie", h.daemon.cookie())
-        .header("x-forwarded-for", "203.0.113.7")
-        .json(&serde_json::json!({ "capabilities": [] }))
-        .send()
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), 422);
-    let body: serde_json::Value = response.json().await.unwrap();
-    assert!(
-        body["error"]["message"]
-            .as_str()
-            .unwrap()
-            .contains("the Google OAuth client in the Administration Interface"),
-        "{body}"
-    );
-    assert_eq!(
-        list_connections(&h.daemon).await["items"][0]["status"],
-        "disconnected"
-    );
-    // Only the client install ran; no loopback exchange started.
-    assert_eq!(h.gog.commands().len(), 1);
-}
-
-#[tokio::test]
-async fn a_granted_agent_reaches_the_account_the_user_connected() {
-    let h = boot().await;
-    let mut socket = firehose(&h.daemon).await;
-    let (_, created) = create_connection(&h.daemon, "work", "alice@example.com").await;
-    let id = created["id"].as_str().unwrap().to_string();
-    authorize(&h.daemon, &id, &[]).await;
-    grant(&h.daemon, &id, &["gmail_read"]).await;
-
-    h.brain.push(Script::tool_call(
-        &[],
-        pagis_broker::MAIL_SEARCH,
-        serde_json::json!({"mailbox": "work", "query": "is:unread"}),
-    ));
-    h.brain.push(Script::reply(&["Done."]));
-    send(&h.daemon, "p1", "check my mail").await;
-    let frames = frames_until_settled(&mut socket).await;
-
-    let fact = tool_fact(&frames, pagis_broker::MAIL_SEARCH);
-    assert_eq!(fact["payload"]["payload"]["outcome"], "completed");
-    assert_eq!(fact["payload"]["payload"]["selected_connection"], id);
-    // The call carries the account and client the connect flow bound.
-    let call = h.gog.commands().pop().expect("a tool call");
-    assert!(
-        call.windows(2)
-            .any(|pair| pair == ["--account", "alice@example.com"])
-    );
-    assert!(call.windows(2).any(|pair| pair == ["--client", "work"]));
-}
-
-#[tokio::test]
-async fn access_revoked_at_google_surfaces_on_the_record_and_the_next_call() {
-    let h = boot().await;
-    let mut socket = firehose(&h.daemon).await;
-    let (_, created) = create_connection(&h.daemon, "work", "alice@example.com").await;
-    let id = created["id"].as_str().unwrap().to_string();
-    authorize(&h.daemon, &id, &[]).await;
-    grant(&h.daemon, &id, &["gmail_read"]).await;
-
-    // The exit the pinned `gog` uses once the user revoked access.
-    h.gog.refuse_calls(4);
-    h.brain.push(Script::tool_call(
-        &[],
-        pagis_broker::MAIL_SEARCH,
-        serde_json::json!({"mailbox": "work", "query": "is:unread"}),
-    ));
-    h.brain.push(Script::reply(&["I cannot reach it."]));
-    send(&h.daemon, "p1", "check my mail").await;
-    let frames = frames_until_settled(&mut socket).await;
-    assert_eq!(
-        tool_fact(&frames, pagis_broker::MAIL_SEARCH)["payload"]["payload"]["error_code"],
-        "reauth_required"
-    );
-
-    let listed = list_connections(&h.daemon).await;
-    assert_eq!(listed["items"][0]["status"], "reauth_required");
-
-    // A record at `reauth_required` offers no tools, so the next run
-    // never reaches Google at all.
-    let before = h.gog.commands().len();
-    h.brain.push(Script::tool_call(
-        &[],
-        pagis_broker::MAIL_SEARCH,
-        serde_json::json!({"mailbox": "work", "query": "is:unread"}),
-    ));
-    h.brain.push(Script::reply(&["Still no."]));
-    send(&h.daemon, "p2", "try again").await;
-    frames_until_settled(&mut socket).await;
-    assert_eq!(h.gog.commands().len(), before, "no second provider call");
-
-    // Reauthorizing from the card repairs the record.
-    let (status, repaired) = authorize(&h.daemon, &id, &[]).await;
-    assert_eq!(status, 200);
-    assert_eq!(repaired["status"], "connected");
-}
-
-#[tokio::test]
-async fn two_accounts_get_distinct_aliases_and_a_duplicate_is_refused() {
-    let h = boot().await;
-    let (first, _) = create_connection(&h.daemon, "work", "alice@example.com").await;
-    let (second, _) = create_connection(&h.daemon, "personal", "alice@gmail.com").await;
-    assert_eq!(first, 201);
-    assert_eq!(second, 201);
-
-    let (duplicate, body) = create_connection(&h.daemon, "work", "carol@example.com").await;
-    assert_eq!(duplicate, 409);
-    assert_eq!(body["error"]["code"], "conflict");
-    assert_eq!(
-        list_connections(&h.daemon).await["items"]
-            .as_array()
-            .unwrap()
-            .len(),
-        2
-    );
-}
-
-#[tokio::test]
-async fn an_exchange_google_refuses_leaves_the_record_ready_to_retry() {
-    let h = boot().await;
-    let (_, created) = create_connection(&h.daemon, "work", "alice@example.com").await;
-    let id = created["id"].as_str().unwrap().to_string();
-
-    h.gog.refuse_authorization(6);
-    let (status, body) = authorize(&h.daemon, &id, &[]).await;
-    assert_eq!(status, 422);
-    assert!(
-        !body["error"]["message"]
-            .as_str()
-            .unwrap()
-            .contains(CLIENT_SECRET),
-        "a refusal never quotes what the user typed"
-    );
-
-    let listed = list_connections(&h.daemon).await;
-    assert_eq!(listed["items"][0]["status"], "disconnected");
-    // The binding survives, so the user retries from the same card.
-    assert_eq!(listed["items"][0]["account"], "alice@example.com");
-}
-
-#[tokio::test]
-async fn no_secret_reaches_an_interface_the_daemon_retains() {
-    let h = boot().await;
-    let mut socket = firehose(&h.daemon).await;
-    let (_, created) = create_connection(&h.daemon, "work", "alice@example.com").await;
-    let id = created["id"].as_str().unwrap().to_string();
-    authorize(&h.daemon, &id, &[]).await;
-
-    // The two documents the API hands back.
-    assert!(!created.to_string().contains(CLIENT_SECRET));
-    assert!(
-        !list_connections(&h.daemon)
-            .await
-            .to_string()
-            .contains(CLIENT_SECRET)
-    );
-
-    // The event feed, which the audit log keeps.
-    let created_event = next_frame_of(&mut socket, "connection.created").await;
-    let changed_event = next_frame_of(&mut socket, "connection.changed").await;
-    assert!(!created_event.to_string().contains(CLIENT_SECRET));
-    assert!(!changed_event.to_string().contains(CLIENT_SECRET));
-    assert_eq!(changed_event["payload"]["payload"]["status"], "connected");
-
-    // The stored row, which the provider reads on every call.
-    let config: String = sqlx::query_scalar("SELECT config FROM connections WHERE id = ?")
-        .bind(&id)
-        .fetch_one(h.daemon.pool())
-        .await
-        .unwrap();
-    assert!(!config.contains(CLIENT_SECRET));
-    assert!(!config.contains("1234.apps.googleusercontent.com"));
-
-    // And no argument list: the client reached `gog` over stdin only.
-    for command in h.gog.commands() {
-        assert!(!command.join(" ").contains(CLIENT_SECRET));
-    }
-    let stdin = h.gog.stdin();
-    assert_eq!(stdin.len(), 1, "one client install, one stdin document");
-    assert!(
-        String::from_utf8(stdin[0].clone())
-            .unwrap()
-            .contains(CLIENT_SECRET)
     );
 }
 
 #[tokio::test]
 async fn a_provider_pagis_does_not_connect_is_refused() {
-    let h = boot().await;
+    let daemon = TestDaemon::start().await;
     let response = client()
-        .post(format!("{}/api/v1/settings/connections", h.daemon.base_url))
-        .header("cookie", h.daemon.cookie())
+        .post(format!("{}/api/v1/settings/connections", daemon.base_url))
+        .header("cookie", daemon.cookie())
         .json(&serde_json::json!({
             "provider": "slack",
             "alias": "team",
             "display_name": "Slack",
-            "fields": {
-                "account": "alice@example.com",
-                "client_id": "id",
-                "client_secret": "secret",
-            },
+            "fields": { "account": "alice@example.com" },
         }))
         .send()
         .await
         .unwrap();
     assert_eq!(response.status(), 422);
-    assert!(h.gog.commands().is_empty());
 }
 
-/// The brokered Google flow through the daemon's own HTTP surface
-/// (ADR-0012). An Administrator sets up the Installation OAuth Client.
+/// The Google flow through the daemon's own HTTP surface (ADR-0012). An Administrator sets up the Installation OAuth Client.
 /// The authorize route answers the start route on the Public Origin. The
 /// start route binds the `state` to the browser of the initiating Person
 /// with a transaction cookie (RFC 9700, section 2.1.1). The public
 /// callback route connects the Connection only for that browser, while
-/// the Session that started the authorization is live, and only for the
-/// Google account of the Connection. A fake Google answers the token
-/// calls, so nothing here reaches Google.
-mod brokered {
+/// the Session that started the authorization is live. The first consent
+/// records the Google account that consented, and every later consent
+/// must come from it. A fake Google answers the token calls, so nothing
+/// here reaches Google.
+mod installation_client {
+    use std::collections::HashMap;
     use std::net::SocketAddr;
     use std::sync::{Arc, Mutex};
 
@@ -711,15 +283,21 @@ mod brokered {
     use pagis_core::{ConnectionId, SealedSecret, User, UserRole, Workspace, WorkspaceId, now_ms};
     use pagis_server::SESSION_COOKIE;
     use pagis_testkit::evaluation::FixtureClock;
-    use pagis_testkit::{TestDaemon, TestDaemonOptions};
+    use pagis_testkit::{Script, ScriptedBrain, TestDaemon, TestDaemonOptions};
     use reqwest::header::{LOCATION, SET_COOKIE};
 
-    use super::FakeGog;
+    use super::{
+        FakeGog, client, firehose, frames_until_settled, grant, list_connections, next_frame_of,
+        providers, send, tool_fact,
+    };
 
     /// The client id of the Installation OAuth Client.
     const CLIENT_ID: &str = "installation.apps.googleusercontent.com";
-    /// The Google account of the Connection, as the Person typed it.
+    /// The Google account that consents, unless a test says else.
     const ACCOUNT: &str = "alice@example.com";
+    /// The client secret of the Installation OAuth Client. No interface
+    /// that the daemon keeps may show it.
+    const CLIENT_SECRET: &str = "GOCSPX-installation";
     /// Where the fake sends a browser to consent. Nothing answers there,
     /// and no test follows the redirect.
     const GOOGLE: &str = "https://accounts.example.test/authorize";
@@ -743,6 +321,8 @@ mod brokered {
         exchanges: Mutex<Vec<String>>,
         /// The `email` and `email_verified` claims of the ID token.
         consent: Mutex<(String, bool)>,
+        /// The `email` claim for one code, in place of `consent`.
+        accounts: Mutex<HashMap<String, String>>,
         /// The capability scopes of the `scope` value.
         granted: Mutex<Vec<&'static str>>,
     }
@@ -752,6 +332,7 @@ mod brokered {
             Self {
                 exchanges: Mutex::default(),
                 consent: Mutex::new((ACCOUNT.to_string(), true)),
+                accounts: Mutex::default(),
                 granted: Mutex::new(vec![GMAIL_READ]),
             }
         }
@@ -766,6 +347,14 @@ mod brokered {
         /// screen, and whether Google verified its address.
         fn consent_as(&self, email: &str, verified: bool) {
             *self.consent.lock().unwrap() = (email.to_string(), verified);
+        }
+
+        /// The verified Google account of the person who brings `code`.
+        fn consent_for(&self, code: &str, email: &str) {
+            self.accounts
+                .lock()
+                .unwrap()
+                .insert(code.to_string(), email.to_string());
         }
 
         /// The capability scopes that Google answers as granted.
@@ -784,7 +373,10 @@ mod brokered {
             .find_map(|pair| pair.strip_prefix("code="))
             .unwrap_or_default()
             .to_string();
-        let (email, verified) = google.consent.lock().unwrap().clone();
+        let (email, verified) = match google.accounts.lock().unwrap().get(&code) {
+            Some(email) => (email.clone(), true),
+            None => google.consent.lock().unwrap().clone(),
+        };
         let scope = std::iter::once(IDENTITY)
             .chain(google.granted.lock().unwrap().iter().copied())
             .collect::<Vec<_>>()
@@ -837,9 +429,10 @@ mod brokered {
     }
 
     /// One installation that holds the Installation OAuth Client, and one
-    /// `brokered` Google Connection of the seeded Person.
-    struct Brokered {
+    /// Google Connection of the seeded Person under the alias `google`.
+    struct Harness {
         daemon: TestDaemon,
+        brain: Arc<ScriptedBrain>,
         google: Arc<FakeGoogle>,
         gog: Arc<FakeGog>,
         /// The answer of the Administrator's setup of the client.
@@ -851,15 +444,15 @@ mod brokered {
 
     /// A Local Installation with Remote Access off: its Public Origin is
     /// loopback, and it has one Person.
-    async fn brokered() -> Brokered {
-        brokered_with(TestDaemonOptions::default()).await
+    async fn installation() -> Harness {
+        installation_with(TestDaemonOptions::default()).await
     }
 
     /// A Local Installation in Remote Access: the Funnel answers on an
     /// `https:` Public Origin and reaches the daemon from this machine.
     /// People on other machines use it.
-    async fn brokered_in_remote_access() -> Brokered {
-        brokered_with(TestDaemonOptions {
+    async fn installation_in_remote_access() -> Harness {
+        installation_with(TestDaemonOptions {
             public_origin: "https://pagis.owner.example".to_string(),
             trusted_proxy: Some(std::net::Ipv4Addr::LOCALHOST.into()),
             remote_access: true,
@@ -868,11 +461,13 @@ mod brokered {
         .await
     }
 
-    async fn brokered_with(options: TestDaemonOptions) -> Brokered {
+    async fn installation_with(options: TestDaemonOptions) -> Harness {
         let google = Arc::new(FakeGoogle::default());
         let addr = serve(Arc::clone(&google)).await;
         let gog = Arc::new(FakeGog::default());
+        let brain = Arc::new(ScriptedBrain::default());
         let daemon = TestDaemon::start_with(TestDaemonOptions {
+            brain: Arc::clone(&brain) as _,
             gog: Some(Arc::clone(&gog) as _),
             google_oauth: Some(Arc::new(pagis_google::GoogleOAuth::with_endpoints(
                 GOOGLE,
@@ -887,48 +482,55 @@ mod brokered {
                 "oauth-client",
                 serde_json::json!({
                     "client_id": CLIENT_ID,
-                    "client_secret": "GOCSPX-installation",
+                    "client_secret": CLIENT_SECRET,
                 }),
             )
             .await;
         assert_eq!(status, 200, "{registered}");
-        Brokered {
-            connection_id: create_brokered_connection(&daemon, "google").await,
+        Harness {
+            connection_id: create_google_connection(&daemon, "google").await,
             cookie_name: match daemon.public_origin.starts_with("https://") {
                 true => HOST_ONLY_COOKIE,
                 false => LOOPBACK_COOKIE,
             },
             daemon,
+            brain,
             google,
             gog,
             registered,
         }
     }
 
-    /// Create a Google Connection of [`ACCOUNT`] under `alias` as the
-    /// seeded Person, and answer its id. The installation holds the
-    /// Installation OAuth Client, so the Connection is `brokered`.
-    async fn create_brokered_connection(daemon: &TestDaemon, alias: &str) -> String {
-        let created: serde_json::Value = browser()
+    /// Create a Google Connection under `alias` as the seeded Person.
+    /// Answer the status and the body.
+    async fn create(daemon: &TestDaemon, alias: &str) -> (u16, serde_json::Value) {
+        let response = browser()
             .post(format!("{}/api/v1/settings/connections", daemon.base_url))
             .header("cookie", daemon.cookie())
             .json(&serde_json::json!({
                 "provider": "google",
                 "alias": alias,
                 "display_name": "Work Google",
-                "fields": { "account": ACCOUNT },
+                "fields": {},
             }))
             .send()
             .await
-            .unwrap()
-            .json()
-            .await
             .unwrap();
-        assert_eq!(created["auth_mode"], "brokered", "{created}");
+        (response.status().as_u16(), response.json().await.unwrap())
+    }
+
+    /// Create a Google Connection under `alias` as the seeded Person, and
+    /// answer its id. The person types nothing, and the Connection has no
+    /// account until the first consent.
+    async fn create_google_connection(daemon: &TestDaemon, alias: &str) -> String {
+        let (status, created) = create(daemon, alias).await;
+        assert_eq!(status, 201, "{created}");
+        assert_eq!(created["status"], "disconnected");
+        assert!(created["account"].is_null(), "{created}");
         created["id"].as_str().unwrap().to_string()
     }
 
-    impl Brokered {
+    impl Harness {
         /// Authorize the Connection as the Session of `session`, and
         /// answer the address that the Product App opens.
         async fn authorize(&self, session: &str, capabilities: &[&str]) -> String {
@@ -936,7 +538,7 @@ mod brokered {
                 .await
         }
 
-        /// [`Brokered::authorize`] for the Connection `connection_id`.
+        /// [`Harness::authorize`] for the Connection `connection_id`.
         async fn authorize_on(
             &self,
             connection_id: &str,
@@ -958,7 +560,7 @@ mod brokered {
             assert_eq!(answer["connection"]["status"], "connecting");
             answer["authorization_url"]
                 .as_str()
-                .expect("a brokered Connection answers an address")
+                .expect("a Google Connection answers an address")
                 .to_string()
         }
 
@@ -994,7 +596,7 @@ mod brokered {
                 .await
         }
 
-        /// [`Brokered::begin_as`] for the Connection `connection_id`.
+        /// [`Harness::begin_as`] for the Connection `connection_id`.
         async fn begin_on(
             &self,
             connection_id: &str,
@@ -1011,9 +613,23 @@ mod brokered {
             (state_of(&location(&started)), cookie_pair(&transaction))
         }
 
-        /// [`Brokered::begin_as`] as the seeded Person.
+        /// [`Harness::begin_as`] as the seeded Person.
         async fn begin(&self, capabilities: &[&str]) -> (String, String) {
             self.begin_as(self.daemon.cookie(), capabilities).await
+        }
+
+        /// Take the Connection to `connected` for `capabilities`: the
+        /// seeded Person consents as [`ACCOUNT`].
+        async fn connect(&self, capabilities: &[&str]) {
+            let (state, transaction) = self.begin(capabilities).await;
+            let landed = self
+                .callback(&state, "alices-code", Some(&transaction))
+                .await;
+            assert!(
+                landed.page.contains("Google is connected"),
+                "{}",
+                landed.page
+            );
         }
 
         /// The redirect of Google, as a browser brings it to the callback.
@@ -1182,7 +798,7 @@ mod brokered {
     /// token and does not connect the Connection.
     #[tokio::test]
     async fn a_callback_without_the_transaction_cookie_connects_nothing() {
-        let h = brokered().await;
+        let h = installation().await;
         let url = h.authorize(h.daemon.cookie(), &["gmail_read"]).await;
 
         let landed = h.callback(&state_of(&url), "victims-code", None).await;
@@ -1210,7 +826,7 @@ mod brokered {
     /// browser.
     #[tokio::test]
     async fn a_callback_without_the_transaction_cookie_spends_the_state() {
-        let h = brokered().await;
+        let h = installation().await;
         let (state, transaction) = h.begin(&["gmail_read"]).await;
 
         let forwarded = h.callback(&state, "victims-code", None).await;
@@ -1225,7 +841,7 @@ mod brokered {
     /// The cookie of one `state` binds no other `state`.
     #[tokio::test]
     async fn a_transaction_cookie_of_another_state_binds_nothing() {
-        let h = brokered().await;
+        let h = installation().await;
         let (state, _) = h.begin(&["gmail_read"]).await;
         let other = format!(
             "{}={}",
@@ -1247,7 +863,7 @@ mod brokered {
     /// start address, gets no transaction cookie and no Google address.
     #[tokio::test]
     async fn in_remote_access_the_start_route_requires_a_session_of_the_initiating_person() {
-        let h = brokered_in_remote_access().await;
+        let h = installation_in_remote_access().await;
         let url = h.authorize(h.daemon.cookie(), &["gmail_read"]).await;
         let grace = another_person(&h.daemon).await;
 
@@ -1276,7 +892,7 @@ mod brokered {
     /// browser to Google, and the flow finishes.
     #[tokio::test]
     async fn on_a_single_person_installation_the_system_browser_goes_to_google_without_a_session() {
-        let h = brokered().await;
+        let h = installation().await;
         let client_app = client_app_session(&h.daemon).await;
         let url = h.authorize(&client_app, &["gmail_read"]).await;
         let state = state_of(&url);
@@ -1309,7 +925,7 @@ mod brokered {
     #[tokio::test]
     async fn on_a_single_person_installation_a_callback_without_the_transaction_cookie_still_connects_nothing()
      {
-        let h = brokered().await;
+        let h = installation().await;
         let url = h.authorize(h.daemon.cookie(), &["gmail_read"]).await;
         let started = h.open_start(&url, None).await;
         assert_eq!(started.status(), 303, "the start route asked for a sign-in");
@@ -1338,7 +954,7 @@ mod brokered {
     /// start and callback ends the authorization.
     #[tokio::test]
     async fn on_a_single_person_installation_a_sign_out_in_the_client_app_ends_the_authorization() {
-        let h = brokered().await;
+        let h = installation().await;
         let client_app = client_app_session(&h.daemon).await;
         let url = h.authorize(&client_app, &["gmail_read"]).await;
         let started = h.open_start(&url, None).await;
@@ -1366,7 +982,7 @@ mod brokered {
     /// The callback reads it back.
     #[tokio::test]
     async fn the_start_route_sets_the_transaction_cookie_and_redirects_to_google() {
-        let h = brokered_in_remote_access().await;
+        let h = installation_in_remote_access().await;
         let url = h.authorize(h.daemon.cookie(), &["gmail_read"]).await;
         let state = state_of(&url);
 
@@ -1382,8 +998,11 @@ mod brokered {
             ),
             "{google}"
         );
+        // The first consent names no account: the person picks one in
+        // Google's account chooser.
+        assert!(!google.contains("login_hint"), "{google}");
         assert!(
-            google.contains("login_hint=alice%40example.com"),
+            google.contains("prompt=select_account%20consent&"),
             "{google}"
         );
         assert!(
@@ -1437,7 +1056,7 @@ mod brokered {
     /// So the cookie has neither and keeps every other attribute.
     #[tokio::test]
     async fn on_a_loopback_origin_the_transaction_cookie_leaves_out_secure() {
-        let h = brokered().await;
+        let h = installation().await;
         assert!(h.daemon.public_origin.starts_with("http://127.0.0.1:"));
         let url = h.authorize(h.daemon.cookie(), &["gmail_read"]).await;
         let state = state_of(&url);
@@ -1465,13 +1084,12 @@ mod brokered {
 
     /// The whole flow for the initiating Person. The Administrator sees
     /// the redirect URI to paste into the Google console, the form asks
-    /// for the account alone, and the callback that brings the
-    /// transaction cookie seals the refresh token and connects the
-    /// Connection. Google compares addresses without regard to case, and
-    /// so does the daemon.
+    /// for nothing, and the callback that brings the transaction cookie
+    /// seals the refresh token, records the account of the ID token in
+    /// lower case and connects the Connection.
     #[tokio::test]
     async fn the_initiating_browser_finishes_the_consent_and_reaches_connected() {
-        let h = brokered().await;
+        let h = installation().await;
         let facts = h.registered["parts"][0]["facts"].as_array().unwrap();
         let fact = |label: &str| {
             facts
@@ -1491,7 +1109,7 @@ mod brokered {
         h.google.consent_as("Alice@Example.com", true);
 
         let (state, transaction) = h.begin(&["gmail_read"]).await;
-        assert!(h.gog.commands().is_empty(), "the brokered flow runs no gog");
+        assert!(h.gog.calls().is_empty(), "the connect flow runs no gog");
         let landed = h.callback(&state, "alices-code", Some(&transaction)).await;
 
         assert_eq!(landed.status, 200);
@@ -1513,7 +1131,7 @@ mod brokered {
         assert!(posted.contains("code_verifier="), "{posted}");
         let connection = h.connection().await;
         assert_eq!(connection["status"], "connected");
-        assert_eq!(connection["auth_mode"], "brokered");
+        assert_eq!(connection["account"], ACCOUNT);
         assert_eq!(
             connection["authorized_capabilities"],
             serde_json::json!(["gmail_read"])
@@ -1526,11 +1144,13 @@ mod brokered {
     }
 
     /// `login_hint` is a hint: the person at the consent screen can pick
-    /// any Google account. The daemon reads the ID token and keeps the
-    /// token only for the account of the Connection.
+    /// any Google account. Once the Connection holds an account, the
+    /// daemon reads the ID token and keeps a token only for that account.
     #[tokio::test]
-    async fn a_consent_from_another_google_account_stores_no_token() {
-        let h = brokered().await;
+    async fn a_new_consent_from_another_google_account_stores_no_token() {
+        let h = installation().await;
+        h.connect(&["gmail_read"]).await;
+        let kept = h.refresh_token().await.expect("the first consent's token");
         h.google.consent_as("mallory@example.com", true);
         let (state, transaction) = h.begin(&["gmail_read"]).await;
 
@@ -1540,17 +1160,18 @@ mod brokered {
 
         assert!(landed.page.contains(REFUSED), "{}", landed.page);
         assert!(landed.clears_the_cookie);
-        assert!(
-            h.refresh_token().await.is_none(),
-            "a refresh token was stored"
+        assert_eq!(
+            h.refresh_token().await,
+            Some(kept),
+            "Mallory's token replaced Alice's"
         );
-        assert_eq!(h.connection().await["status"], "disconnected");
+        assert_eq!(h.connection().await["account"], ACCOUNT);
     }
 
     /// An address that Google did not verify proves no account.
     #[tokio::test]
     async fn a_consent_from_an_unverified_address_stores_no_token() {
-        let h = brokered().await;
+        let h = installation().await;
         h.google.consent_as(ACCOUNT, false);
         let (state, transaction) = h.begin(&["gmail_read"]).await;
 
@@ -1570,7 +1191,7 @@ mod brokered {
     /// Google granted.
     #[tokio::test]
     async fn only_the_requested_capabilities_that_google_granted_are_recorded() {
-        let h = brokered().await;
+        let h = installation().await;
         h.google.grant(&[GMAIL_READ, GMAIL_SEND]);
         let (state, transaction) = h.begin(&["gmail_read", "calendar_read"]).await;
 
@@ -1593,7 +1214,7 @@ mod brokered {
     /// refused, and the daemon keeps no token of it.
     #[tokio::test]
     async fn a_result_that_grants_no_requested_capability_stores_no_token() {
-        let h = brokered().await;
+        let h = installation().await;
         h.google.grant(&[GMAIL_SEND]);
         let (state, transaction) = h.begin(&["gmail_read", "calendar_read"]).await;
 
@@ -1613,7 +1234,7 @@ mod brokered {
     /// no Google call and keeps the token of the first callback.
     #[tokio::test]
     async fn a_replayed_state_stores_no_token_and_clears_the_cookie() {
-        let h = brokered().await;
+        let h = installation().await;
         let (state, transaction) = h.begin(&["gmail_read"]).await;
         let first = h.callback(&state, "alices-code", Some(&transaction)).await;
         assert!(first.page.contains("Google is connected"), "{}", first.page);
@@ -1642,7 +1263,7 @@ mod brokered {
     async fn an_expired_state_stores_no_token_and_clears_the_cookie() {
         let now = now_ms();
         let clock = FixtureClock::at(now);
-        let h = brokered_with(TestDaemonOptions {
+        let h = installation_with(TestDaemonOptions {
             clock: Arc::new(clock.clone()),
             ..TestDaemonOptions::default()
         })
@@ -1664,7 +1285,7 @@ mod brokered {
     /// the authorization with it.
     #[tokio::test]
     async fn a_sign_out_between_start_and_callback_stores_no_token_and_clears_the_cookie() {
-        let h = brokered().await;
+        let h = installation().await;
         let session = h.daemon.cookie_for(&h.daemon.user_id).await;
         let (state, transaction) = h.begin_as(&session, &["gmail_read"]).await;
         h.daemon.sign_out(&session).await;
@@ -1684,7 +1305,7 @@ mod brokered {
     /// it there. The authorization holds the Session of the Client App.
     #[tokio::test]
     async fn in_remote_access_the_client_app_person_signs_in_in_the_system_browser_and_finishes() {
-        let h = brokered_in_remote_access().await;
+        let h = installation_in_remote_access().await;
         let base = h.daemon.base_url.clone();
         h.daemon
             .stores()
@@ -1736,6 +1357,259 @@ mod brokered {
         );
         assert_eq!(h.connection().await["status"], "connected");
         assert!(h.refresh_token().await.is_some());
+    }
+
+    /// With the Installation OAuth Client the Google entry is set up and
+    /// asks for nothing. A Connection names what it gives, so the card
+    /// follows that and not the provider name.
+    #[tokio::test]
+    async fn with_the_installation_client_the_google_entry_asks_for_nothing() {
+        let h = installation().await;
+
+        let page = providers(&h.daemon).await;
+        let google = &page["items"][0];
+        assert_eq!(google["id"], "google");
+        assert_eq!(google["set_up"], true);
+        assert_eq!(google["fields"], serde_json::json!([]));
+        assert_eq!(google["portal"], serde_json::Value::Null);
+        assert_eq!(
+            google["capabilities"],
+            serde_json::json!(["mail", "calendar"])
+        );
+        assert_eq!(google["max_instances"], serde_json::Value::Null);
+        // A Local Installation with Remote Access off asks the browser
+        // for no sign-in.
+        assert_eq!(google["browser_sign_in"], false);
+
+        let connection = h.connection().await;
+        assert_eq!(
+            connection["capabilities"],
+            serde_json::json!(["mail", "calendar"])
+        );
+        assert!(connection["account"].is_null(), "{connection}");
+    }
+
+    /// The alias is how a tool call picks the account, so a Workspace
+    /// takes each alias once.
+    #[tokio::test]
+    async fn two_connections_get_distinct_aliases_and_a_duplicate_is_refused() {
+        let h = installation().await;
+        let (personal, _) = create(&h.daemon, "personal").await;
+        assert_eq!(personal, 201);
+
+        let (duplicate, body) = create(&h.daemon, "google").await;
+
+        assert_eq!(duplicate, 409);
+        assert_eq!(body["error"]["code"], "conflict");
+        assert_eq!(
+            list_connections(&h.daemon).await["items"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+    }
+
+    /// A granted Agent reaches the account that consented. The call
+    /// carries the account, the alias that names the `gog` client, and an
+    /// access token that the daemon minted, so `gog` keeps no token.
+    #[tokio::test]
+    async fn a_granted_agent_reaches_the_account_that_consented() {
+        let h = installation().await;
+        h.connect(&["gmail_read"]).await;
+        grant(&h.daemon, &h.connection_id, &["gmail_read"]).await;
+        let mut socket = firehose(&h.daemon).await;
+
+        h.brain.push(Script::tool_call(
+            &[],
+            pagis_broker::MAIL_SEARCH,
+            serde_json::json!({"mailbox": "google", "query": "is:unread"}),
+        ));
+        h.brain.push(Script::reply(&["Done."]));
+        send(&h.daemon, "p1", "check my mail").await;
+        let frames = frames_until_settled(&mut socket).await;
+
+        let fact = tool_fact(&frames, pagis_broker::MAIL_SEARCH);
+        assert_eq!(fact["payload"]["payload"]["outcome"], "completed");
+        assert_eq!(
+            fact["payload"]["payload"]["selected_connection"],
+            h.connection_id.as_str()
+        );
+        let call = h.gog.calls().pop().expect("a tool call");
+        assert!(call.has_access_token, "{call:?}");
+        assert!(
+            call.args
+                .windows(2)
+                .any(|pair| pair == ["--account", ACCOUNT]),
+            "{call:?}"
+        );
+        assert!(
+            call.args
+                .windows(2)
+                .any(|pair| pair == ["--client", "google"]),
+            "{call:?}"
+        );
+    }
+
+    /// Access revoked at Google shows on the record and on the next call.
+    /// A record at `reauth_required` offers no tools, and a new consent
+    /// from the card repairs it.
+    #[tokio::test]
+    async fn access_revoked_at_google_surfaces_on_the_record_and_the_next_call() {
+        let h = installation().await;
+        h.connect(&["gmail_read"]).await;
+        grant(&h.daemon, &h.connection_id, &["gmail_read"]).await;
+        let mut socket = firehose(&h.daemon).await;
+
+        // The exit the pinned `gog` uses once the user revoked access.
+        h.gog.refuse_calls(4);
+        h.brain.push(Script::tool_call(
+            &[],
+            pagis_broker::MAIL_SEARCH,
+            serde_json::json!({"mailbox": "google", "query": "is:unread"}),
+        ));
+        h.brain.push(Script::reply(&["I cannot reach it."]));
+        send(&h.daemon, "p1", "check my mail").await;
+        let frames = frames_until_settled(&mut socket).await;
+        assert_eq!(
+            tool_fact(&frames, pagis_broker::MAIL_SEARCH)["payload"]["payload"]["error_code"],
+            "reauth_required"
+        );
+        assert_eq!(h.connection().await["status"], "reauth_required");
+
+        let before = h.gog.calls().len();
+        h.brain.push(Script::tool_call(
+            &[],
+            pagis_broker::MAIL_SEARCH,
+            serde_json::json!({"mailbox": "google", "query": "is:unread"}),
+        ));
+        h.brain.push(Script::reply(&["Still no."]));
+        send(&h.daemon, "p2", "try again").await;
+        frames_until_settled(&mut socket).await;
+        assert_eq!(h.gog.calls().len(), before, "no second provider call");
+
+        h.gog.refuse_calls(0);
+        h.connect(&["gmail_read"]).await;
+        assert_eq!(h.connection().await["status"], "connected");
+    }
+
+    /// A call that `gog` reports as `reauth_required` during a sync
+    /// publishes the repair state of the Connection.
+    #[tokio::test]
+    async fn an_expired_google_token_publishes_the_connection_repair_state() {
+        let h = installation().await;
+        h.connect(&["gmail_read"]).await;
+        grant(&h.daemon, &h.connection_id, &["gmail_read"]).await;
+        let mut socket = firehose(&h.daemon).await;
+        h.gog
+            .fail_calls(pagis_google::ProcessFailure::ReauthRequired);
+
+        let response = client()
+            .put(format!(
+                "{}/api/v1/connections/{}/sync",
+                h.daemon.base_url, h.connection_id
+            ))
+            .header("cookie", h.daemon.cookie())
+            .json(&serde_json::json!({
+                "agent_id": h.daemon.agent_id,
+                "enabled": true,
+                "filter": pagis_google::gmail_filter::default_filter(),
+                "since": 0,
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+
+        let changed = loop {
+            let frame = next_frame_of(&mut socket, "connection.changed").await;
+            if frame["payload"]["payload"]["status"] == "reauth_required" {
+                break frame;
+            }
+        };
+        assert_eq!(
+            changed["payload"]["payload"]["connection_id"],
+            h.connection_id.as_str()
+        );
+        assert_eq!(h.connection().await["status"], "reauth_required");
+    }
+
+    /// No secret reaches an interface that the daemon keeps: not the
+    /// client secret of the Installation OAuth Client, and not a token.
+    #[tokio::test]
+    async fn no_secret_reaches_an_interface_the_daemon_retains() {
+        let h = installation().await;
+        let mut socket = firehose(&h.daemon).await;
+        h.connect(&["gmail_read"]).await;
+
+        let listed = list_connections(&h.daemon).await.to_string();
+        let changed = next_frame_of(&mut socket, "connection.changed").await;
+        let config: String = sqlx::query_scalar("SELECT config FROM connections WHERE id = ?")
+            .bind(&h.connection_id)
+            .fetch_one(h.daemon.pool())
+            .await
+            .unwrap();
+        for (place, text) in [
+            ("the list", listed),
+            ("the event", changed.to_string()),
+            ("the row", config),
+            ("the setup answer", h.registered.to_string()),
+        ] {
+            for secret in [CLIENT_SECRET, "1//refresh-for-alices-code", "ya29."] {
+                assert!(!text.contains(secret), "{place} shows {secret}: {text}");
+            }
+        }
+    }
+
+    /// The rule against a second Connection of one account holds inside
+    /// one Workspace. Another person of the Org connects the same Google
+    /// account in their own Workspace, with a token of their own.
+    #[tokio::test]
+    async fn another_person_connects_the_google_account_that_one_person_connected() {
+        let h = installation_in_remote_access().await;
+        h.connect(&["gmail_read"]).await;
+        let grace = another_person(&h.daemon).await;
+        let created: serde_json::Value = browser()
+            .post(format!("{}/api/v1/settings/connections", h.daemon.base_url))
+            .header("cookie", &grace)
+            .json(&serde_json::json!({
+                "provider": "google",
+                "alias": "google",
+                "display_name": "Google",
+                "fields": {},
+            }))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let graces = created["id"]
+            .as_str()
+            .expect("Grace's Connection")
+            .to_string();
+
+        let (state, transaction) = h.begin_on(&graces, &grace, &["gmail_read"]).await;
+        let landed = h.callback(&state, "graces-code", Some(&transaction)).await;
+
+        assert!(
+            landed.page.contains("Google is connected"),
+            "{}",
+            landed.page
+        );
+        let listed: serde_json::Value = browser()
+            .get(format!("{}/api/v1/settings/connections", h.daemon.base_url))
+            .header("cookie", &grace)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(listed["items"][0]["id"], graces.as_str());
+        assert_eq!(listed["items"][0]["status"], "connected");
+        assert_eq!(listed["items"][0]["account"], ACCOUNT);
+        assert_eq!(h.connection().await["status"], "connected");
     }
 
     /// The Tenant Data Key of one Workspace, which the Vault and the
@@ -1824,8 +1698,8 @@ mod brokered {
 
         /// A daemon on the store `secrets`, whose Tenant Data Key of the
         /// seeded Workspace the store watches.
-        async fn watched(secrets: &Arc<Watched>) -> Brokered {
-            let h = brokered_with(TestDaemonOptions {
+        async fn watched(secrets: &Arc<Watched>) -> Harness {
+            let h = installation_with(TestDaemonOptions {
                 secrets: Arc::clone(secrets) as _,
                 ..TestDaemonOptions::default()
             })
@@ -1869,8 +1743,13 @@ mod brokered {
             for index in 0..CONSENTS {
                 let connection_id = match index {
                     0 => h.connection_id.clone(),
-                    _ => create_brokered_connection(&h.daemon, &format!("google-{index}")).await,
+                    _ => create_google_connection(&h.daemon, &format!("google-{index}")).await,
                 };
+                // Each Connection of one Workspace holds its own account.
+                h.google.consent_for(
+                    &format!("code-{index}"),
+                    &format!("person-{index}@example.com"),
+                );
                 let (state, transaction) = h
                     .begin_on(&connection_id, h.daemon.cookie(), &["gmail_read"])
                     .await;

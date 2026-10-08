@@ -1591,7 +1591,7 @@ export function useCreateConnection(api: ApiClient) {
 
 /** Authorize one connection.
  *
- *  A brokered Google connection answers an `authorization_url` and
+ *  A Google connection answers an `authorization_url` and
  *  returns at once: the caller opens it, the person consents in their own
  *  browser, and the connection reaches `connected` when Google redirects
  *  back to this installation. Every other connection is finished when

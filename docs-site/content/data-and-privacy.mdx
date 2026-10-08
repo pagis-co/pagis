@@ -116,18 +116,18 @@ keys that you store get the model requests of every Person
 Pagis encrypts secrets and no other content. The Installation Key seals
 `secrets.enc` with XChaCha20-Poly1305. The Tenant Data Key of each
 Workspace, which `secrets.enc` holds, seals the Credential secrets, the
-one-time code seeds and the `brokered` refresh tokens of that Workspace in
+one-time code seeds and the Google refresh tokens of that Workspace in
 the database. The database keeps Sessions, Sign-In Links and passwords as
 hashes.
 
 | Store | What it holds | Encrypted |
 | --- | --- | --- |
 | `secrets.enc` | The provider keys, the other secrets of the installation and of each Workspace, and the Tenant Data Key of each Workspace. | Yes, with the Installation Key. |
-| `pagis.db`, or the Postgres database of a server | The records of every Person: the People, the conversations with their tool results, the Runs, the Connections, the Source Items that a Sync copies (for example mail and calendar events), the Grants, the Vault, and the Model Request Captures while that setting is on. | Partly. The Tenant Data Keys seal the Credential secrets, the one-time code seeds and the `brokered` refresh tokens. Sessions, Sign-In Links and passwords are hashes. |
+| `pagis.db`, or the Postgres database of a server | The records of every Person: the People, the conversations with their tool results, the Runs, the Connections, the Source Items that a Sync copies (for example mail and calendar events), the Grants, the Vault, and the Model Request Captures while that setting is on. | Partly. The Tenant Data Keys seal the Credential secrets, the one-time code seeds and the Google refresh tokens. Sessions, Sign-In Links and passwords are hashes. |
 | `memory/<workspace_id>/` | The memory of each Workspace, with its full git history. | No. |
 | `artifacts/`, `recordings/` | The Artifacts: the files that the Agents made, the files that People attach, the screenshots and the call recordings. | No. |
 | `screens/` | The last screenshot of each Computer. | No. |
-| `gog/` | The files of `gog` for each Workspace. | Partly. `gog` seals the tokens and the OAuth client secret of a `byo` Google Connection with a password that `secrets.enc` holds. |
+| `gog/` | The files of `gog` for each Workspace. | No. `gog` holds no token and no client secret there: the daemon hands it an access token for each call. |
 | `plugins/`, `software/` | The installed Plugins and the Software Packages. | No. |
 | `config.toml`, `runtime-release`, `logs/` | The configuration, the Release Marker, and the logs. A Plugin server can write Person data or a bound value to its stderr. | No. A Backup does not hold the logs. |
 | `client-credential`, `computer-tokens/` | The Client Credential, and the access token of each Computer. | No. A Backup holds neither. |

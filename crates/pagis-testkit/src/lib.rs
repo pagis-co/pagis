@@ -9,6 +9,7 @@ pub mod contribution;
 pub mod evaluation;
 pub mod exit_client;
 pub mod fixture;
+pub mod google;
 pub mod grant;
 pub mod host_client;
 pub mod migration;
@@ -168,14 +169,13 @@ pub struct TestDaemonOptions {
     /// the Google provider over `gog`, which no test should start.
     pub connection_providers: Option<Arc<dyn pagis::connections::ConnectionProviderFactory>>,
     pub connection_call_timeout: std::time::Duration,
-    /// How the connect flow reaches `gog`; `None` starts the
-    /// distributed binary, which no test should do.
+    /// How a Connection reaches `gog`; `None` starts the distributed
+    /// binary, which no test should do.
     pub gog: Option<Arc<dyn pagis_google::GogRunner>>,
-    /// Google's OAuth endpoints for the brokered flow. `None`
+    /// Google's OAuth endpoints for the connect flow. `None`
     /// keeps Google's own, which no test may reach; a test that drives
     /// the callback names a fake token endpoint here.
     pub google_oauth: Option<Arc<pagis_google::GoogleOAuth>>,
-    pub authorize_timeout: std::time::Duration,
     /// How often a Connection with a live Event Subscription is polled.
     /// The default is short so a test does not wait a minute.
     pub collector_interval: std::time::Duration,
@@ -263,7 +263,6 @@ impl Default for TestDaemonOptions {
             connection_call_timeout: pagis::connections::DEFAULT_CALL_TIMEOUT,
             gog: None,
             google_oauth: None,
-            authorize_timeout: pagis_connect::DEFAULT_AUTHORIZE_TIMEOUT,
             collector_interval: std::time::Duration::from_millis(100),
             number_catalog: Arc::new(pagis_telephony::fake::FakeNumberCatalog::offering(&[
                 "+14155550123",
@@ -358,6 +357,9 @@ pub struct TestDaemon {
     administration_server: Option<tokio::task::JoinHandle<()>>,
     /// The stop signal of the daemon's background loops.
     cancel: CancellationToken,
+    /// The secret store of the daemon, which holds the Installation
+    /// OAuth Client secret and the Tenant Data Keys.
+    secrets: Arc<dyn pagis_core::SecretStore>,
 }
 
 impl TestDaemon {
@@ -449,6 +451,7 @@ impl TestDaemon {
     }
 
     async fn boot_on(home: TempDir, options: TestDaemonOptions) -> Self {
+        let secrets = Arc::clone(&options.secrets);
         // The backend, the bind address, the Public Origin, the Trusted
         // Proxy and Remote Access are settings, so the harness writes them
         // before the boot reads them. None of them decides whether the
@@ -580,9 +583,13 @@ impl TestDaemon {
                 secrets: Arc::clone(&options.secrets),
                 connection_providers: options.connection_providers,
                 connection_call_timeout: options.connection_call_timeout,
-                google_oauth: options.google_oauth,
+                // No test reaches Google: without an endpoint of its own,
+                // the daemon refreshes against a fake on loopback.
+                google_oauth: Some(match options.google_oauth {
+                    Some(oauth) => oauth,
+                    None => crate::google::FakeTokenEndpoint::start().await.oauth,
+                }),
                 gog: options.gog,
-                authorize_timeout: options.authorize_timeout,
                 collector_interval: options.collector_interval,
                 number_catalogs: Some(Arc::new(pagis_telephony::NumberCatalogs::single(
                     pagis_telephony::TELNYX_PROVIDER,
@@ -715,6 +722,7 @@ impl TestDaemon {
             server: Some(server),
             administration_server: Some(administration_server),
             cancel,
+            secrets,
         }
     }
 
@@ -761,6 +769,14 @@ impl TestDaemon {
     /// status and the provider's setup. A carrier account or a mail
     /// domain is an Installation Connection, and a person never creates
     /// one on the product port.
+    /// Write a Google Connection as the connect flow leaves it: the Org
+    /// holds the Installation OAuth Client, and the row holds a sealed
+    /// refresh token, so the daemon mints the access token of each call
+    /// from the fake token endpoint ([`crate::google`]).
+    pub async fn plant_google_connection(&self, connection: &pagis_core::Connection) {
+        crate::google::plant(self.stores(), &self.secrets, connection).await;
+    }
+
     pub async fn set_up_provider(
         &self,
         provider: &str,

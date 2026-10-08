@@ -687,7 +687,6 @@ async fn configured_source() -> (SqliteKnowledgeStore, SyncStatus) {
         alias: "evaluation".into(),
         display_name: "Evaluation fixture".into(),
         status: Connection::CONNECTED.into(),
-        auth_mode: Connection::AUTH_MODE_BYO.into(),
         authorized_capabilities: vec!["gmail_read".into()],
         config: json!({}),
         created_at: 1,

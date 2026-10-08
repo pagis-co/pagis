@@ -615,7 +615,6 @@ async fn seed_a(
         alias: "work".to_string(),
         display_name: "Work".to_string(),
         status: Connection::CONNECTED.to_string(),
-        auth_mode: "brokered".to_string(),
         authorized_capabilities: vec!["gmail_read".to_string()],
         config: serde_json::json!({"account": "a@example.com", "client": "c"}),
         created_at: now,

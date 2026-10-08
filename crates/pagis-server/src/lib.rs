@@ -853,7 +853,7 @@ fn product_router(state: Arc<AppState>) -> Router {
         )
         .route("/api/v1/health", get(health))
         .route("/api/v1/runtime/identity", get(runtime_identity))
-        // The start route of a brokered Google authorization. It reads
+        // The start route of a Google authorization. It reads
         // the Session itself: a browser with no Session goes to sign in
         // and comes back, and only a Session of the Person who started
         // the authorization gets the transaction cookie that binds the

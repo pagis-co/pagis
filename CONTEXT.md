@@ -759,12 +759,12 @@ Not built: the account-creation record and its events (ADR-0018).
 ### Connection
 A Workspace's link to one account at an external provider, such as Google.
 The Person connects once, and Agents use it through Grants and name it by
-its alias. Its auth mode is `byo`, where the Person supplies the OAuth
-client, or `brokered`, where the Installation OAuth Client does and the
-Person gives their own consent. A Connection is `disconnected`,
-`connecting`, `connected`, `reauth_required` or `unavailable`, and Agents
-get its tools at `connected` only (ADR-0012, ADR-0019).
-_Avoid_: integration, brokered credential
+its alias. The Person connects Google by signing in at Google against
+the Installation OAuth Client, and types no client and no account. A
+Connection is `disconnected`, `connecting`, `connected`,
+`reauth_required` or `unavailable`, and Agents get its tools at
+`connected` only (ADR-0012, ADR-0019).
+_Avoid_: integration, brokered credential, bring your own client
 
 ### Credential
 A saved secret for an external account in the Vault, with its owner, its
@@ -790,8 +790,8 @@ _Avoid_: safe-storage key, master key
 
 ### Installation OAuth Client
 The one OAuth client an installation registers with a provider, which an
-Administrator sets up and the Org holds. Its presence makes a new
-Connection of that provider `brokered` (ADR-0012).
+Administrator sets up and the Org holds. Every Person consents against
+it, and without it no Person connects that provider (ADR-0012).
 _Avoid_: org client, global client
 
 ### Key File
@@ -811,8 +811,8 @@ _Avoid_: provider list, connector directory
 
 ### Tenant Data Key
 The key that seals the secrets of one Workspace in the database: Credential
-secrets, one-time code seeds and `brokered` refresh tokens. It also derives
-the key of the Forget blocks. It is an entry of `secrets.enc` (ADR-0013,
+secrets, one-time code seeds and the refresh tokens of Connections. It also
+derives the key of the Forget blocks. It is an entry of `secrets.enc` (ADR-0013,
 ADR-0008).
 _Avoid_: vault data key, workspace key
 

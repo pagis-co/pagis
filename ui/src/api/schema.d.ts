@@ -258,7 +258,7 @@ export interface paths {
         /**
          * Remove one part. A carrier that carries a number and a mail domain
          *     that holds a mailbox stay, and the refusal says what to do first.
-         *     Removing the OAuth client leaves every brokered Google connection
+         *     Removing the OAuth client leaves every Google connection
          *     unable to refresh, so each person consents again against the next
          *     client (ADR-0012).
          */
@@ -957,16 +957,16 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Finish one brokered Google authorization.
+         * Finish one Google authorization.
          * @description Google redirects the person's browser here on the installation's own
          *     public origin. The request carries no Session: the Session cookie is
          *     `SameSite=Strict`, so a browser sends none on a cross-site
          *     navigation. The route finishes only for the browser that holds the
          *     transaction cookie of the `state`, which the start route set. The
          *     `state` names the Connection, and the Person and the Session that
-         *     started the authorization: that Session must still be live, and the
-         *     Google account that consented must be the account of the Connection.
-         *     A redirect without the cookie spends the `state` and connects
+         *     started the authorization: that Session must still be live. The first
+         *     consent records the Google account that consented, and a later
+         *     consent must come from that account. A redirect without the cookie spends the `state` and connects
          *     nothing. Each answer clears the cookie.
          */
         get: operations["google_callback"];
@@ -986,7 +986,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Send one browser to Google for a brokered authorization.
+         * Send one browser to Google for an authorization.
          * @description The authorize request answers this address, and it belongs to the
          *     Person who asked. It sits outside the session middleware because a
          *     browser with no Session must sign in and come back, not get `401`: it
@@ -2064,9 +2064,9 @@ export interface paths {
         get: operations["list_connections"];
         put?: never;
         /**
-         * Connect an account (ADR-0012). The record lands at
-         *     `disconnected` with its binding; `authorize_connection` is the step
-         *     that sends the user to Google.
+         * Connect an account (ADR-0012). A Google record lands at
+         *     `disconnected` with no account; `authorize_connection` is the step
+         *     that sends the person to Google, where they pick the account.
          */
         post: operations["create_connection"];
         delete?: never;
@@ -2086,12 +2086,10 @@ export interface paths {
          * The Provider Catalog (ADR-0012) a person picks from: every provider
          *     a person connects on their own, with the form each one needs. An
          *     Installation Connection is not in it.
-         * @description The Google entry follows the installation. Where the Org holds
-         *     a Web OAuth client the form asks for the account alone, because the
-         *     client is the installation's; where it holds none the form asks for
-         *     the person's own Desktop client. The entry also says whether the
-         *     browser step can ask for a sign-in, which a local installation with
-         *     Remote Access off never does.
+         * @description The Google entry asks for nothing: the person signs in at Google.
+         *     It says whether the Org holds the Installation OAuth Client that the
+         *     sign-in needs, and whether the browser step can ask for a sign-in to
+         *     Pagis, which a local installation with Remote Access off never does.
          */
         get: operations["list_connection_providers"];
         put?: never;
@@ -2129,8 +2127,8 @@ export interface paths {
         put?: never;
         /**
          * Authorize one Connection.
-         * @description A `brokered` Google Connection answers an `authorization_url` and
-         *     returns at once. The URL is the start route on the Public Origin,
+         * @description A Google Connection answers an `authorization_url` and returns at
+         *     once. The URL is the start route on the Public Origin,
          *     which belongs to the Person who asks: the client opens it, the person
          *     consents at Google in that browser, and the public callback route is
          *     what makes the Connection `connected`. Every other Connection is
@@ -3284,7 +3282,7 @@ export interface components {
         /** @description What one authorization step answers. */
         AuthorizeConnectionResponse: {
             /**
-             * @description The address to open for a `brokered` Google Connection: the
+             * @description The address to open for a Google Connection: the
              *     start route on the Public Origin. A browser with a Session of the
              *     Person who asked goes on from there to consent at Google, and the
              *     connection reaches `connected` when Google redirects that browser
@@ -3809,11 +3807,6 @@ export interface components {
             account?: string | null;
             /** @description The name a tool call uses to pick this account. */
             alias: string;
-            /**
-             * @description `byo` when the user supplies the OAuth client, `brokered` when
-             *     the installation supplies it through its Installation OAuth Client.
-             */
-            auth_mode: string;
             authorized_capabilities: string[];
             /**
              * @description What this Connection gives an Agent, from the provider's catalog
@@ -5628,11 +5621,10 @@ export interface components {
             /** @description What the user reads before they type. */
             blurb: string;
             /**
-             * @description True for the `oauth` entry of a brokered flow in which the browser
-             *     that goes to the provider can first ask the Person to sign in to
-             *     Pagis. False on a local installation with Remote Access off,
-             *     whose start route asks for no Session, and for every other
-             *     entry.
+             * @description True for the `oauth` entry in which the browser that goes to the
+             *     provider can first ask the Person to sign in to Pagis. False on a
+             *     local installation with Remote Access off, whose start route asks
+             *     for no Session, and for every other entry.
              */
             browser_sign_in: boolean;
             /**
@@ -5659,6 +5651,12 @@ export interface components {
             max_instances?: number | null;
             /** @description Where the user finds the values, e.g. `the Telnyx portal`. */
             portal?: string | null;
+            /**
+             * @description False for the Google entry where the Org holds no Installation
+             *     OAuth Client. The blurb then says that an administrator sets it
+             *     up, and the picker offers no connect step.
+             */
+            set_up: boolean;
         };
         /** @description One value a provider's setup form asks for. */
         ProviderFieldDto: {

@@ -25,7 +25,6 @@ const migadu = {
   alias: 'mail',
   display_name: 'Agent mail',
   status: 'connected',
-  auth_mode: 'byo',
   authorized_capabilities: [],
   created_at: 1,
   mail: {

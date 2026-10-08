@@ -641,7 +641,6 @@ async fn forget_during_an_in_flight_review_prevents_its_staged_write_from_commit
         alias: "work".into(),
         display_name: "Work".into(),
         status: Connection::CONNECTED.into(),
-        auth_mode: Connection::AUTH_MODE_BYO.into(),
         authorized_capabilities: vec!["gmail_read".into()],
         config: serde_json::json!({}),
         created_at: now,

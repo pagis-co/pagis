@@ -5,14 +5,9 @@ import type { ApiClient, ConnectionDto } from '../../api/client'
 import { Button } from '../../primitives'
 import { errorMessage, useAuthorizeConnection, useDeleteConnection } from '../../queries'
 import { ConnectionStatus } from '../ConnectionStatus'
+import { openAuthorization } from './openAuthorization'
 
 import './connection.css'
-
-/** How the account signs in, as the card names it. */
-const AUTH_MODE_LABEL: Record<string, string> = {
-  byo: 'your own OAuth client',
-  brokered: "the installation's OAuth client",
-}
 
 export function ConnectionHeader({
   api,
@@ -46,8 +41,7 @@ export function ConnectionHeader({
       <div className="connection-head-identity">
         <h1>{title}</h1>
         <span className="connection-hint">
-          Sprites know it as <code>{connection.alias}</code> ·{' '}
-          {AUTH_MODE_LABEL[connection.auth_mode] ?? connection.auth_mode}
+          Sprites know it as <code>{connection.alias}</code>
         </span>
       </div>
       <ConnectionStatus status={connection.status} />
@@ -55,10 +49,13 @@ export function ConnectionHeader({
         <Button
           disabled={authorize.isPending}
           onClick={() =>
-            authorize.mutate({
-              connectionId: connection.id,
-              capabilities: connection.authorized_capabilities,
-            })
+            authorize.mutate(
+              {
+                connectionId: connection.id,
+                capabilities: connection.authorized_capabilities,
+              },
+              { onSuccess: (answer) => openAuthorization(answer.authorization_url) },
+            )
           }
         >
           {authorize.isPending ? 'Waiting for the provider…' : 'Reconnect'}
