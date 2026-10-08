@@ -76,6 +76,7 @@ crates/llm-router/
     accumulator.rs  # MessageAccumulator: a stream back into a message
     registry.rs     # the model metadata table (models.json)
     realtime.rs     # realtime WebSocket routing
+    forward.rs      # Router::forward: a provider's own request, metered
     protocol/
       mod.rs        # Protocol trait (sync encode/decode; router owns async I/O)
       openai.rs     # openai-chat codec
@@ -136,6 +137,20 @@ body, and maps a byte stream to a `StreamEvent` stream. The router owns the shar
   generation with edits and reference inputs, video generation jobs
   through the `veo` codec, and realtime WebSocket endpoint routing.
   `docs/MODALITIES.md` states the rules these follow.
+- **Forward.** `Router::forward` sends a request that a client wrote in
+  the provider's own format, with the provider key, and meters the usage
+  of the answer. The body goes unchanged, with the caller's headers, then
+  each provider `headers` entry that the caller did not set, then the
+  provider key as the provider's codec sends it. The caller's own
+  `authorization` and `x-api-key` never reach the provider. The router
+  makes one attempt with no fallback, no retry and no stream timeouts,
+  because the client of the forward owns its retries. Every HTTP status
+  is an answer, and the router does not parse an error body. The answer's
+  bytes pass to the caller unchanged, and a copy goes to the meter of the
+  codec, which reads the model and the normalized usage from the events
+  of a stream or from a whole body. The meter resolves when the body ends,
+  or with the usage so far when the caller drops the body. Only the
+  `anthropic-messages` wire forwards, to a provider of that protocol.
 
 ## Not built
 

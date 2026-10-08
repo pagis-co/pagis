@@ -8,7 +8,7 @@ use serde_json::{Map, Value, json};
 
 use crate::config::ProviderConfig;
 use crate::error::{Error, ErrorKind};
-use crate::protocol::{ByteStream, EventStream, ModelPage, Protocol, model_list};
+use crate::protocol::{ByteStream, EventStream, Meter, ModelPage, Protocol, model_list};
 use crate::types::{
     CachePolicy, ChatRequest, ChatResponse, ContentPart, FinishReason, Message, ReasoningConfig,
     ReasoningEffort, Role, StreamEvent, ToolCall, ToolChoice, Usage,
@@ -19,10 +19,25 @@ const DEFAULT_MAX_TOKENS: u32 = 4096;
 const API_VERSION: &str = "2023-06-01";
 /// The largest page the model list serves.
 const MODEL_PAGE_LIMIT: &str = "1000";
+/// The header that carries the provider key.
+const API_KEY_HEADER: &str = "x-api-key";
 
 pub struct AnthropicMessages;
 
 impl Protocol for AnthropicMessages {
+    fn forward(
+        &self,
+        provider_key: &str,
+        provider: &ProviderConfig,
+        headers: &mut reqwest::header::HeaderMap,
+    ) -> Result<Box<dyn Meter>, Error> {
+        match api_key(provider_key, provider)? {
+            Some(key) => headers.insert(API_KEY_HEADER, key),
+            None => headers.remove(API_KEY_HEADER),
+        };
+        Ok(Box::new(MessagesMeter::default()))
+    }
+
     fn build_list_models_request(
         &self,
         http: &reqwest::Client,
@@ -41,9 +56,8 @@ impl Protocol for AnthropicMessages {
         for (name, value) in &provider.headers {
             request = request.header(name, value);
         }
-        if !provider.api_key.is_empty() {
-            let key = crate::protocol::sensitive_header(provider_key, &provider.api_key)?;
-            request = request.header("x-api-key", key);
+        if let Some(key) = api_key(provider_key, provider)? {
+            request = request.header(API_KEY_HEADER, key);
         }
         Ok(request)
     }
@@ -192,9 +206,8 @@ impl Protocol for AnthropicMessages {
         for (name, value) in &provider.headers {
             request = request.header(name, value);
         }
-        if !provider.api_key.is_empty() {
-            let key = crate::protocol::sensitive_header(provider_key, &provider.api_key)?;
-            request = request.header("x-api-key", key);
+        if let Some(key) = api_key(provider_key, provider)? {
+            request = request.header(API_KEY_HEADER, key);
         }
         Ok(request)
     }
@@ -418,6 +431,65 @@ impl Protocol for AnthropicMessages {
             });
         }
         .boxed()
+    }
+}
+
+/// The provider key as the `x-api-key` value, or `None` when the key is
+/// empty and the provider takes no auth header.
+fn api_key(
+    provider_key: &str,
+    provider: &ProviderConfig,
+) -> Result<Option<reqwest::header::HeaderValue>, Error> {
+    if provider.api_key.is_empty() {
+        return Ok(None);
+    }
+    crate::protocol::sensitive_header(provider_key, &provider.api_key).map(Some)
+}
+
+/// The meter of a forwarded Messages API answer. A stream gives the model
+/// and the input usage in `message_start`, and the output usage in
+/// `message_delta`. A whole body gives `model` and `usage`. A body with no
+/// `usage`, such as the answer of `/messages/count_tokens`, meters none.
+#[derive(Default)]
+struct MessagesMeter {
+    model: Option<String>,
+    usage: Option<Usage>,
+}
+
+impl Meter for MessagesMeter {
+    fn event(&mut self, name: &str, data: &str) {
+        if !matches!(name, "message_start" | "message_delta") {
+            return;
+        }
+        let Ok(data) = serde_json::from_str::<Value>(data) else {
+            return;
+        };
+        let usage = if name == "message_start" {
+            if let Some(model) = data.pointer("/message/model").and_then(Value::as_str) {
+                self.model = Some(model.to_owned());
+            }
+            data.pointer("/message/usage")
+        } else {
+            data.get("usage")
+        };
+        if let Some(usage) = usage {
+            merge_usage(self.usage.get_or_insert_default(), usage);
+        }
+    }
+
+    fn body(&mut self, body: &[u8]) {
+        let Ok(Value::Object(mut body)) = serde_json::from_slice(body) else {
+            return;
+        };
+        self.model = body.get("model").and_then(Value::as_str).map(str::to_owned);
+        self.usage = match body.remove("usage") {
+            Some(Value::Object(usage)) => Some(Usage::from(usage)),
+            _ => None,
+        };
+    }
+
+    fn finish(self: Box<Self>) -> (Option<String>, Option<Usage>) {
+        (self.model, self.usage)
     }
 }
 

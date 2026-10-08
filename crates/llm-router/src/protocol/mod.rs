@@ -27,7 +27,7 @@ use crate::error::Error;
 use crate::registry::{ListedModel, ListedVoice};
 use crate::types::{
     ChatRequest, ChatResponse, EmbeddingsRequest, EmbeddingsResponse, ImageRequest, ImageResponse,
-    SpeechRequest, StreamEvent, TranscriptionRequest, TranscriptionResponse, VideoJob,
+    SpeechRequest, StreamEvent, TranscriptionRequest, TranscriptionResponse, Usage, VideoJob,
     VideoRequest,
 };
 
@@ -53,7 +53,37 @@ pub struct VoicePage {
     pub next: Option<String>,
 }
 
+/// Reads the model and the usage from the answer to a forwarded request,
+/// as the answer passes to the caller.
+pub trait Meter: Send {
+    /// One event of a streamed (`text/event-stream`) answer.
+    fn event(&mut self, name: &str, data: &str);
+
+    /// The whole body of an answer that is not a stream.
+    fn body(&mut self, body: &[u8]);
+
+    /// The model and the usage that the answer gave. `None` when the answer
+    /// did not give it.
+    fn finish(self: Box<Self>) -> (Option<String>, Option<Usage>);
+}
+
 pub trait Protocol: Send + Sync {
+    /// Prepare the forward of a request that a client wrote in this
+    /// protocol's own format: set the provider key on `headers` as this
+    /// codec sends it, and return the meter of the answer. Protocols that do
+    /// not forward keep the default, which reports forward as unsupported.
+    fn forward(
+        &self,
+        provider_key: &str,
+        _provider: &ProviderConfig,
+        _headers: &mut reqwest::header::HeaderMap,
+    ) -> Result<Box<dyn Meter>, Error> {
+        Err(Error::Unsupported {
+            provider: provider_key.to_owned(),
+            feature: "forward",
+        })
+    }
+
     /// Build the HTTP request for `req` against `provider`, with the alias
     /// already resolved to the concrete `model` id. Media-only protocols
     /// keep the default, which reports chat as unsupported.

@@ -6,6 +6,7 @@ mod common;
 mod anthropic;
 mod audio_chat;
 mod computer_use;
+mod forward;
 mod modalities;
 mod models;
 mod openai;

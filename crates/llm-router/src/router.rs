@@ -16,7 +16,7 @@ use crate::types::{
 };
 
 pub struct Router {
-    http: reqwest::Client,
+    pub(crate) http: reqwest::Client,
     config: RouterConfig,
     on_attempt: Option<AttemptHook>,
 }
@@ -49,7 +49,7 @@ type AttemptHook = std::sync::Arc<dyn Fn(AttemptInfo<'_>) + Send + Sync>;
 
 /// Cap on buffered (non-streaming) response bodies, so a misbehaving
 /// provider cannot exhaust memory.
-const MAX_BODY_BYTES: usize = 64 * 1024 * 1024;
+pub(crate) const MAX_BODY_BYTES: usize = 64 * 1024 * 1024;
 
 /// Cap on the pages of one model list, so a provider whose cursor never
 /// ends cannot hold the caller in a loop.
@@ -723,7 +723,10 @@ impl Router {
         Err(Error::UnknownModel(model.to_owned()))
     }
 
-    fn provider(&self, key: &str) -> Result<(&ProviderConfig, &'static dyn Protocol), Error> {
+    pub(crate) fn provider(
+        &self,
+        key: &str,
+    ) -> Result<(&ProviderConfig, &'static dyn Protocol), Error> {
         let provider = self
             .config
             .providers
@@ -732,7 +735,7 @@ impl Router {
         Ok((provider, codec(provider.protocol)))
     }
 
-    fn transport(&self, provider: &str, source: reqwest::Error) -> Error {
+    pub(crate) fn transport(&self, provider: &str, source: reqwest::Error) -> Error {
         Error::Transport {
             provider: provider.to_owned(),
             source,
