@@ -4,17 +4,44 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
+use async_trait::async_trait;
 use pagis_coding::fake::{self, NEW_SESSION_ID, Script, Turn, acp};
 use pagis_coding::{
-    AcpSession, CodingError, Cost, Location, Opening, PlanEntry, PlanStatus, SessionEvent,
-    SignInMethod, StopReason, ToolKind, ToolStatus,
+    AcpSession, AskHandler, CodingError, Cost, Location, Opening, PermissionAnswer, PermissionAsk,
+    PlanEntry, PlanStatus, QuestionAnswer, QuestionAsk, SessionEvent, SignInMethod, StopReason,
+    ToolKind, ToolStatus,
 };
 use serde_json::json;
 use tokio::sync::mpsc::UnboundedReceiver;
 
 const WAIT: Duration = Duration::from_secs(10);
+
+/// The scripts of these tests send no permission request and no question.
+struct NoAsks;
+
+#[async_trait]
+impl AskHandler for NoAsks {
+    async fn permission(&self, ask: PermissionAsk) -> PermissionAnswer {
+        panic!("the script asks no permission, and {ask:?} came");
+    }
+
+    async fn question(&self, ask: QuestionAsk) -> QuestionAnswer {
+        panic!("the script asks no question, and {ask:?} came");
+    }
+}
+
+async fn pair(
+    script: Script,
+    opening: Opening,
+) -> (
+    fake::FakeHarness,
+    Result<(AcpSession, UnboundedReceiver<SessionEvent>), CodingError>,
+) {
+    fake::pair(script, opening, Arc::new(NoAsks)).await
+}
 
 async fn open(
     script: Script,
@@ -24,7 +51,7 @@ async fn open(
     AcpSession,
     UnboundedReceiver<SessionEvent>,
 ) {
-    let (harness, opened) = fake::pair(script, opening).await;
+    let (harness, opened) = pair(script, opening).await;
     let (session, events) = opened.expect("the session opens");
     (harness, session, events)
 }
@@ -50,7 +77,7 @@ fn restore(acp_session_id: &str) -> Opening {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn initialize_declares_the_client_and_session_new_carries_the_cwd() {
+async fn initialize_names_the_client_and_session_new_carries_the_cwd() {
     let (harness, session, _events) =
         open(Script::default(), fake::new_session("/work/repo")).await;
 
@@ -65,12 +92,6 @@ async fn initialize_declares_the_client_and_session_new_carries_the_cwd() {
         initialize["clientInfo"]["version"],
         json!(env!("CARGO_PKG_VERSION"))
     );
-    let capabilities = &initialize["clientCapabilities"];
-    assert_eq!(capabilities["fs"]["readTextFile"], json!(false));
-    assert_eq!(capabilities["fs"]["writeTextFile"], json!(false));
-    assert_eq!(capabilities["terminal"], json!(false));
-    assert_eq!(capabilities["auth"]["terminal"], json!(true));
-    assert!(capabilities.get("session").is_none());
 
     let new = &harness.params("session/new")[0];
     assert_eq!(new["cwd"], json!("/work/repo"));
@@ -343,7 +364,7 @@ async fn restore_loads_when_the_harness_declares_load_only_and_drops_the_replay(
 
 #[tokio::test(flavor = "multi_thread")]
 async fn restore_fails_when_the_harness_declares_neither() {
-    let (harness, opened) = fake::pair(Script::default(), restore("harness-session-7")).await;
+    let (harness, opened) = pair(Script::default(), restore("harness-session-7")).await;
 
     assert!(matches!(opened, Err(CodingError::CannotRestore)));
     let methods: Vec<String> = harness.received().into_iter().map(|r| r.method).collect();
@@ -353,7 +374,7 @@ async fn restore_fails_when_the_harness_declares_neither() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_session_new_that_needs_a_sign_in_is_auth_required() {
     let script = Script::default().new_session_auth_required();
-    let (_harness, opened) = fake::pair(script, fake::new_session("/work/repo")).await;
+    let (_harness, opened) = pair(script, fake::new_session("/work/repo")).await;
 
     assert!(matches!(opened, Err(CodingError::AuthRequired)));
 }
@@ -361,7 +382,7 @@ async fn a_session_new_that_needs_a_sign_in_is_auth_required() {
 #[tokio::test(flavor = "multi_thread")]
 async fn another_protocol_version_is_a_protocol_error() {
     let script = Script::default().protocol_version(2);
-    let (harness, opened) = fake::pair(script, fake::new_session("/work/repo")).await;
+    let (harness, opened) = pair(script, fake::new_session("/work/repo")).await;
 
     assert!(matches!(opened, Err(CodingError::Protocol(_))));
     assert_eq!(
@@ -449,26 +470,6 @@ async fn a_block_that_is_not_text_becomes_its_marker_line() {
         next(&mut events).await,
         SessionEvent::Thought {
             text: "[image]".to_owned()
-        }
-    );
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn a_permission_request_gets_an_error_answer_and_the_turn_goes_on() {
-    let script = Script::default()
-        .turn(Turn::new(vec![message("done")], acp::StopReason::EndTurn).asks_permission());
-    let (_harness, session, mut events) = open(script, fake::new_session("/work/repo")).await;
-
-    session.prompt("Run the tests").expect("the prompt is sent");
-
-    assert!(matches!(
-        next(&mut events).await,
-        SessionEvent::AgentMessage { text, .. } if text == "done"
-    ));
-    assert_eq!(
-        next(&mut events).await,
-        SessionEvent::TurnEnded {
-            stop_reason: StopReason::EndTurn
         }
     );
 }

@@ -51,6 +51,10 @@ pub enum SessionEvent {
     TurnEnded { stop_reason: StopReason },
     /// The prompt request failed. The session can take a new prompt.
     TurnFailed { message: String },
+    /// A permission request or a question that waits for its answer ended
+    /// without one: the session was cancelled, or the harness withdrew the
+    /// request. `ask_id` is the `ask_id` of its ask.
+    AskWithdrawn { ask_id: String },
     /// The connection ended: the incoming side of the stream closed, or
     /// `close` ended it. No event follows.
     Closed,
@@ -187,7 +191,7 @@ impl SessionEvent {
 }
 
 impl ToolKind {
-    fn from_acp(kind: acp::ToolKind) -> Self {
+    pub(crate) fn from_acp(kind: acp::ToolKind) -> Self {
         match kind {
             acp::ToolKind::Read => Self::Read,
             acp::ToolKind::Edit => Self::Edit,
@@ -272,11 +276,11 @@ fn block_text(block: acp::ContentBlock) -> String {
     }
 }
 
-/// The ACP JSON of a tool call or of its update.
-fn raw_json(value: &impl Serialize) -> serde_json::Value {
+/// The ACP JSON of a schema value, such as a tool call.
+pub(crate) fn raw_json(value: &impl Serialize) -> serde_json::Value {
     // A schema type has string keys only, so the conversion does not fail.
     serde_json::to_value(value).unwrap_or_else(|error| {
-        tracing::warn!(%error, "an ACP tool call did not convert to JSON");
+        tracing::warn!(%error, "an ACP value did not convert to JSON");
         serde_json::Value::Null
     })
 }

@@ -1056,8 +1056,9 @@ each request with the Org's provider key under the Spend Cap. Not built
 ### Harness Permission
 A permission request of a Coding Harness (ACP `session/request_permission`).
 Pagis policy answers it first, then the Session Approval Mode of the Coding
-Session decides who answers. Pagis answers once, never "always". Not built
-(ADR-0033).
+Session decides who answers. Pagis answers once, never "always". The ACP
+client hands each request to the daemon. Not built: Pagis policy and the
+answer in the daemon (ADR-0033).
 
 ### Harness Sign-In
 The Person signs in to a Coding Harness on their Host with their own

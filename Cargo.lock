@@ -4456,6 +4456,7 @@ name = "pagis-coding"
 version = "0.2.0"
 dependencies = [
  "agent-client-protocol",
+ "async-trait",
  "futures",
  "serde",
  "serde_json",
