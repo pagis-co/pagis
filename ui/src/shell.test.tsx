@@ -78,6 +78,7 @@ const PLACES: { label: string; path: string }[] = [
   { label: 'Sprites', path: '/sprites' },
   { label: 'Memory', path: '/memory' },
   { label: 'Automations', path: '/automations' },
+  { label: 'Coding', path: '/coding' },
   { label: 'Software', path: '/software' },
   { label: 'Settings', path: '/settings/connections' },
 ]

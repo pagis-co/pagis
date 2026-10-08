@@ -262,6 +262,41 @@ describe('the session page', () => {
   })
 })
 
+describe('the coding place', () => {
+  // A frame of any Coding Session makes the list read again, so a new
+  // session shows with no reload.
+  it('reads the list again on a frame of a session, with no reload', async () => {
+    let sessions: object[] = []
+    api.GET.mockImplementation(async (path: string) =>
+      path === '/api/v1/coding-sessions'
+        ? { data: { items: sessions } }
+        : shellResponse(path),
+    )
+    mount('/coding')
+    expect(
+      await screen.findByText(
+        'No coding session yet. A sprite starts one when you ask it to change code.',
+      ),
+    ).toBeTruthy()
+
+    sessions = [codingSession]
+    act(() =>
+      socket.handlers!.onEvent({
+        type: 'coding_session.changed',
+        payload: {
+          id: 'event-1',
+          event_type: 'coding_session.changed',
+          created_at: Date.now(),
+          payload: { coding_session_id: 'session-1' },
+        },
+      }),
+    )
+
+    const open = await screen.findByRole('region', { name: 'Open' })
+    expect(within(open).getByText('/Users/ada/src/app')).toBeTruthy()
+  })
+})
+
 describe('the session block', () => {
   // The block reads the session record. A frame of the session carries
   // no text, and it makes the block read the record again. The block

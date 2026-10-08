@@ -1243,6 +1243,10 @@ plain-text Artifact inline and serves every other one as a download.
 The place of the Product App that shows every Schedule and Event
 Subscription, with a Needs-You Queue at the top (ADR-0022).
 
+### Coding
+The place of the Product App that lists every Coding Session of the
+Workspace (ADR-0022).
+
 ### Block
 One typed element of a message. It shows content, or it views a Request
 and holds only its identifier and display fields. A client shows a

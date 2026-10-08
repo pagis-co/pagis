@@ -1,4 +1,4 @@
-// The six places of the sidebar. Each one replaces the main
+// The seven places of the sidebar. Each one replaces the main
 // pane. A conversation is not a place: the list under the places is
 // the door to it.
 
@@ -8,11 +8,19 @@ import {
   Package,
   RefreshCw,
   Settings,
+  SquareTerminal,
   Users,
   type LucideIcon,
 } from 'lucide-react'
 
-export type PlaceId = 'home' | 'sprites' | 'memory' | 'automations' | 'software' | 'settings'
+export type PlaceId =
+  | 'home'
+  | 'sprites'
+  | 'memory'
+  | 'automations'
+  | 'coding'
+  | 'software'
+  | 'settings'
 
 export interface Place {
   id: PlaceId
@@ -25,6 +33,7 @@ export const PLACES: readonly Place[] = [
   { id: 'sprites', label: 'Sprites', icon: Users },
   { id: 'memory', label: 'Memory', icon: BookOpen },
   { id: 'automations', label: 'Automations', icon: RefreshCw },
+  { id: 'coding', label: 'Coding', icon: SquareTerminal },
   { id: 'software', label: 'Software', icon: Package },
   { id: 'settings', label: 'Settings', icon: Settings },
 ]
@@ -38,6 +47,7 @@ export function placeForPath(pathname: string): PlaceId | null {
   if (first === 'sprites' || first === 'agents') return 'sprites'
   if (first === 'memory') return 'memory'
   if (first === 'automations') return 'automations'
+  if (first === 'coding') return 'coding'
   if (first === 'software') return 'software'
   if (first === 'settings') return 'settings'
   return null

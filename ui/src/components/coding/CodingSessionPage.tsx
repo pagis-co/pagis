@@ -9,10 +9,13 @@
 // each other text draws as plain text.
 //
 // A frame of the session invalidates the record and the transcript,
-// and the page reads them again (`AppShell`).
+// and the page reads them again (`AppShell`). The back control goes to
+// the Coding place, so at 760 px and below the list and the page are the
+// two steps of one master-detail body (ADR-0022).
 
 import { Link } from '@tanstack/react-router'
 import {
+  ArrowLeft,
   ChevronDown,
   ChevronRight,
   Circle,
@@ -22,7 +25,7 @@ import {
   ShieldCheck,
   SquareTerminal,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 
 import type { AgentDto, ApiClient, CodingSessionDto } from '../../api/client'
 import { Prose } from '../../prose'
@@ -338,34 +341,56 @@ function TranscriptView({
   )
 }
 
-export function CodingSessionPage({ api, sessionId }: { api: ApiClient; sessionId: string }) {
+/** The page in each of its states, with the back control to the
+ *  Coding place on top. */
+function Page({ onBack, children }: { onBack: () => void; children: ReactNode }) {
+  return (
+    <div className="coding-page">
+      <Button variant="ghost" size="sm" className="coding-back" onClick={onBack}>
+        <ArrowLeft size={14} aria-hidden />
+        All coding sessions
+      </Button>
+      {children}
+    </div>
+  )
+}
+
+export function CodingSessionPage({
+  api,
+  sessionId,
+  onBack,
+}: {
+  api: ApiClient
+  sessionId: string
+  onBack: () => void
+}) {
   const session = useCodingSession(api, sessionId)
   const events = useCodingSessionEvents(api, sessionId)
   const agents = useAgents(api)
 
   if (errorCode(session.error) === 'not_found') {
     return (
-      <div className="coding-page">
+      <Page onBack={onBack}>
         <PageState icon={SquareTerminal} title="That coding session is not on record." />
-      </div>
+      </Page>
     )
   }
   if (session.isError) {
     return (
-      <div className="coding-page">
+      <Page onBack={onBack}>
         <PageState
           icon={SquareTerminal}
           title="The coding session did not load."
           onRetry={() => void session.refetch()}
         />
-      </div>
+      </Page>
     )
   }
   if (session.data === undefined) {
     return (
-      <div className="coding-page">
+      <Page onBack={onBack}>
         <p className="coding-empty">Reading the coding session…</p>
-      </div>
+      </Page>
     )
   }
 
@@ -377,7 +402,7 @@ export function CodingSessionPage({ api, sessionId }: { api: ApiClient; sessionI
   const files = changedFiles(items)
 
   return (
-    <div className="coding-page">
+    <Page onBack={onBack}>
       <Head api={api} session={record} agent={agent} spriteName={spriteName} />
       {plan !== null && plan.length > 0 && <Plan entries={plan} />}
       {files.length > 0 && <ChangedFiles files={files} />}
@@ -386,6 +411,6 @@ export function CodingSessionPage({ api, sessionId }: { api: ApiClient; sessionI
       ) : (
         <TranscriptView items={items} spriteName={spriteName} harnessName={record.harness_name} />
       )}
-    </div>
+    </Page>
   )
 }

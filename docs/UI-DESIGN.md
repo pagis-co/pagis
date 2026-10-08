@@ -58,17 +58,23 @@ a URL, so a refresh keeps the place and any view is linkable.
   the trigger, the steps as tool cards, and the tokens and the time in a
   footer. Grouped by day, with filter chips that carry counts, and a
   failure reason in plain words.
-- **Coding** (`/coding/<id>`) — one Coding Session as its transcript,
-  its plan and its tool calls. The head shows the sprite, the coding
-  harness, the title, the machine, the directory, the branch, the state,
-  the approval mode and the usage, with a link to the session's Thread,
-  and Stop while the session is not closed or failed. The plan is a
-  checklist. A message of the harness draws as prose, a tool call is a
-  card with its status and its files, and a permission or a question is
-  one line that says how it ended. A tool call shows each change as a
-  unified diff, and "Changed files" under the plan lists each changed
-  file with its counts and scrolls to its last change. Not built: the
-  list at `/coding`.
+- **Coding** (`/coding`, `/coding/<id>`) — the list of every Coding
+  Session of the Workspace: "Open", with the sessions that need the
+  Person first and a "Needs you" mark on each, then "Ended". A row leads
+  with the title, then shows the state, the sprite, the coding harness,
+  the machine, the directory and the time of the last activity, and
+  opens the session. The session
+  page has the back control "All coding sessions". It shows one Coding
+  Session as its transcript, its plan and its tool calls. The head shows
+  the sprite, the coding harness, the title, the machine, the directory,
+  the branch, the state, the approval mode and the usage, with a link to
+  the session's Thread, and Stop while the session is not closed or
+  failed. The plan is a checklist. A message of the harness draws as
+  prose, a tool call is a card with its status and its files, and a
+  permission or a question is one line that says how it ended. A tool
+  call shows each change as a unified diff, and "Changed files" under
+  the plan lists each changed file with its counts and scrolls to its
+  last change.
 - **Memory** (`/memory`) — the page list and the learning feed, with a
   diff preview and a revert on each change.
 - **Automations** (`/automations`) and **Software** (`/software`) — the

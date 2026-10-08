@@ -77,7 +77,7 @@ function mount(api = stubApi()) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return renderInRouter(
     <QueryClientProvider client={client}>
-      <CodingSessionPage api={api} sessionId="session-1" />
+      <CodingSessionPage api={api} sessionId="session-1" onBack={() => {}} />
     </QueryClientProvider>,
   )
 }

@@ -38,9 +38,9 @@ Workspace with no active Agent has none. The setting grants nothing: the roster
 stays flat, and the Chief of Staff delegates through Channels as any Agent
 does.
 
-The sidebar has six places at the top: Home, Sprites, Memory, Automations,
-Software and Settings. Home carries the count of the Needs-You Queue. Each
-place replaces the main pane. Below the places the sidebar lists the
+The sidebar has seven places at the top: Home, Sprites, Memory, Automations,
+Coding, Software and Settings. Home carries the count of the Needs-You Queue.
+Each place replaces the main pane. Below the places the sidebar lists the
 conversations: the Chief of Staff first with its presence and caption, then
 the other Agents, then the groups. The composer on Home addresses the Chief of
 Staff's direct Channel. On a phone the same column is the drawer.
@@ -95,6 +95,11 @@ time, the last occurrence, the last Run result, and the paginated occurrence
 and Wake-up history. It has no pending-approval field: an Agent-created rule
 that waits for a decision is a pending Request, shown in the Needs-You Queue
 alone, until the user approves it.
+
+Coding is a place: every Coding Session of the Workspace, the open ones first
+and the ones that need the Person at the top, each with its title, then its
+state, its Agent, its Coding Harness, its machine, its directory and its last
+activity. A row opens the session page.
 
 ### Attention has one queue
 

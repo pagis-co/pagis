@@ -1,4 +1,4 @@
-// The sidebar (ADR-0022): the six places at the top with the
+// The sidebar (ADR-0022): the seven places at the top with the
 // Needs-You count on Home, the conversations under them with the Chief
 // of Staff first, and the profile row at the bottom. The profile row
 // shows the name the wizard recorded and opens Settings. The row also

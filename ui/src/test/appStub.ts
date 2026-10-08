@@ -116,6 +116,7 @@ export function shellResponse(path: string): { data: unknown } {
       },
     }
   }
+  if (path === '/api/v1/coding-sessions') return { data: { items: [] } }
   if (path === '/api/v1/coding-sessions/{coding_session_id}') {
     return { data: codingSession }
   }

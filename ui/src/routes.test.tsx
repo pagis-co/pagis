@@ -9,7 +9,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ApiClient } from './api/client'
 import { App } from './App'
 import { useCallInspector, useMailInspector } from './state/stores'
-import { shellResponse } from './test/appStub'
+import { codingSession, shellResponse } from './test/appStub'
 import { homeDate } from './components/home/report'
 
 const { api } = vi.hoisted(() => ({
@@ -96,6 +96,37 @@ describe('deep URLs', () => {
 
     expect(await screen.findByRole('heading', { name: 'Fix the login bug' })).toBeTruthy()
     expect(screen.getByText('Claude Code')).toBeTruthy()
+  })
+
+  it('renders the coding place at its URL', async () => {
+    mount('/coding')
+
+    expect(await screen.findByRole('heading', { name: 'Coding' })).toBeTruthy()
+  })
+
+  it('goes from the session page back to the coding place', async () => {
+    const history = mount('/coding/session-1')
+    await screen.findByRole('heading', { name: 'Fix the login bug' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'All coding sessions' }))
+
+    expect(await screen.findByRole('heading', { name: 'Coding' })).toBeTruthy()
+    expect(history.location.pathname).toBe('/coding')
+  })
+
+  it('opens a session from the coding place', async () => {
+    api.GET.mockImplementation(async (path: string) =>
+      path === '/api/v1/coding-sessions'
+        ? { data: { items: [codingSession] } }
+        : shellResponse(path),
+    )
+    const history = mount('/coding')
+
+    const open = await screen.findByRole('region', { name: 'Open' })
+    fireEvent.click(within(open).getByRole('button'))
+
+    expect(await screen.findByRole('heading', { name: 'Fix the login bug' })).toBeTruthy()
+    expect(history.location.pathname).toBe('/coding/session-1')
   })
 
   it('renders the sprites URL', async () => {
