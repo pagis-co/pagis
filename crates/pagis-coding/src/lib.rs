@@ -23,8 +23,9 @@
 //! [`SessionEvents`], and [`SessionRules`] makes and ends the rule.
 //!
 //! [`CodingSessionStarts`] holds the checks of a start, which the broker
-//! asks before the card, and [`CodingToolRuntime`] executes the core
-//! tool `coding_session_start` after the approval.
+//! asks before the card. [`CodingToolRuntime`] executes the core tool
+//! `coding_session_start` after the approval, and the core tools that
+//! prompt, read, cancel, close and list the Agent's own sessions.
 //!
 //! [`SignIns`] starts a Harness Sign-In on a Host for the Person.
 
@@ -36,6 +37,7 @@ mod events;
 pub mod fake;
 mod place;
 mod policy;
+mod report;
 mod session;
 mod sessions;
 mod sign_in;

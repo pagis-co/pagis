@@ -297,12 +297,29 @@ The Agent drives a Coding Session with core tools (ADR-0005):
   that does not ask permission.
 - `coding_session_send {session, prompt}`: a new turn when the session is
   `idle`, and queued until the turn ends when it is `working`, because ACP v1
-  has no steering. Free.
-- `coding_session_read {session}`: the state, the pending decision, the last
-  agent message, the plan, the changed files and the usage. Free.
-- `coding_session_cancel {session}` (ACP `session/cancel` of the turn) and
-  `coding_session_close {session}`. Free.
-- `coding_session_list`: the Agent's own sessions. Free.
+  has no steering. A session that is not open answers `session_not_open`
+  with its state. Free.
+- `coding_session_read {session}`: the id, the harness, the machine, the
+  title, the state, the end reason, the usage and the time of the last
+  update, which are the daemon's own state, outside the untrusted envelope.
+  The harness text is inside one envelope with the source
+  `coding_session:<id>`: the pending decision, the last agent message (at
+  most 4,000 characters, with a marker for the cut), the plan, the end
+  detail, and the changed files. The changed files are the unique locations
+  of the tool calls of the kinds `edit`, `delete` and `move`, newest first,
+  at most 50. Free.
+- `coding_session_cancel {session}` (ACP `session/cancel` of the turn) in
+  `working` and `needs_decision`. In `idle` no turn runs, and the cancel
+  changes nothing. Free.
+- `coding_session_close {session}` in each state that is not terminal. An
+  `interrupted` session has no stream, so it moves to `closed` at once.
+  Free.
+- `coding_session_list`: the Agent's own sessions, each open one first,
+  then the 20 newest that ended. Free.
+- An Agent reads and acts on its own sessions alone. A session of another
+  Agent reads as absent (`session_not_found`), as another Agent's Call does
+  (ADR-0020). The snapshot holds the session tools when a machine of the
+  Workspace declares a Coding Harness.
 - In the `agent` mode, `coding_session_decide {session, decision:
   allow|deny, note}` and `coding_session_escalate {session, note}`. Free,
   because the Person delegated the decision through the mode. A decision
@@ -547,7 +564,8 @@ Other ways were considered:
 
 ## Not built
 
-- The core tools other than `coding_session_start`.
+- The core tools `coding_session_decide`, `coding_session_escalate` and
+  `coding_session_answer`.
 - The refusal of a mode other than `auto` for a harness that does not ask
   permission.
 - The interruption and the resume.

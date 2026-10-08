@@ -1598,6 +1598,46 @@ async fn close_raises_ended_and_then_ends_the_rules(pool: SqlitePool) {
     assert_eq!(event.metadata["reason"], "stopped");
 }
 
+/// A session with no task, such as a session of the daemon before a
+/// restart, closes from its record. That close also raises the end and
+/// then ends the rules.
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn close_of_a_session_with_no_task_raises_ended_and_then_ends_the_rules(pool: SqlitePool) {
+    let world = world(pool).await;
+    let before = world.coding_sessions(
+        DuplexPlace::new(Script::default().turn(Turn::until_cancel(vec![]))),
+        Arc::new(RefuseDecisions),
+    );
+    let session = before
+        .start(world.new_session(&world.run_id))
+        .await
+        .unwrap();
+    let after = world.coding_sessions(
+        DuplexPlace::new(Script::default()),
+        Arc::new(RefuseDecisions),
+    );
+
+    after
+        .close(&world.workspace_id, &session.id, CloseReason::Closed)
+        .await
+        .unwrap();
+
+    assert_eq!(world.record(&session.id).await.state, State::Closed);
+    let calls = world.rules.calls();
+    let [.., RuleCall::Ingest(ended), RuleCall::End(ended_id)] = calls.as_slice() else {
+        panic!("close raises the end and then ends the rules: {calls:?}");
+    };
+    assert_eq!(*ended_id, session.id);
+    assert_eq!(ended.event_kind, "coding_session.ended");
+    let event = &ended.events[0];
+    assert_eq!(
+        event.provider_event_id,
+        format!("{}:ended:closed", session.id)
+    );
+    assert_eq!(event.metadata["machine"], "Air");
+    assert_eq!(event.metadata["reason"], "closed");
+}
+
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
 async fn a_harness_that_exits_raises_ended_and_then_ends_the_rules(pool: SqlitePool) {
     let world = world(pool).await;

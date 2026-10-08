@@ -897,6 +897,8 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
             Arc::new(pagis_coding::CodingToolRuntime::new(
                 Arc::clone(&coding_sessions),
                 Arc::clone(&session_starts) as _,
+                stores.coding_sessions.clone(),
+                stores.hosts.clone(),
             )) as _,
         )),
         phone_numbers: Arc::clone(&phone_numbers) as _,

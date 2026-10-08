@@ -6,7 +6,11 @@
 //! The checks of the start are the `SessionStarts` of `pagis-coding`,
 //! which has its own tests. Here a scripted one stands in.
 
-use pagis_broker::{CODING_SESSION_START, InvokeOutcome, SessionStartAction, ToolCall, ToolResult};
+use pagis_broker::{
+    CODING_SESSION_CANCEL, CODING_SESSION_CLOSE, CODING_SESSION_LIST, CODING_SESSION_READ,
+    CODING_SESSION_SEND, CODING_SESSION_START, InvokeOutcome, SessionStartAction, ToolCall,
+    ToolResult,
+};
 use pagis_core::{
     GrantStore, Host, RequestState, RequestStore, SHELL_CAPABILITY, SessionAllowRule,
     SessionApprovalMode,
@@ -21,6 +25,17 @@ use crate::host_dispatch::{grant_host, register};
 const DIRECTORY: &str = "/Users/bo/code/app";
 
 const PROMPT: &str = "Fix the login bug.";
+
+/// Every tool of the Coding Sessions. The snapshot holds all of them or
+/// none of them.
+const SESSION_TOOLS: [&str; 6] = [
+    CODING_SESSION_START,
+    CODING_SESSION_SEND,
+    CODING_SESSION_READ,
+    CODING_SESSION_CANCEL,
+    CODING_SESSION_CLOSE,
+    CODING_SESSION_LIST,
+];
 
 fn arguments(harness: &str, machine: Option<&str>) -> String {
     let mut arguments = serde_json::json!({
@@ -84,31 +99,33 @@ async fn pending_requests(harness: &Harness) -> Vec<pagis_core::Request> {
 }
 
 /// An absent capability is declared, never emulated (ADR-0005): a
-/// Workspace whose machines declare no harness offers no start.
+/// Workspace whose machines declare no harness offers no session tool.
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
-async fn the_start_is_absent_when_no_host_declares_a_harness(pool: SqlitePool) {
+async fn the_session_tools_are_absent_when_no_host_declares_a_harness(pool: SqlitePool) {
     let harness = harness(pool).await;
     register(&harness, "Air", &[SHELL_CAPABILITY]).await;
 
     let tools = tool_names(&harness).await;
 
-    assert!(!tools.contains(&CODING_SESSION_START.to_string()));
+    for tool in SESSION_TOOLS {
+        assert!(!tools.contains(&tool.to_string()), "{tool}");
+    }
     assert!(tools.contains(&"host_shell".to_string()));
 }
 
-/// One machine that declares a harness offers the start, whether it is
-/// connected or not.
+/// One machine that declares a harness offers the start and the tools of
+/// a started session, whether it is connected or not.
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
-async fn the_start_is_offered_when_a_host_declares_a_harness(pool: SqlitePool) {
+async fn the_session_tools_are_offered_when_a_host_declares_a_harness(pool: SqlitePool) {
     let harness = harness(pool).await;
     register(&harness, "Air", &[SHELL_CAPABILITY]).await;
     register(&harness, "Studio", &["harness:codex"]).await;
 
-    assert!(
-        tool_names(&harness)
-            .await
-            .contains(&CODING_SESSION_START.to_string())
-    );
+    let tools = tool_names(&harness).await;
+
+    for tool in SESSION_TOOLS {
+        assert!(tools.contains(&tool.to_string()), "{tool}");
+    }
 }
 
 /// A machine is a candidate for the harnesses that it declares and for
