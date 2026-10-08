@@ -315,6 +315,70 @@ describe('a dispatched command', () => {
   })
 })
 
+/** The daemon asks the Client App to run the vendor's own sign-in of a
+ *  harness. Only the exit code comes back. */
+describe('a Harness Sign-In', () => {
+  const SIGN_IN = {
+    id: 'sign-in-1',
+    harness: 'codex',
+    name: 'Codex',
+    command: 'npx',
+    args: ['--yes', '@openai/codex', 'login'],
+    env: { CODEX_HOME: '/home/person/.codex' },
+  }
+
+  it('runs the sign-in and answers one result with its id and the exit code', async () => {
+    const socket = new FakeSocket()
+    const signIn = vi.fn(async () => ({ exit_code: 0 }))
+    new HostAgent(socket, 'Air', 'macos', runInShell, [SHELL_CAPABILITY], async () => [], signIn).start()
+
+    socket.receive({ type: 'harness_sign_in', payload: SIGN_IN })
+    await vi.waitFor(() => expect(socket.sent.some((frame) => frame.type === 'harness_sign_in_result')).toBe(true))
+    await new Promise((resolve) => setTimeout(resolve, 20))
+
+    expect(signIn).toHaveBeenCalledWith(SIGN_IN)
+    expect(socket.sent.filter((frame) => frame.type === 'harness_sign_in_result')).toEqual([
+      { type: 'harness_sign_in_result', id: 'sign-in-1', exit_code: 0 },
+    ])
+  })
+
+  it('answers the error of a sign-in that did not run', async () => {
+    const socket = new FakeSocket()
+    new HostAgent(socket, 'Air', 'macos', runInShell, [SHELL_CAPABILITY], async () => [], async () => {
+      throw new Error('the login shell /bin/zsh exited with code 1')
+    }).start()
+
+    socket.receive({ type: 'harness_sign_in', payload: SIGN_IN })
+
+    await vi.waitFor(() =>
+      expect(socket.sent.find((frame) => frame.type === 'harness_sign_in_result')).toEqual({
+        type: 'harness_sign_in_result',
+        id: 'sign-in-1',
+        exit_code: null,
+        error: 'the login shell /bin/zsh exited with code 1',
+      }),
+    )
+  })
+
+  it('answers nothing to a malformed sign-in', async () => {
+    const socket = new FakeSocket()
+    const signIn = vi.fn(async () => ({ exit_code: 0 }))
+    new HostAgent(socket, 'Air', 'macos', runInShell, [SHELL_CAPABILITY], async () => [], signIn).start()
+
+    socket.receive({ type: 'harness_sign_in', payload: { ...SIGN_IN, id: 7 } })
+    socket.receive({ type: 'harness_sign_in', payload: { ...SIGN_IN, name: undefined } })
+    socket.receive({ type: 'harness_sign_in', payload: { ...SIGN_IN, command: undefined } })
+    socket.receive({ type: 'harness_sign_in', payload: { ...SIGN_IN, args: ['login', 3] } })
+    socket.receive({ type: 'harness_sign_in', payload: { ...SIGN_IN, env: { CODEX_HOME: null } } })
+    socket.receive({ type: 'harness_sign_in', payload: { ...SIGN_IN, env: ['CODEX_HOME'] } })
+    socket.receive({ type: 'harness_sign_in' })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+
+    expect(signIn).not.toHaveBeenCalled()
+    expect(socket.sent.some((frame) => frame.type === 'harness_sign_in_result')).toBe(false)
+  })
+})
+
 describe('the shell of the OS user', () => {
   it('runs the command and reports its output and exit code', async () => {
     const ok = await runInShell({
