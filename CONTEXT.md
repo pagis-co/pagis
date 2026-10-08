@@ -1037,8 +1037,8 @@ One ACP session of one Coding Harness, in one working directory, on a Host
 or in the Agent's Computer. One Agent owns and supervises it, and one Thread
 shows it. It is not a Run. On a Host it runs over the **session socket**, a
 WebSocket of the Client App that carries one stream for each Coding Session.
-The daemon stores its record and its transcript. The session socket and the
-session runtime are not built (ADR-0033).
+The daemon stores its record and its transcript. The session runtime is not
+built (ADR-0033).
 _Avoid_: harness session
 
 ### Harness Catalog

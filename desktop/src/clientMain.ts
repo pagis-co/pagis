@@ -215,11 +215,13 @@ class Shell {
   async stop(): Promise<void> {
     this.quitting = true
     // The machine is absent the moment the client goes, so the socket
-    // closes before anything else does.
+    // closes before anything else does. The stop resolves when the
+    // processes of the Coding Sessions exited.
     this.signInWatch?.()
     this.signInWatch = null
-    this.hostLink?.stop()
+    const hostLink = this.hostLink
     this.hostLink = null
+    await hostLink?.stop()
     await this.controller.cancel()
     // The server stopped, so a ready AppImage Update can replace the file.
     // The Update of a connected client is the release of its server.

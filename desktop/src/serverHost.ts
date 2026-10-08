@@ -14,13 +14,19 @@
 //   server's page is the only Session there is, so the socket reads the
 //   jar the product window signed in to. The client starts the link when
 //   that sign-in puts the Session in the jar (`serverSignIn.ts`).
+//
+// Beside the Host socket, the client opens the session socket, which
+// carries the Coding Sessions of the machine, and the exit socket of a
+// machine that declares the exit.
 
+import type { ByteSocket } from './byteSocket'
 import type { CookieReader } from './clientSession'
 import { exchangeClientCredential, reusableSession, SESSION_COOKIE } from './clientSession'
-import type { Dial, ExitSocket, ExitTraffic } from './exit'
+import type { Dial, ExitTraffic } from './exit'
 import { ExitLink, openExitSocket } from './exit'
 import type { CommandRunner, HostSocket } from './host'
-import { EXIT_CAPABILITY, HostLink, openWebSocket, SHELL_CAPABILITY } from './host'
+import { EXIT_CAPABILITY, HARNESS_CAPABILITY_PREFIX, HostLink, openWebSocket, SHELL_CAPABILITY } from './host'
+import { openSessionSocket, SessionLink } from './sessions'
 
 export interface HostLinkDeps {
   /** The origin of the server this client is the Host for. */
@@ -36,7 +42,12 @@ export interface HostLinkDeps {
   /** How the socket opens. The default is the real WebSocket. */
   open?: (url: string, secret: string) => Promise<HostSocket>
   /** How the exit socket opens. The default is the real WebSocket. */
-  openExit?: (url: string, secret: string, hostId: string) => Promise<ExitSocket>
+  openExit?: (url: string, secret: string, hostId: string) => Promise<ByteSocket>
+  /** How the session socket opens. The default is the real WebSocket. */
+  openSessions?: (url: string, secret: string, hostId: string) => Promise<ByteSocket>
+  /** How a Coding Session reads the login-shell environment. The default
+   *  runs the person's login shell. */
+  environment?: () => Promise<Record<string, string>>
   /** How a dispatched command runs. The default is the real shell. */
   run?: CommandRunner
   /** How the exit dials a connection. The default is the dial of the Home Exit. */
@@ -47,12 +58,16 @@ export interface HostLinkDeps {
   request?: typeof fetch
 }
 
-/** The links of this machine to one server: the Host socket, and the exit
- *  socket of a machine that declares the exit. The client starts and
- *  stops them together. */
+/** The links of this machine to one server: the Host socket, the session
+ *  socket, and the exit socket of a machine that declares the exit. The
+ *  client starts and stops them together. */
 export interface HostLinks {
   start(): void
-  stop(): void
+  /** Close every socket and kill every process of a Coding Session. It
+   *  resolves when each process exited. */
+  stop(): Promise<void>
+  /** The processes of Coding Sessions that run now. */
+  codingSessions(): number
 }
 
 /**
@@ -83,9 +98,13 @@ export async function hostSession(deps: HostLinkDeps): Promise<string> {
  * sign in again; on a local installation it trades the Client Credential
  * for a new Session.
  *
- * The exit socket opens once the Host socket registered, with the id of
- * that registration and the Session of that socket. A Session that ended
- * on either socket is used again by neither.
+ * The session socket and the exit socket open once the Host socket
+ * registered, with the id of that registration and the Session of that
+ * socket. The session socket opens once the daemon acknowledged a
+ * registration that holds a `harness:` capability, on a Local
+ * Installation too, because the daemon is never a Host (ADR-0015). The
+ * exit socket opens only on a machine that declares the exit. A Session
+ * that ended on any socket is used again by none.
  */
 export function hostLinkFor(deps: HostLinkDeps): HostLinks {
   const open = deps.open ?? ((url, secret) => openWebSocket(url, secret))
@@ -108,35 +127,71 @@ export function hostLinkFor(deps: HostLinkDeps): HostLinks {
     },
     capabilities,
   )
-  if (!capabilities.includes(EXIT_CAPABILITY)) return host
+  /** The host id and the Session of the registered Host socket. */
+  const registration = (): { hostId: string; secret: string } => {
+    const hostId = host.registeredId()
+    if (hostId === null || current === null || current === ended) {
+      throw new Error('the Host socket has not registered')
+    }
+    return { hostId, secret: current }
+  }
 
-  const openExit = deps.openExit ?? ((url, secret, hostId) => openExitSocket(url, secret, hostId))
-  let exitSession: string | null = null
-  const exit = new ExitLink(
+  const openSessions = deps.openSessions ?? openSessionSocket
+  let sessionsSession: string | null = null
+  const sessions = new SessionLink(
     async () => {
-      const hostId = host.registeredId()
-      if (hostId === null || current === null || current === ended) {
-        throw new Error('the Host socket has not registered')
+      const { hostId, secret } = registration()
+      if (!host.registeredCapabilities().some((held) => held.startsWith(HARNESS_CAPABILITY_PREFIX))) {
+        throw new Error('the registration of the Host holds no Coding Harness')
       }
-      exitSession = current
-      return openExit(deps.url, exitSession, hostId)
+      sessionsSession = secret
+      return openSessions(deps.url, secret, hostId)
+    },
+    {
+      send: (frame) => {
+        // With no Host socket open the exit goes nowhere: the daemon
+        // lost the session socket of the process too.
+        host.send(JSON.stringify(frame))
+      },
+      environment: deps.environment,
     },
     deps.retryMs,
-    deps.dial,
     () => {
-      ended = exitSession
+      ended = sessionsSession
     },
-    deps.traffic,
   )
+
+  let exit: ExitLink | null = null
+  if (capabilities.includes(EXIT_CAPABILITY)) {
+    const openExit = deps.openExit ?? openExitSocket
+    let exitSession: string | null = null
+    exit = new ExitLink(
+      async () => {
+        const { hostId, secret } = registration()
+        exitSession = secret
+        return openExit(deps.url, secret, hostId)
+      },
+      deps.retryMs,
+      deps.dial,
+      () => {
+        ended = exitSession
+      },
+      deps.traffic,
+    )
+  }
+
   return {
     start: () => {
       host.start()
-      exit.start()
+      sessions.start()
+      exit?.start()
     },
-    stop: () => {
+    stop: async () => {
       host.stop()
-      exit.stop()
+      exit?.stop()
+      await sessions.stop()
     },
+    codingSessions: () => sessions.running,
   }
 }
 

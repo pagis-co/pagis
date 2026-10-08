@@ -114,6 +114,23 @@ describe('the host registration', () => {
     expect(agent.registeredId()).toBe('h-1')
   })
 
+  it('keeps the capabilities of the last registration that the daemon acknowledged', () => {
+    const socket = new FakeSocket()
+    const agent = new HostAgent(socket, 'Air', 'macos')
+    agent.start()
+    expect(agent.registeredCapabilities()).toEqual([])
+
+    socket.receive({ type: 'host.registered', payload: { host_id: 'h-1', capabilities: ['shell'] } })
+    expect(agent.registeredCapabilities()).toEqual(['shell'])
+    socket.receive({
+      type: 'host.registered',
+      payload: { host_id: 'h-1', capabilities: ['shell', 'harness:claude', 7] },
+    })
+
+    // A value that is not a string is no capability.
+    expect(agent.registeredCapabilities()).toEqual(['shell', 'harness:claude'])
+  })
+
   /** The name is what the person calls the computer, without the network
    *  suffix a Mac carries. */
   it('names the machine as the person knows it', () => {
@@ -434,6 +451,33 @@ describe('the link that keeps the machine registered', () => {
     link.start()
     await vi.waitFor(() => expect(attempts).toBe(3))
 
+    link.stop()
+  })
+
+  it('gives the capabilities of its registration, and sends a frame on the socket that is open', async () => {
+    const sockets: FakeSocket[] = []
+    const link = new HostLink(
+      async () => {
+        const socket = new FakeSocket()
+        sockets.push(socket)
+        return socket
+      },
+      60_000,
+    )
+    expect(link.send(JSON.stringify({ type: 'ping' }))).toBe(false)
+
+    link.start()
+    await vi.waitFor(() => expect(sockets).toHaveLength(1))
+    sockets[0].receive({ type: 'host.registered', payload: { host_id: 'h-1', capabilities: ['harness:claude'] } })
+
+    expect(link.registeredCapabilities()).toEqual(['harness:claude'])
+    expect(link.send(JSON.stringify({ type: 'session_exit', session_id: 's-1' }))).toBe(true)
+    expect(sockets[0].sent.at(-1)).toEqual({ type: 'session_exit', session_id: 's-1' })
+
+    // The socket dropped: no registration and no socket until the next one.
+    sockets[0].close()
+    expect(link.registeredCapabilities()).toEqual([])
+    expect(link.send(JSON.stringify({ type: 'ping' }))).toBe(false)
     link.stop()
   })
 

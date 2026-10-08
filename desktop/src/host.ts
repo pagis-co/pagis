@@ -24,6 +24,12 @@ export const SHELL_CAPABILITY = 'shell'
  *  Computers (`exit.ts`). */
 export const EXIT_CAPABILITY = 'exit'
 
+/** The prefix of a capability that names a Coding Harness that the
+ *  machine can start, as the Harness Catalog of the daemon writes it:
+ *  `harness:<id>`. A machine whose registration holds one opens the
+ *  session socket (`sessions.ts`). */
+export const HARNESS_CAPABILITY_PREFIX = 'harness:'
+
 /** One command the daemon dispatched. */
 export interface HostDispatch {
   id: string
@@ -134,6 +140,7 @@ export const runInShell: CommandRunner = (dispatch) =>
  */
 export class HostAgent {
   private hostId: string | null = null
+  private capabilitiesHeld: string[] = []
 
   constructor(
     private readonly socket: HostSocket,
@@ -166,6 +173,12 @@ export class HostAgent {
     return this.hostId
   }
 
+  /** The capabilities that the daemon stored for this machine, from the
+   *  last acknowledgement of the registration. */
+  registeredCapabilities(): readonly string[] {
+    return this.capabilitiesHeld
+  }
+
   private async receive(frame: string): Promise<void> {
     let parsed: { type?: string; payload?: Record<string, unknown> }
     try {
@@ -176,6 +189,10 @@ export class HostAgent {
     if (parsed.type === 'host.registered') {
       const id = parsed.payload?.host_id
       this.hostId = typeof id === 'string' ? id : null
+      const held = parsed.payload?.capabilities
+      this.capabilitiesHeld = Array.isArray(held)
+        ? held.filter((capability): capability is string => typeof capability === 'string')
+        : []
       return
     }
     if (parsed.type !== 'dispatch') return
@@ -243,6 +260,20 @@ export class HostLink {
   /** The machine's id, once the daemon has acknowledged it. */
   registeredId(): string | null {
     return this.agent?.registeredId() ?? null
+  }
+
+  /** The machine's capabilities as the daemon acknowledged them, or none
+   *  while no socket is registered. */
+  registeredCapabilities(): readonly string[] {
+    return this.agent?.registeredCapabilities() ?? []
+  }
+
+  /** Send one frame on the socket that is open now. It answers `false`
+   *  when no socket is open, and the frame then goes nowhere. */
+  send(frame: string): boolean {
+    if (this.socket === null) return false
+    this.socket.send(frame)
+    return true
   }
 
   private async connect(): Promise<void> {

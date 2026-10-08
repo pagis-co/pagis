@@ -1,18 +1,20 @@
-// The side of yamux that the Client App needs on its exit socket.
+// The side of yamux that the Client App needs on its exit socket and on
+// its session socket.
 //
-// The daemon runs the Rust `yamux` crate in client mode over the exit
-// socket and opens one stream for each connection of a Computer. This side
+// The daemon runs the Rust `yamux` crate in client mode over each socket.
+// It opens one stream for each connection of a Computer on the exit
+// socket, and one for each Coding Session on the session socket. This side
 // accepts those streams and opens none. The frame format and the rules are
 // the specification of HashiCorp yamux
 // (https://github.com/hashicorp/yamux/blob/master/spec.md).
 //
 // The transport is a seam: the session sends bytes through a function and
 // receives the bytes that the caller gives it, so a test drives it with
-// raw frames and the exit socket drives it with WebSocket messages. The
-// frame boundaries of the transport mean nothing.
+// raw frames and a socket drives it with WebSocket messages. The frame
+// boundaries of the transport mean nothing.
 //
 // This module uses only erasable TypeScript syntax and imports only Node
-// built-ins, so plain `node` loads it in the interop test of the daemon.
+// built-ins, so plain `node` loads it in the interop tests of the daemon.
 
 import { Duplex } from 'node:stream'
 
