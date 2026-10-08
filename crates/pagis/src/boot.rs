@@ -348,7 +348,7 @@ fn remove_client_credential(path: &Path) -> anyhow::Result<()> {
 
 /// Boot recovery: a restart fails every unfinished run,
 /// fails every orphaned streaming message, and expires the pending
-/// requests of parked runs.
+/// requests of parked runs and every pending Harness Permission.
 ///
 /// It is server-wide, and on a server that serves many people it stays
 /// server-wide. One daemon owns every run of the installation and
@@ -370,6 +370,44 @@ async fn recover(stores: &pagis_core::Stores) -> anyhow::Result<()> {
     .await?;
     if failed > 0 {
         tracing::info!(failed, "marked unfinished runs failed after restart");
+    }
+    expire_harness_permissions(stores).await
+}
+
+/// A restart ends every ACP connection, so no harness waits for a
+/// pending Harness Permission any more (ADR-0033).
+async fn expire_harness_permissions(stores: &pagis_core::Stores) -> anyhow::Result<()> {
+    // The wall clock, as for the requests of parked runs.
+    let now = now_ms();
+    let mut expired = 0;
+    for workspace in stores.workspaces.list().await? {
+        let pending = stores
+            .requests
+            .list_by_state(
+                &workspace.id,
+                pagis_core::RequestState::Pending,
+                Some(pagis_core::Request::HARNESS_PERMISSION_KIND),
+            )
+            .await?;
+        for request in pending {
+            stores
+                .requests
+                .decide(
+                    &workspace.id,
+                    &request.id,
+                    pagis_core::RequestState::Expired,
+                    None,
+                    now,
+                )
+                .await?;
+            expired += 1;
+        }
+    }
+    if expired > 0 {
+        tracing::info!(
+            expired,
+            "expired the pending Harness Permissions after restart"
+        );
     }
     Ok(())
 }

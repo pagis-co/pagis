@@ -9,7 +9,9 @@
 // open. A host command's rule covers every flag and argument of its
 // command, and the card says so beside "Always allow" (ADR-0015). A
 // Coding Session start proposes a session allow rule, and the payload
-// carries the words of its checkbox (ADR-0033).
+// carries the words of its checkbox. A Harness Permission names the
+// harness, the machine and the directory, and its `execute` is a host
+// command (ADR-0033).
 //
 // One card, one decision: the header names the act and the place,
 // Approve is the only primary action, "Always allow" is a checkbox that
@@ -47,6 +49,18 @@ interface ApprovalPayload {
   plugin_id?: string | null
   /** The words of the checkbox, when the daemon writes them. */
   always_label?: string | null
+  /** A Harness Permission: the session, its machine and its directory. */
+  session_id?: string
+  harness_id?: string
+  harness_name?: string
+  host_id?: string
+  host_name?: string
+  directory?: string
+  tool_call_id?: string
+  /** The ACP tool kind, such as `execute` or `edit`. */
+  tool_kind?: string
+  command?: string | null
+  locations?: string[]
 }
 
 /** The clock a settled card shows beside the decision. */
@@ -81,7 +95,10 @@ export function ApprovalCard({
   // A Plugin tool (ADR-0017): `Host` by default, so it waits
   // here, and its one rule is the tool's own qualified name.
   const pluginTool = typeof payload?.plugin_id === 'string'
-  const hostCommand = payload?.tool_name === 'host_shell'
+  const harnessPermission = request.data?.kind === 'harness_permission'
+  const hostCommand =
+    payload?.tool_name === 'host_shell' ||
+    (harnessPermission && payload?.tool_kind === 'execute')
   const alwaysLabel = payload?.always_label ?? null
   const offersAlways = proposedRules.length > 0 || alwaysLabel !== null
   const alwaysId = `approval-always-${requestId}`
@@ -123,6 +140,11 @@ export function ApprovalCard({
           </>
         ) : pluginTool ? (
           "This tool is a plugin's. It runs on this computer with your privileges."
+        ) : harnessPermission ? (
+          <>
+            {payload?.harness_name} runs this on {payload?.host_name} in{' '}
+            <code>{payload?.directory}</code>.
+          </>
         ) : (
           'Runs on this computer.'
         )}

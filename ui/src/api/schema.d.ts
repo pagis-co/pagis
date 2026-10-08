@@ -4062,7 +4062,8 @@ export interface components {
             /**
              * @description `once` (the default), or `always` to also write the request's
              *     proposed allow rules, or its proposed session allow rule, into
-             *     the agent's grant. Meaningful for a `tool_action` only.
+             *     the agent's grant. Meaningful for a `tool_action` and a
+             *     `harness_permission` only.
              */
             scope?: string | null;
             /**
@@ -5906,8 +5907,8 @@ export interface components {
             decided_at?: number | null;
             id: string;
             /**
-             * @description `tool_action`, `credential_action`, `form`,
-             *     or `choice`.
+             * @description `tool_action`, `credential_action`, `form`, `choice`, `widget`
+             *     or `harness_permission`.
              */
             kind: string;
             /**

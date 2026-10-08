@@ -6,20 +6,24 @@
 //! of a running session. The broker's [`evaluate`] decides. Each decision
 //! writes one audit fact, [`PERMISSION_DECIDED_EVENT`], on the bus.
 //!
-//! A permission that policy does not allow waits. The Person's card and
-//! the Agent's decision are not built, so nothing answers it: the wait
-//! ends when the turn is cancelled or the harness withdraws the request.
+//! A permission that policy does not allow waits. In the `person` mode
+//! the Person answers it on an approval card ([`crate::person`]). The
+//! Agent's decision is not built, so nothing answers a permission in the
+//! `agent` mode: the wait ends when the turn is cancelled or the harness
+//! withdraws the request.
 
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use pagis_broker::{Decider, HarnessToolKind, PolicyOutcome, evaluate};
 use pagis_core::{
-    AgentId, CodingSession, EventBus, Grant, GrantStore, NewEvent, SessionApprovalMode, WorkspaceId,
+    AgentId, CodingSession, EventBus, Grant, GrantStore, HostStore, MessageStore, NewEvent,
+    RequestStore, SessionApprovalMode, WorkspaceId,
 };
 use serde::Serialize;
 use serde_json::{Value, json};
 
+use crate::person::{Permission, PersonAsks};
 use crate::{
     Pending, PermissionAnswer, PermissionAsk, PermissionOptionKind, QuestionAnswer, QuestionAsk,
     SessionDecisions, ToolKind, WaitsFor,
@@ -28,16 +32,40 @@ use crate::{
 /// The audit fact of each decision on a Harness Permission.
 pub const PERMISSION_DECIDED_EVENT: &str = "coding_session.permission_decided";
 
+/// What [`PolicyDecisions`] is built from.
+pub struct PolicyDecisionsDeps {
+    /// The live host Grant holds the mode and the Host Allow Rules.
+    pub grants: Arc<dyn GrantStore>,
+    /// The Request of each permission that asks the Person.
+    pub requests: Arc<dyn RequestStore>,
+    /// The session's Thread holds the approval card.
+    pub messages: Arc<dyn MessageStore>,
+    /// The Host gives the machine name of the card.
+    pub hosts: Arc<dyn HostStore>,
+    /// The audit facts, the events of the card, and the decisions.
+    pub bus: Arc<dyn EventBus>,
+}
+
 /// Applies Pagis policy to each Harness Permission, and cancels each
 /// question of a harness.
 pub struct PolicyDecisions {
     grants: Arc<dyn GrantStore>,
     bus: Arc<dyn EventBus>,
+    person: PersonAsks,
 }
 
 impl PolicyDecisions {
-    pub fn new(grants: Arc<dyn GrantStore>, bus: Arc<dyn EventBus>) -> Self {
-        Self { grants, bus }
+    pub fn new(deps: PolicyDecisionsDeps) -> Self {
+        Self {
+            grants: deps.grants,
+            bus: Arc::clone(&deps.bus),
+            person: PersonAsks {
+                requests: deps.requests,
+                messages: deps.messages,
+                hosts: deps.hosts,
+                bus: deps.bus,
+            },
+        }
     }
 
     /// The live host Grant of the owning Agent on the session's machine.
@@ -137,7 +165,36 @@ impl SessionDecisions for PolicyDecisions {
                 }
             }
             PolicyOutcome::AskAgent => self.wait(WaitsFor::Agent, fact),
-            PolicyOutcome::AskPerson => self.wait(WaitsFor::Person, fact),
+            PolicyOutcome::AskPerson => {
+                let permission = Permission {
+                    tool_call_id: &ask.tool_call_id,
+                    title: ask.title.as_deref(),
+                    kind,
+                    command,
+                    locations: &locations,
+                };
+                match self
+                    .person
+                    .ask(session, &permission, &ask.options, fact.clone())
+                    .await
+                {
+                    Some(answer) => Pending::Waits {
+                        waits_for: WaitsFor::Person,
+                        answer,
+                    },
+                    None => {
+                        let event = fact.event(None, Outcome::Cancelled, None);
+                        if let Err(error) = self.bus.publish(event).await {
+                            tracing::error!(session = %session.id, %error, "the audit fact of a cancelled Harness Permission was not written");
+                        }
+                        // Nobody decided: the card was not posted.
+                        Pending::Decided {
+                            answer: PermissionAnswer::Cancel,
+                            decider: None,
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -175,26 +232,32 @@ impl PolicyDecisions {
 }
 
 /// The fields of the audit fact of one permission, before its decision.
-struct Fact {
+#[derive(Clone)]
+pub(crate) struct Fact {
     workspace_id: WorkspaceId,
     agent_id: AgentId,
     payload: Value,
 }
 
 /// How a Harness Permission ended, in the audit fact.
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-enum Outcome {
+pub(crate) enum Outcome {
     /// The harness got the `allow_once` option.
     Allowed,
+    /// The harness got the `reject_once` option.
+    Rejected,
     /// The harness got `cancelled`.
     Cancelled,
+    /// The harness stopped waiting before the Person decided, and the
+    /// Request of the card expired. The harness got `cancelled`.
+    Expired,
 }
 
 impl Fact {
     /// The audit fact with its decision. A permission that nobody
     /// decided, such as one that a cancel ended, has no decider.
-    fn event(
+    pub(crate) fn event(
         mut self,
         decider: Option<Decider>,
         outcome: Outcome,

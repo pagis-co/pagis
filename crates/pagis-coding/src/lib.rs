@@ -17,7 +17,8 @@
 //! records its updates through the Coding Session store, and asks
 //! [`SessionDecisions`] for the answer to each permission request and
 //! question. [`PolicyDecisions`] applies Pagis policy to each permission
-//! request and writes its audit fact.
+//! request and writes its audit fact. A permission that asks the Person
+//! gets an approval card in the session's Thread.
 //!
 //! Each session raises its news to its Session Rule through
 //! [`SessionEvents`], and [`SessionRules`] makes and ends the rule.
@@ -35,6 +36,7 @@ mod error;
 mod event;
 mod events;
 pub mod fake;
+mod person;
 mod place;
 mod policy;
 mod report;
@@ -61,7 +63,7 @@ pub use place::{
     OpenFailure, OpenFailureCode, OpenRequest, OpenedStream, PlaceStream, SessionExit,
     SessionPlace, WorktreeRequest,
 };
-pub use policy::{PERMISSION_DECIDED_EVENT, PolicyDecisions};
+pub use policy::{PERMISSION_DECIDED_EVENT, PolicyDecisions, PolicyDecisionsDeps};
 pub use session::{AcpSession, HarnessInfo, Opening, SignInMethod};
 pub use sessions::{
     CloseReason, CodingSessions, CodingSessionsDeps, NewCodingSession, PromptOutcome, SessionError,

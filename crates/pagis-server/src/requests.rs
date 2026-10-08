@@ -7,16 +7,19 @@
 //! denormalized copy: a client can post back a mutated block. A
 //! validation failure is a 422 and leaves the run parked.
 //!
-//! `scope` is meaningful for a `tool_action` only. An `always` approve
+//! `scope` is meaningful for an Approval only. An `always` approve
 //! also writes the daemon-derived allow rules into the agent's grant
 //! for that resource kind, and a plain approve bootstraps the grant
 //! with an empty rule list. A host `tool_action` writes host rules; a
 //! `credential_action` writes the one registrable domain the
 //! Credential record carried. A Coding Session start writes its session
-//! Allow Rule onto the host Grant (ADR-0033). A `mail__send` from an
-//! Agent Mailbox writes its recipient domains onto the mailbox record,
-//! because that mailbox is the Agent's own identity and carries no
-//! Grant.
+//! Allow Rule onto the host Grant, and a `harness_permission` writes the
+//! Host Allow Rules of its command onto the host Grant of the session's
+//! machine (ADR-0033). The `request.decided` event names the scope, so
+//! the audit fact of a Harness Permission records whether the decision
+//! wrote a rule. A `mail__send` from an Agent Mailbox writes its
+//! recipient domains onto the mailbox record, because that mailbox is
+//! the Agent's own identity and carries no Grant.
 
 use std::sync::Arc;
 
@@ -38,8 +41,8 @@ pub struct RequestDto {
     pub id: String,
     pub agent_id: String,
     pub run_id: Option<String>,
-    /// `tool_action`, `credential_action`, `form`,
-    /// or `choice`.
+    /// `tool_action`, `credential_action`, `form`, `choice`, `widget`
+    /// or `harness_permission`.
     pub kind: String,
     /// The trusted content the daemon minted the row with: tool name
     /// and arguments for an action, the field schema for a form, the
@@ -91,7 +94,8 @@ pub struct DecisionRequest {
     pub decision: String,
     /// `once` (the default), or `always` to also write the request's
     /// proposed allow rules, or its proposed session allow rule, into
-    /// the agent's grant. Meaningful for a `tool_action` only.
+    /// the agent's grant. Meaningful for a `tool_action` and a
+    /// `harness_permission` only.
     pub scope: Option<String>,
     /// What a `form` or a `choice` submits, validated against the
     /// field schema on the row.
@@ -277,6 +281,7 @@ pub async fn decide_request(
                     payload: serde_json::json!({
                         "request_id": decided.id.as_str(),
                         "decision": body.decision,
+                        "scope": if always { "always" } else { "once" },
                     }),
                 })
                 .await?;
@@ -367,6 +372,11 @@ fn grant_target(request: &Request) -> Option<(&'static str, Option<String>)> {
         // a program on the machine as a command does (ADR-0033). The
         // Grant names the machine the card named. A card that named none
         // grants nothing: the daemon is never a Host.
+        let host_id = request.payload["host_id"].as_str()?;
+        Some((Grant::HOST_KIND, Some(host_id.to_string())))
+    } else if request.kind == Request::HARNESS_PERMISSION_KIND {
+        // A Harness Permission writes the host Grant of the session's
+        // machine (ADR-0033).
         let host_id = request.payload["host_id"].as_str()?;
         Some((Grant::HOST_KIND, Some(host_id.to_string())))
     } else if request.kind == Request::CREDENTIAL_ACTION_KIND {

@@ -414,6 +414,28 @@ stops at the first step that answers:
    allows once. "Always allow" for an `execute` writes a Host Allow Rule with
    the existing builder, then allows once. "Deny" rejects once.
 
+The approval card of the `person` mode is a System message in the session's
+Thread, because it is a block that views a row that the daemon owns
+(ADR-0004). No Agent can make it. The daemon subscribes to the bus, writes
+the Request, publishes `request.created`, posts the card, and waits for
+`request.decided`, as a parked Run does. The decision route is the one route
+of every kind. The payload of the Request holds the session, the harness,
+the machine, the directory that the harness runs in, the tool call, the
+Thread, the card title, the body and the proposed Host Allow Rules. The card
+title is a daemon sentence, for example "Claude Code wants to run a
+command". The body is the command of an `execute`, else the locations, else
+the title of the tool call, cut to 1,000 characters. The body is harness
+text, so the text of the card that an Agent reads from the Thread holds it
+inside the envelope `source=coding_session:<id>` (ADR-0005). "Always allow"
+writes the rules onto the host Grant of the session's machine and never
+answers `allow_always` to the harness. A message of the Person in the Thread
+does not supersede the Request, because no Run waits on it.
+
+The Request expires when the harness stops waiting for it: a cancel of the
+turn, a close, a lost place, or an ACP connection that ends. A restart ends
+every ACP connection, so the boot expires each pending `harness_permission`
+Request.
+
 The scope check is lexical, because the files are on the Host and the daemon
 cannot read them. It removes `.` and resolves `..` in each POSIX path, and it
 then requires the directory itself or a path under it. A relative path is
@@ -440,10 +462,13 @@ when the request arrives, with whom the session waits for, and a `decision`
 row with its decider when it is answered. The bus holds one audit fact, the event
 `coding_session.permission_decided` with no Run. It holds the session, the
 Agent, the Host, the tool call id, the tool kind, the command, the
-locations, the decider, the outcome (`allowed` or `cancelled`), the selected
-option kind, and the revision of the Grant that the evaluator read. A
-pending request that a cancel ends, or that the harness withdraws, has the
-outcome `cancelled` and no decider.
+locations, the decider, the outcome (`allowed`, `rejected`, `cancelled` or
+`expired`), the selected option kind, and the revision of the Grant that the
+evaluator read. A decision of the Person also holds its scope, `once` or
+`always`, so the fact records whether the decision wrote a rule. A pending
+request that a cancel ends, or that the harness withdraws, has no decider.
+Its outcome is `expired` when it waited for the Person, because its Request
+expires, and `cancelled` when it waited for the Agent.
 
 ### A question goes to the supervising Agent
 
@@ -569,9 +594,8 @@ Other ways were considered:
 - The refusal of a mode other than `auto` for a harness that does not ask
   permission.
 - The interruption and the resume.
-- The approval card. A Harness Permission that Pagis policy does not allow
-  waits until a cancel ends it.
-- The `agent` mode.
+- The `agent` mode. A Harness Permission that waits for the Agent waits until
+  a cancel ends it.
 - The `auto` mode.
 - The item in the Needs-You Queue and the Notification.
 - The question in the daemon.

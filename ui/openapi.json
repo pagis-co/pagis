@@ -13303,7 +13303,7 @@
               "string",
               "null"
             ],
-            "description": "`once` (the default), or `always` to also write the request's\nproposed allow rules, or its proposed session allow rule, into\nthe agent's grant. Meaningful for a `tool_action` only."
+            "description": "`once` (the default), or `always` to also write the request's\nproposed allow rules, or its proposed session allow rule, into\nthe agent's grant. Meaningful for a `tool_action` and a\n`harness_permission` only."
           },
           "values": {
             "description": "What a `form` or a `choice` submits, validated against the\nfield schema on the row."
@@ -18069,7 +18069,7 @@
           },
           "kind": {
             "type": "string",
-            "description": "`tool_action`, `credential_action`, `form`,\nor `choice`."
+            "description": "`tool_action`, `credential_action`, `form`, `choice`, `widget`\nor `harness_permission`."
           },
           "payload": {
             "description": "The trusted content the daemon minted the row with: tool name\nand arguments for an action, the field schema for a form, the\noptions for a choice."

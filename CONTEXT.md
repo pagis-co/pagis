@@ -1070,8 +1070,9 @@ A permission request of a Coding Harness (ACP `session/request_permission`).
 Pagis policy answers it first: the `auto` mode, an action inside the
 session's directory, or a command that a Host Allow Rule matches allows it
 once. Else the Session Approval Mode of the Coding Session decides who
-answers. Pagis answers once, never "always", and each decision writes one
-audit fact. Not built: the answer of the Person and of the Agent (ADR-0033).
+answers. In the `person` mode the Person answers on an approval card in the
+session's Thread. Pagis answers once, never "always", and each decision
+writes one audit fact. Not built: the answer of the Agent (ADR-0033).
 
 ### Harness Sign-In
 The Person signs in to a Coding Harness on their Host with their own
@@ -1088,7 +1089,7 @@ Who answers a Harness Permission of a Coding Session: `person`, `agent` or
 machine, `person` by default. The Person sets it on the Access tab of the
 Agent, and the Agent picks the mode of each session within it. The live
 host Grant narrows the mode at each Harness Permission. Not built: the
-answer of the Person and of the Agent (ADR-0033).
+answer of the Agent (ADR-0033).
 _Avoid_: permission mode
 
 ### Session Rule
@@ -1227,11 +1228,10 @@ Run queued or running in a Channel. A Run that reflects turns no ring
 (ADR-0022).
 
 ### Approval
-The kind of Request that asks permission to act: a tool action or a
-credential action. The approval card is a view of it. Only an Approval
-takes a scope, which is how "Always allow" writes an Allow Rule
-(ADR-0004). A Harness Permission that asks the Person is also an Approval.
-Not built (ADR-0033).
+The kind of Request that asks permission to act: a tool action, a
+credential action, or a Harness Permission that asks the Person. The
+approval card is a view of it. Only an Approval takes a scope, which is how
+"Always allow" writes an Allow Rule (ADR-0004, ADR-0033).
 
 ### Artifact
 A binary file that the Workspace stores outside the database, such as a
@@ -1301,11 +1301,12 @@ The message that the Chief of Staff writes for Home in its DM Channel: what
 needs the Person, what is running, what got done (ADR-0022).
 
 ### Request
-Something a Run needs from the Person before it continues: a tool action, a
-credential action, a form, a choice, or a Widget answer. It is pending,
-approved, denied, expired or superseded, and it parks the Run (ADR-0004).
-A Harness Permission is a Request with no Run: it waits on its Coding
-Session, and it expires when the session ends. Not built (ADR-0033).
+Something a Run or a Coding Session needs from the Person before it
+continues: a tool action, a credential action, a form, a choice, a Widget
+answer, or a Harness Permission. It is pending, approved, denied, expired
+or superseded, and it parks the Run (ADR-0004). A Harness Permission is a
+Request with no Run: it waits on its Coding Session, and it expires when
+the harness stops waiting for it (ADR-0033).
 
 ### Retention Policy
 How long one Artifact class is kept in a Workspace. With no policy a class

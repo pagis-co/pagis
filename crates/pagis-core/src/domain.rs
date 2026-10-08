@@ -1165,6 +1165,10 @@ impl std::str::FromStr for RequestState {
 ///   `awaits_input`. `payload` holds the package, the version, the
 ///   Widget name, the tool call id and the author's projection; the
 ///   decision records the Widget's `text` and its optional `value`.
+/// - `harness_permission` (ADR-0033) — a Harness Permission of a
+///   Coding Session that Pagis policy does not allow. It has no Run.
+///   `payload` holds the session, the machine, the directory, the tool
+///   call, the card text and the allow-rule proposal of an `execute`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Request {
     pub id: RequestId,
@@ -1193,6 +1197,9 @@ impl Request {
     pub const CHOICE_KIND: &'static str = "choice";
     /// A Widget that asks the user (ADR-0016).
     pub const WIDGET_KIND: &'static str = "widget";
+    /// A Harness Permission that asks the Person. It has no Run: it
+    /// waits on its Coding Session (ADR-0033).
+    pub const HARNESS_PERMISSION_KIND: &'static str = "harness_permission";
 
     /// True when the kind submits values with its decision. The
     /// daemon checks each kind's values against the payload it wrote,

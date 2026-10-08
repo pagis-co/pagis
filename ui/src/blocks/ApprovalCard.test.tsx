@@ -389,3 +389,59 @@ describe('ApprovalCard for a Coding Session start', () => {
     )
   })
 })
+
+function stubHarnessPermissionApi() {
+  return {
+    GET: vi.fn(async () => ({
+      data: {
+        id: 'ap1',
+        agent_id: 'ag1',
+        run_id: null,
+        kind: 'harness_permission',
+        payload: {
+          session_id: 'cs-1',
+          harness_id: 'claude',
+          harness_name: 'Claude Code',
+          host_id: 'h-1',
+          host_name: 'Air',
+          directory: '/work/pagis',
+          tool_call_id: 'call-1',
+          tool_kind: 'execute',
+          command: 'cargo test',
+          locations: [],
+          action_title: 'Claude Code wants to run a command',
+          body: 'cargo test',
+          proposed_rules: ['cargo test'],
+        },
+        state: 'pending',
+        decided_at: null,
+        created_at: 1,
+      },
+    })),
+    POST: vi.fn(async () => ({ data: { state: 'approved' } })),
+  }
+}
+
+describe('ApprovalCard for a Harness Permission', () => {
+  it('names the harness, the machine and the directory, and the reach of the command rule', async () => {
+    const api = stubHarnessPermissionApi()
+    mount(api as unknown as ReturnType<typeof stubApi>, [
+      {
+        type: 'approval_card',
+        request_id: 'ap1',
+        title: 'Claude Code wants to run a command',
+        body: 'cargo test',
+      },
+    ])
+
+    const always = await screen.findByRole('checkbox')
+    expect(always.closest('label')?.textContent).toBe('Always allow cargo test')
+    const scope = document.getElementById(
+      always.getAttribute('aria-describedby') ?? '',
+    )
+    expect(scope?.textContent).toMatch(/every flag and argument/)
+    expect(
+      document.querySelector('.approval-card-where')?.textContent,
+    ).toBe('Claude Code runs this on Air in /work/pagis.')
+  })
+})
