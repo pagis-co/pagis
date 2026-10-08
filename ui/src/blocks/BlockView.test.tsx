@@ -177,6 +177,22 @@ describe('Blocks', () => {
     expect(fallback.textContent).toContain('screen')
   })
 
+  it('renders the fallback for a coding session block', () => {
+    // The union types it, and it has no renderer yet.
+    mount([
+      {
+        type: 'coding_session',
+        coding_session_id: 'cs1',
+        harness: 'Claude Code',
+        machine: 'Air',
+        directory: '/Users/bo/code/app',
+        title: 'Fix the login bug',
+      },
+    ])
+    const fallback = screen.getByTestId('unknown-block')
+    expect(fallback.textContent).toContain('coding_session')
+  })
+
   it('renders a mail block as its strip', () => {
     mount([
       {

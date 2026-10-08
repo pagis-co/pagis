@@ -4552,6 +4552,21 @@ export interface components {
             trust_tier?: null | components["schemas"]["TrustTier"];
             /** @enum {string} */
             type: "mail";
+        } | {
+            coding_session_id: string;
+            /** @description The directory that the Agent named. */
+            directory: string;
+            /** @description The display name of the harness in the Harness Catalog. */
+            harness: string;
+            /**
+             * @description The name of the Host, or "Computer" for a session in the
+             *     Agent's Computer.
+             */
+            machine: string;
+            /** @description The title that the Agent wrote. */
+            title: string;
+            /** @enum {string} */
+            type: "coding_session";
         };
         LinkSignInRequest: {
             /**

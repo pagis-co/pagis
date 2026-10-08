@@ -10,12 +10,13 @@ use futures::StreamExt;
 use pagis_coding::NewCodingSession;
 use pagis_coding::fake::{Script, Turn, serve_client_app};
 use pagis_core::{
-    AgentId, ChannelId, CodingSession, CodingSessionEventKind, CodingSessionState, HostId,
-    NewCodingSessionEvent, RunId, SessionApprovalMode, now_ms,
+    AgentId, AuthorKind, Block, ChannelId, CodingSession, CodingSessionEventKind,
+    CodingSessionState, HostId, Message, MessageId, NewCodingSessionEvent, RunId,
+    SessionApprovalMode, now_ms,
 };
 use pagis_testkit::{Socket, TestDaemon, fixture};
 use serde_json::{Value, json};
-use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::Message as Frame;
 use tokio_util::compat::TokioAsyncReadCompatExt;
 
 const WAIT: Duration = Duration::from_secs(10);
@@ -40,11 +41,18 @@ async fn host(daemon: &TestDaemon) -> HostId {
 
 /// A queued Run in the seeded DM channel, which a Coding Session names.
 async fn run(daemon: &TestDaemon) -> RunId {
-    let run = fixture::queued_run(
+    run_in(daemon, None).await
+}
+
+/// A queued Run in the seeded DM channel, in the Thread of `root` when
+/// it names one.
+async fn run_in(daemon: &TestDaemon, root: Option<MessageId>) -> RunId {
+    let mut run = fixture::queued_run(
         &daemon.workspace_id,
         &AgentId::from(daemon.agent_id.clone()),
         &ChannelId::from(daemon.dm_channel_id.clone()),
     );
+    run.root_message_id = root;
     daemon
         .stores()
         .runs
@@ -127,6 +135,13 @@ async fn open_session_socket(daemon: &TestDaemon, host_id: &HostId, script: Scri
 /// A Coding Session that the daemon's runtime starts, with a turn that
 /// runs until a cancel.
 async fn start_session(daemon: &TestDaemon) -> CodingSession {
+    let run_id = run(daemon).await;
+    start_session_from(daemon, run_id).await
+}
+
+/// A Coding Session that `run_id` starts, with a turn that runs until a
+/// cancel.
+async fn start_session_from(daemon: &TestDaemon, run_id: RunId) -> CodingSession {
     let host_id = host(daemon).await;
     open_session_socket(
         daemon,
@@ -139,7 +154,7 @@ async fn start_session(daemon: &TestDaemon) -> CodingSession {
         .start(NewCodingSession {
             workspace_id: daemon.workspace_id.clone(),
             agent_id: AgentId::from(daemon.agent_id.clone()),
-            run_id: run(daemon).await,
+            run_id,
             host_id,
             harness_id: "claude".to_string(),
             directory: DIRECTORY.to_string(),
@@ -159,7 +174,7 @@ async fn next_frame_of(socket: &mut Socket, frame_type: &str) -> Value {
             .unwrap_or_else(|_| panic!("no {frame_type} frame in time"))
             .expect("the socket is open")
             .expect("a frame");
-        let Message::Text(text) = frame else { continue };
+        let Frame::Text(text) = frame else { continue };
         let value: Value = serde_json::from_str(&text).expect("a JSON frame");
         if value["type"] == frame_type {
             return value;
@@ -286,4 +301,84 @@ async fn a_transcript_row_reaches_the_event_socket_as_a_frame_that_names_the_ses
         changed["payload"]["payload"]["coding_session_id"],
         session.id.as_str()
     );
+}
+
+/// The message that holds the block of `session`.
+async fn session_message(daemon: &TestDaemon, session: &CodingSession) -> Message {
+    daemon
+        .stores()
+        .messages
+        .get(&daemon.workspace_id, &session.message_id)
+        .await
+        .expect("read the message")
+        .expect("the daemon posts the block of the session")
+}
+
+/// The one block of the session's message: the daemon-made
+/// `coding_session` block with copies of the display fields.
+fn assert_session_block(message: &Message, session: &CodingSession) {
+    assert_eq!(
+        message.blocks,
+        [Block::coding_session(
+            session.id.as_str(),
+            "Claude Code",
+            "Air",
+            DIRECTORY,
+            "Fix the login bug",
+        )]
+    );
+    assert_eq!(message.author_kind, AuthorKind::System);
+    assert_eq!(message.run_id.as_ref(), Some(&session.run_id));
+    assert_eq!(
+        message.text_content,
+        format!("Coding session \"Fix the login bug\": Claude Code on Air in {DIRECTORY}")
+    );
+}
+
+#[tokio::test]
+async fn a_session_from_a_run_in_a_thread_posts_its_block_as_a_reply_in_that_thread() {
+    let daemon = TestDaemon::start().await;
+    let mut socket = daemon.event_socket(daemon.cookie()).await;
+    let root = fixture::user_message(
+        &daemon.workspace_id,
+        &ChannelId::from(daemon.dm_channel_id.clone()),
+        "Fix the login bug.",
+    );
+    daemon
+        .stores()
+        .messages
+        .insert(&root)
+        .await
+        .expect("write the root message");
+    let run_id = run_in(&daemon, Some(root.id.clone())).await;
+
+    let session = start_session_from(&daemon, run_id).await;
+
+    assert_eq!(session.root_message_id, root.id);
+    let message = session_message(&daemon, &session).await;
+    assert_eq!(message.channel_id, session.channel_id);
+    assert_eq!(message.parent_message_id.as_ref(), Some(&root.id));
+    assert_session_block(&message, &session);
+    let completed = next_frame_of(&mut socket, "message.completed").await;
+    assert_eq!(
+        completed["payload"]["payload"]["message_id"],
+        session.message_id.as_str()
+    );
+    assert_eq!(
+        completed["payload"]["payload"]["parent_message_id"],
+        root.id.as_str()
+    );
+}
+
+#[tokio::test]
+async fn a_session_from_a_run_with_no_thread_posts_the_root_of_its_own_thread() {
+    let daemon = TestDaemon::start().await;
+
+    let session = start_session(&daemon).await;
+
+    let message = session_message(&daemon, &session).await;
+    assert_eq!(message.id, session.root_message_id);
+    assert_eq!(message.parent_message_id, None);
+    assert_eq!(message.channel_id, session.channel_id);
+    assert_session_block(&message, &session);
 }

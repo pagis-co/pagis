@@ -562,6 +562,9 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         pagis_coding::CodingSessionsDeps {
             sessions: stores.coding_sessions.clone(),
             runs: Arc::clone(&runs) as _,
+            hosts: stores.hosts.clone(),
+            messages: Arc::clone(&messages) as _,
+            bus: Arc::clone(&bus),
             place: Arc::clone(&host_sessions) as _,
             decisions: Arc::new(pagis_coding::RefuseDecisions),
             clock: Arc::clone(&options.clock),

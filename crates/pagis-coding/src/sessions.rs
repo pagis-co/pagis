@@ -16,10 +16,11 @@ use std::time::Duration;
 use async_trait::async_trait;
 use futures::io::AsyncReadExt;
 use pagis_core::{
-    AgentId, Clock, CodingSession, CodingSessionEventKind as Kind, CodingSessionId,
-    CodingSessionPlace, CodingSessionState as State, CodingSessionStore, CodingSessionUsage,
-    HostId, MessageId, NewCodingSessionEvent, RunId, RunStore, SessionApprovalMode, StoreError,
-    WorkspaceId, harness,
+    AgentId, AuthorKind, Block, Clock, CodingSession, CodingSessionEventKind as Kind,
+    CodingSessionId, CodingSessionPlace, CodingSessionState as State, CodingSessionStore,
+    CodingSessionUsage, EventBus, HostId, HostStore, Message, MessageId, MessageStatus,
+    MessageStore, NewCodingSessionEvent, NewEvent, RunId, RunStore, SessionApprovalMode,
+    StoreError, WorkspaceId, blocks_text, harness,
 };
 use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot, watch};
@@ -41,6 +42,12 @@ pub struct CodingSessionsDeps {
     pub sessions: Arc<dyn CodingSessionStore>,
     /// The Run that starts a session names the Thread that shows it.
     pub runs: Arc<dyn RunStore>,
+    /// The Host of a session gives the machine name of its block.
+    pub hosts: Arc<dyn HostStore>,
+    /// The Thread holds the block of each session.
+    pub messages: Arc<dyn MessageStore>,
+    /// Reports the message of each block to the clients.
+    pub bus: Arc<dyn EventBus>,
     pub place: Arc<dyn SessionPlace>,
     pub decisions: Arc<dyn SessionDecisions>,
     pub clock: Arc<dyn Clock>,
@@ -76,6 +83,8 @@ pub enum StartFailure {
     UnknownHarness(String),
     #[error("the Workspace has no Run {0}")]
     RunNotFound(RunId),
+    #[error("the Workspace has no Host {0}")]
+    HostNotFound(HostId),
     /// The Run has no Channel, so no Thread can show the session.
     #[error("the Run has no conversation that can show the session")]
     NoConversation,
@@ -142,6 +151,9 @@ pub enum SessionError {
 pub struct CodingSessions {
     records: Records,
     runs: Arc<dyn RunStore>,
+    hosts: Arc<dyn HostStore>,
+    messages: Arc<dyn MessageStore>,
+    bus: Arc<dyn EventBus>,
     place: Arc<dyn SessionPlace>,
     decisions: Arc<dyn SessionDecisions>,
     cancel: CancellationToken,
@@ -162,6 +174,9 @@ impl CodingSessions {
                 clock: deps.clock,
             },
             runs: deps.runs,
+            hosts: deps.hosts,
+            messages: deps.messages,
+            bus: deps.bus,
             place: deps.place,
             decisions: deps.decisions,
             cancel: deps.cancel,
@@ -183,6 +198,11 @@ impl CodingSessions {
             .await?
             .ok_or_else(|| StartFailure::RunNotFound(new.run_id.clone()))?;
         let channel_id = run.channel_id.ok_or(StartFailure::NoConversation)?;
+        let host = self
+            .hosts
+            .get(&new.workspace_id, &new.host_id)
+            .await?
+            .ok_or_else(|| StartFailure::HostNotFound(new.host_id.clone()))?;
         let now = self.records.clock.now_ms();
         let message_id = MessageId::generate();
         let mut record = CodingSession {
@@ -217,6 +237,9 @@ impl CodingSessions {
             ended_at: None,
         };
         self.records.store.insert(&record).await?;
+        // The Person sees the session from `starting` on.
+        self.post_session_block(&record, entry.label, &host.name)
+            .await?;
 
         let (command, args) = harness::launch_command(entry);
         let request = OpenRequest {
@@ -384,6 +407,69 @@ impl CodingSessions {
             Some(record) => Err(SessionError::NotOpen(record.state)),
             None => Err(SessionError::NotFound),
         }
+    }
+
+    /// Posts the daemon-made block of a session in its Thread (ADR-0033),
+    /// under the ids of the record. The record is written first, so the
+    /// block never names a row that does not exist.
+    ///
+    /// The block is the root of the session's Thread when the record's
+    /// root is its own message, and a reply in the Run's Thread when
+    /// not.
+    async fn post_session_block(
+        &self,
+        record: &CodingSession,
+        harness: &str,
+        machine: &str,
+    ) -> Result<(), StoreError> {
+        let blocks = vec![Block::coding_session(
+            record.id.as_str(),
+            harness,
+            machine,
+            &record.directory,
+            &record.title,
+        )];
+        let parent_message_id =
+            (record.root_message_id != record.message_id).then(|| record.root_message_id.clone());
+        let message = Message {
+            id: record.message_id.clone(),
+            workspace_id: record.workspace_id.clone(),
+            channel_id: record.channel_id.clone(),
+            parent_message_id,
+            author_kind: AuthorKind::System,
+            author_agent_id: None,
+            run_id: Some(record.run_id.clone()),
+            status: MessageStatus::Complete,
+            text_content: blocks_text(&blocks),
+            blocks,
+            pending_id: None,
+            created_at: record.created_at,
+            completed_at: Some(record.created_at),
+        };
+        // The block holds the daemon's own session fields and no
+        // conversation text, so it has no exposure.
+        self.messages.insert_stamped(&message, &[]).await?;
+        let published = self
+            .bus
+            .publish(NewEvent {
+                workspace_id: message.workspace_id.clone(),
+                event_type: "message.completed".to_string(),
+                agent_id: Some(record.agent_id.clone()),
+                run_id: Some(record.run_id.clone()),
+                channel_id: Some(message.channel_id.clone()),
+                payload: json!({
+                    "message_id": message.id.as_str(),
+                    "parent_message_id": message.parent_message_id.as_ref().map(MessageId::as_str),
+                    "author_kind": AuthorKind::System,
+                }),
+            })
+            .await;
+        // The message is stored, so a client that reads the Thread
+        // again finds the block.
+        if let Err(error) = published {
+            tracing::warn!(session = %record.id, %error, "the block of a Coding Session did not reach the clients");
+        }
+        Ok(())
     }
 
     /// Ends a start that the harness failed, and gives its failure.

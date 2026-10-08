@@ -22,9 +22,10 @@ use pagis_coding::{
 use pagis_core::{
     Agent, AgentId, AgentStatus, AgentStore, AuthorKind, Block, Channel, ChannelId, ChannelKind,
     ChannelStore, CodingSession, CodingSessionEvent, CodingSessionEventKind as Kind,
-    CodingSessionId, CodingSessionPlace, CodingSessionState as State, CodingSessionStore, HostId,
-    HostStore, Message, MessageId, MessageStatus, MessageStore, Run, RunId, RunState, RunStore,
-    SessionApprovalMode, SystemClock, TriggerKind, Workspace, WorkspaceId, WorkspaceStore, now_ms,
+    CodingSessionId, CodingSessionPlace, CodingSessionState as State, CodingSessionStore, Event,
+    EventBus, EventId, EventScope, EventStream, HostId, HostStore, Message, MessageId,
+    MessageStatus, MessageStore, NewEvent, Run, RunId, RunState, RunStore, SessionApprovalMode,
+    StoreError, SystemClock, TriggerKind, Workspace, WorkspaceId, WorkspaceStore, now_ms,
 };
 use pagis_storage_sqlite::{
     SqliteAgentStore, SqliteChannelStore, SqliteCodingSessionStore, SqliteHostStore,
@@ -187,6 +188,9 @@ impl World {
         CodingSessions::new(CodingSessionsDeps {
             sessions: self.sessions.clone(),
             runs: Arc::new(SqliteRunStore::new(self.pool.clone())),
+            hosts: Arc::new(SqliteHostStore::new(self.pool.clone())),
+            messages: Arc::new(SqliteMessageStore::new(self.pool.clone())),
+            bus: Arc::new(SilentBus),
             place,
             decisions,
             clock: Arc::new(SystemClock),
@@ -279,6 +283,30 @@ fn prompts(harness: &FakeHarness) -> Vec<String> {
         .into_iter()
         .map(|params| params["prompt"][0]["text"].as_str().unwrap().to_string())
         .collect()
+}
+
+/// A bus that drops each event. The full-daemon tests read the events.
+struct SilentBus;
+
+#[async_trait]
+impl EventBus for SilentBus {
+    async fn publish(&self, event: NewEvent) -> Result<Event, StoreError> {
+        Ok(Event {
+            id: EventId::generate(),
+            seq: 1,
+            workspace_id: event.workspace_id,
+            event_type: event.event_type,
+            agent_id: event.agent_id,
+            run_id: event.run_id,
+            channel_id: event.channel_id,
+            payload: event.payload,
+            created_at: now_ms(),
+        })
+    }
+
+    async fn subscribe(&self, _: EventScope, _: Option<i64>) -> EventStream {
+        Box::pin(futures::stream::empty())
+    }
 }
 
 /// A place that runs the fake harness at the other end of a
@@ -585,6 +613,33 @@ async fn a_run_with_no_channel_starts_no_session(pool: SqlitePool) {
         "{refused:?}"
     );
     assert!(place.requests.lock().unwrap().is_empty());
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_host_of_another_workspace_starts_no_session(pool: SqlitePool) {
+    let world = world(pool).await;
+    let place = DuplexPlace::new(Script::default());
+    let sessions = world.coding_sessions(place.clone(), Arc::new(RefuseDecisions));
+    let stranger = HostId::generate();
+
+    let refused = sessions
+        .start(NewCodingSession {
+            host_id: stranger.clone(),
+            ..world.new_session(&world.run_id)
+        })
+        .await;
+
+    assert!(
+        matches!(&refused, Err(StartFailure::HostNotFound(host_id)) if *host_id == stranger),
+        "{refused:?}"
+    );
+    assert!(place.requests.lock().unwrap().is_empty());
+    let written = world
+        .sessions
+        .list(&world.workspace_id, None, None, None, 10)
+        .await
+        .unwrap();
+    assert!(written.is_empty(), "no record: {written:?}");
 }
 
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]

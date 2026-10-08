@@ -46,6 +46,7 @@ const KNOWN_TYPES: readonly KnownBlock['type'][] = [
   'call',
   'widget',
   'mail',
+  'coding_session',
 ]
 
 function isBlockShaped(value: unknown): value is WireBlock {
@@ -280,6 +281,7 @@ function KnownBlockView({ block, api }: { block: KnownBlock; api: ApiClient }) {
       if (typeof block.message_id !== 'string') break
       return <MailBlock block={block} />
     case 'screen':
+    case 'coding_session':
       // Typed here with no renderer: it takes the same fallback an
       // unknown type takes.
       break
