@@ -86,7 +86,7 @@ export const clown = { id: 'ag2', name: 'Clown', job: 'jester', personality: 'lo
 
 export const sageGrant = {
   id: 'grant-1', agent_id: 'ag1', agent_name: 'Sage', resource_kind: 'connection',
-  resource_id: 'conn-1', allow: [], capabilities: ['gmail_read', 'gmail_send', 'calendar_read'],
+  resource_id: 'conn-1', allow: [], capabilities: ['gmail_read', 'gmail_send', 'calendar_read'], sessions: [],
   revision: 1, created_at: 1,
 }
 

@@ -7,7 +7,9 @@
 // class for a host action, the Credential record's own domain for a
 // vault action, which is why a vault card can name the site it will
 // open. A host command's rule covers every flag and argument of its
-// command, and the card says so beside "Always allow" (ADR-0015).
+// command, and the card says so beside "Always allow" (ADR-0015). A
+// Coding Session start proposes a session allow rule, and the payload
+// carries the words of its checkbox (ADR-0033).
 //
 // One card, one decision: the header names the act and the place,
 // Approve is the only primary action, "Always allow" is a checkbox that
@@ -43,6 +45,8 @@ interface ApprovalPayload {
   username?: string
   login_url?: string
   plugin_id?: string | null
+  /** The words of the checkbox, when the daemon writes them. */
+  always_label?: string | null
 }
 
 /** The clock a settled card shows beside the decision. */
@@ -78,6 +82,8 @@ export function ApprovalCard({
   // here, and its one rule is the tool's own qualified name.
   const pluginTool = typeof payload?.plugin_id === 'string'
   const hostCommand = payload?.tool_name === 'host_shell'
+  const alwaysLabel = payload?.always_label ?? null
+  const offersAlways = proposedRules.length > 0 || alwaysLabel !== null
   const alwaysId = `approval-always-${requestId}`
   const scopeId = `approval-always-scope-${requestId}`
 
@@ -137,7 +143,7 @@ export function ApprovalCard({
           >
             Approve
           </Button>
-          {proposedRules.length > 0 && (
+          {offersAlways && (
             <label className="approval-always" htmlFor={alwaysId}>
               <input
                 id={alwaysId}
@@ -147,10 +153,14 @@ export function ApprovalCard({
                 aria-describedby={hostCommand ? scopeId : undefined}
                 onChange={(event) => setAlways(event.target.checked)}
               />
-              <span>
-                {pluginTool ? 'Always allow this tool' : 'Always allow'}{' '}
-                <code>{proposedRules.join(', ')}</code>
-              </span>
+              {alwaysLabel !== null ? (
+                <span>{alwaysLabel}</span>
+              ) : (
+                <span>
+                  {pluginTool ? 'Always allow this tool' : 'Always allow'}{' '}
+                  <code>{proposedRules.join(', ')}</code>
+                </span>
+              )}
             </label>
           )}
           {proposedRules.length > 0 && hostCommand && (

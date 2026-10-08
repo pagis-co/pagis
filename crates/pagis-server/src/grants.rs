@@ -2,9 +2,10 @@
 //! their allow rules, edits the rules, and revokes a grant. Revocation
 //! is the off switch — the next call re-enters the approval flow. A
 //! host grant's rules are command prefixes; a credential grant's rules
-//! are registrable domains, capped at five. A host grant also holds the
-//! widest Session Approval Mode of its Agent on its machine (ADR-0033),
-//! which the Person sets for an Agent and a machine.
+//! are registrable domains, capped at five. A host grant also holds its
+//! session allow rules and the widest Session Approval Mode of its Agent
+//! on its machine (ADR-0033), which the Person sets for an Agent and a
+//! machine.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -13,7 +14,8 @@ use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use pagis_core::{
-    AgentId, ConnectionId, Grant, GrantId, HostId, NewEvent, SessionApprovalMode, now_ms,
+    AgentId, ConnectionId, Grant, GrantId, HostId, NewEvent, SessionAllowRule, SessionApprovalMode,
+    now_ms,
 };
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -38,6 +40,11 @@ pub struct GrantDto {
     pub allow: Vec<String>,
     /// Named capabilities on a Connection grant.
     pub capabilities: Vec<String>,
+    /// The session allow rules of a host grant: each lets the Agent start
+    /// the sessions of one Coding Harness in one directory of the machine,
+    /// and in each directory under it, with no card. The other kinds hold
+    /// none.
+    pub sessions: Vec<SessionAllowRule>,
     /// The widest Session Approval Mode of the Agent on the machine of a
     /// host grant. The other kinds hold none.
     pub session_approval_mode: Option<SessionApprovalMode>,
@@ -54,6 +61,9 @@ pub struct GrantPage {
 pub struct SetGrantRulesRequest {
     /// The full replacement rule list.
     pub allow: Vec<String>,
+    /// The full replacement list of the session allow rules of a host
+    /// grant. Without it, the session allow rules stay.
+    pub sessions: Option<Vec<SessionAllowRule>>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -89,6 +99,7 @@ pub(crate) fn grant_dto(grant: &Grant, agent_name: &str) -> GrantDto {
         resource_id: grant.resource_id.clone(),
         allow: grant.allow_rules(),
         capabilities: grant.capabilities(),
+        sessions: grant.session_allow_rules(),
         session_approval_mode: host_session_approval_mode(grant),
         revision: grant.revision,
         created_at: grant.created_at,
@@ -330,6 +341,22 @@ pub async fn set_grant_rules(
     }
     check_rules(&grant.resource_kind, &allow)?;
     grant.scope = grant.with_allow_rules(&allow);
+    if let Some(sessions) = &request.sessions {
+        if grant.resource_kind != Grant::HOST_KIND {
+            return Err(ApiError::validation(
+                "only a host grant has session allow rules",
+            ));
+        }
+        let mut rules: Vec<SessionAllowRule> = Vec::new();
+        for rule in sessions {
+            let rule = SessionAllowRule::new(&rule.harness, &rule.directory)
+                .map_err(ApiError::validation)?;
+            if !rules.contains(&rule) {
+                rules.push(rule);
+            }
+        }
+        grant.scope = grant.with_session_allow_rules(&rules);
+    }
     if !state
         .grants
         .set_scope(&tenant.workspace_id, &grant_id, &grant.scope)
@@ -556,6 +583,7 @@ pub(crate) async fn publish_grant_event(
                 "resource_id": grant.resource_id,
                 "allow": grant.allow_rules(),
                 "capabilities": grant.capabilities(),
+                "sessions": grant.session_allow_rules(),
                 "session_approval_mode": host_session_approval_mode(grant),
                 "revision": grant.revision,
             }),

@@ -25,6 +25,7 @@ const grant = {
   resource_id: null,
   allow: ['git status', 'echo'],
   capabilities: [],
+  sessions: [],
   revision: 1,
   created_at: 1,
 }
@@ -54,6 +55,7 @@ const credentialGrant = {
   resource_id: null,
   allow: ['example.com'],
   capabilities: [],
+  sessions: [],
   revision: 1,
   created_at: 2,
 }
@@ -120,6 +122,32 @@ describe('GrantRow', () => {
       expect(api.PUT).toHaveBeenCalledWith('/api/v1/grants/{grant_id}/rules', {
         params: { path: { grant_id: 'g1' } },
         body: { allow: ['git status', 'echo', 'npm run'] },
+      }),
+    )
+  })
+
+  it('lists the session allow rules of a host grant and removes one', async () => {
+    const api = stubApi()
+    const sessions = [
+      { harness: 'claude', directory: '/work/pagis' },
+      { harness: 'codex', directory: '/work/site' },
+    ]
+    mount(api, [{ ...grant, sessions }])
+
+    expect(await screen.findByText('claude sessions in /work/pagis')).toBeTruthy()
+    expect(screen.getByText('codex sessions in /work/site')).toBeTruthy()
+
+    fireEvent.click(
+      screen.getByLabelText('Remove rule claude sessions in /work/pagis'),
+    )
+
+    await waitFor(() =>
+      expect(api.PUT).toHaveBeenCalledWith('/api/v1/grants/{grant_id}/rules', {
+        params: { path: { grant_id: 'g1' } },
+        body: {
+          allow: ['git status', 'echo'],
+          sessions: [{ harness: 'codex', directory: '/work/site' }],
+        },
       }),
     )
   })

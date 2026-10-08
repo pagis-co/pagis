@@ -12,8 +12,9 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use async_trait::async_trait;
 use futures::StreamExt;
-use pagis_agent::TurnRole;
+use pagis_agent::{Brain, BrainError, TurnRequest, TurnRole, TurnStream};
 use pagis_broker::fake::FakeClientApp;
 use pagis_coding::fake::{Ask, FakeHarness, Script, Turn, acp, serve_client_app};
 use pagis_coding::{CloseReason, NewCodingSession, PERMISSION_DECIDED_EVENT, PromptOutcome};
@@ -402,9 +403,13 @@ async fn a_session_from_a_run_with_no_thread_posts_the_root_of_its_own_thread() 
 }
 
 fn start_call(machine: Option<&str>) -> pagis_testkit::Script {
+    start_call_in(DIRECTORY, machine)
+}
+
+fn start_call_in(directory: &str, machine: Option<&str>) -> pagis_testkit::Script {
     let mut arguments = json!({
         "harness": "claude",
-        "directory": DIRECTORY,
+        "directory": directory,
         "title": "Fix the login",
         "prompt": PROMPT,
     });
@@ -420,6 +425,34 @@ async fn daemon_with(brain: &Arc<ScriptedBrain>) -> TestDaemon {
         ..TestDaemonOptions::default()
     })
     .await
+}
+
+/// A daemon on `brain` whose Wake-ups of a Coding Session read no script.
+/// The end of a turn and a decision that waits wake the Agent (ADR-0033).
+/// A Wake-up Run that took the next script of the shared queue would take
+/// it from the Run that the test starts, so it finds no script and fails.
+async fn daemon_for_test_runs(brain: &Arc<ScriptedBrain>) -> TestDaemon {
+    TestDaemon::start_with(TestDaemonOptions {
+        brain: Arc::new(TestRunsOnly(Arc::clone(brain))),
+        ..TestDaemonOptions::default()
+    })
+    .await
+}
+
+/// The scripted brain of the Runs that a test starts: the briefing of a
+/// Coding Session event gets no script.
+struct TestRunsOnly(Arc<ScriptedBrain>);
+
+#[async_trait]
+impl Brain for TestRunsOnly {
+    async fn turn(&self, request: TurnRequest) -> Result<TurnStream, BrainError> {
+        if request.system.contains("Event kind: coding_session.") {
+            return Err(BrainError::new(
+                "no script for a Wake-up of a Coding Session",
+            ));
+        }
+        self.0.turn(request).await
+    }
 }
 
 async fn wait_until(what: &str, ready: impl Fn() -> bool) {
@@ -452,6 +485,8 @@ async fn the_tool_result(firehose: &mut Socket, brain: &ScriptedBrain) -> String
         .clone()
 }
 
+/// Sends `text` as the Person. The text is the pending id too, so each
+/// text of one test is a new message.
 async fn send(daemon: &TestDaemon, cookie: &str, channel_id: &str, text: &str) {
     let sent = reqwest::Client::new()
         .post(format!(
@@ -459,7 +494,7 @@ async fn send(daemon: &TestDaemon, cookie: &str, channel_id: &str, text: &str) {
             daemon.base_url
         ))
         .header("cookie", cookie)
-        .json(&json!({"pending_id": "p-1", "text": text}))
+        .json(&json!({"pending_id": text, "text": text}))
         .send()
         .await
         .unwrap();
@@ -476,7 +511,7 @@ async fn an_agent_starts_a_coding_session_on_a_host_after_the_person_approves_it
     let brain = Arc::new(ScriptedBrain::default());
     brain.push(start_call(None));
     brain.push(pagis_testkit::Script::reply(&["Started."]));
-    let daemon = daemon_with(&brain).await;
+    let daemon = daemon_for_test_runs(&brain).await;
     let harnesses: Arc<Mutex<Vec<FakeHarness>>> = Arc::default();
     let client_app = FakeClientApp::running(WORKTREE, {
         let harnesses = Arc::clone(&harnesses);
@@ -681,6 +716,7 @@ async fn person_bs_agent_that_names_person_as_machine_gets_machine_not_found() {
 /// approved its card, with the harness of `script`.
 struct Started {
     daemon: TestDaemon,
+    brain: Arc<ScriptedBrain>,
     _host: HostClient,
     _sessions: SessionClient,
     harnesses: Arc<Mutex<Vec<FakeHarness>>>,
@@ -690,10 +726,16 @@ struct Started {
 }
 
 async fn start_approved_session(script: Script) -> Started {
+    start_session_after(script, json!({"decision": "approved"})).await
+}
+
+/// A Coding Session that an Agent started on a Host after the Person
+/// sent `decision` for its card.
+async fn start_session_after(script: Script, decision: Value) -> Started {
     let brain = Arc::new(ScriptedBrain::default());
     brain.push(start_call(None));
     brain.push(pagis_testkit::Script::reply(&["Started."]));
-    let daemon = daemon_with(&brain).await;
+    let daemon = daemon_for_test_runs(&brain).await;
     let harnesses: Arc<Mutex<Vec<FakeHarness>>> = Arc::default();
     let client_app = FakeClientApp::running(WORKTREE, {
         let harnesses = Arc::clone(&harnesses);
@@ -740,7 +782,7 @@ async fn start_approved_session(script: Script) -> Started {
             daemon.base_url
         ))
         .header("cookie", daemon.cookie())
-        .json(&json!({"decision": "approved"}))
+        .json(&decision)
         .send()
         .await
         .unwrap();
@@ -752,6 +794,7 @@ async fn start_approved_session(script: Script) -> Started {
     let grant_id = grants["items"][0]["id"].as_str().unwrap().to_string();
     Started {
         daemon,
+        brain,
         _host: host,
         _sessions: sessions,
         harnesses,
@@ -1249,4 +1292,62 @@ async fn wait_for_turn_ends(daemon: &TestDaemon, session: &CodingSession, count:
         );
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
+}
+
+/// "Always allow" on a start card writes a session Allow Rule onto the
+/// host Grant. A later start of the same harness in a directory under it
+/// runs with no card, and a write of the command rules in Settings keeps
+/// the session rule.
+#[tokio::test]
+async fn an_always_approve_of_a_start_lets_a_later_start_under_its_directory_run_with_no_card() {
+    let started = start_session_after(
+        Script::default().turn(Turn::until_cancel(vec![])),
+        json!({"decision": "approved", "scope": "always"}),
+    )
+    .await;
+    let daemon = &started.daemon;
+    let grants = get(daemon, "/api/v1/grants").await;
+    let session_rules = json!([{"harness": "claude", "directory": DIRECTORY}]);
+    assert_eq!(grants["items"][0]["sessions"], session_rules, "{grants:#}");
+    assert_eq!(grants["items"][0]["allow"], json!([]));
+
+    started.set_rules(&["git status"]).await;
+
+    let grants = get(daemon, "/api/v1/grants").await;
+    assert_eq!(grants["items"][0]["allow"], json!(["git status"]));
+    assert_eq!(grants["items"][0]["sessions"], session_rules, "{grants:#}");
+
+    started
+        .brain
+        .push(start_call_in(&format!("{DIRECTORY}/web"), None));
+    started
+        .brain
+        .push(pagis_testkit::Script::reply(&["Started again."]));
+    let mut firehose = daemon.event_socket(daemon.cookie()).await;
+
+    send(
+        daemon,
+        daemon.cookie(),
+        &daemon.dm_channel_id,
+        "fix the web app",
+    )
+    .await;
+
+    let result = the_tool_result(&mut firehose, &started.brain).await;
+    let result: Value = serde_json::from_str(&result)
+        .unwrap_or_else(|error| panic!("the tool result is JSON ({error}): {result}"));
+    assert_eq!(result["state"], "working");
+    assert_ne!(result["session_id"], started.session_id.as_str());
+    let pending = daemon
+        .stores()
+        .requests
+        .list_by_state(
+            &daemon.workspace_id,
+            pagis_core::RequestState::Pending,
+            None,
+        )
+        .await
+        .unwrap();
+    assert!(pending.is_empty(), "{pending:?}");
+    assert_eq!(started.harnesses.lock().unwrap().len(), 2);
 }

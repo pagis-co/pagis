@@ -7,7 +7,11 @@
 //! which has its own tests. Here a scripted one stands in.
 
 use pagis_broker::{CODING_SESSION_START, InvokeOutcome, SessionStartAction, ToolCall, ToolResult};
-use pagis_core::{RequestState, RequestStore, SHELL_CAPABILITY, SessionApprovalMode};
+use pagis_core::{
+    GrantStore, Host, RequestState, RequestStore, SHELL_CAPABILITY, SessionAllowRule,
+    SessionApprovalMode,
+};
+use pagis_storage_sqlite::SqliteGrantStore;
 use pagis_storage_sqlite::SqliteRequestStore;
 use sqlx::SqlitePool;
 
@@ -264,6 +268,14 @@ async fn the_card_names_the_harness_and_the_machine(pool: SqlitePool) {
         serde_json::json!([])
     );
     assert_eq!(
+        card.request.payload["proposed_session_allow_rule"],
+        serde_json::json!({"harness": "claude", "directory": DIRECTORY})
+    );
+    assert_eq!(
+        card.request.payload["always_label"],
+        format!("Always allow Claude Code sessions in {DIRECTORY} on Air")
+    );
+    assert_eq!(
         card.body,
         format!(
             "Harness: Claude Code\nMachine: Air\nDirectory: {DIRECTORY}\n\
@@ -339,4 +351,91 @@ async fn the_card_of_a_start_with_no_worktree_and_a_long_prompt(pool: SqlitePool
         "{}",
         card.body
     );
+}
+
+/// A host Grant of the Agent on `host` that holds one session Allow Rule
+/// for Claude Code in `directory`.
+async fn grant_session_rule(harness: &Harness, host: &Host, directory: &str) {
+    let mut grant = grant_host(harness, host, &[]).await;
+    let rule = SessionAllowRule::new("claude", directory).unwrap();
+    grant.scope = grant.with_session_allow_rules(&[rule]);
+    SqliteGrantStore::new(harness.pool.clone())
+        .set_scope(&harness.workspace.id, &grant.id, &grant.scope)
+        .await
+        .unwrap();
+}
+
+/// What the scripted check answers for a start of Claude Code in
+/// `directory`.
+fn action_in(directory: &str) -> SessionStartAction {
+    SessionStartAction {
+        directory: directory.to_string(),
+        ..action(None, SessionApprovalMode::Person)
+    }
+}
+
+/// A session Allow Rule of the machine's host Grant that covers the
+/// harness and the directory runs the start with no card. The checks of
+/// the start still run first.
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_start_that_a_session_allow_rule_covers_runs_with_no_card(pool: SqlitePool) {
+    let harness = harness(pool).await;
+    let air = register(&harness, "Air", &["harness:claude"]).await;
+    let _connected = harness.presence().connect(&air.id);
+    grant_session_rule(&harness, &air, "/Users/bo/code").await;
+    harness
+        .starts
+        .answers(Ok(action_in("/Users/bo/code/app/web")));
+
+    let outcome = start(&harness, &arguments("claude", None)).await;
+
+    assert!(
+        matches!(outcome, InvokeOutcome::Completed(_)),
+        "{outcome:?}"
+    );
+    assert!(pending_requests(&harness).await.is_empty());
+    let calls = harness.executor.calls.lock().unwrap().clone();
+    assert_eq!(calls.len(), 1);
+    assert!(calls[0].approved_by_rule);
+    assert_eq!(*harness.starts.hosts.lock().unwrap(), vec![air.id]);
+}
+
+/// A session Allow Rule is the rule of one machine, one harness and one
+/// directory tree. A start on another machine of the same Person, of
+/// another harness, or in a sibling directory with a shared prefix asks.
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_start_that_no_session_allow_rule_covers_asks(pool: SqlitePool) {
+    let harness = harness(pool).await;
+    let air = register(&harness, "Air", &["harness:claude"]).await;
+    let studio = register(&harness, "Studio", &["harness:claude"]).await;
+    let _studio_connected = harness.presence().connect(&studio.id);
+    grant_session_rule(&harness, &air, DIRECTORY).await;
+    grant_host(&harness, &studio, &[]).await;
+    harness.starts.answers(Ok(action_in(DIRECTORY)));
+
+    let outcome = start(&harness, &arguments("claude", Some("Studio"))).await;
+
+    let InvokeOutcome::Waiting(card) = outcome else {
+        panic!("the other machine asks: {outcome:?}");
+    };
+    assert_eq!(card.request.payload["host_id"], studio.id.as_str());
+
+    let _air_connected = harness.presence().connect(&air.id);
+    for (harness_id, directory) in [
+        ("codex", DIRECTORY.to_string()),
+        ("claude", format!("{DIRECTORY}2")),
+    ] {
+        harness.starts.answers(Ok(SessionStartAction {
+            harness_id: harness_id.to_string(),
+            ..action_in(&directory)
+        }));
+
+        let outcome = start(&harness, &arguments("claude", Some("Air"))).await;
+
+        assert!(
+            matches!(outcome, InvokeOutcome::Waiting(_)),
+            "{harness_id} in {directory}: {outcome:?}"
+        );
+    }
+    assert!(harness.executor.calls.lock().unwrap().is_empty());
 }

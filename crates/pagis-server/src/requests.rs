@@ -12,9 +12,11 @@
 //! for that resource kind, and a plain approve bootstraps the grant
 //! with an empty rule list. A host `tool_action` writes host rules; a
 //! `credential_action` writes the one registrable domain the
-//! Credential record carried. A `mail__send` from an Agent Mailbox
-//! writes its recipient domains onto the mailbox record, because that
-//! mailbox is the Agent's own identity and carries no Grant.
+//! Credential record carried. A Coding Session start writes its session
+//! Allow Rule onto the host Grant (ADR-0033). A `mail__send` from an
+//! Agent Mailbox writes its recipient domains onto the mailbox record,
+//! because that mailbox is the Agent's own identity and carries no
+//! Grant.
 
 use std::sync::Arc;
 
@@ -22,7 +24,7 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use pagis_core::{
     AgentMailboxId, DecideOutcome, Grant, GrantId, NewEvent, Request, RequestId, RequestState,
-    now_ms, validate_values,
+    SessionAllowRule, now_ms, validate_values,
 };
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
@@ -88,8 +90,8 @@ pub struct DecisionRequest {
     /// `values`; a dismissal is `denied`.
     pub decision: String,
     /// `once` (the default), or `always` to also write the request's
-    /// proposed allow rules into the agent's grant.
-    /// Meaningful for a `tool_action` only.
+    /// proposed allow rules, or its proposed session allow rule, into
+    /// the agent's grant. Meaningful for a `tool_action` only.
     pub scope: Option<String>,
     /// What a `form` or a `choice` submits, validated against the
     /// field schema on the row.
@@ -198,7 +200,14 @@ pub async fn decide_request(
         .await?
         .ok_or_else(|| ApiError::not_found("request"))?;
     let proposed_rules = proposed_rules(&current);
-    if always && proposed_rules.is_empty() {
+    // Only an `always` writes the session rule, so only an `always`
+    // checks it.
+    let session_rule = if always {
+        proposed_session_allow_rule(&current)?
+    } else {
+        None
+    };
+    if always && proposed_rules.is_empty() && session_rule.is_none() {
         return Err(ApiError::validation(
             "scope always needs proposed allow rules; this request has none",
         ));
@@ -232,7 +241,15 @@ pub async fn decide_request(
             if decided.state == RequestState::Approved
                 && let Some((kind, resource)) = &target
             {
-                write_grant(&state, &decided, kind, resource.as_deref(), rules).await?;
+                write_grant(
+                    &state,
+                    &decided,
+                    kind,
+                    resource.as_deref(),
+                    rules,
+                    session_rule.as_ref(),
+                )
+                .await?;
             }
             // A mail rule lives on the mailbox record and not in a
             // Grant: the Agent holds its own mailbox with no Grant
@@ -307,6 +324,23 @@ fn proposed_rules(request: &Request) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// The session Allow Rule that a Coding Session start proposes, or
+/// `None` when the request proposes none. The daemon wrote the payload,
+/// and the rule is checked again here: a harness that is not in the
+/// Harness Catalog, or a directory that is not absolute, is a 422 and
+/// leaves the Request pending.
+fn proposed_session_allow_rule(request: &Request) -> Result<Option<SessionAllowRule>, ApiError> {
+    let proposed = &request.payload["proposed_session_allow_rule"];
+    if proposed.is_null() {
+        return Ok(None);
+    }
+    let harness = proposed["harness"].as_str().unwrap_or_default();
+    let directory = proposed["directory"].as_str().unwrap_or_default();
+    SessionAllowRule::new(harness, directory)
+        .map(Some)
+        .map_err(ApiError::validation)
 }
 
 /// The Agent Mailbox an `always` writes its Mail Recipient Domain
@@ -406,14 +440,16 @@ async fn check_added_rules(
 
 /// The grant write behind an approve: bootstrap the
 /// agent's grant for this resource kind when it is missing, and append
-/// the proposed rules on an `always`. A no-change write publishes no
-/// event. [`check_added_rules`] has already checked the rules.
+/// the proposed rules, or the proposed session allow rule, on an
+/// `always`. A no-change write publishes no event.
+/// [`check_added_rules`] has already checked the rules.
 async fn write_grant(
     state: &AppState,
     request: &Request,
     resource_kind: &str,
     resource_id: Option<&str>,
     rules: &[String],
+    session_rule: Option<&SessionAllowRule>,
 ) -> Result<(), ApiError> {
     match live_grant(state, request, resource_kind, resource_id).await? {
         // A Grant on a Connection or a Plugin is the user's own act: an
@@ -422,7 +458,7 @@ async fn write_grant(
         // person read the machine's name on it and said yes.
         None if resource_id.is_some() && resource_kind != Grant::HOST_KIND => Ok(()),
         None => {
-            let grant = Grant {
+            let mut grant = Grant {
                 id: GrantId::generate(),
                 workspace_id: request.workspace_id.clone(),
                 agent_id: request.agent_id.clone(),
@@ -433,6 +469,9 @@ async fn write_grant(
                 created_at: now_ms(),
                 revoked_at: None,
             };
+            if let Some(rule) = session_rule {
+                grant.scope = grant.with_session_allow_rules(std::slice::from_ref(rule));
+            }
             state.grants.create(&grant).await?;
             crate::grants::publish_grant_event(state, &grant, "grant.changed").await
         }
@@ -443,11 +482,17 @@ async fn write_grant(
                 .filter(|rule| !allow.contains(rule))
                 .cloned()
                 .collect();
-            if missing.is_empty() {
+            let mut sessions = grant.session_allow_rules();
+            let missing_session = session_rule.filter(|rule| !sessions.contains(rule));
+            if missing.is_empty() && missing_session.is_none() {
                 return Ok(());
             }
             allow.extend(missing);
             grant.scope = grant.with_allow_rules(&allow);
+            if let Some(rule) = missing_session {
+                sessions.push(rule.clone());
+                grant.scope = grant.with_session_allow_rules(&sessions);
+            }
             state
                 .grants
                 .set_scope(&request.workspace_id, &grant.id, &grant.scope)

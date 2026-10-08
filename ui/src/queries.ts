@@ -21,6 +21,7 @@ import type {
   MessageDto,
   NeedsYouQueue,
   PluginSourceRequest,
+  SessionAllowRule,
   SessionApprovalMode,
   SystemSettingsBody,
   ThreadDto,
@@ -766,15 +767,24 @@ export function useSetGrantCapabilities(api: ApiClient) {
   });
 }
 
-/** Replace one grant's allow rules. */
+/** Replace one grant's allow rules, and the session allow rules of a
+ *  host grant when `sessions` is given. Without it they stay. */
 export function useSetGrantRules(api: ApiClient) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ grantId, allow }: { grantId: string; allow: string[] }) =>
+    mutationFn: ({
+      grantId,
+      allow,
+      sessions,
+    }: {
+      grantId: string;
+      allow: string[];
+      sessions?: SessionAllowRule[];
+    }) =>
       unwrap(
         api.PUT("/api/v1/grants/{grant_id}/rules", {
           params: { path: { grant_id: grantId } },
-          body: { allow },
+          body: sessions === undefined ? { allow } : { allow, sessions },
         }),
       ),
     onSettled: () => queryClient.invalidateQueries({ queryKey: grantsKey }),

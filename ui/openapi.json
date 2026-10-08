@@ -13303,7 +13303,7 @@
               "string",
               "null"
             ],
-            "description": "`once` (the default), or `always` to also write the request's\nproposed allow rules into the agent's grant.\nMeaningful for a `tool_action` only."
+            "description": "`once` (the default), or `always` to also write the request's\nproposed allow rules, or its proposed session allow rule, into\nthe agent's grant. Meaningful for a `tool_action` only."
           },
           "values": {
             "description": "What a `form` or a `choice` submits, validated against the\nfield schema on the row."
@@ -13936,6 +13936,7 @@
           "resource_kind",
           "allow",
           "capabilities",
+          "sessions",
           "revision",
           "created_at"
         ],
@@ -13993,6 +13994,13 @@
                 "description": "The widest Session Approval Mode of the Agent on the machine of a\nhost grant. The other kinds hold none."
               }
             ]
+          },
+          "sessions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SessionAllowRule"
+            },
+            "description": "The session allow rules of a host grant: each lets the Agent start\nthe sessions of one Coding Harness in one directory of the machine,\nand in each directory under it, with no card. The other kinds hold\nnone."
           }
         }
       },
@@ -19118,6 +19126,24 @@
           }
         }
       },
+      "SessionAllowRule": {
+        "type": "object",
+        "description": "A rule of a host Grant that lets its Agent start the sessions of one\nCoding Harness in one directory of the Grant's machine, and in each\ndirectory under it, with no card (ADR-0033). Only the Person writes\none: from the \"Always allow\" of a start card, or in Settings. It names\nno mode, so the widest mode of the Grant bounds each session that it\nlets start.",
+        "required": [
+          "harness",
+          "directory"
+        ],
+        "properties": {
+          "directory": {
+            "type": "string",
+            "description": "An absolute POSIX path, with `.` removed and `..` resolved."
+          },
+          "harness": {
+            "type": "string",
+            "description": "The id of the harness in the Harness Catalog."
+          }
+        }
+      },
       "SessionApprovalMode": {
         "type": "string",
         "description": "Who answers a Harness Permission of a Coding Session.",
@@ -19238,6 +19264,16 @@
               "type": "string"
             },
             "description": "The full replacement rule list."
+          },
+          "sessions": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/SessionAllowRule"
+            },
+            "description": "The full replacement list of the session allow rules of a host\ngrant. Without it, the session allow rules stay."
           }
         }
       },
