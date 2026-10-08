@@ -407,6 +407,20 @@ fn start_call(machine: Option<&str>) -> pagis_testkit::Script {
     start_call_in(DIRECTORY, machine)
 }
 
+/// A start in `mode`, or in the default mode.
+fn start_call_in_mode(mode: Option<&str>) -> pagis_testkit::Script {
+    let mut arguments = json!({
+        "harness": "claude",
+        "directory": DIRECTORY,
+        "title": "Fix the login",
+        "prompt": PROMPT,
+    });
+    if let Some(mode) = mode {
+        arguments["mode"] = mode.into();
+    }
+    pagis_testkit::Script::tool_call(&[], "coding_session_start", arguments)
+}
+
 fn start_call_in(directory: &str, machine: Option<&str>) -> pagis_testkit::Script {
     let mut arguments = json!({
         "harness": "claude",
@@ -740,9 +754,28 @@ async fn start_approved_session(script: Script) -> Started {
 /// sent `decision` for its card.
 async fn start_session_after(script: Script, decision: Value) -> Started {
     let brain = Arc::new(ScriptedBrain::default());
-    brain.push(start_call(None));
+    let daemon_brain = Arc::new(TestRunsOnly(Arc::clone(&brain)));
+    start_session_in_mode(script, decision, brain, daemon_brain, None).await
+}
+
+/// A Coding Session in `mode` that an Agent started on a Host after the
+/// Person sent `decision` for its card. `brain` scripts the Runs of the
+/// test, and the daemon thinks with `daemon_brain`. A mode sets the
+/// widest mode of the Agent on the machine first, as the Access tab does.
+async fn start_session_in_mode(
+    script: Script,
+    decision: Value,
+    brain: Arc<ScriptedBrain>,
+    daemon_brain: Arc<dyn Brain>,
+    mode: Option<&str>,
+) -> Started {
+    brain.push(start_call_in_mode(mode));
     brain.push(pagis_testkit::Script::reply(&["Started."]));
-    let daemon = daemon_for_test_runs(&brain).await;
+    let daemon = TestDaemon::start_with(TestDaemonOptions {
+        brain: daemon_brain,
+        ..TestDaemonOptions::default()
+    })
+    .await;
     let harnesses: Arc<Mutex<Vec<FakeHarness>>> = Arc::default();
     let client_app = FakeClientApp::running(WORKTREE, {
         let harnesses = Arc::clone(&harnesses);
@@ -770,6 +803,14 @@ async fn start_session_after(script: Script, decision: Value) -> Started {
         daemon.host_sessions.is_open(&host_id)
     })
     .await;
+    if let Some(mode) = mode {
+        // The first write makes the host Grant.
+        assert_eq!(
+            set_widest_mode(&daemon, host.host_id(), mode).await,
+            201,
+            "the widest mode is set"
+        );
+    }
     let mut firehose = daemon.event_socket(daemon.cookie()).await;
     send(
         &daemon,
@@ -2020,4 +2061,402 @@ async fn a_restart_leaves_a_working_session_interrupted() {
         wait_for_session_state(&daemon, &session.id, CodingSessionState::Interrupted).await;
     assert_eq!(record.end_reason, None);
     assert_eq!(record.ended_at, None);
+}
+
+// The `agent` mode: the supervising Agent decides a Harness Permission
+// or gives it to the Person (ADR-0033).
+
+const NOTE: &str = "The build directory is generated, so a delete is safe.";
+
+/// Sets the widest Session Approval Mode of the daemon's Agent on a
+/// machine, as the Access tab does, and answers the status.
+async fn set_widest_mode(daemon: &TestDaemon, host_id: &str, mode: &str) -> u16 {
+    reqwest::Client::new()
+        .put(format!(
+            "{}/api/v1/agents/{}/hosts/{host_id}/session-approval-mode",
+            daemon.base_url, daemon.agent_id
+        ))
+        .header("cookie", daemon.cookie())
+        .json(&json!({ "mode": mode }))
+        .send()
+        .await
+        .unwrap()
+        .status()
+        .as_u16()
+}
+
+fn rm_rf_build() -> Ask {
+    permission(acp::ToolKind::Execute, &[], Some("rm -rf build"))
+}
+
+/// The brain of a test in the `agent` mode. The Runs that the test starts
+/// take the scripts of `test`. The Wake-up of a decision that waits says
+/// so on `entered`, and takes the scripts of `decisions` once the test
+/// opens the gate. Each other Wake-up of a Coding Session gets no script.
+struct DecisionWakeups {
+    test: Arc<ScriptedBrain>,
+    decisions: Arc<ScriptedBrain>,
+    entered: Arc<tokio::sync::Notify>,
+    gate: tokio::sync::watch::Receiver<bool>,
+}
+
+#[async_trait]
+impl Brain for DecisionWakeups {
+    async fn turn(&self, request: TurnRequest) -> Result<TurnStream, BrainError> {
+        if request
+            .system
+            .contains("Event kind: coding_session.needs_decision")
+        {
+            self.entered.notify_one();
+            let mut gate = self.gate.clone();
+            let _ = gate.wait_for(|open| *open).await;
+            return self.decisions.turn(request).await;
+        }
+        if request.system.contains("Event kind: coding_session.") {
+            return Err(BrainError::new(
+                "no script for a Wake-up of a Coding Session",
+            ));
+        }
+        self.test.turn(request).await
+    }
+}
+
+/// A Coding Session in the `agent` mode whose permission waits for the
+/// Agent, and the brain of the Wake-up of that decision.
+struct AgentMode {
+    started: Started,
+    decisions: Arc<ScriptedBrain>,
+    entered: Arc<tokio::sync::Notify>,
+    gate: tokio::sync::watch::Sender<bool>,
+}
+
+/// Starts a session in the `agent` mode on a machine whose widest mode
+/// is `agent`, and waits until its first permission waits.
+async fn start_agent_mode_session(script: Script) -> AgentMode {
+    let brain = Arc::new(ScriptedBrain::default());
+    let decisions = Arc::new(ScriptedBrain::default());
+    let entered = Arc::new(tokio::sync::Notify::new());
+    let (gate, opened) = tokio::sync::watch::channel(false);
+    let daemon_brain = Arc::new(DecisionWakeups {
+        test: Arc::clone(&brain),
+        decisions: Arc::clone(&decisions),
+        entered: Arc::clone(&entered),
+        gate: opened,
+    });
+    let started = start_session_in_mode(
+        script,
+        json!({"decision": "approved"}),
+        brain,
+        daemon_brain,
+        Some("agent"),
+    )
+    .await;
+    started
+        .wait_for_state(CodingSessionState::NeedsDecision)
+        .await;
+    AgentMode {
+        started,
+        decisions,
+        entered,
+        gate,
+    }
+}
+
+impl AgentMode {
+    /// Waits until the decision wakes the Agent and its Run asks the
+    /// brain.
+    async fn woken(&self) {
+        tokio::time::timeout(WAIT, self.entered.notified())
+            .await
+            .expect("the decision wakes the Agent");
+    }
+
+    /// Waits until the session's Thread holds one approval card, and
+    /// answers the cards.
+    async fn wait_for_card_message(&self) -> Vec<Message> {
+        let deadline = tokio::time::Instant::now() + WAIT;
+        loop {
+            let cards = self.started.cards().await;
+            if !cards.is_empty() {
+                return cards;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "no approval card in the session's Thread"
+            );
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }
+
+    /// Lets the woken Run take `scripts`.
+    fn think(&self, scripts: Vec<pagis_testkit::Script>) {
+        for script in scripts {
+            self.decisions.push(script);
+        }
+        self.gate.send_replace(true);
+    }
+
+    fn call(&self, tool: &str, mut arguments: Value) -> pagis_testkit::Script {
+        arguments["session"] = self.started.session_id.as_str().into();
+        pagis_testkit::Script::tool_call(&[], tool, arguments)
+    }
+
+    /// Waits until the transcript holds `count` decision rows, and
+    /// answers them, oldest first.
+    async fn decision_rows(&self, count: usize) -> Vec<Value> {
+        let daemon = &self.started.daemon;
+        let deadline = tokio::time::Instant::now() + WAIT;
+        loop {
+            let rows: Vec<Value> = daemon
+                .stores()
+                .coding_sessions
+                .list_events(&daemon.workspace_id, &self.started.session_id, None, 1_000)
+                .await
+                .unwrap()
+                .into_iter()
+                .filter(|row| row.kind == CodingSessionEventKind::Decision)
+                .map(|row| row.payload)
+                .collect();
+            if rows.len() >= count {
+                return rows;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "{} decision rows, not {count}",
+                rows.len()
+            );
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }
+}
+
+/// In the `agent` mode an `execute` of `rm -rf build` wakes the Agent in
+/// the session's Thread. Its allow answers the harness with `allow_once`,
+/// with no card. The audit fact names the Agent, the woken Run and the
+/// note, and the host Grant gets no rule.
+#[tokio::test]
+async fn in_the_agent_mode_a_command_wakes_the_agent_and_its_allow_answers_the_harness_once() {
+    let agent = start_agent_mode_session(Script::default().turn(ends_after(rm_rf_build()))).await;
+    let started = &agent.started;
+    let daemon = &started.daemon;
+
+    agent.woken().await;
+    agent.think(vec![
+        agent.call(
+            "coding_session_decide",
+            json!({"decision": "allow", "note": NOTE}),
+        ),
+        pagis_testkit::Script::reply(&["I allowed it."]),
+    ]);
+
+    let facts = started.wait_for_facts(1).await;
+    assert_eq!(facts[0].payload["decider"], "agent");
+    assert_eq!(facts[0].payload["outcome"], "allowed");
+    assert_eq!(facts[0].payload["option_kind"], "allow_once");
+    assert_eq!(facts[0].payload["command"], "rm -rf build");
+    assert_eq!(facts[0].payload["note"], NOTE);
+    started.wait_for_state(CodingSessionState::Idle).await;
+    assert_eq!(started.answers(), [allow_once()]);
+    let record = started.record().await;
+    let woken = wait_for_event_runs(daemon, RunState::Completed, 1).await;
+    let woken = woken
+        .iter()
+        .find(|run| run.state == RunState::Completed)
+        .expect("the woken Run");
+    assert_eq!(
+        woken.root_message_id.as_ref(),
+        Some(&record.root_message_id)
+    );
+    assert_eq!(facts[0].payload["run_id"], woken.id.as_str());
+    let rows = session_envelope(&agent.decisions, &record, "coding_session.needs_decision");
+    assert!(rows.contains("decision_kind: permission"), "{rows}");
+    assert!(started.cards().await.is_empty(), "the Agent decided");
+    let grants = get(daemon, "/api/v1/grants").await;
+    assert_eq!(grants["items"].as_array().unwrap().len(), 1);
+    assert_eq!(grants["items"][0]["allow"], json!([]));
+    assert_eq!(grants["items"][0]["sessions"], json!([]));
+    assert_eq!(grants["items"][0]["session_approval_mode"], "agent");
+    let decisions = agent.decision_rows(1).await;
+    assert_eq!(decisions.len(), 1);
+    assert_eq!(decisions[0]["decision"], "allow_once");
+    assert_eq!(decisions[0]["decider"], "agent");
+}
+
+/// `coding_session_escalate` posts one approval card that shows the
+/// Agent's note. The Person's "Approve once" answers the harness, and the
+/// audit fact names the Person.
+#[tokio::test]
+async fn an_escalation_posts_one_card_with_the_note_and_the_person_approves_it_once() {
+    let question = "Delete the build directory? I did not make it.";
+    let agent = start_agent_mode_session(Script::default().turn(ends_after(rm_rf_build()))).await;
+    let started = &agent.started;
+
+    agent.woken().await;
+    agent.think(vec![
+        agent.call("coding_session_escalate", json!({"note": question})),
+        pagis_testkit::Script::reply(&["I asked you on the card."]),
+    ]);
+
+    let request = started.wait_for_card().await;
+    assert_eq!(request.payload["note"], question);
+    assert_eq!(request.payload["command"], "rm -rf build");
+    assert_eq!(agent.wait_for_card_message().await.len(), 1);
+    assert!(started.answers().is_empty(), "the permission waits");
+
+    assert_eq!(
+        started
+            .decide(&request, json!({"decision": "approved"}))
+            .await,
+        200
+    );
+
+    let facts = started.wait_for_facts(1).await;
+    assert_eq!(facts[0].payload["decider"], "person");
+    assert_eq!(facts[0].payload["outcome"], "allowed");
+    started.wait_for_state(CodingSessionState::Idle).await;
+    assert_eq!(started.answers(), [allow_once()]);
+    let decisions = agent.decision_rows(2).await;
+    assert_eq!(decisions.len(), 2);
+    assert_eq!(decisions[0]["decision"], "escalated");
+    assert_eq!(decisions[0]["decider"], "agent");
+    assert_eq!(decisions[0]["note"], question);
+    assert_eq!(decisions[1]["decision"], "allow_once");
+    assert_eq!(decisions[1]["decider"], "person");
+}
+
+/// A woken Run that ends with no decision gives the permission to the
+/// Person, on a card with the daemon's note.
+#[tokio::test]
+async fn a_woken_run_that_ends_without_a_decision_escalates_the_permission() {
+    let agent = start_agent_mode_session(Script::default().turn(ends_after(rm_rf_build()))).await;
+    let started = &agent.started;
+
+    agent.woken().await;
+    agent.think(vec![pagis_testkit::Script::reply(&[
+        "I will look at it later.",
+    ])]);
+
+    let request = started.wait_for_card().await;
+    assert_eq!(
+        request.payload["note"],
+        "The sprite ended its turn without a decision."
+    );
+    assert_eq!(agent.wait_for_card_message().await.len(), 1);
+    assert!(started.answers().is_empty(), "the permission waits");
+    let decisions = agent.decision_rows(1).await;
+    assert_eq!(decisions.len(), 1);
+    assert_eq!(decisions[0]["decision"], "escalated");
+    assert_eq!(decisions[0]["decider"], Value::Null);
+    assert_eq!(
+        started.state().await,
+        CodingSessionState::NeedsDecision,
+        "the session waits for the Person"
+    );
+}
+
+/// A Grant revision that narrows the widest mode to `person` while the
+/// permission waits makes `coding_session_decide` answer `escalated`, and
+/// the Person decides on the card.
+#[tokio::test]
+async fn a_narrower_widest_mode_during_the_wait_makes_decide_answer_escalated_and_posts_the_card() {
+    let agent = start_agent_mode_session(Script::default().turn(ends_after(rm_rf_build()))).await;
+    let started = &agent.started;
+    let daemon = &started.daemon;
+
+    agent.woken().await;
+    assert_eq!(
+        set_widest_mode(daemon, started._host.host_id(), "person").await,
+        200
+    );
+    agent.think(vec![
+        agent.call(
+            "coding_session_decide",
+            json!({"decision": "allow", "note": NOTE}),
+        ),
+        pagis_testkit::Script::reply(&["The user decides."]),
+    ]);
+
+    let request = started.wait_for_card().await;
+    assert_eq!(request.payload["note"], Value::Null);
+    wait_for_event_runs(daemon, RunState::Completed, 1).await;
+    assert_eq!(
+        error_code_of(daemon, &daemon.workspace_id, "coding_session_decide").await,
+        "escalated"
+    );
+    assert!(started.answers().is_empty(), "the Agent did not decide");
+    assert!(
+        started.wait_for_facts(0).await.is_empty(),
+        "no audit fact before the Person decides"
+    );
+}
+
+/// Person B's Agent names the id of person A's session. The session reads
+/// as absent, and nothing reaches A's harness.
+#[tokio::test]
+async fn person_bs_agent_that_decides_on_person_as_session_gets_session_not_found() {
+    let brain = Arc::new(ScriptedBrain::default());
+    let tenants = TwoTenants::on(daemon_with(&brain).await).await;
+    let daemon = &tenants.daemon;
+    let a_session = tenants.a_id("coding_session_id").to_string();
+    brain.push(pagis_testkit::Script::tool_call(
+        &[],
+        "coding_session_decide",
+        json!({"session": a_session, "decision": "allow", "note": NOTE}),
+    ));
+    brain.push(pagis_testkit::Script::reply(&["No such session."]));
+    let b_host = daemon
+        .stores()
+        .hosts
+        .register(
+            &tenants.b.workspace_id,
+            "Mini",
+            "macos",
+            &["harness:claude".to_string()],
+            now_ms(),
+        )
+        .await
+        .unwrap();
+    let channel_id = person_bs_agent(&tenants).await;
+    // B lets B's Agent decide on B's machine, so the Agent holds the tool.
+    let b_agent = daemon
+        .stores()
+        .agents
+        .list_by_workspace(&tenants.b.workspace_id)
+        .await
+        .unwrap()
+        .into_iter()
+        .next()
+        .expect("B's Agent");
+    daemon
+        .stores()
+        .grants
+        .create(&pagis_core::Grant {
+            id: pagis_core::GrantId::generate(),
+            workspace_id: tenants.b.workspace_id.clone(),
+            agent_id: b_agent.id,
+            resource_kind: pagis_core::Grant::HOST_KIND.to_string(),
+            resource_id: Some(b_host.id.to_string()),
+            scope: json!({"allow": [], "session_approval_mode": "agent"}),
+            revision: 1,
+            created_at: now_ms(),
+            revoked_at: None,
+        })
+        .await
+        .unwrap();
+    let mut firehose = daemon.event_socket(&tenants.b.cookie).await;
+
+    send(
+        daemon,
+        &tenants.b.cookie,
+        channel_id.as_str(),
+        "allow that command",
+    )
+    .await;
+
+    let result = the_tool_result(&mut firehose, &brain).await;
+    assert!(result.contains("session_not_found"), "{result}");
+    assert_eq!(
+        error_code_of(daemon, &tenants.b.workspace_id, "coding_session_decide").await,
+        "session_not_found"
+    );
 }

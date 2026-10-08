@@ -4,25 +4,30 @@
 //! the start and asked the Person. Each other tool acts on one session of
 //! the calling Agent: a session of another Agent reads as absent, as
 //! another Agent's Call does (ADR-0020). A resume also needs the live
-//! host Grant of the Agent on the session's machine.
+//! host Grant of the Agent on the session's machine. A decision needs a
+//! Harness Permission that waits for the Agent, and the `agent` mode
+//! still in force on the live host Grant.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use pagis_broker::{
-    AuthorizedCall, CoreTool, SessionStarts, ToolExecutor, ToolResult, ToolRoute, WorktreeRequest,
+    AuthorizedCall, CoreTool, Decider, SessionStarts, ToolExecutor, ToolResult, ToolRoute,
+    WorktreeRequest,
 };
 use pagis_core::{
     CodingSession, CodingSessionId, CodingSessionState as State, CodingSessionStore, EventSource,
-    Grant, GrantStore, HostStore, StoreError, harness, wrap_untrusted,
+    Grant, GrantStore, HostStore, SessionApprovalMode, StoreError, harness, wrap_untrusted,
 };
 use serde_json::json;
 
+use crate::agent::Verdict;
+use crate::policy::{effective_mode, host_grant};
 use crate::report::harness_output;
 use crate::{
-    CloseReason, CodingSessions, NewCodingSession, PromptOutcome, ResumeFailure, SessionError,
-    StartFailure,
+    AgentAsks, CloseReason, CodingSessions, DecidedBy, NewCodingSession, PromptOutcome,
+    ResumeFailure, SessionError, StartFailure,
 };
 
 /// The ref that the worktree of a session starts from: the commit that
@@ -47,6 +52,7 @@ const OPEN_STATES: [State; 5] = [
 
 const SESSION_NOT_FOUND: &str = "session_not_found";
 const SESSION_NOT_OPEN: &str = "session_not_open";
+const NO_PENDING_DECISION: &str = "no_pending_decision";
 
 /// Executes the Coding Session tools.
 pub struct CodingToolRuntime {
@@ -56,8 +62,11 @@ pub struct CodingToolRuntime {
     store: Arc<dyn CodingSessionStore>,
     /// The Hosts give the machine names.
     hosts: Arc<dyn HostStore>,
-    /// The live host Grant lets a resume run.
+    /// The live host Grant lets a resume run, and holds the mode of a
+    /// decision.
     grants: Arc<dyn GrantStore>,
+    /// The Harness Permissions that wait for the Agent's verdict.
+    agent: Arc<AgentAsks>,
 }
 
 impl CodingToolRuntime {
@@ -67,6 +76,7 @@ impl CodingToolRuntime {
         store: Arc<dyn CodingSessionStore>,
         hosts: Arc<dyn HostStore>,
         grants: Arc<dyn GrantStore>,
+        agent: Arc<AgentAsks>,
     ) -> Self {
         Self {
             sessions,
@@ -74,6 +84,7 @@ impl CodingToolRuntime {
             store,
             hosts,
             grants,
+            agent,
         }
     }
 
@@ -234,6 +245,64 @@ impl CodingToolRuntime {
         ))
     }
 
+    /// Allows once or denies the Harness Permission that waits for the
+    /// Agent. The checks go in this order: the session is the Agent's
+    /// own, a permission waits for the Agent, and the `agent` mode is
+    /// still in force. A narrower mode on the live host Grant gives the
+    /// permission to the Person. A decision never writes a rule.
+    async fn decide(&self, call: &AuthorizedCall) -> Result<ToolResult, ToolResult> {
+        let session = self.own_session(call).await?;
+        if !self.agent.waits(&session.id) {
+            return Err(no_pending_decision());
+        }
+        let grant = host_grant(self.grants.as_ref(), &session)
+            .await
+            .map_err(unavailable)?;
+        if effective_mode(grant.as_ref(), &session) < SessionApprovalMode::Agent {
+            // The Person decides. The daemon moved the decision, so the
+            // escalation has no decider and no note.
+            self.agent
+                .hand(&session.id, Verdict::Escalate(DecidedBy::default()))
+                .map_err(|_| no_pending_decision())?;
+            return Err(ToolResult::error(
+                "escalated",
+                "The widest mode on this machine changed. The person decides on the card.",
+            ));
+        }
+        let allow = call.arguments["decision"] == "allow";
+        let verdict = Verdict::Decide {
+            allow,
+            note: text(call, "note"),
+            run_id: call.run_id.clone(),
+        };
+        self.agent
+            .hand(&session.id, verdict)
+            .map_err(|_| no_pending_decision())?;
+        Ok(ToolResult::success(if allow {
+            "The harness does this one action once. The next request asks again."
+        } else {
+            "The harness does not do it."
+        }))
+    }
+
+    /// Gives the Harness Permission that waits for the Agent to the
+    /// Person, with the Agent's note on the card. It returns at once: the
+    /// Run does not wait for the Person.
+    async fn escalate(&self, call: &AuthorizedCall) -> Result<ToolResult, ToolResult> {
+        let session = self.own_session(call).await?;
+        let by = DecidedBy {
+            decider: Some(Decider::Agent),
+            note: Some(text(call, "note")),
+            run_id: Some(call.run_id.clone()),
+        };
+        self.agent
+            .hand(&session.id, Verdict::Escalate(by))
+            .map_err(|_| no_pending_decision())?;
+        Ok(ToolResult::success(
+            "The person decides on the card in the session's Thread.",
+        ))
+    }
+
     /// The Agent's own sessions: each open one, then the newest that
     /// ended. The title and the directory are the Agent's own words, so
     /// they take no envelope.
@@ -328,6 +397,13 @@ fn harness_name(harness_id: &str) -> String {
 
 fn unavailable(error: StoreError) -> ToolResult {
     ToolResult::error("temporarily_unavailable", error.to_string())
+}
+
+fn no_pending_decision() -> ToolResult {
+    ToolResult::error(
+        NO_PENDING_DECISION,
+        "no permission request of this coding session waits for your decision",
+    )
 }
 
 fn not_open(state: State) -> ToolResult {
@@ -430,6 +506,8 @@ impl ToolExecutor for CodingToolRuntime {
                 CoreTool::CodingSessionClose => self.close(&call).await,
                 CoreTool::CodingSessionList => self.list(&call).await,
                 CoreTool::CodingSessionResume => self.resume(&call).await,
+                CoreTool::CodingSessionDecide => self.decide(&call).await,
+                CoreTool::CodingSessionEscalate => self.escalate(&call).await,
                 _ => Err(not_a_session_tool(&call)),
             },
             _ => Err(not_a_session_tool(&call)),

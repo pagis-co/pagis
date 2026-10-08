@@ -62,20 +62,27 @@ pub(crate) async fn harness_output(
 }
 
 /// The ask that waits, from the last row of an ask or of its answer: the
-/// title of a permission and its options, or the message of a question
-/// and its form. An answer row means that no ask waits.
+/// title of a permission, its tool kind, its command, its locations and
+/// its options, or the message of a question and its form, and whom it
+/// waits for. An answer row means that no ask waits.
 fn pending_decision(row: &CodingSessionEvent) -> Option<Value> {
     let field = |name: &str| row.payload.get(name).cloned().unwrap_or(Value::Null);
     match row.kind {
         Kind::Permission => Some(json!({
             "kind": "permission",
             "title": field("title"),
+            "tool_kind": field("kind"),
+            // The shell command of an `execute`, as Pagis policy reads it.
+            "command": row.payload["raw_input"]["command"].as_str(),
+            "locations": field("locations"),
             "options": field("options"),
+            "waits_for": field("waits_for"),
         })),
         Kind::Question => Some(json!({
             "kind": "question",
             "title": field("message"),
             "form": field("schema"),
+            "waits_for": field("waits_for"),
         })),
         _ => None,
     }

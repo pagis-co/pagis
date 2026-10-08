@@ -11,7 +11,8 @@
 // Coding Session start proposes a session allow rule, and the payload
 // carries the words of its checkbox. A Harness Permission names the
 // harness, the machine and the directory, and its `execute` is a host
-// command (ADR-0033).
+// command. A permission that the sprite gave to the Person shows the
+// sprite's note under that line (ADR-0033).
 //
 // One card, one decision: the header names the act and the place,
 // Approve is the only primary action, "Always allow" is a checkbox that
@@ -23,7 +24,7 @@ import { KeyRound, Terminal } from 'lucide-react'
 
 import type { ApiClient } from '../api/client'
 import { Button } from '../primitives'
-import { useRequest, useDecideRequest } from '../queries'
+import { useAgentNames, useRequest, useDecideRequest } from '../queries'
 import { Card, CardBody, CardFooter, CardHeader, SettledLine } from './Card'
 import type { SettledTone } from './Card'
 
@@ -61,6 +62,9 @@ interface ApprovalPayload {
   tool_kind?: string
   command?: string | null
   locations?: string[]
+  /** What the sprite asks the Person, when it gave the permission to
+   *  the Person. */
+  note?: string | null
 }
 
 /** The clock a settled card shows beside the decision. */
@@ -149,6 +153,9 @@ export function ApprovalCard({
           'Runs on this computer.'
         )}
       </CardBody>
+      {harnessPermission && payload?.note != null && request.data !== undefined && (
+        <AgentNote api={api} agentId={request.data.agent_id} note={payload.note} />
+      )}
       {state === 'pending' && (
         <CardFooter>
           <Button
@@ -203,5 +210,24 @@ export function ApprovalCard({
         </CardFooter>
       )}
     </Card>
+  )
+}
+
+/** The note of the sprite that gave a Harness Permission to the Person. */
+function AgentNote({
+  api,
+  agentId,
+  note,
+}: {
+  api: ApiClient
+  agentId: string
+  note: string
+}) {
+  const names = useAgentNames(api)
+  const name = names[agentId] ?? 'Your sprite'
+  return (
+    <CardBody className="approval-card-note">
+      {name} asks: {note}
+    </CardBody>
   )
 }

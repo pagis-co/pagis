@@ -12,15 +12,18 @@ use std::time::Duration;
 use async_trait::async_trait;
 use futures::io::{AsyncRead, AsyncWrite};
 use pagis_audit::AuditEventBus;
-use pagis_broker::{HostPresence, HostSessions, not_connected_message};
+use pagis_broker::{
+    AuthorizedCall, CoreTool, Decider, HostPresence, HostSessions, ToolExecutor, ToolResult,
+    ToolRoute, not_connected_message,
+};
 use pagis_coding::fake::{Ask, FakeHarness, NEW_SESSION_ID, Script, Turn, acp, serve_client_app};
 use pagis_coding::{
-    CloseReason, CodingSessions, CodingSessionsDeps, InterruptReason, NewCodingSession,
-    OpenFailure, OpenFailureCode, OpenRequest, OpenedStream, PERMISSION_DECIDED_EVENT, Pending,
-    PermissionAnswer, PermissionAsk, PolicyDecisions, PolicyDecisionsDeps, PromptOutcome,
-    QuestionAnswer, QuestionAsk, RefuseDecisions, ResumeFailure, SessionDecisions, SessionError,
-    SessionEvents, SessionExit, SessionPlace, SessionRuleError, SessionRules, StartFailure,
-    WaitsFor, WorktreeRequest,
+    AgentAsks, CloseReason, CodingSessionStarts, CodingSessions, CodingSessionsDeps,
+    CodingToolRuntime, InterruptReason, NewCodingSession, OpenFailure, OpenFailureCode,
+    OpenRequest, OpenedStream, PERMISSION_DECIDED_EVENT, Pending, PermissionAnswer, PermissionAsk,
+    PolicyDecisions, PolicyDecisionsDeps, PromptOutcome, QuestionAnswer, QuestionAsk,
+    RefuseDecisions, ResumeFailure, SessionDecisions, SessionError, SessionEvents, SessionExit,
+    SessionPlace, SessionRuleError, SessionRules, StartFailure, Waited, WaitsFor, WorktreeRequest,
 };
 use pagis_core::{
     Agent, AgentId, AgentStatus, AgentStore, AuthorKind, Block, Channel, ChannelId, ChannelKind,
@@ -53,6 +56,10 @@ struct World {
     sessions: Arc<SqliteCodingSessionStore>,
     /// The event log that Pagis policy writes its audit facts to.
     events: Arc<SqliteEventLog>,
+    /// The bus of Pagis policy, on that log.
+    bus: Arc<AuditEventBus>,
+    /// The Harness Permissions that wait for the Agent.
+    agent_asks: Arc<AgentAsks>,
     workspace_id: WorkspaceId,
     agent_id: AgentId,
     channel_id: ChannelId,
@@ -106,9 +113,12 @@ async fn world(pool: SqlitePool) -> World {
         .register(&workspace_id, "Air", "macos", &[], now_ms())
         .await
         .unwrap();
+    let events = Arc::new(SqliteEventLog::new(pool.clone()));
     let mut world = World {
         sessions: Arc::new(SqliteCodingSessionStore::new(pool.clone())),
-        events: Arc::new(SqliteEventLog::new(pool.clone())),
+        bus: Arc::new(AuditEventBus::new(events.clone())),
+        events,
+        agent_asks: Arc::default(),
         pool,
         workspace_id,
         agent_id: agent.id,
@@ -242,13 +252,15 @@ impl World {
             requests: Arc::new(SqliteRequestStore::new(self.pool.clone())),
             messages: Arc::new(SqliteMessageStore::new(self.pool.clone())),
             hosts: Arc::new(SqliteHostStore::new(self.pool.clone())),
-            bus: Arc::new(AuditEventBus::new(self.events.clone())),
+            runs: Arc::new(SqliteRunStore::new(self.pool.clone())),
+            agent: self.agent_asks.clone(),
+            bus: self.bus.clone(),
         }))
     }
 
     /// A live host Grant of the Agent on the machine, with a widest
     /// Session Approval Mode and Allow Rules.
-    async fn host_grant(&self, mode: SessionApprovalMode, allow: &[&str]) {
+    async fn host_grant(&self, mode: SessionApprovalMode, allow: &[&str]) -> Grant {
         let grant = Grant {
             id: GrantId::generate(),
             workspace_id: self.workspace_id.clone(),
@@ -264,6 +276,7 @@ impl World {
             .create(&grant)
             .await
             .unwrap();
+        grant
     }
 
     /// Waits until the bus holds `count` audit facts of Harness
@@ -621,7 +634,7 @@ impl SessionDecisions for GatedDecisions {
             waits_for: WaitsFor::Person,
             answer: Box::pin(async move {
                 gate.notified().await;
-                PermissionAnswer::RejectOnce
+                Waited::answered(PermissionAnswer::RejectOnce, Some(Decider::Person))
             }),
         }
     }
@@ -636,7 +649,7 @@ impl SessionDecisions for GatedDecisions {
             waits_for: WaitsFor::Person,
             answer: Box::pin(async move {
                 gate.notified().await;
-                QuestionAnswer::Cancel
+                Waited::answered(QuestionAnswer::Cancel, None)
             }),
         }
     }
@@ -2199,5 +2212,442 @@ async fn resume_of_a_session_that_is_not_interrupted_answers_its_state(pool: Sql
     assert!(
         matches!(failure, ResumeFailure::NotInterrupted(State::Idle)),
         "{failure:?}"
+    );
+}
+
+// The `agent` mode: the supervising Agent decides a Harness Permission
+// or gives it to the Person (ADR-0033).
+
+const NOTE: &str = "The build directory is generated, so a delete is safe.";
+
+/// A Coding Session in the `agent` mode on a host Grant whose widest mode
+/// is `agent`, with the tools of its Agent.
+struct AgentSession {
+    place: Arc<DuplexPlace>,
+    tools: CodingToolRuntime,
+    session: CodingSession,
+    grant: Grant,
+}
+
+fn rm_rf_build() -> Ask {
+    Ask::permission(
+        tool_call(acp::ToolKind::Execute, &[], Some("rm -rf build")),
+        every_option(),
+    )
+}
+
+impl World {
+    /// Starts a session in the `agent` mode from `run_id`, whose harness
+    /// asks to run `rm -rf build` and ends its turn when it has the
+    /// answer, and waits until the permission waits for the Agent.
+    async fn agent_session(&self, run_id: &RunId) -> AgentSession {
+        let grant = self.host_grant(SessionApprovalMode::Agent, &[]).await;
+        let place = DuplexPlace::new(
+            Script::default().turn(Turn::new(vec![], acp::StopReason::EndTurn).asks(rm_rf_build())),
+        );
+        let sessions = Arc::new(self.coding_sessions(place.clone(), self.policy()));
+        let grants = Arc::new(SqliteGrantStore::new(self.pool.clone()));
+        let tools = CodingToolRuntime::new(
+            Arc::clone(&sessions),
+            Arc::new(CodingSessionStarts::new(
+                self.sessions.clone(),
+                grants.clone(),
+            )),
+            self.sessions.clone(),
+            Arc::new(SqliteHostStore::new(self.pool.clone())),
+            grants,
+            self.agent_asks.clone(),
+        );
+        let mut new = self.new_session(run_id);
+        new.approval_mode = SessionApprovalMode::Agent;
+        let session = sessions.start(new).await.unwrap();
+        self.wait_for_state(&session.id, State::NeedsDecision).await;
+        let rows = self.wait_for_row(&session.id, Kind::Permission).await;
+        assert_eq!(
+            rows_of(&rows, Kind::Permission)[0].payload["waits_for"],
+            "agent"
+        );
+        AgentSession {
+            place,
+            tools,
+            session,
+            grant,
+        }
+    }
+
+    /// One call of `tool` by the Agent in `run_id`.
+    async fn call_as(
+        &self,
+        tools: &CodingToolRuntime,
+        workspace_id: &WorkspaceId,
+        agent_id: &AgentId,
+        tool: CoreTool,
+        arguments: Value,
+    ) -> ToolResult {
+        let tool_name = match tool {
+            CoreTool::CodingSessionDecide => "coding_session_decide",
+            CoreTool::CodingSessionEscalate => "coding_session_escalate",
+            _ => "coding_session_read",
+        };
+        tools
+            .execute(AuthorizedCall {
+                workspace_id: workspace_id.clone(),
+                agent_id: agent_id.clone(),
+                run_id: self.run_id.clone(),
+                tool_name: tool_name.to_string(),
+                source_version: "test".to_string(),
+                route: ToolRoute::Core { tool },
+                arguments,
+                selected_connection: None,
+                grant_id: None,
+                grant_revision: None,
+                call_timeout: None,
+                tool_call_id: None,
+                host: None,
+                approved_by_rule: false,
+            })
+            .await
+    }
+
+    async fn decide(&self, agent: &AgentSession, decision: &str) -> ToolResult {
+        self.call_as(
+            &agent.tools,
+            &self.workspace_id,
+            &self.agent_id,
+            CoreTool::CodingSessionDecide,
+            json!({"session": agent.session.id.as_str(), "decision": decision, "note": NOTE}),
+        )
+        .await
+    }
+
+    async fn escalate(&self, agent: &AgentSession, note: &str) -> ToolResult {
+        self.call_as(
+            &agent.tools,
+            &self.workspace_id,
+            &self.agent_id,
+            CoreTool::CodingSessionEscalate,
+            json!({"session": agent.session.id.as_str(), "note": note}),
+        )
+        .await
+    }
+
+    /// Waits until a Harness Permission waits for the Person, and answers
+    /// its Request.
+    async fn wait_for_card(&self) -> Request {
+        let deadline = tokio::time::Instant::now() + WAIT;
+        loop {
+            let pending = SqliteRequestStore::new(self.pool.clone())
+                .list_by_state(
+                    &self.workspace_id,
+                    RequestState::Pending,
+                    Some(Request::HARNESS_PERMISSION_KIND),
+                )
+                .await
+                .unwrap();
+            if let Some(request) = pending.into_iter().next() {
+                return request;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "no Harness Permission waits for the Person"
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+
+    /// Ends a Run of the Agent and reports it on the bus, as the agent
+    /// loop does.
+    async fn end_run(&self, run_id: &RunId) {
+        let runs = SqliteRunStore::new(self.pool.clone());
+        let mut run = runs
+            .get(&self.workspace_id, run_id)
+            .await
+            .unwrap()
+            .expect("the Run");
+        run.state = RunState::Completed;
+        run.ended_at = Some(now_ms());
+        runs.update(&run).await.unwrap();
+        self.bus
+            .publish(NewEvent {
+                workspace_id: self.workspace_id.clone(),
+                event_type: "run.state_changed".to_string(),
+                agent_id: Some(self.agent_id.clone()),
+                run_id: Some(run.id.clone()),
+                channel_id: run.channel_id.clone(),
+                payload: json!({"from": "running", "to": "completed", "reason": "completed"}),
+            })
+            .await
+            .unwrap();
+    }
+}
+
+fn success(result: &ToolResult) -> &str {
+    assert!(!result.is_error, "{result:?}");
+    &result.content
+}
+
+fn code(result: &ToolResult) -> &str {
+    assert!(result.is_error, "{result:?}");
+    result.code.as_deref().expect("an error has a code")
+}
+
+fn reject_once() -> Value {
+    json!({"outcome": {"outcome": "selected", "optionId": "reject-once"}})
+}
+
+/// An allow answers the harness with its `allow_once` option. The audit
+/// fact and the decision row name the Agent, its Run and its note, and
+/// the host Grant gets no rule.
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn decide_allow_answers_allow_once_and_names_the_agent_its_run_and_its_note(
+    pool: SqlitePool,
+) {
+    let world = world(pool).await;
+    let agent = world.agent_session(&world.run_id).await;
+
+    let decided = world.decide(&agent, "allow").await;
+
+    assert_eq!(
+        success(&decided),
+        "The harness does this one action once. The next request asks again."
+    );
+    let rows = world.wait_for_row(&agent.session.id, Kind::TurnEnd).await;
+    assert_eq!(
+        agent.place.harness().answers()[0].as_ref().unwrap(),
+        &json!({"outcome": {"outcome": "selected", "optionId": "allow-once"}})
+    );
+    let decision = rows_of(&rows, Kind::Decision)[0];
+    assert_eq!(decision.payload["decision"], "allow_once");
+    assert_eq!(decision.payload["decider"], "agent");
+    assert_eq!(decision.payload["note"], NOTE);
+    assert_eq!(decision.payload["run_id"], world.run_id.as_str());
+    let facts = world.wait_for_facts(1).await;
+    assert_eq!(facts[0].payload["decider"], "agent");
+    assert_eq!(facts[0].payload["outcome"], "allowed");
+    assert_eq!(facts[0].payload["option_kind"], "allow_once");
+    assert_eq!(facts[0].payload["command"], "rm -rf build");
+    assert_eq!(facts[0].payload["note"], NOTE);
+    assert_eq!(facts[0].payload["run_id"], world.run_id.as_str());
+    let grant = SqliteGrantStore::new(world.pool.clone())
+        .live_for_resource(
+            &world.workspace_id,
+            &world.agent_id,
+            Grant::HOST_KIND,
+            world.host_id.as_str(),
+        )
+        .await
+        .unwrap()
+        .expect("the host Grant");
+    assert_eq!(grant.revision, agent.grant.revision);
+    assert_eq!(grant.scope, agent.grant.scope, "a decision writes no rule");
+    world.wait_for_state(&agent.session.id, State::Idle).await;
+    assert_eq!(
+        code(&world.decide(&agent, "allow").await),
+        "no_pending_decision"
+    );
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn decide_deny_answers_reject_once(pool: SqlitePool) {
+    let world = world(pool).await;
+    let agent = world.agent_session(&world.run_id).await;
+
+    let decided = world.decide(&agent, "deny").await;
+
+    assert_eq!(success(&decided), "The harness does not do it.");
+    world.wait_for_row(&agent.session.id, Kind::TurnEnd).await;
+    assert_eq!(
+        agent.place.harness().answers()[0].as_ref().unwrap(),
+        &reject_once()
+    );
+    let facts = world.wait_for_facts(1).await;
+    assert_eq!(facts[0].payload["decider"], "agent");
+    assert_eq!(facts[0].payload["outcome"], "rejected");
+}
+
+/// The checks of a decision, in their order: the session is the Agent's
+/// own, in its Workspace; a permission waits for the Agent.
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn decide_reads_another_agents_session_as_absent_and_answers_no_pending_decision_when_nothing_waits(
+    pool: SqlitePool,
+) {
+    let world = world(pool).await;
+    let agent = world.agent_session(&world.run_id).await;
+    let arguments =
+        json!({"session": agent.session.id.as_str(), "decision": "allow", "note": NOTE});
+
+    let another_agent = world
+        .call_as(
+            &agent.tools,
+            &world.workspace_id,
+            &AgentId::generate(),
+            CoreTool::CodingSessionDecide,
+            arguments.clone(),
+        )
+        .await;
+    let another_workspace = world
+        .call_as(
+            &agent.tools,
+            &WorkspaceId::generate(),
+            &world.agent_id,
+            CoreTool::CodingSessionDecide,
+            arguments,
+        )
+        .await;
+
+    assert_eq!(code(&another_agent), "session_not_found");
+    assert_eq!(code(&another_workspace), "session_not_found");
+    assert!(
+        agent.place.harness().answers().is_empty(),
+        "the permission waits"
+    );
+    let idle = world.stored(State::Idle).await;
+    let nothing_waits = world
+        .call_as(
+            &agent.tools,
+            &world.workspace_id,
+            &world.agent_id,
+            CoreTool::CodingSessionDecide,
+            json!({"session": idle.id.as_str(), "decision": "allow", "note": NOTE}),
+        )
+        .await;
+    assert_eq!(code(&nothing_waits), "no_pending_decision");
+}
+
+/// A Grant revision that narrows the widest mode to `person` during the
+/// wait gives the decision to the Person: the decide answers
+/// `escalated`, the card is posted, and the harness has no answer.
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_narrower_grant_during_the_wait_makes_decide_answer_escalated_and_asks_the_person(
+    pool: SqlitePool,
+) {
+    let world = world(pool).await;
+    let agent = world.agent_session(&world.run_id).await;
+    let scope = agent
+        .grant
+        .with_session_approval_mode(SessionApprovalMode::Person);
+    SqliteGrantStore::new(world.pool.clone())
+        .set_scope(&world.workspace_id, &agent.grant.id, &scope)
+        .await
+        .unwrap();
+
+    let decided = world.decide(&agent, "allow").await;
+
+    assert_eq!(code(&decided), "escalated");
+    assert!(
+        decided
+            .content
+            .contains("The widest mode on this machine changed. The person decides on the card."),
+        "{decided:?}"
+    );
+    let request = world.wait_for_card().await;
+    assert_eq!(request.payload["command"], "rm -rf build");
+    assert_eq!(request.payload["note"], Value::Null);
+    let rows = world
+        .wait_for_rows(&agent.session.id, Kind::Permission, 2)
+        .await;
+    let decision = rows_of(&rows, Kind::Decision)[0];
+    assert_eq!(decision.payload["decision"], "escalated");
+    assert_eq!(decision.payload["decider"], Value::Null);
+    assert_eq!(
+        rows_of(&rows, Kind::Permission)[1].payload["waits_for"],
+        "person"
+    );
+    assert!(agent.place.harness().answers().is_empty());
+    assert_eq!(
+        world.record(&agent.session.id).await.state,
+        State::NeedsDecision
+    );
+}
+
+/// An escalation returns at once. The daemon posts one approval card that
+/// holds the Agent's note, and the session then waits for the Person.
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn escalate_posts_one_card_with_the_note_and_returns_at_once(pool: SqlitePool) {
+    let world = world(pool).await;
+    let agent = world.agent_session(&world.run_id).await;
+    let question = "Delete the build directory? I did not make it.";
+
+    let escalated = world.escalate(&agent, question).await;
+
+    assert_eq!(
+        success(&escalated),
+        "The person decides on the card in the session's Thread."
+    );
+    let request = world.wait_for_card().await;
+    assert_eq!(request.payload["note"], question);
+    let rows = world
+        .wait_for_rows(&agent.session.id, Kind::Permission, 2)
+        .await;
+    let decision = rows_of(&rows, Kind::Decision)[0];
+    assert_eq!(decision.payload["decision"], "escalated");
+    assert_eq!(decision.payload["decider"], "agent");
+    assert_eq!(decision.payload["note"], question);
+    assert_eq!(decision.payload["run_id"], world.run_id.as_str());
+    assert_eq!(
+        rows_of(&rows, Kind::Permission)[1].payload["waits_for"],
+        "person"
+    );
+    let cards: Vec<_> = SqliteMessageStore::new(world.pool.clone())
+        .list_thread(&world.workspace_id, &agent.session.root_message_id)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|message| message.author_kind == AuthorKind::System && message.run_id.is_none())
+        .collect();
+    assert_eq!(cards.len(), 1);
+    assert_eq!(
+        code(&world.decide(&agent, "allow").await),
+        "no_pending_decision"
+    );
+    assert!(agent.place.harness().answers().is_empty());
+}
+
+/// The decision does not wait forever on the Agent. A Run of the Agent in
+/// the session's Thread that was active when the permission came does
+/// not count; a Run that started after it and ends with no decision
+/// gives the permission to the Person with the daemon's note.
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_run_in_the_thread_that_ends_without_a_decision_escalates_the_permission(
+    pool: SqlitePool,
+) {
+    let world = world(pool).await;
+    let (starting_run, root) = world.run_in_thread().await;
+    let agent = world.agent_session(&starting_run).await;
+    assert_eq!(agent.session.root_message_id, root);
+
+    world.end_run(&starting_run).await;
+    let elsewhere = world.run(Some(world.channel_id.clone()), None).await;
+    world.end_run(&elsewhere).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(
+        SqliteRequestStore::new(world.pool.clone())
+            .list_by_state(&world.workspace_id, RequestState::Pending, None)
+            .await
+            .unwrap()
+            .is_empty(),
+        "a Run that was active, or a Run outside the Thread, does not escalate"
+    );
+
+    let woken = world.run(Some(world.channel_id.clone()), Some(root)).await;
+    world.end_run(&woken).await;
+
+    let request = world.wait_for_card().await;
+    assert_eq!(
+        request.payload["note"],
+        "The sprite ended its turn without a decision."
+    );
+    let rows = world
+        .wait_for_rows(&agent.session.id, Kind::Permission, 2)
+        .await;
+    let decision = rows_of(&rows, Kind::Decision)[0];
+    assert_eq!(decision.payload["decision"], "escalated");
+    assert_eq!(
+        decision.payload["note"],
+        "The sprite ended its turn without a decision."
+    );
+    assert_eq!(
+        code(&world.decide(&agent, "allow").await),
+        "no_pending_decision"
     );
 }

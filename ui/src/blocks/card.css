@@ -287,3 +287,9 @@
 .approval-card-where code {
   overflow-wrap: anywhere;
 }
+
+/* The sprite's question on a Harness Permission that it gave to the
+   Person. */
+.approval-card-note {
+  overflow-wrap: anywhere;
+}

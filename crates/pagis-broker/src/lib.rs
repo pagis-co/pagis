@@ -103,6 +103,13 @@ pub const CODING_SESSION_CANCEL: &str = "coding_session_cancel";
 pub const CODING_SESSION_CLOSE: &str = "coding_session_close";
 pub const CODING_SESSION_LIST: &str = "coding_session_list";
 pub const CODING_SESSION_RESUME: &str = "coding_session_resume";
+/// Decide a Harness Permission that waits for the Agent, or give it to
+/// the Person, in the `agent` mode (ADR-0033).
+pub const CODING_SESSION_DECIDE: &str = "coding_session_decide";
+pub const CODING_SESSION_ESCALATE: &str = "coding_session_escalate";
+
+/// The longest note of a decision or an escalation, in characters.
+pub const DECISION_NOTE_CHARS: usize = 2_000;
 
 /// The metadata key a `tool_search` result carries: the packages the
 /// call loaded. The run loop reads it into its `LoadedSet`.
@@ -294,11 +301,20 @@ pub enum CoreTool {
     /// live host Grant: it runs the harness that the Person approved,
     /// in the same directory, on the same machine.
     CodingSessionResume,
+    /// Allow once or deny a Harness Permission that waits for the Agent.
+    /// It is `Free`: the Person delegated the decision with the widest
+    /// mode on the host Grant, and a decision never writes a rule.
+    CodingSessionDecide,
+    /// Give a Harness Permission that waits for the Agent to the Person,
+    /// on an approval card that the daemon posts. It is `Free` for the
+    /// same reason.
+    CodingSessionEscalate,
 }
 
 impl CoreTool {
     /// Whether the tool is one of the Coding Session tools (ADR-0033).
-    /// The snapshot holds all of them or none of them.
+    /// A snapshot holds none of them when no machine of the Workspace
+    /// declares a Coding Harness.
     pub fn is_coding_session(&self) -> bool {
         matches!(
             self,
@@ -309,6 +325,18 @@ impl CoreTool {
                 | CoreTool::CodingSessionClose
                 | CoreTool::CodingSessionList
                 | CoreTool::CodingSessionResume
+                | CoreTool::CodingSessionDecide
+                | CoreTool::CodingSessionEscalate
+        )
+    }
+
+    /// Whether the tool decides a Harness Permission of the `agent`
+    /// mode. Only an Agent that may use that mode on some machine holds
+    /// it.
+    pub fn is_session_decision(&self) -> bool {
+        matches!(
+            self,
+            CoreTool::CodingSessionDecide | CoreTool::CodingSessionEscalate
         )
     }
 }
@@ -1393,6 +1421,12 @@ impl Broker {
             .filter(|host| !host.harnesses().is_empty())
             .map(|host| host.id.to_string())
             .collect();
+        // The Person delegates the decision of a Harness Permission with
+        // the widest mode on a host Grant (ADR-0033).
+        let decides_sessions = grants.iter().any(|grant| {
+            grant.resource_kind == Grant::HOST_KIND
+                && grant.session_approval_mode() >= pagis_core::SessionApprovalMode::Agent
+        });
         let holds_number = self
             .deps
             .phone_numbers
@@ -1486,6 +1520,11 @@ impl Broker {
                     // capability is declared, never emulated (ADR-0005).
                     if matches!(&tool.route, ToolRoute::Core { tool } if tool.is_coding_session())
                         && harness_hosts.is_empty()
+                    {
+                        continue;
+                    }
+                    if matches!(&tool.route, ToolRoute::Core { tool } if tool.is_session_decision())
+                        && !decides_sessions
                     {
                         continue;
                     }
@@ -3610,6 +3649,10 @@ fn validate_core_arguments(
         | CoreTool::CodingSessionClose
         | CoreTool::CodingSessionResume => required_text("session"),
         CoreTool::CodingSessionList => true,
+        // The schema bounds the note and names the decisions.
+        CoreTool::CodingSessionDecide | CoreTool::CodingSessionEscalate => {
+            required_text("session") && required_text("note")
+        }
     };
     if valid {
         Ok(())
@@ -4095,6 +4138,37 @@ fn core_manifest() -> CapabilityManifest {
                     "required": ["session"]
                 }),
                 CoreTool::CodingSessionResume,
+                EffectClass::Free,
+                None,
+            ),
+            core(
+                CODING_SESSION_DECIDE,
+                "Decide the permission request that one of your coding sessions waits for. allow lets the harness do this one action once, and deny refuses it. Neither writes a rule, so the next request asks again. Read the session first. Escalate a request that you cannot judge, such as one that deletes what you did not make or reaches outside the work, with coding_session_escalate. When the user narrowed the mode of the computer, the user decides on a card and the answer is escalated.",
+                serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "session": {"type": "string", "description": "The id of the session."},
+                        "decision": {"enum": ["allow", "deny"], "description": "allow: the harness does this one action once. deny: the harness does not do it."},
+                        "note": {"type": "string", "minLength": 1, "maxLength": DECISION_NOTE_CHARS, "description": "Why you decide so. It goes in the audit record."}
+                    },
+                    "required": ["session", "decision", "note"]
+                }),
+                CoreTool::CodingSessionDecide,
+                EffectClass::Free,
+                None,
+            ),
+            core(
+                CODING_SESSION_ESCALATE,
+                "Give the permission request that one of your coding sessions waits for to the user. The user decides on a card in the session's thread, and the card shows your note. The call returns at once and the session waits for the user. Escalate what you cannot judge.",
+                serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "session": {"type": "string", "description": "The id of the session."},
+                        "note": {"type": "string", "minLength": 1, "maxLength": DECISION_NOTE_CHARS, "description": "What you ask the user, in one or two sentences."}
+                    },
+                    "required": ["session", "note"]
+                }),
+                CoreTool::CodingSessionEscalate,
                 EffectClass::Free,
                 None,
             ),
@@ -4611,6 +4685,8 @@ mod tests {
             CODING_SESSION_CLOSE,
             CODING_SESSION_LIST,
             CODING_SESSION_RESUME,
+            CODING_SESSION_DECIDE,
+            CODING_SESSION_ESCALATE,
         ] {
             let tool = core_tool(name);
 

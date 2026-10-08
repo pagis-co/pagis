@@ -552,10 +552,14 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     // The session sockets of the same machines, which carry the Coding
     // Sessions (ADR-0033).
     let host_sessions = Arc::new(pagis_broker::HostSessions::new());
+    // The Harness Permissions that wait for the supervising Agent. Pagis
+    // policy puts them here, and the decision tools hand them a verdict.
+    let agent_asks = Arc::new(pagis_coding::AgentAsks::default());
     // The Coding Sessions on those sockets. Pagis policy answers each
-    // Harness Permission or asks the Person on an approval card, and each
-    // question is cancelled. The Session Rule of each session needs the
-    // Trigger module, which is built further down (ADR-0033).
+    // Harness Permission, or asks the supervising Agent or the Person on
+    // an approval card, and each question is cancelled. The Session Rule
+    // of each session needs the Trigger module, which is built further
+    // down (ADR-0033).
     let session_rules = Arc::new(crate::coding_events::DeferredSessionRules::default());
     let session_events = Arc::new(crate::coding_events::DeferredSessionEvents::default());
     let coding_sessions = Arc::new(pagis_coding::CodingSessions::new(
@@ -572,6 +576,8 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
                     requests: Arc::clone(&requests) as _,
                     messages: Arc::clone(&messages) as _,
                     hosts: stores.hosts.clone(),
+                    runs: Arc::clone(&runs) as _,
+                    agent: Arc::clone(&agent_asks),
                     bus: Arc::clone(&bus),
                 },
             )),
@@ -900,6 +906,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
                 stores.coding_sessions.clone(),
                 stores.hosts.clone(),
                 Arc::clone(&grants) as _,
+                Arc::clone(&agent_asks),
             )) as _,
         )),
         phone_numbers: Arc::clone(&phone_numbers) as _,

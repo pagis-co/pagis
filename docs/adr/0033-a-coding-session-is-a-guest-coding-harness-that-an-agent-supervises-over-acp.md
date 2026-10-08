@@ -318,7 +318,9 @@ The Agent drives a Coding Session with core tools (ADR-0005):
   title, the state, the end reason, the usage and the time of the last
   update, which are the daemon's own state, outside the untrusted envelope.
   The harness text is inside one envelope with the source
-  `coding_session:<id>`: the pending decision, the last agent message (at
+  `coding_session:<id>`: the pending decision (the title, the tool kind,
+  the command, the locations and the options of a permission, and whom it
+  waits for), the last agent message (at
   most 4,000 characters, with a marker for the cut), the plan, the end
   detail, and the changed files. The changed files are the unique locations
   of the tool calls of the kinds `edit`, `delete` and `move`, newest first,
@@ -343,8 +345,19 @@ The Agent drives a Coding Session with core tools (ADR-0005):
   Workspace declares a Coding Harness.
 - In the `agent` mode, `coding_session_decide {session, decision:
   allow|deny, note}` and `coding_session_escalate {session, note}`. Free,
-  because the Person delegated the decision through the mode. A decision
-  allows once only, and an Agent never writes an allow rule.
+  because the Person delegated the decision through the mode. The note is
+  required, 1 to 2,000 characters: the reason of a decision, or the
+  question of an escalation. The snapshot holds the two tools only when
+  the Agent holds a live host Grant whose widest mode is `agent` or
+  `auto`. A decision checks, in this order, that the session is the
+  Agent's own (else `session_not_found`), that a Harness Permission of
+  the session waits for the Agent (else `no_pending_decision`), and that
+  the effective mode is still `agent`. A narrower Grant gives the
+  permission to the Person on a card, and the tool answers `escalated`.
+  An allow answers `allow_once` and a deny answers `reject_once`. A
+  decision allows once only, and an Agent never writes an allow rule. An
+  escalation posts the card with the note and returns at once: the Run
+  does not wait for the Person.
 - For a question, `coding_session_answer {session, values}`. Free.
 
 ### A session Allow Rule lets a start run with no card
@@ -428,12 +441,21 @@ stops at the first step that answers:
    matches, with the tree-sitter-bash matcher of ADR-0015, allows. The audit
    decider is `rule`.
 4. In the `agent` mode, the session goes `needs_decision`, and the Agent
-   wakes and decides or escalates.
+   wakes in the session's Thread and decides or escalates. The decision
+   does not wait forever: when a Run of the owning Agent in that Thread
+   reaches a terminal state with no decision, and that Run started after
+   the permission came, the daemon escalates the permission with the
+   note "The sprite ended its turn without a decision." A Run that was
+   active when the permission came does not count, because the Wake-up
+   of the permission waits behind it (ADR-0006). The daemon reads the
+   `run.state_changed` events of the bus for this.
 5. In the `person` mode, or after an escalation: a Request of the kind
    `harness_permission` with no Run, an approval card in the session's
    Thread, an item in the Needs-You Queue and a Notification. "Approve once"
    allows once. "Always allow" for an `execute` writes a Host Allow Rule with
-   the existing builder, then allows once. "Deny" rejects once.
+   the existing builder, then allows once. "Deny" rejects once. The card of
+   an escalation shows the note of the Agent, or of the daemon, under the
+   line that names the machine: "<sprite> asks: <note>".
 
 The approval card of the `person` mode is a System message in the session's
 Thread, because it is a block that views a row that the daemon owns
@@ -480,12 +502,18 @@ answers each pending request with `cancelled`.
 
 Each decision is recorded two times. The transcript holds a `permission` row
 when the request arrives, with whom the session waits for, and a `decision`
-row with its decider when it is answered. The bus holds one audit fact, the event
+row with its decider when it is answered. A decision of the Agent also holds
+its note and the id of the deciding Run. An escalation writes a `decision`
+row with the outcome `escalated`, with the note, and with the decider `agent`
+when the Agent escalated, and then a new `permission` row that waits for the
+Person. The bus holds one audit fact, the event
 `coding_session.permission_decided` with no Run. It holds the session, the
 Agent, the Host, the tool call id, the tool kind, the command, the
 locations, the decider, the outcome (`allowed`, `rejected`, `cancelled` or
 `expired`), the selected option kind, and the revision of the Grant that the
-evaluator read. A decision of the Person also holds its scope, `once` or
+evaluator read. A decision of the Agent also holds its note and the id of the
+deciding Run. An escalation writes no audit fact: the decision of the Person
+writes it, with the decider `person`. A decision of the Person also holds its scope, `once` or
 `always`, so the fact records whether the decision wrote a rule. A pending
 request that a cancel ends, or that the harness withdraws, has no decider.
 Its outcome is `expired` when it waited for the Person, because its Request
@@ -640,12 +668,9 @@ Other ways were considered:
 
 ## Not built
 
-- The core tools `coding_session_decide`, `coding_session_escalate` and
-  `coding_session_answer`.
+- The core tool `coding_session_answer`.
 - The refusal of a mode other than `auto` for a harness that does not ask
   permission.
-- The `agent` mode. A Harness Permission that waits for the Agent waits until
-  a cancel ends it.
 - The `auto` mode.
 - The item in the Needs-You Queue and the Notification.
 - The question in the daemon.

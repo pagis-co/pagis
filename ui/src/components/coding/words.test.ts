@@ -143,6 +143,13 @@ describe('the decision on a Harness Permission', () => {
     expect(decisionText('reject_once', 'person', 'Sage')).toBe('You denied it')
   })
 
+  // In the `agent` mode the sprite, or Pagis for it, gives the request
+  // to the Person, who then decides on a card.
+  it('names who gave the request to the Person', () => {
+    expect(decisionText('escalated', 'agent', 'Sage')).toBe('Sage asked you')
+    expect(decisionText('escalated', null, 'Sage')).toBe('Sent to you')
+  })
+
   it('reads a request that a cancel ended as cancelled with the turn', () => {
     expect(decisionText('withdrawn', null, 'Sage')).toBe('Cancelled with the turn')
   })

@@ -445,3 +445,58 @@ describe('ApprovalCard for a Harness Permission', () => {
     ).toBe('Claude Code runs this on Air in /work/pagis.')
   })
 })
+
+describe('ApprovalCard for an escalated Harness Permission', () => {
+  it("shows the sprite's note under the where-line", async () => {
+    const harness = stubHarnessPermissionApi()
+    const request = await harness.GET()
+    const api = {
+      GET: vi.fn(async (path: string) =>
+        path === '/api/v1/agents'
+          ? { data: { items: [{ id: 'ag1', name: 'Sage' }] } }
+          : {
+              data: {
+                ...request.data,
+                payload: {
+                  ...request.data.payload,
+                  note: 'Delete the build directory? I did not make it.',
+                },
+              },
+            },
+      ),
+      POST: harness.POST,
+    }
+    mount(api as unknown as ReturnType<typeof stubApi>, [
+      {
+        type: 'approval_card',
+        request_id: 'ap1',
+        title: 'Claude Code wants to run a command',
+        body: 'cargo test',
+      },
+    ])
+
+    await waitFor(() =>
+      expect(document.querySelector('.approval-card-note')?.textContent).toBe(
+        'Sage asks: Delete the build directory? I did not make it.',
+      ),
+    )
+    const where = document.querySelector('.approval-card-where')
+    expect(where?.nextElementSibling).toBe(
+      document.querySelector('.approval-card-note'),
+    )
+  })
+
+  it('shows no note line when the payload holds none', async () => {
+    mount(stubHarnessPermissionApi() as unknown as ReturnType<typeof stubApi>, [
+      {
+        type: 'approval_card',
+        request_id: 'ap1',
+        title: 'Claude Code wants to run a command',
+        body: 'cargo test',
+      },
+    ])
+
+    await screen.findByRole('checkbox')
+    expect(document.querySelector('.approval-card-note')).toBeNull()
+  })
+})

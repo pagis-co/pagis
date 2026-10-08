@@ -9,7 +9,7 @@
 use async_trait::async_trait;
 use futures::future::BoxFuture;
 use pagis_broker::Decider;
-use pagis_core::CodingSession;
+use pagis_core::{CodingSession, RunId};
 use serde::{Deserialize, Serialize};
 
 use crate::{PermissionAnswer, PermissionAsk, QuestionAnswer, QuestionAsk};
@@ -41,19 +41,61 @@ pub enum Pending<T> {
     /// until it comes.
     Waits {
         waits_for: WaitsFor,
-        answer: BoxFuture<'static, T>,
+        answer: BoxFuture<'static, Waited<T>>,
     },
 }
 
 impl<T: Send + 'static> Pending<T> {
-    /// An ask that waits for `waits_for`, with an answer that is ready
-    /// now.
+    /// An ask that waits for `waits_for`, with an answer of `waits_for`
+    /// that is ready now.
     pub fn ready(waits_for: WaitsFor, answer: T) -> Self {
         Self::Waits {
             waits_for,
-            answer: Box::pin(std::future::ready(answer)),
+            answer: Box::pin(std::future::ready(Waited::answered(
+                answer,
+                Some(waits_for.decider()),
+            ))),
         }
     }
+}
+
+/// What came of an ask that waits.
+pub enum Waited<T> {
+    /// The ask has its answer.
+    Answered { answer: T, by: DecidedBy },
+    /// The supervising Agent, or the daemon for it, gave the ask to the
+    /// Person. The ask waits on for `answer`, and the session waits for
+    /// the Person.
+    Escalated {
+        by: DecidedBy,
+        answer: BoxFuture<'static, Waited<T>>,
+    },
+}
+
+impl<T> Waited<T> {
+    /// An answer of `decider`, with no note.
+    pub fn answered(answer: T, decider: Option<Decider>) -> Self {
+        Self::Answered {
+            answer,
+            by: DecidedBy {
+                decider,
+                ..DecidedBy::default()
+            },
+        }
+    }
+}
+
+/// Who gave a decision and why, for its transcript row and its audit
+/// fact.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DecidedBy {
+    /// None for a decision that nobody made, such as an expiry, or an
+    /// escalation of the daemon.
+    pub decider: Option<Decider>,
+    /// The Agent's reason, or the daemon's.
+    pub note: Option<String>,
+    /// The Run of the Agent that decided.
+    pub run_id: Option<RunId>,
 }
 
 /// Who answers an ask.
