@@ -20,8 +20,9 @@ use pagis_coding::fake::{Ask, FakeHarness, Script, Turn, acp, serve_client_app};
 use pagis_coding::{CloseReason, NewCodingSession, PERMISSION_DECIDED_EVENT, PromptOutcome};
 use pagis_core::{
     AgentId, AuthorKind, Block, ChannelId, CodingSession, CodingSessionEventKind, CodingSessionId,
-    CodingSessionState, Event, EventSource, HostId, Message, MessageId, NewCodingSessionEvent, Run,
-    RunId, RunOrigin, RunState, SessionApprovalMode, TriggerKind, WakeupState, harness, now_ms,
+    CodingSessionState, Event, EventSource, HostId, KnownBlock, Message, MessageId,
+    NewCodingSessionEvent, Request, RequestId, RequestState, Run, RunId, RunOrigin, RunState,
+    SessionApprovalMode, TriggerKind, WakeupState, harness, now_ms,
 };
 use pagis_testkit::{
     HostAnswer, HostClient, ScriptedBrain, SessionClient, Socket, TestDaemon, TestDaemonOptions,
@@ -949,8 +950,8 @@ fn cancelled() -> Value {
 
 /// An edit inside the session's directory passes on its scope, an
 /// `execute` that a Host Allow Rule matches passes on the rule, and
-/// `rm -rf /` waits until a cancel answers it `cancelled`. Each decision
-/// writes one audit fact.
+/// `rm -rf /` waits for the Person until a cancel answers it `cancelled`
+/// and expires its Request. Each decision writes one audit fact.
 #[tokio::test]
 async fn pagis_policy_allows_by_scope_and_by_rule_and_a_cancel_ends_what_waits() {
     let edit = permission(
@@ -1000,7 +1001,7 @@ async fn pagis_policy_allows_by_scope_and_by_rule_and_a_cancel_ends_what_waits()
 
     let facts = started.wait_for_facts(3).await;
     assert_eq!(facts[2].payload["command"], "rm -rf /");
-    assert_eq!(facts[2].payload["outcome"], "cancelled");
+    assert_eq!(facts[2].payload["outcome"], "expired");
     assert_eq!(facts[2].payload["decider"], Value::Null);
     started.wait_for_state(CodingSessionState::Idle).await;
     assert_eq!(started.answers(), [allow_once(), allow_once(), cancelled()]);
@@ -1522,4 +1523,370 @@ async fn person_bs_agent_that_reads_person_as_session_gets_session_not_found() {
         error_code_of(daemon, &tenants.b.workspace_id, "coding_session_read").await,
         "session_not_found"
     );
+}
+
+fn cargo_test() -> Ask {
+    permission(acp::ToolKind::Execute, &[], Some("cargo test"))
+}
+
+fn reject_once() -> Value {
+    json!({"outcome": {"outcome": "selected", "optionId": "reject-once"}})
+}
+
+/// Sends `decision` for a Request as the person of `cookie`, and
+/// answers the status.
+async fn decide(daemon: &TestDaemon, cookie: &str, request_id: &RequestId, decision: Value) -> u16 {
+    reqwest::Client::new()
+        .post(format!(
+            "{}/api/v1/requests/{request_id}/decision",
+            daemon.base_url
+        ))
+        .header("cookie", cookie)
+        .json(&decision)
+        .send()
+        .await
+        .unwrap()
+        .status()
+        .as_u16()
+}
+
+impl Started {
+    /// Waits until a Harness Permission waits for the Person, and
+    /// answers its Request.
+    async fn wait_for_card(&self) -> Request {
+        let deadline = tokio::time::Instant::now() + WAIT;
+        loop {
+            let pending = self
+                .daemon
+                .stores()
+                .requests
+                .list_by_state(
+                    &self.daemon.workspace_id,
+                    RequestState::Pending,
+                    Some(Request::HARNESS_PERMISSION_KIND),
+                )
+                .await
+                .unwrap();
+            if let Some(request) = pending.into_iter().next() {
+                return request;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "no Harness Permission waits for the Person"
+            );
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }
+
+    /// Waits until the Request is in `state`.
+    async fn wait_for_request(&self, request_id: &RequestId, state: RequestState) {
+        let deadline = tokio::time::Instant::now() + WAIT;
+        loop {
+            let request = self
+                .daemon
+                .stores()
+                .requests
+                .get(&self.daemon.workspace_id, request_id)
+                .await
+                .unwrap()
+                .expect("the Request");
+            if request.state == state {
+                return;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "the Request is {:?}, not {state:?}",
+                request.state
+            );
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }
+
+    async fn record(&self) -> CodingSession {
+        self.daemon
+            .stores()
+            .coding_sessions
+            .get(&self.daemon.workspace_id, &self.session_id)
+            .await
+            .unwrap()
+            .expect("the session record")
+    }
+
+    /// The approval cards in the session's Thread.
+    async fn cards(&self) -> Vec<Message> {
+        let record = self.record().await;
+        self.daemon
+            .stores()
+            .messages
+            .list_thread(&self.daemon.workspace_id, &record.root_message_id)
+            .await
+            .unwrap()
+            .into_iter()
+            .filter(|message| {
+                message
+                    .blocks
+                    .iter()
+                    .any(|block| matches!(block, Block::Known(KnownBlock::ApprovalCard { .. })))
+            })
+            .collect()
+    }
+
+    async fn decide(&self, request: &Request, decision: Value) -> u16 {
+        decide(&self.daemon, self.daemon.cookie(), &request.id, decision).await
+    }
+}
+
+/// In the `person` mode, an `execute` that no rule allows posts one
+/// approval card in the session's Thread, as a System message. "Approve
+/// once" answers the harness with its `allow_once` option, and the audit
+/// fact names the Person.
+#[tokio::test]
+async fn a_command_that_policy_does_not_allow_asks_the_person_and_approve_once_allows_it_once() {
+    let started = start_approved_session(Script::default().turn(ends_after(cargo_test()))).await;
+
+    let request = started.wait_for_card().await;
+    started
+        .wait_for_state(CodingSessionState::NeedsDecision)
+        .await;
+    let record = started.record().await;
+    assert_eq!(request.run_id, None);
+    assert_eq!(request.agent_id.as_str(), started.daemon.agent_id);
+    assert_eq!(request.payload["session_id"], started.session_id.as_str());
+    assert_eq!(request.payload["host_name"], "Air");
+    assert_eq!(request.payload["directory"], WORKTREE);
+    assert_eq!(request.payload["command"], "cargo test");
+    assert_eq!(request.payload["proposed_rules"], json!(["cargo test"]));
+    assert_eq!(
+        request.payload["root_message_id"],
+        record.root_message_id.as_str()
+    );
+    let cards = started.cards().await;
+    assert_eq!(cards.len(), 1);
+    assert_eq!(cards[0].author_kind, AuthorKind::System);
+    assert_eq!(cards[0].run_id, None);
+    assert_eq!(
+        cards[0].blocks,
+        [Block::approval_card(
+            request.id.as_str(),
+            "Claude Code wants to run a command",
+            "cargo test"
+        )]
+    );
+    let begin = format!(
+        "[BEGIN UNTRUSTED source=coding_session:{}]",
+        started.session_id
+    );
+    assert!(
+        cards[0].text_content.contains(&begin),
+        "{}",
+        cards[0].text_content
+    );
+    assert!(started.answers().is_empty(), "the permission waits");
+
+    assert_eq!(
+        started
+            .decide(&request, json!({"decision": "approved"}))
+            .await,
+        200
+    );
+
+    let facts = started.wait_for_facts(1).await;
+    assert_eq!(facts[0].payload["decider"], "person");
+    assert_eq!(facts[0].payload["outcome"], "allowed");
+    assert_eq!(facts[0].payload["option_kind"], "allow_once");
+    assert_eq!(facts[0].payload["scope"], "once");
+    started.wait_for_state(CodingSessionState::Idle).await;
+    assert_eq!(started.answers(), [allow_once()]);
+    let decisions: Vec<_> = started
+        .daemon
+        .stores()
+        .coding_sessions
+        .list_events(
+            &started.daemon.workspace_id,
+            &started.session_id,
+            None,
+            1_000,
+        )
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|row| row.kind == CodingSessionEventKind::Decision)
+        .collect();
+    assert_eq!(decisions.len(), 1);
+    assert_eq!(decisions[0].payload["decision"], "allow_once");
+    assert_eq!(decisions[0].payload["decider"], "person");
+}
+
+/// "Always allow" writes the rule `cargo test` onto the host Grant of the
+/// machine and answers `allow_once`. The next `cargo test` of the session
+/// passes on the rule, with no card.
+#[tokio::test]
+async fn always_allow_writes_the_rule_onto_the_host_grant_and_the_next_same_command_needs_no_card()
+{
+    let started = start_approved_session(
+        Script::default()
+            .turn(ends_after(cargo_test()))
+            .turn(ends_after(cargo_test())),
+    )
+    .await;
+    let request = started.wait_for_card().await;
+
+    assert_eq!(
+        started
+            .decide(&request, json!({"decision": "approved", "scope": "always"}))
+            .await,
+        200
+    );
+
+    let facts = started.wait_for_facts(1).await;
+    assert_eq!(facts[0].payload["decider"], "person");
+    assert_eq!(facts[0].payload["scope"], "always");
+    let grants = get(&started.daemon, "/api/v1/grants").await;
+    assert_eq!(grants["items"].as_array().unwrap().len(), 1, "{grants:#}");
+    assert_eq!(grants["items"][0]["allow"], json!(["cargo test"]));
+    started.wait_for_state(CodingSessionState::Idle).await;
+
+    started.prompt("Run the tests again.").await;
+
+    let facts = started.wait_for_facts(2).await;
+    assert_eq!(facts[1].payload["decider"], "rule");
+    assert_eq!(facts[1].payload["outcome"], "allowed");
+    started.wait_for_state(CodingSessionState::Idle).await;
+    assert_eq!(started.answers(), [allow_once(), allow_once()]);
+    assert_eq!(started.cards().await.len(), 1);
+}
+
+/// "Deny" answers `reject_once`. A cancel of the turn expires the
+/// Request of the next card, and the harness gets `cancelled`. A decision
+/// on the expired Request is refused.
+#[tokio::test]
+async fn deny_answers_reject_once_and_a_cancel_of_the_turn_expires_the_request() {
+    let started = start_approved_session(
+        Script::default()
+            .turn(ends_after(cargo_test()))
+            .turn(Turn::until_cancel(vec![]).asks(cargo_test())),
+    )
+    .await;
+    let denied = started.wait_for_card().await;
+
+    assert_eq!(
+        started.decide(&denied, json!({"decision": "denied"})).await,
+        200
+    );
+
+    let facts = started.wait_for_facts(1).await;
+    assert_eq!(facts[0].payload["decider"], "person");
+    assert_eq!(facts[0].payload["outcome"], "rejected");
+    assert_eq!(facts[0].payload["option_kind"], "reject_once");
+    started.wait_for_state(CodingSessionState::Idle).await;
+    assert_eq!(started.answers(), [reject_once()]);
+
+    started.prompt("Try again.").await;
+    let waiting = started.wait_for_card().await;
+    assert_ne!(waiting.id, denied.id);
+    started
+        .wait_for_state(CodingSessionState::NeedsDecision)
+        .await;
+    started
+        .daemon
+        .coding_sessions
+        .cancel(&started.daemon.workspace_id, &started.session_id)
+        .await
+        .unwrap();
+
+    started
+        .wait_for_request(&waiting.id, RequestState::Expired)
+        .await;
+    let facts = started.wait_for_facts(2).await;
+    assert_eq!(facts[1].payload["outcome"], "expired");
+    assert_eq!(facts[1].payload["decider"], Value::Null);
+    started.wait_for_state(CodingSessionState::Idle).await;
+    assert_eq!(started.answers(), [reject_once(), cancelled()]);
+    assert_eq!(
+        started
+            .decide(&waiting, json!({"decision": "approved"}))
+            .await,
+        409
+    );
+}
+
+/// A restart ends every ACP connection, so the boot expires each pending
+/// Harness Permission. A pending Request of a Run that did not park stays
+/// as it is.
+#[tokio::test]
+async fn a_restart_expires_a_pending_harness_permission() {
+    let daemon = TestDaemon::start().await;
+    let host_id = host(&daemon).await;
+    let session = record(&daemon, &host_id).await;
+    let permission = Request {
+        id: RequestId::generate(),
+        workspace_id: daemon.workspace_id.clone(),
+        agent_id: AgentId::from(daemon.agent_id.clone()),
+        run_id: None,
+        kind: Request::HARNESS_PERMISSION_KIND.to_string(),
+        payload: json!({"session_id": session.id, "command": "cargo test"}),
+        state: RequestState::Pending,
+        values: None,
+        decided_at: None,
+        created_at: now_ms(),
+    };
+    let stores = daemon.stores();
+    stores.requests.create(&permission).await.unwrap();
+    let form = fixture::pending_form_request(
+        &daemon.workspace_id,
+        &AgentId::from(daemon.agent_id.clone()),
+        &session.run_id,
+    );
+    stores.requests.create(&form).await.unwrap();
+
+    let daemon = daemon.restart(TestDaemonOptions::default()).await;
+
+    let stores = daemon.stores();
+    let read = |id: RequestId| {
+        let requests = stores.requests.clone();
+        let workspace_id = daemon.workspace_id.clone();
+        async move { requests.get(&workspace_id, &id).await.unwrap().unwrap() }
+    };
+    assert_eq!(read(permission.id).await.state, RequestState::Expired);
+    assert_eq!(read(form.id).await.state, RequestState::Pending);
+}
+
+/// Person B posts a decision on person A's Harness Permission. The read
+/// names B's Workspace, so the Request reads as absent, and A's harness
+/// gets no answer.
+#[tokio::test]
+async fn person_bs_decision_on_person_as_harness_permission_gets_404() {
+    let started = start_approved_session(
+        Script::default().turn(Turn::until_cancel(vec![]).asks(cargo_test())),
+    )
+    .await;
+    let request = started.wait_for_card().await;
+    let Started {
+        daemon,
+        _host: _a_host,
+        _sessions: _a_sessions,
+        harnesses,
+        ..
+    } = started;
+    let tenants = TwoTenants::on(daemon).await;
+
+    let status = decide(
+        &tenants.daemon,
+        &tenants.b.cookie,
+        &request.id,
+        json!({"decision": "approved"}),
+    )
+    .await;
+
+    assert_eq!(status, 404);
+    let still = tenants
+        .daemon
+        .stores()
+        .requests
+        .get(&tenants.a.workspace_id, &request.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(still.state, RequestState::Pending);
+    assert!(harnesses.lock().unwrap()[0].answers().is_empty());
 }

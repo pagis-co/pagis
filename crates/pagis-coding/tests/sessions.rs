@@ -17,22 +17,24 @@ use pagis_coding::fake::{Ask, FakeHarness, NEW_SESSION_ID, Script, Turn, acp, se
 use pagis_coding::{
     CloseReason, CodingSessions, CodingSessionsDeps, NewCodingSession, OpenFailure,
     OpenFailureCode, OpenRequest, OpenedStream, PERMISSION_DECIDED_EVENT, Pending,
-    PermissionAnswer, PermissionAsk, PolicyDecisions, PromptOutcome, QuestionAnswer, QuestionAsk,
-    RefuseDecisions, SessionDecisions, SessionError, SessionEvents, SessionExit, SessionPlace,
-    SessionRuleError, SessionRules, StartFailure, WaitsFor, WorktreeRequest,
+    PermissionAnswer, PermissionAsk, PolicyDecisions, PolicyDecisionsDeps, PromptOutcome,
+    QuestionAnswer, QuestionAsk, RefuseDecisions, SessionDecisions, SessionError, SessionEvents,
+    SessionExit, SessionPlace, SessionRuleError, SessionRules, StartFailure, WaitsFor,
+    WorktreeRequest,
 };
 use pagis_core::{
     Agent, AgentId, AgentStatus, AgentStore, AuthorKind, Block, Channel, ChannelId, ChannelKind,
     ChannelStore, CodingSession, CodingSessionEvent, CodingSessionEventKind as Kind,
     CodingSessionId, CodingSessionPlace, CodingSessionState as State, CodingSessionStore, Event,
     EventBus, EventId, EventLog, EventScope, EventStream, Grant, GrantId, GrantStore, HostId,
-    HostStore, IngestBatch, Message, MessageId, MessageStatus, MessageStore, NewEvent, Run, RunId,
-    RunState, RunStore, SessionApprovalMode, StoreError, SystemClock, TriggerKind, Workspace,
-    WorkspaceId, WorkspaceStore, now_ms,
+    HostStore, IngestBatch, Message, MessageId, MessageStatus, MessageStore, NewEvent, Request,
+    RequestState, RequestStore, Run, RunId, RunState, RunStore, SessionApprovalMode, StoreError,
+    SystemClock, TriggerKind, Workspace, WorkspaceId, WorkspaceStore, now_ms,
 };
 use pagis_storage_sqlite::{
     SqliteAgentStore, SqliteChannelStore, SqliteCodingSessionStore, SqliteEventLog,
-    SqliteGrantStore, SqliteHostStore, SqliteMessageStore, SqliteRunStore, SqliteWorkspaceStore,
+    SqliteGrantStore, SqliteHostStore, SqliteMessageStore, SqliteRequestStore, SqliteRunStore,
+    SqliteWorkspaceStore,
 };
 use serde_json::{Value, json};
 use sqlx::SqlitePool;
@@ -230,10 +232,13 @@ impl World {
 
     /// Pagis policy on the SQLite Grant store and the bus of the tests.
     fn policy(&self) -> Arc<PolicyDecisions> {
-        Arc::new(PolicyDecisions::new(
-            Arc::new(SqliteGrantStore::new(self.pool.clone())),
-            Arc::new(AuditEventBus::new(self.events.clone())),
-        ))
+        Arc::new(PolicyDecisions::new(PolicyDecisionsDeps {
+            grants: Arc::new(SqliteGrantStore::new(self.pool.clone())),
+            requests: Arc::new(SqliteRequestStore::new(self.pool.clone())),
+            messages: Arc::new(SqliteMessageStore::new(self.pool.clone())),
+            hosts: Arc::new(SqliteHostStore::new(self.pool.clone())),
+            bus: Arc::new(AuditEventBus::new(self.events.clone())),
+        }))
     }
 
     /// A live host Grant of the Agent on the machine, with a widest
@@ -1323,10 +1328,13 @@ async fn an_allow_with_no_allow_once_option_answers_cancelled(pool: SqlitePool) 
     assert_eq!(facts[0].payload["option_kind"], Value::Null);
 }
 
-/// A command that no rule allows waits for the Person. A cancel answers
-/// it `cancelled`, as ACP requires, and its audit fact has no decider.
+/// A command that no rule allows waits for the Person on an approval
+/// card in the session's Thread. A cancel answers it `cancelled`, as ACP
+/// requires, expires its Request, and its audit fact has no decider.
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
-async fn a_permission_that_policy_does_not_allow_waits_until_a_cancel(pool: SqlitePool) {
+async fn a_permission_that_policy_does_not_allow_asks_the_person_until_a_cancel_expires_it(
+    pool: SqlitePool,
+) {
     let world = world(pool).await;
     let ask = Ask::permission(
         tool_call(acp::ToolKind::Execute, &[], Some("rm -rf /")),
@@ -1348,6 +1356,36 @@ async fn a_permission_that_policy_does_not_allow_waits_until_a_cancel(pool: Sqli
         "person"
     );
     assert!(place.harness().answers().is_empty(), "the permission waits");
+    let requests = SqliteRequestStore::new(world.pool.clone());
+    let pending = requests
+        .list_by_state(
+            &world.workspace_id,
+            RequestState::Pending,
+            Some(Request::HARNESS_PERMISSION_KIND),
+        )
+        .await
+        .unwrap();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].run_id, None);
+    assert_eq!(pending[0].payload["command"], "rm -rf /");
+    let thread = SqliteMessageStore::new(world.pool.clone())
+        .list_thread(&world.workspace_id, &session.root_message_id)
+        .await
+        .unwrap();
+    let card = thread.last().expect("the card");
+    assert_eq!(card.author_kind, AuthorKind::System);
+    assert_eq!(
+        card.parent_message_id.as_ref(),
+        Some(&session.root_message_id)
+    );
+    assert_eq!(
+        card.blocks,
+        [Block::approval_card(
+            pending[0].id.as_str(),
+            "Claude Code wants to run a command",
+            "rm -rf /"
+        )]
+    );
 
     sessions
         .cancel(&world.workspace_id, &session.id)
@@ -1367,7 +1405,13 @@ async fn a_permission_that_policy_does_not_allow_waits_until_a_cancel(pool: Sqli
     assert_eq!(facts[0].payload["command"], "rm -rf /");
     assert_eq!(facts[0].payload["tool_kind"], "execute");
     assert_eq!(facts[0].payload["decider"], Value::Null);
-    assert_eq!(facts[0].payload["outcome"], "cancelled");
+    assert_eq!(facts[0].payload["outcome"], "expired");
+    let expired = requests
+        .get(&world.workspace_id, &pending[0].id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(expired.state, RequestState::Expired);
     world.wait_for_state(&session.id, State::Idle).await;
 }
 

@@ -556,9 +556,9 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     // Sessions (ADR-0033).
     let host_sessions = Arc::new(pagis_broker::HostSessions::new());
     // The Coding Sessions on those sockets. Pagis policy answers each
-    // Harness Permission, and each question is cancelled. The Session
-    // Rule of each session needs the Trigger module, which is built
-    // further down (ADR-0033).
+    // Harness Permission or asks the Person on an approval card, and each
+    // question is cancelled. The Session Rule of each session needs the
+    // Trigger module, which is built further down (ADR-0033).
     let session_rules = Arc::new(crate::coding_events::DeferredSessionRules::default());
     let session_events = Arc::new(crate::coding_events::DeferredSessionEvents::default());
     let coding_sessions = Arc::new(pagis_coding::CodingSessions::new(
@@ -570,8 +570,13 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
             bus: Arc::clone(&bus),
             place: Arc::clone(&host_sessions) as _,
             decisions: Arc::new(pagis_coding::PolicyDecisions::new(
-                Arc::clone(&grants) as _,
-                Arc::clone(&bus),
+                pagis_coding::PolicyDecisionsDeps {
+                    grants: Arc::clone(&grants) as _,
+                    requests: Arc::clone(&requests) as _,
+                    messages: Arc::clone(&messages) as _,
+                    hosts: stores.hosts.clone(),
+                    bus: Arc::clone(&bus),
+                },
             )),
             rules: Arc::clone(&session_rules) as _,
             events: Arc::clone(&session_events) as _,
