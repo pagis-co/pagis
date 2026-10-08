@@ -7,7 +7,9 @@ person hires Agents the way a company hires employees. Each Agent has a
 job, a personality, its own memory, its own computer, and scoped access to
 the person's resources. The person talks to the staff in a chat app, in
 direct and group conversations. Agents work while the person is away, make
-and answer phone calls, learn from their work, and build their own tools.
+and answer phone calls, hand coding work to coding programs on the person's
+own computer and supervise it, learn from their work, and build their own
+tools.
 
 The identity of the product is the **hire-an-employee experience**: you
 create an Agent, watch it work at its own desk, and trust it more over
@@ -38,6 +40,12 @@ time.
    visible feed.
 7. **Rich conversation.** Agents answer with structured blocks (tables,
    forms, approval cards, previews), not only with prose.
+8. **Coding work, supervised.** An Agent hands a coding task to a Coding
+   Harness, such as Claude Code or Codex, on the person's own computer.
+   The harness uses the person's own subscription or API key. The Agent
+   writes the brief from its memory, answers the harness's questions,
+   decides or forwards its permission requests, checks the result and
+   reports the branch. The person sees each Coding Session in a Thread.
 
 ## Principles
 
@@ -48,7 +56,9 @@ time.
   nothing. Pagis builds a critical part itself when the available one is
   not good enough, for example the screen-streaming pipeline.
 - **Own the loop.** The agent loop is Pagis's own, built on its LLM router
-  (ADR-0001).
+  (ADR-0001). A Coding Harness runs beside the loop as a guest over ACP. It
+  owns its own loop, and Pagis memory, Grants and Threads do not reach
+  inside it (ADR-0001, ADR-0033).
 - **One product for one person and for a team.** The same daemon runs on a
   laptop and on a server. One installation is one Org, and each person in
   it keeps a private Workspace.
@@ -71,10 +81,9 @@ time.
   A structured browser-automation step in front of it is not built. An
   Agent that turns a repeated flow into a Software Package lowers the need
   for it.
-- **A coding harness as a guest.** Handing work to an external coding
-  harness, such as Claude Code or Codex, with the person's own
-  subscription, is not built. It would sit on top of the Software List,
-  watched from a Thread and deployed into the Computer of the parent Agent.
+- **Coding Sessions.** An Agent that starts and supervises a Coding
+  Session of a Coding Harness, such as Claude Code or Codex, on the
+  person's Host or in its own Computer, is not built (ADR-0033).
 - **The phone as a pager.** A phone opens the Product App in its browser
   through Remote Access and signs in with a Sign-In Link (ADR-0028).
   Notifications through Web Push, the Product App as an installed web
@@ -87,3 +96,5 @@ time.
 - A marketplace for Agents.
 - An Agent, a model or a Computer that runs on the phone.
 - A text message from Pagis to the person as a way to notify them.
+- A harness sign-in that Pagis reads, stores or relays: the person signs in
+  with the vendor's own program on their own machine.
