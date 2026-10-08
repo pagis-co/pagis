@@ -5,7 +5,8 @@
 //! refuses a rule for a program that runs other programs. A stored rule
 //! for such a program blocks no later "Always allow". The Person sets the
 //! widest Session Approval Mode of an Agent on a machine, and a write of
-//! the allow rules keeps it.
+//! the allow rules keeps it. The settings page replaces the session
+//! allow rules of a host grant.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -630,5 +631,68 @@ async fn a_change_of_the_allow_rules_keeps_the_session_approval_mode() {
     assert_eq!(
         list_grants(&daemon).await[0]["session_approval_mode"],
         "agent"
+    );
+}
+
+async fn put_rules_and_sessions(
+    daemon: &TestDaemon,
+    grant_id: &str,
+    sessions: serde_json::Value,
+) -> reqwest::Response {
+    reqwest::Client::new()
+        .put(format!(
+            "{}/api/v1/grants/{grant_id}/rules",
+            daemon.base_url
+        ))
+        .header("cookie", daemon.cookie())
+        .json(&serde_json::json!({ "allow": [], "sessions": sessions }))
+        .send()
+        .await
+        .unwrap()
+}
+
+/// The settings page replaces the session allow rules of a host grant.
+/// Each rule is stored with its directory resolved, once, and a harness
+/// that is not in the Harness Catalog or a relative directory is a 422.
+#[tokio::test]
+async fn the_settings_page_replaces_the_session_allow_rules() {
+    let daemon = TestDaemon::start().await;
+    let host = connected_host(&daemon).await;
+    let created =
+        put_session_approval_mode(&daemon, daemon.agent_id.as_str(), host.host_id(), "person")
+            .await;
+    let grant: serde_json::Value = created.json().await.unwrap();
+    let grant_id = grant["id"].as_str().unwrap();
+    assert_eq!(grant["sessions"], serde_json::json!([]));
+
+    let set = put_rules_and_sessions(
+        &daemon,
+        grant_id,
+        serde_json::json!([
+            {"harness": "claude", "directory": "/work/./pagis/"},
+            {"harness": "claude", "directory": "/work/pagis"},
+        ]),
+    )
+    .await;
+    assert_eq!(set.status(), 200);
+    let set: serde_json::Value = set.json().await.unwrap();
+    assert_eq!(
+        set["sessions"],
+        serde_json::json!([{"harness": "claude", "directory": "/work/pagis"}])
+    );
+
+    for rule in [
+        serde_json::json!({"harness": "vim", "directory": "/work"}),
+        serde_json::json!({"harness": "claude", "directory": "work"}),
+    ] {
+        let refused = put_rules_and_sessions(&daemon, grant_id, serde_json::json!([rule])).await;
+        assert_eq!(refused.status(), 422, "{rule}");
+    }
+
+    let removed = put_rules_and_sessions(&daemon, grant_id, serde_json::json!([])).await;
+    assert_eq!(removed.status(), 200);
+    assert_eq!(
+        list_grants(&daemon).await[0]["sessions"],
+        serde_json::json!([])
     );
 }

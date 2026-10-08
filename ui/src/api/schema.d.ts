@@ -4061,8 +4061,8 @@ export interface components {
             decision: string;
             /**
              * @description `once` (the default), or `always` to also write the request's
-             *     proposed allow rules into the agent's grant.
-             *     Meaningful for a `tool_action` only.
+             *     proposed allow rules, or its proposed session allow rule, into
+             *     the agent's grant. Meaningful for a `tool_action` only.
              */
             scope?: string | null;
             /**
@@ -4310,6 +4310,13 @@ export interface components {
             /** Format: int64 */
             revision: number;
             session_approval_mode?: null | components["schemas"]["SessionApprovalMode"];
+            /**
+             * @description The session allow rules of a host grant: each lets the Agent start
+             *     the sessions of one Coding Harness in one directory of the machine,
+             *     and in each directory under it, with no card. The other kinds hold
+             *     none.
+             */
+            sessions: components["schemas"]["SessionAllowRule"][];
         };
         GrantPage: {
             items: components["schemas"]["GrantDto"][];
@@ -6273,6 +6280,20 @@ export interface components {
             type: string;
         };
         /**
+         * @description A rule of a host Grant that lets its Agent start the sessions of one
+         *     Coding Harness in one directory of the Grant's machine, and in each
+         *     directory under it, with no card (ADR-0033). Only the Person writes
+         *     one: from the "Always allow" of a start card, or in Settings. It names
+         *     no mode, so the widest mode of the Grant bounds each session that it
+         *     lets start.
+         */
+        SessionAllowRule: {
+            /** @description An absolute POSIX path, with `.` removed and `..` resolved. */
+            directory: string;
+            /** @description The id of the harness in the Harness Catalog. */
+            harness: string;
+        };
+        /**
          * @description Who answers a Harness Permission of a Coding Session.
          * @enum {string}
          */
@@ -6313,6 +6334,11 @@ export interface components {
         SetGrantRulesRequest: {
             /** @description The full replacement rule list. */
             allow: string[];
+            /**
+             * @description The full replacement list of the session allow rules of a host
+             *     grant. Without it, the session allow rules stay.
+             */
+            sessions?: components["schemas"]["SessionAllowRule"][] | null;
         };
         SetHomeExitRequest: {
             /** @description One of the Person's own Hosts that declared `exit`. */

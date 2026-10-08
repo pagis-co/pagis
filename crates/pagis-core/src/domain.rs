@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::block::Block;
-use crate::coding_session::SessionApprovalMode;
+use crate::coding_session::{SessionAllowRule, SessionApprovalMode};
 use crate::id::{
     AgentId, ArtifactId, ChannelId, CodingSessionId, ConnectionId, EventSubscriptionId, GrantId,
     HostId, IncomingEventId, MessageId, ParticipantId, RequestId, RunId, ScheduleId,
@@ -1204,8 +1204,8 @@ impl Request {
 
 /// A scoped permission that lets one agent use one workspace resource.
 /// A credential grant has no `resource_id` and holds allow rules. A host
-/// grant names one Host and holds allow rules and the widest Session
-/// Approval Mode. A connection grant names
+/// grant names one Host and holds command allow rules, session allow
+/// rules and the widest Session Approval Mode. A connection grant names
 /// one connection and holds capabilities. A Plugin grant names one
 /// Plugin. The off switch is `revoked_at`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1277,6 +1277,26 @@ impl Grant {
     /// field kept.
     pub fn with_session_approval_mode(&self, mode: SessionApprovalMode) -> serde_json::Value {
         self.with_scope_field("session_approval_mode", serde_json::json!(mode.as_str()))
+    }
+
+    /// The session Allow Rules of a host Grant (ADR-0033). A malformed
+    /// scope, and a malformed rule, read as none.
+    pub fn session_allow_rules(&self) -> Vec<SessionAllowRule> {
+        self.scope["sessions"]
+            .as_array()
+            .map(|rules| {
+                rules
+                    .iter()
+                    .filter_map(|rule| serde_json::from_value(rule.clone()).ok())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// The scope with these session Allow Rules and every other field
+    /// kept.
+    pub fn with_session_allow_rules(&self, rules: &[SessionAllowRule]) -> serde_json::Value {
+        self.with_scope_field("sessions", serde_json::json!(rules))
     }
 
     /// The scope with one field replaced. A malformed scope holds no
@@ -3102,6 +3122,61 @@ mod tests {
         assert_eq!(
             scope,
             serde_json::json!({"allow": ["echo"], "session_approval_mode": "auto"})
+        );
+    }
+
+    fn session_allow_rule() -> SessionAllowRule {
+        SessionAllowRule::new("claude", "/work/pagis").expect("a valid rule")
+    }
+
+    #[test]
+    fn new_session_allow_rules_keep_the_allow_rules_and_the_mode() {
+        let grant = host_grant_with_scope(
+            serde_json::json!({"allow": ["echo"], "session_approval_mode": "agent"}),
+        );
+
+        let scope = grant.with_session_allow_rules(&[session_allow_rule()]);
+
+        assert_eq!(
+            scope,
+            serde_json::json!({
+                "allow": ["echo"],
+                "session_approval_mode": "agent",
+                "sessions": [{"harness": "claude", "directory": "/work/pagis"}],
+            })
+        );
+    }
+
+    #[test]
+    fn new_allow_rules_keep_the_session_allow_rules() {
+        let grant = host_grant_with_scope(serde_json::json!({
+            "allow": ["echo"],
+            "sessions": [{"harness": "claude", "directory": "/work/pagis"}],
+        }));
+
+        let scope = grant.with_allow_rules(&["git status".to_string()]);
+
+        assert_eq!(
+            host_grant_with_scope(scope).session_allow_rules(),
+            vec![session_allow_rule()]
+        );
+    }
+
+    #[test]
+    fn a_malformed_session_allow_rule_reads_as_none() {
+        let grant = host_grant_with_scope(serde_json::json!({
+            "sessions": [
+                {"harness": "claude"},
+                "claude in /work",
+                {"harness": "claude", "directory": "/work/pagis"},
+            ],
+        }));
+
+        assert_eq!(grant.session_allow_rules(), vec![session_allow_rule()]);
+        assert!(
+            host_grant_with_scope(serde_json::json!({"allow": []}))
+                .session_allow_rules()
+                .is_empty()
         );
     }
 

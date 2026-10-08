@@ -189,6 +189,11 @@ pub enum AllowRuleBuilder {
     /// that send sits on a rule, so an Agent cannot widen its own
     /// reach with an added address.
     MailRecipientDomain,
+    /// One Coding Harness in one directory tree of one machine
+    /// (ADR-0033). The rule comes from the start that the checks of
+    /// [`SessionStarts`] allowed, and it lives on the host Grant of the
+    /// machine that the card names.
+    CodingSessionScope,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -2446,6 +2451,27 @@ impl Broker {
                     mail::recipients_allowed(&context.arguments, &mailbox.allow_rules)
                 }))
             }
+            Some(AllowRuleBuilder::CodingSessionScope) => {
+                let (Some(start), Some(host)) = (&context.session_start, &context.host) else {
+                    return Ok(false);
+                };
+                Ok(self
+                    .deps
+                    .grants
+                    .live_for_resource(
+                        &context.workspace_id,
+                        &context.agent_id,
+                        Grant::HOST_KIND,
+                        host.id.as_str(),
+                    )
+                    .await?
+                    .is_some_and(|grant| {
+                        grant
+                            .session_allow_rules()
+                            .iter()
+                            .any(|rule| rule.covers(&start.harness_id, &start.directory))
+                    }))
+            }
             None => Ok(false),
         }
     }
@@ -2576,7 +2602,30 @@ impl Broker {
             Some(AllowRuleBuilder::MailRecipientDomain) => {
                 mail::proposed_domains(&context.arguments)
             }
-            Some(AllowRuleBuilder::CredentialDomain) | None => Vec::new(),
+            Some(AllowRuleBuilder::CredentialDomain | AllowRuleBuilder::CodingSessionScope)
+            | None => Vec::new(),
+        };
+        // A session rule is structured data on the host Grant, not a
+        // command, so it is no entry of `proposed_rules`. A directory
+        // that is not an absolute POSIX path gets no rule: the lexical
+        // check could not cover it.
+        let session_rule = match (
+            &presentation.allow_rule_builder,
+            &context.session_start,
+            &context.host,
+        ) {
+            (Some(AllowRuleBuilder::CodingSessionScope), Some(start), Some(host)) => {
+                pagis_core::SessionAllowRule::new(&start.harness_id, &start.directory)
+                    .ok()
+                    .map(|rule| {
+                        let label = format!(
+                            "Always allow {} sessions in {} on {}",
+                            start.harness_name, rule.directory, host.name
+                        );
+                        (rule, label)
+                    })
+            }
+            _ => None,
         };
         let body = if let (Some(start), Some(host)) = (&context.session_start, &context.host) {
             coding_session_approval_body(
@@ -2620,6 +2669,10 @@ impl Broker {
                 "action_title": presentation.action_title,
                 "body": body,
                 "proposed_rules": proposed_rules,
+                // The session Allow Rule that an `always` writes onto the
+                // host Grant, and the words of the card's checkbox.
+                "proposed_session_allow_rule": session_rule.as_ref().map(|(rule, _)| rule),
+                "always_label": session_rule.as_ref().map(|(_, label)| label),
                 // The Plugin an "always allow" rule belongs to. A
                 // Plugin Grant is per Plugin, so the rule needs the
                 // record and not only the kind.
@@ -3923,7 +3976,7 @@ fn core_manifest() -> CapabilityManifest {
                     Some(ApprovalPresentation {
                         action_title: "Start a coding session".to_string(),
                         body_argument: None,
-                        allow_rule_builder: None,
+                        allow_rule_builder: Some(AllowRuleBuilder::CodingSessionScope),
                     }),
                 )
             },

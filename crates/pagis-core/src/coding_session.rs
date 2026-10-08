@@ -119,6 +119,77 @@ impl std::str::FromStr for SessionApprovalMode {
     }
 }
 
+/// A rule of a host Grant that lets its Agent start the sessions of one
+/// Coding Harness in one directory of the Grant's machine, and in each
+/// directory under it, with no card (ADR-0033). Only the Person writes
+/// one: from the "Always allow" of a start card, or in Settings. It names
+/// no mode, so the widest mode of the Grant bounds each session that it
+/// lets start.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct SessionAllowRule {
+    /// The id of the harness in the Harness Catalog.
+    pub harness: String,
+    /// An absolute POSIX path, with `.` removed and `..` resolved.
+    pub directory: String,
+}
+
+impl SessionAllowRule {
+    /// The rule for `harness` in `directory`. It refuses a harness that
+    /// is not in the Harness Catalog and a directory that is not an
+    /// absolute POSIX path, and it stores the directory resolved, so the
+    /// Person reads the directory that the rule covers.
+    pub fn new(harness: &str, directory: &str) -> Result<Self, String> {
+        if crate::harness::entry(harness).is_none() {
+            return Err(format!(
+                "{harness:?} is not a Coding Harness of the Harness Catalog"
+            ));
+        }
+        let Some(components) = path_components(directory) else {
+            return Err(format!("{directory:?} is not an absolute path"));
+        };
+        Ok(Self {
+            harness: harness.to_string(),
+            directory: format!("/{}", components.join("/")),
+        })
+    }
+
+    /// True for the same harness in the rule's directory or a directory
+    /// under it. The check is lexical, as the scope check of a Harness
+    /// Permission is: the directories are on the Host.
+    pub fn covers(&self, harness: &str, directory: &str) -> bool {
+        self.harness == harness && path_is_inside(directory, &self.directory)
+    }
+}
+
+/// True when `path` is `directory` or a path under it, after `.` is
+/// removed and `..` is resolved in each. The paths are compared by
+/// components, so `/work/pagis2` is not under `/work/pagis`. A relative
+/// path is outside, and a relative directory holds nothing.
+pub fn path_is_inside(path: &str, directory: &str) -> bool {
+    match (path_components(path), path_components(directory)) {
+        (Some(path), Some(directory)) => path.starts_with(&directory),
+        _ => false,
+    }
+}
+
+/// The components of an absolute POSIX path, with `.` removed and `..`
+/// resolved. A `..` at the root stays at the root, as in POSIX. A
+/// relative path gives `None`.
+fn path_components(path: &str) -> Option<Vec<&str>> {
+    let rest = path.strip_prefix('/')?;
+    let mut components = Vec::new();
+    for component in rest.split('/') {
+        match component {
+            "" | "." => {}
+            ".." => {
+                components.pop();
+            }
+            name => components.push(name),
+        }
+    }
+    Some(components)
+}
+
 /// Where a Coding Session is in its life.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
@@ -997,5 +1068,67 @@ mod tests {
                 "{widest:?} permits {requested:?}"
             );
         }
+    }
+
+    fn rule(harness: &str, directory: &str) -> SessionAllowRule {
+        SessionAllowRule::new(harness, directory).expect("a valid rule")
+    }
+
+    #[test]
+    fn a_session_allow_rule_covers_its_directory_and_each_directory_under_it() {
+        let rule = rule("claude", "/work/pagis");
+
+        assert!(rule.covers("claude", "/work/pagis"));
+        assert!(rule.covers("claude", "/work/pagis/"));
+        assert!(rule.covers("claude", "/work/pagis/crates/core"));
+        assert!(rule.covers("claude", "/work/./pagis/crates/../ui"));
+    }
+
+    #[test]
+    fn a_session_allow_rule_does_not_cover_a_sibling_with_a_shared_prefix() {
+        assert!(!rule("claude", "/work/pagis").covers("claude", "/work/pagis2"));
+    }
+
+    #[test]
+    fn a_session_allow_rule_does_not_cover_a_path_whose_dot_dot_leaves_it() {
+        let rule = rule("claude", "/work/pagis");
+
+        assert!(!rule.covers("claude", "/work/pagis/../secrets"));
+        assert!(!rule.covers("claude", "/work/pagis/crates/../../secrets"));
+        assert!(!rule.covers("claude", "work/pagis"));
+    }
+
+    #[test]
+    fn a_session_allow_rule_does_not_cover_another_harness() {
+        assert!(!rule("claude", "/work/pagis").covers("codex", "/work/pagis"));
+    }
+
+    #[test]
+    fn a_new_session_allow_rule_holds_the_resolved_directory() {
+        assert_eq!(
+            rule("codex", "/work/./pagis/ui/../").directory,
+            "/work/pagis"
+        );
+        assert_eq!(rule("codex", "/").directory, "/");
+        assert_eq!(rule("codex", "/..").directory, "/");
+    }
+
+    #[test]
+    fn a_new_session_allow_rule_needs_a_catalog_harness_and_an_absolute_directory() {
+        let unknown = SessionAllowRule::new("vim", "/work/pagis").unwrap_err();
+        assert!(unknown.contains("vim"), "{unknown}");
+        let relative = SessionAllowRule::new("claude", "work/pagis").unwrap_err();
+        assert!(relative.contains("work/pagis"), "{relative}");
+        assert!(SessionAllowRule::new("claude", "C:\\work\\pagis").is_err());
+    }
+
+    #[test]
+    fn a_path_is_inside_a_directory_after_dot_and_dot_dot_are_resolved() {
+        assert!(path_is_inside("/repo/a.rs", "/repo"));
+        assert!(path_is_inside("/repo", "/repo/./"));
+        assert!(path_is_inside("/anything", "/"));
+        assert!(!path_is_inside("/repo/../etc", "/repo"));
+        assert!(!path_is_inside("repo/a.rs", "/repo"));
+        assert!(!path_is_inside("/repo/a.rs", "repo"));
     }
 }

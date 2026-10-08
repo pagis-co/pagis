@@ -285,9 +285,10 @@ Person of a Local Installation, or the first Person of Server Setup
 
 ### Allow Rule
 A rule inside a Grant that approves one class of gated actions in advance,
-such as a command prefix on one Host or mail to one domain. The Person
-makes one from an approval card or in settings. It reaches no further than
-its Grant (ADR-0005).
+such as a command prefix on one Host, the Coding Sessions of one Coding
+Harness in one directory of one Host (a **session Allow Rule**), or mail to
+one domain. The Person makes one from an approval card or in settings. It
+reaches no further than its Grant (ADR-0005, ADR-0033).
 
 ### Exposure Stamp
 The record of which Grants the author of a message or a memory file held
@@ -297,8 +298,8 @@ withheld from every reader (ADR-0004, ADR-0008).
 ### Grant
 A scoped permission that lets one Agent use one Workspace resource: a
 Connection with capabilities, the Vault with allowed domains, a Host with
-command Allow Rules and the widest Session Approval Mode of its Agent on
-that machine, or a Plugin. A Grant has numbered revisions. An action that
+command Allow Rules, session Allow Rules and the widest Session Approval
+Mode of its Agent on that machine, or a Plugin. A Grant has numbered revisions. An action that
 matches the live revision needs no new approval (ADR-0005).
 
 ### Member
@@ -1042,7 +1043,8 @@ or in the Agent's Computer. One Agent owns and supervises it, and one Thread
 shows it. It is not a Run. On a Host it runs over the **session socket**, a
 WebSocket of the Client App that carries one stream for each Coding Session.
 An Agent starts it on a Host with `coding_session_start`, after the Person
-approves the card, and the daemon stores its record and its transcript. Not
+approves the card or under a session Allow Rule of the host Grant, and the
+daemon stores its record and its transcript. Not
 built: a session in the Agent's Computer (ADR-0033).
 _Avoid_: harness session
 

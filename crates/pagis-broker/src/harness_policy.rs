@@ -11,7 +11,7 @@
 //! uses the Host Allow Rules of `host_shell` and their matcher
 //! ([`command_allowed`]).
 
-use pagis_core::SessionApprovalMode;
+use pagis_core::{SessionApprovalMode, path_is_inside};
 use serde::{Deserialize, Serialize};
 
 use crate::command_allowed;
@@ -135,7 +135,7 @@ pub fn evaluate(
         } else {
             locations
                 .iter()
-                .all(|location| is_inside(location, directory))
+                .all(|location| path_is_inside(location, directory))
         };
         if inside {
             return PolicyOutcome::Allow(Decider::Scope);
@@ -150,34 +150,6 @@ pub fn evaluate(
         SessionApprovalMode::Agent => PolicyOutcome::AskAgent,
         _ => PolicyOutcome::AskPerson,
     }
-}
-
-/// True when `path` is `directory` or a path under it, after `.` is
-/// removed and `..` is resolved in each. A relative path is outside, and
-/// a relative directory holds nothing.
-fn is_inside(path: &str, directory: &str) -> bool {
-    match (normalize(path), normalize(directory)) {
-        (Some(path), Some(directory)) => path.starts_with(&directory),
-        _ => false,
-    }
-}
-
-/// The components of an absolute POSIX path, with `.` removed and `..`
-/// resolved. A `..` at the root stays at the root, as in POSIX. A
-/// relative path gives `None`.
-fn normalize(path: &str) -> Option<Vec<&str>> {
-    let rest = path.strip_prefix('/')?;
-    let mut components = Vec::new();
-    for component in rest.split('/') {
-        match component {
-            "" | "." => {}
-            ".." => {
-                components.pop();
-            }
-            name => components.push(name),
-        }
-    }
-    Some(components)
 }
 
 #[cfg(test)]

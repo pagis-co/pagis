@@ -292,9 +292,9 @@ The Agent drives a Coding Session with core tools (ADR-0005):
   `harness:<id>`, chosen as `host_shell` chooses them (ADR-0015). The card
   shows the harness, the machine, the directory, the worktree, the mode and
   the start of the brief. Its allow-rule builder offers "Always allow
-  <harness> sessions in <directory> on <machine>", stored on the host Grant.
-  The start refuses a mode wider than the Grant allows, and a mode other than
-  `auto` for a harness that does not ask permission.
+  <harness> sessions in <directory> on <machine>". The start refuses a mode
+  wider than the Grant allows, and a mode other than `auto` for a harness
+  that does not ask permission.
 - `coding_session_send {session, prompt}`: a new turn when the session is
   `idle`, and queued until the turn ends when it is `working`, because ACP v1
   has no steering. Free.
@@ -308,6 +308,34 @@ The Agent drives a Coding Session with core tools (ADR-0005):
   because the Person delegated the decision through the mode. A decision
   allows once only, and an Agent never writes an allow rule.
 - For a question, `coding_session_answer {session, values}`. Free.
+
+### A session Allow Rule lets a start run with no card
+
+An approve with "Always allow" on a start card writes a **session Allow
+Rule** `{harness, directory}` into the field `sessions` of the scope of the
+host Grant of that machine. When the Agent holds no live host Grant on the
+machine, the approve makes one, as an approve of a command does. A session
+Allow Rule is structured data and not a command, so it is not in `allow`,
+which the tree-sitter-bash matcher reads. A write of one field of the scope
+keeps the other fields.
+
+A rule covers the same harness in its directory and in each directory under
+it, as a trusted folder of an editor does. The check is lexical, as the
+scope check of a Harness Permission is: it removes `.` and resolves `..` in
+each POSIX path, and it compares the paths by components, so `/work/pagis`
+does not cover `/work/pagis2`. The rule holds its directory in that resolved
+form. A start in a directory that is not an absolute POSIX path offers no
+rule.
+
+A start that a session Allow Rule of the live host Grant of the chosen
+machine covers runs with no card, after the checks of the start. A rule on
+one machine does not cover a start on another machine of the same Person.
+The rule names no mode, so the widest mode on the Grant bounds each session
+that it lets start.
+
+Only the Person writes a session Allow Rule: with an approve of a start
+card, or in Settings, which lists the session Allow Rules of each host
+Grant and removes one. An Agent never writes one.
 
 ### The Person sets the widest Session Approval Mode
 
@@ -520,7 +548,6 @@ Other ways were considered:
 ## Not built
 
 - The core tools other than `coding_session_start`.
-- The "Always allow" rule of `coding_session_start`.
 - The refusal of a mode other than `auto` for a harness that does not ask
   permission.
 - The interruption and the resume.

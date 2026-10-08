@@ -1,9 +1,10 @@
-// One Agent's host or Vault grant rules (ADR-0022).
+// One Agent's host or Vault grant rules, and the session allow rules of a
+// host grant (ADR-0022, ADR-0033).
 
 import { useState } from 'react'
 import { X } from 'lucide-react'
 
-import type { ApiClient, GrantDto } from '../api/client'
+import type { ApiClient, GrantDto, SessionAllowRule } from '../api/client'
 import { Button, IconButton, Input } from '../primitives'
 import { useRevokeGrant, useSetGrantRules } from '../queries'
 
@@ -63,6 +64,16 @@ export function GrantRow({
     })
   }
 
+  const removeSessionRule = (rule: SessionAllowRule) => {
+    setRules.mutate({
+      grantId: grant.id,
+      allow: grant.allow,
+      sessions: grant.sessions.filter(
+        (r) => r.harness !== rule.harness || r.directory !== rule.directory,
+      ),
+    })
+  }
+
   return (
     <div className="grant-row" data-testid="grant-row">
       <div className="grant-row-header">
@@ -81,7 +92,7 @@ export function GrantRow({
         </Button>
       </div>
       <div className="grant-rules">
-        {grant.allow.length === 0 && (
+        {grant.allow.length === 0 && grant.sessions.length === 0 && (
           <span className="grant-rules-empty">{copy.empty}</span>
         )}
         {grant.allow.map((rule) => (
@@ -97,6 +108,22 @@ export function GrantRow({
             />
           </span>
         ))}
+        {grant.sessions.map((rule) => {
+          const text = `${rule.harness} sessions in ${rule.directory}`
+          return (
+            <span key={`${rule.harness} ${rule.directory}`} className="grant-rule">
+              <span>{text}</span>
+              <IconButton
+                icon={X}
+                variant="ghost"
+                size="sm"
+                label={`Remove rule ${text}`}
+                disabled={setRules.isPending}
+                onClick={() => removeSessionRule(rule)}
+              />
+            </span>
+          )
+        })}
       </div>
       <div className="grant-rule-add">
         <Input

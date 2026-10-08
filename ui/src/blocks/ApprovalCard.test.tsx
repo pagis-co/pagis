@@ -327,3 +327,65 @@ describe('ApprovalCard for a credential action', () => {
     )
   })
 })
+
+const SESSION_LABEL = 'Always allow Claude Code sessions in /work/pagis on Air'
+
+function stubSessionStartApi() {
+  return {
+    GET: vi.fn(async () => ({
+      data: {
+        id: 'ap1',
+        agent_id: 'ag1',
+        run_id: 'r1',
+        kind: 'tool_action',
+        payload: {
+          tool_name: 'coding_session_start',
+          effect_class: 'host',
+          host_id: 'h-1',
+          host_name: 'Air',
+          proposed_rules: [],
+          proposed_session_allow_rule: {
+            harness: 'claude',
+            directory: '/work/pagis',
+          },
+          always_label: SESSION_LABEL,
+        },
+        state: 'pending',
+        decided_at: null,
+        created_at: 1,
+      },
+    })),
+    POST: vi.fn(async () => ({ data: { state: 'approved' } })),
+  }
+}
+
+describe('ApprovalCard for a Coding Session start', () => {
+  it('names the harness, the directory and the machine beside Always allow', async () => {
+    const api = stubSessionStartApi()
+    mount(api as unknown as ReturnType<typeof stubApi>, [
+      {
+        type: 'approval_card',
+        request_id: 'ap1',
+        title: 'Start Claude Code on your Air',
+        body: 'Harness: Claude Code',
+      },
+    ])
+
+    const always = await screen.findByRole('checkbox')
+    expect(always.closest('label')?.textContent).toBe(SESSION_LABEL)
+    expect(always.getAttribute('aria-describedby')).toBeNull()
+    expect(screen.queryByText(/every flag and argument/)).toBeNull()
+    fireEvent.click(always)
+    fireEvent.click(screen.getByText('Approve'))
+
+    await waitFor(() =>
+      expect(api.POST).toHaveBeenCalledWith(
+        '/api/v1/requests/{request_id}/decision',
+        {
+          params: { path: { request_id: 'ap1' } },
+          body: { decision: 'approved', scope: 'always' },
+        },
+      ),
+    )
+  })
+})
