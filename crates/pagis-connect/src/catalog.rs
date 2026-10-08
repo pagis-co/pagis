@@ -209,28 +209,14 @@ const fn number(key: &'static str, label: &'static str, default: &'static str) -
     }
 }
 
-const GOOGLE_FIELDS: &[ProviderField] = &[
-    text(
-        "account",
-        "Google account",
-        "Google account, e.g. alice@example.com",
-    ),
-    text("client_id", "Client ID", "Client ID"),
-    secret("client_secret", "Client secret", "Client secret"),
-];
+/// What the Google entry says where the Org holds no Installation OAuth
+/// Client. The daemon refuses a new Google Connection with the same
+/// words, because they name the one step that fixes it.
+pub(crate) const GOOGLE_NOT_SET_UP: &str = "an administrator sets up Google sign-in in the \
+     Administration Interface first";
 
-/// The Google form of a brokered installation: the account and
-/// nothing else. The installation's own Web OAuth client is the one
-/// every person consents against, so there is nothing to paste.
-const GOOGLE_BROKERED_FIELDS: &[ProviderField] = &[text(
-    "account",
-    "Google account",
-    "Google account, e.g. alice@example.com",
-)];
-
-const GOOGLE_BROKERED_BLURB: &str = "Pagis signs in with this installation's own Google client. Type the \
-     account you want to connect, then finish at Google in your browser. \
-     Pagis holds the sign-in for this account and nobody else's.";
+const GOOGLE_NOT_SET_UP_BLURB: &str = "An administrator sets up Google sign-in in the \
+     Administration Interface. Then you sign in at Google and allow Pagis.";
 
 const TELNYX_FIELDS: &[ProviderField] = &[secret("api_key", "Carrier API key", "Carrier API key")];
 
@@ -328,16 +314,17 @@ const MIGADU_SETUP: &[SetupPart] = &mail_domain_setup(MIGADU_FIELDS);
 const MANUAL_SETUP: &[SetupPart] = &mail_domain_setup(MANUAL_FIELDS);
 
 /// The Installation OAuth Client (ADR-0012): the Web client every
-/// person of the installation consents against. A person still
-/// connects their own Google account on the product port.
+/// person of the installation consents against. A person connects
+/// their own Google account on the product port and types nothing.
 const GOOGLE_SETUP: &[SetupPart] = &[SetupPart {
     id: "oauth-client",
     kind: SetupKind::OauthClient,
     label: "Google OAuth client",
     blurb: "The Web OAuth client every person of this installation signs in to \
             Google with. Create it in the Google Cloud console with the redirect URI \
-            below. Without one, each person on a local installation brings their own \
-            Desktop client, and a server takes no Google connection.",
+            below. Without one, no person connects a Google account. Publish the \
+            consent screen, or make it Internal for a Google Workspace organization: \
+            while it is in Testing, Google ends each sign-in after seven days.",
     fields: &[
         text("client_id", "Client ID", "Web client ID"),
         secret("client_secret", "Client secret", "Web client secret"),
@@ -359,18 +346,17 @@ const CATALOG: &[ProviderEntry] = &[
     ProviderEntry {
         id: pagis_google::GOOGLE_PROVIDER,
         label: "Google account",
-        blurb: "Pagis signs in with an OAuth client you own. In the Google Cloud \
-                console, create a project, enable the Gmail and Calendar APIs, then \
-                create an OAuth client of type Desktop app and paste its two values \
-                here. They reach Google once and are never stored by Pagis.",
+        blurb: "Sign in at Google and allow Pagis. Google's account chooser picks \
+                the account, and Pagis holds the sign-in for that account and \
+                nobody else's.",
         kind: ProviderKind::Oauth,
-        fields: GOOGLE_FIELDS,
+        fields: &[],
         capabilities: &[MAIL, CALENDAR],
         absent_capabilities: &[],
         max_instances: None,
         default_display_name: "Google",
         default_alias: "",
-        portal: Some("the Google Cloud console"),
+        portal: None,
         installation: GOOGLE_SETUP,
     },
     ProviderEntry {
@@ -477,26 +463,41 @@ pub fn catalog() -> &'static [ProviderEntry] {
     CATALOG
 }
 
+/// One provider of the person's catalog, and whether the installation
+/// set up what a person needs to connect it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PersonProvider {
+    pub entry: ProviderEntry,
+    /// False for Google where the Org holds no Installation OAuth Client.
+    /// The entry then says that an administrator sets it up, and the
+    /// picker offers no connect step.
+    pub set_up: bool,
+}
+
 /// The catalog a person picks from on the product port: every
 /// provider a person connects on their own, as one installation shows
 /// it. An Installation Connection is not in it, because an
 /// administrator sets one up in the Administration Interface.
 ///
-/// `google_brokered` is true where the Org holds an Installation OAuth
-/// Client. The Google entry then asks for the account alone and says
-/// so, because the client is the installation's.
-pub fn person_catalog(google_brokered: bool) -> Vec<ProviderEntry> {
+/// `google_client` is true where the Org holds an Installation OAuth
+/// Client, the one client every person consents against.
+pub fn person_catalog(google_client: bool) -> Vec<PersonProvider> {
     CATALOG
         .iter()
         .filter(|entry| !is_installation_provider(entry.id))
         .map(
-            |entry| match google_brokered && entry.id == pagis_google::GOOGLE_PROVIDER {
-                true => ProviderEntry {
-                    fields: GOOGLE_BROKERED_FIELDS,
-                    blurb: GOOGLE_BROKERED_BLURB,
-                    ..*entry
+            |entry| match google_client || entry.id != pagis_google::GOOGLE_PROVIDER {
+                true => PersonProvider {
+                    entry: *entry,
+                    set_up: true,
                 },
-                false => *entry,
+                false => PersonProvider {
+                    entry: ProviderEntry {
+                        blurb: GOOGLE_NOT_SET_UP_BLURB,
+                        ..*entry
+                    },
+                    set_up: false,
+                },
             },
         )
         .collect()
@@ -624,23 +625,9 @@ impl NewCredentials {
                 .ok_or_else(|| ConnectError::Validation(format!("{key} is a port number")))
         };
         match provider {
-            // The Desktop client fields are absent on a brokered
-            // installation: the entry the picker drew has no place to
-            // type them, because the Org's Web client is the one every
-            // person consents against.
-            pagis_google::GOOGLE_PROVIDER => Ok(NewCredentials::Google {
-                account: fields
-                    .get("account")
-                    .map(|value| value.trim().to_string())
-                    .unwrap_or_default(),
-                client: match (fields.get("client_id"), fields.get("client_secret")) {
-                    (None, None) => None,
-                    _ => Some(crate::DesktopClient {
-                        client_id: field("client_id")?,
-                        client_secret: field("client_secret")?,
-                    }),
-                },
-            }),
+            // The person types nothing for Google: the account comes
+            // from the consent, and the client is the installation's.
+            pagis_google::GOOGLE_PROVIDER => Ok(NewCredentials::Google),
             // A Telnyx key is a bearer token: the secret is the whole
             // credential, and the account is empty.
             TELNYX_PROVIDER => Ok(NewCredentials::Carrier {

@@ -72,7 +72,7 @@ carries it.
 
 The store holds one Tenant Data Key for each Workspace, as an entry of
 `secrets.enc` under a name that carries the Workspace. It seals Credential
-secrets, one-time code seeds and the refresh token of a `brokered` Connection.
+secrets, one-time code seeds and the refresh token of a Google Connection.
 Unsealing a row unwraps the key of the owning Workspace alone, so a row read
 across the tenant line stays ciphertext.
 

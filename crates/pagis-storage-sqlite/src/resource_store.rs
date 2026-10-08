@@ -18,7 +18,7 @@ impl SqliteConnectionStore {
     }
 }
 
-const CONNECTION_COLUMNS: &str = "id, workspace_id, provider, alias, display_name, status, auth_mode, \
+const CONNECTION_COLUMNS: &str = "id, workspace_id, provider, alias, display_name, status, \
      authorized_capabilities, config, created_at";
 
 /// A stored `config` that will not parse reads as empty: the provider
@@ -35,7 +35,6 @@ fn connection_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<Connection, Stor
         alias: row.get("alias"),
         display_name: row.get("display_name"),
         status: row.get("status"),
-        auth_mode: row.get("auth_mode"),
         authorized_capabilities,
         config: serde_json::from_str(&row.get::<String, _>("config"))
             .unwrap_or_else(|_| serde_json::json!({})),
@@ -47,7 +46,7 @@ fn connection_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<Connection, Stor
 impl ConnectionStore for SqliteConnectionStore {
     async fn create(&self, connection: &Connection) -> Result<(), StoreError> {
         sqlx::query(&format!(
-            "INSERT INTO connections ({CONNECTION_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            "INSERT INTO connections ({CONNECTION_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
         ))
         .bind(connection.id.as_str())
         .bind(connection.workspace_id.as_str())
@@ -55,7 +54,6 @@ impl ConnectionStore for SqliteConnectionStore {
         .bind(&connection.alias)
         .bind(&connection.display_name)
         .bind(&connection.status)
-        .bind(&connection.auth_mode)
         .bind(serde_json::to_string(&connection.authorized_capabilities).expect("string list"))
         .bind(connection.config.to_string())
         .bind(connection.created_at)

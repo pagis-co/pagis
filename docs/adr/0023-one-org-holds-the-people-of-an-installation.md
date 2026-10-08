@@ -70,7 +70,7 @@ refusal intact, so no Person may reach it by accident:
 - `WorkspaceStore::get` and `list` answer only Workspaces a Person owns. No
   per-Workspace sweep, seed or Session reaches the Org's Workspace.
 - The seed never runs for it. It has no Agents, Channels, aliases or memory.
-- It holds no `brokered` Connection and needs no Tenant Data Key; the keys of
+- It holds no Google Connection and needs no Tenant Data Key; the keys of
   an Installation Connection are installation secrets.
 
 A Person-scoped path names the Org's Workspace in one case: to read an

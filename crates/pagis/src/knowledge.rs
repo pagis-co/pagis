@@ -1029,7 +1029,6 @@ mod tests {
             alias: "personal".into(),
             display_name: "Personal".into(),
             status: Connection::CONNECTED.into(),
-            auth_mode: Connection::AUTH_MODE_BYO.into(),
             authorized_capabilities: vec!["gmail_read".into()],
             config: serde_json::json!({}),
             created_at: 1,

@@ -21,7 +21,7 @@ function AddConnection({ api, onClose }: { api: ApiClient; onClose: () => void }
   const [id, setId] = useState<string | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
   const entry = providers.data?.find((row) => row.id === 'google')
-  const ready = entry !== undefined && !entry.fields.some((field) => field.key === 'client_id')
+  const ready = entry?.set_up === true
   const connected =
     !!id && connections.data?.some((row) => row.id === id && row.status === 'connected')
   const refetch = connections.refetch

@@ -23,7 +23,6 @@ describe('ConnectionHeader', () => {
     mount()
     expect(screen.getByRole('heading', { name: 'Google · alice@example.com' })).toBeTruthy()
     expect(screen.getByText(/Sprites know it as/).textContent).toContain('personal')
-    expect(screen.getByText(/your own OAuth client/)).toBeTruthy()
     expect(screen.getByRole('status', { name: 'Connected' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Back to Connections' })).toBeTruthy()
   })
@@ -40,6 +39,22 @@ describe('ConnectionHeader', () => {
         },
       ),
     )
+  })
+
+  it('opens the start route that a Google reconnect answers', async () => {
+    const open = vi.fn()
+    vi.stubGlobal('open', open)
+    const api = stubApi()
+    const start = 'https://pagis.example.net/api/v1/connections/google/start?state=abc'
+    api.POST.mockImplementation(async () => ({
+      data: { connection: connected({ status: 'connecting' }), authorization_url: start },
+    }))
+    mount(api)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reconnect' }))
+
+    await waitFor(() => expect(open).toHaveBeenCalledWith(start, '_blank', 'noopener'))
+    vi.unstubAllGlobals()
   })
 
   it('disconnects and returns to the list', async () => {

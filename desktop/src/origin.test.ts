@@ -149,7 +149,7 @@ describe('the server origin the client trusts', () => {
   })
 })
 
-/** The start route of a brokered Google authorization, on the Public
+/** The start route of a Google authorization, on the Public
  *  Origin that the product window shows. The Person consents in the
  *  system browser and signs in there as themselves. */
 const START = '/api/v1/connections/google/start?state=Zx9-abc_123'

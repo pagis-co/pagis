@@ -562,7 +562,6 @@ async fn a_tenant_runs_the_plugin_with_the_token_of_the_orgs_connection() {
         alias: "telephony".to_string(),
         display_name: "Telnyx".to_string(),
         status: pagis_core::Connection::CONNECTED.to_string(),
-        auth_mode: pagis_core::Connection::AUTH_MODE_BYO.to_string(),
         authorized_capabilities: Vec::new(),
         config: serde_json::json!({}),
         created_at: pagis_core::now_ms(),

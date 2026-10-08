@@ -139,13 +139,13 @@ computer-use protocols.
 The one enforcement point for everything an Agent may touch (ADR-0005).
 
 - **Connections.** Mail, calendar and other provider accounts. A Person
-  connects once, and Agents use a Connection through Grants. A Connection
-  is `byo`, with the Person's own OAuth client, or `brokered`, through the
-  Installation OAuth Client an Administrator set up (ADR-0012). A
-  `brokered` refresh token is sealed on its row with the Workspace's Tenant
-  Data Key, a `byo` Google token stays in `gog`'s own file store under the
-  Workspace's `GOG_HOME`, and provider keys are in `secrets.enc`. No token
-  enters a container (ADR-0013).
+  connects once, and Agents use a Connection through Grants. A Person
+  connects Google by signing in at Google against the Installation OAuth
+  Client that an Administrator set up, and types no client and no account
+  (ADR-0012). The refresh token is sealed on its row with the Workspace's
+  Tenant Data Key, the daemon hands `gog` an access token for each call,
+  and provider keys are in `secrets.enc`. No token enters a container
+  (ADR-0013).
 - **Vault.** Credentials that Grants scope to named Agents and domains. The
   daemon fills them into verified fields of the Credential's own `https` site,
   through a browser channel it owns; the model never sees a secret value.

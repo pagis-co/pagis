@@ -10,35 +10,25 @@
 //! place: a row at `connected`.
 //!
 //! The flow has two halves because the user is between them. First the
-//! record: the account and the alias a tool call names. Then the
-//! authorization, which takes one of two shapes (ADR-0012).
+//! record: the alias a tool call names and the display name. Then the
+//! authorization.
 //!
-//! A `byo` Connection is the local one: the user supplies a Desktop
-//! OAuth client, which goes to `gog` over stdin and is never written
-//! down, and `gog` opens Google in the browser and waits on 127.0.0.1.
-//! Nothing is retained: the client id and secret pass through once and
-//! the tokens stay in `gog`'s own store, under a `GOG_HOME` that carries
-//! the Workspace.
-//!
-//! A `brokered` Connection is the server one: the Org holds one Web
-//! OAuth client, the daemon answers with the start route on its own
-//! Public Origin and returns at once, and the redirect comes back to the
-//! same origin. Only the browser and the Person that the start route
-//! bound finish it, and only for the Google account of the Connection.
-//! The daemon owns the refresh token from then on, sealed with that
-//! person's Tenant Data Key. [`google`] holds that half.
-//!
-//! The presence of an Org Web client is what decides which one a new
-//! Connection gets.
+//! Google connects only through the Installation OAuth Client, the one
+//! Web OAuth client that an Administrator sets up for the Org
+//! (ADR-0012). The person types nothing: the daemon answers with the
+//! start route on its own Public Origin and returns at once, the person
+//! picks the account in Google's account chooser and allows Pagis, and
+//! the redirect comes back to the same origin. Only the browser and the
+//! Person that the start route bound finish it. The daemon owns the
+//! refresh token from then on, sealed with that person's Tenant Data
+//! Key. [`google`] holds that half.
 
-use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
 
 use pagis_core::{
     Connection, ConnectionId, ConnectionStore, SecretStore, StoreError, WorkspaceId, now_ms,
 };
-use pagis_google::{ConnectionBinding, GogRunner, GoogleCapability, ProviderError};
+use pagis_google::GoogleCapability;
 use pagis_mail::{
     Endpoint, HostAccount, HostErrorCode, MAIL_TRANSPORT, MANUAL_PROVIDER, MIGADU_IMAP,
     MIGADU_PROVIDER, MIGADU_SMTP, MailboxCapabilities, MailboxHost, MailboxProvider,
@@ -54,21 +44,16 @@ mod catalog;
 mod google;
 
 pub use catalog::{
-    CALENDAR, FieldKind, InstallationSetup, MAIL, MAILBOXES, ProviderEntry, ProviderField,
-    ProviderKind, SetupKind, SetupPart, TELEPHONY, TEXTING, absent_capabilities, capabilities,
-    catalog, entry, installation_setup, installation_setups, is_installation_provider,
-    person_catalog,
+    CALENDAR, FieldKind, InstallationSetup, MAIL, MAILBOXES, PersonProvider, ProviderEntry,
+    ProviderField, ProviderKind, SetupKind, SetupPart, TELEPHONY, TEXTING, absent_capabilities,
+    capabilities, catalog, entry, installation_setup, installation_setups,
+    is_installation_provider, person_catalog,
 };
 pub use google::{
     AUTHORIZE_WINDOW_MS, GoogleBroker, Initiator, Opener, OrgWebClient, PendingAuthorizations,
     StartRefusal,
 };
 pub use pagis_google::ProviderErrorCode;
-
-/// How long the daemon waits for the user to finish at Google before it
-/// stops listening. A connect flow nobody completes must not hold a
-/// process open for the life of the daemon.
-pub const DEFAULT_AUTHORIZE_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// What the user typed into the connect flow. The secrets reach the
 /// provider or the secret store once and are dropped; the type carries
@@ -79,44 +64,15 @@ pub struct NewConnection {
     pub alias: String,
     pub display_name: String,
     pub credentials: NewCredentials,
-    /// Where the request came from. A `byo` Google connection needs a
-    /// person at the daemon host.
-    pub source: RequestSource,
 }
-
-/// Where the request that starts a connect flow came from (ADR-0025).
-///
-/// A `byo` Google connection consents through `gog`'s loopback flow,
-/// which opens a browser on the daemon host and waits for the redirect
-/// there. Only a person at that machine can finish it, so the flow
-/// starts only for a request from that machine.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RequestSource {
-    /// A program on the daemon host that did not come through a proxy.
-    ThisMachine,
-    /// Another machine, or a request that came through a proxy.
-    Elsewhere,
-}
-
-/// The refusal of a `byo` Google flow for a request from elsewhere. It
-/// names the one thing that fixes it for every person.
-const BYO_GOOGLE_ELSEWHERE: &str = "an administrator sets up the Google OAuth client in the \
-     Administration Interface; until then a Google account connects only from the computer \
-     that Pagis runs on";
 
 /// What one provider needs to be reachable. The provider follows from
 /// the shape, so a request cannot name one provider and carry the
 /// other's secrets.
 pub enum NewCredentials {
-    /// The Google account, and the Desktop OAuth client the user made
-    /// where the installation holds no Web client of its own.
-    /// `client` is `None` on a brokered installation: the Org's Web
-    /// client is the one every person consents against, so there is
-    /// nothing for the person to paste.
-    Google {
-        account: String,
-        client: Option<DesktopClient>,
-    },
+    /// A Google account. It carries nothing: the account comes from the
+    /// consent, and the client is the installation's (ADR-0012).
+    Google,
     /// A carrier account: the provider, the account id
     /// that is not secret and the secret that is. The secret goes to
     /// the secret store, never to the database. Telnyx has no account
@@ -144,20 +100,12 @@ pub enum NewCredentials {
     },
 }
 
-/// The Desktop OAuth client one person registered themselves, for a
-/// `byo` Connection. It reaches `gog` over stdin once and is never
-/// written down.
-pub struct DesktopClient {
-    pub client_id: String,
-    pub client_secret: String,
-}
-
 impl NewCredentials {
     /// The `provider` the Connection records; its catalog entry
     /// declares the fields this shape was read from.
     pub fn provider(&self) -> &str {
         match self {
-            NewCredentials::Google { .. } => pagis_google::GOOGLE_PROVIDER,
+            NewCredentials::Google => pagis_google::GOOGLE_PROVIDER,
             NewCredentials::Carrier { provider, .. } => provider,
             NewCredentials::Migadu { .. } => MIGADU_PROVIDER,
             NewCredentials::Manual { .. } => MANUAL_PROVIDER,
@@ -168,8 +116,8 @@ impl NewCredentials {
 /// What one authorization step answers.
 #[derive(Debug)]
 pub enum Authorization {
-    /// The Connection reached its new state now. A carrier key, a mail
-    /// host key and the local `gog` flow all end here.
+    /// The Connection reached its new state now. A carrier key and a
+    /// mail host key end here.
     Done(Connection),
     /// The person has to consent at Google in their own browser.
     /// `url` is the start route on the Public Origin, which sends a
@@ -187,7 +135,7 @@ impl Authorization {
         }
     }
 
-    /// The start route to open, for the brokered flow.
+    /// The start route to open, for the Google flow.
     pub fn url(&self) -> Option<&str> {
         match self {
             Authorization::Done(_) => None,
@@ -219,12 +167,11 @@ pub enum ConnectError {
     Provider(ProviderErrorCode),
 }
 
-/// Everything the connect flow reaches: the Connection table, `gog`
-/// for Google, the carrier for telephony, the mail host for a Mailbox
-/// Provider, and the secret store under all of them.
+/// Everything the connect flow reaches: the Connection table, the
+/// Google broker, the carrier for telephony, the mail host for a
+/// Mailbox Provider, and the secret store under all of them.
 pub struct ConnectorDeps {
     pub connections: Arc<dyn ConnectionStore>,
-    pub runner: Arc<dyn GogRunner>,
     /// One number catalog per carrier provider.
     pub catalogs: Arc<NumberCatalogs>,
     /// The host API of a Mailbox Provider (ADR-0019). Migadu is the one
@@ -232,62 +179,47 @@ pub struct ConnectorDeps {
     /// the user does the work at the host.
     pub mail_host: Arc<dyn MailboxHost>,
     pub secrets: Arc<dyn SecretStore>,
-    pub authorize_timeout: Duration,
-    /// The brokered Google half. It answers whether this
-    /// installation holds a Web OAuth client, and it runs the
-    /// server-side authorization-code flow when it does.
+    /// The Google half. It answers whether this installation holds a
+    /// Web OAuth client, and it runs the server-side
+    /// authorization-code flow.
     pub google: Arc<GoogleBroker>,
-    /// The root the per-Workspace `GOG_HOME` directories live under.
-    /// Two people who both name a Connection `google` get two
-    /// `gog` stores because of it.
-    pub gog_root: PathBuf,
 }
 
 /// Creates Connections and takes them to `connected`.
 pub struct Connector {
     connections: Arc<dyn ConnectionStore>,
-    runner: Arc<dyn GogRunner>,
     catalogs: Arc<NumberCatalogs>,
     mail_host: Arc<dyn MailboxHost>,
     secrets: Arc<dyn SecretStore>,
-    authorize_timeout: Duration,
     google: Arc<GoogleBroker>,
-    gog_root: PathBuf,
 }
 
 impl Connector {
     pub fn new(deps: ConnectorDeps) -> Self {
         Self {
             connections: deps.connections,
-            runner: deps.runner,
             catalogs: deps.catalogs,
             mail_host: deps.mail_host,
             secrets: deps.secrets,
-            authorize_timeout: deps.authorize_timeout,
             google: deps.google,
-            gog_root: deps.gog_root,
         }
     }
 
-    /// The brokered Google half, for the callback route and the
+    /// The Google half, for the callback route and the
     /// administrator's settings route.
     pub fn google(&self) -> &Arc<GoogleBroker> {
         &self.google
     }
 
-    /// The `GOG_HOME` of one Workspace.
-    pub fn gog_home(&self, workspace_id: &WorkspaceId) -> PathBuf {
-        pagis_google::workspace_gog_home(&self.gog_root, workspace_id)
-    }
-
     /// Record one Connection. A Google record starts at `disconnected`:
-    /// it carries a binding and no authorization until
-    /// [`Connector::authorize`] runs. A carrier record starts at
+    /// it carries no account and no authorization until
+    /// [`Connector::authorize`] sends the person to Google and the
+    /// consent comes back. A carrier record starts at
     /// `connected`, because the API key it carries is the whole
     /// authorization and it is proved before the row exists.
     ///
-    /// The alias names the stored client or key too, so one Connection
-    /// owns one secret and the user invents one name, not two.
+    /// The alias names the stored key too, so one Connection owns one
+    /// secret and the user invents one name, not two.
     pub async fn create(&self, new: NewConnection) -> Result<Connection, ConnectError> {
         validate_alias(&new.alias)?;
         let display_name = new.display_name.trim();
@@ -300,72 +232,15 @@ impl Connector {
         self.enforce_max_instances(&new.workspace_id, &provider)
             .await?;
         match new.credentials {
-            NewCredentials::Google { account, client } => {
-                let brokered = self.google.web_client().await?.is_some();
-                let binding_account = if brokered && account.trim().is_empty() {
-                    None
-                } else {
-                    Some(account.trim())
-                };
-                let binding = binding_account
-                    .map(|account| {
-                        ConnectionBinding::new(
-                            account,
-                            &new.alias,
-                            self.gog_home(&new.workspace_id),
-                        )
-                    })
-                    .transpose()
-                    .map_err(|_| {
-                        ConnectError::Validation("that Google account is not valid".to_string())
-                    })?;
-                // The installation's own Web client decides the mode
-                // (ADR-0012). With one, the person consents
-                // against it and the daemon owns the tokens; without
-                // one, the person supplies a Desktop client and `gog`
-                // owns them.
-                // A `byo` connection consents on the daemon host. For a
-                // person on another machine the flow blocks for its
-                // whole window and their own browser never reaches it.
-                if !brokered && new.source != RequestSource::ThisMachine {
-                    return Err(ConnectError::Validation(BYO_GOOGLE_ELSEWHERE.to_string()));
+            NewCredentials::Google => {
+                // The installation's own Web client is the one client
+                // every person consents against (ADR-0012). Without it
+                // no row is written, so the alias stays free.
+                if self.google.web_client().await?.is_none() {
+                    return Err(ConnectError::Validation(
+                        catalog::GOOGLE_NOT_SET_UP.to_string(),
+                    ));
                 }
-                // Everything the provider needs is built before the row
-                // exists, so nothing the user can fix leaves a record
-                // behind.
-                let install = match (brokered, &client) {
-                    (true, _) => None,
-                    (false, Some(client)) => {
-                        let credentials = pagis_google::desktop_client_document(
-                            &client.client_id,
-                            &client.client_secret,
-                        )
-                        .map_err(|_| {
-                            ConnectError::Validation(
-                                "the client id and client secret are both required".to_string(),
-                            )
-                        })?;
-                        Some(
-                            pagis_google::install_client_command(
-                                binding.as_ref().expect("a Desktop client binds an account"),
-                                &credentials,
-                            )
-                            .map_err(|_| {
-                                ConnectError::Validation(
-                                    "that OAuth client is not valid".to_string(),
-                                )
-                            })?,
-                        )
-                    }
-                    (false, None) => {
-                        return Err(ConnectError::Validation(
-                            "this installation has no Google client, so this connection needs \
-                             your own Desktop OAuth client"
-                                .to_string(),
-                        ));
-                    }
-                };
-
                 let connection = Connection {
                     id: ConnectionId::generate(),
                     workspace_id: new.workspace_id,
@@ -373,36 +248,15 @@ impl Connector {
                     alias: new.alias.clone(),
                     display_name: display_name.to_string(),
                     status: Connection::DISCONNECTED.to_string(),
-                    auth_mode: match brokered {
-                        true => Connection::AUTH_MODE_BROKERED,
-                        false => Connection::AUTH_MODE_BYO,
-                    }
-                    .to_string(),
                     authorized_capabilities: Vec::new(),
-                    config: serde_json::json!({
-                        "account": account.trim(),
-                        "client": new.alias,
-                    }),
+                    // The account lands with the first consent.
+                    config: serde_json::json!({ "client": new.alias }),
                     created_at: now_ms(),
                 };
-                // The row is written first because the schema owns the
-                // alias: a second connection under a taken alias must
-                // not reach `gog` and overwrite the first one's client.
                 self.connections
                     .create(&connection)
                     .await
                     .map_err(store_error)?;
-                if let Some(install) = install
-                    && let Err(error) = self.run(&install).await
-                {
-                    // A record whose client never landed cannot be
-                    // authorized, and leaving it would take the alias
-                    // for good.
-                    self.connections
-                        .delete_and_revoke(&connection.workspace_id, &connection.id, now_ms())
-                        .await?;
-                    return Err(error);
-                }
                 Ok(connection)
             }
             NewCredentials::Carrier {
@@ -424,7 +278,6 @@ impl Connector {
                     alias: new.alias.clone(),
                     display_name: display_name.to_string(),
                     status: Connection::CONNECTED.to_string(),
-                    auth_mode: Connection::AUTH_MODE_BYO.to_string(),
                     authorized_capabilities: Vec::new(),
                     config,
                     created_at: now_ms(),
@@ -589,7 +442,6 @@ impl Connector {
             alias: alias.to_string(),
             display_name: display_name.to_string(),
             status: Connection::CONNECTED.to_string(),
-            auth_mode: Connection::AUTH_MODE_BYO.to_string(),
             authorized_capabilities: Vec::new(),
             config: settings.config(),
             created_at: now_ms(),
@@ -710,8 +562,8 @@ impl Connector {
     /// This is the connect flow's third step, the repair for
     /// `reauth_required`, and the way scopes widen.
     ///
-    /// A `brokered` Google Connection answers
-    /// [`Authorization::AtGoogle`] and returns at once: the person
+    /// A Google Connection answers [`Authorization::AtGoogle`] and
+    /// returns at once: the person
     /// consents in their own browser, and the redirect that comes back
     /// to [`GoogleBroker::finish`] is what makes the Connection
     /// `connected`. The authorization belongs to `initiator`: only a
@@ -724,7 +576,6 @@ impl Connector {
         id: &ConnectionId,
         capabilities: &[String],
         api_key: Option<&str>,
-        source: RequestSource,
         initiator: &Initiator,
     ) -> Result<Authorization, ConnectError> {
         let connection = self
@@ -747,67 +598,18 @@ impl Connector {
                 .map(Authorization::Done);
         }
         let capabilities = parse_capabilities(capabilities)?;
-        let authorized_capabilities = capabilities
-            .iter()
-            .map(|capability| capability.as_str().to_string())
-            .collect::<Vec<_>>();
-
-        if connection.auth_mode == Connection::AUTH_MODE_BROKERED {
-            let url = self
-                .google
-                .authorize(&connection, &capabilities, initiator)
-                .await?;
-            self.set_status(&connection, Connection::CONNECTING).await?;
-            return Ok(Authorization::AtGoogle {
-                connection: Connection {
-                    status: Connection::CONNECTING.to_string(),
-                    ..connection
-                },
-                url,
-            });
-        }
-
-        // The `byo` consent runs on the daemon host, as it does at
-        // create.
-        if source != RequestSource::ThisMachine {
-            return Err(ConnectError::Validation(BYO_GOOGLE_ELSEWHERE.to_string()));
-        }
-        let account = connection.config["account"].as_str().unwrap_or_default();
-        let client = connection.config["client"].as_str().unwrap_or_default();
-        let binding = ConnectionBinding::new(account, client, self.gog_home(workspace_id))
-            .map_err(|_| {
-                ConnectError::Validation("this connection has no Google binding".to_string())
-            })?;
-
+        let url = self
+            .google
+            .authorize(&connection, &capabilities, initiator)
+            .await?;
         self.set_status(&connection, Connection::CONNECTING).await?;
-        let command =
-            pagis_google::authorize_command(&binding, pagis_google::scope_profile(capabilities));
-        let status = match self.run(&command).await {
-            Ok(()) => Connection::CONNECTED,
-            Err(error) => {
-                // The user cancelled, the wait ran out, or Google said
-                // no: the record keeps its binding and offers no tools.
-                self.set_status(&connection, Connection::DISCONNECTED)
-                    .await?;
-                return Err(error);
-            }
-        };
-        if !self
-            .connections
-            .set_authorization(
-                &connection.workspace_id,
-                &connection.id,
-                &authorized_capabilities,
-            )
-            .await?
-        {
-            return Err(ConnectError::NotFound);
-        }
-        Ok(Authorization::Done(Connection {
-            status: status.to_string(),
-            authorized_capabilities,
-            ..connection
-        }))
+        Ok(Authorization::AtGoogle {
+            connection: Connection {
+                status: Connection::CONNECTING.to_string(),
+                ..connection
+            },
+            url,
+        })
     }
 
     /// Prove the carrier key again, and keep a new one when the user
@@ -969,29 +771,6 @@ impl Connector {
         }
         Ok(())
     }
-
-    /// Run one `gog` command under the wait the connect flow allows.
-    /// Neither step returns a document the daemon reads; both are
-    /// checked for the exit the pinned `gog` documents.
-    async fn run(&self, command: &pagis_google::GogCommand) -> Result<(), ConnectError> {
-        let output =
-            match tokio::time::timeout(self.authorize_timeout, self.runner.run(command)).await {
-                Ok(output) => {
-                    output.map_err(|failure| provider_error(failure.into_provider_error(false)))?
-                }
-                Err(_) => {
-                    return Err(ConnectError::Provider(
-                        ProviderErrorCode::TemporarilyUnavailable,
-                    ));
-                }
-            };
-        pagis_google::normalize_output(output, false).map_err(provider_error)?;
-        Ok(())
-    }
-}
-
-fn provider_error(error: ProviderError) -> ConnectError {
-    ConnectError::Provider(error.code)
 }
 
 /// A mail host refusal the user can fix keeps its words; the rest

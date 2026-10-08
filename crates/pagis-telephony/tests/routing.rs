@@ -336,7 +336,6 @@ impl World {
             alias: ALIAS.to_string(),
             display_name: "Telnyx".to_string(),
             status: Connection::CONNECTED.to_string(),
-            auth_mode: Connection::AUTH_MODE_BYO.to_string(),
             authorized_capabilities: Vec::new(),
             config: serde_json::json!({
                 SIP_USERNAME_KEY: USERNAME,

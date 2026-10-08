@@ -1800,7 +1800,6 @@ pub async fn set_config_replaces_the_binding_and_nothing_else(backend: &Backend)
         alias: "carrier".to_string(),
         display_name: "Telnyx".to_string(),
         status: pagis_core::Connection::CONNECTED.to_string(),
-        auth_mode: pagis_core::Connection::AUTH_MODE_BYO.to_string(),
         authorized_capabilities: Vec::new(),
         config: serde_json::json!({}),
         created_at: 1,
@@ -2447,11 +2446,11 @@ pub async fn the_frozen_tool_catalog_belongs_to_one_manifest_version(backend: &B
     );
 }
 
-/// A `brokered` Google Connection's refresh token is sealed ciphertext
+/// A Google Connection's refresh token is sealed ciphertext
 /// on its own row. It is written and read through the store, it
 /// is cleared with `None`, and it goes with the row when the person
 /// disconnects.
-pub async fn a_brokered_connection_holds_its_sealed_refresh_token(backend: &Backend) {
+pub async fn a_google_connection_holds_its_sealed_refresh_token(backend: &Backend) {
     let workspace = backend.seeded_workspace().await;
     let store = &backend.stores().connections;
     let connection = pagis_core::Connection {
@@ -2461,7 +2460,6 @@ pub async fn a_brokered_connection_holds_its_sealed_refresh_token(backend: &Back
         alias: "google".to_string(),
         display_name: "Google".to_string(),
         status: pagis_core::Connection::CONNECTED.to_string(),
-        auth_mode: pagis_core::Connection::AUTH_MODE_BROKERED.to_string(),
         authorized_capabilities: vec!["gmail_read".to_string()],
         config: serde_json::json!({ "account": "alice@example.com", "client": "google" }),
         created_at: 1,
@@ -2559,7 +2557,7 @@ macro_rules! store_suite_stores {
     ($emit:path) => {
         $emit!(
             stores,
-            a_brokered_connection_holds_its_sealed_refresh_token,
+            a_google_connection_holds_its_sealed_refresh_token,
             the_org_holds_the_google_web_client_id,
             set_chief_of_staff_names_an_agent_and_clears_it,
             one_shot_schedule_history_roundtrips_through_the_store,

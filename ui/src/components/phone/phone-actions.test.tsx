@@ -94,6 +94,24 @@ function mount(path: string) {
   return history
 }
 
+it.each([true, false])('offers Google sign-in only when the installation is set up: %s', async (setUp) => {
+  api.GET.mockImplementation(async (path: string) =>
+    path === '/api/v1/settings/connections/providers'
+      ? { data: { items: [{ id: 'google', kind: 'oauth', fields: [], set_up: setUp }] } }
+      : shellResponse(path),
+  )
+  mount('/settings/connections')
+  fireEvent.click(await screen.findByRole('button', { name: 'Add a connection' }))
+  await screen.findByRole('dialog', { name: 'Add a connection' })
+  if (setUp) {
+    expect(await screen.findByRole('button', { name: 'Continue at Google' })).not.toBeNull()
+  } else {
+    expect(await screen.findByText('Google is not set up on this server yet.')).not.toBeNull()
+    expect(screen.queryByRole('button', { name: 'Continue at Google' })).toBeNull()
+  }
+  expect(screen.queryByLabelText(/Client ID|Client secret|Google account address/)).toBeNull()
+})
+
 it.each(['approved', 'denied'] as const)(
   'uses the allow rule only for an approved decision: %s',
   async (decision) => {

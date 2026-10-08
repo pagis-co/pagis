@@ -4,10 +4,8 @@
 
 use pagis_agent::{Brain, BrainError, TurnRequest, TurnStream};
 use pagis_core::knowledge::{KnowledgeStore, SourceKey, SyncStatus};
-use pagis_core::{
-    AgentId, AgentStore, Connection, ConnectionId, ConnectionStore, WorkspaceId, now_ms,
-};
-use pagis_storage_sqlite::{SqliteAgentStore, SqliteConnectionStore};
+use pagis_core::{AgentId, AgentStore, Connection, ConnectionId, WorkspaceId, now_ms};
+use pagis_storage_sqlite::SqliteAgentStore;
 use pagis_testkit::{Script, ScriptedBrain, TestDaemon, TestDaemonOptions};
 use serde_json::json;
 use std::sync::Arc;
@@ -149,15 +147,11 @@ async fn fixture(before_sync: impl FnOnce(&TestDaemon, &WorkspaceId)) -> Fixture
         alias: "personal".into(),
         display_name: "Personal".into(),
         status: Connection::CONNECTED.into(),
-        auth_mode: Connection::AUTH_MODE_BYO.into(),
         authorized_capabilities: vec!["gmail_read".into()],
         config: json!({"account":"user@example.com","client":"test"}),
         created_at: now_ms(),
     };
-    SqliteConnectionStore::new(pool.clone())
-        .create(&connection)
-        .await
-        .unwrap();
+    daemon.plant_google_connection(&connection).await;
     let client = reqwest::Client::new();
     assert_eq!(
         client

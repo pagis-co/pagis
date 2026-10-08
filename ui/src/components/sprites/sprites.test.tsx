@@ -274,7 +274,6 @@ describe("creating an agent", () => {
                 capabilities: ["mail"],
                 authorized_capabilities: ["gmail_read"],
                 status: "connected",
-                auth_mode: "byo",
                 created_at: 0,
               },
             ],

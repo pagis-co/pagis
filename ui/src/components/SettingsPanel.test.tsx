@@ -23,7 +23,6 @@ const CONNECTION = {
   alias: 'work',
   display_name: 'Work Google',
   status: 'connected',
-  auth_mode: 'byo',
   account: 'alice@example.com',
   authorized_capabilities: ['gmail_read', 'calendar_read'],
   created_at: 1,

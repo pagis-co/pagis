@@ -95,7 +95,6 @@ impl World {
             alias: ALIAS.to_string(),
             display_name: "Telnyx".to_string(),
             status: status.to_string(),
-            auth_mode: Connection::AUTH_MODE_BYO.to_string(),
             authorized_capabilities: Vec::new(),
             config: serde_json::json!({}),
             created_at: now_ms(),

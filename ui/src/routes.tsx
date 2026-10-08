@@ -670,7 +670,7 @@ function CallView() {
 }
 const callRoute = createRoute({ getParentRoute: () => rootRoute, path: '/calls/$callId', component: CallView, staticData: { phone: 'pushed' } })
 
-/** The start route of a brokered Google authorization on the daemon. */
+/** The start route of a Google authorization on the daemon. */
 const GOOGLE_START_ROUTE = '/api/v1/connections/google/start'
 
 export interface GoogleStartSearch {

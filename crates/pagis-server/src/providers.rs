@@ -37,12 +37,6 @@ use crate::auth::Administrator;
 use crate::error::ApiError;
 use crate::settings::{ProviderFieldDto, connect_error, secret_error};
 
-/// Where the connect flow of an Installation Connection says its request
-/// came from. An Installation Connection is a carrier account or a mail
-/// domain, and neither runs a consent on the daemon host, so the answer
-/// is the one that starts no such consent.
-const INSTALLATION_SETUP: pagis_connect::RequestSource = pagis_connect::RequestSource::Elsewhere;
-
 /// One value a part states about what the installation holds, or what
 /// the administrator copies into the provider's console. It is never a
 /// secret.
@@ -362,7 +356,6 @@ pub async fn configure_provider_part(
                         &connection.id,
                         &[],
                         secret.as_deref(),
-                        INSTALLATION_SETUP,
                         &crate::settings::initiator(&administrator),
                     )
                     .await
@@ -390,7 +383,6 @@ pub async fn configure_provider_part(
                         alias: entry.default_alias.to_string(),
                         display_name: entry.default_display_name.to_string(),
                         credentials,
-                        source: INSTALLATION_SETUP,
                     })
                     .await
                     .map_err(connect_error)?;
@@ -479,7 +471,6 @@ pub async fn test_provider_part(
             &connection.id,
             &[],
             None,
-            INSTALLATION_SETUP,
             &crate::settings::initiator(&administrator),
         )
         .await
@@ -512,7 +503,7 @@ pub async fn test_provider_part(
 )]
 /// Remove one part. A carrier that carries a number and a mail domain
 /// that holds a mailbox stay, and the refusal says what to do first.
-/// Removing the OAuth client leaves every brokered Google connection
+/// Removing the OAuth client leaves every Google connection
 /// unable to refresh, so each person consents again against the next
 /// client (ADR-0012).
 pub async fn remove_provider_part(

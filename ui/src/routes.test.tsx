@@ -193,7 +193,7 @@ describe('deep URLs', () => {
   it('opens a connection as its own page and returns to the list', async () => {
     const connection = {
       id: 'conn-1', provider: 'google', capabilities: ['mail'], alias: 'personal',
-      display_name: 'Google', status: 'connected', auth_mode: 'byo',
+      display_name: 'Google', status: 'connected',
       account: 'alice@example.com', authorized_capabilities: ['gmail_read'], created_at: 1,
     }
     api.GET.mockImplementation(async (path: string) =>

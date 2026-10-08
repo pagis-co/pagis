@@ -70,9 +70,9 @@ pub async fn malformed_connection_authorization_is_reported_as_corrupt(backend: 
     backend
         .execute(
             "INSERT INTO connections \
-             (id, workspace_id, provider, alias, display_name, status, auth_mode, \
+             (id, workspace_id, provider, alias, display_name, status, \
               authorized_capabilities, config, created_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             &[
                 Bind::from("conn-work"),
                 Bind::from(workspace.id.as_str()),
@@ -80,7 +80,6 @@ pub async fn malformed_connection_authorization_is_reported_as_corrupt(backend: 
                 Bind::from("work"),
                 Bind::from("Work Google"),
                 Bind::from("connected"),
-                Bind::from("byo"),
                 Bind::from("not json"),
                 Bind::from("{}"),
                 Bind::from(1_i64),
@@ -124,7 +123,6 @@ pub async fn the_orgs_workspace_belongs_to_no_person(backend: &Backend) {
         alias: "telephony".to_string(),
         display_name: "Telnyx".to_string(),
         status: pagis_core::Connection::CONNECTED.to_string(),
-        auth_mode: pagis_core::Connection::AUTH_MODE_BYO.to_string(),
         authorized_capabilities: Vec::new(),
         config: serde_json::json!({}),
         created_at: 1,
@@ -150,7 +148,6 @@ pub async fn every_connection_status_is_stored(backend: &Backend) {
             alias: format!("account-{index}"),
             display_name: "Google".to_string(),
             status: status.to_string(),
-            auth_mode: pagis_core::Connection::AUTH_MODE_BYO.to_string(),
             authorized_capabilities: Vec::new(),
             config: serde_json::json!({}),
             created_at: 1,

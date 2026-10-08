@@ -1,24 +1,22 @@
-//! The brokered Google half of the connect flow (ADR-0012).
+//! The Google half of the connect flow (ADR-0012).
 //!
-//! On a local installation the person and the browser are on the daemon's
-//! own machine, so `gog` runs the loopback flow of RFC 8252 and the
-//! Connection is `byo`: the person's own Desktop client, and a token
-//! `gog` keeps.
+//! The Org registers one Web OAuth client, the Installation OAuth
+//! Client, and every person consents against it. For each authorization
+//! the daemon mints a `state` and records the Connection, and the Person
+//! and the Session that started it. The authorize request answers the
+//! start route on the daemon's own `public_origin`. For a browser with a
+//! Session of that Person, the start route sets a transaction cookie that
+//! binds the `state` to that browser, and sends the browser to Google
+//! (RFC 9700, section 2.1.1). A local installation with Remote Access off
+//! has one Person, and there the start route asks the browser for no
+//! Session.
 //!
-//! On a server neither holds. The Org registers one Web OAuth client.
-//! For each authorization the daemon mints a `state` and records the
-//! Connection, and the Person and the Session that started it. The
-//! authorize request answers the start route on the daemon's own
-//! `public_origin`. For a browser with a Session of that Person, the
-//! start route sets a transaction cookie that binds the `state` to that
-//! browser, and sends the browser to Google (RFC 9700, section 2.1.1). A
-//! local installation with Remote Access off has one Person, and there
-//! the start route asks the browser for no Session.
 //! Google redirects the browser to the callback on the same origin. The
 //! daemon trades the code only for the browser with that cookie, while
-//! the Session is live, and keeps the token only for the Google account
-//! of the Connection. The Connection is `brokered`: the installation
-//! holds the client, the person holds the consent.
+//! the Session is live. The first consent of a Connection picks its
+//! account in Google's account chooser, and the daemon records the
+//! account that consented. Every later consent must come from that
+//! account.
 //!
 //! The refresh token is the daemon's from then on. It is sealed with the
 //! Tenant Data Key of the Workspace that owns the Connection, so it is
@@ -66,9 +64,7 @@ impl OrgWebClient {
     }
 
     /// The registered client, or `None` when the installation holds
-    /// none. Its presence is what decides which flow a new Connection
-    /// runs: with a Web client the flow is brokered, without one it is
-    /// bring-your-own.
+    /// none. Without it no person connects a Google account.
     pub async fn web_client(&self) -> Result<Option<WebClient>, ConnectError> {
         let Some(client_id) = self.registered_client_id().await? else {
             return Ok(None);
@@ -294,7 +290,7 @@ impl PendingAuthorizations {
     }
 }
 
-/// Everything the brokered Google flow reaches: the Connection table,
+/// Everything the Google flow reaches: the Connection table,
 /// the installation's Web client, Google, the Tenant Data Keys that
 /// seal what the daemon keeps, and the Sessions of the People who start
 /// an authorization.
@@ -382,7 +378,9 @@ impl GoogleBroker {
                     .to_string(),
             )
         })?;
-        let account = connection.config["account"].as_str().unwrap_or_default();
+        // A Connection with no account yet lets the person pick one at
+        // Google. One with an account asks Google for that account.
+        let account = connection_account(connection);
         let pkce = Pkce::generate();
         let state = random_token();
         let google_url = self.oauth.authorization_url(
@@ -483,7 +481,7 @@ impl GoogleBroker {
                     .to_string(),
             ));
         }
-        let mut connection = self
+        let connection = self
             .connections
             .get(&pending.workspace_id, &pending.connection_id)
             .await?
@@ -497,20 +495,30 @@ impl GoogleBroker {
             .await
             .map_err(|error| ConnectError::Provider(error.code))?;
         // `login_hint` is a hint: the person at the consent screen can
-        // pick any account. The message names no address, because it
-        // reaches the log.
-        let consented = tokens.verified_account(&client).map_err(|error| {
-            ConnectError::Validation(format!(
-                "Google did not name the account that consented: {error}"
-            ))
-        })?;
-        let account = connection.config["account"].as_str().unwrap_or_default();
-        if !account.is_empty() && consented.trim().to_lowercase() != account.trim().to_lowercase() {
-            return Err(ConnectError::Validation(
-                "the Google account that consented is not the account of this connection"
-                    .to_string(),
-            ));
-        }
+        // pick any account. The messages name no address, because they
+        // reach the log.
+        let consented = tokens
+            .verified_account(&client)
+            .map_err(|error| {
+                ConnectError::Validation(format!(
+                    "Google did not name the account that consented: {error}"
+                ))
+            })?
+            .trim()
+            .to_lowercase();
+        let first = match connection_account(&connection) {
+            Some(account) if account.to_lowercase() != consented => {
+                return Err(ConnectError::Validation(
+                    "the Google account that consented is not the account of this connection"
+                        .to_string(),
+                ));
+            }
+            Some(_) => false,
+            None => {
+                self.refuse_a_held_account(&connection, &consented).await?;
+                true
+            }
+        };
         let granted = tokens
             .granted(&pending.requested)
             .iter()
@@ -528,13 +536,18 @@ impl GoogleBroker {
                     .to_string(),
             )
         })?;
-        if account.is_empty() {
-            connection.config["account"] = serde_json::Value::String(consented.trim().to_string());
-            self.connections
-                .set_config(&connection.workspace_id, &connection.id, &connection.config)
-                .await?;
-        }
         self.keep_refresh_token(&connection, refresh_token).await?;
+        let mut config = connection.config.clone();
+        if first {
+            config["account"] = serde_json::Value::String(consented);
+            if !self
+                .connections
+                .set_config(&connection.workspace_id, &connection.id, &config)
+                .await?
+            {
+                return Err(ConnectError::NotFound);
+            }
+        }
         if !self
             .connections
             .set_authorization(&connection.workspace_id, &connection.id, &granted)
@@ -545,8 +558,36 @@ impl GoogleBroker {
         Ok(Connection {
             status: Connection::CONNECTED.to_string(),
             authorized_capabilities: granted,
+            config,
             ..connection
         })
+    }
+
+    /// Refuse an account that another Connection of the same Workspace
+    /// holds. Two Connections of one account would bring each message
+    /// in twice. Another Workspace can hold the same account.
+    async fn refuse_a_held_account(
+        &self,
+        connection: &Connection,
+        account: &str,
+    ) -> Result<(), ConnectError> {
+        let held = self
+            .connections
+            .list(&connection.workspace_id)
+            .await?
+            .iter()
+            .any(|other| {
+                other.id != connection.id
+                    && other.provider == connection.provider
+                    && connection_account(other)
+                        .is_some_and(|other| other.eq_ignore_ascii_case(account))
+            });
+        match held {
+            true => Err(ConnectError::Conflict(
+                "another connection of this workspace holds that Google account".to_string(),
+            )),
+            false => Ok(()),
+        }
     }
 
     /// Put the Connection of a spent authorization back at
@@ -585,14 +626,14 @@ impl GoogleBroker {
         Ok(())
     }
 
-    /// Mint the access token of one `brokered` Connection, for the
-    /// `gog` calls of the Agents granted it.
+    /// Mint the access token of one Google Connection, for the `gog`
+    /// calls of the Agents granted it.
     pub fn access_tokens(
         self: &Arc<Self>,
         workspace_id: &WorkspaceId,
         connection_id: &ConnectionId,
     ) -> Arc<dyn AccessTokens> {
-        Arc::new(BrokeredAccessTokens {
+        Arc::new(MintedAccessTokens {
             broker: Arc::clone(self),
             workspace_id: workspace_id.clone(),
             connection_id: connection_id.clone(),
@@ -606,12 +647,12 @@ impl GoogleBroker {
 /// token that expired while it ran.
 const TOKEN_MARGIN_MS: i64 = 60 * 1_000;
 
-/// The access token of one `brokered` Connection.
+/// The access token of one Google Connection.
 ///
 /// The daemon holds the refresh token, so it makes the refresh call and
 /// hands `gog` the result. The minted token is kept in memory until it
 /// runs out, so a run of tool calls is one refresh and not one per call.
-struct BrokeredAccessTokens {
+struct MintedAccessTokens {
     broker: Arc<GoogleBroker>,
     workspace_id: WorkspaceId,
     connection_id: ConnectionId,
@@ -620,7 +661,7 @@ struct BrokeredAccessTokens {
 }
 
 #[async_trait]
-impl AccessTokens for BrokeredAccessTokens {
+impl AccessTokens for MintedAccessTokens {
     async fn fresh(&self) -> Result<String, ProviderError> {
         let now = now_ms();
         if let Some((token, expires_at)) = self.held.lock().expect("access token lock").as_ref()
@@ -676,6 +717,15 @@ impl AccessTokens for BrokeredAccessTokens {
             Some((tokens.access_token.clone(), expires_at));
         Ok(tokens.access_token)
     }
+}
+
+/// The Google account a Connection holds, once its first consent named
+/// one.
+fn connection_account(connection: &Connection) -> Option<&str> {
+    connection.config["account"]
+        .as_str()
+        .map(str::trim)
+        .filter(|account| !account.is_empty())
 }
 
 fn reauth(detail: &'static str) -> ProviderError {

@@ -1,20 +1,19 @@
-//! The connect flow contract: what reaches `gog`, what the row
-//! records, and what a refused or abandoned exchange leaves behind.
+//! The connect flow contract: what the row records, what reaches the
+//! provider, and what a refused or abandoned exchange leaves behind.
 
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use async_trait::async_trait;
 use pagis_connect::{
-    ConnectError, Connector, ConnectorDeps, DesktopClient, GoogleBroker, Initiator, NewConnection,
-    NewCredentials, Opener, OrgWebClient, RequestSource, StartRefusal,
+    ConnectError, Connector, ConnectorDeps, GoogleBroker, Initiator, NewConnection, NewCredentials,
+    Opener, OrgWebClient, StartRefusal,
 };
 use pagis_core::{
     ClientKind, Connection, ConnectionId, ConnectionStore, MemorySecretStore, Org, OrgId, OrgStore,
     SealedSecret, SecretStore, Session, SessionId, SessionStore, StoreError, TenantKeys,
     UnixMillis, UserId, WorkspaceId, now_ms,
 };
-use pagis_google::{GogCommand, GogRunner, ProcessFailure, ProcessOutput, ProviderErrorCode};
+use pagis_google::ProviderErrorCode;
 use pagis_mail::fake::FakeMailboxHost;
 use pagis_telephony::fake::FakeNumberCatalog;
 use pagis_telephony::{CARRIER_ACCOUNT_KEY, NumberCatalogs, TELNYX_PROVIDER, TWILIO_PROVIDER};
@@ -27,7 +26,7 @@ struct MemoryConnections {
     refresh_tokens: Mutex<std::collections::HashMap<(WorkspaceId, ConnectionId), SealedSecret>>,
 }
 
-/// One Org, so the brokered Google half has somewhere to keep the
+/// One Org, so the Google half has somewhere to keep the
 /// installation's Web OAuth client id.
 struct MemoryOrgs {
     rows: Mutex<Vec<Org>>,
@@ -211,7 +210,7 @@ impl ConnectionStore for MemoryConnections {
     }
 }
 
-/// The Sessions of the installation. The brokered half reads the
+/// The Sessions of the installation. The Google half reads the
 /// Session that started an authorization again at the callback.
 #[derive(Default)]
 struct MemorySessions {
@@ -334,78 +333,17 @@ fn initiator() -> Initiator {
     }
 }
 
-/// What one scripted `gog` does with the command it is handed.
-#[derive(Clone, Copy)]
-enum Behavior {
-    Ok,
-    /// The exit the pinned `gog` uses when Google refused.
-    Refused,
-    /// Never answer, so the wait for the user runs out.
-    Hang,
-}
-
-/// One argument list that reached `gog`, and the stdin it carried.
-type Invocation = (Vec<String>, Option<Vec<u8>>);
-
-struct FakeGog {
-    behavior: Behavior,
-    commands: Mutex<Vec<Invocation>>,
-}
-
-impl FakeGog {
-    fn new(behavior: Behavior) -> Arc<Self> {
-        Arc::new(Self {
-            behavior,
-            commands: Mutex::new(Vec::new()),
-        })
-    }
-
-    fn commands(&self) -> Vec<Invocation> {
-        self.commands.lock().unwrap().clone()
-    }
-}
-
-#[async_trait]
-impl GogRunner for FakeGog {
-    async fn run(&self, command: &GogCommand) -> Result<ProcessOutput, ProcessFailure> {
-        self.commands
-            .lock()
-            .unwrap()
-            .push((command.args().to_vec(), command.stdin().map(<[u8]>::to_vec)));
-        match self.behavior {
-            Behavior::Ok => Ok(ProcessOutput {
-                status: Some(0),
-                stdout: b"{}".to_vec(),
-            }),
-            Behavior::Refused => Ok(ProcessOutput {
-                status: Some(6),
-                stdout: Vec::new(),
-            }),
-            Behavior::Hang => {
-                std::future::pending::<()>().await;
-                unreachable!()
-            }
-        }
-    }
-}
-
 fn workspace() -> WorkspaceId {
     WorkspaceId::from("ws-1".to_string())
 }
 
-fn new_connection(alias: &str, account: &str) -> NewConnection {
+/// A Google connection request. The person types nothing for Google.
+fn new_google(alias: &str) -> NewConnection {
     NewConnection {
         workspace_id: workspace(),
         alias: alias.to_string(),
         display_name: "Google".to_string(),
-        credentials: NewCredentials::Google {
-            account: account.to_string(),
-            client: Some(DesktopClient {
-                client_id: "id.apps.googleusercontent.com".to_string(),
-                client_secret: "top-secret".to_string(),
-            }),
-        },
-        source: RequestSource::ThisMachine,
+        credentials: NewCredentials::Google,
     }
 }
 
@@ -420,20 +358,12 @@ fn new_carrier(alias: &str, api_key: &str) -> NewConnection {
             account: String::new(),
             secret: api_key.to_string(),
         },
-        source: RequestSource::ThisMachine,
     }
 }
 
-/// A `gog` home root for a test. The fake `gog` never reads it; the
-/// binding needs an absolute path.
-fn gog_root() -> std::path::PathBuf {
-    std::env::temp_dir().join("pagis-connect-test-gog")
-}
-
-/// The Google half of an installation that holds no Web client, which
-/// is the local installation: every Google Connection is `byo` and the
-/// flow goes through `gog`.
-fn byo_google(connections: Arc<MemoryConnections>) -> Arc<GoogleBroker> {
+/// The Google half of an installation whose Org holds no Installation
+/// OAuth Client: no person connects Google there.
+fn unset_google(connections: Arc<MemoryConnections>) -> Arc<GoogleBroker> {
     google_broker(
         connections,
         Arc::new(MemoryOrgs::default()),
@@ -464,344 +394,41 @@ fn google_broker(
     ))
 }
 
-fn connector(
-    behavior: Behavior,
-    timeout: Duration,
-) -> (Connector, Arc<MemoryConnections>, Arc<FakeGog>) {
+fn connector() -> (Connector, Arc<MemoryConnections>) {
     let connections = Arc::new(MemoryConnections::default());
-    let gog = FakeGog::new(behavior);
     let connector = Connector::new(ConnectorDeps {
         connections: Arc::clone(&connections) as _,
-        runner: Arc::clone(&gog) as _,
         catalogs: Arc::new(NumberCatalogs::single(
             TELNYX_PROVIDER,
             Arc::new(FakeNumberCatalog::default()),
         )),
         mail_host: Arc::new(FakeMailboxHost::default()),
         secrets: Arc::new(MemorySecretStore::default()),
-        authorize_timeout: timeout,
-        google: byo_google(Arc::clone(&connections)),
-        gog_root: gog_root(),
+        google: unset_google(Arc::clone(&connections)),
     });
-    (connector, connections, gog)
+    (connector, connections)
 }
 
+/// No person connects Google where the Org holds no Installation OAuth
+/// Client (ADR-0012). The refusal names who sets it up, and no row
+/// takes the alias.
 #[tokio::test]
-async fn creating_a_connection_stores_the_client_and_starts_disconnected() {
-    let (connector, connections, gog) = connector(Behavior::Ok, Duration::from_secs(5));
-
-    let created = connector
-        .create(new_connection("work", "alice@example.com"))
-        .await
-        .expect("create");
-
-    assert_eq!(created.status, Connection::DISCONNECTED);
-    assert_eq!(created.auth_mode, Connection::AUTH_MODE_BYO);
-    assert_eq!(created.config["account"], "alice@example.com");
-    // One Connection owns one stored client, named by its alias.
-    assert_eq!(created.config["client"], "work");
-    assert_eq!(connections.list(&workspace()).await.unwrap().len(), 1);
-
-    let commands = gog.commands();
-    assert_eq!(commands.len(), 1, "only the client install runs");
-    let (args, stdin) = &commands[0];
-    assert_eq!(
-        args,
-        &[
-            "--client",
-            "work",
-            "--no-input",
-            "--json",
-            "auth",
-            "credentials",
-            "set",
-            "-"
-        ]
-    );
-    // The secret reaches `gog` over stdin and is never an argument.
-    let stdin = String::from_utf8(stdin.clone().expect("stdin")).unwrap();
-    assert!(stdin.contains("top-secret"));
-    assert!(!args.iter().any(|arg| arg.contains("top-secret")));
-}
-
-#[tokio::test]
-async fn the_stored_record_keeps_no_secret() {
-    let (connector, connections, _) = connector(Behavior::Ok, Duration::from_secs(5));
-    connector
-        .create(new_connection("work", "alice@example.com"))
-        .await
-        .expect("create");
-
-    let stored = &connections.list(&workspace()).await.unwrap()[0];
-    let retained = serde_json::to_string(stored).unwrap();
-    assert!(!retained.contains("top-secret"));
-    assert!(!retained.contains("id.apps.googleusercontent.com"));
-}
-
-#[tokio::test]
-async fn two_accounts_get_distinct_aliases_and_a_duplicate_is_refused() {
-    let (connector, connections, _) = connector(Behavior::Ok, Duration::from_secs(5));
-    connector
-        .create(new_connection("work", "alice@example.com"))
-        .await
-        .expect("first");
-    connector
-        .create(new_connection("personal", "alice@gmail.com"))
-        .await
-        .expect("second");
-
-    let duplicate = connector
-        .create(new_connection("work", "carol@example.com"))
-        .await;
-    assert!(matches!(duplicate, Err(ConnectError::Conflict(_))));
-    assert_eq!(connections.list(&workspace()).await.unwrap().len(), 2);
-}
-
-#[tokio::test]
-async fn a_client_that_will_not_install_leaves_no_row_and_frees_the_alias() {
-    let (connector, connections, _) = connector(Behavior::Refused, Duration::from_secs(5));
+async fn a_google_connection_without_the_installation_client_is_refused_and_leaves_no_row() {
+    let (connector, connections) = connector();
 
     let refused = connector
-        .create(new_connection("work", "alice@example.com"))
-        .await;
-    assert!(matches!(
-        refused,
-        Err(ConnectError::Provider(ProviderErrorCode::PermissionRevoked))
-    ));
+        .create(new_google("work"))
+        .await
+        .expect_err("the installation holds no Google client");
+
+    match refused {
+        ConnectError::Validation(message) => assert!(
+            message.contains("sets up Google sign-in in the Administration Interface"),
+            "{message}"
+        ),
+        other => panic!("{other:?}"),
+    }
     assert!(connections.list(&workspace()).await.unwrap().is_empty());
-}
-
-#[tokio::test]
-async fn authorizing_runs_loopback_pkce_and_reaches_connected() {
-    let (connector, connections, gog) = connector(Behavior::Ok, Duration::from_secs(5));
-    let created = connector
-        .create(new_connection("work", "alice@example.com"))
-        .await
-        .expect("create");
-
-    let connected = connector
-        .authorize(
-            &workspace(),
-            &created.id,
-            &[],
-            None,
-            RequestSource::ThisMachine,
-            &initiator(),
-        )
-        .await
-        .expect("authorize");
-
-    assert_eq!(connected.connection().status, Connection::CONNECTED);
-    assert_eq!(
-        connections
-            .get(&workspace(), &created.id)
-            .await
-            .unwrap()
-            .unwrap()
-            .status,
-        Connection::CONNECTED
-    );
-
-    let (args, stdin) = gog.commands().pop().expect("authorize command");
-    assert!(stdin.is_none());
-    assert_eq!(
-        args,
-        [
-            "--client",
-            "work",
-            "--json",
-            "auth",
-            "add",
-            "alice@example.com",
-            "--services",
-            "gmail,calendar",
-            "--gmail-scope",
-            "readonly",
-            // A new Connection starts read-only.
-            "--readonly",
-            // The daemon listens on the loopback and nowhere else.
-            "--listen-addr",
-            "127.0.0.1:0"
-        ]
-    );
-}
-
-#[tokio::test]
-async fn widening_scopes_reauthorizes_for_the_capabilities_granted() {
-    let (connector, connections, gog) = connector(Behavior::Ok, Duration::from_secs(5));
-    let created = connector
-        .create(new_connection("work", "alice@example.com"))
-        .await
-        .expect("create");
-
-    connector
-        .authorize(
-            &workspace(),
-            &created.id,
-            &["gmail_read".to_string(), "gmail_send".to_string()],
-            None,
-            RequestSource::ThisMachine,
-            &initiator(),
-        )
-        .await
-        .expect("authorize");
-
-    assert_eq!(
-        connections
-            .get(&workspace(), &created.id)
-            .await
-            .unwrap()
-            .unwrap()
-            .authorized_capabilities,
-        ["gmail_read", "gmail_send"]
-    );
-
-    let (args, _) = gog.commands().pop().expect("authorize command");
-    assert!(args.contains(&"read-send".to_string()));
-    assert!(!args.contains(&"--readonly".to_string()));
-}
-
-#[tokio::test]
-async fn a_capability_nobody_defines_never_reaches_the_provider() {
-    let (connector, _, gog) = connector(Behavior::Ok, Duration::from_secs(5));
-    let created = connector
-        .create(new_connection("work", "alice@example.com"))
-        .await
-        .expect("create");
-
-    let refused = connector
-        .authorize(
-            &workspace(),
-            &created.id,
-            &["drive_read".to_string()],
-            None,
-            RequestSource::ThisMachine,
-            &initiator(),
-        )
-        .await;
-
-    assert!(matches!(refused, Err(ConnectError::Validation(_))));
-    assert_eq!(gog.commands().len(), 1, "only the client install ran");
-}
-
-#[tokio::test]
-async fn a_refused_exchange_leaves_the_record_disconnected() {
-    let connections = Arc::new(MemoryConnections::default());
-    let installer = FakeGog::new(Behavior::Ok);
-    let created = Connector::new(ConnectorDeps {
-        connections: Arc::clone(&connections) as _,
-        runner: installer as _,
-        catalogs: Arc::new(NumberCatalogs::single(
-            TELNYX_PROVIDER,
-            Arc::new(FakeNumberCatalog::default()),
-        )),
-        mail_host: Arc::new(FakeMailboxHost::default()),
-        secrets: Arc::new(MemorySecretStore::default()),
-        authorize_timeout: Duration::from_secs(5),
-        google: byo_google(Arc::clone(&connections)),
-        gog_root: gog_root(),
-    })
-    .create(new_connection("work", "alice@example.com"))
-    .await
-    .expect("create");
-
-    let refusing = Connector::new(ConnectorDeps {
-        connections: Arc::clone(&connections) as _,
-        runner: FakeGog::new(Behavior::Refused) as _,
-        catalogs: Arc::new(NumberCatalogs::single(
-            TELNYX_PROVIDER,
-            Arc::new(FakeNumberCatalog::default()),
-        )),
-        mail_host: Arc::new(FakeMailboxHost::default()),
-        secrets: Arc::new(MemorySecretStore::default()),
-        authorize_timeout: Duration::from_secs(5),
-        google: byo_google(Arc::clone(&connections)),
-        gog_root: gog_root(),
-    });
-    let refused = refusing
-        .authorize(
-            &workspace(),
-            &created.id,
-            &[],
-            None,
-            RequestSource::ThisMachine,
-            &initiator(),
-        )
-        .await;
-
-    assert!(matches!(
-        refused,
-        Err(ConnectError::Provider(ProviderErrorCode::PermissionRevoked))
-    ));
-    // The binding survives, so the user retries from the same card.
-    let stored = connections
-        .get(&workspace(), &created.id)
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(stored.status, Connection::DISCONNECTED);
-    assert_eq!(stored.config["account"], "alice@example.com");
-}
-
-#[tokio::test]
-async fn an_exchange_nobody_finishes_stops_waiting() {
-    let connections = Arc::new(MemoryConnections::default());
-    let created = Connector::new(ConnectorDeps {
-        connections: Arc::clone(&connections) as _,
-        runner: FakeGog::new(Behavior::Ok) as _,
-        catalogs: Arc::new(NumberCatalogs::single(
-            TELNYX_PROVIDER,
-            Arc::new(FakeNumberCatalog::default()),
-        )),
-        mail_host: Arc::new(FakeMailboxHost::default()),
-        secrets: Arc::new(MemorySecretStore::default()),
-        authorize_timeout: Duration::from_secs(5),
-        google: byo_google(Arc::clone(&connections)),
-        gog_root: gog_root(),
-    })
-    .create(new_connection("work", "alice@example.com"))
-    .await
-    .expect("create");
-
-    let waiting = Connector::new(ConnectorDeps {
-        connections: Arc::clone(&connections) as _,
-        runner: FakeGog::new(Behavior::Hang) as _,
-        catalogs: Arc::new(NumberCatalogs::single(
-            TELNYX_PROVIDER,
-            Arc::new(FakeNumberCatalog::default()),
-        )),
-        mail_host: Arc::new(FakeMailboxHost::default()),
-        secrets: Arc::new(MemorySecretStore::default()),
-        authorize_timeout: Duration::from_millis(50),
-        google: byo_google(Arc::clone(&connections)),
-        gog_root: gog_root(),
-    });
-    let abandoned = waiting
-        .authorize(
-            &workspace(),
-            &created.id,
-            &[],
-            None,
-            RequestSource::ThisMachine,
-            &initiator(),
-        )
-        .await;
-
-    assert!(matches!(
-        abandoned,
-        Err(ConnectError::Provider(
-            ProviderErrorCode::TemporarilyUnavailable
-        ))
-    ));
-    assert_eq!(
-        connections
-            .get(&workspace(), &created.id)
-            .await
-            .unwrap()
-            .unwrap()
-            .status,
-        Connection::DISCONNECTED
-    );
 }
 
 /// The carrier connection: the key is proved, then stored, and
@@ -813,13 +440,10 @@ fn carrier_connector(
     let secrets = Arc::new(MemorySecretStore::default());
     let connector = Connector::new(ConnectorDeps {
         connections: Arc::clone(&connections) as _,
-        runner: FakeGog::new(Behavior::Ok) as _,
         catalogs: Arc::new(NumberCatalogs::single(TELNYX_PROVIDER, catalog)),
         mail_host: Arc::new(FakeMailboxHost::default()),
         secrets: Arc::clone(&secrets) as _,
-        authorize_timeout: Duration::from_secs(5),
-        google: byo_google(Arc::clone(&connections)),
-        gog_root: gog_root(),
+        google: unset_google(Arc::clone(&connections)),
     });
     (connector, connections, secrets)
 }
@@ -889,7 +513,6 @@ async fn a_carrier_account_lands_in_the_record_and_the_secret_in_the_store() {
                 account: " AC123 ".to_string(),
                 secret: "shh".to_string(),
             },
-            source: RequestSource::ThisMachine,
         })
         .await
         .expect("create");
@@ -932,7 +555,6 @@ async fn one_workspace_has_one_carrier_of_any_provider() {
     let connections = Arc::new(MemoryConnections::default());
     let connector = Connector::new(ConnectorDeps {
         connections: Arc::clone(&connections) as _,
-        runner: FakeGog::new(Behavior::Ok) as _,
         catalogs: Arc::new(
             NumberCatalogs::new()
                 .with(TELNYX_PROVIDER, Arc::clone(&catalog) as _)
@@ -940,9 +562,7 @@ async fn one_workspace_has_one_carrier_of_any_provider() {
         ),
         mail_host: Arc::new(FakeMailboxHost::default()),
         secrets: Arc::new(MemorySecretStore::default()) as _,
-        authorize_timeout: Duration::from_secs(5),
-        google: byo_google(Arc::clone(&connections)),
-        gog_root: gog_root(),
+        google: unset_google(Arc::clone(&connections)),
     });
     connector
         .create(new_carrier("carrier", "telnyx-key"))
@@ -959,7 +579,6 @@ async fn one_workspace_has_one_carrier_of_any_provider() {
                 account: "AC123".to_string(),
                 secret: "token".to_string(),
             },
-            source: RequestSource::ThisMachine,
         })
         .await;
 
@@ -981,7 +600,6 @@ async fn a_carrier_key_the_user_replaces_is_proved_again() {
             &created.id,
             &[],
             Some("new-key"),
-            RequestSource::ThisMachine,
             &initiator(),
         )
         .await
@@ -1000,43 +618,33 @@ async fn a_carrier_key_the_user_replaces_is_proved_again() {
     // A key the carrier now refuses takes the record to reauth.
     catalog.fail_with(Some(pagis_telephony::CatalogErrorCode::Unauthorized));
     let refused = connector
-        .authorize(
-            &workspace(),
-            &created.id,
-            &[],
-            Some("stale"),
-            RequestSource::ThisMachine,
-            &initiator(),
-        )
+        .authorize(&workspace(), &created.id, &[], Some("stale"), &initiator())
         .await;
     assert!(matches!(refused, Err(ConnectError::Validation(_))));
 }
 
 #[tokio::test]
 async fn an_alias_a_tool_call_cannot_name_is_refused() {
-    let (connector, _, gog) = connector(Behavior::Ok, Duration::from_secs(5));
+    let (connector, connections) = connector();
     for alias in ["", "Work Mail", "work mail", "work/mail"] {
-        let refused = connector
-            .create(new_connection(alias, "alice@example.com"))
-            .await;
+        let refused = connector.create(new_carrier(alias, "good-key")).await;
         assert!(
             matches!(refused, Err(ConnectError::Validation(_))),
             "{alias:?} must be refused"
         );
     }
-    assert!(gog.commands().is_empty());
+    assert!(connections.list(&workspace()).await.unwrap().is_empty());
 }
 
 #[tokio::test]
 async fn authorizing_a_connection_that_is_gone_reports_not_found() {
-    let (connector, _, _) = connector(Behavior::Ok, Duration::from_secs(5));
+    let (connector, _) = connector();
     let missing = connector
         .authorize(
             &workspace(),
             &ConnectionId::from("nope".to_string()),
             &[],
             None,
-            RequestSource::ThisMachine,
             &initiator(),
         )
         .await;
@@ -1192,27 +800,6 @@ async fn a_sip_credential_with_a_part_missing_is_refused_before_anything_is_writ
     );
 }
 
-#[tokio::test]
-async fn only_a_carrier_has_a_sip_credential() {
-    let (connector, _, _) = connector(Behavior::Ok, Duration::from_secs(5));
-    let google = connector
-        .create(new_connection("work", "alice@example.com"))
-        .await
-        .unwrap();
-
-    let refused = connector
-        .set_sip_credential(
-            &workspace(),
-            &google.id,
-            "robin",
-            "secret",
-            "sip.telnyx.com",
-        )
-        .await;
-
-    assert!(matches!(refused, Err(ConnectError::Validation(_))));
-}
-
 /// The Mailbox Provider connection (ADR-0019): a Migadu key that lists
 /// the domain's mailboxes, or a manual host with no key at all.
 fn mail_connector(
@@ -1222,16 +809,13 @@ fn mail_connector(
     let secrets = Arc::new(MemorySecretStore::default());
     let connector = Connector::new(ConnectorDeps {
         connections: Arc::clone(&connections) as _,
-        runner: FakeGog::new(Behavior::Ok) as _,
         catalogs: Arc::new(NumberCatalogs::single(
             TELNYX_PROVIDER,
             Arc::new(FakeNumberCatalog::default()),
         )),
         mail_host: host,
         secrets: Arc::clone(&secrets) as _,
-        authorize_timeout: Duration::from_secs(5),
-        google: byo_google(Arc::clone(&connections)),
-        gog_root: gog_root(),
+        google: unset_google(Arc::clone(&connections)),
     });
     (connector, connections, secrets)
 }
@@ -1246,7 +830,6 @@ fn new_migadu(alias: &str, api_key: &str) -> NewConnection {
             api_key: api_key.to_string(),
             domain: "Example.com".to_string(),
         },
-        source: RequestSource::ThisMachine,
     }
 }
 
@@ -1260,7 +843,6 @@ fn new_manual(alias: &str) -> NewConnection {
             imap: pagis_mail::Endpoint::new("imap.fastmail.com", 993),
             smtp: pagis_mail::Endpoint::new("smtp.fastmail.com", 465),
         },
-        source: RequestSource::ThisMachine,
     }
 }
 
@@ -1393,7 +975,6 @@ async fn a_mail_domain_that_is_not_a_host_name_is_refused() {
                 api_key: "migadu-key".to_string(),
                 domain: "not a domain".to_string(),
             },
-            source: RequestSource::ThisMachine,
         })
         .await;
 
@@ -1413,14 +994,7 @@ async fn a_revoked_mail_key_makes_the_connection_unavailable() {
     // The user revoked the key at the host.
     host.fail_with(Some(pagis_mail::HostErrorCode::Unauthorized));
     let refused = connector
-        .authorize(
-            &workspace(),
-            &created.id,
-            &[],
-            None,
-            RequestSource::ThisMachine,
-            &initiator(),
-        )
+        .authorize(&workspace(), &created.id, &[], None, &initiator())
         .await;
 
     assert!(matches!(refused, Err(ConnectError::Validation(_))));
@@ -1445,14 +1019,7 @@ async fn a_replacement_mail_key_is_proved_and_kept() {
         .expect("create");
     host.fail_with(Some(pagis_mail::HostErrorCode::Unauthorized));
     let _ = connector
-        .authorize(
-            &workspace(),
-            &created.id,
-            &[],
-            None,
-            RequestSource::ThisMachine,
-            &initiator(),
-        )
+        .authorize(&workspace(), &created.id, &[], None, &initiator())
         .await;
 
     host.fail_with(None);
@@ -1462,7 +1029,6 @@ async fn a_replacement_mail_key_is_proved_and_kept() {
             &created.id,
             &[],
             Some("new-key"),
-            RequestSource::ThisMachine,
             &initiator(),
         )
         .await
@@ -1494,14 +1060,7 @@ async fn a_manual_provider_has_no_key_to_prove() {
     let created = connector.create(new_manual("mail")).await.expect("create");
 
     let authorized = connector
-        .authorize(
-            &workspace(),
-            &created.id,
-            &[],
-            None,
-            RequestSource::ThisMachine,
-            &initiator(),
-        )
+        .authorize(&workspace(), &created.id, &[], None, &initiator())
         .await
         .expect("authorize");
 
@@ -1567,10 +1126,10 @@ async fn a_mailbox_password_carries_its_workspace() {
     assert!(mine.starts_with("workspace/"), "{mine}");
 }
 
-/// The brokered Google flow (ADR-0012): the installation holds
-/// one Web OAuth client, the person holds the consent, and the daemon
-/// holds the refresh token sealed with that person's Tenant Data Key.
-mod brokered {
+/// The Google flow (ADR-0012): the installation holds one Web OAuth
+/// client, the person holds the consent, and the daemon holds the
+/// refresh token sealed with that person's Tenant Data Key.
+mod installation_client {
     use super::*;
 
     use std::collections::HashMap;
@@ -1587,7 +1146,7 @@ mod brokered {
         https://www.googleapis.com/auth/gmail.modify \
         https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar";
 
-    /// A fake Google token endpoint. The brokered tests never reach
+    /// A fake Google token endpoint. These tests never reach
     /// Google: they reach this. It grants every scope, and its ID token
     /// names the account that a test gives each code, or
     /// `alice@example.com`.
@@ -1688,13 +1247,11 @@ mod brokered {
         connections: Arc<MemoryConnections>,
         broker: Arc<GoogleBroker>,
         google: Arc<FakeGoogle>,
-        gog: Arc<FakeGog>,
         sessions: Arc<MemorySessions>,
     }
 
-    /// One installation whose Org registered a Google Web client, so
-    /// every new Google Connection is brokered. The Person of
-    /// [`initiator`] is signed in.
+    /// One installation whose Org registered a Google Web client. The
+    /// Person of [`initiator`] is signed in.
     async fn installation() -> Installation {
         let google = Arc::new(FakeGoogle::default());
         let addr = serve(Arc::clone(&google)).await;
@@ -1714,40 +1271,29 @@ mod brokered {
             .register("installation-id", "installation-secret")
             .await
             .expect("register the installation's Web client");
-        let gog = FakeGog::new(Behavior::Ok);
         let connector = Connector::new(ConnectorDeps {
             connections: Arc::clone(&connections) as _,
-            runner: Arc::clone(&gog) as _,
             catalogs: Arc::new(NumberCatalogs::single(
                 TELNYX_PROVIDER,
                 Arc::new(FakeNumberCatalog::default()),
             )),
             mail_host: Arc::new(FakeMailboxHost::default()),
             secrets: Arc::new(MemorySecretStore::default()),
-            authorize_timeout: Duration::from_secs(5),
             google: Arc::clone(&broker),
-            gog_root: gog_root(),
         });
         Installation {
             connector,
             connections,
             broker,
             google,
-            gog,
             sessions,
         }
     }
 
-    fn brokered_connection(workspace: &WorkspaceId, alias: &str, account: &str) -> NewConnection {
+    fn google_connection(workspace: &WorkspaceId, alias: &str) -> NewConnection {
         NewConnection {
             workspace_id: workspace.clone(),
-            alias: alias.to_string(),
-            display_name: "Google".to_string(),
-            credentials: NewCredentials::Google {
-                account: account.to_string(),
-                client: None,
-            },
-            source: RequestSource::ThisMachine,
+            ..new_google(alias)
         }
     }
 
@@ -1759,16 +1305,12 @@ mod brokered {
             .to_string()
     }
 
-    /// Create a brokered Connection of `alice@example.com` and authorize
-    /// it as [`initiator`]. Answer the Connection and the `state`.
+    /// Create a Google Connection and authorize it as [`initiator`].
+    /// Answer the Connection and the `state`.
     async fn started(installation: &Installation, capabilities: &[&str]) -> (Connection, String) {
         let created = installation
             .connector
-            .create(brokered_connection(
-                &workspace(),
-                "google",
-                "alice@example.com",
-            ))
+            .create(google_connection(&workspace(), "google"))
             .await
             .expect("create");
         let capabilities = capabilities
@@ -1777,72 +1319,94 @@ mod brokered {
             .collect::<Vec<_>>();
         let answer = installation
             .connector
-            .authorize(
-                &workspace(),
-                &created.id,
-                &capabilities,
-                None,
-                RequestSource::Elsewhere,
-                &initiator(),
-            )
+            .authorize(&workspace(), &created.id, &capabilities, None, &initiator())
             .await
             .expect("authorize");
-        let state = state_of(answer.url().expect("the brokered flow answers an address"));
+        let state = state_of(answer.url().expect("the Google flow answers an address"));
         (created, state)
     }
 
-    /// A Connection created where the Org holds a Web client is
-    /// `brokered`, and nothing is asked of the person but the account.
-    /// The person consents in their own browser, so the request comes
-    /// from any machine.
+    /// Authorize a Connection again, as [`initiator`]. Answer the
+    /// `state`.
+    async fn authorized(installation: &Installation, connection: &Connection) -> String {
+        let answer = installation
+            .connector
+            .authorize(&workspace(), &connection.id, &[], None, &initiator())
+            .await
+            .expect("authorize");
+        state_of(answer.url().expect("the Google flow answers an address"))
+    }
+
+    /// A Google Connection starts with no account and asks the person
+    /// for nothing. The person consents in their own browser, so the
+    /// request comes from any machine.
     #[tokio::test]
-    async fn a_connection_created_on_a_server_is_brokered() {
+    async fn a_google_connection_starts_with_no_account() {
         let installation = installation().await;
 
         let created = installation
             .connector
-            .create(NewConnection {
-                source: RequestSource::Elsewhere,
-                ..brokered_connection(&workspace(), "google", "alice@example.com")
-            })
+            .create(google_connection(&workspace(), "google"))
             .await
             .expect("create");
 
-        assert_eq!(created.auth_mode, Connection::AUTH_MODE_BROKERED);
         assert_eq!(created.status, Connection::DISCONNECTED);
-        assert_eq!(created.config["account"], "alice@example.com");
-        assert!(
-            installation.gog.commands().is_empty(),
-            "the brokered flow installs no client in gog"
+        assert_eq!(created.config, serde_json::json!({ "client": "google" }));
+    }
+
+    /// The alias is how a tool call picks the account, so a Workspace
+    /// takes each alias once.
+    #[tokio::test]
+    async fn two_connections_get_distinct_aliases_and_a_duplicate_is_refused() {
+        let installation = installation().await;
+        for alias in ["work", "personal"] {
+            installation
+                .connector
+                .create(google_connection(&workspace(), alias))
+                .await
+                .expect("create");
+        }
+
+        let duplicate = installation
+            .connector
+            .create(google_connection(&workspace(), "work"))
+            .await;
+
+        assert!(matches!(duplicate, Err(ConnectError::Conflict(_))));
+        assert_eq!(
+            installation
+                .connections
+                .list(&workspace())
+                .await
+                .unwrap()
+                .len(),
+            2
         );
     }
 
-    /// A local installation holds no Web client, so the same request
-    /// stays `byo` and still needs the person's own Desktop client.
+    /// A capability Pagis does not define never reaches Google.
     #[tokio::test]
-    async fn a_connection_created_locally_stays_byo() {
-        let (connector, _, gog) = connector(Behavior::Ok, Duration::from_secs(5));
-
-        let created = connector
-            .create(new_connection("google", "alice@example.com"))
+    async fn a_capability_nobody_defines_never_reaches_the_provider() {
+        let installation = installation().await;
+        let created = installation
+            .connector
+            .create(google_connection(&workspace(), "google"))
             .await
             .expect("create");
 
-        assert_eq!(created.auth_mode, Connection::AUTH_MODE_BYO);
-        assert_eq!(
-            gog.commands().len(),
-            1,
-            "the local flow installs the client"
-        );
-
-        let refused = connector
-            .create(brokered_connection(
+        let refused = installation
+            .connector
+            .authorize(
                 &workspace(),
-                "second",
-                "bob@example.com",
-            ))
+                &created.id,
+                &["drive_read".to_string()],
+                None,
+                &initiator(),
+            )
             .await;
+
         assert!(matches!(refused, Err(ConnectError::Validation(_))));
+        assert!(installation.broker.pending().is_empty());
     }
 
     /// The authorize step answers the start route on the Public Origin
@@ -1853,28 +1417,17 @@ mod brokered {
         let installation = installation().await;
         let created = installation
             .connector
-            .create(brokered_connection(
-                &workspace(),
-                "google",
-                "alice@example.com",
-            ))
+            .create(google_connection(&workspace(), "google"))
             .await
             .expect("create");
 
         let answer = installation
             .connector
-            .authorize(
-                &workspace(),
-                &created.id,
-                &[],
-                None,
-                RequestSource::Elsewhere,
-                &initiator(),
-            )
+            .authorize(&workspace(), &created.id, &[], None, &initiator())
             .await
             .expect("authorize");
 
-        let url = answer.url().expect("the brokered flow answers an address");
+        let url = answer.url().expect("the Google flow answers an address");
         assert_eq!(
             url,
             format!(
@@ -1885,7 +1438,6 @@ mod brokered {
         assert_eq!(answer.connection().status, Connection::CONNECTING);
         // Nothing was asked of Google yet: the person has not consented.
         assert!(installation.google.calls.lock().unwrap().is_empty());
-        assert!(installation.gog.commands().is_empty());
     }
 
     /// The start route sends a browser of the initiating Person to
@@ -1905,8 +1457,11 @@ mod brokered {
             "{google}"
         );
         assert_eq!(state_of(&google), state);
+        // The first consent names no account: the person picks one in
+        // Google's account chooser.
+        assert!(!google.contains("login_hint"), "{google}");
         assert!(
-            google.contains("login_hint=alice%40example.com"),
+            google.contains("prompt=select_account%20consent"),
             "{google}"
         );
         assert!(google.contains("code_challenge_method=S256"), "{google}");
@@ -1978,17 +1533,68 @@ mod brokered {
         );
     }
 
-    /// The daemon keeps a token only for the Google account of the
-    /// Connection, whatever account the person picked at Google.
+    /// The first consent of a Connection records the account that
+    /// consented, in lower case, and a later consent asks Google for
+    /// that account.
     #[tokio::test]
-    async fn a_consent_from_another_account_stores_no_token() {
+    async fn the_first_consent_records_the_account_that_consented() {
+        let installation = installation().await;
+        installation.google.consent("bobs-code", "Bob@Example.com");
+        let (created, state) = started(&installation, &["gmail_read"]).await;
+
+        let connected = installation
+            .broker
+            .finish(&state, "bobs-code")
+            .await
+            .expect("the callback finishes");
+
+        assert_eq!(connected.config["account"], "bob@example.com");
+        let stored = installation
+            .connections
+            .get(&workspace(), &created.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.config["account"], "bob@example.com");
+        assert_eq!(stored.config["client"], "google");
+
+        let again = authorized(&installation, &stored).await;
+        let google = installation
+            .broker
+            .start(&again, Opener::SignedIn(&initiator().user_id))
+            .unwrap();
+        assert!(google.contains("login_hint=bob%40example.com"), "{google}");
+        assert!(google.contains("prompt=consent&"), "{google}");
+    }
+
+    /// Once a Connection holds an account, the daemon keeps a token only
+    /// for that account, whatever account the person picked at Google.
+    #[tokio::test]
+    async fn a_new_consent_from_another_account_stores_no_token() {
         let installation = installation().await;
         installation
             .google
             .consent("mallorys-code", "mallory@example.com");
         let (created, state) = started(&installation, &["gmail_read"]).await;
+        installation
+            .broker
+            .finish(&state, "alices-code")
+            .await
+            .expect("Alice connects");
+        let alices = installation
+            .connections
+            .refresh_token(&workspace(), &created.id)
+            .await
+            .unwrap();
+        let stored = installation
+            .connections
+            .get(&workspace(), &created.id)
+            .await
+            .unwrap()
+            .unwrap();
 
-        let refused = installation.broker.finish(&state, "mallorys-code").await;
+        let again = authorized(&installation, &stored).await;
+        let refused = installation.broker.finish(&again, "mallorys-code").await;
 
         assert!(matches!(refused, Err(ConnectError::Validation(_))));
         let stored = installation
@@ -1998,11 +1604,53 @@ mod brokered {
             .unwrap()
             .unwrap();
         assert_eq!(stored.status, Connection::DISCONNECTED);
-        assert!(stored.authorized_capabilities.is_empty());
-        assert!(
+        assert_eq!(stored.config["account"], "alice@example.com");
+        assert_eq!(
             installation
                 .connections
                 .refresh_token(&workspace(), &created.id)
+                .await
+                .unwrap(),
+            alices,
+            "Mallory's token replaced Alice's"
+        );
+    }
+
+    /// Two Connections of one account would bring each message in
+    /// twice, so a consent from an account that another Connection of
+    /// the Workspace holds stores no token and records no account.
+    #[tokio::test]
+    async fn an_account_that_another_connection_holds_stores_no_token() {
+        let installation = installation().await;
+        let (_, state) = started(&installation, &["gmail_read"]).await;
+        installation
+            .broker
+            .finish(&state, "alices-code")
+            .await
+            .expect("the first connection");
+        let second = installation
+            .connector
+            .create(google_connection(&workspace(), "work"))
+            .await
+            .expect("create");
+        installation.google.consent("again", "ALICE@example.com");
+
+        let state = authorized(&installation, &second).await;
+        let refused = installation.broker.finish(&state, "again").await;
+
+        assert!(matches!(refused, Err(ConnectError::Conflict(_))));
+        let stored = installation
+            .connections
+            .get(&workspace(), &second.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.status, Connection::DISCONNECTED);
+        assert!(stored.config.get("account").is_none(), "{}", stored.config);
+        assert!(
+            installation
+                .connections
+                .refresh_token(&workspace(), &second.id)
                 .await
                 .unwrap()
                 .is_none()
@@ -2017,7 +1665,7 @@ mod brokered {
         let installation = installation().await;
         let created = installation
             .connector
-            .create(brokered_connection(&workspace(), "google", ""))
+            .create(google_connection(&workspace(), "google"))
             .await
             .expect("create");
         let answer = installation
@@ -2027,13 +1675,11 @@ mod brokered {
                 &created.id,
                 &["gmail_read".to_string(), "calendar_read".to_string()],
                 None,
-                RequestSource::Elsewhere,
                 &initiator(),
             )
             .await
             .expect("authorize");
         let state = state_of(answer.url().unwrap());
-        assert!(!answer.url().unwrap().contains("login_hint"));
 
         let connected = installation
             .broker
@@ -2042,14 +1688,6 @@ mod brokered {
             .expect("the callback finishes");
 
         assert_eq!(connected.status, Connection::CONNECTED);
-        assert_eq!(connected.config["account"], "alice@example.com");
-        let saved = installation
-            .connections
-            .get(&workspace(), &created.id)
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(saved.config["account"], "alice@example.com");
         assert_eq!(
             connected.authorized_capabilities,
             vec!["gmail_read".to_string(), "calendar_read".to_string()]
@@ -2100,8 +1738,7 @@ mod brokered {
 
     /// Two people each connect Google under the alias `google`. One
     /// revoking their access leaves the other's alone: the tokens are
-    /// two rows sealed with two keys, and the `gog` homes are two
-    /// directories.
+    /// two rows sealed with two keys.
     #[tokio::test]
     async fn one_person_revoking_google_leaves_the_other_connected() {
         let installation = installation().await;
@@ -2109,13 +1746,10 @@ mod brokered {
         let bob = WorkspaceId::from("ws-bob".to_string());
         let mut ids = Vec::new();
         installation.google.consent("bobs-code", "bob@example.com");
-        for (workspace, account, code) in [
-            (&alice, "alice@example.com", "alices-code"),
-            (&bob, "bob@example.com", "bobs-code"),
-        ] {
+        for (workspace, code) in [(&alice, "alices-code"), (&bob, "bobs-code")] {
             let created = installation
                 .connector
-                .create(brokered_connection(workspace, "google", account))
+                .create(google_connection(workspace, "google"))
                 .await
                 .expect("create");
             let answer = installation
@@ -2125,7 +1759,6 @@ mod brokered {
                     &created.id,
                     &["gmail_read".to_string()],
                     None,
-                    RequestSource::Elsewhere,
                     &initiator(),
                 )
                 .await
@@ -2137,12 +1770,6 @@ mod brokered {
                 .expect("finish");
             ids.push(created.id);
         }
-        // Each person's gog calls run under their own home.
-        assert_ne!(
-            installation.connector.gog_home(&alice),
-            installation.connector.gog_home(&bob)
-        );
-
         // Alice revokes: the record and its sealed token go.
         assert!(
             installation
@@ -2179,30 +1806,19 @@ mod brokered {
     }
 
     /// Google refusing the exchange leaves the record `disconnected`
-    /// with its binding, so the person retries from the same card.
+    /// with no account, so the person retries from the same card.
     #[tokio::test]
     async fn a_refused_exchange_leaves_the_record_disconnected() {
         let installation = installation().await;
         *installation.google.refusals.lock().unwrap() = 1;
         let created = installation
             .connector
-            .create(brokered_connection(
-                &workspace(),
-                "google",
-                "alice@example.com",
-            ))
+            .create(google_connection(&workspace(), "google"))
             .await
             .expect("create");
         let answer = installation
             .connector
-            .authorize(
-                &workspace(),
-                &created.id,
-                &[],
-                None,
-                RequestSource::Elsewhere,
-                &initiator(),
-            )
+            .authorize(&workspace(), &created.id, &[], None, &initiator())
             .await
             .expect("authorize");
 
@@ -2222,34 +1838,23 @@ mod brokered {
             .unwrap()
             .unwrap();
         assert_eq!(stored.status, Connection::DISCONNECTED);
-        assert_eq!(stored.config["account"], "alice@example.com");
+        assert!(stored.config.get("account").is_none(), "{}", stored.config);
     }
 
     /// `gog` gets an access token the daemon minted, refreshed from the
     /// sealed token the daemon holds, and it is reused until it runs
     /// out: a run of tool calls is one refresh, not one per call.
     #[tokio::test]
-    async fn the_daemon_mints_the_access_token_of_a_brokered_connection() {
+    async fn the_daemon_mints_the_access_token_of_a_connection() {
         let installation = installation().await;
         let created = installation
             .connector
-            .create(brokered_connection(
-                &workspace(),
-                "google",
-                "alice@example.com",
-            ))
+            .create(google_connection(&workspace(), "google"))
             .await
             .expect("create");
         let answer = installation
             .connector
-            .authorize(
-                &workspace(),
-                &created.id,
-                &[],
-                None,
-                RequestSource::Elsewhere,
-                &initiator(),
-            )
+            .authorize(&workspace(), &created.id, &[], None, &initiator())
             .await
             .expect("authorize");
         installation
@@ -2278,11 +1883,7 @@ mod brokered {
         let installation = installation().await;
         let created = installation
             .connector
-            .create(brokered_connection(
-                &workspace(),
-                "google",
-                "alice@example.com",
-            ))
+            .create(google_connection(&workspace(), "google"))
             .await
             .expect("create");
 
@@ -2295,81 +1896,26 @@ mod brokered {
 
         assert_eq!(error.code, ProviderErrorCode::ReauthRequired);
     }
-}
 
-/// The refusal names the one thing that fixes it for every person.
-fn assert_names_the_installation_client(refused: ConnectError) {
-    match refused {
-        ConnectError::Validation(message) => assert!(
-            message.contains("the Google OAuth client in the Administration Interface"),
-            "{message}"
-        ),
-        other => panic!("{other:?}"),
-    }
-}
-
-/// A `byo` Google connection starts only for a request from the daemon
-/// host.
-///
-/// `byo` consent runs `gog`'s loopback flow on the daemon host and waits
-/// for a redirect there. A person on another machine cannot finish it:
-/// the flow blocks for its whole window and their browser never reaches
-/// it.
-#[tokio::test]
-async fn a_byo_google_connection_from_elsewhere_is_refused_and_names_the_remedy() {
-    let (connector, connections, gog) = connector(Behavior::Ok, Duration::from_secs(5));
-
-    let refused = connector
-        .create(NewConnection {
-            source: RequestSource::Elsewhere,
-            ..new_connection("work", "alice@example.com")
-        })
-        .await
-        .expect_err("a byo Google connection needs a person at the daemon host");
-
-    assert_names_the_installation_client(refused);
-    // Nothing was written and `gog` never ran, so the next try starts
-    // clean.
-    assert!(
-        connections
-            .list(&workspace())
+    #[tokio::test]
+    async fn only_a_carrier_has_a_sip_credential() {
+        let installation = installation().await;
+        let connector = &installation.connector;
+        let google = connector
+            .create(google_connection(&workspace(), "work"))
             .await
-            .expect("list")
-            .is_empty()
-    );
-    assert!(gog.commands().is_empty());
-}
+            .unwrap();
 
-/// The consent of a `byo` Connection follows the same rule: a request
-/// from elsewhere starts no loopback flow and leaves the record as it
-/// was.
-#[tokio::test]
-async fn authorizing_a_byo_google_connection_from_elsewhere_is_refused() {
-    let (connector, connections, gog) = connector(Behavior::Ok, Duration::from_secs(5));
-    let created = connector
-        .create(new_connection("work", "alice@example.com"))
-        .await
-        .expect("create");
-    let installs = gog.commands().len();
+        let refused = connector
+            .set_sip_credential(
+                &workspace(),
+                &google.id,
+                "robin",
+                "secret",
+                "sip.telnyx.com",
+            )
+            .await;
 
-    let refused = connector
-        .authorize(
-            &workspace(),
-            &created.id,
-            &[],
-            None,
-            RequestSource::Elsewhere,
-            &initiator(),
-        )
-        .await
-        .expect_err("the loopback consent needs a person at the daemon host");
-
-    assert_names_the_installation_client(refused);
-    assert_eq!(gog.commands().len(), installs, "no consent flow ran");
-    let stored = connections
-        .get(&workspace(), &created.id)
-        .await
-        .expect("get")
-        .expect("the record stays");
-    assert_eq!(stored.status, Connection::DISCONNECTED);
+        assert!(matches!(refused, Err(ConnectError::Validation(_))));
+    }
 }

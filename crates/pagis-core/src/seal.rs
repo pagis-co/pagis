@@ -8,8 +8,8 @@
 //! ciphertext it holds no key for. The Installation Key wraps every one
 //! of them, because `secrets.enc` is sealed with it.
 //!
-//! The vault's Credentials and a `brokered` Connection's Google refresh
-//! token are both sealed this way, and there is one key store for both.
+//! The vault's Credentials and a Google Connection's refresh token are
+//! both sealed this way, and there is one key store for both.
 //! There is no export path and no accessor that hands a plaintext
 //! secret to a caller that does not need it.
 //!
