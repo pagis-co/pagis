@@ -24,8 +24,8 @@
 //    ways. After `refused` or `failed`, the client ends the stream.
 //
 // This module uses only erasable TypeScript syntax and imports only Node
-// built-ins, `./origin` and `./yamux`, so plain `node` loads it in the
-// interop test of the daemon (`test/exit-peer.ts`).
+// built-ins, `./byteSocket`, `./streamLine` and `./yamux`, so plain `node`
+// loads it in the interop test of the daemon (`test/exit-peer.ts`).
 
 import { lookup } from 'node:dns/promises'
 import { BlockList, connect, isIPv4, isIPv6 } from 'node:net'
@@ -35,7 +35,9 @@ import type { NetworkInterfaceInfo } from 'node:os'
 import { pipeline } from 'node:stream'
 import type { Duplex } from 'node:stream'
 
-import { isTrustedServerOrigin } from './origin'
+import type { ByteSocket } from './byteSocket'
+import { openByteSocket } from './byteSocket'
+import { readLine } from './streamLine'
 import { YamuxSession } from './yamux'
 
 /** Where a stream goes. The host of an IPv6 address has no brackets. */
@@ -311,7 +313,7 @@ export async function carry(stream: Duplex, dial: Dial, traffic?: ExitTraffic): 
   stream.on('error', () => {})
   let destination: Destination
   try {
-    destination = parseDestination(await readPreamble(stream))
+    destination = parseDestination(await readLine(stream, MAX_PREAMBLE, PREAMBLE_TIMEOUT_MS))
   } catch (error) {
     answer(stream, 'failed', error)
     return
@@ -343,61 +345,6 @@ export async function carry(stream: Duplex, dial: Dial, traffic?: ExitTraffic): 
   }
 }
 
-/**
- * The preamble line of a stream, without its line feed. The bytes after
- * the line feed stay in the stream: they are the first bytes of the
- * connection.
- *
- * A preamble that does not arrive in time destroys the stream.
- */
-function readPreamble(stream: Duplex): Promise<string> {
-  return new Promise((resolve, reject) => {
-    let line = Buffer.alloc(0)
-    const done = (): void => {
-      clearTimeout(timer)
-      stream.off('readable', onReadable)
-      stream.off('end', onEnd)
-      stream.off('close', onClose)
-    }
-    const timer = setTimeout(() => {
-      done()
-      const error = new Error(`the destination did not arrive in ${PREAMBLE_TIMEOUT_MS / 1000} s`)
-      stream.destroy(error)
-      reject(error)
-    }, PREAMBLE_TIMEOUT_MS)
-    const onReadable = (): void => {
-      for (let chunk: Buffer | null = stream.read(); chunk !== null; chunk = stream.read()) {
-        const newline = chunk.indexOf(0x0a)
-        line = Buffer.concat([line, newline === -1 ? chunk : chunk.subarray(0, newline)])
-        if (line.length >= MAX_PREAMBLE) {
-          done()
-          reject(new Error(`the destination is longer than ${MAX_PREAMBLE - 1} bytes`))
-          return
-        }
-        if (newline !== -1) {
-          done()
-          // Remove the 'readable' listener before the rest goes back, as
-          // the Node.js documentation of `unshift` says.
-          if (newline + 1 < chunk.length) stream.unshift(chunk.subarray(newline + 1))
-          resolve(line.toString('latin1'))
-          return
-        }
-      }
-    }
-    const onEnd = (): void => {
-      done()
-      reject(new Error('the stream ended before its destination'))
-    }
-    const onClose = (): void => {
-      done()
-      reject(new Error('the stream closed before its destination'))
-    }
-    stream.on('readable', onReadable)
-    stream.on('end', onEnd)
-    stream.on('close', onClose)
-  })
-}
-
 /** Dial, and stop the dial when it is not up in time or when the stream
  *  closes first. */
 async function dialInTime(stream: Duplex, dial: Dial, destination: Destination): Promise<Socket> {
@@ -426,64 +373,12 @@ function answer(stream: Duplex, status: 'refused' | 'failed', error: unknown): v
   stream.resume()
 }
 
-/** What the exit link uses of its socket. The real one is a WebSocket; a
- *  test gives its own. */
-export interface ExitSocket {
-  send(bytes: Uint8Array): void
-  /** The listener gets the bytes of each binary message. */
-  onMessage(listener: (bytes: Uint8Array) => void): void
-  /** The listener gets the close code of the socket. */
-  onClose(listener: (code: number) => void): void
-  close(): void
-}
-
 /**
- * An [`ExitSocket`] over a real WebSocket to the daemon, for the Host
- * with the id `hostId`.
- *
- * It authenticates and trusts as the Host socket does: the Session cookie
- * is a header of the handshake and never a part of the URL, and the
- * socket opens only over `wss://`, or over `ws://` on loopback.
- *
- * The socket carries one byte stream in binary messages, and the
- * boundaries of the messages mean nothing. A text message is not part of
- * it, so the socket closes on one.
+ * The exit socket of the Host with the id `hostId`, a [`ByteSocket`] on
+ * the exit path.
  */
-export async function openExitSocket(
-  url: string,
-  sessionSecret: string,
-  hostId: string,
-  cookieName = 'pagis_session',
-): Promise<ExitSocket> {
-  const target = new URL(`/api/v1/hosts/${encodeURIComponent(hostId)}/exit`, url)
-  if (!isTrustedServerOrigin(target)) {
-    throw new Error(
-      `the exit socket does not open to ${target.origin}: it opens only over https://, or over http:// on loopback`,
-    )
-  }
-  target.protocol = target.protocol === 'https:' ? 'wss:' : 'ws:'
-  const socket = new WebSocket(target, {
-    headers: { cookie: `${cookieName}=${sessionSecret}` },
-  } as unknown as string[])
-  socket.binaryType = 'arraybuffer'
-  await new Promise<void>((resolve, reject) => {
-    socket.addEventListener('open', () => resolve(), { once: true })
-    socket.addEventListener('error', () => reject(new Error('the exit socket did not open')), { once: true })
-  })
-  return {
-    send: (bytes) => socket.send(bytes),
-    onMessage: (listener) =>
-      socket.addEventListener('message', (event) => {
-        if (typeof event.data === 'string') {
-          socket.close()
-          return
-        }
-        listener(new Uint8Array(event.data as ArrayBuffer))
-      }),
-    onClose: (listener) =>
-      socket.addEventListener('close', (event) => listener(event.code), { once: true }),
-    close: () => socket.close(),
-  }
+export function openExitSocket(url: string, sessionSecret: string, hostId: string): Promise<ByteSocket> {
+  return openByteSocket(url, sessionSecret, `/api/v1/hosts/${encodeURIComponent(hostId)}/exit`)
 }
 
 /**
@@ -497,18 +392,18 @@ export async function openExitSocket(
  * must not use that Session.
  */
 export class ExitLink {
-  private readonly open: () => Promise<ExitSocket>
+  private readonly open: () => Promise<ByteSocket>
   private readonly retryMs: number
   private readonly dial: Dial
   private readonly sessionEnded: () => void
   private readonly traffic: ExitTraffic
-  private socket: ExitSocket | null = null
+  private socket: ByteSocket | null = null
   private session: YamuxSession | null = null
   private stopped = false
   private timer: ReturnType<typeof setTimeout> | null = null
 
   constructor(
-    open: () => Promise<ExitSocket>,
+    open: () => Promise<ByteSocket>,
     retryMs = 3_000,
     dial: Dial = homeDial(),
     sessionEnded: () => void = () => {},
@@ -540,7 +435,7 @@ export class ExitLink {
 
   private async connect(): Promise<void> {
     if (this.stopped) return
-    let socket: ExitSocket
+    let socket: ByteSocket
     try {
       socket = await this.open()
     } catch {

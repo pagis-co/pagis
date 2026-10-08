@@ -353,7 +353,7 @@ Other ways were considered:
 
 ## Not built
 
-- The harness process and the worktree in the Client App.
+- The worktree in the Client App.
 - The harness capabilities of a Host.
 - The start and the updates in the daemon.
 - The core tools.

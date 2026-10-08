@@ -7,7 +7,8 @@
 //! open request and its answer, the bytes of the process both ways, and
 //! the `session_exit` frame of the Host socket. The Client App's end of
 //! the socket is the fake Client App of `pagis_broker`, which speaks the
-//! protocol of the Client App and writes back each byte that it reads.
+//! protocol of the Client App and writes back each byte that it reads. The
+//! last test runs the Client App's own code under `node` in its place.
 
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -301,4 +302,133 @@ async fn person_b_neither_opens_a_session_on_person_as_host_nor_ends_one() {
         .expect("the exit in time")
         .expect("the exit arrives");
     assert_eq!(exit.stderr_tail, "");
+}
+
+/// The repository root, read at run time so a binary built in another
+/// worktree reads this one.
+fn repository() -> std::path::PathBuf {
+    std::path::PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").expect("cargo sets the dir"))
+        .join("../..")
+}
+
+/// The interop of the two ends of the session socket: the Rust yamux and
+/// the open protocol of the daemon, and the Client App's own TypeScript
+/// (`desktop/src/sessions.ts` and `desktop/src/yamux.ts`), over the real
+/// WebSockets of the daemon. The Client App starts a real process that
+/// copies its stdin to its stdout. A FIN of the daemon ends its input, the
+/// process exits, the stream ends, and its exit reaches the session over
+/// the Host socket.
+///
+/// The Client App's end runs under `node`, 22.18 or later, which strips
+/// the types, and finds `node` on the `PATH` of the test.
+#[tokio::test]
+async fn the_daemon_and_the_client_app_carry_a_coding_session_over_the_session_socket() {
+    let daemon = TestDaemon::start().await;
+    let secret = daemon
+        .cookie()
+        .strip_prefix(&format!("{}=", pagis_server::SESSION_COOKIE))
+        .expect("the cookie names the Session");
+    let mut client_app = tokio::process::Command::new("node")
+        .current_dir(repository())
+        .args([
+            "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
+            "desktop/test/session-peer.ts",
+            &daemon.base_url,
+            secret,
+        ])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::inherit())
+        .kill_on_drop(true)
+        .spawn()
+        .expect("node runs; the interop test needs Node.js 22.18 or later on the PATH");
+    let mut ready = String::new();
+    let mut stdout = tokio::io::BufReader::new(client_app.stdout.take().expect("stdout"));
+    tokio::time::timeout(
+        Duration::from_secs(30),
+        tokio::io::AsyncBufReadExt::read_line(&mut stdout, &mut ready),
+    )
+    .await
+    .expect("the Client App is ready in time")
+    .expect("the Client App writes its stdout");
+    let host_id = HostId::from(
+        ready
+            .strip_prefix("ready ")
+            .and_then(|rest| rest.strip_suffix('\n'))
+            .unwrap_or_else(|| panic!("the Client App printed {ready:?}"))
+            .to_string(),
+    );
+    wait_until("the session socket is not open", || {
+        daemon.host_sessions.is_open(&host_id)
+    })
+    .await;
+    let session_id = CodingSessionId::generate();
+    let cwd = repository()
+        .canonicalize()
+        .expect("the repository has a path")
+        .to_string_lossy()
+        .into_owned();
+    let request = OpenRequest {
+        session_id: session_id.clone(),
+        command: "node".to_string(),
+        args: vec![
+            "-e".to_string(),
+            "process.stdin.pipe(process.stdout)".to_string(),
+        ],
+        cwd: cwd.clone(),
+        env: BTreeMap::new(),
+        worktree: None,
+    };
+
+    let mut opened = daemon
+        .host_sessions
+        .open(&daemon.workspace_id, &host_id, &request)
+        .await
+        .expect("the Client App starts the process");
+
+    assert_eq!(opened.cwd, cwd);
+    for line in [
+        "{\"jsonrpc\":\"2.0\",\"id\":0,\"method\":\"initialize\"}\n",
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"session/new\"}\n",
+    ] {
+        opened
+            .stream
+            .write_all(line.as_bytes())
+            .await
+            .expect("write stdin");
+        let mut echoed = vec![0; line.len()];
+        tokio::time::timeout(WAIT, opened.stream.read_exact(&mut echoed))
+            .await
+            .expect("stdout in time")
+            .expect("read stdout");
+        assert_eq!(String::from_utf8_lossy(&echoed), line);
+    }
+
+    // The FIN ends the input of the process, which exits, so the Client
+    // App ends the stream.
+    opened.stream.close().await.expect("end stdin");
+    let mut rest = Vec::new();
+    tokio::time::timeout(WAIT, opened.stream.read_to_end(&mut rest))
+        .await
+        .expect("the stream ends in time")
+        .expect("read the end of the stream");
+    assert!(rest.is_empty(), "stdout after the end: {rest:?}");
+    let exit = tokio::time::timeout(WAIT, opened.exit)
+        .await
+        .expect("the exit in time")
+        .expect("the exit arrives");
+    assert_eq!(
+        exit,
+        SessionExit {
+            exit_code: Some(0),
+            stderr_tail: String::new(),
+        }
+    );
+
+    drop(client_app.stdin.take());
+    let status = tokio::time::timeout(Duration::from_secs(30), client_app.wait())
+        .await
+        .expect("the Client App exits in time")
+        .expect("the Client App exits");
+    assert!(status.success(), "the Client App exited with {status}");
 }

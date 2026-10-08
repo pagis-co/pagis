@@ -244,6 +244,13 @@ lives on the server, and the client runs what the server sends. So a person
 who takes control of the server can also run commands on each connected
 machine ([ADR-0015](https://github.com/pagis-co/pagis/blob/main/docs/adr/0015-a-host-action-runs-on-a-present-client.md)).
 
+The server and its Administrator can also start a Coding Harness, such as
+Claude Code, on a connected machine. The harness runs as the OS user who
+started the client, with the environment of that user's login shell. A
+Client App of a local installation starts a Coding Harness for its own
+server in the same way
+([ADR-0033](https://github.com/pagis-co/pagis/blob/main/docs/adr/0033-a-coding-session-is-a-guest-coding-harness-that-an-agent-supervises-over-acp.md)).
+
 The client connects only to an `https://` address, or to an `http://`
 address on loopback, such as an SSH tunnel. It refuses any other `http://`
 address before it sends a request, so the password, the Session and the

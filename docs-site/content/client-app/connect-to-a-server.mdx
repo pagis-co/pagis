@@ -7,7 +7,8 @@ icon: Globe
 <Callout type="warn" title="Connect only to a server you trust">
 When you connect to a server, this computer becomes a Host of that server.
 The server and its Administrator can then run commands on this computer, with
-the same access as you. Connect only to a server whose Administrator you
+the same access as you. They can also start a Coding Harness on this
+computer, which runs as you. Connect only to a server whose Administrator you
 trust.
 </Callout>
 
@@ -133,3 +134,11 @@ the server's approval card already asked, and it would not change the trust.
 So a person who takes control of the server can also run commands on this
 computer ([ADR-0015](https://github.com/pagis-co/pagis/blob/main/docs/adr/0015-a-host-action-runs-on-a-present-client.md)). The client trusts the server that TLS authenticates, and
 it registers as a Host on no clear-text connection to another machine.
+
+The server and its Administrator can also start a Coding Harness, such as
+Claude Code, on this computer. The client starts the program that the server
+names, in the directory that the server names, as the OS user who started
+the client, and copies the bytes of the program to the server and back. The
+client applies no check of its own here either. A Client App of a local
+installation starts a Coding Harness for its own server in the same way
+([ADR-0033](https://github.com/pagis-co/pagis/blob/main/docs/adr/0033-a-coding-session-is-a-guest-coding-harness-that-an-agent-supervises-over-acp.md)).

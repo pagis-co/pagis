@@ -8,12 +8,16 @@
 
 import { EventEmitter } from 'node:events'
 import type { Socket } from 'node:net'
+import os from 'node:os'
+import path from 'node:path'
 import { duplexPair } from 'node:stream'
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { openStream } from '../test/yamuxFrames'
+import type { ByteSocket } from './byteSocket'
 import { openSignedIn } from './clientSession'
-import { type ExitSocket, ExitTraffic } from './exit'
+import { ExitTraffic } from './exit'
 import { EXIT_CAPABILITY, type HostSocket, SHELL_CAPABILITY } from './host'
 import { loopbackOrigin } from './origin'
 import { hostLinkFor, hostSession, turnOffHomeExit } from './serverHost'
@@ -347,7 +351,12 @@ class RegisteringSocket implements HostSocket {
     this.sent.push(parsed)
     if (parsed.type === 'register_host') {
       queueMicrotask(() =>
-        this.listener?.(JSON.stringify({ type: 'host.registered', payload: { host_id: this.hostId } })),
+        this.listener?.(
+          JSON.stringify({
+            type: 'host.registered',
+            payload: { host_id: this.hostId, capabilities: parsed.capabilities },
+          }),
+        ),
       )
     }
   }
@@ -369,9 +378,9 @@ class RegisteringSocket implements HostSocket {
   }
 }
 
-/** An exit socket that the daemon can close with a code, and send bytes
- *  on. */
-class FakeExitSocket implements ExitSocket {
+/** An exit socket or a session socket that the daemon can close with a
+ *  code, and send bytes on. */
+class FakeExitSocket implements ByteSocket {
   closed = false
   private readonly closeListeners: Array<(code: number) => void> = []
   private readonly messageListeners: Array<(bytes: Uint8Array) => void> = []
@@ -412,7 +421,7 @@ class FakeExitSocket implements ExitSocket {
 describe('the exit socket of a Host', () => {
   it('opens with the registered host id and the Session of the Host socket, when the client declares the exit', async () => {
     const hostSocket = new RegisteringSocket('host-1')
-    const openExit = vi.fn(async (_url: string, _secret: string, _hostId: string) => new FakeExitSocket() as ExitSocket)
+    const openExit = vi.fn(async (_url: string, _secret: string, _hostId: string) => new FakeExitSocket() as ByteSocket)
     const links = hostLinkFor({
       url: SERVER,
       jar: { get: async () => [{ value: 'the-persons-session' }] },
@@ -434,7 +443,7 @@ describe('the exit socket of a Host', () => {
   })
 
   it('opens no exit socket while the Host socket has not registered', async () => {
-    const openExit = vi.fn(async () => new FakeExitSocket() as ExitSocket)
+    const openExit = vi.fn(async () => new FakeExitSocket() as ByteSocket)
     const links = hostLinkFor({
       url: SERVER,
       jar: { get: async () => [{ value: 'the-persons-session' }] },
@@ -456,7 +465,7 @@ describe('the exit socket of a Host', () => {
 
   it('declares the shell alone and opens no exit socket on a Local Installation', async () => {
     const hostSocket = new RegisteringSocket('host-1')
-    const openExit = vi.fn(async () => new FakeExitSocket() as ExitSocket)
+    const openExit = vi.fn(async () => new FakeExitSocket() as ByteSocket)
     const links = hostLinkFor({
       url: loopbackOrigin(4400),
       jar: { get: async () => [{ value: 'local-session' }] },
@@ -478,7 +487,7 @@ describe('the exit socket of a Host', () => {
   it('closes the Host socket and the exit socket with one stop', async () => {
     const hostSocket = new RegisteringSocket('host-1')
     const exitSocket = new FakeExitSocket()
-    const openExit = vi.fn(async () => exitSocket as ExitSocket)
+    const openExit = vi.fn(async () => exitSocket as ByteSocket)
     const links = hostLinkFor({
       url: SERVER,
       jar: { get: async () => [{ value: 'the-persons-session' }] },
@@ -578,18 +587,204 @@ describe('the exit socket of a Host', () => {
   })
 })
 
-/** The yamux frame of the daemon that opens stream `streamId` with
- *  `bytes`: a data frame with the SYN flag. */
-function openStream(streamId: number, bytes: string): Buffer {
-  const body = Buffer.from(bytes)
-  const head = Buffer.alloc(12)
-  head.writeUInt8(0, 0)
-  head.writeUInt8(0, 1)
-  head.writeUInt16BE(1, 2)
-  head.writeUInt32BE(streamId, 4)
-  head.writeUInt32BE(body.length, 8)
-  return Buffer.concat([head, body])
-}
+/** Each client opens the session socket, on a Local Installation too,
+ *  once the daemon acknowledged a registration that holds a Coding
+ *  Harness. The daemon opens one stream on it for each Coding Session. */
+describe('the session socket of a Host', () => {
+  const HARNESS = 'harness:claude'
+
+  /** The open request of a Coding Session whose process runs `script`
+   *  under the Node.js of the test. */
+  function openRequest(script: string): string {
+    return `${JSON.stringify({
+      session_id: 'session-1',
+      command: path.basename(process.execPath),
+      args: ['-e', script],
+      cwd: os.tmpdir(),
+      env: {},
+      worktree: null,
+    })}\n`
+  }
+
+  const environment = async () => ({ PATH: path.dirname(process.execPath) })
+
+  it('opens with the registered host id and the Session of the Host socket, once the registration holds a harness', async () => {
+    const hostSocket = new RegisteringSocket('host-1')
+    const openSessions = vi.fn(async (_url: string, _secret: string, _hostId: string) => new FakeExitSocket() as ByteSocket)
+    const links = hostLinkFor({
+      url: SERVER,
+      jar: { get: async () => [{ value: 'the-persons-session' }] },
+      credential: () => null,
+      open: async () => hostSocket,
+      openSessions,
+      capabilities: [SHELL_CAPABILITY, HARNESS],
+      retryMs: 1,
+      request: async () => live(),
+    })
+
+    links.start()
+    await vi.waitFor(() => expect(openSessions).toHaveBeenCalled())
+    await links.stop()
+
+    expect(hostSocket.sent[1]).toMatchObject({ type: 'register_host', capabilities: ['shell', HARNESS] })
+    expect(openSessions).toHaveBeenCalledTimes(1)
+    expect(openSessions).toHaveBeenCalledWith(SERVER, 'the-persons-session', 'host-1')
+  })
+
+  it('does not open for a registration that holds no harness', async () => {
+    const openSessions = vi.fn(async () => new FakeExitSocket() as ByteSocket)
+    const links = hostLinkFor({
+      url: SERVER,
+      jar: { get: async () => [{ value: 'the-persons-session' }] },
+      credential: () => null,
+      open: async () => new RegisteringSocket('host-1'),
+      openSessions,
+      capabilities: [SHELL_CAPABILITY, EXIT_CAPABILITY],
+      openExit: async () => new FakeExitSocket(),
+      retryMs: 1,
+      request: async () => live(),
+    })
+
+    links.start()
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    await links.stop()
+
+    expect(openSessions).not.toHaveBeenCalled()
+  })
+
+  it('opens the session socket and no exit socket on a Local Installation', async () => {
+    const hostSocket = new RegisteringSocket('host-1')
+    const openExit = vi.fn(async () => new FakeExitSocket() as ByteSocket)
+    const openSessions = vi.fn(async (_url: string, _secret: string, _hostId: string) => new FakeExitSocket() as ByteSocket)
+    const links = hostLinkFor({
+      url: loopbackOrigin(4400),
+      jar: { get: async () => [{ value: 'local-session' }] },
+      credential: () => 'a'.repeat(64),
+      open: async () => hostSocket,
+      openExit,
+      openSessions,
+      capabilities: [SHELL_CAPABILITY, HARNESS],
+      retryMs: 1,
+      request: async () => live(),
+    })
+
+    links.start()
+    await vi.waitFor(() => expect(openSessions).toHaveBeenCalled())
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    await links.stop()
+
+    expect(openSessions).toHaveBeenCalledWith(loopbackOrigin(4400), 'local-session', 'host-1')
+    expect(openExit).not.toHaveBeenCalled()
+  })
+
+  /** The daemon closes the session socket with 1008 when its Session
+   *  ends. No socket uses that Session again. */
+  it('opens no socket with a Session that ended on the session socket, and opens again after a new sign-in', async () => {
+    let inJar = 'the-persons-session'
+    const hostSockets: RegisteringSocket[] = []
+    const sessionSockets: FakeExitSocket[] = []
+    const opened: string[] = []
+    const exitOpened: string[] = []
+    const sessionsOpened: string[] = []
+    const links = hostLinkFor({
+      url: SERVER,
+      jar: { get: async () => [{ value: inJar }] },
+      credential: () => null,
+      open: async (_url, secret) => {
+        opened.push(secret)
+        const socket = new RegisteringSocket('host-1')
+        hostSockets.push(socket)
+        return socket
+      },
+      openExit: async (_url, secret) => {
+        exitOpened.push(secret)
+        return new FakeExitSocket()
+      },
+      openSessions: async (_url, secret) => {
+        sessionsOpened.push(secret)
+        const socket = new FakeExitSocket()
+        sessionSockets.push(socket)
+        return socket
+      },
+      capabilities: [SHELL_CAPABILITY, EXIT_CAPABILITY, HARNESS],
+      retryMs: 1,
+      request: async () => live(),
+    })
+
+    links.start()
+    await vi.waitFor(() => expect(sessionsOpened).toEqual(['the-persons-session']))
+    await vi.waitFor(() => expect(exitOpened).toEqual(['the-persons-session']))
+    sessionSockets[0].closeWith(1008)
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(sessionsOpened).toEqual(['the-persons-session'])
+
+    // The Host socket drops, and does not open again with that Session.
+    hostSockets[0].closeWith(1006)
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(opened).toEqual(['the-persons-session'])
+    expect(exitOpened).toEqual(['the-persons-session'])
+
+    inJar = 'a-new-session'
+    await vi.waitFor(() => expect(sessionsOpened).toEqual(['the-persons-session', 'a-new-session']))
+    expect(opened).toEqual(['the-persons-session', 'a-new-session'])
+    await links.stop()
+  })
+
+  it('sends the exit of a process on the Host socket', async () => {
+    const hostSocket = new RegisteringSocket('host-1')
+    const sessionSocket = new FakeExitSocket()
+    const links = hostLinkFor({
+      url: SERVER,
+      jar: { get: async () => [{ value: 'the-persons-session' }] },
+      credential: () => null,
+      open: async () => hostSocket,
+      openSessions: async () => sessionSocket,
+      environment,
+      capabilities: [SHELL_CAPABILITY, HARNESS],
+      retryMs: 1,
+      request: async () => live(),
+    })
+    links.start()
+    await vi.waitFor(() => expect(sessionSocket.read).toBe(true))
+
+    sessionSocket.deliver(openStream(1, openRequest("process.stderr.write('no sign-in'); process.exitCode = 3")))
+
+    await vi.waitFor(() =>
+      expect(hostSocket.sent).toContainEqual({
+        type: 'session_exit',
+        session_id: 'session-1',
+        exit_code: 3,
+        stderr_tail: 'no sign-in',
+      }),
+    )
+    await links.stop()
+  })
+
+  it('counts its Coding Sessions, and its stop resolves after their processes exited', async () => {
+    const sessionSocket = new FakeExitSocket()
+    const links = hostLinkFor({
+      url: SERVER,
+      jar: { get: async () => [{ value: 'the-persons-session' }] },
+      credential: () => null,
+      open: async () => new RegisteringSocket('host-1'),
+      openSessions: async () => sessionSocket,
+      environment,
+      capabilities: [SHELL_CAPABILITY, HARNESS],
+      retryMs: 1,
+      request: async () => live(),
+    })
+    links.start()
+    await vi.waitFor(() => expect(sessionSocket.read).toBe(true))
+    expect(links.codingSessions()).toBe(0)
+
+    sessionSocket.deliver(openStream(1, openRequest('setInterval(() => {}, 1000)')))
+    await vi.waitFor(() => expect(links.codingSessions()).toBe(1))
+
+    await links.stop()
+
+    expect(links.codingSessions()).toBe(0)
+  })
+})
 
 /** The tray turns the Person's Home Exit off (ADR-0029): the client asks
  *  the server to clear the choice of the Person whose Session it holds,
