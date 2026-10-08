@@ -13,7 +13,7 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::config::ProtocolKind;
 use crate::error::Error;
-use crate::protocol::{ByteStream, Meter};
+use crate::protocol::{ByteStream, Meter, codec, unsupported_forward};
 use crate::router::{MAX_BODY_BYTES, Router};
 use crate::types::Usage;
 
@@ -71,20 +71,21 @@ impl Router {
     ///
     /// One attempt, with no fallback, no retry and no stream timeouts: the
     /// client of the forward owns its retries. Every HTTP status answers
-    /// `Ok`; only a transport failure is an `Err`. `wire` must be the
-    /// protocol of the provider, and only `AnthropicMessages` forwards.
+    /// `Ok`; only a transport failure is an `Err`.
+    ///
+    /// The wire chooses the meter, and the provider's protocol chooses the
+    /// credential. An `AnthropicMessages` wire forwards to a provider of
+    /// that protocol. An `OpenAiResponses` or `OpenAiChat` wire forwards to
+    /// a provider of either OpenAI protocol. Another pair is unsupported.
     pub async fn forward(
         &self,
         provider_key: &str,
         req: ForwardRequest,
     ) -> Result<Forwarded, Error> {
         let (provider, protocol) = self.provider(provider_key)?;
-        if req.wire != provider.protocol {
-            return Err(Error::Unsupported {
-                provider: provider_key.to_owned(),
-                feature: "forward",
-            });
-        }
+        let meter = codec(req.wire)
+            .forward_meter()
+            .ok_or_else(|| unsupported_forward(provider_key))?;
         // Without a leading slash, the path could extend the host of the
         // base URL and send the key to another server.
         if !req.path.starts_with('/') {
@@ -114,7 +115,7 @@ impl Router {
                 headers.insert(name, value);
             }
         }
-        let meter = protocol.forward(provider_key, provider, &mut headers)?;
+        protocol.forward(provider_key, provider, req.wire, &mut headers)?;
 
         let response = self
             .http

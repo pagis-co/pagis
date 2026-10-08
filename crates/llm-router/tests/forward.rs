@@ -7,7 +7,7 @@ use bytes::Bytes;
 use futures::StreamExt;
 use llm_router::protocol::ByteStream;
 use llm_router::{
-    Error, ForwardRequest, Metered, ProtocolKind, ProviderConfig, RetryConfig, Router,
+    Error, ForwardRequest, Forwarded, Metered, ProtocolKind, ProviderConfig, RetryConfig, Router,
     RouterConfig, Usage,
 };
 use reqwest::header::{HeaderMap, HeaderValue};
@@ -257,9 +257,10 @@ async fn forward_passes_an_error_unchanged_after_one_attempt() {
     assert_eq!(forwarded.metered.await.unwrap().usage, None);
 }
 
-/// A provider that sends the head of an event stream and `message_start`,
-/// then holds the connection open.
-async fn stalled_stream_server() -> String {
+/// A provider that reads a request that ends with `request_end`, sends the
+/// head of an event stream and `first_event`, then holds the connection
+/// open.
+async fn stalled_stream_server(request_end: &'static str, first_event: &'static str) -> String {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {
@@ -267,14 +268,14 @@ async fn stalled_stream_server() -> String {
         let mut request = Vec::new();
         let mut buf = [0_u8; 4096];
         // Read the head and the body of the request before the answer.
-        while !request.ends_with(CLAUDE_CODE_BODY.as_bytes()) {
+        while !request.ends_with(request_end.as_bytes()) {
             let n = socket.read(&mut buf).await.unwrap();
             assert_ne!(n, 0, "the client closed before its request ended");
             request.extend_from_slice(&buf[..n]);
         }
         let head = "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\n\
                     transfer-encoding: chunked\r\n\r\n";
-        let chunk = format!("{:x}\r\n{MESSAGE_START}\r\n", MESSAGE_START.len());
+        let chunk = format!("{:x}\r\n{first_event}\r\n", first_event.len());
         socket.write_all(head.as_bytes()).await.unwrap();
         socket.write_all(chunk.as_bytes()).await.unwrap();
         // Hold the stream open until the client goes away.
@@ -283,28 +284,33 @@ async fn stalled_stream_server() -> String {
     format!("http://127.0.0.1:{}", addr.port())
 }
 
-#[tokio::test]
-async fn forward_meters_the_usage_so_far_when_the_caller_drops_the_body() {
-    let base_url = stalled_stream_server().await;
-    let router = single_provider_router(ProtocolKind::AnthropicMessages, &base_url);
-
-    let mut forwarded = router
-        .forward("p", messages_request("/messages", CLAUDE_CODE_BODY))
-        .await
-        .unwrap();
+/// Read the body up to the end of `event`, drop it, and wait for the
+/// meter.
+async fn metered_after_drop(mut forwarded: Forwarded, event: &str) -> Metered {
     let mut seen = Vec::new();
-    while !seen.ends_with(MESSAGE_START.as_bytes()) {
+    while !seen.ends_with(event.as_bytes()) {
         let chunk = forwarded.body.next().await.unwrap().unwrap();
         seen.extend_from_slice(&chunk);
     }
     drop(forwarded.body);
-
-    let metered = tokio::time::timeout(Duration::from_secs(5), forwarded.metered)
+    tokio::time::timeout(Duration::from_secs(5), forwarded.metered)
         .await
         .expect("the meter resolves when the caller drops the body")
+        .unwrap()
+}
+
+#[tokio::test]
+async fn forward_meters_the_usage_so_far_when_the_caller_drops_the_body() {
+    let base_url = stalled_stream_server(CLAUDE_CODE_BODY, MESSAGE_START).await;
+    let router = single_provider_router(ProtocolKind::AnthropicMessages, &base_url);
+
+    let forwarded = router
+        .forward("p", messages_request("/messages", CLAUDE_CODE_BODY))
+        .await
         .unwrap();
+
     assert_eq!(
-        metered,
+        metered_after_drop(forwarded, MESSAGE_START).await,
         Metered {
             model: Some("claude-sonnet-4-5-20250929".to_owned()),
             usage: Some(Usage {
@@ -320,14 +326,17 @@ async fn forward_meters_the_usage_so_far_when_the_caller_drops_the_body() {
 }
 
 #[tokio::test]
-async fn forward_of_another_wire_is_unsupported() {
+async fn forward_of_a_wire_that_the_provider_does_not_serve_is_unsupported() {
     let server = MockServer::start().await;
     let anthropic = single_provider_router(ProtocolKind::AnthropicMessages, &server.uri());
-    let openai = single_provider_router(ProtocolKind::OpenAiChat, &server.uri());
+    let openai = single_provider_router(ProtocolKind::OpenAiResponses, &server.uri());
+    let deepgram = single_provider_router(ProtocolKind::Deepgram, &server.uri());
 
     for (router, wire) in [
         (&anthropic, ProtocolKind::OpenAiChat),
-        (&openai, ProtocolKind::OpenAiChat),
+        (&anthropic, ProtocolKind::OpenAiResponses),
+        (&openai, ProtocolKind::AnthropicMessages),
+        (&deepgram, ProtocolKind::Deepgram),
     ] {
         let request = ForwardRequest {
             wire,
@@ -342,7 +351,7 @@ async fn forward_of_another_wire_is_unsupported() {
                     ..
                 }
             ),
-            "{error:?}"
+            "{wire:?}: {error:?}"
         );
     }
     assert!(server.received_requests().await.unwrap().is_empty());
@@ -361,4 +370,243 @@ async fn forward_needs_a_path_under_the_base_url() {
 
     assert!(matches!(error, Error::InvalidConfig(_)), "{error:?}");
     assert!(server.received_requests().await.unwrap().is_empty());
+}
+
+/// A Responses request as Codex writes it, with spacing that a decode and
+/// an encode would not keep.
+const CODEX_BODY: &str = concat!(
+    r#"{"model":"gpt-5", "instructions":"You are Codex.","#,
+    r#""input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]}],"#,
+    r#""store":false,"stream":true,"prompt_cache_key":"session-1"}"#,
+);
+
+const RESPONSE_CREATED: &str = concat!(
+    "event: response.created\n",
+    "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",",
+    "\"model\":\"gpt-5-2025-08-07\",\"status\":\"in_progress\",\"usage\":null}}\n\n",
+);
+
+fn responses_stream() -> String {
+    [
+        RESPONSE_CREATED,
+        "event: response.output_text.delta\n",
+        "data: {\"type\":\"response.output_text.delta\",\"item_id\":\"msg_1\",",
+        "\"output_index\":0,\"content_index\":0,\"delta\":\"Hi\"}\n\n",
+        "event: response.completed\n",
+        "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",",
+        "\"model\":\"gpt-5-2025-08-07\",\"status\":\"completed\",\"usage\":{",
+        "\"input_tokens\":40,\"input_tokens_details\":{\"cached_tokens\":10},",
+        "\"output_tokens\":7,\"output_tokens_details\":{\"reasoning_tokens\":3},",
+        "\"total_tokens\":47}}}\n\n",
+    ]
+    .concat()
+}
+
+/// A Chat Completions request as OpenCode writes it, with the usage chunk
+/// that the Harness Model Endpoint asks for.
+const CHAT_BODY: &str = concat!(
+    r#"{"model":"gpt-5", "messages":[{"role":"user","content":"hi"}],"#,
+    r#""stream":true,"stream_options":{"include_usage":true}}"#,
+);
+
+fn chat_stream() -> String {
+    [
+        "data: {\"id\":\"c1\",\"object\":\"chat.completion.chunk\",\"model\":\"gpt-5-2025-08-07\",",
+        "\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"Hi\"},",
+        "\"finish_reason\":null}],\"usage\":null}\n\n",
+        "data: {\"id\":\"c1\",\"object\":\"chat.completion.chunk\",\"model\":\"gpt-5-2025-08-07\",",
+        "\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":null}\n\n",
+        "data: {\"id\":\"c1\",\"object\":\"chat.completion.chunk\",\"model\":\"gpt-5-2025-08-07\",",
+        "\"choices\":[],\"usage\":{\"prompt_tokens\":40,\"completion_tokens\":7,\"total_tokens\":47,",
+        "\"prompt_tokens_details\":{\"cached_tokens\":10},",
+        "\"completion_tokens_details\":{\"reasoning_tokens\":3}}}\n\n",
+        "data: [DONE]\n\n",
+    ]
+    .concat()
+}
+
+/// The usage of [`responses_stream`] and [`chat_stream`].
+fn openai_usage() -> Usage {
+    Usage {
+        input_tokens: 40,
+        output_tokens: 7,
+        cache_read_input_tokens: 10,
+        cache_write_input_tokens: 0,
+        reasoning_tokens: 3,
+    }
+}
+
+/// A request that a harness wrote for an OpenAI wire, with its own token.
+fn openai_request(wire: ProtocolKind, path: &str, body: &str) -> ForwardRequest {
+    let mut headers = HeaderMap::new();
+    headers.insert("content-type", HeaderValue::from_static("application/json"));
+    headers.insert("accept", HeaderValue::from_static("text/event-stream"));
+    headers.insert(
+        "authorization",
+        HeaderValue::from_static("Bearer session-token"),
+    );
+    ForwardRequest {
+        wire,
+        path: path.to_owned(),
+        headers,
+        body: Bytes::copy_from_slice(body.as_bytes()),
+    }
+}
+
+/// OpenAI and OpenRouter take the Responses protocol in the router. Their
+/// Chat Completions API forwards with the same credential.
+fn openai_router(base_url: &str) -> Router {
+    router_with(
+        ProviderConfig::new(ProtocolKind::OpenAiResponses, base_url, "test-key"),
+        1,
+    )
+}
+
+#[tokio::test]
+async fn forward_meters_a_responses_stream_from_its_completed_event() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/responses"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_raw(responses_stream(), "text/event-stream"),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let router = openai_router(&server.uri());
+
+    let forwarded = router
+        .forward(
+            "p",
+            openai_request(ProtocolKind::OpenAiResponses, "/responses", CODEX_BODY),
+        )
+        .await
+        .unwrap();
+
+    let sent = &server.received_requests().await.unwrap()[0];
+    assert_eq!(sent.body, CODEX_BODY.as_bytes());
+    assert_eq!(sent.headers["authorization"], "Bearer test-key");
+    assert_eq!(sent.headers["accept"], "text/event-stream");
+    assert!(sent.headers.get("x-api-key").is_none());
+    assert_eq!(
+        read_all(forwarded.body).await,
+        responses_stream().as_bytes()
+    );
+    assert_eq!(
+        forwarded.metered.await.unwrap(),
+        Metered {
+            model: Some("gpt-5-2025-08-07".to_owned()),
+            usage: Some(openai_usage()),
+            complete: true,
+        }
+    );
+}
+
+#[tokio::test]
+async fn forward_meters_the_usage_chunk_of_a_chat_completions_stream() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(chat_stream(), "text/event-stream"))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let router = openai_router(&server.uri());
+
+    let forwarded = router
+        .forward(
+            "p",
+            openai_request(ProtocolKind::OpenAiChat, "/chat/completions", CHAT_BODY),
+        )
+        .await
+        .unwrap();
+
+    let sent = &server.received_requests().await.unwrap()[0];
+    assert_eq!(sent.body, CHAT_BODY.as_bytes());
+    assert_eq!(
+        sent.headers["authorization"], "Bearer test-key",
+        "the credential follows the provider's protocol"
+    );
+    assert_eq!(read_all(forwarded.body).await, chat_stream().as_bytes());
+    assert_eq!(
+        forwarded.metered.await.unwrap(),
+        Metered {
+            model: Some("gpt-5-2025-08-07".to_owned()),
+            usage: Some(openai_usage()),
+            complete: true,
+        }
+    );
+}
+
+#[tokio::test]
+async fn forward_meters_the_usage_and_the_model_of_a_whole_openai_body() {
+    let usage = json!({
+        "responses": {
+            "input_tokens": 40,
+            "input_tokens_details": {"cached_tokens": 10},
+            "output_tokens": 7,
+            "output_tokens_details": {"reasoning_tokens": 3}
+        },
+        "chat": {
+            "prompt_tokens": 40,
+            "prompt_tokens_details": {"cached_tokens": 10},
+            "completion_tokens": 7,
+            "completion_tokens_details": {"reasoning_tokens": 3}
+        }
+    });
+    for (wire, api_path, kind) in [
+        (ProtocolKind::OpenAiResponses, "/responses", "responses"),
+        (ProtocolKind::OpenAiChat, "/chat/completions", "chat"),
+    ] {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path(api_path))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": "answer_1",
+                "model": "gpt-5-2025-08-07",
+                "usage": usage[kind],
+            })))
+            .mount(&server)
+            .await;
+        let router = openai_router(&server.uri());
+
+        let forwarded = router
+            .forward("p", openai_request(wire, api_path, "{}"))
+            .await
+            .unwrap();
+
+        read_all(forwarded.body).await;
+        assert_eq!(
+            forwarded.metered.await.unwrap(),
+            Metered {
+                model: Some("gpt-5-2025-08-07".to_owned()),
+                usage: Some(openai_usage()),
+                complete: true,
+            },
+            "{wire:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn forward_of_a_dropped_responses_stream_is_not_complete() {
+    let base_url = stalled_stream_server(CODEX_BODY, RESPONSE_CREATED).await;
+    let router = openai_router(&base_url);
+
+    let forwarded = router
+        .forward(
+            "p",
+            openai_request(ProtocolKind::OpenAiResponses, "/responses", CODEX_BODY),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        metered_after_drop(forwarded, RESPONSE_CREATED).await,
+        Metered {
+            model: None,
+            usage: None,
+            complete: false,
+        }
+    );
 }

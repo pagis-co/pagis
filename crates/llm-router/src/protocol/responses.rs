@@ -36,10 +36,12 @@ use futures::StreamExt;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::config::ProviderConfig;
+use crate::config::{ProtocolKind, ProviderConfig};
 use crate::error::{Error, ErrorKind};
-use crate::protocol::openai::{OpenAiChat, classify, extract_error_fields, get, post};
-use crate::protocol::{ByteStream, EventStream, ModelPage, Protocol, model_list};
+use crate::protocol::openai::{
+    OpenAiChat, classify, extract_error_fields, forward_bearer, get, post,
+};
+use crate::protocol::{ByteStream, EventStream, Meter, ModelPage, Protocol, model_list};
 use crate::types::{
     ChatRequest, ChatResponse, ContentPart, FinishReason, Message, Modality, Role, SpeechRequest,
     StreamEvent, ToolCall, ToolChoice, TranscriptionRequest, TranscriptionResponse, Usage,
@@ -48,6 +50,20 @@ use crate::types::{
 pub struct OpenAiResponses;
 
 impl Protocol for OpenAiResponses {
+    fn forward(
+        &self,
+        provider_key: &str,
+        provider: &ProviderConfig,
+        wire: ProtocolKind,
+        headers: &mut reqwest::header::HeaderMap,
+    ) -> Result<(), Error> {
+        forward_bearer(provider_key, provider, wire, headers)
+    }
+
+    fn forward_meter(&self) -> Option<Box<dyn Meter>> {
+        Some(Box::new(ResponsesMeter::default()))
+    }
+
     /// The Responses API shares its model list with Chat Completions.
     fn build_list_models_request(
         &self,
@@ -745,6 +761,61 @@ struct WireIncomplete {
 struct WireError {
     #[serde(default)]
     message: String,
+}
+
+/// The meter of a forwarded Responses API answer. A stream gives the model
+/// and the usage in the `response` of its `response.completed` or
+/// `response.incomplete` event. A whole body is a response, with `model`
+/// and `usage`.
+#[derive(Default)]
+struct ResponsesMeter {
+    model: Option<String>,
+    usage: Option<Usage>,
+}
+
+impl ResponsesMeter {
+    fn read(&mut self, response: MeteredResponse) {
+        self.model = response.model;
+        self.usage = response.usage.map(Usage::from);
+    }
+}
+
+/// The fields of an event that the meter reads.
+#[derive(Deserialize)]
+struct MeteredEvent {
+    #[serde(rename = "type")]
+    kind: String,
+    response: Option<MeteredResponse>,
+}
+
+/// The fields of a response that the meter reads.
+#[derive(Deserialize)]
+struct MeteredResponse {
+    model: Option<String>,
+    usage: Option<WireUsage>,
+}
+
+impl Meter for ResponsesMeter {
+    fn event(&mut self, _name: &str, data: &str) {
+        let Ok(event) = serde_json::from_str::<MeteredEvent>(data) else {
+            return;
+        };
+        if let ("response.completed" | "response.incomplete", Some(response)) =
+            (event.kind.as_str(), event.response)
+        {
+            self.read(response);
+        }
+    }
+
+    fn body(&mut self, body: &[u8]) {
+        if let Ok(response) = serde_json::from_slice::<MeteredResponse>(body) {
+            self.read(response);
+        }
+    }
+
+    fn finish(self: Box<Self>) -> (Option<String>, Option<Usage>) {
+        (self.model, self.usage)
+    }
 }
 
 #[derive(Deserialize)]
