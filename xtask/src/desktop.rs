@@ -281,7 +281,7 @@ node desktop/scripts/check-packaged-runtime.mjs "$app"
 /usr/bin/xcrun stapler validate "$dmg"
 /usr/sbin/spctl --assess --type open --context context:primary-signature --verbose=2 "$dmg"
 /usr/bin/ditto "$app" "$copy/Pagis.app"
-(cd "$copy" && ./Pagis.app/Contents/MacOS/Pagis --smoke)
+(cd "$copy" && TMPDIR="$copy" ./Pagis.app/Contents/MacOS/Pagis --smoke)
 /usr/bin/ditto -x -k "$zip" "$unzipped"
 [ -d "$unzipped/Pagis.app" ] || {{ echo 'the exact ZIP has no Pagis.app' >&2; exit 1; }}
 check_app "$unzipped/Pagis.app" "$zip"
@@ -329,6 +329,9 @@ const PACKAGED_RUNTIME_SCRIPT: &str = concat!(
     "node scripts/check-packaged-runtime.mjs \"$app\"\n",
 );
 
+/// Start a copy of the packaged app outside the checkout. The client keeps
+/// its profile in `TMPDIR` and writes there until the process ends, so the
+/// script removes the directory after the client exits.
 const SMOKE_SCRIPT: &str = concat!(
     "set -eu\n",
     "app=\"$(find release -maxdepth 2 -type d -name Pagis.app -print -quit)\"\n",
@@ -337,7 +340,7 @@ const SMOKE_SCRIPT: &str = concat!(
     "trap 'rm -rf \"$tmp\"' EXIT\n",
     "/usr/bin/ditto \"$app\" \"$tmp/Pagis.app\"\n",
     "cd \"$tmp\"\n",
-    "./Pagis.app/Contents/MacOS/Pagis --smoke\n",
+    "TMPDIR=\"$tmp\" ./Pagis.app/Contents/MacOS/Pagis --smoke\n",
 );
 
 /// Attach the DMG, the ZIP with its blockmap, and the feed that names the
