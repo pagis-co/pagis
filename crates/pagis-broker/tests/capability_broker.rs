@@ -68,6 +68,7 @@ fn channel(workspace_id: &WorkspaceId) -> Channel {
 
 fn queued_run(workspace_id: &WorkspaceId, agent_id: &AgentId, channel_id: &ChannelId) -> Run {
     Run {
+        title: "A message with an attachment".into(),
         id: RunId::generate(),
         workspace_id: workspace_id.clone(),
         agent_id: agent_id.clone(),

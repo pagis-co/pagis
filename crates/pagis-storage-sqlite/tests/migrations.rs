@@ -125,8 +125,8 @@ async fn the_run_state_constraint_accepts_reflecting() {
              VALUES('model','w','default','[]',1,1); \
          INSERT INTO agents(id,workspace_id,name,job,personality,model_alias,status,created_at,updated_at) \
              VALUES('a','w','Sage','assistant','plain','default','active',1,1); \
-         INSERT INTO runs(id,workspace_id,agent_id,trigger_kind,state,created_at) \
-             VALUES('r','w','a','arrival','reflecting',1);",
+         INSERT INTO runs(id,workspace_id,agent_id,trigger_kind,state,created_at,title) \
+             VALUES('r','w','a','arrival','reflecting',1,'Bring a source into memory');",
     )
     .execute(&pool)
     .await
@@ -217,4 +217,26 @@ fn migrations() -> std::path::PathBuf {
         std::env::var_os("CARGO_MANIFEST_DIR").expect("cargo sets CARGO_MANIFEST_DIR"),
     )
     .join("migrations")
+}
+
+#[tokio::test]
+async fn run_titles_are_backfilled_without_losing_references() {
+    let pool = pagis_storage_sqlite::connect_memory().await.unwrap();
+    let (before, _earlier) = pagis_testkit::migration::migrator_before(&migrations(), 11).await;
+    before.run(&pool).await.unwrap();
+    sqlx::raw_sql(pagis_testkit::migration::CONNECTION_EVENT_ROWS)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::raw_sql(pagis_testkit::migration::RUN_TITLE_ROWS)
+        .execute(&pool)
+        .await
+        .unwrap();
+    pagis_storage_sqlite::MIGRATOR.run(&pool).await.unwrap();
+    let broken: Vec<String> = sqlx::query_scalar("SELECT \"table\" FROM pragma_foreign_key_check")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert!(broken.is_empty(), "{broken:?}");
+    pagis_testkit::migration::assert_run_titles(&pagis_storage_sqlite::stores(pool)).await;
 }

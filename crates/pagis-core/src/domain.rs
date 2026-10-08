@@ -1061,6 +1061,8 @@ impl std::str::FromStr for FailureKind {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Run {
     pub id: RunId,
+    /// The subject of the trigger, fixed when the Run is created.
+    pub title: String,
     pub workspace_id: WorkspaceId,
     pub agent_id: AgentId,
     pub channel_id: Option<ChannelId>,

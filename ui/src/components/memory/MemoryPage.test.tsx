@@ -251,7 +251,6 @@ function mount(props: Partial<MemoryPageProps> = {}) {
         onChange={onChange}
         onOpenChannel={onOpenChannel}
         onOpenRun={vi.fn()}
-        onOpenNav={vi.fn()}
         {...props}
       />
     </QueryClientProvider>,

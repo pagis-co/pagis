@@ -10,7 +10,7 @@ use crate::db_err;
 
 const COLUMNS: &str = "id, workspace_id, agent_id, channel_id, root_message_id, trigger_kind, \
      trigger_ref, hop_count, origin_agent_id, origin_channel_id, origin_root_message_id, \
-     state, error, failure_kind, started_at, ended_at, created_at, dismissed_at";
+     state, error, failure_kind, started_at, ended_at, created_at, dismissed_at, title";
 
 #[derive(Clone)]
 pub struct PostgresRunStore {
@@ -27,6 +27,7 @@ fn row_to_run(row: &sqlx::postgres::PgRow) -> Result<Run, StoreError> {
     let trigger_kind: String = row.get("trigger_kind");
     let state: String = row.get("state");
     Ok(Run {
+        title: row.get("title"),
         id: RunId::from(row.get::<String, _>("id")),
         workspace_id: WorkspaceId::from(row.get::<String, _>("workspace_id")),
         agent_id: AgentId::from(row.get::<String, _>("agent_id")),
@@ -75,8 +76,8 @@ impl RunStore for PostgresRunStore {
             "INSERT INTO runs (id, workspace_id, agent_id, channel_id, root_message_id, \
              trigger_kind, trigger_ref, hop_count, origin_agent_id, origin_channel_id, \
              origin_root_message_id, state, error, failure_kind, started_at, ended_at, created_at, \
-             dismissed_at) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)",
+             dismissed_at, title) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)",
         )
         .bind(run.id.as_str())
         .bind(run.workspace_id.as_str())
@@ -105,6 +106,7 @@ impl RunStore for PostgresRunStore {
         .bind(run.ended_at)
         .bind(run.created_at)
         .bind(run.dismissed_at)
+        .bind(&run.title)
         .execute(&self.pool)
         .await
         .map_err(db_err)?;

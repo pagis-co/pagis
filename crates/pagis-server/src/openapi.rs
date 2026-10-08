@@ -335,6 +335,7 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         mailboxes::DeletedMailboxDto,
         channels::CreateChannelRequest,
         channels::ChannelDto,
+        channels::ChannelLastMessageDto,
         channels::ChannelPage,
         channels::MessageDto,
         channels::TimelineMessageDto,

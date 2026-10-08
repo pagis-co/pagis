@@ -3382,8 +3382,8 @@ async fn end_run(
     let run_id = pagis_core::RunId::generate();
     backend
         .execute(
-            "INSERT INTO runs (id, workspace_id, agent_id, trigger_kind, trigger_ref, state, created_at) \
-             VALUES (?, ?, ?, 'arrival', ?, ?, 0)",
+            "INSERT INTO runs (id, workspace_id, agent_id, trigger_kind, trigger_ref, state, created_at, title) \
+             VALUES (?, ?, ?, 'arrival', ?, ?, 0, 'Bring a source into memory')",
             &[
                 Bind::from(run_id.as_str()),
                 Bind::from(state.config.workspace_id.as_str()),

@@ -46,14 +46,14 @@ final class InlineAnswer {
     /// The category `approval`, which the Notification Service Extension
     /// gives to a Notification of an Approval. Each action asks the Person
     /// to unlock the phone, and no action opens the app.
-    static let category = UNNotificationCategory(
+    static var category: UNNotificationCategory { UNNotificationCategory(
         identifier: NotificationContent.approvalCategory,
         actions: [
-            UNNotificationAction(identifier: "approve_once", title: "Approve once", options: [.authenticationRequired]),
-            UNNotificationAction(identifier: "deny", title: "Deny", options: [.authenticationRequired, .destructive]),
+            UNNotificationAction(identifier: "approve_once", title: "Approve once", options: ServerStore().lockScreenAnswers ? [] : [.authenticationRequired]),
+            UNNotificationAction(identifier: "deny", title: "Deny", options: ServerStore().lockScreenAnswers ? [.destructive] : [.authenticationRequired, .destructive]),
         ],
         intentIdentifiers: []
-    )
+    ) }
 
     static let app = InlineAnswer(
         answer: ApprovalAnswer(),

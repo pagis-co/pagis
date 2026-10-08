@@ -221,13 +221,13 @@ describe('deep URLs', () => {
     expect(screen.getByRole('tab', { name: 'Desk' })).toBeTruthy()
   })
 
-  it('opens the hiring flow from /sprites?new=1', async () => {
+  it('opens the creating flow from /sprites?new=1', async () => {
     mount('/sprites?new=1')
 
     expect(await screen.findByLabelText('Sprite name')).toBeTruthy()
   })
 
-  it('lands on the new agent DM when the four hire steps finish', async () => {
+  it('lands on the new agent DM when the four create steps finish', async () => {
     api.GET.mockImplementation(async (path: string) => {
       if (path === '/api/v1/channels') {
         return {
@@ -261,7 +261,7 @@ describe('deep URLs', () => {
     })
     fireEvent.click(screen.getByText('Next'))
     fireEvent.click(await screen.findByText('Next'))
-    fireEvent.click(await screen.findByText('Hire'))
+    fireEvent.click(await screen.findByText('Create'))
 
     await waitFor(() => expect(history.location.pathname).toBe('/c/channel-9'))
   })

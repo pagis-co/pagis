@@ -20,6 +20,7 @@ import {
 import type { MemoryLocation } from '../memory/MemoryPage'
 import { changeTimeLabel } from '../memory/pages'
 
+import { useIsMobile } from '../../state/useIsMobile'
 import './sprites.css'
 
 /** The number of changes the tab shows. */
@@ -69,7 +70,7 @@ export function AgentMemory({
         onOpenMemory={onOpenMemory}
         onOpenRun={onOpenRun}
       />
-      <p className="settings-hint">
+      <p className="settings-hint agent-memory-desktop-hint">
         This tab is the summary. The pages and the full history live in Memory, opened on{' '}
         {agent.name}.
       </p>
@@ -88,6 +89,7 @@ function Holds({
   scope: string
   onOpenMemory: AgentMemoryProps['onOpenMemory']
 }) {
+  const phone = useIsMobile()
   const own = useMemoryPageCounts(api, scope)
   const shared = useMemoryPageCounts(api, 'shared')
   const roster = useAgents(api)
@@ -109,7 +111,7 @@ function Holds({
         </p>
       )}
       <Frame role="list" aria-labelledby="agent-memory-holds">
-        <Row role="listitem">
+        <Row role="listitem" chevron={phone} onClick={phone ? () => onOpenMemory({ scope, view: 'pages' }) : undefined}>
           <span className="agent-memory-text">
             <span>
               {own.data === undefined
@@ -120,16 +122,16 @@ function Holds({
               people, companies, matters; only {agent.name} reads them
             </span>
           </span>
-          <Button
+          {!phone && <Button
             variant="ghost"
             size="sm"
             className="agent-memory-action"
             onClick={() => onOpenMemory({ scope, view: 'pages' })}
           >
             Open in Memory
-          </Button>
+          </Button>}
         </Row>
-        <Row role="listitem">
+        <Row role="listitem" chevron={phone} onClick={phone ? () => onOpenMemory({ scope, view: 'procedures' }) : undefined}>
           <span className="agent-memory-text">
             <span>
               {own.data === undefined
@@ -138,16 +140,16 @@ function Holds({
             </span>
             <span className="agent-memory-meta">how {agent.name} does its work</span>
           </span>
-          <Button
+          {!phone && <Button
             variant="ghost"
             size="sm"
             className="agent-memory-action"
             onClick={() => onOpenMemory({ scope, view: 'procedures' })}
           >
             See
-          </Button>
+          </Button>}
         </Row>
-        <Row role="listitem">
+        <Row role="listitem" chevron={phone} onClick={phone ? () => onOpenMemory({ scope: 'shared', view: 'pages' }) : undefined}>
           <span className="agent-memory-text">
             <span>
               {shared.data === undefined
@@ -159,14 +161,14 @@ function Holds({
               {agent.name} wrote {wrote} of them
             </span>
           </span>
-          <Button
+          {!phone && <Button
             variant="ghost"
             size="sm"
             className="agent-memory-action"
             onClick={() => onOpenMemory({ scope: 'shared', view: 'pages' })}
           >
             Open shared
-          </Button>
+          </Button>}
         </Row>
       </Frame>
     </div>
@@ -182,6 +184,7 @@ function LearnsFrom({
   agent: AgentDto
   onOpenSyncSettings: () => void
 }) {
+  const phone = useIsMobile()
   const connections = useAgentSyncConnections(api, agent.id)
   const numbers = usePhoneNumbers(api)
   const deskLine = (numbers.data?.items ?? []).find((number) => number.agent_id === agent.id)
@@ -196,7 +199,7 @@ function LearnsFrom({
       )}
       <Frame role="list" aria-labelledby="agent-memory-learns">
         {(connections.data ?? []).map((connection) => (
-          <Row key={connection.connection_id} role="listitem">
+          <Row key={connection.connection_id} role="listitem" onClick={phone ? onOpenSyncSettings : undefined}>
             <span className="agent-memory-tile" aria-hidden>
               {connection.display_name.slice(0, 1).toUpperCase()}
             </span>
@@ -212,14 +215,14 @@ function LearnsFrom({
                 · {counted(connection.rule_count, 'rule', 'rules')}
               </span>
             </span>
-            <Button
+            {!phone && <Button
               variant="ghost"
               size="sm"
               className="agent-memory-action"
               onClick={onOpenSyncSettings}
             >
               Sync settings
-            </Button>
+            </Button>}
           </Row>
         ))}
         {deskLine !== undefined && (
@@ -260,6 +263,7 @@ function RecentChanges({
   onOpenMemory: AgentMemoryProps['onOpenMemory']
   onOpenRun: (runId: string) => void
 }) {
+  const phone = useIsMobile()
   const changes = useRecentChanges(api, scope, RECENT_CHANGES)
   const revert = useRevertCommit(api)
   const queryClient = useQueryClient()
@@ -287,10 +291,10 @@ function RecentChanges({
         <Button
           variant="link"
           size="sm"
-          className="agent-memory-action"
+          className={`agent-memory-action${phone ? ' phone-accent' : ''}`}
           onClick={() => onOpenMemory({ scope, view: 'changes' })}
         >
-          All of {agent.name}’s changes in Memory
+          {phone ? 'See all' : `All of ${agent.name}’s changes in Memory`}
           <ChevronRight size={14} aria-hidden />
         </Button>
       </div>
@@ -323,7 +327,7 @@ function RecentChanges({
                   ))}
                 </span>
               </span>
-              <span className="agent-memory-action agent-memory-buttons">
+              {!phone && <span className="agent-memory-action agent-memory-buttons">
                 {item.run_id != null && (
                   <Button variant="ghost" size="sm" onClick={() => onOpenRun(item.run_id!)}>
                     Open the Run
@@ -343,7 +347,7 @@ function RecentChanges({
                     </Button>
                   )
                 )}
-              </span>
+              </span>}
             </Row>
           ))}
         </Frame>

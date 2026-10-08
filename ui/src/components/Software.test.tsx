@@ -101,7 +101,6 @@ function mount(api: ReturnType<typeof stubApi>) {
       <Software
         api={api as unknown as ApiClient}
         onClose={vi.fn()}
-        onOpenNav={vi.fn()}
         onOpenChannel={onOpenChannel}
       />
     </QueryClientProvider>,

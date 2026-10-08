@@ -11,20 +11,25 @@
 // patch collapsed.
 
 import { useState } from 'react'
-import { Menu as MenuIcon, X } from 'lucide-react'
+import { useIsMobile } from '../state/useIsMobile'
+import { NavBar } from './phone/TopBar'
+import { Package, X } from 'lucide-react'
 
 import type { ApiClient } from '../api/client'
-import { Avatar, Button, IconButton } from '../primitives'
+import { Avatar, Button, Frame, IconButton, Row, SectionLabel, Segmented } from '../primitives'
 import {
   useAgents,
   useChannels,
   useContribution,
   useSoftware,
   useSoftwarePackage,
+  usePlugins,
+  usePlugin,
 } from '../queries'
 import { useComposerDraft } from '../state/composerDraft'
 import { threadScope } from '../timeline'
 import { AskAnAgent } from './AskAnAgent'
+import { stateBadge } from './Plugins'
 
 import './Automations.css'
 import './Software.css'
@@ -100,14 +105,16 @@ function PackageDetail({
   name: string
   onBack: () => void
 }) {
+  const phone = useIsMobile()
+  const [view, setView] = useState('tools')
   const held = useSoftwarePackage(api, name)
   const row = held.data
 
   return (
     <section className="automations-detail">
-      <Button className="automations-back" onClick={onBack}>
+      {!phone && <Button className="automations-back" onClick={onBack}>
         Back to software
-      </Button>
+      </Button>}
       {row === undefined ? (
         <p>Loading…</p>
       ) : (
@@ -129,7 +136,8 @@ function PackageDetail({
                 : `${row.origin_package} ${row.origin_version ?? ''}`.trim()}
             </dd>
           </dl>
-          <section className="automations-history" aria-label="Tools">
+          {phone && <Segmented label="Package details" value={view} onValueChange={setView} items={[{ value: 'tools', label: 'Tools' }, { value: 'versions', label: 'Versions' }, { value: 'contributions', label: 'Contributions' }]} />}
+          <section hidden={phone && view !== 'tools'} className="automations-history" aria-label="Tools">
             <h4>Tools</h4>
             {row.tools.length === 0 && <p>No tool.</p>}
             {row.tools.map((tool) => (
@@ -138,7 +146,7 @@ function PackageDetail({
               </p>
             ))}
           </section>
-          <section className="automations-history" aria-label="Versions">
+          <section hidden={phone && view !== 'versions'} className="automations-history" aria-label="Versions">
             <h4>Versions</h4>
             {row.versions.length === 0 && <p>No Version yet.</p>}
             {row.versions.map((version) => (
@@ -148,7 +156,7 @@ function PackageDetail({
               </p>
             ))}
           </section>
-          <section className="automations-history" aria-label="Contributions">
+          <section hidden={phone && view !== 'contributions'} className="automations-history" aria-label="Contributions">
             <h4>Contributions</h4>
             {row.contributions.length === 0 && <p>No Contribution yet.</p>}
             {row.contributions.map((contribution) => (
@@ -169,31 +177,31 @@ function PackageDetail({
 export function Software({
   api,
   onClose,
-  onOpenNav,
   onOpenChannel,
+  selection,
+  onSelect,
 }: {
   api: ApiClient
   onClose: () => void
-  onOpenNav: () => void
   /** Open one channel: the empty list sends the reader to a DM. */
   onOpenChannel: (channelId: string) => void
+  selection?: string | null
+  onSelect?: (name: string | null) => void
 }) {
-  const [selected, setSelected] = useState<string | null>(null)
+  const phone = useIsMobile()
+  const [localSelected, setLocalSelected] = useState<string | null>(null)
+  const selected = phone && selection !== undefined ? selection : localSelected
+  const setSelected = (next: string | null) => phone && onSelect ? onSelect(next) : setLocalSelected(next)
   const packages = useSoftware(api)
   const agents = useAgents(api)
   const channels = useChannels(api)
   const setDraft = useComposerDraft((state) => state.set)
 
+  if (phone) return <><NavBar back={{ label: selected ? 'Software' : 'You', onBack: selected ? () => setSelected(null) : onClose }} /><div className="phone-content phone-software">{selected ? <PackageDetail api={api} name={selected} onBack={() => setSelected(null)} /> : <><h1 className="phone-heading">Software</h1><p className="phone-hint">{PACKAGES_EXPLANATION}</p><section className="phone-section"><SectionLabel>Packages</SectionLabel><Frame>{(packages.data ?? []).map((held) => <Row key={held.name} chevron onClick={() => setSelected(held.name)}><span className="phone-icon-tile"><Package size={20} aria-hidden /></span><span className="phone-row-copy"><strong>{held.name}</strong><span className="phone-hint">{held.author_name} · {held.tool_count} tools · version {held.latest_version}{held.open_contributions ? ` · ${held.open_contributions} open contributions` : ''}</span></span></Row>)}</Frame>{packages.isError && <p role="alert" className="phone-hint">Could not read the packages.</p>}{packages.data?.length === 0 && <AskAnAgent kind="package" agents={agents.data ?? []} channels={channels.data ?? []} onOpenChannel={onOpenChannel} onDraft={(channelId, text) => setDraft(threadScope(channelId), text)} />}</section><PhonePlugins api={api} /></>}</div></>
+
   return (
     <div className="automations-panel">
       <header className="automations-header">
-        <IconButton
-          icon={MenuIcon}
-          label="Open conversations"
-          variant="ghost"
-          className="mobile-navigation-trigger"
-          onClick={onOpenNav}
-        />
         <h2>Software</h2>
         <IconButton icon={X} label="Close software" variant="ghost" onClick={onClose} />
       </header>
@@ -252,4 +260,13 @@ export function Software({
       )}
     </div>
   )
+}
+
+function PhonePlugins({ api }: { api: ApiClient }) {
+  const plugins = usePlugins(api)
+  return <section className="phone-section"><SectionLabel>Plugins</SectionLabel><Frame>{(plugins.data ?? []).map((plugin) => <PhonePlugin key={plugin.id} api={api} id={plugin.id} name={plugin.name} version={plugin.manifest_version} />)}</Frame>{plugins.isPending && <p className="phone-hint">Reading the plugins…</p>}{plugins.isError && <p role="alert" className="phone-hint">Could not read the plugins.</p>}</section>
+}
+function PhonePlugin({ api, id, name, version }: { api: ApiClient; id: string; name: string; version: string }) {
+  const plugin = usePlugin(api, id)
+  return <Row><span className="phone-row-copy"><span>{name}</span><span className="phone-hint">Version {version}</span></span>{plugin.data && stateBadge(plugin.data)}{plugin.isError && <span role="alert" className="phone-hint">Could not read its state.</span>}</Row>
 }

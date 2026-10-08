@@ -1,11 +1,12 @@
 // The left column of the Memory place: the scope switcher, the
 // views, the search and the page list grouped by change time.
 
-import { Menu as MenuIcon, MessageSquare } from 'lucide-react'
+import { MessageSquare, Search } from 'lucide-react'
 import type { AgentDto } from '../../api/client'
-import { Avatar, Button, IconButton, Input, SectionLabel, cx } from '../../primitives'
+import { Avatar, Button, Frame, Input, Row, SectionLabel, Segmented, cx } from '../../primitives'
+import { useIsMobile } from '../../state/useIsMobile'
 import type { MemoryLocation } from './MemoryPage'
-import { changeTimeLabel, groupPages, type MemoryPageDto, type MemoryView } from './pages'
+import { changeTimeLabel, phoneTimeLabel, groupPages, type MemoryPageDto, type MemoryView } from './pages'
 
 const VIEWS: { value: MemoryView; label: string }[] = [
   { value: 'pages', label: 'Pages' },
@@ -28,7 +29,6 @@ export function MemoryNav({
   openPath,
   connectionName,
   onChange,
-  onOpenNav,
 }: {
   scope: string
   /** The Agent of a private scope; `null` for Shared. */
@@ -49,9 +49,8 @@ export function MemoryNav({
   openPath: string | undefined
   connectionName: (connectionId: string) => string
   onChange: (next: MemoryLocation) => void
-  /** Open the sidebar drawer (a phone only). */
-  onOpenNav: () => void
 }) {
+  const phone = useIsMobile()
   const searchLabel = owner === null ? 'Search shared pages' : `Search ${owner.name}’s pages`
   const noun = holds === 1 ? 'page' : 'pages'
   const more = (matches ?? 0) - (pages?.length ?? 0)
@@ -61,24 +60,15 @@ export function MemoryNav({
   return (
     <nav aria-label="Memory" className="memory-nav">
       <div className="memory-title">
-        <IconButton
-          icon={MenuIcon}
-          label="Open conversations"
-          variant="ghost"
-          className="mobile-navigation-trigger"
-          onClick={onOpenNav}
-        />
         <h2>Memory</h2>
       </div>
 
       <div role="group" aria-label="Scope" className="memory-scopes">
-        {[...agents.map((agent) => ({ value: `agent:${agent.id}`, agent })), {
-          value: 'shared',
-          agent: null,
-        }].map(({ value, agent }) => (
+        {(phone ? [{ value: 'shared', agent: null }, ...agents.map((agent) => ({ value: `agent:${agent.id}`, agent }))] : [...agents.map((agent) => ({ value: `agent:${agent.id}`, agent })), { value: 'shared', agent: null }]).map(({ value, agent }) => (
           <Button
             key={value}
-            variant="ghost"
+            variant={phone ? 'outline' : 'ghost'}
+            shape={phone ? 'pill' : 'default'}
             size="sm"
             className={cx('memory-scope', value === scope && 'memory-scope-current')}
             aria-pressed={value === scope}
@@ -87,7 +77,7 @@ export function MemoryNav({
               onChange({ scope: value, view })
             }}
           >
-            {agent !== null && (
+            {!phone && agent !== null && (
               <Avatar id={agent.id} name={agent.name} appearance={agent.avatar} size="sm" />
             )}
             {agent?.name ?? 'Shared'}
@@ -95,7 +85,7 @@ export function MemoryNav({
         ))}
       </div>
 
-      <div role="group" aria-label="Views" className="memory-views">
+      {phone ? <Segmented label="Views" value={view} onValueChange={(value) => onChange({ scope, view: value as MemoryView })} items={VIEWS} /> : <div role="group" aria-label="Views" className="memory-views">
         {VIEWS.map((option) => (
           <Button
             key={option.value}
@@ -115,9 +105,9 @@ export function MemoryNav({
             {option.label}
           </Button>
         ))}
-      </div>
+      </div>}
 
-      <Input
+      <Input icon={phone ? Search : undefined}
         aria-label={searchLabel}
         placeholder={searchLabel}
         className="memory-search"
@@ -132,10 +122,10 @@ export function MemoryNav({
       {pages?.length === 0 && search.trim() !== '' && (
         <p className="memory-empty">No page matches the search.</p>
       )}
-      {groupPages(pages ?? []).map((group) => (
+      {groupPages(phone && view === 'changes' ? [] : pages ?? []).map((group) => (
         <div key={group.label} className="memory-group">
           <SectionLabel className="memory-group-label">{group.label}</SectionLabel>
-          {group.pages.map((page) => (
+          {phone ? <Frame>{group.pages.map((page) => <Row roomy key={page.path} onClick={() => onChange({ scope, path: page.path, view: pageView })}><span className="phone-row-copy"><span className="memory-phone-page-heading"><strong>{page.title}</strong><span className="phone-hint">{phoneTimeLabel(page.changed_at)}</span></span><span className="phone-hint memory-phone-excerpt">{page.excerpt}</span></span></Row>)}</Frame> : group.pages.map((page) => (
             <Button
               key={page.path}
               variant="ghost"

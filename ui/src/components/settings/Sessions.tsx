@@ -21,6 +21,7 @@ import { SettingsSection } from './SettingsSection'
 import { SignInLinkCard } from './SignInLinkCard'
 
 import './Sessions.css'
+import { useIsMobile } from '../../state/useIsMobile'
 
 /** A time the person reads, in their own browser's zone. */
 function when(at: number): string {
@@ -39,8 +40,10 @@ export function sessionLabel(
 }
 
 function SessionRow({ api, session }: { api: ApiClient; session: MySessionDto }) {
+  const phone = useIsMobile()
   const end = useEndMySession(api)
   const label = sessionLabel(session)
+  if (phone) return <Row data-testid="session-row"><span className="phone-row-copy"><span>{label}</span>{session.current && <span><Badge tone="working">This session</Badge></span>}<span className="phone-hint">signed in {when(session.created_at)} · last used {when(session.last_used_at)}</span>{end.isError && <span role="alert">{end.error.message}</span>}</span>{!session.current && <Button variant="link" className="phone-danger" disabled={end.isPending} aria-label={`Remove ${label}`} onClick={() => end.mutate(session.id)}>Remove</Button>}</Row>
 
   return (
     <Row className="my-session-row" data-testid="session-row">
@@ -70,6 +73,7 @@ function SessionRow({ api, session }: { api: ApiClient; session: MySessionDto })
 }
 
 export function Sessions({ api }: { api: ApiClient }) {
+  const phone = useIsMobile()
   const sessions = useMySessions(api)
   const make = useMakeSignInLink(api)
   const [showing, setShowing] = useState(false)
@@ -80,7 +84,7 @@ export function Sessions({ api }: { api: ApiClient }) {
       title="Sessions"
       lead="The browsers and apps that are signed in as you."
       action={
-        <Button
+        !phone && <Button
           size="sm"
           variant="primary"
           disabled={make.isPending}

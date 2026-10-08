@@ -324,6 +324,7 @@ async fn a_call_left_live_by_a_stopped_daemon_settles_at_boot() {
         .expect("workspaces")
         .remove(0);
     let run = Run {
+        title: "A message with an attachment".into(),
         id: RunId::generate(),
         workspace_id: workspace.id.clone(),
         agent_id: pagis_core::AgentId::from(daemon.agent_id.clone()),
@@ -422,6 +423,7 @@ async fn the_calls_list_filters_by_direction_and_pages() {
         .remove(0);
     let agent_id = pagis_core::AgentId::from(daemon.agent_id.clone());
     let run = Run {
+        title: "A message with an attachment".into(),
         id: RunId::generate(),
         workspace_id: workspace.id.clone(),
         agent_id: agent_id.clone(),

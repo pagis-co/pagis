@@ -629,7 +629,10 @@ impl NewCredentials {
             // type them, because the Org's Web client is the one every
             // person consents against.
             pagis_google::GOOGLE_PROVIDER => Ok(NewCredentials::Google {
-                account: field("account")?,
+                account: fields
+                    .get("account")
+                    .map(|value| value.trim().to_string())
+                    .unwrap_or_default(),
                 client: match (fields.get("client_id"), fields.get("client_secret")) {
                     (None, None) => None,
                     _ => Some(crate::DesktopClient {

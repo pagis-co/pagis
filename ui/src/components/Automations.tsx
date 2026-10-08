@@ -11,12 +11,15 @@
 // the broker approves at the tool call, before any row exists.
 
 import { useMemo, useState, type ReactNode } from 'react'
+import { useIsMobile } from '../state/useIsMobile'
+import { NavBar } from './phone/TopBar'
 
-import { Menu as MenuIcon, X } from 'lucide-react'
+import { X } from 'lucide-react'
+import { useNavigate } from '@tanstack/react-router'
 
 import type { ApiClient } from '../api/client'
 import { ApprovalCard } from '../blocks/ApprovalCard'
-import { Avatar, Button, IconButton, Input, Textarea } from '../primitives'
+import { ActionSheet, Avatar, Badge, Button, Frame, IconButton, Input, Row, SectionLabel, Textarea } from '../primitives'
 import {
   errorMessage,
   useAgents,
@@ -62,7 +65,7 @@ const RULE_TOOLS: Record<string, string> = {
   event_subscription_update: 'Event Subscription',
 }
 
-type Selection =
+export type Selection =
   | { kind: 'schedule'; id: string }
   | { kind: 'subscription'; id: string }
 
@@ -150,6 +153,7 @@ function NeedsYou({
   onOpenSubscription: (subscriptionId: string) => void
   ask: ReactNode
 }) {
+  const phone = useIsMobile()
   const requests = usePendingRequests(api)
   const connections = useConnections(api)
   const subscriptions = useSubscriptions(api)
@@ -169,6 +173,13 @@ function NeedsYou({
     (subscription) => subscription.blocked_reason != null,
   )
   const total = ruleRequests.length + reauth.length + blocked.length
+
+  if (phone && total === 0) return <p className="phone-hint">Nothing waits for you.</p>
+  if (phone) return <section className="phone-section" aria-label="Needs you"><SectionLabel>Needs you</SectionLabel><p className="phone-hint">{EXPLANATIONS.queue}</p>{total === 0 ? <><p className="phone-hint">Nothing waits for you.</p>{ask}</> : <Frame>
+    {ruleRequests.map((request) => <PhoneRequestRow key={request.id} api={api} request={request} />)}
+    {reauth.map((connection) => <Row key={connection.id} href="/settings/connections" chevron hint="Connect again">{connection.display_name}</Row>)}
+    {blocked.map((subscription) => <Row key={subscription.id} chevron onClick={() => onOpenSubscription(subscription.id)} hint={subscription.blocked_reason}>{subscription.name}</Row>)}
+  </Frame>}</section>
 
   return (
     <section className="automations-queue" aria-label="Needs you">
@@ -226,6 +237,14 @@ function NeedsYou({
   )
 }
 
+function PhoneRequestRow({ api, request }: { api: ApiClient; request: { id: string; agent_id: string; payload: unknown } }) {
+  const navigate = useNavigate()
+  const agents = useAgents(api)
+  const agent = agents.data?.find((agent) => agent.id === request.agent_id)
+  const payload = request.payload as { action_title?: string; tool_name?: string }
+  return <Row chevron onClick={() => void navigate({ to: '.', search: (previous) => ({ ...previous, request: request.id }) })}><Avatar id={request.agent_id} name={agent?.name ?? 'Sprite'} appearance={agent?.avatar} size="sm" presence="waiting" /><span className="phone-row-copy"><span>{payload.action_title ?? payload.tool_name}</span><span className="phone-hint">{agent?.name ?? 'Sprite'} needs your approval</span></span></Row>
+}
+
 /** The Schedule controls the daemon already serves. Skip-next
  *  carries the due instant it saw, so a Schedule that became due first
  *  answers 409 and the surface says which side won. */
@@ -237,6 +256,8 @@ function ScheduleControls({
   schedule: { id: string; state: string; next_due_at?: number | null }
 }) {
   const update = useUpdateSchedule(api)
+  const phone = useIsMobile()
+  const [archive, setArchive] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
 
   const run = (
@@ -280,11 +301,12 @@ function ScheduleControls({
       <Button
         variant="danger"
         disabled={update.isPending || schedule.state === 'archived'}
-        onClick={() => run('archive', 'Archive failed.')}
+        onClick={() => phone ? setArchive(true) : run('archive', 'Archive failed.')}
       >
         Archive
       </Button>
       {failure !== null && <p className="automations-error">{failure}</p>}
+      {phone && <ActionSheet open={archive} onOpenChange={setArchive} title="Archive this rule?" description="It stops starting new work. Its past work stays in the record." action={{ label: 'Archive', danger: true, disabled: update.isPending, onSelect: () => run('archive', 'Archive failed.') }} />}
     </div>
   )
 }
@@ -453,6 +475,8 @@ function SubscriptionControls({
   subscription: { id: string; state: string }
 }) {
   const update = useUpdateSubscription(api)
+  const phone = useIsMobile()
+  const [archive, setArchive] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
 
   const run = (action: 'pause' | 'resume' | 'archive', fallback: string) => {
@@ -480,11 +504,12 @@ function SubscriptionControls({
       <Button
         variant="danger"
         disabled={update.isPending || subscription.state === 'archived'}
-        onClick={() => run('archive', 'Archive failed.')}
+        onClick={() => phone ? setArchive(true) : run('archive', 'Archive failed.')}
       >
         Archive
       </Button>
       {failure !== null && <p className="automations-error">{failure}</p>}
+      {phone && <ActionSheet open={archive} onOpenChange={setArchive} title="Archive this rule?" description="It stops starting new work. Its past work stays in the record." action={{ label: 'Archive', danger: true, disabled: update.isPending, onSelect: () => run('archive', 'Archive failed.') }} />}
     </div>
   )
 }
@@ -662,16 +687,21 @@ function SubscriptionDetail({
 export function Automations({
   api,
   onClose,
-  onOpenNav,
   onOpenChannel,
+  selection,
+  onSelect,
 }: {
   api: ApiClient
   onClose: () => void
-  onOpenNav: () => void
   /** Open one channel: an empty section sends the reader to a DM. */
   onOpenChannel: (channelId: string) => void
+  selection?: Selection | null
+  onSelect?: (selection: Selection | null) => void
 }) {
-  const [selected, setSelected] = useState<Selection | null>(null)
+  const phone = useIsMobile()
+  const [localSelected, setLocalSelected] = useState<Selection | null>(null)
+  const selected = phone && selection !== undefined ? selection : localSelected
+  const setSelected = (next: Selection | null) => phone && onSelect ? onSelect(next) : setLocalSelected(next)
   const schedules = useSchedules(api)
   const subscriptions = useSubscriptions(api)
   const agents = useAgents(api)
@@ -701,16 +731,10 @@ export function Automations({
     [agents.data, channels.data],
   )
 
+  if (phone) return <><NavBar back={{ label: selected ? 'Automations' : 'You', onBack: selected ? () => setSelected(null) : onClose }} /><div className="phone-content phone-automations">{selected ? selected.kind === 'schedule' ? <ScheduleDetail api={api} scheduleId={selected.id} names={names} onBack={() => setSelected(null)} /> : <SubscriptionDetail api={api} subscriptionId={selected.id} names={names} onBack={() => setSelected(null)} /> : <><h1 className="phone-heading">Automations</h1><NeedsYou api={api} onOpenSubscription={(id) => setSelected({ kind: 'subscription', id })} ask={ask('automation')} /><section className="phone-section"><SectionLabel>Schedules</SectionLabel><p className="phone-hint">{EXPLANATIONS.schedules}</p><Frame>{(schedules.data ?? []).map((row) => <Row key={row.id} chevron onClick={() => setSelected({ kind: 'schedule', id: row.id })}><Avatar id={row.agent_id} name={names.agents.get(row.agent_id) ?? 'Sprite'} appearance={agents.data?.find((agent) => agent.id === row.agent_id)?.avatar} size="md" /><span className="phone-row-copy"><span>{row.name}</span><span className="phone-hint">{row.state === 'paused' ? 'Paused' : `Next: ${when(row.next_due_at)}`} · {names.agents.get(row.agent_id)}</span></span>{row.state === 'paused' && <Badge>Paused</Badge>}</Row>)}</Frame>{schedules.data?.length === 0 && ask('schedule')}</section><section className="phone-section"><SectionLabel>Event Subscriptions</SectionLabel><p className="phone-hint">{EXPLANATIONS.subscriptions}</p><Frame>{(subscriptions.data ?? []).map((row) => <Row key={row.id} chevron onClick={() => setSelected({ kind: 'subscription', id: row.id })}><Avatar id={row.agent_id} name={names.agents.get(row.agent_id) ?? 'Sprite'} appearance={agents.data?.find((agent) => agent.id === row.agent_id)?.avatar} size="md" /><span className="phone-row-copy"><span>{row.name}</span><span className="phone-hint">{row.event_kind} · {names.agents.get(row.agent_id)}</span></span>{row.state !== 'active' && <Badge>{row.state.replaceAll('_', ' ')}</Badge>}</Row>)}</Frame>{subscriptions.data?.length === 0 && ask('subscription')}</section><p className="phone-hint">To add one, ask a sprite to set it up.</p>{(schedules.isError || subscriptions.isError) && <p role="alert" className="phone-hint">Could not read the automations.</p>}</>}</div></>
   return (
     <div className="automations-panel">
       <header className="automations-header">
-        <IconButton
-          icon={MenuIcon}
-          label="Open conversations"
-          variant="ghost"
-          className="mobile-navigation-trigger"
-          onClick={onOpenNav}
-        />
         <h2>Automations</h2>
         <IconButton
           icon={X}

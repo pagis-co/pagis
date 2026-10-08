@@ -328,19 +328,29 @@ impl GoogleOAuth {
             .copied()
             .collect::<Vec<_>>()
             .join(" ");
-        let query = form_encode(&[
+        let mut fields = vec![
             ("client_id", client.client_id()),
             ("redirect_uri", redirect_uri),
             ("response_type", "code"),
             ("scope", &scope),
             ("access_type", "offline"),
-            ("prompt", "consent"),
+            (
+                "prompt",
+                if account.is_empty() {
+                    "select_account consent"
+                } else {
+                    "consent"
+                },
+            ),
             ("include_granted_scopes", "true"),
-            ("login_hint", account),
             ("state", state),
             ("code_challenge", pkce.challenge()),
             ("code_challenge_method", "S256"),
-        ]);
+        ];
+        if !account.is_empty() {
+            fields.push(("login_hint", account));
+        }
+        let query = form_encode(&fields);
         format!("{}?{query}", self.authorize_endpoint)
     }
 

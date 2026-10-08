@@ -26,6 +26,7 @@ function run(fields: Partial<RunDto> = {}): RunDto {
     agent_id: 'agent-1',
     channel_id: 'channel-1',
     root_message_id: null,
+    title: 'Book the Austin trip',
     trigger_kind: 'message',
     trigger_ref: 'message-1',
     hop_count: 0,

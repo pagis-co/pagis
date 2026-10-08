@@ -79,6 +79,7 @@ async fn seed(daemon: &TestDaemon) -> ContributionId {
     let packages = SqliteSoftwareStore::new(pool.clone());
     // Every Version and Contribution names the Run that wrote it.
     let run = Run {
+        title: "A message with an attachment".into(),
         id: RunId::generate(),
         workspace_id: workspace.id.clone(),
         agent_id: author.id.clone(),
@@ -396,6 +397,7 @@ async fn seed_widget_version(
         }
     };
     let run = Run {
+        title: "A message with an attachment".into(),
         id: RunId::generate(),
         workspace_id: workspace_id.clone(),
         agent_id: author.id.clone(),

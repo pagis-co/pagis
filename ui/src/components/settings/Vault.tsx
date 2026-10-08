@@ -1,7 +1,10 @@
 import { useState } from 'react'
 
 import type { ApiClient, CredentialDto } from '../../api/client'
-import { Avatar, Badge, Button, Frame, Row } from '../../primitives'
+import { ActionSheet, Avatar, Badge, Button, Frame, IconButton, Row } from '../../primitives'
+import { PhoneHeaderAction } from '../phone/TopBar'
+import { Lock, Plus } from 'lucide-react'
+import { useIsMobile } from '../../state/useIsMobile'
 import { useAgents, useCredentials, useDeleteCredential } from '../../queries'
 import { SettingsSection } from './SettingsSection'
 import { SignInDialog } from './SignInDialog'
@@ -23,12 +26,15 @@ function SignInRow({
   credential: CredentialDto
   onReplace: () => void
 }) {
+  const phone = useIsMobile()
+  const [choosing, setChoosing] = useState(false)
   const agents = useAgents(api)
   const remove = useDeleteCredential(api)
   const owner =
     credential.owner_agent_id == null
       ? undefined
       : agents.data?.find((agent) => agent.id === credential.owner_agent_id)
+  if (phone) return <><Row chevron onClick={() => setChoosing(true)}><span className="phone-initial-tile"><Lock size={20} aria-hidden /></span><span className="phone-row-copy"><span>{credential.domain} {credential.has_totp && <Badge tone="accent">2FA</Badge>}</span><span className="phone-hint">{credential.owner_agent_id == null ? 'Any sprite with a Grant' : `Owner: ${owner?.name ?? 'Sprite'}`}</span></span></Row><ActionSheet open={choosing} onOpenChange={setChoosing} title={credential.domain} description="Replace or delete this sign-in." actions={[{ label: 'Replace', onSelect: onReplace }, { label: 'Delete', danger: true, disabled: remove.isPending, onSelect: () => remove.mutate(credential.id) }]} />{remove.isError && <p role="alert" className="phone-hint">{remove.error.message}</p>}</>
   return (
     <Row>
       <span className="settings-tile" aria-hidden>
@@ -80,6 +86,7 @@ function SignInRow({
  * secret file hint. A sign-in is replaced by a fresh one: the vault never
  * reads a password back to edit it. */
 export function Vault({ api }: { api: ApiClient }) {
+  const phone = useIsMobile()
   const credentials = useCredentials(api)
   // `null` is closed, `'add'` is a new sign-in, a credential is a replacement.
   const [editing, setEditing] = useState<'add' | CredentialDto | null>(null)
@@ -89,18 +96,18 @@ export function Vault({ api }: { api: ApiClient }) {
       title="Vault"
       lead="Sign-ins your sprites can fill on a site. They fill, they never read."
       action={
-        <Button variant="primary" onClick={() => setEditing('add')}>
+        phone ? <PhoneHeaderAction><IconButton icon={Plus} label="Add a sign-in" variant="link" onClick={() => setEditing('add')} /></PhoneHeaderAction> : <Button variant="primary" onClick={() => setEditing('add')}>
           Add a sign-in
         </Button>
       }
-      hint={
+      hint={phone ? "A tap on a sign-in shows Replace and Delete." : (
         <>
           A sign-in opens one address, the login page, and the fill happens on the sprite&apos;s
           Desk. The password stays in the installation's sealed secret file (ADR-0013); Pagis shows it to nobody,
           the sprite included. An owner sprite holds the sign-in as its own; a sign-in with no
           owner needs a Grant.
         </>
-      }
+      )}
     >
       {credentials.isSuccess && items.length === 0 ? (
         <p className="vault-empty">No sign-ins yet.</p>

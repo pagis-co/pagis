@@ -25,9 +25,8 @@ conversation and never covers the composer. At 1100 px and below the Desk
 Panel does not open by itself, because the column takes room from the
 conversation: Home and the Chief of Staff's direct Channel carry a Desk Panel
 toggle, and the address holds the open panel. At 760 px and below the
-conversation list goes off-canvas, every full main view carries a control to
-open it, and a master-detail body becomes two steps with a back control. At
-390 px an inspector is the whole screen.
+Product App draws four tabs, pushed screens and bottom sheets (ADR-0034).
+A Desk and a Call each open as a full-screen route on the phone.
 
 ### The Chief of Staff is a Workspace setting, and the shell pins it
 
@@ -43,7 +42,8 @@ Software and Settings. Home carries the count of the Needs-You Queue. Each
 place replaces the main pane. Below the places the sidebar lists the
 conversations: the Chief of Staff first with its presence and caption, then
 the other Agents, then the groups. The composer on Home addresses the Chief of
-Staff's direct Channel. On a phone the same column is the drawer.
+Staff's direct Channel. On a phone the four-tab layout replaces this column
+(ADR-0034).
 
 ### Home is the Report
 

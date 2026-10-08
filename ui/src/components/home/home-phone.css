@@ -1,0 +1,86 @@
+.home-phone {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+.home-phone-scroll {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+}
+.home-phone-sections {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+  padding: 0 var(--space-4) var(--space-5);
+}
+.home-phone-section-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.home-phone-approval {
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.home-phone-approval-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.home-phone-approval-head strong {
+  font-size: var(--text-md);
+  flex: 1;
+}
+.home-phone-approval .phone-well {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.home-phone-approval .phone-well .ui-button {
+  align-self: flex-start;
+  color: var(--accent);
+}
+.home-phone-approval .phone-row-line {
+  margin: 0;
+}
+.home-phone-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--waiting);
+  flex: none;
+}
+.home-phone-dot-failed {
+  background: var(--failed);
+}
+.home-phone-queue-link {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  white-space: normal;
+  gap: var(--space-3);
+}
+.home-phone-queue-link strong {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.home-phone-swipe {
+  touch-action: pan-y;
+}
+.home-phone-swipe:not(:last-child) {
+  border-bottom: 1px solid var(--border);
+}
+.home-phone-brief {
+  padding: var(--space-4);
+}
+.home-phone-brief > .ui-button {
+  color: var(--accent);
+}
+.home-phone-composer {
+  flex: none;
+}

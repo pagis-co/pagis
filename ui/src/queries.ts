@@ -658,7 +658,7 @@ export function useDecideRequest(api: ApiClient, requestId: string) {
       values,
     }: {
       decision: "approved" | "denied";
-      scope?: "always";
+      scope?: "once" | "always";
       values?: Record<string, unknown>;
     }) =>
       unwrap(

@@ -5,19 +5,19 @@
 // ends the session.
 // One current mark at a time: a
 // conversation row in a thread, a place elsewhere. On a phone the same
-// column is the drawer.
+// column is replaced by the phone layout at 760 px and below.
 
-import { LogOut, Plus, Search, X } from 'lucide-react'
+import { LogOut, Plus, Search } from 'lucide-react'
 import { useState } from 'react'
 
 import type { ApiClient } from '../../api/client'
 import {
   Button,
+  cx,
   IconButton,
   LogoMark,
   OwnerAvatar,
   Sidebar as SidebarShell,
-  cx,
 } from '../../primitives'
 import {
   useAgents,
@@ -27,7 +27,6 @@ import {
   useUserName,
   useWorkspace,
 } from '../../queries'
-import { useIsMobile } from '../../state/useIsMobile'
 import { ConversationRow } from './ConversationRow'
 import { conversationRows } from './conversations'
 import { NewGroupForm } from './NewGroupForm'
@@ -43,8 +42,6 @@ export function Sidebar({
   onSelectChannel,
   onSearch,
   onSignOut,
-  open,
-  onClose,
 }: {
   api: ApiClient
   pathname: string
@@ -55,9 +52,6 @@ export function Sidebar({
   onSearch: () => void
   /** End the session and go back to the sign-in page. */
   onSignOut: () => void
-  /** The drawer is open (a phone only). */
-  open: boolean
-  onClose: () => void
 }) {
   const channels = useChannels(api)
   const roster = useAgents(api)
@@ -66,7 +60,6 @@ export function Sidebar({
   const captureDays = useUser(api).data?.model_request_capture_days ?? null
   const needsYou = useNeedsYou(api).data?.count ?? 0
   const [creating, setCreating] = useState(false)
-  const isMobile = useIsMobile()
   // A conversation holds the mark, so no place does.
   const currentPlace = selectedId === null ? placeForPath(pathname) : null
   const rows = conversationRows(
@@ -76,26 +69,13 @@ export function Sidebar({
   )
 
   return (
-    <SidebarShell
-      className={cx('sidebar', open && 'sidebar-open')}
-      inert={isMobile && !open}
-      aria-hidden={isMobile && !open ? true : undefined}
-    >
+    <SidebarShell className="sidebar">
       <div className="sidebar-header">
         <span className="sidebar-brand">
           <LogoMark />
           Pagis
         </span>
         <IconButton icon={Search} label="Search" variant="ghost" size="sm" onClick={onSearch} />
-        {open && (
-          <IconButton
-            icon={X}
-            label="Close conversations"
-            variant="ghost"
-            size="sm"
-            onClick={onClose}
-          />
-        )}
       </div>
 
       <nav className="sidebar-places" aria-label="Places">

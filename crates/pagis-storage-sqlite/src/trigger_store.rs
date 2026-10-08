@@ -551,6 +551,11 @@ impl TriggerStore for SqliteTriggerStore {
         for mut wakeup in pending {
             let trigger_kind = wakeup.rule.trigger_kind();
             let run = Run {
+                title: pagis_core::run_title(if trigger_kind == pagis_core::TriggerKind::Arrival {
+                    pagis_core::RunTitleSource::Arrival
+                } else {
+                    pagis_core::RunTitleSource::Rule(&wakeup.rule_name)
+                }),
                 id: RunId::generate(),
                 workspace_id: wakeup.workspace_id.clone(),
                 agent_id: wakeup.agent_id.clone(),
@@ -578,7 +583,7 @@ impl TriggerStore for SqliteTriggerStore {
             sqlx::query(
                 "INSERT INTO runs (id, workspace_id, agent_id, channel_id, root_message_id, \
                  trigger_kind, trigger_ref, hop_count, origin_agent_id, origin_channel_id, \
-                 origin_root_message_id, state, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, 'queued', ?)",
+                 origin_root_message_id, state, created_at, title) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, 'queued', ?, ?)",
             )
             .bind(run.id.as_str())
             .bind(run.workspace_id.as_str())
@@ -591,6 +596,7 @@ impl TriggerStore for SqliteTriggerStore {
             .bind(run.origin.as_ref().map(|origin| origin.channel_id.as_str()))
             .bind(run.origin.as_ref().and_then(|origin| origin.root_message_id.as_ref()).map(|id| id.as_str()))
             .bind(now)
+            .bind(&run.title)
             .execute(&mut *transaction)
             .await
             .map_err(db_err)?;

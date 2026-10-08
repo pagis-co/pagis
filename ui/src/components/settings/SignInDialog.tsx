@@ -1,7 +1,8 @@
 import { useState } from 'react'
 
 import type { ApiClient, CredentialDto } from '../../api/client'
-import { Button, Dialog, Input } from '../../primitives'
+import { Button, Dialog, Input, Sheet } from '../../primitives'
+import { useIsMobile } from '../../state/useIsMobile'
 import { errorMessage, useAddCredential, useDeleteCredential } from '../../queries'
 
 import './SignInDialog.css'
@@ -21,6 +22,7 @@ export function SignInDialog({
   onOpenChange: (open: boolean) => void
   replacing?: CredentialDto
 }) {
+  const Modal = useIsMobile() ? Sheet : Dialog
   const add = useAddCredential(api)
   const remove = useDeleteCredential(api)
   const [domain, setDomain] = useState(replacing?.domain ?? '')
@@ -46,7 +48,7 @@ export function SignInDialog({
   }
 
   return (
-    <Dialog
+    <Modal
       open={open}
       onOpenChange={onOpenChange}
       title={replacing === undefined ? 'Add a sign-in' : `Replace the sign-in for ${replacing.domain}`}
@@ -112,6 +114,6 @@ export function SignInDialog({
           </p>
         )}
       </form>
-    </Dialog>
+    </Modal>
   )
 }

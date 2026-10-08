@@ -95,8 +95,10 @@ impl InboundRuns for RecordingRuns {
         workspace_id: &WorkspaceId,
         agent_id: &AgentId,
         call_id: &CallId,
+        caller: &str,
     ) -> Result<Run, String> {
         let run = Run {
+            title: pagis_core::run_title(pagis_core::RunTitleSource::InboundCall(caller)),
             id: RunId::generate(),
             workspace_id: workspace_id.clone(),
             agent_id: agent_id.clone(),
@@ -1007,6 +1009,7 @@ impl World {
     /// the Run it belongs to.
     async fn outbound(&self, person: &Person, number: &PhoneNumber) -> PlacedCall {
         let run = Run {
+            title: "A message with an attachment".into(),
             id: RunId::generate(),
             workspace_id: person.workspace_id.clone(),
             agent_id: person.agent_id.clone(),

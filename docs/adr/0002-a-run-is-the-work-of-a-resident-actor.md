@@ -21,6 +21,13 @@ container disk persists.
 
 ### A Run is the unit of work
 
+Each Run has a title derived from its Trigger and fixed at creation. A
+message uses its first line, cut at a word boundary to 80 characters with
+an ellipsis; a message without text says "A message with an attachment".
+A Schedule or Event uses the Wake-up's rule name. An inbound Call says
+"Call from {number}". An Arrival says "Bring a source into memory" and a
+Review says "Review what was learned". The title needs no model request.
+
 A Run is what the actor does while it is awake. It carries the identity, the
 Grants, the Capability Snapshot, the Channel and the origin. Its states are
 `queued`, `running`, `waiting_for_user`, `waiting_for_approval`, `reflecting`,

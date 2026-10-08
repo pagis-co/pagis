@@ -200,6 +200,7 @@ impl pagis_telephony::InboundRuns for BrokerInboundRuns {
         workspace_id: &pagis_core::WorkspaceId,
         agent_id: &pagis_core::AgentId,
         call_id: &pagis_core::CallId,
+        caller: &str,
     ) -> Result<pagis_core::Run, String> {
         use pagis_core::{NewEvent, Run, RunState, TriggerKind};
 
@@ -212,6 +213,7 @@ impl pagis_telephony::InboundRuns for BrokerInboundRuns {
         let now = self.clock.now_ms();
         let run = Run {
             id: RunId::generate(),
+            title: pagis_core::run_title(pagis_core::RunTitleSource::InboundCall(caller)),
             workspace_id: workspace_id.clone(),
             agent_id: agent_id.clone(),
             channel_id: Some(channel.id),

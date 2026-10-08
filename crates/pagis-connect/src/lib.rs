@@ -301,20 +301,29 @@ impl Connector {
             .await?;
         match new.credentials {
             NewCredentials::Google { account, client } => {
-                let binding = ConnectionBinding::new(
-                    account.trim(),
-                    &new.alias,
-                    self.gog_home(&new.workspace_id),
-                )
-                .map_err(|_| {
-                    ConnectError::Validation("that Google account is not valid".to_string())
-                })?;
+                let brokered = self.google.web_client().await?.is_some();
+                let binding_account = if brokered && account.trim().is_empty() {
+                    None
+                } else {
+                    Some(account.trim())
+                };
+                let binding = binding_account
+                    .map(|account| {
+                        ConnectionBinding::new(
+                            account,
+                            &new.alias,
+                            self.gog_home(&new.workspace_id),
+                        )
+                    })
+                    .transpose()
+                    .map_err(|_| {
+                        ConnectError::Validation("that Google account is not valid".to_string())
+                    })?;
                 // The installation's own Web client decides the mode
                 // (ADR-0012). With one, the person consents
                 // against it and the daemon owns the tokens; without
                 // one, the person supplies a Desktop client and `gog`
                 // owns them.
-                let brokered = self.google.web_client().await?.is_some();
                 // A `byo` connection consents on the daemon host. For a
                 // person on another machine the flow blocks for its
                 // whole window and their own browser never reaches it.
@@ -337,13 +346,15 @@ impl Connector {
                             )
                         })?;
                         Some(
-                            pagis_google::install_client_command(&binding, &credentials).map_err(
-                                |_| {
-                                    ConnectError::Validation(
-                                        "that OAuth client is not valid".to_string(),
-                                    )
-                                },
-                            )?,
+                            pagis_google::install_client_command(
+                                binding.as_ref().expect("a Desktop client binds an account"),
+                                &credentials,
+                            )
+                            .map_err(|_| {
+                                ConnectError::Validation(
+                                    "that OAuth client is not valid".to_string(),
+                                )
+                            })?,
                         )
                     }
                     (false, None) => {

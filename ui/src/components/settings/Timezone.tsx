@@ -1,9 +1,11 @@
 import { useState } from 'react'
+import { Check } from 'lucide-react'
+import { useIsMobile } from '../../state/useIsMobile'
 
 import type { ApiClient } from '../../api/client'
 import { Button, Frame, Row, Select } from '../../primitives'
 import { errorMessage, useSetTimezone, useWorkspace } from '../../queries'
-import { deviceTimezone, knownTimezones } from '../../timezone'
+import { deviceTimezone, knownTimezones, timezoneName } from '../../timezone'
 
 import './Timezone.css'
 
@@ -28,9 +30,12 @@ export function TimezoneSection({ api }: { api: ApiClient }) {
 }
 
 function TimezoneForm({ api, saved }: { api: ApiClient; saved: string }) {
+  const phone = useIsMobile()
   const set = useSetTimezone(api)
   const [timezone, setTimezone] = useState(saved)
   const device = deviceTimezone()
+
+  if (phone) return <section className="phone-section"><div><h1 className="phone-heading">Timezone</h1><p className="phone-lead">Your Schedules and your Daily report run on this clock.</p></div><div className="phone-form-field"><span>Timezone</span><Select label="Timezone" value={timezone} onValueChange={setTimezone} items={knownTimezones(timezone).map((zone) => ({ value: zone, label: `${zone} (${timezoneName(zone)})` }))} /></div>{device && <div className="phone-well phone-resource-head"><span className="phone-row-copy"><span>This phone is on {timezoneName(device)}</span><span className="phone-hint">{device === timezone ? 'The same as your setting.' : 'A different clock from your setting.'}</span></span>{device === timezone ? <Check className="phone-success" size={20} aria-label="Same timezone" /> : <Button variant="link" onClick={() => setTimezone(device)}>Use it</Button>}</div>}<Button variant="primary" size="lg" disabled={timezone === saved || set.isPending} onClick={() => set.mutate(timezone)}>Save</Button>{set.isError && <p role="alert" className="phone-hint">{set.error.message}</p>}<p className="phone-hint">A Schedule you made before keeps its own timezone. The Daily report moves with this one.</p></section>
 
   return (
     <section className="settings-timezone">

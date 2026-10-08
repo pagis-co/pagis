@@ -7,6 +7,7 @@
 
 import { BookOpen } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { useIsMobile } from '../../state/useIsMobile'
 
 import type { AgentDto, ApiClient } from '../../api/client'
 import {
@@ -43,8 +44,6 @@ export interface MemoryPageProps {
   onChange: (next: MemoryLocation) => void
   onOpenChannel: (channelId: string) => void
   onOpenRun: (runId: string) => void
-  /** Open the sidebar drawer (a phone only). */
-  onOpenNav: () => void
 }
 
 export function MemoryPage({
@@ -55,9 +54,9 @@ export function MemoryPage({
   onChange,
   onOpenChannel,
   onOpenRun,
-  onOpenNav,
 }: MemoryPageProps) {
   const roster = useAgents(api)
+  const phone = useIsMobile()
   const workspace = useWorkspace(api)
 
   // The scope opens on the Chief of Staff, which the Workspace names,
@@ -67,7 +66,7 @@ export function MemoryPage({
   }
   const agents = (roster.data ?? []).filter((agent) => agent.status === 'active')
   const chief = chiefOfStaff(agents, workspace.data?.chief_of_staff_agent_id)
-  const resolved = scope ?? (chief === null ? 'shared' : `agent:${chief.id}`)
+  const resolved = scope ?? (phone || chief === null ? 'shared' : `agent:${chief.id}`)
 
   return (
     <ScopePage
@@ -80,7 +79,6 @@ export function MemoryPage({
       onChange={onChange}
       onOpenChannel={onOpenChannel}
       onOpenRun={onOpenRun}
-      onOpenNav={onOpenNav}
     />
   )
 }
@@ -95,13 +93,13 @@ function ScopePage({
   onChange,
   onOpenChannel,
   onOpenRun,
-  onOpenNav,
 }: Omit<MemoryPageProps, 'scope'> & {
   scope: string
   agents: AgentDto[]
   chief: AgentDto | null
 }) {
   const [search, setSearch] = useState('')
+  const phone = useIsMobile()
   const needle = useSettled(search.trim(), SEARCH_DELAY_MS)
   // The list of the view opens its newest page. The search narrows
   // the rows only, so the open page stays while the user types.
@@ -125,11 +123,11 @@ function ScopePage({
   const foundPages = found.data?.pages.flatMap((part) => part.pages)
   // A page that the view hides stays open when the URL names it. The
   // Changes view opens no page of its own.
-  const openPath = view === 'changes' ? path : (path ?? listedPages?.[0]?.path)
+  const openPath = view === 'changes' || phone ? path : (path ?? listedPages?.[0]?.path)
 
   return (
-    <div className="memory" data-testid="memory">
-      <MemoryNav
+    <div className={phone ? 'memory memory-phone' : 'memory'} data-testid="memory">
+      {(!phone || !path) && <MemoryNav
         scope={scope}
         owner={owner}
         agents={agents}
@@ -148,8 +146,7 @@ function ScopePage({
         openPath={openPath}
         connectionName={connectionName}
         onChange={onChange}
-        onOpenNav={onOpenNav}
-      />
+      />}
       {view === 'changes' ? (
         <ChangesView
           api={api}
@@ -159,7 +156,7 @@ function ScopePage({
           onOpenPage={(next) => onChange({ scope, path: next, view: 'pages' })}
           onOpenRun={onOpenRun}
         />
-      ) : openPath === undefined ? (
+      ) : openPath === undefined ? (phone ? null :
         <section className="memory-page memory-page-empty">
           <PageState icon={BookOpen} title="No page is open">
             {listed.isPending ? 'Loading the pages.' : 'This scope holds no page yet.'}

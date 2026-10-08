@@ -57,13 +57,12 @@ function insets(body: string): Side[] {
 const layers: { name: string; file: string; path: string[]; edges: Side[] }[] = [
   { name: 'the shell root', file: 'styles.css', path: ['.app'], edges: [...sides] },
   { name: 'the sign-in page', file: 'sign-in.css', path: ['.sign-in'], edges: [...sides] },
-  {
-    name: 'the drawer',
-    file: 'components/sidebar/Sidebar.css',
-    path: ['@media (max-width: 760px)', '.sidebar'],
-    edges: ['top', 'bottom', 'left'],
-  },
-  { name: 'the sheet', file: 'AppShell.css', path: ['.workspace-sheet'], edges: [...sides] },
+  { name: 'the phone shell', file: 'components/phone/phone.css', path: ['.phone-shell'], edges: ['right', 'left'] },
+  { name: 'the phone nav bar', file: 'components/phone/phone.css', path: ['.nav-bar'], edges: ['top'] },
+  { name: 'the tab bar', file: 'components/phone/phone.css', path: ['.tab-bar'], edges: ['bottom'] },
+  { name: 'the form sheet', file: 'primitives/sheet.css', path: ['.ui-sheet'], edges: ['top', 'right', 'left'] },
+  { name: 'the form sheet footer', file: 'primitives/sheet.css', path: ['.ui-sheet-footer'], edges: ['bottom'] },
+  { name: 'the action sheet', file: 'primitives/sheet.css', path: ['.ui-action-sheet'], edges: ['right', 'bottom', 'left'] },
   {
     name: 'the expanded live screen',
     file: 'components/Computers.css',

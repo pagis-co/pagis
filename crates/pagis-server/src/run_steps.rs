@@ -185,6 +185,7 @@ mod tests {
 
     fn run(state: RunState, started_at: Option<i64>, ended_at: Option<i64>) -> Run {
         Run {
+            title: "A message with an attachment".into(),
             id: RunId::from("run-1".to_string()),
             workspace_id: WorkspaceId::from("ws".to_string()),
             agent_id: AgentId::from("agent".to_string()),

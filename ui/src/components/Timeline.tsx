@@ -20,6 +20,7 @@ import {
   useTimeline,
 } from '../queries'
 import { createSpeaker } from '../speech'
+import { useIsMobile } from '../state/useIsMobile'
 import { useComposerDraft } from '../state/composerDraft'
 import {
   selectLiveStreams,
@@ -96,6 +97,7 @@ export function Timeline({
   /** Opens the Desk panel. */
   onOpenDesk: () => void
 }) {
+  const phone = useIsMobile()
   const timeline = useTimeline(api, channelId)
   const pending = usePendingSends(selectPendingSends(channelId))
   const live = useLiveStreams(selectLiveStreams(channelId))
@@ -272,6 +274,7 @@ export function Timeline({
       <Virtuoso
         ref={scroller}
         className="timeline"
+        alignToBottom={phone}
         data={items}
         computeItemKey={(_index, item) => item.key}
         initialTopMostItemIndex={items.length - 1}

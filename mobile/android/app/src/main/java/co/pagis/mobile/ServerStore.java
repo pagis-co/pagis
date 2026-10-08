@@ -34,4 +34,12 @@ final class ServerStore {
     void forget() {
         preferences.edit().remove(ORIGIN).apply();
     }
+
+    boolean lockScreenAnswers() {
+        return preferences.getBoolean("lockScreenAnswers", false);
+    }
+
+    void setLockScreenAnswers(boolean on) {
+        preferences.edit().putBoolean("lockScreenAnswers", on).apply();
+    }
 }

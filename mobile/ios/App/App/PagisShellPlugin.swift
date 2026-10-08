@@ -1,5 +1,6 @@
 import Capacitor
 import Foundation
+import UserNotifications
 
 /// `PagisShell`, the plugin of the app target. The Connect screen calls it
 /// (`mobile/src/shell.ts`), and so does the Product App
@@ -11,11 +12,37 @@ final class PagisShellPlugin: CAPPlugin, CAPBridgedPlugin {
     let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "buildType", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "open", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "changeServer", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "getLockScreenAnswers", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setLockScreenAnswers", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "sessionEnded", returnType: CAPPluginReturnPromise)
     ]
 
     @objc func buildType(_ call: CAPPluginCall) {
         call.resolve(["debug": AppBuild.isDebug])
+    }
+
+    @objc func changeServer(_ call: CAPPluginCall) {
+        call.resolve()
+        DispatchQueue.main.async { [weak self] in
+            (self?.bridge?.viewController as? PagisViewController)?.changeServer()
+        }
+    }
+
+    @objc func getLockScreenAnswers(_ call: CAPPluginCall) {
+        call.resolve(["on": ServerStore().lockScreenAnswers])
+    }
+
+    @objc func setLockScreenAnswers(_ call: CAPPluginCall) {
+        guard let on = call.getBool("on") else {
+            call.reject("The setting needs an on or off value.")
+            return
+        }
+        ServerStore().lockScreenAnswers = on
+        DispatchQueue.main.async {
+            UNUserNotificationCenter.current().setNotificationCategories([InlineAnswer.category])
+            call.resolve()
+        }
     }
 
     /// Keep the origin, and start the bridge again at the server with the

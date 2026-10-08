@@ -52,3 +52,11 @@
 .ui-switch[aria-checked='true'] .ui-switch-track::after {
   left: 18px;
 }
+
+.ui-switch-row { width: 100%; min-height: 44px; text-align: left; padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border); font-weight: var(--weight-regular); }
+.ui-switch-row:last-child { border-bottom: 0; }
+.ui-switch-row .ui-switch-track { order: 2; flex-shrink: 0; margin-left: auto; }
+.ui-switch-row .ui-switch-track { width: 44px; height: 26px; border: 1px solid var(--border-control); background: transparent; }
+.ui-switch-row .ui-switch-track::after { background: var(--border-control); }
+.ui-switch-row[aria-checked='true'] .ui-switch-track { border-color: var(--accent); background: var(--accent); }
+.ui-switch-row[aria-checked='true'] .ui-switch-track::after { left: 20px; background: var(--on-accent); }

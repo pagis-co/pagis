@@ -2017,11 +2017,7 @@ mod brokered {
         let installation = installation().await;
         let created = installation
             .connector
-            .create(brokered_connection(
-                &workspace(),
-                "google",
-                "alice@example.com",
-            ))
+            .create(brokered_connection(&workspace(), "google", ""))
             .await
             .expect("create");
         let answer = installation
@@ -2037,6 +2033,7 @@ mod brokered {
             .await
             .expect("authorize");
         let state = state_of(answer.url().unwrap());
+        assert!(!answer.url().unwrap().contains("login_hint"));
 
         let connected = installation
             .broker
@@ -2045,6 +2042,14 @@ mod brokered {
             .expect("the callback finishes");
 
         assert_eq!(connected.status, Connection::CONNECTED);
+        assert_eq!(connected.config["account"], "alice@example.com");
+        let saved = installation
+            .connections
+            .get(&workspace(), &created.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(saved.config["account"], "alice@example.com");
         assert_eq!(
             connected.authorized_capabilities,
             vec!["gmail_read".to_string(), "calendar_read".to_string()]

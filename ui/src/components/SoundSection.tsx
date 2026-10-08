@@ -2,7 +2,9 @@
 // to hear each. The setting stays in this browser, so the section asks
 // the store and never the daemon.
 
-import { Button, Frame, Row, Switch } from '../primitives'
+import { Button, Frame, IconButton, Row, SectionLabel, Switch } from '../primitives'
+import { CirclePlay } from 'lucide-react'
+import { useIsMobile } from '../state/useIsMobile'
 import { CuePlayer, type CueName } from '../sound/cues'
 import { useSound } from '../state/sound'
 
@@ -21,8 +23,11 @@ const CUES: ReadonlyArray<{ cue: CueName; name: string; meaning: string }> = [
 const preview = new CuePlayer()
 
 export function SoundSection() {
+  const phone = useIsMobile()
   const enabled = useSound((state) => state.enabled)
   const setEnabled = useSound((state) => state.setEnabled)
+
+  if (phone) return <section className="phone-section" data-testid="sound-settings"><div><h1 className="phone-heading">Sound</h1><p className="phone-lead">Four cues, all optional.</p></div><Frame><Switch row checked={enabled} onCheckedChange={setEnabled}><span className="phone-row-copy"><span>Play sound cues</span><span className="phone-hint">Off until you turn it on.</span></span></Switch></Frame><SectionLabel>Cues</SectionLabel><Frame>{CUES.map(({ cue, name }) => <Row key={cue}><span className="phone-row-copy">{name}</span><IconButton variant="link" className="phone-accent" icon={CirclePlay} label={`Hear ${name}`} onClick={() => preview.play(cue)} /></Row>)}</Frame></section>
 
   return (
     <section className="sound-section" data-testid="sound-settings">

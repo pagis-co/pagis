@@ -67,3 +67,11 @@
   display: inline-flex;
   color: var(--accent);
 }
+
+@media (max-width: 760px) {
+  .ui-select-trigger, .ui-select-item {
+    min-height: 44px;
+    font-size: var(--text-md);
+    padding: var(--space-2) var(--space-4);
+  }
+}

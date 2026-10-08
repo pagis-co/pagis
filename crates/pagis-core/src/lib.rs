@@ -25,6 +25,8 @@ pub mod model_request_capture;
 pub mod pending_evidence;
 pub mod push_subscription;
 pub mod reflection_filter;
+pub mod run_title;
+pub use run_title::{RunTitleSource, run_title};
 pub mod seal;
 pub mod secrets;
 pub mod skill;

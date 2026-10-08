@@ -1,7 +1,6 @@
 // One sidebar, one behaviour, and the mobile shell.
 // Every place navigates and says it is current; a move to a place puts
-// the inspector away; on a phone the drawer, the inspector and the
-// thread each open and close with their own control.
+// the inspector away. The phone has four tabs and pushed screens.
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryHistory, type RouterHistory } from '@tanstack/react-router'
@@ -10,7 +9,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ApiClient } from './api/client'
 import { App } from './App'
-import { useCallInspector, useMailInspector, useMobileNav } from './state/stores'
+import { useCallInspector, useMailInspector } from './state/stores'
 import { shellResponse } from './test/appStub'
 
 const { api } = vi.hoisted(() => ({
@@ -64,7 +63,6 @@ beforeEach(() => {
   setViewport(1440)
   useCallInspector.setState({ callId: null })
   useMailInspector.setState({ mail: null })
-  useMobileNav.setState({ isOpen: false })
   api.GET.mockReset()
   api.GET.mockImplementation(async (path: string) => shellResponse(path))
   vi.stubGlobal(
@@ -85,15 +83,6 @@ const PLACES: { label: string; path: string }[] = [
 function places() {
   return screen.getByRole('navigation', { name: 'Places' })
 }
-
-it('keeps the closed mobile drawer out of keyboard and screen-reader navigation', async () => {
-  setViewport(390)
-  mount('/c/channel-1')
-  const open = await screen.findByRole('button', { name: 'Open conversations' })
-  expect(screen.queryByRole('navigation', { name: 'Places' })).toBeNull()
-  fireEvent.click(open)
-  expect(await screen.findByRole('navigation', { name: 'Places' })).toBeTruthy()
-})
 
 describe('the places', () => {
   it.each(PLACES)('navigates to $label and marks it current', async ({ label, path }) => {
@@ -164,93 +153,36 @@ describe('the conversation header toggles', () => {
   })
 })
 
-describe('the mobile shell', () => {
-  beforeEach(() => setViewport(375))
-
-  it('returns to a conversation after opening Settings and changing sections', async () => {
+describe('the phone shell', () => {
+  beforeEach(() => setViewport(390))
+  it('opens all four places and marks the current tab', async () => {
+    const history = mount('/')
+    await screen.findByTestId('home')
+    const nav = places()
+    expect(within(nav).getAllByRole('link').map((link) => link.getAttribute('aria-label'))).toEqual(['Home', 'Conversations', 'Sprites', 'You'])
+    expect(within(nav).getByRole('link', { name: 'Home' }).getAttribute('aria-current')).toBe('page')
+    fireEvent.click(within(nav).getByRole('link', { name: 'Sprites' }))
+    await waitFor(() => expect(history.location.pathname).toBe('/sprites'))
+    expect(within(places()).getByRole('link', { name: 'Sprites' }).getAttribute('aria-current')).toBe('page')
+  })
+  it('uses a fixed parent and no tabs in a conversation', async () => {
     const history = mount('/c/channel-1')
     await screen.findByRole('heading', { name: 'Sage' })
-
-    fireEvent.click(screen.getByRole('button', { name: 'Open conversations' }))
-    fireEvent.click(within(places()).getByRole('button', { name: 'Settings' }))
+    expect(screen.queryByRole('navigation', { name: 'Places' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Conversations' }))
+    await waitFor(() => expect(history.location.pathname).toBe('/conversations'))
+  })
+  it('opens Settings as three groups without Administration', async () => {
+    mount('/settings')
     await screen.findByRole('heading', { name: 'Settings' })
-    await waitFor(() => expect(screen.queryByRole('navigation', { name: 'Places' })).toBeNull())
-
-    const settings = screen.getByRole('navigation', { name: 'Settings' })
-    fireEvent.click(within(settings).getByRole('button', { name: 'Sound' }))
-    await waitFor(() => expect(history.location.pathname).toBe('/settings/sound'))
-
-    fireEvent.click(screen.getByRole('button', { name: 'Open conversations' }))
-    expect(screen.getByRole('button', { name: 'Open conversations' }).getAttribute('aria-expanded')).toBe('true')
-    fireEvent.click(within(screen.getByRole('navigation', { name: 'Conversations' })).getByRole('button', { name: /Sage/ }))
-
-    await waitFor(() => expect(history.location.pathname).toBe('/c/channel-1'))
-    await screen.findByRole('heading', { name: 'Sage' })
-    await waitFor(() => expect(screen.queryByRole('navigation', { name: 'Places' })).toBeNull())
+    expect(screen.queryByText('Administration')).toBeNull()
+    expect(screen.getByText('Access')).toBeTruthy()
+    expect(screen.getByText('Models', { selector: '.ui-section-label' })).toBeTruthy()
+    expect(screen.getByText('System')).toBeTruthy()
   })
-
-  it.each(['/settings/sound', '/settings/connections/conn-1'])(
-    'opens navigation from a direct Settings address: %s',
-    async (url) => {
-      const history = mount(url)
-      fireEvent.click(await screen.findByRole('button', { name: 'Open conversations' }))
-      fireEvent.click(within(places()).getByRole('button', { name: 'Home' }))
-
-      await waitFor(() => expect(history.location.pathname).toBe('/'))
-      await screen.findByTestId('home')
-    },
-  )
-
-  // The drawer holds the whole sidebar: the places, the conversations
-  // and the profile.
-  it('reaches a place from the drawer', async () => {
-    const history = mount('/c/channel-1')
-    await screen.findByRole('heading', { name: 'Sage' })
-
-    fireEvent.click(screen.getByRole('button', { name: 'Open conversations' }))
-    fireEvent.click(within(places()).getByRole('button', { name: 'Software' }))
-
-    expect(history.location.pathname).toBe('/software')
-  })
-
-  it('opens and closes the drawer with its own control', async () => {
-    mount('/c/channel-1')
-    await screen.findByRole('heading', { name: 'Sage' })
-
-    fireEvent.click(screen.getByRole('button', { name: 'Open conversations' }))
-    const close = screen.getByRole('button', { name: 'Close conversations' })
-    fireEvent.click(close)
-
-    expect(screen.queryByRole('button', { name: 'Close conversations' })).toBeNull()
-  })
-
-  it('opens the inspector as a sheet with a Back control', async () => {
-    mount('/c/channel-2')
-    await screen.findByRole('heading', { name: 'Launch planning' })
-
-    fireEvent.click(screen.getByRole('button', { name: 'Desk panel' }))
-    expect(await screen.findByTestId('desk-panel')).toBeTruthy()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
-    await waitFor(() => expect(screen.queryByTestId('desk-panel')).toBeNull())
-  })
-
-  // A phone's slot is the whole screen, so a panel that opened by
-  // itself would hide Home. The Desk panel toggle is the phone's way in.
-  it('opens no Desk Panel by itself on a phone', async () => {
+  it('opens no Desk Panel by itself', async () => {
     mount('/')
-
     await screen.findByTestId('home')
     expect(screen.queryByTestId('desk-panel')).toBeNull()
-  })
-
-  it('opens the thread as a sheet with a Back control', async () => {
-    const history = mount('/c/channel-2/t/message-1')
-    expect(await screen.findByTestId('thread-pane')).toBeTruthy()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
-
-    await waitFor(() => expect(screen.queryByTestId('thread-pane')).toBeNull())
-    expect(history.location.pathname).toBe('/c/channel-2')
   })
 })

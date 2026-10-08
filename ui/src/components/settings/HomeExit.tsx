@@ -14,7 +14,8 @@
 import { useState } from 'react'
 
 import type { ApiClient, HomeExitDto, HomeExitHostDto, SwitchedHomeExitDto } from '../../api/client'
-import { Badge, Button, Frame, Row, Select } from '../../primitives'
+import { Badge, Button, Frame, Row, Select, SectionLabel, Switch } from '../../primitives'
+import { useIsMobile } from '../../state/useIsMobile'
 import {
   errorMessage,
   useChooseHomeExit,
@@ -193,6 +194,7 @@ function NotSwitched({ saved }: { saved: SwitchedHomeExitDto | undefined }) {
 }
 
 export function HomeExit({ api }: { api: ApiClient }) {
+  const phone = useIsMobile()
   const read = useHomeExit(api)
   const choose = useChooseHomeExit(api)
   const turnOff = useTurnOffHomeExit(api)
@@ -224,6 +226,11 @@ export function HomeExit({ api }: { api: ApiClient }) {
   const onTurnOff = () => {
     choose.reset()
     turnOff.mutate(undefined, { onSuccess: setSaved })
+  }
+
+  if (phone) {
+    const host = homeExit.chosen ?? homeExit.hosts.find((item) => item.present) ?? homeExit.hosts[0]
+    return <section className="phone-section"><SectionLabel>Home Exit</SectionLabel><p className="phone-hint">{LEAD}</p><Frame>{host ? <Switch row checked={!!homeExit.chosen && !homeExit.administrator_turned_off} disabled={busy || homeExit.administrator_turned_off || !host.present} onCheckedChange={(enabled) => enabled ? onChoose(host.id) : onTurnOff()}><span className="phone-row-copy"><span>{host.name}</span><span className="phone-hint">{homeExit.administrator_turned_off ? 'The administrator turned Home Exit off.' : homeExit.chosen ? 'On. Your sprites reach the internet through it.' : 'Off. Your sprites reach the internet directly.'}</span></span></Switch> : <Row>No computer of yours can be the Home Exit yet.</Row>}<NotSwitched saved={saved} /></Frame>{failed && <p role="alert" className="phone-hint">{failed.message}</p>}<p className="phone-hint">When this computer sleeps, your sprites reach the internet directly until it is back.</p></section>
   }
 
   return (

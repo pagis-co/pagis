@@ -92,6 +92,9 @@ Local Installation with Remote Access off, it requires no Session, because
 that installation has one Person. The callback refuses a redirect
 without that cookie or with a Session that is not live, and the daemon seals
 the token only when the consenting Google account is the Connection's account.
+A new brokered Connection can leave the account unnamed until consent.
+Google's verified account then names the Connection; a reconnect must match
+that account.
 The Connection records only the requested capabilities that Google granted.
 
 Where the Org holds no client, a new Google Connection is `byo`, and `gog` runs

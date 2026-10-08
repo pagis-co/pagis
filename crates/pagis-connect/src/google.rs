@@ -383,11 +383,6 @@ impl GoogleBroker {
             )
         })?;
         let account = connection.config["account"].as_str().unwrap_or_default();
-        if account.is_empty() {
-            return Err(ConnectError::Validation(
-                "this connection has no Google account".to_string(),
-            ));
-        }
         let pkce = Pkce::generate();
         let state = random_token();
         let google_url = self.oauth.authorization_url(
@@ -488,7 +483,7 @@ impl GoogleBroker {
                     .to_string(),
             ));
         }
-        let connection = self
+        let mut connection = self
             .connections
             .get(&pending.workspace_id, &pending.connection_id)
             .await?
@@ -510,7 +505,7 @@ impl GoogleBroker {
             ))
         })?;
         let account = connection.config["account"].as_str().unwrap_or_default();
-        if consented.trim().to_lowercase() != account.trim().to_lowercase() {
+        if !account.is_empty() && consented.trim().to_lowercase() != account.trim().to_lowercase() {
             return Err(ConnectError::Validation(
                 "the Google account that consented is not the account of this connection"
                     .to_string(),
@@ -533,6 +528,12 @@ impl GoogleBroker {
                     .to_string(),
             )
         })?;
+        if account.is_empty() {
+            connection.config["account"] = serde_json::Value::String(consented.trim().to_string());
+            self.connections
+                .set_config(&connection.workspace_id, &connection.id, &connection.config)
+                .await?;
+        }
         self.keep_refresh_token(&connection, refresh_token).await?;
         if !self
             .connections

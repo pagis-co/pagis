@@ -195,24 +195,24 @@
   }
 }
 
-/* The hiring flow: four steps inside the modal. */
-.hire-step {
+/* The creating flow: four steps inside the modal. */
+.new-sprite-step {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
 }
 
-.hire-face {
+.new-sprite-face {
   display: flex;
   align-items: center;
   gap: var(--space-3);
 }
 
-.hire-face p {
+.new-sprite-face p {
   margin: 0;
 }
 
-.hire-connection {
+.new-sprite-connection {
   display: flex;
   flex-direction: column;
   gap: var(--space-1-5);
@@ -221,7 +221,7 @@
   padding: var(--space-3);
 }
 
-.hire-mailbox {
+.new-sprite-mailbox {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
@@ -229,11 +229,11 @@
   padding-top: var(--space-3);
 }
 
-.hire-mailbox h5 {
+.new-sprite-mailbox h5 {
   margin: 0;
 }
 
-.hire-actions {
+.new-sprite-actions {
   display: flex;
   gap: var(--space-2);
 }
@@ -277,4 +277,14 @@
     align-items: flex-start;
     flex-wrap: wrap;
   }
+}
+
+@media (max-width: 760px) {
+  .sprite-roster.sprite-roster-phone { padding: 0; gap: 0; max-width: none; overflow: visible; }
+  .sprite-roster-phone .sprite-list { display: flex; flex-direction: column; padding: 0 var(--space-4) var(--space-5); gap: var(--space-3); }
+  .phone-sprite-card { align-items: flex-start; }
+  .phone-sprite-card .phone-row-copy { gap: var(--space-1); }
+  .phone-sprite-card .sprite-row-chips { margin-top: var(--space-1); align-items: center; }
+  .phone-new-sprite-face { display: grid; place-items: center; width: 56px; height: 56px; flex: none; border-radius: var(--radius-pill); background: var(--sunken); color: var(--muted); }
+  .sprite-roster-phone .sprite-list > .ui-button-dashed { color: var(--text); font-weight: var(--weight-regular); gap: var(--space-4); }
 }

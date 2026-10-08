@@ -4,11 +4,10 @@
 // carries the count it would give, and that count has to hold the other
 // two chips. One request answers the rows and the nine counts.
 
-import { Menu as MenuIcon } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
 import type { ApiClient, RunDto } from '../../api/client'
-import { Avatar, Badge, Button, IconButton } from '../../primitives'
+import { Avatar, Badge, Button } from '../../primitives'
 import { useAgents, useChannels, useRuns } from '../../queries'
 import {
   NO_FILTERS,
@@ -88,8 +87,8 @@ function RunRow({
     <Button size="lg" className="runs-row" onClick={onOpen}>
       <Avatar id={run.agent_id} name={agentName} appearance={avatarAppearance} size="sm" />
       <span className="runs-row-what">
-        <strong>{agentName}</strong>
-        <span className="runs-row-trigger">{triggerText(run, channelName)}</span>
+        <strong>{run.title}</strong>
+        <span className="runs-row-trigger">{agentName} · {triggerText(run, channelName)}</span>
         {failure !== null && (
           <span className="runs-row-failure" title={run.error ?? undefined}>
             {failure}
@@ -105,11 +104,9 @@ function RunRow({
 export function RunsList({
   api,
   onOpenRun,
-  onOpenNav,
 }: {
   api: ApiClient
   onOpenRun: (runId: string) => void
-  onOpenNav: () => void
 }) {
   const [filters, setFilters] = useState<RunFilters>(NO_FILTERS)
   const agents = useAgents(api)
@@ -143,13 +140,6 @@ export function RunsList({
   return (
     <div className="runs-panel">
       <header className="runs-header">
-        <IconButton
-          icon={MenuIcon}
-          label="Open conversations"
-          variant="ghost"
-          className="mobile-navigation-trigger"
-          onClick={onOpenNav}
-        />
         <h2>Runs</h2>
       </header>
       <p className="runs-summary">Every piece of work a sprite ran for you.</p>

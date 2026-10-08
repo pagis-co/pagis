@@ -151,7 +151,9 @@ final class PushNotifier {
             context.getString(decision.title),
             broadcast
         );
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) action.setAuthenticationRequired(true);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            action.setAuthenticationRequired(!new ServerStore(context).lockScreenAnswers());
+        }
         return action.build();
     }
 

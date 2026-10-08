@@ -213,7 +213,6 @@ function mount(api: ReturnType<typeof stubApi>) {
       <Automations
         api={api as unknown as ApiClient}
         onClose={vi.fn()}
-        onOpenNav={vi.fn()}
         onOpenChannel={onOpenChannel}
       />
     </QueryClientProvider>,

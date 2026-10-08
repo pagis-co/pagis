@@ -12,6 +12,8 @@
 // the settings grammar wraps it.
 
 import { useState } from "react";
+import { useIsMobile } from '../state/useIsMobile'
+import { TrustedContactsPhone } from './phone/TrustedContactsPhone'
 
 import type { ApiClient } from "../api/client";
 import type { components } from "../api/schema";
@@ -222,7 +224,7 @@ function failuresText(keypad: KeypadCode, now: number): string {
  *  reveal and no export, so the field is always empty. The row also
  *  holds the wrong codes of the callers, which only the person can
  *  clear. */
-function KeypadCodeRow({
+export function KeypadCodeRow({
   api,
   keypad,
 }: {
@@ -309,9 +311,11 @@ const TIER_EXPLAINER = (
 );
 
 export function TrustedContacts({ api }: { api: ApiClient }) {
+  const phone = useIsMobile()
   const list = useTrustList(api);
   const rows = list.data?.items ?? [];
   const ownAddresses = list.data?.own_addresses ?? [];
+  if (phone) return <TrustedContactsPhone api={api} />
   return (
     <div className="trusted-contacts">
       <div className="trusted-contacts-title">

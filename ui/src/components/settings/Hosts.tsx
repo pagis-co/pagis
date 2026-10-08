@@ -7,9 +7,11 @@
 // rules; it simply cannot be asked to do anything until the client on it
 // is open again.
 
+import { Monitor } from 'lucide-react'
 import type { ApiClient, HostDto } from '../../api/client'
 import { Badge, Frame, Row, SectionLabel } from '../../primitives'
 import { useHosts } from '../../queries'
+import { useIsMobile } from '../../state/useIsMobile'
 
 /** What the person calls the system the client reported. */
 const PLATFORM_NAMES: Record<string, string> = {
@@ -24,13 +26,17 @@ export function platformLabel(platform: string): string {
   return PLATFORM_NAMES[platform] ?? platform
 }
 
+export const HOST_HINT = 'A sprite runs a command on a computer of yours through the Pagis client running on it, never on the server. Open the client on a computer to make it available, and quit the client to take it away.'
+
 /** A time the person reads, in their own browser's zone. */
 function when(at: number): string {
   return new Date(at).toLocaleString()
 }
 
 export function HostRow({ host }: { host: HostDto }) {
+  const phone = useIsMobile()
   const canShell = host.capabilities.includes('shell')
+  if (phone) return <Row data-testid="host-row"><span className="phone-initial-tile"><Monitor size={20} aria-hidden /></span><span className="phone-row-copy"><strong>{host.name}</strong><span className="phone-hint">{platformLabel(host.platform)} · {canShell ? 'Runs commands' : 'No commands'}{!host.present ? ` · last seen ${when(host.last_seen_at)}` : ''}</span></span><Badge tone={host.present ? 'working' : 'neutral'}>{host.present ? 'Connected' : 'Not connected'}</Badge></Row>
   return (
     <Row className="host-row" data-testid="host-row">
       <span className="host-name">{host.name}</span>
@@ -51,6 +57,7 @@ export function HostRow({ host }: { host: HostDto }) {
 }
 
 export function Hosts({ api }: { api: ApiClient }) {
+  const phone = useIsMobile()
   const hosts = useHosts(api)
   const items = hosts.data ?? []
   const present = items.filter((host) => host.present).length
@@ -61,7 +68,7 @@ export function Hosts({ api }: { api: ApiClient }) {
         <h1>Hosts</h1>
         <span>The computers your sprites can act on.</span>
       </div>
-      <Frame hint="A sprite runs a command on a computer of yours through the Pagis client running on it, never on the server. Open the client on a computer to make it available, and quit the client to take it away.">
+      <Frame hint={phone ? undefined : HOST_HINT}>
         {items.length === 0 ? (
           <Row>
             <span className="settings-hint">
@@ -74,9 +81,7 @@ export function Hosts({ api }: { api: ApiClient }) {
           items.map((host) => <HostRow key={host.id} host={host} />)
         )}
       </Frame>
-      <SectionLabel>
-        {present} of {items.length} connected
-      </SectionLabel>
+      {phone ? <p className="phone-hint">{present} of {items.length} connected</p> : <SectionLabel>{present} of {items.length} connected</SectionLabel>}
     </section>
   )
 }

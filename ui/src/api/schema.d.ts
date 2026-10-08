@@ -3492,6 +3492,7 @@ export interface components {
             id: string;
             /** @description `dm` or `group`. */
             kind: string;
+            last_message?: null | components["schemas"]["ChannelLastMessageDto"];
             title?: string | null;
             /** Format: int64 */
             updated_at: number;
@@ -3502,6 +3503,13 @@ export interface components {
              */
             user_member: boolean;
             workspace_id: string;
+        };
+        ChannelLastMessageDto: {
+            author_agent_id?: string | null;
+            author_kind: string;
+            /** Format: int64 */
+            created_at: number;
+            text_content: string;
         };
         ChannelPage: {
             items: components["schemas"]["ChannelDto"][];
@@ -5019,6 +5027,7 @@ export interface components {
             /** @description The commit author's name: an agent, `User`, or `Pagis`. */
             changed_by: string;
             changed_by_agent_id?: string | null;
+            excerpt: string;
             /**
              * @description One of the page kinds (ADR-0007), or another word the page
              *     declares. A word outside the vocabulary is kept as it is.
@@ -6018,6 +6027,7 @@ export interface components {
             /** Format: int64 */
             started_at?: number | null;
             state: components["schemas"]["RunStateDto"];
+            title: string;
             trigger_kind: string;
             trigger_ref?: string | null;
         };

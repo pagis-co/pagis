@@ -9,6 +9,8 @@
 import type { ApiClient, RunSpendDto } from '../../api/client'
 import { Badge, Frame, Row, SectionLabel } from '../../primitives'
 import { useMyUsage } from '../../queries'
+import { phoneTimeLabel } from '../memory/pages'
+import { useIsMobile } from '../../state/useIsMobile'
 
 import './Usage.css'
 
@@ -23,6 +25,10 @@ function tokens(count: number): string {
 }
 
 function RunRow({ run }: { run: RunSpendDto }) {
+  const phone = useIsMobile()
+  const clock = new Date(run.last_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+  const day = phoneTimeLabel(run.last_at)
+  if (phone) return <Row><span className="phone-row-copy"><strong>{day === clock ? 'Today' : day} {clock}</strong><span className="phone-hint">{tokens(run.total.input_tokens)} in · {tokens(run.total.output_tokens)} out · {run.total.calls} {run.total.calls === 1 ? 'call' : 'calls'}</span></span><span className="usage-run-cost">{money(run.total.cost_usd)}</span></Row>
   return (
     <Row className="usage-run">
       <span className="usage-run-when">
@@ -40,10 +46,12 @@ function RunRow({ run }: { run: RunSpendDto }) {
 }
 
 export function Usage({ api }: { api: ApiClient }) {
+  const phone = useIsMobile()
   const usage = useMyUsage(api)
   const total = usage.data?.total
   const cap = usage.data?.monthly_spend_cap_usd ?? null
   const atCap = cap !== null && (total?.cost_usd ?? 0) >= cap
+  const percent = cap === null ? 0 : cap === 0 ? 100 : Math.min(100, Math.round((total?.cost_usd ?? 0) / cap * 100))
 
   return (
     <section className="settings-section usage">
@@ -51,6 +59,7 @@ export function Usage({ api }: { api: ApiClient }) {
         <h1>Usage</h1>
         <span>What your sprites spent on model calls this month.</span>
       </div>
+      {phone ? <Frame><Row><div className="usage-phone-summary"><div className="usage-phone-total"><span className="usage-total">{money(total?.cost_usd ?? 0)}</span><span className="usage-cap">{cap === null ? 'No monthly cap' : `of a ${money(cap)} monthly cap`}</span>{atCap && <Badge tone="failed">Cap reached</Badge>}</div>{cap !== null && <progress className="usage-progress" role="img" aria-label={`${percent} percent of the monthly cap`} max={100} value={percent} />}<span className="phone-hint">{tokens(total?.input_tokens ?? 0)} tokens in · {tokens(total?.output_tokens ?? 0)} tokens out · {total?.calls ?? 0} model calls</span></div></Row></Frame> : (
       <Frame hint="The cost is what the serving model's own price list makes of the tokens it reported. An administrator of this installation sets the cap and can raise it.">
         <Row>
           <span className="usage-total">{money(total?.cost_usd ?? 0)}</span>
@@ -61,6 +70,7 @@ export function Usage({ api }: { api: ApiClient }) {
           )}
           {atCap && <Badge tone="failed">Cap reached</Badge>}
         </Row>
+        {cap !== null && <Row><progress className="usage-progress" role="img" aria-label={`${percent} percent of the monthly cap`} max={100} value={percent} /></Row>}
         <Row className="usage-tokens">
           <span>
             {tokens(total?.input_tokens ?? 0)} tokens in ·{' '}
@@ -69,6 +79,7 @@ export function Usage({ api }: { api: ApiClient }) {
           </span>
         </Row>
       </Frame>
+      )}
       <SectionLabel>Per run</SectionLabel>
       <Frame>
         {(usage.data?.runs ?? []).length === 0 ? (
@@ -77,6 +88,7 @@ export function Usage({ api }: { api: ApiClient }) {
           (usage.data?.runs ?? []).map((run) => <RunRow key={run.run_id} run={run} />)
         )}
       </Frame>
+      {phone && <p className="phone-hint">An administrator of this installation sets the cap and can raise it.</p>}
     </section>
   )
 }

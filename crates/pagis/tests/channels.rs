@@ -79,6 +79,15 @@ async fn channel_list_returns_created_channels() {
 
     let channel = create_channel(&daemon).await;
 
+    let text = "A long readable preview ".repeat(10);
+    let response = send(
+        &daemon,
+        channel["id"].as_str().unwrap(),
+        serde_json::json!({ "pending_id": "preview", "text": text }),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::CREATED);
+
     let listed: serde_json::Value = client()
         .get(format!("{}/api/v1/channels", daemon.base_url))
         .header("cookie", daemon.cookie())
@@ -92,6 +101,13 @@ async fn channel_list_returns_created_channels() {
     assert_eq!(items.len(), 2);
     assert_eq!(items[0]["id"], channel["id"]);
     assert_eq!(items[0]["title"], "general");
+
+    assert_eq!(
+        items[0]["last_message"]["text_content"],
+        text.chars().take(140).collect::<String>()
+    );
+    assert_eq!(items[0]["last_message"]["author_kind"], "user");
+    assert!(items[0]["last_message"]["created_at"].as_i64().unwrap() > 0);
 
     let no_token = client()
         .get(format!("{}/api/v1/channels", daemon.base_url))
@@ -413,7 +429,17 @@ async fn sourced_chat_rereads_hide_revoked_text_in_every_projection() {
         "unknown secret",
     );
     messages.insert(&unknown).await.unwrap();
+    let mut run = fixture::queued_run(&agent.workspace_id, &agent.id, &channel_id);
+    run.title = pagis_core::run_title(pagis_core::RunTitleSource::Message(&root.text_content));
+    run.trigger_ref = Some(root.id.to_string());
+    pagis_core::RunStore::create(
+        &pagis_storage_sqlite::SqliteRunStore::new(daemon.pool().clone()),
+        &run,
+    )
+    .await
+    .unwrap();
     let paths = [
+        format!("/api/v1/runs/{}/events", run.id),
         format!("/api/v1/channels/{channel_id}/messages"),
         format!("/api/v1/channels/{channel_id}/messages/{}", root.id),
         format!("/api/v1/channels/{channel_id}/threads/{}", root.id),
@@ -436,6 +462,28 @@ async fn sourced_chat_rereads_hide_revoked_text_in_every_projection() {
         .revoke(&grant.workspace_id, &grant.id, now_ms())
         .await
         .unwrap();
+    let previews: String = client()
+        .get(format!("{}/api/v1/channels", daemon.base_url))
+        .header("cookie", daemon.cookie())
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert!(!previews.contains("source secret"));
+    assert!(!previews.contains("unknown secret"));
+    let runs: String = client()
+        .get(format!("{}/api/v1/runs", daemon.base_url))
+        .header("cookie", daemon.cookie())
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert!(!runs.contains("source secret"));
+    assert!(runs.contains("This message is unavailable"));
     for path in &paths {
         let response = client()
             .get(format!("{}{path}", daemon.base_url))
@@ -457,7 +505,7 @@ async fn sourced_chat_rereads_hide_revoked_text_in_every_projection() {
             body.contains("This message is unavailable"),
             "missing unavailable state for {path}"
         );
-        if path == &paths[0] {
+        if path == &paths[1] {
             assert!(body.contains("owner keeps these words"));
             assert!(body.contains("ordinary greeting"));
             assert!(body.contains("known source-free reply"));

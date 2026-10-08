@@ -1,3 +1,5 @@
+import { Plus } from 'lucide-react'
+import { PhoneHeaderAction } from './phone/TopBar'
 // The Models section: every Agent thinks on an alias. The candidate
 // field offers the models each provider lists for the installation's
 // key, and it still takes a typed `provider/model` id.
@@ -5,7 +7,8 @@
 import { useState } from 'react'
 
 import type { ApiClient, ModelAliasDto } from '../api/client'
-import { Badge, Button, Combobox, Dialog, Frame, Input, Row, SectionLabel, Textarea } from '../primitives'
+import { Badge, IconButton, Button, Combobox, Dialog, Frame, Input, Row, SectionLabel, Sheet, Textarea } from '../primitives'
+import { useIsMobile } from '../state/useIsMobile'
 import { providersOr } from '../providers'
 import {
   errorMessage,
@@ -53,6 +56,7 @@ function AliasDialog({
   alias: ModelAliasDto | null
   onClose: () => void
 }) {
+  const Modal = useIsMobile() ? Sheet : Dialog
   const [name, setName] = useState('')
   const [draft, setDraft] = useState(alias?.candidates.join('\n') ?? '')
   const [settingDrafts, setSettingDrafts] = useState<Record<string, string>>(() =>
@@ -104,7 +108,7 @@ function AliasDialog({
   }
 
   return (
-    <Dialog
+    <Modal
       open
       onOpenChange={(open) => { if (!open) onClose() }}
       title={alias === null ? 'Add an alias' : `Edit ${alias.alias}`}
@@ -183,13 +187,14 @@ function AliasDialog({
         ))}
         {error !== null && <p className="models-error">{errorMessage(error, 'The change did not save.')}</p>}
       </div>
-    </Dialog>
+    </Modal>
   )
 }
 
 /** The Models section: a person's own aliases. The provider keys
  *  belong to the Org, so the Administration Interface holds them. */
 export function ModelsSettings({ api }: { api: ApiClient }) {
+  const phone = useIsMobile()
   const aliases = useModelAliases(api)
   const [aliasDialog, setAliasDialog] = useState<'closed' | 'new' | ModelAliasDto>('closed')
   const nestedAliases = new Set(
@@ -204,15 +209,13 @@ export function ModelsSettings({ api }: { api: ApiClient }) {
           Every sprite thinks on an alias. An alias names its candidates in order;
           the first that answers wins.
         </span>
-        <Button variant="primary" className="models-title-action" onClick={() => setAliasDialog('new')}>
-          Add an alias
-        </Button>
+        {phone ? <PhoneHeaderAction><IconButton icon={Plus} label="Add an alias" variant="link" onClick={() => setAliasDialog('new')} /></PhoneHeaderAction> : <Button variant="primary" className="models-title-action" onClick={() => setAliasDialog('new')}>Add an alias</Button>}
       </div>
 
       <SectionLabel>Aliases</SectionLabel>
       <Frame>
-        {(aliases.data ?? []).filter((alias) => !nestedAliases.has(alias.alias)).map((alias) => (
-          <Row key={alias.alias}>
+        {(aliases.data ?? []).filter((alias) => phone || !nestedAliases.has(alias.alias)).map((alias) => (
+          phone ? <Row key={alias.alias} chevron onClick={() => setAliasDialog(alias)}><span className="phone-row-copy"><span><code>{alias.alias}</code> {!alias.reachable && <Badge tone="waiting">Needs a key for {neededProviders(alias.candidates)}</Badge>}</span><span className="phone-hint">{[ALIAS_NOTES[alias.alias], alias.candidates[0]].filter(Boolean).join(' · ')}</span></span></Row> : <Row key={alias.alias}>
             <span className="models-alias-name">{alias.alias}</span>
             <ul className="models-chips" aria-label={`Candidates of ${alias.alias}`}>
               {alias.candidates.map((candidate, index) => (

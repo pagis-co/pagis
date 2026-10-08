@@ -45,6 +45,16 @@ pub struct ChannelDto {
     pub user_member: bool,
     pub created_at: i64,
     pub updated_at: i64,
+    /// The latest top-level message after its source access is checked.
+    pub last_message: Option<ChannelLastMessageDto>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ChannelLastMessageDto {
+    pub text_content: String,
+    pub author_kind: String,
+    pub author_agent_id: Option<String>,
+    pub created_at: i64,
 }
 
 impl ChannelDto {
@@ -58,6 +68,7 @@ impl ChannelDto {
             user_member,
             created_at: c.created_at,
             updated_at: c.updated_at,
+            last_message: None,
         }
     }
 }
@@ -241,11 +252,25 @@ pub async fn list_channels(
             .participants
             .list_for_channel(&tenant.workspace_id, &channel.id)
             .await?;
-        items.push(ChannelDto::new(
+        let latest = state
+            .messages
+            .list_top_level(&tenant.workspace_id, &channel.id, None, 1)
+            .await?;
+        let mut row = ChannelDto::new(
             channel,
             agent_participants(&participants),
             has_user(&participants),
-        ));
+        );
+        if let Some(entry) = latest.into_iter().next() {
+            let message = readable_message(&state, entry.message).await?;
+            row.last_message = Some(ChannelLastMessageDto {
+                text_content: message.text_content.chars().take(140).collect(),
+                author_kind: message.author_kind.as_str().to_string(),
+                author_agent_id: message.author_agent_id.map(|id| id.to_string()),
+                created_at: message.created_at,
+            });
+        }
+        items.push(row);
     }
     Ok(Json(ChannelPage { items }))
 }

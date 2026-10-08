@@ -339,20 +339,6 @@ export const useMailInspector = create<MailInspectorState>((set) => ({
   close: () => set({ mail: null }),
 }))
 
-/** The mobile navigation drawer: shell chrome, not a view, so it stays
- *  out of the URL. The header trigger opens it and any move to
- *  another view closes it. */
-export interface MobileNavState {
-  isOpen: boolean
-  open: () => void
-  close: () => void
-}
-
-export const useMobileNav = create<MobileNavState>((set) => ({
-  isOpen: false,
-  open: () => set({ isOpen: true }),
-  close: () => set({ isOpen: false }),
-}))
 
 /** The handback countdown toasts: agent id -> seconds left, fed
  *  by the `screen.handback_countdown` events; any user input cancels

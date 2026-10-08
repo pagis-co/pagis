@@ -317,8 +317,7 @@ path of the fixture in the system property `pagis.webPushFixture`.
 ### Inline answers are Approve once and Deny
 
 A Notification of a pending tool action or credential action Approval
-shows **Approve once** and **Deny**. These are the `actions` of the
-payload (ADR-0030).
+shows **Approve once** and **Deny** when this phone has **Answer on the lock screen** on. The per-device setting is off by default and the You screen changes it. With it off, iOS registers the approval category without actions and Android draws no actions. These are the `actions` of the payload (ADR-0030).
 
 - **Approve once** posts `{"decision": "approved"}` to the decision route,
   `POST /api/v1/requests/{request_id}/decision`, with no `scope`. The
@@ -516,6 +515,8 @@ Other ways were considered:
   bound on the versions of the server.
 
 ## Consequences
+
+The Product App draws the phone layout for the Mobile App (ADR-0034).
 
 - App Store review guideline 4.2 refuses an app that is only a repackaged
   website, and this is a real risk. The native value of the Mobile App is

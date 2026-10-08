@@ -12,6 +12,7 @@ import type { ApiClient } from '../api/client'
 import { Avatar, Button, IconButton } from '../primitives'
 import { Blocks } from '../blocks/BlockView'
 import { useSpeaking } from '../state/stores'
+import { useIsMobile } from '../state/useIsMobile'
 import { formatClock, type TimelineRow, type WorkSummary } from '../timeline'
 import { LearnedLine } from './LearnedLine'
 import { RepliesChip } from './RepliesChip'
@@ -80,6 +81,7 @@ export function MessageRow({
   /** Scrolls the Desk panel to the screen one step took. */
   onShowScreenshot?: (screenshotId: string) => void
 }) {
+  const phone = useIsMobile()
   const mine = row.authorKind === 'user'
   const streaming = row.status === 'streaming'
   const canOpenThread = onOpenThread !== undefined && row.sendState === 'sent'
@@ -87,7 +89,9 @@ export function MessageRow({
   // itself is never kept.
   const spoken = useSpeaking((state) => state.spoken[row.key] === true)
   const name = authorName ?? AUTHOR_LABEL[row.authorKind] ?? row.authorKind
-  const time = formatClock(row.createdAt)
+  const time = phone
+    ? new Date(row.createdAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+    : formatClock(row.createdAt)
   // The arrival fade. The row asks once, when it mounts: a row
   // written moments ago arrived while the reader watched, so it fades
   // up. The virtualizer mounts an old row again on every pass through

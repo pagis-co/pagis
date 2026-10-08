@@ -320,9 +320,9 @@ export function RunTimeline({
       <header className="runs-run-head">
         <Avatar appearance={(agents.data ?? []).find((agent) => agent.id === run.agent_id)?.avatar} id={run.agent_id} name={agentName} size="md" />
         <div>
-          <h2>{agentName}</h2>
+          <h2>{run.title}</h2>
           <p className="runs-run-trigger">
-            Started by {triggerSentence(run, channelName)}
+            {agentName} · Started by {triggerSentence(run, channelName)}
           </p>
         </div>
         <Badge tone={badge.tone}>{badge.label}</Badge>

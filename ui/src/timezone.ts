@@ -17,3 +17,9 @@ export function knownTimezones(current: string): string[] {
   const known = Intl.supportedValuesOf('timeZone')
   return known.includes(current) ? known : [current, ...known]
 }
+
+/** The clock's regional name, independent of daylight saving time. */
+export function timezoneName(timezone: string): string {
+  return new Intl.DateTimeFormat('en', { timeZone: timezone, timeZoneName: 'longGeneric' })
+    .formatToParts(new Date()).find((part) => part.type === 'timeZoneName')!.value
+}

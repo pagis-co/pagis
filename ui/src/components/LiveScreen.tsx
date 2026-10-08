@@ -22,6 +22,7 @@ import {
 } from 'react'
 
 import type { ApiClient } from '../api/client'
+import { Keyboard } from 'lucide-react'
 import { Button, Textarea } from '../primitives'
 import { useMediaQuery } from '../state/useIsMobile'
 import {
@@ -40,6 +41,7 @@ import {
 } from './screenView'
 
 import './LiveScreen.css'
+import { createPortal } from 'react-dom'
 
 /** A touch screen, where a phone or a tablet gives an on-screen keyboard. */
 const COARSE_POINTER_QUERY = '(pointer: coarse)'
@@ -142,10 +144,12 @@ function ScreenKeyboard({
   agentName,
   inputRef,
   send,
+  inFooter = false,
 }: {
   agentName: string
   inputRef: RefObject<HTMLTextAreaElement | null>
   send: (op: Op) => void
+  inFooter?: boolean
 }) {
   useEffect(() => {
     const input = inputRef.current
@@ -214,7 +218,7 @@ function ScreenKeyboard({
 
   return (
     <div className="computer-live-keyboard">
-      <Button size="sm" onClick={open}>Keyboard</Button>
+      <Button size={inFooter ? 'lg' : 'sm'} onClick={open}>{inFooter && <Keyboard size={20} aria-hidden />}Keyboard</Button>
       <Textarea
         ref={inputRef}
         bare
@@ -236,6 +240,7 @@ export function LiveScreen({
   agentName,
   mode,
   fallback,
+  keyboardTarget,
 }: {
   api: ApiClient
   agentId: string
@@ -245,6 +250,8 @@ export function LiveScreen({
   mode: ScreenMode
   /** Shown while the session is down: connect failed or was refused. */
   fallback: ReactNode
+  /** The phone places the real keyboard control beside Hand back. */
+  keyboardTarget?: HTMLElement | null
 }) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const viewportRef = useRef<HTMLDivElement>(null)
@@ -428,9 +435,9 @@ export function LiveScreen({
           {...inputHandlers}
         />
       </div>
-      {interactive && coarsePointer && (
-        <ScreenKeyboard agentName={agentName} inputRef={keyboardRef} send={send} />
-      )}
+      {interactive && coarsePointer && (keyboardTarget
+        ? createPortal(<ScreenKeyboard agentName={agentName} inputRef={keyboardRef} send={send} inFooter />, keyboardTarget)
+        : <ScreenKeyboard agentName={agentName} inputRef={keyboardRef} send={send} />)}
     </>
   )
 }

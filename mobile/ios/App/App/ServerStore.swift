@@ -9,6 +9,11 @@ struct ServerStore {
 
     let defaults: UserDefaults
 
+    var lockScreenAnswers: Bool {
+        get { defaults.bool(forKey: "lockScreenAnswers") }
+        nonmutating set { defaults.set(newValue, forKey: "lockScreenAnswers") }
+    }
+
     init(defaults: UserDefaults = AppGroup.defaults) {
         self.defaults = defaults
     }

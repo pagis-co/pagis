@@ -21,6 +21,7 @@ function run(fields: Partial<RunDto>): RunDto {
     agent_id: 'agent-1',
     channel_id: 'channel-1',
     root_message_id: null,
+    title: 'Book the Austin trip',
     trigger_kind: 'message',
     trigger_ref: null,
     hop_count: 0,
@@ -228,7 +229,6 @@ function mount(api: ApiClient) {
         api={api}
         onOpenChannel={(id) => opened.channel.push(id)}
         onOpenRun={(id) => opened.run.push(id)}
-        onOpenNav={() => undefined}
       />
     </QueryClientProvider>,
   )

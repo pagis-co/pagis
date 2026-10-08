@@ -82,7 +82,7 @@ function bindingSentence(plugin: PluginDto, connections: ConnectionDto[]): strin
   return 'Needs nothing from you'
 }
 
-function stateBadge(plugin: PluginDto) {
+export function stateBadge(plugin: PluginDto) {
   if (plugin.state === 'failed') return <Badge tone="failed">Failed</Badge>
   if (plugin.tools_changed) return <Badge tone="waiting">Update available</Badge>
   if (plugin.state === 'disabled') return <Badge>Disabled</Badge>

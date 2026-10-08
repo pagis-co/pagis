@@ -378,6 +378,14 @@ async fn erase_forgotten_messages(
     workspace: &WorkspaceId,
 ) -> Result<(), StoreError> {
     sqlx::query(
+        "UPDATE runs SET title='Forgotten message' WHERE workspace_id=$1 \
+         AND trigger_kind='message' AND trigger_ref IN (SELECT message_id FROM forgotten_messages)",
+    )
+    .bind(workspace.as_str())
+    .execute(&mut *tx)
+    .await
+    .map_err(db_err)?;
+    sqlx::query(
         "UPDATE messages SET text_content='', blocks='[]' WHERE workspace_id=$1 \
          AND id IN (SELECT message_id FROM forgotten_messages) \
          AND (text_content<>'' OR blocks<>'[]')",

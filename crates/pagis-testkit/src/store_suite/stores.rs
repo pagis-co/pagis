@@ -154,6 +154,7 @@ pub async fn one_shot_schedule_history_roundtrips_through_the_store(backend: &Ba
         .await
         .unwrap();
     assert_eq!(claims.len(), 1);
+    assert_eq!(claims[0].run.title, wakeups[0].rule_name);
     assert_eq!(
         claims[0].run.trigger_ref.as_deref(),
         Some(wakeups[0].id.as_str())
@@ -702,6 +703,7 @@ pub async fn run_roundtrips_and_updates_through_store(backend: &Backend) {
 
     let store = &backend.stores().runs;
     let mut run = queued_run(&ws.id, &a.id, &ch.id);
+    run.title = "Book the Austin trip".into();
     store.create(&run).await.unwrap();
     assert_eq!(store.get(&ws.id, &run.id).await.unwrap(), Some(run.clone()));
     assert_eq!(store.list_unfinished().await.unwrap(), vec![run.clone()]);
@@ -710,7 +712,9 @@ pub async fn run_roundtrips_and_updates_through_store(backend: &Backend) {
     run.error = Some("boom".to_string());
     run.started_at = Some(1);
     run.ended_at = Some(2);
+    run.title = "A later state update cannot rename the work".into();
     store.update(&run).await.unwrap();
+    run.title = "Book the Austin trip".into();
 
     assert_eq!(store.get(&ws.id, &run.id).await.unwrap(), Some(run));
     assert_eq!(store.list_unfinished().await.unwrap(), vec![]);

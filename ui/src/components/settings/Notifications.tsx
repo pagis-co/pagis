@@ -21,7 +21,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import type { ApiClient, PushOutcomeDto, PushSubscriptionDto } from '../../api/client'
 import type { components } from '../../api/schema'
-import { Badge, Button, Frame, Row } from '../../primitives'
+import { Badge, Button, Frame, Row, SectionLabel, Switch } from '../../primitives'
 import { PagisPush } from '../../push/pagisPush'
 import { base64UrlBytes, pushState, pushSupport, type PushState } from '../../push/support'
 import {
@@ -36,6 +36,7 @@ import { sessionLabel } from './Sessions'
 import { SettingsSection } from './SettingsSection'
 
 import './Notifications.css'
+import { useIsMobile } from '../../state/useIsMobile'
 
 /** The documentation page of Notifications. */
 export const NOTIFICATIONS_GUIDE = 'https://docs.pagis.co/notifications'
@@ -94,9 +95,12 @@ function SubscriptionRow({
   row: PushSubscriptionDto
   here: string
 }) {
+  const phone = useIsMobile()
   const test = useSendTestNotification(api)
   const remove = useRemovePushSubscription(api)
   const label = row.current ? here : sessionLabel(row)
+
+  if (phone) return <Row data-testid="push-subscription-row"><span className="phone-row-copy"><strong>{label}</strong><span className="phone-hint">{row.last_sent_at == null ? 'nothing sent yet' : `last sent ${new Date(row.last_sent_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}</span></span><Button variant="link" className="phone-danger" aria-label={`Remove ${label}`} disabled={remove.isPending} onClick={() => remove.mutate(row.id)}>Remove</Button></Row>
 
   return (
     <Row className="push-row" data-testid="push-subscription-row">
@@ -107,14 +111,14 @@ function SubscriptionRow({
           : `last sent ${new Date(row.last_sent_at).toLocaleString()}`}
       </span>
       <span className="push-actions">
-        <Button
+        {!phone && <Button
           size="sm"
           aria-label={`Send a test to ${label}`}
           disabled={test.isPending}
           onClick={() => test.mutate(row.id)}
         >
           Send a test
-        </Button>
+        </Button>}
         <Button
           size="sm"
           variant="danger-quiet"
@@ -197,7 +201,7 @@ function BlockedOnPhone() {
  *  failed. */
 type View = PushState | 'reading' | 'unreadable'
 
-export function Notifications({ api }: { api: ApiClient }) {
+export function useNotificationControl(api: ApiClient) {
   const support = pushSupport(window)
   const supported = support === 'supported'
   const mobileApp = support === 'mobile-app'
@@ -291,21 +295,34 @@ export function Notifications({ api }: { api: ApiClient }) {
         ? failed.message
         : errorMessage(failed, 'Notifications could not be changed in this browser.')
 
+  return { view, here, mobileApp, list, rows, busy, failure, onTurnOn, onTurnOff }
+}
+
+export function NotificationSwitch({ api, hint = 'Tell me when something needs me.' }: { api: ApiClient; hint?: string }) {
+  const { view, busy, failure, onTurnOn, onTurnOff } = useNotificationControl(api)
+  return <><Switch row checked={view === 'on'} disabled={busy || !['on', 'off'].includes(view)} onCheckedChange={(on) => on ? onTurnOn() : onTurnOff()}><span className="phone-row-copy"><span>Notifications</span><span className="phone-hint">{view === 'blocked' ? 'Allow notifications in this phone’s Settings.' : view === 'add-to-home-screen' ? 'Add Pagis to your Home Screen to get notifications.' : view === 'not-available' ? 'Notifications are not available here.' : hint}</span></span></Switch>{failure && <p role="alert">{failure}</p>}</>
+}
+
+export function Notifications({ api }: { api: ApiClient }) {
+  const { view, here, mobileApp, list, rows, busy, failure, onTurnOn, onTurnOff } = useNotificationControl(api)
+  const phone = useIsMobile()
   return (
     <SettingsSection
       title="Notifications"
       lead="The browsers and apps that tell you when something needs you."
-      hint={
+      hint={phone ? "Pagis holds a notification back while you use Pagis on any device." : (
         <>
           A notification comes when something needs you, also when no Pagis window is open.{' '}
           <a href={NOTIFICATIONS_GUIDE} target="_blank" rel="noreferrer">
             Notifications
           </a>
         </>
-      }
+      )}
     >
+      {phone && <SectionLabel>This phone</SectionLabel>}
       <Frame>
-        {view === 'not-available' && (
+        {phone && <NotificationSwitch api={api} hint={`${here} ${view === 'on' ? 'gets' : 'does not get'} notifications.`} />}
+        {!phone && <>{view === 'not-available' && (
           <Note>
             This app does not show notifications. Turn them on in a browser on your phone or your
             computer.
@@ -353,7 +370,9 @@ export function Notifications({ api }: { api: ApiClient }) {
             </span>
           </Row>
         )}
+        </>}
       </Frame>
+      {phone && <SectionLabel>Other browsers and apps</SectionLabel>}
       <Frame>
         {rows.length === 0 ? (
           <Note>
@@ -364,7 +383,7 @@ export function Notifications({ api }: { api: ApiClient }) {
                 : 'No browser or app gets notifications.'}
           </Note>
         ) : (
-          rows.map((row) => <SubscriptionRow key={row.id} api={api} row={row} here={here} />)
+          rows.filter((row) => !phone || !row.current).map((row) => <SubscriptionRow key={row.id} api={api} row={row} here={here} />)
         )}
       </Frame>
     </SettingsSection>

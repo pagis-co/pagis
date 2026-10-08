@@ -81,6 +81,7 @@ beforeEach(() => {
               id: 'run-1',
               agent_id: 'agent-1',
               state: 'completed',
+              title: 'Book the Austin trip',
               trigger_kind: 'message',
               hop_count: 0,
               created_at: 1,
@@ -168,13 +169,13 @@ describe('the command palette', () => {
       expect(
         within(list)
           .getAllByRole('option')
-          .some((option) => option.textContent?.includes('Hire a sprite')),
+          .some((option) => option.textContent?.includes('New sprite')),
       ).toBe(true),
     )
 
     const options = within(list).getAllByRole('option')
     const firstAction = options.findIndex((option) =>
-      option.textContent?.includes('Hire a sprite'),
+      option.textContent?.includes('New sprite'),
     )
     const lastMatch = options.findIndex((option) =>
       option.textContent?.includes('Launch planning'),
@@ -183,12 +184,12 @@ describe('the command palette', () => {
     expect(firstAction).toBeGreaterThan(lastMatch)
   })
 
-  it('runs Hire a sprite', async () => {
+  it('runs New sprite', async () => {
     const history = mount()
     await screen.findByRole('heading', { name: 'Sage' })
 
     await openPalette()
-    fireEvent.change(search(), { target: { value: 'Hire a sprite' } })
+    fireEvent.change(search(), { target: { value: 'New sprite' } })
     fireEvent.keyDown(search(), { key: 'Enter' })
 
     expect(history.location.pathname).toBe('/sprites')
