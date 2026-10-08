@@ -25,7 +25,7 @@ use crate::time::UnixMillis;
 /// shell command.
 ///
 /// The capability that names a Coding Harness is `harness:<id>`, from
-/// [`crate::harness::capability`].
+/// [`crate::harness::capability`]. [`Host::harnesses`] reads them.
 pub const SHELL_CAPABILITY: &str = "shell";
 
 /// The capability a Host declares when it can carry the connections of
@@ -58,6 +58,16 @@ impl Host {
     pub fn can(&self, capability: &str) -> bool {
         self.capabilities.iter().any(|held| held == capability)
     }
+
+    /// The id of each Coding Harness that the client declared it can
+    /// start, from its `harness:<id>` capabilities, in declared order.
+    pub fn harnesses(&self) -> Vec<&str> {
+        self.capabilities
+            .iter()
+            .filter_map(|held| held.strip_prefix(crate::harness::CAPABILITY_PREFIX))
+            .filter(|id| !id.is_empty())
+            .collect()
+    }
 }
 
 #[async_trait]
@@ -89,4 +99,34 @@ pub trait HostStore: Send + Sync {
     /// connection closes, so the record answers "last seen" for a
     /// machine that is no longer present. `false` when the Host is gone.
     async fn touch(&self, id: &HostId, at: UnixMillis) -> Result<bool, StoreError>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_harnesses_of_a_host_are_its_harness_capabilities() {
+        let host = Host {
+            id: HostId::generate(),
+            workspace_id: WorkspaceId::generate(),
+            name: "Air".to_string(),
+            platform: "macos".to_string(),
+            capabilities: ["shell", "harness:claude", "harness:codex"]
+                .map(String::from)
+                .to_vec(),
+            last_seen_at: 0,
+            created_at: 0,
+        };
+
+        assert_eq!(host.harnesses(), ["claude", "codex"]);
+        assert!(
+            Host {
+                capabilities: vec!["shell".to_string(), "harness:".to_string()],
+                ..host
+            }
+            .harnesses()
+            .is_empty()
+        );
+    }
 }

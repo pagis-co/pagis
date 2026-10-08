@@ -151,6 +151,7 @@ const QUERIES: &[(&str, &str)] = &[(
 const UPGRADE_ONLY: &[&str] = &[
     "/api/v1/ws",
     "/api/v1/hosts/{host_id}/exit",
+    "/api/v1/hosts/{host_id}/sessions",
     "/api/v1/channels/{channel_id}/dictate",
     "/api/v1/calls/{call_id}/listen",
 ];

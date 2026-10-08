@@ -11497,6 +11497,35 @@
           },
           {
             "type": "object",
+            "description": "How the process of one Coding Session on this Host ended. The\ndaemon keeps the last 4 KiB of `stderr_tail`.",
+            "required": [
+              "session_id",
+              "type"
+            ],
+            "properties": {
+              "exit_code": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64"
+              },
+              "session_id": {
+                "type": "string"
+              },
+              "stderr_tail": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "session_exit"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
             "required": [
               "type"
             ],

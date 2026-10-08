@@ -4431,6 +4431,7 @@ name = "pagis-broker"
 version = "0.2.0"
 dependencies = [
  "async-trait",
+ "futures",
  "hex",
  "jsonschema",
  "pagis-audit",
@@ -4444,8 +4445,10 @@ dependencies = [
  "sqlx",
  "thiserror 2.0.20",
  "tokio",
+ "tokio-util",
  "tree-sitter",
  "tree-sitter-bash",
+ "yamux",
 ]
 
 [[package]]

@@ -2,6 +2,8 @@
 
 mod call;
 pub mod credentials;
+pub mod fake;
+pub mod host_sessions;
 pub mod hosts;
 mod mail;
 pub mod rules;
@@ -25,6 +27,10 @@ pub use call::{
 };
 pub use credentials::{
     CredentialAction, CredentialActionKind, MAX_CREDENTIAL_RULES, domain_allowed, normalize_domain,
+};
+pub use host_sessions::{
+    HostSessions, OpenAnswer, OpenFailure, OpenRequest, OpenedSession, SessionExit,
+    SessionOpenError, WorktreeRequest,
 };
 pub use hosts::{HostCommand, HostConnection, HostDispatchError, HostOutcome, HostPresence};
 pub use mail::{

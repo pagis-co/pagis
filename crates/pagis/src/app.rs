@@ -272,6 +272,9 @@ pub struct Interfaces {
     /// The exit sockets of the Hosts, which carry the connections of
     /// their Person's Computers as the Home Exit (ADR-0029).
     pub home_exits: Arc<pagis_computer::HomeExits>,
+    /// The session sockets of the Hosts, which carry one stream for each
+    /// Coding Session (ADR-0033).
+    pub host_sessions: Arc<pagis_broker::HostSessions>,
 }
 
 pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Interfaces> {
@@ -507,6 +510,9 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     // serves the WebSocket that holds the clients, the broker that names
     // the machine of a host action, and the tool that dispatches to it.
     let host_presence = Arc::new(pagis_broker::HostPresence::new());
+    // The session sockets of the same machines, which carry the Coding
+    // Sessions (ADR-0033).
+    let host_sessions = Arc::new(pagis_broker::HostSessions::new());
     let tool_runtime = Arc::new(CoreToolRuntime::new(ToolRuntimeDeps {
         presence: Arc::clone(&host_presence),
         agents: Arc::clone(&agent_store) as _,
@@ -1296,6 +1302,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         hosts: stores.hosts.clone(),
         host_presence,
         home_exits: Arc::clone(&home_exits),
+        host_sessions: Arc::clone(&host_sessions),
         broker,
         agent_store,
         mailbox_desk,
@@ -1399,6 +1406,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
             .fallback(crate::spa::serve_administration),
         computers,
         home_exits,
+        host_sessions,
     };
     if this_machine_only {
         let guard = || axum::middleware::from_fn(pagis_server::forwarded::refuse_other_machines);

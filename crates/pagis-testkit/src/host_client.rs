@@ -62,7 +62,7 @@ pub struct HostDispatch {
     pub approved_by_rule: bool,
 }
 
-/// A result frame the test sends, and the signal that the daemon read it.
+/// A frame the test sends, and the signal that the daemon read it.
 type Outgoing = (serde_json::Value, oneshot::Sender<()>);
 
 /// One connected Host of the test daemon. Dropping it closes the socket,
@@ -247,13 +247,31 @@ impl HostClient {
     /// name a command that this machine did not receive, so a test can
     /// send a result from the wrong connection.
     pub async fn answer(&self, id: &str, stdout: &str) {
+        self.send(result_frame(id, 0, stdout, "")).await;
+    }
+
+    /// Send the `session_exit` of one Coding Session on this socket, as
+    /// the Client App does when the process of the session exits, and
+    /// return once the daemon has read it.
+    pub async fn session_exit(&self, session_id: &str, exit_code: Option<i64>, stderr_tail: &str) {
+        self.send(serde_json::json!({
+            "type": "session_exit",
+            "session_id": session_id,
+            "exit_code": exit_code,
+            "stderr_tail": stderr_tail,
+        }))
+        .await;
+    }
+
+    /// Send one frame and return once the daemon has read it.
+    async fn send(&self, frame: serde_json::Value) {
         let (read, was_read) = oneshot::channel();
         self.results
-            .send((result_frame(id, 0, stdout, ""), read))
+            .send((frame, read))
             .expect("the host client is connected");
         tokio::time::timeout(Duration::from_secs(5), was_read)
             .await
-            .expect("the daemon reads the result before the timeout")
+            .expect("the daemon reads the frame before the timeout")
             .expect("the socket stays open");
     }
 
