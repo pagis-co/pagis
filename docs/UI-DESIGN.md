@@ -98,7 +98,9 @@ build when another stylesheet names one of those values directly.
 
 - **Type.** Inter Variable, loaded with the application and never left
   to a system fallback. Five sizes: `--text-xs` through `--text-xl`,
-  with the body at `--text-md`. Four weights (`--weight-regular`,
+  with the body at `--text-md`. Fields use `--text-input`: `--text-sm`
+  with a mouse, and 16 px on a touch screen to prevent iOS focus zoom.
+  Four weights (`--weight-regular`,
   `-medium`, `-semibold`, `-bold`), five line heights (`--leading-none`
   through `--leading-relaxed`, body at `--leading-normal`) and three
   trackings (`--tracking-tight`, `-wide`, `-widest`). Mono for

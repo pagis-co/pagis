@@ -1,4 +1,7 @@
-import { Button, SectionLabel, SettingsNav as Shell, cx } from '../../primitives'
+import { Menu as MenuIcon } from 'lucide-react'
+
+import { Button, IconButton, SectionLabel, SettingsNav as Shell, cx } from '../../primitives'
+import { useMobileNav } from '../../state/stores'
 import { type SettingsSection, visibleSettingsGroups } from '../SettingsPanel'
 
 import './SettingsNav.css'
@@ -15,9 +18,22 @@ export function SettingsNav({
   /** A member sees no administrator section. */
   isAdministrator: boolean
 }) {
+  const openNav = useMobileNav((state) => state.open)
+  const navOpen = useMobileNav((state) => state.isOpen)
+
   return (
     <Shell>
-      <h2 className="settings-nav-title">Settings</h2>
+      <div className="settings-nav-header">
+        <IconButton
+          icon={MenuIcon}
+          label="Open conversations"
+          variant="ghost"
+          className="mobile-navigation-trigger"
+          aria-expanded={navOpen}
+          onClick={openNav}
+        />
+        <h2 className="settings-nav-title">Settings</h2>
+      </div>
       {visibleSettingsGroups(isAdministrator).map((group) => (
         <div
           key={group.label}
