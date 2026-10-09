@@ -269,6 +269,8 @@ pub enum CodingSessionEventKind {
     /// The answer to a question.
     Answer,
     TurnEnd,
+    /// A change of the Harness Mode, by Pagis or by the harness.
+    Mode,
 }
 
 impl CodingSessionEventKind {
@@ -286,6 +288,7 @@ impl CodingSessionEventKind {
             CodingSessionEventKind::Question => "question",
             CodingSessionEventKind::Answer => "answer",
             CodingSessionEventKind::TurnEnd => "turn_end",
+            CodingSessionEventKind::Mode => "mode",
         }
     }
 
@@ -326,6 +329,7 @@ impl std::str::FromStr for CodingSessionEventKind {
             "question" => Ok(CodingSessionEventKind::Question),
             "answer" => Ok(CodingSessionEventKind::Answer),
             "turn_end" => Ok(CodingSessionEventKind::TurnEnd),
+            "mode" => Ok(CodingSessionEventKind::Mode),
             other => Err(format!("unknown coding session event kind: {other}")),
         }
     }
@@ -354,6 +358,27 @@ pub struct HarnessModeInfo {
     pub description: Option<String>,
 }
 
+/// Who changed the Harness Mode of a session, as its `mode` row says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ModeChangedBy {
+    /// Pagis set the mode with `session/set_mode`.
+    Pagis,
+    /// The harness reported the mode in a `current_mode_update`.
+    Harness,
+}
+
+/// The payload of a `mode` row: the mode id, the name that the harness
+/// gave it in `offered` or else the id, and who changed it.
+#[must_use]
+pub fn mode_payload(mode_id: &str, offered: &[HarnessModeInfo], by: ModeChangedBy) -> Value {
+    let name = offered
+        .iter()
+        .find(|mode| mode.id == mode_id)
+        .map_or(mode_id, |mode| mode.name.as_str());
+    serde_json::json!({"mode": mode_id, "name": name, "by": by})
+}
+
 /// One Coding Session.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CodingSession {
@@ -374,6 +399,12 @@ pub struct CodingSession {
     pub working_directory: Option<String>,
     pub worktree_branch: Option<String>,
     pub approval_mode: SessionApprovalMode,
+    /// The id of the current Harness Mode, or `None` when the harness
+    /// answered no modes.
+    pub harness_mode: Option<String>,
+    /// The Harness Modes that the harness offered when the session opened
+    /// or resumed, in its order. Empty when it offered none.
+    pub harness_modes: Vec<HarnessModeInfo>,
     pub title: String,
     pub state: CodingSessionState,
     /// Why the session ended. A terminal session has one, and no other
@@ -396,6 +427,17 @@ pub struct CodingSession {
     pub created_at: UnixMillis,
     pub updated_at: UnixMillis,
     pub ended_at: Option<UnixMillis>,
+}
+
+impl CodingSession {
+    /// Whether the session works in an Unattended Mode: its harness never
+    /// asks, or its Harness Mode is not an asking mode of the Harness
+    /// Catalog. A harness that the catalog does not hold fails closed.
+    #[must_use]
+    pub fn acts_unattended(&self) -> bool {
+        crate::harness::entry(&self.harness_id)
+            .is_none_or(|entry| entry.acts_unattended(self.harness_mode.as_deref()))
+    }
 }
 
 /// The session that holds a token of the Harness Model Endpoint, and
@@ -1045,6 +1087,7 @@ mod tests {
             (Kind::Question, "question"),
             (Kind::Answer, "answer"),
             (Kind::TurnEnd, "turn_end"),
+            (Kind::Mode, "mode"),
         ];
         for (kind, name) in all {
             assert_eq!(kind.as_str(), name);
@@ -1132,5 +1175,90 @@ mod tests {
         assert!(!path_is_inside("/repo/../etc", "/repo"));
         assert!(!path_is_inside("repo/a.rs", "/repo"));
         assert!(!path_is_inside("/repo/a.rs", "repo"));
+    }
+
+    fn mode(id: &str, name: &str) -> HarnessModeInfo {
+        HarnessModeInfo {
+            id: id.to_string(),
+            name: name.to_string(),
+            description: None,
+        }
+    }
+
+    #[test]
+    fn a_mode_row_names_the_mode_its_name_and_who_changed_it() {
+        let offered = [mode("default", "Manual"), mode("plan", "Plan")];
+
+        assert_eq!(
+            mode_payload("default", &offered, ModeChangedBy::Pagis),
+            json!({"mode": "default", "name": "Manual", "by": "pagis"})
+        );
+        assert_eq!(
+            mode_payload("dontAsk", &offered, ModeChangedBy::Harness),
+            json!({"mode": "dontAsk", "name": "dontAsk", "by": "harness"}),
+            "a mode that the harness did not offer is named by its id"
+        );
+    }
+
+    #[test]
+    fn a_mode_row_never_merges() {
+        let row = || NewCodingSessionEvent {
+            at: 10,
+            kind: Kind::Mode,
+            payload: json!({"mode": "plan", "name": "Plan", "by": "harness"}),
+        };
+
+        let rows = transcript([row(), row()]);
+
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[1].kind, Kind::Mode);
+        assert_eq!(rows[1].payload["mode"], "plan");
+    }
+
+    /// An idle Host session of `harness_id` in the Harness Mode `mode`.
+    fn session_in(harness_id: &str, mode: Option<&str>) -> CodingSession {
+        CodingSession {
+            id: CodingSessionId::from("s".to_string()),
+            workspace_id: WorkspaceId::from("w".to_string()),
+            agent_id: AgentId::from("a".to_string()),
+            harness_id: harness_id.to_string(),
+            harness_version: "1.0.0".to_string(),
+            place: CodingSessionPlace::Host,
+            host_id: Some(HostId::from("h".to_string())),
+            directory: "/repo".to_string(),
+            working_directory: Some("/repo".to_string()),
+            worktree_branch: None,
+            approval_mode: SessionApprovalMode::Person,
+            harness_mode: mode.map(str::to_string),
+            harness_modes: Vec::new(),
+            title: "Fix it".to_string(),
+            state: CodingSessionState::Idle,
+            end_reason: None,
+            end_detail: None,
+            acp_session_id: Some("acp".to_string()),
+            channel_id: ChannelId::from("c".to_string()),
+            root_message_id: MessageId::from("m1".to_string()),
+            message_id: MessageId::from("m1".to_string()),
+            run_id: RunId::from("r".to_string()),
+            usage: CodingSessionUsage::default(),
+            created_at: 1,
+            updated_at: 1,
+            ended_at: None,
+        }
+    }
+
+    #[test]
+    fn a_session_acts_unattended_when_its_harness_never_asks_or_its_mode_does_not_ask() {
+        assert!(session_in("pi", None).acts_unattended(), "pi never asks");
+        assert!(
+            !session_in("claude", None).acts_unattended(),
+            "a harness with no mode asks"
+        );
+        assert!(!session_in("claude", Some("default")).acts_unattended());
+        assert!(session_in("claude", Some("bypassPermissions")).acts_unattended());
+        assert!(
+            session_in("claude", Some("dontAsk")).acts_unattended(),
+            "a mode that the catalog does not list fails closed"
+        );
     }
 }

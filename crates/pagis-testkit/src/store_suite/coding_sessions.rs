@@ -6,8 +6,8 @@
 
 use pagis_core::{
     AgentId, ChannelId, CodingSession, CodingSessionEventKind, CodingSessionId, CodingSessionState,
-    CodingSessionUsage, HostId, ModelTokenOwner, NewCodingSessionEvent, RunId, SHELL_CAPABILITY,
-    Workspace, WorkspaceId,
+    CodingSessionUsage, HarnessModeInfo, HostId, ModelTokenOwner, NewCodingSessionEvent, RunId,
+    SHELL_CAPABILITY, Workspace, WorkspaceId,
 };
 use serde_json::json;
 
@@ -155,6 +155,53 @@ pub async fn a_session_reads_back_and_an_update_writes_its_state_usage_and_end(b
         ..session
     };
     assert!(!sessions.update(&unknown).await.unwrap());
+}
+
+pub async fn the_harness_mode_and_the_offered_modes_read_back(backend: &Backend) {
+    let workspace = backend.seeded_workspace().await;
+    let owner = seed_owner(backend, &workspace).await;
+    let sessions = &backend.stores().coding_sessions;
+    let mode = |id: &str, name: &str, description: Option<&str>| HarnessModeInfo {
+        id: id.to_string(),
+        name: name.to_string(),
+        description: description.map(str::to_string),
+    };
+    let session = CodingSession {
+        harness_mode: Some("default".to_string()),
+        harness_modes: vec![
+            mode("default", "Manual", Some("Asks before each edit")),
+            mode("plan", "Plan", None),
+            mode("bypassPermissions", "Bypass permissions", None),
+        ],
+        ..owner.session()
+    };
+    sessions.insert(&session).await.unwrap();
+    assert_eq!(
+        sessions.get(&workspace.id, &session.id).await.unwrap(),
+        Some(session.clone())
+    );
+
+    let changed = CodingSession {
+        harness_mode: Some("plan".to_string()),
+        updated_at: session.updated_at + 1_000,
+        ..session.clone()
+    };
+    assert!(sessions.update(&changed).await.unwrap());
+    assert_eq!(
+        sessions.get(&workspace.id, &session.id).await.unwrap(),
+        Some(changed)
+    );
+
+    let modeless = owner.session();
+    assert_eq!(modeless.harness_mode, None);
+    sessions.insert(&modeless).await.unwrap();
+    let read = sessions
+        .get(&workspace.id, &modeless.id)
+        .await
+        .unwrap()
+        .expect("the session reads back");
+    assert_eq!(read.harness_mode, None);
+    assert_eq!(read.harness_modes, []);
 }
 
 pub async fn the_list_is_newest_first_and_filters_by_agent_state_and_before(backend: &Backend) {
@@ -613,6 +660,7 @@ macro_rules! store_suite_coding_sessions {
         $emit!(
             coding_sessions,
             a_session_reads_back_and_an_update_writes_its_state_usage_and_end,
+            the_harness_mode_and_the_offered_modes_read_back,
             the_list_is_newest_first_and_filters_by_agent_state_and_before,
             count_open_counts_the_sessions_of_one_agent_that_are_not_terminal,
             list_open_holds_the_open_sessions_of_every_workspace_oldest_first,

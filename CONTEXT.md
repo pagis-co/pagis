@@ -1072,8 +1072,9 @@ or Bypass permissions of Claude Code, or Read-only and Full access of
 Codex. The harness names its modes when a session opens. The Harness
 Catalog says in which modes the harness asks before each action. The
 Session Approval Mode says who answers a Harness Permission, and the
-Harness Mode says when the harness asks one (ADR-0033). Not built: the
-Harness Mode of a Coding Session.
+Harness Mode says when the harness asks one. The record of a Coding Session
+keeps its current mode, and a start puts the harness in an asking mode
+(ADR-0033). Not built: the Harness Mode that the Agent picks.
 _Avoid_: permission mode, agent mode
 
 ### Harness Model Endpoint
@@ -1126,10 +1127,11 @@ the owning Agent in the session's Thread (ADR-0033).
 ### Unattended Mode
 A Coding Harness works in an Unattended Mode when it acts without asking
 Pagis first, so Pagis policy does not see each action. A harness that never
-asks, such as pi, always works in one. The host Grant of each Agent on each
-machine allows Unattended Modes or not, and not by default. A Coding Session
-in the Agent's Computer needs no Grant for one, because the container is the
-sandbox (ADR-0033). Not built: Harness Modes.
+asks, such as pi, always works in one. A harness works in one also in each
+Harness Mode that the Harness Catalog does not list as asking. The host
+Grant of each Agent on each machine allows Unattended Modes or not, and not
+by default. A Coding Session in the Agent's Computer needs no Grant for one,
+because the container is the sandbox (ADR-0033).
 _Avoid_: yolo mode, bypass mode
 
 ## Telephony

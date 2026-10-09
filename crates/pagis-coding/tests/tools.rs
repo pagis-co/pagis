@@ -260,6 +260,8 @@ impl World {
             working_directory: Some(DIRECTORY.to_string()),
             worktree_branch: None,
             approval_mode: SessionApprovalMode::Person,
+            harness_mode: None,
+            harness_modes: Vec::new(),
             title: title.to_string(),
             state,
             end_reason: terminal.then(|| "closed".to_string()),

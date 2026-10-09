@@ -3,6 +3,7 @@
 //! in for the session socket, and the last tests run over the session
 //! socket registry itself.
 
+use std::collections::VecDeque;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -30,10 +31,10 @@ use pagis_core::{
     Agent, AgentId, AgentStatus, AgentStore, AuthorKind, Block, Channel, ChannelId, ChannelKind,
     ChannelStore, CodingSession, CodingSessionEvent, CodingSessionEventKind as Kind,
     CodingSessionId, CodingSessionPlace, CodingSessionState as State, CodingSessionStore, Event,
-    EventBus, EventLog, Grant, GrantId, GrantStore, HostId, HostStore, IngestBatch, Message,
-    MessageId, MessageStatus, MessageStore, NewEvent, Request, RequestState, RequestStore, Run,
-    RunId, RunState, RunStore, SessionApprovalMode, SystemClock, TriggerKind, Workspace,
-    WorkspaceId, WorkspaceStore, now_ms,
+    EventBus, EventLog, Grant, GrantId, GrantStore, HarnessModeInfo, HostId, HostStore,
+    IngestBatch, Message, MessageId, MessageStatus, MessageStore, NewEvent, Request, RequestState,
+    RequestStore, Run, RunId, RunState, RunStore, SessionApprovalMode, SystemClock, TriggerKind,
+    Workspace, WorkspaceId, WorkspaceStore, now_ms,
 };
 use pagis_storage_sqlite::{
     SqliteAgentStore, SqliteChannelStore, SqliteCodingSessionStore, SqliteEventLog,
@@ -1862,6 +1863,8 @@ impl World {
             working_directory: Some(WORKTREE_DIRECTORY.to_string()),
             worktree_branch: Some("pagis/fix-login".to_string()),
             approval_mode: SessionApprovalMode::Person,
+            harness_mode: None,
+            harness_modes: Vec::new(),
             title: format!("A {} session", state.as_str()),
             state,
             end_reason: terminal.then(|| "closed".to_string()),
@@ -3412,5 +3415,341 @@ async fn a_run_in_the_thread_that_ends_without_an_answer_cancels_the_question(po
     assert_eq!(
         answer["note"],
         "The sprite ended its turn without an answer."
+    );
+}
+
+// The Harness Mode of a session (ADR-0033): a start puts the harness in an
+// asking mode, a resume sets the recorded mode again, and a session that
+// comes into an Unattended Mode needs the allowance of the live Grant.
+
+/// The Harness Modes of the pinned Claude Code adapter, as `(id, name)`.
+fn claude_modes() -> Vec<(&'static str, &'static str)> {
+    pagis_core::harness::entry("claude")
+        .unwrap()
+        .modes
+        .iter()
+        .map(|mode| (mode.id, mode.name))
+        .collect()
+}
+
+/// The modes of `claude_modes` as the record keeps them.
+fn claude_mode_infos() -> Vec<HarnessModeInfo> {
+    claude_modes()
+        .into_iter()
+        .map(|(id, name)| HarnessModeInfo {
+            id: id.to_string(),
+            name: name.to_string(),
+            description: None,
+        })
+        .collect()
+}
+
+/// A Claude Code harness whose sessions open in the mode `current`.
+fn claude_in(current: &str) -> Script {
+    Script::default().modes(current, &claude_modes())
+}
+
+/// A Claude Code harness that offers only the modes that do not ask, and
+/// opens in `acceptEdits`.
+fn claude_that_never_asks() -> Script {
+    Script::default().modes(
+        "acceptEdits",
+        &[
+            ("acceptEdits", "Accept edits"),
+            ("bypassPermissions", "Bypass permissions"),
+        ],
+    )
+}
+
+fn mode_update(mode_id: &str) -> acp::SessionUpdate {
+    acp::SessionUpdate::CurrentModeUpdate(acp::CurrentModeUpdate::new(mode_id.to_owned()))
+}
+
+/// The `session/set_mode` params that the fake got.
+fn set_modes(harness: &FakeHarness) -> Vec<Value> {
+    harness.params("session/set_mode")
+}
+
+/// A place that opens each stream on the next of its places, in order.
+/// It keeps each place that opened, because a place holds the exit of its
+/// session.
+struct EachPlace {
+    waiting: Mutex<VecDeque<Arc<DuplexPlace>>>,
+    opened: Mutex<Vec<Arc<DuplexPlace>>>,
+}
+
+impl EachPlace {
+    fn new(places: impl IntoIterator<Item = Arc<DuplexPlace>>) -> Arc<Self> {
+        Arc::new(Self {
+            waiting: Mutex::new(places.into_iter().collect()),
+            opened: Mutex::default(),
+        })
+    }
+}
+
+#[async_trait]
+impl SessionPlace for EachPlace {
+    async fn open(
+        &self,
+        workspace_id: &WorkspaceId,
+        host_id: &HostId,
+        request: OpenRequest,
+    ) -> Result<OpenedStream, OpenFailure> {
+        let place = self
+            .waiting
+            .lock()
+            .unwrap()
+            .pop_front()
+            .expect("a place for each stream");
+        self.opened.lock().unwrap().push(place.clone());
+        place.open(workspace_id, host_id, request).await
+    }
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_start_in_bypass_permissions_sets_the_first_asking_mode_before_the_first_prompt(
+    pool: SqlitePool,
+) {
+    let world = world(pool).await;
+    let place = DuplexPlace::new(claude_in("bypassPermissions").turn(Turn::until_cancel(vec![])));
+    let sessions = world.coding_sessions(place.clone(), Arc::new(RefuseDecisions));
+
+    let session = sessions
+        .start(world.new_session(&world.run_id))
+        .await
+        .expect("the session starts");
+
+    let record = world.record(&session.id).await;
+    assert_eq!(record, session, "start answers the record that it wrote");
+    assert_eq!(record.harness_mode.as_deref(), Some("default"));
+    assert_eq!(record.harness_modes, claude_mode_infos());
+    let rows = world.rows(&session.id).await;
+    assert_eq!(kinds(&rows), [Kind::Mode, Kind::Prompt]);
+    assert_eq!(
+        rows[0].payload,
+        json!({"mode": "default", "name": "Manual", "by": "pagis"})
+    );
+    let harness = place.harness();
+    assert_eq!(
+        set_modes(&harness),
+        [json!({"sessionId": NEW_SESSION_ID, "modeId": "default"})]
+    );
+    let methods: Vec<_> = harness
+        .received()
+        .into_iter()
+        .map(|received| received.method)
+        .filter(|method| method == "session/set_mode" || method == "session/prompt")
+        .collect();
+    assert_eq!(
+        methods,
+        ["session/set_mode", "session/prompt"],
+        "the harness is in the asking mode before it gets the prompt"
+    );
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_start_in_an_asking_mode_sends_no_set_mode(pool: SqlitePool) {
+    let world = world(pool).await;
+    let place = DuplexPlace::new(claude_in("default").turn(Turn::until_cancel(vec![])));
+    let sessions = world.coding_sessions(place.clone(), Arc::new(RefuseDecisions));
+
+    let session = sessions
+        .start(world.new_session(&world.run_id))
+        .await
+        .expect("the session starts");
+
+    assert_eq!(session.harness_mode.as_deref(), Some("default"));
+    assert_eq!(session.harness_modes, claude_mode_infos());
+    assert_eq!(kinds(&world.rows(&session.id).await), [Kind::Prompt]);
+    assert_eq!(set_modes(&place.harness()), Vec::<Value>::new());
+    assert_eq!(prompts(&place.harness()), ["Fix the login bug."]);
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_harness_that_offers_no_asking_mode_starts_only_with_the_allowance(pool: SqlitePool) {
+    let world = world(pool).await;
+    let refused = DuplexPlace::new(claude_that_never_asks().turn(Turn::until_cancel(vec![])));
+    let sessions = world.coding_sessions(refused.clone(), Arc::new(RefuseDecisions));
+
+    let failure = sessions
+        .start(world.new_session(&world.run_id))
+        .await
+        .expect_err("the Grant does not allow Unattended Modes");
+
+    assert_eq!(
+        failure.to_string(),
+        "Claude Code acts without asking, and the user does not allow modes that act without \
+         asking for you on Air. The session is closed. Ask the user to allow them."
+    );
+    let StartFailure::UnattendedModeNotAllowed { session_id, .. } = failure else {
+        panic!("{failure:?}");
+    };
+    assert_not_allowed(&world, &refused, &session_id).await;
+    assert_eq!(set_modes(&refused.harness()), Vec::<Value>::new());
+
+    world
+        .unattended_grant(&world.agent_id, &world.host_id)
+        .await;
+    let allowed = DuplexPlace::new(claude_that_never_asks().turn(Turn::until_cancel(vec![])));
+    let sessions = world.coding_sessions(allowed.clone(), Arc::new(RefuseDecisions));
+
+    let session = sessions
+        .start(world.new_session(&world.run_id))
+        .await
+        .expect("the Grant allows Unattended Modes");
+
+    assert_eq!(session.state, State::Working);
+    assert_eq!(session.harness_mode.as_deref(), Some("acceptEdits"));
+    assert_eq!(set_modes(&allowed.harness()), Vec::<Value>::new());
+    assert_eq!(prompts(&allowed.harness()), ["Fix the login bug."]);
+}
+
+/// Starts a Claude Code session in `default` whose first turn changes the
+/// mode to `mode_id` and then ends, and waits until it is idle.
+async fn session_that_changes_its_mode_to(
+    world: &World,
+    mode_id: &str,
+) -> (Arc<CodingSessions>, CodingSession) {
+    let place = DuplexPlace::new(claude_in("default").turn(Turn::new(
+        vec![mode_update(mode_id)],
+        acp::StopReason::EndTurn,
+    )));
+    let sessions = world.coding_sessions(place, Arc::new(RefuseDecisions));
+    let session = sessions
+        .start(world.new_session(&world.run_id))
+        .await
+        .expect("the session starts");
+    world.wait_for_row(&session.id, Kind::Mode).await;
+    (sessions, session)
+}
+
+/// Asserts that the record holds `mode_id`, and that the transcript holds
+/// one `mode` row by the harness, before the end of the turn.
+async fn assert_changed_by_the_harness(world: &World, id: &CodingSessionId, mode_id: &str) {
+    let record = world.record(id).await;
+    assert_eq!(record.harness_mode.as_deref(), Some(mode_id));
+    assert_eq!(record.harness_modes, claude_mode_infos());
+    let rows = world.wait_for_row(id, Kind::TurnEnd).await;
+    assert_eq!(kinds(&rows), [Kind::Prompt, Kind::Mode, Kind::TurnEnd]);
+    let name = claude_modes()
+        .into_iter()
+        .find(|(id, _)| *id == mode_id)
+        .unwrap()
+        .1;
+    assert_eq!(
+        rows[1].payload,
+        json!({"mode": mode_id, "name": name, "by": "harness"})
+    );
+}
+
+/// Asserts that a session stays open after its harness changed its mode:
+/// the check of the live Grant runs after the `mode` row.
+async fn assert_stays_open(world: &World, id: &CodingSessionId) {
+    world.wait_for_state(id, State::Idle).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let record = world.record(id).await;
+    assert_eq!(record.state, State::Idle, "{:?}", record.end_reason);
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_change_by_the_harness_to_a_mode_that_does_not_ask_closes_the_session_with_no_allowance(
+    pool: SqlitePool,
+) {
+    let world = world(pool).await;
+    let (_sessions, session) = session_that_changes_its_mode_to(&world, "acceptEdits").await;
+
+    world.assert_narrowed(&session.id).await;
+    let record = world.record(&session.id).await;
+    assert_eq!(record.harness_mode.as_deref(), Some("acceptEdits"));
+    let rows = world.rows(&session.id).await;
+    assert_eq!(
+        rows_of(&rows, Kind::Mode)[0].payload,
+        json!({"mode": "acceptEdits", "name": "Accept edits", "by": "harness"})
+    );
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_change_by_the_harness_to_a_mode_that_does_not_ask_keeps_the_session_with_the_allowance(
+    pool: SqlitePool,
+) {
+    let world = world(pool).await;
+    world
+        .unattended_grant(&world.agent_id, &world.host_id)
+        .await;
+    let (_sessions, session) = session_that_changes_its_mode_to(&world, "acceptEdits").await;
+
+    assert_changed_by_the_harness(&world, &session.id, "acceptEdits").await;
+    assert_stays_open(&world, &session.id).await;
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_change_by_the_harness_to_plan_keeps_the_session_with_no_allowance(pool: SqlitePool) {
+    let world = world(pool).await;
+    let (_sessions, session) = session_that_changes_its_mode_to(&world, "plan").await;
+
+    assert_changed_by_the_harness(&world, &session.id, "plan").await;
+    assert_stays_open(&world, &session.id).await;
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_session_in_accept_edits_closes_when_the_allowance_goes_and_one_in_default_stays(
+    pool: SqlitePool,
+) {
+    let world = world(pool).await;
+    let grant = world
+        .unattended_grant(&world.agent_id, &world.host_id)
+        .await;
+    let place = EachPlace::new([
+        DuplexPlace::new(claude_that_never_asks().turn(Turn::until_cancel(vec![]))),
+        DuplexPlace::new(claude_in("default").turn(Turn::until_cancel(vec![]))),
+    ]);
+    let sessions = world.coding_sessions(place, Arc::new(RefuseDecisions));
+    let unattended = sessions
+        .start(world.new_session(&world.run_id))
+        .await
+        .expect("the session starts");
+    let asking = sessions
+        .start(world.new_session(&world.run_id))
+        .await
+        .expect("the session starts");
+    assert_eq!(unattended.harness_mode.as_deref(), Some("acceptEdits"));
+    assert_eq!(asking.harness_mode.as_deref(), Some("default"));
+
+    world.stop_unattended_modes(&grant).await;
+
+    world.assert_narrowed(&unattended.id).await;
+    assert_eq!(world.record(&asking.id).await.state, State::Working);
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_resume_sets_the_recorded_mode_when_the_restored_session_answers_another(
+    pool: SqlitePool,
+) {
+    let world = world(pool).await;
+    let (place, sessions, session) = interrupted_session(
+        &world,
+        claude_in("default").resume().turn(Turn::new(
+            vec![mode_update("plan")],
+            acp::StopReason::EndTurn,
+        )),
+    )
+    .await;
+    assert_eq!(
+        world.record(&session.id).await.harness_mode.as_deref(),
+        Some("plan")
+    );
+
+    sessions
+        .resume(&world.workspace_id, &session.id)
+        .await
+        .expect("the session resumes");
+
+    let record = world.record(&session.id).await;
+    assert_eq!(record.state, State::Idle);
+    assert_eq!(record.harness_mode.as_deref(), Some("plan"));
+    assert_eq!(record.harness_modes, claude_mode_infos());
+    assert_eq!(
+        set_modes(&place.harness()),
+        [json!({"sessionId": NEW_SESSION_ID, "modeId": "plan"})]
     );
 }

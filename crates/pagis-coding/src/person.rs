@@ -476,6 +476,8 @@ mod tests {
             working_directory: Some(WORKTREE.to_string()),
             worktree_branch: Some("pagis/fix-the-login".to_string()),
             approval_mode: SessionApprovalMode::Person,
+            harness_mode: None,
+            harness_modes: Vec::new(),
             title: "Fix the login".to_string(),
             state: CodingSessionState::Working,
             end_reason: None,

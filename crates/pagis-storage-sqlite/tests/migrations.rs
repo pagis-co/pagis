@@ -258,6 +258,35 @@ async fn an_auto_session_reads_person_and_keeps_its_rows_through_person_and_agen
     pagis_testkit::migration::assert_auto_session_rows(&pagis_storage_sqlite::stores(pool)).await;
 }
 
+/// The migration that gives a Coding Session its Harness Mode makes
+/// `coding_session_events` again in SQLite. An older session reads no
+/// mode and no offered modes, its transcript and the rows that point at it
+/// stay, and the transcript then takes a `mode` row (ADR-0033).
+#[tokio::test]
+async fn an_older_session_reads_no_mode_and_keeps_its_rows_through_harness_modes() {
+    let pool = pagis_storage_sqlite::connect_memory().await.unwrap();
+    let (before, _earlier) = pagis_testkit::migration::migrator_before(
+        &migrations(),
+        pagis_testkit::migration::HARNESS_MODES,
+    )
+    .await;
+    before.run(&pool).await.unwrap();
+    sqlx::raw_sql(pagis_testkit::migration::MODELESS_SESSION_ROWS)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    pagis_storage_sqlite::MIGRATOR.run(&pool).await.unwrap();
+
+    let broken: Vec<String> = sqlx::query_scalar("SELECT \"table\" FROM pragma_foreign_key_check")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert_eq!(broken, Vec::<String>::new());
+    pagis_testkit::migration::assert_modeless_session_rows(&pagis_storage_sqlite::stores(pool))
+        .await;
+}
+
 /// The migration directory of this crate.
 fn migrations() -> std::path::PathBuf {
     std::path::PathBuf::from(

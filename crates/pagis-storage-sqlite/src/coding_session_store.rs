@@ -32,7 +32,8 @@ impl SqliteCodingSessionStore {
 const COLUMNS: &str = "id, workspace_id, agent_id, harness_id, harness_version, place, host_id, \
      directory, working_directory, worktree_branch, approval_mode, title, state, end_reason, \
      end_detail, acp_session_id, channel_id, root_message_id, message_id, run_id, context_used, \
-     context_size, cost_amount, cost_currency, created_at, updated_at, ended_at";
+     context_size, cost_amount, cost_currency, created_at, updated_at, ended_at, harness_mode, \
+     harness_modes";
 
 const EVENT_COLUMNS: &str = "workspace_id, coding_session_id, seq, at, kind, payload";
 
@@ -79,6 +80,10 @@ fn from_row(row: &sqlx::sqlite::SqliteRow) -> Result<CodingSession, StoreError> 
         working_directory: row.get("working_directory"),
         worktree_branch: row.get("worktree_branch"),
         approval_mode: parse(&row.get::<String, _>("approval_mode"))?,
+        harness_mode: row.get("harness_mode"),
+        harness_modes: serde_json::from_str(&row.get::<String, _>("harness_modes")).map_err(
+            |error| StoreError::Corrupt(format!("the Harness Modes are not JSON: {error}")),
+        )?,
         title: row.get("title"),
         state: parse(&row.get::<String, _>("state"))?,
         end_reason: row.get("end_reason"),
@@ -113,6 +118,12 @@ fn event_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<CodingSessionEvent, S
     })
 }
 
+fn modes_json(session: &CodingSession) -> Result<String, StoreError> {
+    serde_json::to_string(&session.harness_modes).map_err(|error| {
+        StoreError::Corrupt(format!("the Harness Modes do not serialize: {error}"))
+    })
+}
+
 fn payload_json(payload: &serde_json::Value) -> Result<String, StoreError> {
     serde_json::to_string(payload).map_err(|error| {
         StoreError::Corrupt(format!("a transcript payload does not serialize: {error}"))
@@ -124,7 +135,7 @@ impl CodingSessionStore for SqliteCodingSessionStore {
     async fn insert(&self, session: &CodingSession) -> Result<(), StoreError> {
         sqlx::query(&format!(
             "INSERT INTO coding_sessions ({COLUMNS}) VALUES \
-             (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+             (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         ))
         .bind(session.id.as_str())
         .bind(session.workspace_id.as_str())
@@ -153,6 +164,8 @@ impl CodingSessionStore for SqliteCodingSessionStore {
         .bind(session.created_at)
         .bind(session.updated_at)
         .bind(session.ended_at)
+        .bind(session.harness_mode.as_deref())
+        .bind(modes_json(session)?)
         .execute(&self.pool)
         .await
         .map_err(db_err)?;
@@ -166,8 +179,8 @@ impl CodingSessionStore for SqliteCodingSessionStore {
              approval_mode = ?, title = ?, state = ?, end_reason = ?, end_detail = ?, \
              acp_session_id = ?, channel_id = ?, root_message_id = ?, message_id = ?, \
              run_id = ?, context_used = ?, context_size = ?, cost_amount = ?, \
-             cost_currency = ?, created_at = ?, updated_at = ?, ended_at = ? \
-             WHERE id = ? AND workspace_id = ?",
+             cost_currency = ?, created_at = ?, updated_at = ?, ended_at = ?, harness_mode = ?, \
+             harness_modes = ? WHERE id = ? AND workspace_id = ?",
         )
         .bind(session.agent_id.as_str())
         .bind(&session.harness_id)
@@ -194,6 +207,8 @@ impl CodingSessionStore for SqliteCodingSessionStore {
         .bind(session.created_at)
         .bind(session.updated_at)
         .bind(session.ended_at)
+        .bind(session.harness_mode.as_deref())
+        .bind(modes_json(session)?)
         .bind(session.id.as_str())
         .bind(session.workspace_id.as_str())
         .execute(&self.pool)

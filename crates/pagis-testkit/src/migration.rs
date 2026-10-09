@@ -131,6 +131,37 @@ INSERT INTO event_subscriptions (id, workspace_id, agent_id, coding_session_id, 
     'ch', '{}', 'agent', 'active', 1, 1, 1, 1);
 ";
 
+/// The version of the migration that gives a Coding Session its Harness
+/// Mode and adds the `mode` rows of the transcript.
+pub const HARNESS_MODES: i64 = 14;
+
+/// A Coding Session with one row of each transcript kind, in the schema
+/// before [`HARNESS_MODES`]. The statements run on both backends.
+pub const MODELESS_SESSION_ROWS: &str = "\
+INSERT INTO workspaces (id, name, timezone, created_at) VALUES ('w', 'Home', 'UTC', 1);
+INSERT INTO model_aliases (id, workspace_id, alias, candidates, created_at, updated_at)
+    VALUES ('model', 'w', 'default', '[]', 1, 1);
+INSERT INTO agents (id, workspace_id, name, job, personality, model_alias, status, created_at,
+    updated_at) VALUES ('a', 'w', 'Sage', 'assistant', 'plain', 'default', 'active', 1, 1);
+INSERT INTO channels (id, workspace_id, kind, title, created_at, updated_at)
+    VALUES ('ch', 'w', 'dm', 'Sage', 1, 1);
+INSERT INTO runs (id, workspace_id, agent_id, trigger_kind, state, title, created_at)
+    VALUES ('r', 'w', 'a', 'message', 'completed', 'Fix it', 1);
+INSERT INTO coding_sessions (id, workspace_id, agent_id, harness_id, harness_version, place,
+    directory, approval_mode, title, state, channel_id, root_message_id, message_id, run_id,
+    created_at, updated_at)
+    VALUES ('cs', 'w', 'a', 'claude', '0.1.0', 'computer', '/home/agent/app', 'person',
+    'Fix it', 'idle', 'ch', 'm1', 'm2', 'r', 1, 1);
+INSERT INTO coding_session_events (workspace_id, coding_session_id, seq, at, kind, payload)
+    VALUES ('w', 'cs', 1, 1, 'prompt', '{\"text\":\"Fix it.\"}'),
+    ('w', 'cs', 2, 2, 'turn_end', '{\"stop_reason\":\"end_turn\"}');
+INSERT INTO event_subscriptions (id, workspace_id, agent_id, coding_session_id, event_kind,
+    source_version, name, instruction, channel_id, filter, creator, state, revision,
+    approved_revision, created_at, updated_at)
+    VALUES ('es', 'w', 'a', 'cs', 'coding_session.turn_ended', 'v1', 'Turn ended', 'Read it',
+    'ch', '{}', 'agent', 'active', 1, 1, 1, 1);
+";
+
 /// The migrations of `directory` before `version`, from a directory of
 /// their own, so a test can write rows into the schema that a later
 /// migration changes. The caller holds the directory while it runs the
@@ -247,6 +278,58 @@ pub async fn assert_auto_session_rows(stores: &Stores) {
         .expect("read the token")
         .expect("the token hash is kept");
     assert_eq!(owner.session_id, session_id);
+
+    let rule = stores
+        .subscriptions
+        .get(&workspace_id, &EventSubscriptionId::from("es".to_string()))
+        .await
+        .expect("read the Session Rule")
+        .expect("the Session Rule is kept");
+    assert_eq!(rule.source, EventSource::coding_session(session_id));
+}
+
+/// The session of [`MODELESS_SESSION_ROWS`] read back through the stores:
+/// with no Harness Mode and no offered modes, with its transcript and its
+/// Session Rule. A `mode` row then goes after its rows.
+pub async fn assert_modeless_session_rows(stores: &Stores) {
+    let workspace_id = WorkspaceId::from("w".to_string());
+    let session_id = CodingSessionId::from("cs".to_string());
+
+    let session = stores
+        .coding_sessions
+        .get(&workspace_id, &session_id)
+        .await
+        .expect("read the session")
+        .expect("the session is kept");
+    assert_eq!(session.harness_mode, None);
+    assert_eq!(session.harness_modes, []);
+    assert_eq!(session.title, "Fix it");
+
+    let events = stores
+        .coding_sessions
+        .list_events(&workspace_id, &session_id, None, 10)
+        .await
+        .expect("read the transcript");
+    let kinds: Vec<_> = events.iter().map(|event| event.kind).collect();
+    assert_eq!(
+        kinds,
+        [
+            CodingSessionEventKind::Prompt,
+            CodingSessionEventKind::TurnEnd
+        ]
+    );
+
+    let mode = pagis_core::NewCodingSessionEvent {
+        at: 3,
+        kind: CodingSessionEventKind::Mode,
+        payload: serde_json::json!({"mode": "plan", "name": "Plan", "by": "harness"}),
+    };
+    let written = stores
+        .coding_sessions
+        .append_event(&workspace_id, &session_id, mode)
+        .await
+        .expect("the check takes a mode row");
+    assert_eq!(written.last().map(|row| row.seq), Some(3));
 
     let rule = stores
         .subscriptions

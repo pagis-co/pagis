@@ -160,6 +160,8 @@ pub fn coding_session(
         working_directory: Some("/Users/person/code/app".to_string()),
         worktree_branch: None,
         approval_mode: SessionApprovalMode::Person,
+        harness_mode: None,
+        harness_modes: Vec::new(),
         title: "Fix the failing test".to_string(),
         state: CodingSessionState::Idle,
         end_reason: None,
