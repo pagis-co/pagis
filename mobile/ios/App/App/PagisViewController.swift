@@ -3,7 +3,9 @@ import UIKit
 import WebKit
 
 /// The bridge of the Mobile App. It shows the Product App of the stored
-/// server, or the bundled Connect screen when no server is stored.
+/// server, or the bundled Connect screen when no server is stored. When
+/// the web view cannot load the server, the bridge starts again on the
+/// bundled Unreachable screen.
 ///
 /// Capacitor reads the server URL once, when it makes the bridge. So to
 /// open another server the app makes a new view controller, and with it a
@@ -11,7 +13,8 @@ import WebKit
 final class PagisViewController: CAPBridgeViewController, PlaceShell, ServerShell {
     private let store: ServerStore
     private let sessionCopy: SessionCopy
-    /// The server that this bridge shows, read at launch.
+    /// The server that this bridge shows, read at launch. Nil on the
+    /// bundled pages.
     let server: WebOrigin?
     /// The plugin `PagisShell`. It also sends the Product App the place of
     /// a tap.
@@ -26,10 +29,18 @@ final class PagisViewController: CAPBridgeViewController, PlaceShell, ServerShel
     /// The web view holds its UI delegate weakly.
     private var mediaGuard: MediaGuard?
 
-    init(firstPage: URL? = nil, servers: ServerStore = ServerStore(), sessionCopy: SessionCopy = KeychainSessionCopy()) {
+    /// - Parameter showsServer: False for a bridge on the app's own origin
+    ///   while a server is stored, such as the bridge of the Unreachable
+    ///   screen.
+    init(
+        firstPage: URL? = nil,
+        servers: ServerStore = ServerStore(),
+        sessionCopy: SessionCopy = KeychainSessionCopy(),
+        showsServer: Bool = true
+    ) {
         store = servers
         self.sessionCopy = sessionCopy
-        self.server = servers.server
+        self.server = showsServer ? servers.server : nil
         self.firstPage = firstPage
         super.init(nibName: nil, bundle: nil)
     }
@@ -68,7 +79,9 @@ final class PagisViewController: CAPBridgeViewController, PlaceShell, ServerShel
         BridgeGuard(allowing: shown, next: bridge.webViewDelegationHandler).install(in: webView)
         // In front of the bridge guard, which is the UI delegate now.
         mediaGuard = MediaGuard.install(in: webView, server: server)
-        let navigationGuard = NavigationGuard(allowing: shown, next: bridge.webViewDelegationHandler)
+        let navigationGuard = NavigationGuard(allowing: shown, next: bridge.webViewDelegationHandler) { [weak self] error in
+            self?.loadFailed(error)
+        }
         navigationGuard.install(in: webView)
         self.navigationGuard = navigationGuard
         if let server {
@@ -110,13 +123,34 @@ final class PagisViewController: CAPBridgeViewController, PlaceShell, ServerShel
         changeServer()
     }
 
+    /// The web view cannot load the server. Keep the server, and start the
+    /// bridge again on the Unreachable screen.
+    private func loadFailed(_ error: Error) {
+        guard let server, let local = bridge?.config.localURL,
+              let page = UnreachablePage.url(on: local, server: server, error: error),
+              let window = leaveWindow()
+        else { return }
+        window.rootViewController = PagisViewController(
+            firstPage: page,
+            servers: store,
+            sessionCopy: sessionCopy,
+            showsServer: false
+        )
+    }
+
     private func restart(firstPage: URL?) {
+        guard let window = leaveWindow() else { return }
+        PagisViewController.launch(in: window, firstPage: firstPage)
+    }
+
+    /// Stop following the cookie store, and give the window that shows
+    /// this bridge.
+    private func leaveWindow() -> UIWindow? {
         if let sessionFollower {
             webView?.configuration.websiteDataStore.httpCookieStore.remove(sessionFollower)
         }
         // A view that is not loaded is in no window.
-        guard let window = viewIfLoaded?.window else { return }
-        PagisViewController.launch(in: window, firstPage: firstPage)
+        return viewIfLoaded?.window
     }
 
     /// Show the bridge in `window`. Before the first load, the copy of the

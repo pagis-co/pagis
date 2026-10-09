@@ -1,8 +1,10 @@
 # mobile/
 
 The source of the Pagis Mobile App, a Capacitor 8 app for iOS and Android.
-The app bundles only the Connect screen (`src/`, `index.html`) and opens the
-Product App of the server that the Person chooses. The pages of the
+The app bundles only the Connect screen (`index.html`) and the Unreachable
+screen (`unreachable.html`), with their code in `src/`. It opens the Product
+App of the server that the Person chooses, and it shows the Unreachable
+screen when that server does not load. The pages of the
 [Mobile App](https://docs.pagis.co/mobile-app/connect-to-a-server) in the
 documentation site (`docs-site/content/mobile-app/`) state what the app does
 for the people who use it.
@@ -26,7 +28,7 @@ run.
 npm ci
 npm run typecheck
 npm test        # the vitest tests of src/
-npm run build   # the Connect screen, into dist/
+npm run build   # the bundled screens, into dist/
 ```
 
 `npx cap sync` copies `dist/` and the plugin list into the native projects.

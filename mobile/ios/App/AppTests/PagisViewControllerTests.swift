@@ -27,4 +27,17 @@ final class PagisViewControllerTests: XCTestCase {
         XCTAssertTrue(copy.sessions.isEmpty)
         XCTAssertTrue(servers.lockScreenAnswers)
     }
+
+    /// The bridge of the Unreachable screen shows the app's own origin, and
+    /// the stored server stays.
+    func testABridgeThatDoesNotShowTheServerOpensTheAppsOwnOrigin() {
+        let servers = ServerStore(defaults: defaults)
+        servers.server = server
+
+        let bridge = PagisViewController(servers: servers, sessionCopy: FakeSessionCopy(), showsServer: false)
+
+        XCTAssertNil(bridge.server)
+        XCTAssertNil(bridge.instanceDescriptor().serverURL)
+        XCTAssertEqual(servers.server, server)
+    }
 }

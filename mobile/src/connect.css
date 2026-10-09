@@ -1,5 +1,5 @@
-/* The Connect screen. Every value comes from the design tokens of the
- * Product App (`ui/src/tokens.css`). */
+/* The Connect screen and the Unreachable screen. Every value comes from the
+ * design tokens of the Product App (`ui/src/tokens.css`). */
 
 @import '../../ui/src/tokens.css';
 
@@ -129,3 +129,9 @@ body {
 .connect button:disabled {
   opacity: var(--opacity-disabled);
 }
+
+.unreachable-server { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--text); overflow-wrap: anywhere; }
+.unreachable-error { border: var(--space-px) solid var(--border); border-radius: var(--radius-lg); background: var(--raised); padding: var(--space-4); margin: 0 0 var(--space-7); }
+.unreachable-error p { margin: 0; overflow-wrap: anywhere; }
+.unreachable-error p + p { margin-top: var(--space-3); color: var(--muted); }
+.unreachable-actions { display: flex; flex-direction: column; gap: var(--space-2); }

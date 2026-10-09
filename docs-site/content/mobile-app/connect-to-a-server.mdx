@@ -6,7 +6,7 @@ icon: Smartphone
 
 The Mobile App is the Pagis app for iOS and Android. It runs on an iPhone,
 on an iPad and on an Android phone. It shows the Product App of one Pagis
-server, and it bundles only the Connect screen
+server, and it bundles only the Connect screen and the Unreachable screen
 ([ADR-0032](https://github.com/pagis-co/pagis/blob/main/docs/adr/0032-the-mobile-app-is-a-native-shell-around-the-product-app.md)).
 The app installs nothing, and the phone is not a Host.
 
@@ -85,6 +85,17 @@ screen. Scan a new sign-in link to sign in again.
 
 The app opens the same server at each start, signed in while the Session
 lasts.
+
+## When the server does not load
+
+When the app cannot load the server, it shows the Unreachable screen. For
+example, the name of the server does not resolve, the server does not
+answer, or TLS fails. The screen shows the address of the server and the
+error. The app keeps the server.
+
+- Select **Try again** to open the server again.
+- Select **Change server** to forget the server and the copy of the
+  Session, and open the Connect screen.
 
 ## Change server
 

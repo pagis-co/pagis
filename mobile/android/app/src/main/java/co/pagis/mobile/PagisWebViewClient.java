@@ -2,10 +2,12 @@ package co.pagis.mobile;
 
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
+import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebView;
 import com.getcapacitor.Bridge;
 import com.getcapacitor.BridgeWebViewClient;
+import java.util.function.Consumer;
 
 /**
  * The web view client of the bridge.
@@ -18,21 +20,36 @@ import com.getcapacitor.BridgeWebViewClient;
  * or {@code https} origin other than the origin that the bridge shows in
  * the system browser. It passes every other navigation to Capacitor
  * (ADR-0032).
+ *
+ * The client also tells the activity of each failed main-frame load,
+ * after Capacitor.
  */
 class PagisWebViewClient extends BridgeWebViewClient {
 
     private final ServerOrigin shown;
     private final Runnable onPageLoaded;
+    private final Consumer<String> onLoadFailed;
 
     /**
      * @param shown The origin that the bridge shows: the server, or the
      *     app's own origin on the Connect screen.
      * @param onPageLoaded Runs after each main-frame page load.
+     * @param onLoadFailed Takes the text of the error of each failed
+     *     main-frame load.
      */
-    PagisWebViewClient(Bridge bridge, ServerOrigin shown, Runnable onPageLoaded) {
+    PagisWebViewClient(Bridge bridge, ServerOrigin shown, Runnable onPageLoaded, Consumer<String> onLoadFailed) {
         super(bridge);
         this.shown = shown;
         this.onPageLoaded = onPageLoaded;
+        this.onLoadFailed = onLoadFailed;
+    }
+
+    @Override
+    public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+        super.onReceivedError(view, request, error);
+        if (request.isForMainFrame()) {
+            onLoadFailed.accept(error.getDescription().toString());
+        }
     }
 
     @Override

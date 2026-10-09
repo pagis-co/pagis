@@ -17,6 +17,11 @@ export interface PagisShellPlugin {
    * `opens`.
    */
   open(address: ServerAddress): Promise<void>
+  /**
+   * Forget the server and the copy of the Session, and start the bridge
+   * again on the Connect screen.
+   */
+  changeServer(): Promise<void>
 }
 
 export const PagisShell = registerPlugin<PagisShellPlugin>('PagisShell')

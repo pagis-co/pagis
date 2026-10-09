@@ -46,14 +46,36 @@ the URL at launch:
 The session that builds the shell reads the Capacitor 8 API first, and
 uses these customization points as that API names them.
 
-The app bundles only a Connect screen. It bundles no copy of the Product
-App, so the web part is always the Product App of the server. It connects
+The app bundles only a Connect screen and an Unreachable screen. It
+bundles no copy of the Product App, so the web part is always the Product
+App of the server. It connects
 only over `https://`, so it reaches a Server, or a Local Installation in
 Remote Access.
 
 The iOS app is universal: it runs on an iPhone and on an iPad. The app
 identifier is `co.pagis.mobile` on both platforms, after the project
 domain `pagis.co`. The first store release makes it permanent.
+
+### A server that does not load opens the Unreachable screen
+
+When a main-frame load of the stored server fails, the shell keeps the
+server and starts the bridge again on the app's own origin at the bundled
+Unreachable screen. A failure is a network error: the name does not
+resolve, the server does not answer, or TLS fails. A load that a later
+load cancels is no failure. The screen names the server and the error.
+**Try again** opens the server again through `PagisShell.open`, and
+**Change server** forgets the server and the copy of the Session through
+`PagisShell.changeServer`.
+
+- On iOS, the navigation guard tells the bridge of a failed main-frame
+  load, after the delegation handler of Capacitor.
+- On Android, the web view client tells the activity of a failed
+  main-frame load, after Capacitor.
+
+The `server.errorPath` of Capacitor does not fit. Capacitor loads that
+page in the bridge of the server, from the app's own origin. The bridge
+answers the server's origin only, so the page cannot call the shell. The
+path also carries neither the server nor the error.
 
 ### The bridge serves the main frame of the server's exact origin only
 

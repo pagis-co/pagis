@@ -10,10 +10,14 @@ import WebKit
 /// main-frame navigation, or a new window, to each `http` or `https` origin
 /// other than the origin that the bridge shows in the system browser. It
 /// passes every other navigation to the next handler (ADR-0032).
+///
+/// The guard also tells the bridge of each failed main-frame load, after
+/// the next handler.
 final class NavigationGuard: NSObject, WKNavigationDelegate {
     private let origin: WebOrigin
     private let next: WKNavigationDelegate
     private let openOutside: (URL) -> Void
+    private let failed: (Error) -> Void
 
     /// WebKit calls this form of the policy method in place of the form
     /// that the guard has, when the delegate has it. The guard says that it
@@ -28,14 +32,17 @@ final class NavigationGuard: NSObject, WKNavigationDelegate {
     ///     app's own origin on the Connect screen.
     ///   - next: The delegation handler of the Capacitor bridge.
     ///   - openOutside: Opens a URL in the system browser.
+    ///   - failed: Takes the error of each failed main-frame load.
     init(
         allowing origin: WebOrigin,
         next: WKNavigationDelegate,
-        openOutside: @escaping (URL) -> Void = { UIApplication.shared.open($0) }
+        openOutside: @escaping (URL) -> Void = { UIApplication.shared.open($0) },
+        failed: @escaping (Error) -> Void = { _ in }
     ) {
         self.origin = origin
         self.next = next
         self.openOutside = openOutside
+        self.failed = failed
     }
 
     /// Put the guard in front of the navigation delegate of this web view.
@@ -67,6 +74,16 @@ final class NavigationGuard: NSObject, WKNavigationDelegate {
         } else {
             decisionHandler(.allow)
         }
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        next.webView?(webView, didFailProvisionalNavigation: navigation, withError: error)
+        failed(error)
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        next.webView?(webView, didFail: navigation, withError: error)
+        failed(error)
     }
 
     // Each other method of the navigation delegate goes to the next handler
