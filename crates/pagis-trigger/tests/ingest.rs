@@ -2,11 +2,17 @@
 //! (ADR-0006). Each test calls `ingest` and observes cursor
 //! commits, deduplication, matching, and Wake-ups through the stores.
 
+use std::sync::{Arc, Mutex};
+
+use async_trait::async_trait;
+
 use crate::common;
 
 use pagis_core::{
-    AgentId, ChannelId, EventSource, EventSubscription, EventSubscriptionState, IngestBatch,
-    NormalizedEvent, SourceBatchOutcome, WakeupLanding, WakeupState,
+    AgentId, ChannelId, CollectorTarget, ConnectionId, EventSource, EventSubscription,
+    EventSubscriptionId, EventSubscriptionState, EventSubscriptionStore, IncomingEvent,
+    IncomingEventId, IngestBatch, NormalizedEvent, SourceBatch, SourceBatchOutcome, StoreError,
+    Wakeup, WakeupId, WakeupLanding, WakeupState, WorkspaceId,
 };
 use pagis_trigger::{NewSubscription, SubscriptionAction};
 
@@ -390,6 +396,175 @@ async fn revoking_the_grant_withdraws_pending_work_and_blocks_the_rule() {
             .await
             .expect("claim")
             .is_empty()
+    );
+}
+
+/// An Event Subscription store that reads the Wake-ups of a rule right
+/// after each write of that rule commits, as a concurrent reader can,
+/// and keeps every blocked rule it finds that still holds pending work.
+struct BlockedRuleReader {
+    inner: Arc<dyn EventSubscriptionStore>,
+    pending_on_blocked: Mutex<Vec<EventSubscriptionId>>,
+}
+
+impl BlockedRuleReader {
+    async fn read_after_write(&self, subscription: &EventSubscription) -> Result<(), StoreError> {
+        if subscription.state != EventSubscriptionState::Blocked {
+            return Ok(());
+        }
+        let wakeups = self
+            .inner
+            .list_wakeups(&subscription.workspace_id, &subscription.id, None, 100)
+            .await?;
+        if wakeups
+            .iter()
+            .any(|wakeup| wakeup.state == WakeupState::Pending)
+        {
+            self.pending_on_blocked
+                .lock()
+                .expect("reader lock")
+                .push(subscription.id.clone());
+        }
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl EventSubscriptionStore for BlockedRuleReader {
+    async fn create(&self, subscription: &EventSubscription) -> Result<(), StoreError> {
+        self.inner.create(subscription).await
+    }
+    async fn get(
+        &self,
+        workspace_id: &WorkspaceId,
+        id: &EventSubscriptionId,
+    ) -> Result<Option<EventSubscription>, StoreError> {
+        self.inner.get(workspace_id, id).await
+    }
+    async fn list(
+        &self,
+        workspace_id: &WorkspaceId,
+        agent_id: Option<&AgentId>,
+        before: Option<&EventSubscriptionId>,
+        limit: u32,
+    ) -> Result<Vec<EventSubscription>, StoreError> {
+        self.inner.list(workspace_id, agent_id, before, limit).await
+    }
+    async fn update(&self, subscription: &EventSubscription) -> Result<bool, StoreError> {
+        let changed = self.inner.update(subscription).await?;
+        self.read_after_write(subscription).await?;
+        Ok(changed)
+    }
+    async fn update_and_withdraw(
+        &self,
+        subscription: &EventSubscription,
+    ) -> Result<Vec<Wakeup>, StoreError> {
+        let withdrawn = self.inner.update_and_withdraw(subscription).await?;
+        self.read_after_write(subscription).await?;
+        Ok(withdrawn)
+    }
+    async fn collector_targets(&self) -> Result<Vec<CollectorTarget>, StoreError> {
+        self.inner.collector_targets().await
+    }
+    async fn live_for_source(
+        &self,
+        workspace_id: &WorkspaceId,
+        source: &EventSource,
+        event_kind: &str,
+    ) -> Result<Vec<EventSubscription>, StoreError> {
+        self.inner
+            .live_for_source(workspace_id, source, event_kind)
+            .await
+    }
+    async fn list_for_source(
+        &self,
+        workspace_id: &WorkspaceId,
+        source: &EventSource,
+        states: &[&str],
+    ) -> Result<Vec<EventSubscription>, StoreError> {
+        self.inner
+            .list_for_source(workspace_id, source, states)
+            .await
+    }
+    async fn list_events(
+        &self,
+        workspace_id: &WorkspaceId,
+        subscription_id: &EventSubscriptionId,
+        before: Option<&IncomingEventId>,
+        limit: u32,
+    ) -> Result<Vec<IncomingEvent>, StoreError> {
+        self.inner
+            .list_events(workspace_id, subscription_id, before, limit)
+            .await
+    }
+    async fn list_wakeups(
+        &self,
+        workspace_id: &WorkspaceId,
+        subscription_id: &EventSubscriptionId,
+        before: Option<&WakeupId>,
+        limit: u32,
+    ) -> Result<Vec<Wakeup>, StoreError> {
+        self.inner
+            .list_wakeups(workspace_id, subscription_id, before, limit)
+            .await
+    }
+    async fn collector_health(
+        &self,
+        workspace_id: &WorkspaceId,
+        connection_id: &ConnectionId,
+        event_kind: &str,
+    ) -> Result<(Option<SourceBatch>, Option<SourceBatch>), StoreError> {
+        self.inner
+            .collector_health(workspace_id, connection_id, event_kind)
+            .await
+    }
+}
+
+#[tokio::test]
+async fn no_reader_sees_a_blocked_rule_with_pending_work() {
+    let reader = Arc::new(Mutex::new(None::<Arc<BlockedRuleReader>>));
+    let world = common::world_with(|inner| {
+        let wrapped = Arc::new(BlockedRuleReader {
+            inner,
+            pending_on_blocked: Mutex::new(Vec::new()),
+        });
+        *reader.lock().expect("reader slot") = Some(Arc::clone(&wrapped));
+        wrapped
+    })
+    .await;
+    let reader = reader
+        .lock()
+        .expect("reader slot")
+        .take()
+        .expect("the world wraps the store");
+    subscribe(&world, "inbox", &["a@example.com"]).await;
+    world
+        .trigger
+        .ingest(batch(
+            &world,
+            vec![mail("m1", "a@example.com", NOW + 10)],
+            "cursor-1",
+            NOW + 20,
+        ))
+        .await
+        .expect("ingest");
+    common::revoke_grant(&world).await.expect("revoke");
+
+    world
+        .trigger
+        .ingest(batch(
+            &world,
+            vec![mail("m2", "a@example.com", NOW + 30)],
+            "cursor-2",
+            NOW + 40,
+        ))
+        .await
+        .expect("ingest after revocation");
+
+    assert_eq!(
+        *reader.pending_on_blocked.lock().expect("reader lock"),
+        Vec::<EventSubscriptionId>::new(),
+        "the block and the withdrawal of pending work are one write"
     );
 }
 

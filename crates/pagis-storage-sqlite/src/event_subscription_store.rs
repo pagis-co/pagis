@@ -79,6 +79,37 @@ fn revision(row: &sqlx::sqlite::SqliteRow, name: &str) -> Result<u32, StoreError
         .map_err(|error| StoreError::Corrupt(format!("{name}: {error}")))
 }
 
+/// Write the mutable fields of one rule. Answer how many rows changed.
+async fn write_rule(
+    executor: impl sqlx::SqliteExecutor<'_>,
+    subscription: &EventSubscription,
+) -> Result<u64, StoreError> {
+    Ok(sqlx::query(
+        "UPDATE event_subscriptions SET name = ?, instruction = ?, channel_id = ?, \
+         root_message_id = ?, filter = ?, state = ?, revision = ?, approved_revision = ?, \
+         watermark_at = ?, blocked_reason = ?, updated_at = ?, archived_at = ? \
+         WHERE id = ? AND workspace_id = ?",
+    )
+    .bind(&subscription.name)
+    .bind(&subscription.instruction)
+    .bind(subscription.channel_id.as_str())
+    .bind(subscription.root_message_id.as_ref().map(|id| id.as_str()))
+    .bind(subscription.filter.to_string())
+    .bind(subscription.state.as_str())
+    .bind(i64::from(subscription.revision))
+    .bind(subscription.approved_revision.map(i64::from))
+    .bind(subscription.watermark_at)
+    .bind(subscription.blocked_reason.map(|reason| reason.as_str()))
+    .bind(subscription.updated_at)
+    .bind(subscription.archived_at)
+    .bind(subscription.id.as_str())
+    .bind(subscription.workspace_id.as_str())
+    .execute(executor)
+    .await
+    .map_err(db_err)?
+    .rows_affected())
+}
+
 #[async_trait]
 impl EventSubscriptionStore for SqliteEventSubscriptionStore {
     async fn create(&self, subscription: &EventSubscription) -> Result<(), StoreError> {
@@ -168,31 +199,30 @@ impl EventSubscriptionStore for SqliteEventSubscriptionStore {
     }
 
     async fn update(&self, subscription: &EventSubscription) -> Result<bool, StoreError> {
-        let changed = sqlx::query(
-            "UPDATE event_subscriptions SET name = ?, instruction = ?, channel_id = ?, \
-             root_message_id = ?, filter = ?, state = ?, revision = ?, approved_revision = ?, \
-             watermark_at = ?, blocked_reason = ?, updated_at = ?, archived_at = ? \
-             WHERE id = ? AND workspace_id = ?",
-        )
-        .bind(&subscription.name)
-        .bind(&subscription.instruction)
-        .bind(subscription.channel_id.as_str())
-        .bind(subscription.root_message_id.as_ref().map(|id| id.as_str()))
-        .bind(subscription.filter.to_string())
-        .bind(subscription.state.as_str())
-        .bind(i64::from(subscription.revision))
-        .bind(subscription.approved_revision.map(i64::from))
-        .bind(subscription.watermark_at)
-        .bind(subscription.blocked_reason.map(|reason| reason.as_str()))
-        .bind(subscription.updated_at)
-        .bind(subscription.archived_at)
-        .bind(subscription.id.as_str())
+        Ok(write_rule(&self.pool, subscription).await? > 0)
+    }
+
+    async fn update_and_withdraw(
+        &self,
+        subscription: &EventSubscription,
+    ) -> Result<Vec<Wakeup>, StoreError> {
+        let mut transaction = crate::pool::begin_write(&self.pool).await.map_err(db_err)?;
+        // `begin_write` takes the write lock, so a collection pass that
+        // rechecks the rule (see `ingest`) runs before or after this
+        // whole write: its Wake-up is withdrawn here, or it sees the
+        // new rule.
+        write_rule(&mut *transaction, subscription).await?;
+        let rows = sqlx::query(&format!(
+            "UPDATE wakeups SET state = 'withdrawn' WHERE state = 'pending' \
+             AND workspace_id = ? AND subscription_id = ? RETURNING {WAKEUP_COLUMNS}"
+        ))
         .bind(subscription.workspace_id.as_str())
-        .execute(&self.pool)
+        .bind(subscription.id.as_str())
+        .fetch_all(&mut *transaction)
         .await
-        .map_err(db_err)?
-        .rows_affected();
-        Ok(changed > 0)
+        .map_err(db_err)?;
+        transaction.commit().await.map_err(db_err)?;
+        rows.iter().map(row_to_wakeup).collect()
     }
 
     async fn collector_targets(&self) -> Result<Vec<CollectorTarget>, StoreError> {

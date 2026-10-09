@@ -757,42 +757,6 @@ impl TriggerStore for PostgresTriggerStore {
         }))
     }
 
-    async fn withdraw_pending(
-        &self,
-        workspace_id: &WorkspaceId,
-        rule_id: &str,
-        _at: i64,
-    ) -> Result<Vec<Wakeup>, pagis_core::StoreError> {
-        let mut transaction = crate::pool::begin_write(&self.pool).await.map_err(db_err)?;
-        let rows = sqlx::query(&format!(
-            "SELECT {WAKEUP_COLUMNS} FROM wakeups \
-             WHERE state = 'pending' AND workspace_id = $1 \
-             AND (schedule_id = $2 OR subscription_id = $3)"
-        ))
-        .bind(workspace_id.as_str())
-        .bind(rule_id)
-        .bind(rule_id)
-        .fetch_all(&mut *transaction)
-        .await
-        .map_err(db_err)?;
-        let mut withdrawn = rows
-            .iter()
-            .map(row_to_wakeup)
-            .collect::<Result<Vec<_>, _>>()?;
-        for wakeup in &mut withdrawn {
-            sqlx::query(
-                "UPDATE wakeups SET state = 'withdrawn' WHERE id = $1 AND state = 'pending'",
-            )
-            .bind(wakeup.id.as_str())
-            .execute(&mut *transaction)
-            .await
-            .map_err(db_err)?;
-            wakeup.state = pagis_core::WakeupState::Withdrawn;
-        }
-        transaction.commit().await.map_err(db_err)?;
-        Ok(withdrawn)
-    }
-
     async fn ingest(
         &self,
         batch: IngestBatch,
@@ -955,16 +919,20 @@ impl TriggerStore for PostgresTriggerStore {
             // Collection and grant revocation can overlap. Recheck the
             // durable rule inside this transaction so a stale collector
             // snapshot cannot recreate work after the rule was blocked.
-            let still_active = sqlx::query_scalar::<_, i64>(
-                "SELECT COUNT(*) FROM event_subscriptions WHERE id = $1 \
-                 AND state = 'active' AND revision = $2 AND approved_revision = revision",
+            // `FOR SHARE` waits for a write of the rule that has not
+            // committed and then reads the written rule, and it holds
+            // back a new write until this pass commits.
+            let still_active = sqlx::query(
+                "SELECT 1 FROM event_subscriptions WHERE id = $1 \
+                 AND state = 'active' AND revision = $2 AND approved_revision = revision \
+                 FOR SHARE",
             )
             .bind(subscription.id.as_str())
             .bind(i64::from(subscription.revision))
-            .fetch_one(&mut *transaction)
+            .fetch_optional(&mut *transaction)
             .await
             .map_err(db_err)?
-                > 0;
+            .is_some();
             if !still_active {
                 continue;
             }

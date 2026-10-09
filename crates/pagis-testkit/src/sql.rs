@@ -204,6 +204,61 @@ impl Rows {
     }
 }
 
+/// A write transaction that a test holds open, so that a store call
+/// runs while another writer has changed a row and not committed.
+pub enum Held {
+    Sqlite(sqlx::Transaction<'static, sqlx::Sqlite>),
+    Postgres(sqlx::Transaction<'static, sqlx::Postgres>),
+}
+
+impl Rows {
+    /// Start a write transaction, run one statement in it, and keep the
+    /// transaction open. The SQLite side starts it with `BEGIN
+    /// IMMEDIATE`, as a store write does, so it holds the write lock.
+    pub async fn hold(&self, sql: &str, binds: &[Bind]) -> Result<Held, String> {
+        match self {
+            Rows::Sqlite(pool) => {
+                let mut transaction = pool
+                    .begin_with("BEGIN IMMEDIATE")
+                    .await
+                    .map_err(|e| e.to_string())?;
+                let mut query = sqlx::query(sql);
+                for bind in binds {
+                    query = bind_sqlite(query, bind);
+                }
+                query
+                    .execute(&mut *transaction)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                Ok(Held::Sqlite(transaction))
+            }
+            Rows::Postgres(pool) => {
+                let mut transaction = pool.begin().await.map_err(|e| e.to_string())?;
+                let numbered = number_placeholders(sql);
+                let mut query = sqlx::query(&numbered);
+                for bind in binds {
+                    query = bind_postgres(query, bind);
+                }
+                query
+                    .execute(&mut *transaction)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                Ok(Held::Postgres(transaction))
+            }
+        }
+    }
+}
+
+impl Held {
+    pub async fn commit(self) -> Result<(), String> {
+        match self {
+            Held::Sqlite(transaction) => transaction.commit().await,
+            Held::Postgres(transaction) => transaction.commit().await,
+        }
+        .map_err(|e| e.to_string())
+    }
+}
+
 /// `?` becomes `$1`, `$2` and so on, in order. A `?` inside a quoted
 /// string is text, not a bind, so the scan tracks the quotes.
 fn number_placeholders(sql: &str) -> String {

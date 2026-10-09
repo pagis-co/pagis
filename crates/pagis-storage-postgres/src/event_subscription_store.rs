@@ -79,6 +79,37 @@ fn revision(row: &sqlx::postgres::PgRow, name: &str) -> Result<u32, StoreError> 
         .map_err(|error| StoreError::Corrupt(format!("{name}: {error}")))
 }
 
+/// Write the mutable fields of one rule. Answer how many rows changed.
+async fn write_rule(
+    executor: impl sqlx::PgExecutor<'_>,
+    subscription: &EventSubscription,
+) -> Result<u64, StoreError> {
+    Ok(sqlx::query(
+        "UPDATE event_subscriptions SET name = $1, instruction = $2, channel_id = $3, \
+         root_message_id = $4, filter = $5, state = $6, revision = $7, \
+         approved_revision = $8, watermark_at = $9, blocked_reason = $10, updated_at = $11, \
+         archived_at = $12 WHERE id = $13 AND workspace_id = $14",
+    )
+    .bind(&subscription.name)
+    .bind(&subscription.instruction)
+    .bind(subscription.channel_id.as_str())
+    .bind(subscription.root_message_id.as_ref().map(|id| id.as_str()))
+    .bind(subscription.filter.to_string())
+    .bind(subscription.state.as_str())
+    .bind(i64::from(subscription.revision))
+    .bind(subscription.approved_revision.map(i64::from))
+    .bind(subscription.watermark_at)
+    .bind(subscription.blocked_reason.map(|reason| reason.as_str()))
+    .bind(subscription.updated_at)
+    .bind(subscription.archived_at)
+    .bind(subscription.id.as_str())
+    .bind(subscription.workspace_id.as_str())
+    .execute(executor)
+    .await
+    .map_err(db_err)?
+    .rows_affected())
+}
+
 #[async_trait]
 impl EventSubscriptionStore for PostgresEventSubscriptionStore {
     async fn create(&self, subscription: &EventSubscription) -> Result<(), StoreError> {
@@ -169,31 +200,31 @@ impl EventSubscriptionStore for PostgresEventSubscriptionStore {
     }
 
     async fn update(&self, subscription: &EventSubscription) -> Result<bool, StoreError> {
-        let changed = sqlx::query(
-            "UPDATE event_subscriptions SET name = $1, instruction = $2, channel_id = $3, \
-             root_message_id = $4, filter = $5, state = $6, revision = $7, \
-             approved_revision = $8, watermark_at = $9, blocked_reason = $10, updated_at = $11, \
-             archived_at = $12 WHERE id = $13 AND workspace_id = $14",
-        )
-        .bind(&subscription.name)
-        .bind(&subscription.instruction)
-        .bind(subscription.channel_id.as_str())
-        .bind(subscription.root_message_id.as_ref().map(|id| id.as_str()))
-        .bind(subscription.filter.to_string())
-        .bind(subscription.state.as_str())
-        .bind(i64::from(subscription.revision))
-        .bind(subscription.approved_revision.map(i64::from))
-        .bind(subscription.watermark_at)
-        .bind(subscription.blocked_reason.map(|reason| reason.as_str()))
-        .bind(subscription.updated_at)
-        .bind(subscription.archived_at)
-        .bind(subscription.id.as_str())
+        Ok(write_rule(&self.pool, subscription).await? > 0)
+    }
+
+    async fn update_and_withdraw(
+        &self,
+        subscription: &EventSubscription,
+    ) -> Result<Vec<Wakeup>, StoreError> {
+        let mut transaction = crate::pool::begin_write(&self.pool).await.map_err(db_err)?;
+        // The rule is written first. Its row lock makes a collection
+        // pass that rechecks the rule (see `ingest`) wait for this
+        // commit and then see the new rule. A pass that locked the rule
+        // first commits before this write, and its Wake-up is withdrawn
+        // here.
+        write_rule(&mut *transaction, subscription).await?;
+        let rows = sqlx::query(&format!(
+            "UPDATE wakeups SET state = 'withdrawn' WHERE state = 'pending' \
+             AND workspace_id = $1 AND subscription_id = $2 RETURNING {WAKEUP_COLUMNS}"
+        ))
         .bind(subscription.workspace_id.as_str())
-        .execute(&self.pool)
+        .bind(subscription.id.as_str())
+        .fetch_all(&mut *transaction)
         .await
-        .map_err(db_err)?
-        .rows_affected();
-        Ok(changed > 0)
+        .map_err(db_err)?;
+        transaction.commit().await.map_err(db_err)?;
+        rows.iter().map(row_to_wakeup).collect()
     }
 
     async fn collector_targets(&self) -> Result<Vec<CollectorTarget>, StoreError> {

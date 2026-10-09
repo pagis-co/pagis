@@ -4965,6 +4965,7 @@ dependencies = [
 name = "pagis-trigger"
 version = "0.2.0"
 dependencies = [
+ "async-trait",
  "chrono",
  "chrono-tz",
  "croner",

@@ -9,8 +9,9 @@ use std::sync::Arc;
 use pagis_audit::AuditEventBus;
 use pagis_core::{
     AgentId, ChannelId, CodingSessionId, Connection, ConnectionId, ConnectionStore, EventBus,
-    EventCatalog, EventDeclaration, EventMatcher, Grant, GrantId, GrantStore, MemorySecretStore,
-    MessageId, RunId, ScheduleStore, StoreError, TenantKeys, WorkspaceId,
+    EventCatalog, EventDeclaration, EventMatcher, EventSubscriptionStore, Grant, GrantId,
+    GrantStore, MemorySecretStore, MessageId, RunId, ScheduleStore, StoreError, TenantKeys,
+    WorkspaceId,
 };
 use pagis_storage_sqlite::{
     SqliteAgentStore, SqliteChannelStore, SqliteConnectionStore, SqliteEventLog,
@@ -115,6 +116,15 @@ impl EventMatcher for TestMatcher {
 }
 
 pub async fn world() -> World {
+    world_with(|subscriptions| subscriptions).await
+}
+
+/// The world, with its Event Subscription store wrapped by `wrap`. A
+/// test that must look between two writes of the Trigger module wraps
+/// the store with an observer.
+pub async fn world_with(
+    wrap: impl FnOnce(Arc<dyn EventSubscriptionStore>) -> Arc<dyn EventSubscriptionStore>,
+) -> World {
     let pool = pagis_storage_sqlite::connect_memory()
         .await
         .expect("connect");
@@ -165,7 +175,7 @@ pub async fn world() -> World {
     let trigger = Arc::new(Trigger::new(TriggerDeps {
         schedules,
         store: Arc::new(SqliteTriggerStore::new(pool.clone())),
-        subscriptions: Arc::new(SqliteEventSubscriptionStore::new(pool.clone())),
+        subscriptions: wrap(Arc::new(SqliteEventSubscriptionStore::new(pool.clone()))),
         connections: connections as _,
         agents: Arc::new(SqliteAgentStore::new(pool.clone())),
         channels: Arc::new(SqliteChannelStore::new(pool.clone())),
