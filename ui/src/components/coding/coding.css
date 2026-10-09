@@ -1,4 +1,5 @@
-/* The session page (docs/UI-DESIGN.md): one Coding Session as its head,
+/* The Coding place and the session page (docs/UI-DESIGN.md). The place
+ * lists every Coding Session; the page shows one as its head,
  * its plan, its changed files and its transcript. Every value comes from
  * `tokens.css`. */
 
@@ -403,4 +404,107 @@ ins.coding-diff-line::before {
 .coding-cut {
   color: var(--waiting-ink);
   font-size: var(--text-xs);
+}
+
+/* The back control of the session page, to the Coding place. */
+.coding-back {
+  align-self: flex-start;
+  gap: var(--space-1-5);
+}
+
+/* The Coding place: the open sessions, then the ended ones. */
+.coding-list-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2-5);
+}
+
+.coding-list-header h2 {
+  margin: 0;
+  flex: 1;
+}
+
+.coding-list-summary {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.coding-list-empty {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.coding-list-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.coding-list-section h3 {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.coding-list-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto 6rem;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.coding-list-what {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  min-width: 0;
+}
+
+/* The title tells two sessions in one directory apart, so it leads the
+ * row. The facts are one muted line under it. Each line is cut at the
+ * end and never widens the row; the full path is its title. */
+.coding-list-title,
+.coding-list-facts {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.coding-list-facts {
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+/* A path is an identifier, so mono. */
+.coding-list-directory {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.coding-list-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-1-5);
+}
+
+.coding-list-time {
+  color: var(--muted);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+@media (max-width: 760px) {
+  .coding-list-row {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .coding-list-time {
+    grid-column: 2 / 4;
+    text-align: left;
+  }
 }

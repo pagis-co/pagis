@@ -1,4 +1,4 @@
-// The sidebar: the six places with the Needs-You count on Home,
+// The sidebar: the seven places with the Needs-You count on Home,
 // the conversations with the Chief of Staff first, one current mark at
 // a time, and the profile row that names the user and opens Settings.
 
@@ -218,13 +218,21 @@ describe('Sidebar', () => {
     expect(screen.queryByText(/keeps a copy of your model requests/)).toBeNull()
   })
 
-  it('lists the six places, with the Needs-You count on Home', async () => {
+  it('lists the seven places, with the Needs-You count on Home', async () => {
     mount({ pathname: '/', selectedId: null })
 
     const names = within(places())
       .getAllByRole('button')
       .map((button) => button.textContent)
-    expect(names).toEqual(['Home', 'Sprites', 'Memory', 'Automations', 'Software', 'Settings'])
+    expect(names).toEqual([
+      'Home',
+      'Sprites',
+      'Memory',
+      'Automations',
+      'Coding',
+      'Software',
+      'Settings',
+    ])
 
     const count = await within(places()).findByLabelText('2 need you')
     expect(count.textContent).toBe('2')

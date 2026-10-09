@@ -107,6 +107,7 @@ export const mailboxNameKey = (connectionId: string, localPart: string) =>
   ["mailbox-name", connectionId, localPart] as const;
 export const trustListKey = ["trust-list"] as const;
 export const callKey = (callId: string) => ["call", callId] as const;
+export const codingSessionsKey = ["coding-sessions"] as const;
 export const codingSessionKey = (sessionId: string) =>
   ["coding-session", sessionId] as const;
 export const codingSessionEventsKey = (sessionId: string) =>
@@ -2489,6 +2490,36 @@ export function useCall(api: ApiClient, callId: string) {
       ),
     staleTime: Infinity,
   });
+}
+
+/** The largest page of the list of Coding Sessions that the daemon
+ *  gives. */
+const CODING_SESSIONS_PAGE = 100;
+
+/** Every Coding Session of the Workspace, newest first (ADR-0033). The
+ *  daemon gives the list in pages before a session, and a full page can
+ *  have more after it. The hook reads each page until the last, because
+ *  the Coding place sorts every session: an old open session goes above
+ *  a new ended one. Each `coding_session.*` frame invalidates it. */
+export function useCodingSessions(api: ApiClient) {
+  const query = useInfiniteQuery({
+    queryKey: codingSessionsKey,
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ pageParam }) =>
+      unwrap(
+        api.GET("/api/v1/coding-sessions", {
+          params: { query: { before: pageParam, limit: CODING_SESSIONS_PAGE } },
+        }),
+      ),
+    getNextPageParam: (page) =>
+      page.items.length < CODING_SESSIONS_PAGE ? undefined : page.items.at(-1)?.id,
+    staleTime: Infinity,
+  });
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = query;
+  useEffect(() => {
+    if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+  return query;
 }
 
 /** One Coding Session record (ADR-0033). A `coding_session.*` frame of

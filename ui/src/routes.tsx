@@ -1,8 +1,8 @@
 // The route tree. Every view has a URL: a channel, a thread, a
 // run, a Coding Session, an agent, each Settings section, and the
-// Automations and Software destinations. The durable inspector tenant (the Desk
-// panel) rides in the `panel` search parameter; Call and Mail stay
-// transient in their stores (ADR-0022).
+// Automations, Coding and Software destinations. The durable inspector
+// tenant (the Desk panel) rides in the `panel` search parameter; Call
+// and Mail stay transient in their stores (ADR-0022).
 
 import {
   Outlet,
@@ -20,6 +20,7 @@ import type { ApiClient } from './api/client'
 import { AppShell } from './AppShell'
 import { Automations } from './components/Automations'
 import { CodingSessionPage } from './components/coding/CodingSessionPage'
+import { CodingSessions } from './components/coding/CodingSessions'
 import { ChannelComposer } from './components/composer/ChannelComposer'
 import { Home } from './components/home/Home'
 import { MemoryPage } from './components/memory/MemoryPage'
@@ -328,12 +329,44 @@ const codingRoute = createRoute({
   path: '/coding',
 })
 
+/** `/coding`: the Coding place, every Coding Session of the Workspace. */
+function CodingSessionsView() {
+  const api = useApi()
+  const navigate = useNavigate()
+  const openNav = useMobileNav((state) => state.open)
+  return (
+    <CodingSessions
+      api={api}
+      onOpenSession={(sessionId) =>
+        void navigate({ to: '/coding/$sessionId', params: { sessionId } })
+      }
+      onOpenChannel={(channelId) =>
+        void navigate({ to: '/c/$channelId', params: { channelId }, search: {} })
+      }
+      onOpenNav={openNav}
+    />
+  )
+}
+
+const codingIndexRoute = createRoute({
+  getParentRoute: () => codingRoute,
+  path: '/',
+  component: CodingSessionsView,
+})
+
 /** `/coding/:sessionId`: one Coding Session as its transcript, its
  *  plan and its tool calls. */
 function CodingSessionView() {
   const api = useApi()
   const { sessionId } = codingSessionRoute.useParams()
-  return <CodingSessionPage api={api} sessionId={sessionId} />
+  const navigate = useNavigate()
+  return (
+    <CodingSessionPage
+      api={api}
+      sessionId={sessionId}
+      onBack={() => void navigate({ to: '/coding' })}
+    />
+  )
 }
 
 const codingSessionRoute = createRoute({
@@ -601,7 +634,7 @@ const routeTree = rootRoute.addChildren([
     channelRoute.addChildren([threadRoute]),
   ]),
   runsRoute.addChildren([runsIndexRoute, runRoute]),
-  codingRoute.addChildren([codingSessionRoute]),
+  codingRoute.addChildren([codingIndexRoute, codingSessionRoute]),
   agentRoute,
   memoryRoute,
   automationsRoute,

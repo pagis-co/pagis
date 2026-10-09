@@ -532,6 +532,13 @@ by merges at most once a second. A client then reads the rows from the
 highest `seq` that it holds, less one. No event carries the text of a row or
 the title of a session.
 
+The Product App lists every Coding Session of the Workspace at `/coding`,
+the Coding place (ADR-0022): the open sessions first, with the ones whose
+decision waits for the Person at the top and a "Needs you" mark on each,
+then the ended ones. A row leads with the title of the session, then shows
+its state, its Agent, its harness, its machine, its directory and the time
+of its last activity. An event of any session makes the list read again.
+
 The Product App shows one session at `/coding/<id>`, in the main pane as a
 Run is: its head, its last plan, and its transcript as messages, tool calls
 and one line for each ask. An event of the session makes the page read the
@@ -620,6 +627,5 @@ Other ways were considered:
 - The item in the Needs-You Queue and the Notification.
 - The question in the daemon.
 - The report of a harness that needs a sign-in.
-- The Coding place.
 - Harness Sign-In in Settings.
 - The Computer place.

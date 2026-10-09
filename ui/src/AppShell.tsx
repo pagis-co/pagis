@@ -38,6 +38,7 @@ import {
   callKey,
   codingSessionEventsKey,
   codingSessionKey,
+  codingSessionsKey,
   needsYouKey,
   pendingRequestsKey,
   pluginKey,
@@ -242,6 +243,7 @@ export function AppShell() {
     if (place === 'sprites') return void navigate({ to: '/sprites' })
     if (place === 'memory') return void navigate({ to: '/memory', search: {} })
     if (place === 'automations') return void navigate({ to: '/automations' })
+    if (place === 'coding') return void navigate({ to: '/coding' })
     if (place === 'software') return void navigate({ to: '/software' })
     return void navigate({ to: '/settings/$section', params: { section: 'connections' } })
   }
@@ -427,9 +429,10 @@ export function AppShell() {
             }
           }
           // A Coding Session reports each write of its record and of its
-          // transcript, with no text (ADR-0033). The session page and the
-          // session block read them again.
+          // transcript, with no text (ADR-0033). The Coding place, the
+          // session page and the session block read them again.
           if (frame.type.startsWith('coding_session.')) {
+            void queryClient.invalidateQueries({ queryKey: codingSessionsKey })
             const sessionId = (event.payload as { coding_session_id?: string })
               .coding_session_id
             if (sessionId != null) {
