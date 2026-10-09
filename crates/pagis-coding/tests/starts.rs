@@ -236,6 +236,7 @@ async fn an_allowed_start_names_the_harness_the_branch_and_the_mode(pool: Sqlite
             branch: Some("pagis/fix-the-login-oauth-cookies".to_string()),
             mode: SessionApprovalMode::Person,
             asks_permission: true,
+            harness_mode: None,
         }
     );
     let action = world
@@ -404,4 +405,67 @@ async fn a_harness_that_asks_needs_no_allowance_of_unattended_modes(pool: Sqlite
     let action = world.describe(with("mode", json!("agent"))).await.unwrap();
 
     assert!(action.asks_permission);
+}
+
+/// A start names a Harness Mode of the Harness Catalog for its harness, so
+/// the card can name it before the harness runs.
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_harness_mode_that_the_catalog_does_not_list_is_an_invalid_request(pool: SqlitePool) {
+    let world = world(pool).await;
+
+    let refused = world
+        .describe(with("harness_mode", json!("dontAsk")))
+        .await
+        .expect_err("a refusal");
+
+    assert_eq!(refused.code.as_deref(), Some("invalid_request"));
+    let content: Value = serde_json::from_str(&refused.content).unwrap();
+    assert_eq!(
+        content["error"]["message"],
+        "\"dontAsk\" is not a Harness Mode of Claude Code. Use one of: default, plan, \
+         acceptEdits, auto, bypassPermissions."
+    );
+}
+
+/// A Harness Mode that acts without asking needs the allowance of
+/// Unattended Modes on the host Grant, as a harness that never asks does.
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_harness_mode_that_acts_without_asking_needs_the_allowance_of_unattended_modes(
+    pool: SqlitePool,
+) {
+    let world = world(pool).await;
+
+    let refused = world
+        .describe(with("harness_mode", json!("bypassPermissions")))
+        .await
+        .expect_err("a refusal");
+    assert_eq!(refused.code.as_deref(), Some("unattended_mode_not_allowed"));
+    assert!(
+        refused.content.contains(
+            "Bypass permissions of Claude Code acts without asking. Ask the user to allow modes \
+             that act without asking for you on Air."
+        ),
+        "{refused:?}"
+    );
+
+    world.grant_with(SessionApprovalMode::Person, true).await;
+
+    let action = world
+        .describe(with("harness_mode", json!("bypassPermissions")))
+        .await
+        .unwrap();
+    assert_eq!(action.harness_mode.as_deref(), Some("bypassPermissions"));
+}
+
+/// An asking Harness Mode needs no allowance.
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn an_asking_harness_mode_needs_no_allowance_of_unattended_modes(pool: SqlitePool) {
+    let world = world(pool).await;
+
+    let action = world
+        .describe(with("harness_mode", json!("plan")))
+        .await
+        .unwrap();
+
+    assert_eq!(action.harness_mode.as_deref(), Some("plan"));
 }

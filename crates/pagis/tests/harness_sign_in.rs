@@ -464,6 +464,7 @@ async fn person_b_receives_no_sign_in_change_of_person_as_host() {
             directory: "/Users/bo/code/app".to_string(),
             worktree: None,
             approval_mode: SessionApprovalMode::Person,
+            harness_mode: None,
             title: "Fix the login".to_string(),
             prompt: "Fix the login bug.".to_string(),
         })

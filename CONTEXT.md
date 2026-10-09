@@ -1049,8 +1049,8 @@ WebSocket of the Client App that carries one stream for each Coding Session.
 An Agent starts it on a Host with `coding_session_start`, after the Person
 approves the card or under a session Allow Rule of the host Grant, and the
 daemon stores its record and its transcript. The Agent then prompts,
-reads, cancels, closes and lists its own sessions with core tools, and a
-session of another Agent reads as absent. A question of the harness goes
+reads, cancels, closes and lists its own sessions with core tools, and
+changes their Harness Mode. A session of another Agent reads as absent. A question of the harness goes
 to the Agent in each mode. The Agent answers it, and asks the Person with
 `ask_user` first when it does not know: a question is not an Approval. A lost Host or a restart of the
 daemon makes an open session `interrupted`, and the Agent resumes it with
@@ -1073,8 +1073,10 @@ Codex. The harness names its modes when a session opens. The Harness
 Catalog says in which modes the harness asks before each action. The
 Session Approval Mode says who answers a Harness Permission, and the
 Harness Mode says when the harness asks one. The record of a Coding Session
-keeps its current mode, and a start puts the harness in an asking mode
-(ADR-0033). Not built: the Harness Mode that the Agent picks.
+keeps its current mode. The Agent picks the mode at the start, and changes
+it with `coding_session_set_mode`. A start with no mode puts the harness in
+an asking mode. A mode that acts without asking needs the allowance of the
+host Grant (ADR-0033).
 _Avoid_: permission mode, agent mode
 
 ### Harness Model Endpoint

@@ -18,9 +18,11 @@
 //!
 //! The record keeps the Harness Mode of each session: the modes that the
 //! harness offers when the session opens or resumes, and the current one.
-//! A start puts the harness in an asking mode of the Harness Catalog
-//! before the first prompt, and a resume sets the recorded mode again. A
-//! change of the mode by the harness writes the record and a `mode` row.
+//! A start sets the mode that the card named before the first prompt: the
+//! mode that the Agent picked, or else the first asking mode of the
+//! Harness Catalog. A harness that does not offer the first asking mode
+//! keeps an asking mode of its own, or else goes to another asking mode. A resume sets the recorded mode again. A change of the
+//! mode by the Agent or by the harness writes the record and a `mode` row.
 //!
 //! A session acts without asking when its harness never asks permission,
 //! or when its mode is not an asking mode of the catalog. Such a session
@@ -63,6 +65,11 @@ use crate::{
 /// How long a session waits for the exit report of its process after
 /// the stream of the process closed.
 const EXIT_GRACE: Duration = Duration::from_secs(10);
+
+/// How long a change of the Harness Mode by the Agent waits for the
+/// answer of the harness. The change holds the lock of the Grant checks,
+/// so a harness that does not answer cannot hold it longer.
+const SET_MODE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// What [`CodingSessions`] is built from.
 pub struct CodingSessionsDeps {
@@ -111,6 +118,9 @@ pub struct NewCodingSession {
     pub directory: String,
     pub worktree: Option<WorktreeRequest>,
     pub approval_mode: SessionApprovalMode,
+    /// The id of the Harness Mode that the Person approved on the card,
+    /// or `None` for an asking mode of the Harness Catalog.
+    pub harness_mode: Option<String>,
     pub title: String,
     /// The first prompt.
     pub prompt: String,
@@ -165,8 +175,63 @@ pub enum StartFailure {
         harness: String,
         machine: String,
     },
+    /// The harness does not offer the Harness Mode that the Person
+    /// approved, so the session is `failed` before its first prompt.
+    /// `offered` holds the ids of the modes that the harness offered,
+    /// which are harness text.
+    #[error("the Coding Harness does not offer the Harness Mode {mode:?}")]
+    ModeNotOffered {
+        session_id: CodingSessionId,
+        mode: String,
+        offered: Vec<String>,
+    },
     #[error(transparent)]
     Store(#[from] StoreError),
+}
+
+/// The end reason of a start whose Harness Mode the harness does not
+/// offer.
+const MODE_NOT_OFFERED: &str = "mode_not_offered";
+
+/// Why a change of the Harness Mode did nothing. The session keeps its
+/// mode.
+#[derive(Debug, thiserror::Error)]
+pub enum SetModeFailure {
+    #[error("the Workspace has no such Coding Session")]
+    NotFound,
+    /// Only a session with a stream changes its mode.
+    #[error("the Coding Session is {}", .0.as_str())]
+    NotOpen(State),
+    /// The harness offered no Harness Modes.
+    #[error("the Coding Harness offered no Harness Modes")]
+    NoModes,
+    /// The session does not list the mode. `offered` holds the ids that
+    /// it lists, which are harness text.
+    #[error("the Coding Session does not list the Harness Mode")]
+    NotOffered { offered: Vec<String> },
+    /// The mode acts without asking, and the live host Grant does not
+    /// allow Unattended Modes. `mode` is the name of the mode.
+    #[error(
+        "{mode} acts without asking. Ask the user to allow modes that act without asking for \
+         you on {machine}."
+    )]
+    UnattendedModeNotAllowed { mode: String, machine: String },
+    /// The harness refused the mode. The message is harness text.
+    #[error("the Coding Harness failed: {0}")]
+    Harness(String),
+    #[error(transparent)]
+    Store(#[from] StoreError),
+}
+
+impl From<SessionError> for SetModeFailure {
+    fn from(error: SessionError) -> Self {
+        match error {
+            SessionError::NotFound => SetModeFailure::NotFound,
+            SessionError::NotOpen(state) => SetModeFailure::NotOpen(state),
+            SessionError::Harness(message) => SetModeFailure::Harness(message),
+            SessionError::Store(error) => SetModeFailure::Store(error),
+        }
+    }
 }
 
 /// The end reason, and the tool error, of a session that acts without
@@ -499,18 +564,38 @@ impl CodingSessions {
             record.harness_modes = modes.available.clone();
         }
         self.records.write(&mut record).await?;
-        // The harness does nothing in a mode that does not ask before the
-        // first prompt. Its own first mode comes from the Person's settings
-        // of the harness, which do not decide what a session may do.
-        match set_asking_mode(&acp, entry, &record).await {
+        // The harness starts in the mode that the card named. Its own first
+        // mode comes from the Person's settings of the harness, which do
+        // not decide what a session may do.
+        let chosen = match &new.harness_mode {
+            Some(approved) => set_approved_mode(&acp, &record, approved).await,
+            None => set_card_mode(&acp, entry, &record).await,
+        };
+        match chosen {
             Ok(None) => {}
-            Ok(Some(asking)) => {
-                record.harness_mode = Some(asking.to_string());
-                let payload = mode_payload(asking, &record.harness_modes, ModeChangedBy::Pagis);
+            Ok(Some(mode)) => {
+                let payload = mode_payload(&mode, &record.harness_modes, ModeChangedBy::Pagis);
+                record.harness_mode = Some(mode);
                 self.records.write(&mut record).await?;
                 self.records.append(&record, Kind::Mode, payload).await?;
             }
-            Err(error) => {
+            Err(ModeSetting::NotOffered(mode)) => {
+                acp.close();
+                self.records
+                    .end_start(&mut record, End::new(MODE_NOT_OFFERED, None))
+                    .await;
+                let offered = record
+                    .harness_modes
+                    .iter()
+                    .map(|mode| mode.id.clone())
+                    .collect();
+                return Err(StartFailure::ModeNotOffered {
+                    session_id: record.id,
+                    mode,
+                    offered,
+                });
+            }
+            Err(ModeSetting::Harness(error)) => {
                 acp.close();
                 return Err(self.harness_failed(&mut record, error).await);
             }
@@ -668,6 +753,74 @@ impl CodingSessions {
             .raise(&record, &machine, SessionNews::Ended)
             .await;
         self.records.end_rules(&record).await;
+        Ok(())
+    }
+
+    /// Changes the Harness Mode of a session with a stream to a mode that
+    /// its harness offered, for the supervising Agent. The checks go in
+    /// this order: the session is `working`, `needs_decision` or `idle`,
+    /// its harness offered modes, the mode is one of them, and a Host
+    /// session in a mode that acts without asking has the allowance of
+    /// the live host Grant. The task of the session then sets the mode and
+    /// writes the record and a `mode` row by `agent`.
+    ///
+    /// The check and the write hold the lock of the Grant checks, so a
+    /// Grant change that comes between them waits, and then finds the new
+    /// mode in the record.
+    pub async fn set_mode(
+        &self,
+        workspace_id: &WorkspaceId,
+        session_id: &CodingSessionId,
+        mode_id: &str,
+    ) -> Result<(), SetModeFailure> {
+        let _checks = self.grant_checks.lock().await;
+        let record = self
+            .records
+            .store
+            .get(workspace_id, session_id)
+            .await?
+            .ok_or(SetModeFailure::NotFound)?;
+        if !matches!(
+            record.state,
+            State::Working | State::NeedsDecision | State::Idle
+        ) {
+            return Err(SetModeFailure::NotOpen(record.state));
+        }
+        if record.harness_modes.is_empty() {
+            return Err(SetModeFailure::NoModes);
+        }
+        if !record.harness_modes.iter().any(|mode| mode.id == mode_id) {
+            return Err(SetModeFailure::NotOffered {
+                offered: record
+                    .harness_modes
+                    .iter()
+                    .map(|mode| mode.id.clone())
+                    .collect(),
+            });
+        }
+        let changed = CodingSession {
+            harness_mode: Some(mode_id.to_string()),
+            ..record.clone()
+        };
+        if changed.acts_unattended()
+            && let Some(host_id) = &record.host_id
+            && !self.unattended_allowed(&record, host_id).await?
+        {
+            // The name of the catalog, because the harness names its own
+            // modes.
+            let mode = harness::entry(&record.harness_id)
+                .and_then(|entry| entry.modes.iter().find(|mode| mode.id == mode_id))
+                .map_or("This mode", |mode| mode.name);
+            return Err(SetModeFailure::UnattendedModeNotAllowed {
+                mode: mode.to_string(),
+                machine: self.machine(&record).await,
+            });
+        }
+        self.command(workspace_id, session_id, |reply| Command::SetMode {
+            mode_id: mode_id.to_string(),
+            reply,
+        })
+        .await?;
         Ok(())
     }
 
@@ -1127,6 +1280,31 @@ impl CodingSessions {
     }
 }
 
+/// Why the first Harness Mode of a new session was not set.
+enum ModeSetting {
+    /// The harness does not offer the approved mode.
+    NotOffered(String),
+    Harness(CodingError),
+}
+
+/// Sets the mode that the card of a start with no Harness Mode names: the
+/// first asking mode of the Harness Catalog. A harness that does not offer
+/// it keeps its own mode when that mode asks, and else goes to an asking
+/// mode that it offers.
+async fn set_card_mode(
+    acp: &AcpSession,
+    entry: &harness::HarnessEntry,
+    record: &CodingSession,
+) -> Result<Option<String>, ModeSetting> {
+    let card = entry.modes.iter().find(|mode| mode.asks);
+    match card {
+        Some(card) if record.harness_modes.iter().any(|mode| mode.id == card.id) => {
+            set_approved_mode(acp, record, card.id).await
+        }
+        _ => set_asking_mode(acp, entry, record).await,
+    }
+}
+
 /// Sets the first asking mode of the Harness Catalog that the harness
 /// offers, when the current mode of a new session does not ask, and
 /// answers the mode that it set. A harness that offers no asking mode
@@ -1135,7 +1313,7 @@ async fn set_asking_mode(
     acp: &AcpSession,
     entry: &harness::HarnessEntry,
     record: &CodingSession,
-) -> Result<Option<&'static str>, CodingError> {
+) -> Result<Option<String>, ModeSetting> {
     if !record.acts_unattended() {
         return Ok(None);
     }
@@ -1147,8 +1325,29 @@ async fn set_asking_mode(
     let Some(asking) = entry.asking_mode(&offered) else {
         return Ok(None);
     };
-    acp.set_mode(asking.id).await?;
-    Ok(Some(asking.id))
+    acp.set_mode(asking.id)
+        .await
+        .map_err(ModeSetting::Harness)?;
+    Ok(Some(asking.id.to_string()))
+}
+
+/// Sets the Harness Mode that the Person approved on the card, when the
+/// new session is not in it already, and answers the mode that it set.
+/// Pagis puts the harness in no other mode than the approved one, so a
+/// harness that does not offer it fails the start.
+async fn set_approved_mode(
+    acp: &AcpSession,
+    record: &CodingSession,
+    approved: &str,
+) -> Result<Option<String>, ModeSetting> {
+    if !record.harness_modes.iter().any(|mode| mode.id == approved) {
+        return Err(ModeSetting::NotOffered(approved.to_string()));
+    }
+    if record.harness_mode.as_deref() == Some(approved) {
+        return Ok(None);
+    }
+    acp.set_mode(approved).await.map_err(ModeSetting::Harness)?;
+    Ok(Some(approved.to_string()))
 }
 
 /// The message of a failed request of the harness. It is harness text.
@@ -1344,6 +1543,11 @@ enum Command {
         ask_id: String,
         answered: Value,
         asked: Value,
+    },
+    /// The Agent changes the Harness Mode, which the session offered.
+    SetMode {
+        mode_id: String,
+        reply: oneshot::Sender<Result<(), SessionError>>,
     },
     /// The place of the session is lost: the task closes the stream,
     /// moves the session to `interrupted` and ends.
@@ -1826,6 +2030,10 @@ impl Task {
                 }
                 Flow::Go
             }
+            Command::SetMode { mode_id, reply } => {
+                let _ = reply.send(self.set_mode(mode_id).await);
+                Flow::Go
+            }
             Command::Interrupt { reason, reply } => {
                 self.queue.clear();
                 if let Some(acp) = self.acp.take() {
@@ -1937,6 +2145,35 @@ impl Task {
             SessionEvent::Closed => {}
         }
         Flow::Go
+    }
+
+    /// Sets the Harness Mode that the Agent chose, and writes the record
+    /// and a `mode` row by `agent`. A session in the mode already changes
+    /// nothing.
+    async fn set_mode(&mut self, mode_id: String) -> Result<(), SessionError> {
+        let acp = self
+            .acp
+            .as_ref()
+            .ok_or(SessionError::NotOpen(self.record.state))?;
+        if self.record.harness_mode.as_deref() == Some(mode_id.as_str()) {
+            return Ok(());
+        }
+        match tokio::time::timeout(SET_MODE_TIMEOUT, acp.set_mode(&mode_id)).await {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => return Err(SessionError::Harness(harness_message(error))),
+            Err(_) => {
+                return Err(SessionError::Harness(format!(
+                    "the harness did not answer session/set_mode in {} seconds",
+                    SET_MODE_TIMEOUT.as_secs()
+                )));
+            }
+        }
+        let payload = mode_payload(&mode_id, &self.record.harness_modes, ModeChangedBy::Agent);
+        self.record.harness_mode = Some(mode_id);
+        let written = self.records.write(&mut self.record).await;
+        self.snapshot.send_replace(self.record.clone());
+        self.append(Kind::Mode, payload).await;
+        written.map_err(SessionError::from)
     }
 
     /// Writes a new Harness Mode that the harness reported, and its `mode`

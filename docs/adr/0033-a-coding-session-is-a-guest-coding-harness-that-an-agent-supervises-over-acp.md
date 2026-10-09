@@ -329,16 +329,25 @@ each `harness:<id>` capability of a Host with its `needs_sign_in`.
 The Agent drives a Coding Session with core tools (ADR-0005):
 
 - `coding_session_start {harness, machine?, directory, worktree?, mode?,
-  title, prompt}`. `worktree` is true by default, on the branch
-  `pagis/<slug>`. `mode` is `person` by default. The effect class is `host`.
+  harness_mode?, title, prompt}`. `worktree` is true by default, on the
+  branch `pagis/<slug>`. `mode` is `person` by default. `harness_mode` is the
+  id of a Harness Mode of the Harness Catalog for the harness, and the
+  description of the tool lists the modes of each harness and marks each
+  mode that acts without asking. The effect class is `host`.
   The candidate machines are the present Hosts of the Person that declare
   `harness:<id>`, chosen as `host_shell` chooses them (ADR-0015). The card
-  shows the harness, the machine, the directory, the worktree, the mode and
-  the start of the brief. Its allow-rule builder offers "Always allow
-  <harness> sessions in <directory> on <machine>". For a harness that never
+  shows the harness, the machine, the directory, the worktree, the mode,
+  the Harness Mode and the start of the brief. Its allow-rule builder offers
+  "Always allow <harness> sessions in <directory> on <machine>". The line
+  "Harness mode: <name>" takes the name from the catalog, and a mode that
+  acts without asking adds " (acts without asking)". With no
+  `harness_mode`, the line names the first asking mode of the catalog, and
+  a harness with no catalog modes has no line. For a harness that never
   asks, the card adds the line "<harness> does not ask before it acts." The
-  start refuses a mode wider than the Grant allows, and a harness that never
-  asks where the Grant does not allow Unattended Modes
+  start refuses a mode wider than the Grant allows, a `harness_mode` that
+  the catalog does not list for the harness (`invalid_request`), and a
+  harness that never asks or a Harness Mode that acts without asking where
+  the Grant does not allow Unattended Modes
   (`unattended_mode_not_allowed`).
 - `coding_session_send {session, prompt}`: a new turn when the session is
   `idle`, and queued until the turn ends when it is `working`, because ACP v1
@@ -397,6 +406,20 @@ The Agent drives a Coding Session with core tools (ADR-0005):
   `no_pending_question`), and that the values match the form of the
   question (else `invalid_values`, which names the field). A failed check
   leaves the question waiting.
+- `coding_session_set_mode {session, mode}` changes the Harness Mode of a
+  session. Free, as `coding_session_decide` is: the Person bounds the
+  Unattended Modes with the Grant, and the tool reads the live Grant. The
+  snapshot holds it with the other session tools. It checks, in this order,
+  that the session is the Agent's own (else `session_not_found`), that the
+  session has a stream: `working`, `needs_decision` or `idle` (else
+  `session_not_open` with the state), that the harness offered modes (else
+  `no_modes`), that `mode` is one of them (else `invalid_request`, with the
+  offered ids inside the untrusted envelope), and that the live host Grant
+  allows Unattended Modes for a mode that acts without asking on a Host
+  (else `unattended_mode_not_allowed`). The task of the session then sends
+  `session/set_mode` and writes the record and a `mode` row by `agent`. The
+  check and the write hold the lock of the Grant checks. The tool accepts
+  each mode that the session lists, because the harness named it.
 
 ### A session Allow Rule lets a start run with no card
 
@@ -481,7 +504,8 @@ The harness names its modes and its current mode in the answer of
 them. A harness that answers no modes has no mode. A `current_mode_update`
 of the harness changes the current mode of the record and writes a `mode`
 row. The payload of a `mode` row is
-`{"mode": <id>, "name": <name or the id>, "by": "pagis" | "harness"}`, and a
+`{"mode": <id>, "name": <name or the id>, "by": "pagis" | "agent" |
+"harness"}`, and a
 `mode` row never merges. Thus the transcript shows when the harness stopped
 asking.
 
@@ -490,13 +514,25 @@ mode is not an asking mode of the Harness Catalog. A mode that the catalog
 does not list counts as a mode that does not ask, so a mode that a later
 adapter adds fails closed.
 
-A start puts the harness in an asking mode before the first prompt. When
-the first mode of the harness does not ask, the daemon sets the first
-asking mode of the catalog that the harness offers with `session/set_mode`,
-and writes a `mode` row by `pagis`. This occurs whether the Grant allows
-Unattended Modes or not: the Person's own default mode of the harness does
-not decide what a session of an Agent may do. A harness that offers no
-asking mode starts in its own mode. A resume sets the recorded mode again
+The Agent picks the Harness Mode, and the Person bounds it with the
+Grant, as for the Session Approval Mode. A start with a `harness_mode`
+sets that mode with `session/set_mode` before the first prompt, when the
+harness is not in it, and writes a `mode` row by `pagis`. When the harness
+does not offer the mode, the start ends `failed` with the end reason
+`mode_not_offered`, and the tool error `mode_not_offered` names the modes
+that the harness offered. Pagis does not put the harness in another mode
+than the one that the Person approved on the card.
+
+A start with no `harness_mode` puts the harness in the mode that its card
+names, the first asking mode of the catalog, before the first prompt. When
+the current mode of the harness is another mode, also an asking one such as
+Plan, the daemon sets that mode with `session/set_mode` and writes a `mode`
+row by `pagis`. This occurs whether the Grant allows Unattended Modes or
+not: the Person's own default mode of the harness does not decide what a
+session of an Agent may do. A harness that does not offer that mode keeps
+its own mode when it asks, and else goes to the first asking mode of the
+catalog that it offers. A harness that offers no asking mode starts in its
+own mode. A resume sets the recorded mode again
 when the restored session answers another one.
 
 A Host session that acts without asking needs the allowance of the live
@@ -507,8 +543,12 @@ change of the harness closes with `approval_mode_narrowed` when the live
 Grant does not allow one. Pagis does not set the mode back, because the
 harness can act in the new mode before a `session/set_mode` arrives.
 
-Not built: the Harness Mode that the Agent picks, and the Harness Mode in
-the Product App.
+`coding_session_read` shows the current Harness Mode (its id and name)
+and the offered modes inside the untrusted envelope, because the harness
+names them. The REST record of a session holds `harness_mode`,
+`harness_mode_name`, `harness_modes` and `unattended`.
+
+Not built: the Harness Mode in the Product App.
 
 ### A Harness Permission passes Pagis policy first
 
@@ -817,7 +857,6 @@ Other ways were considered:
 ## Not built
 
 - A Pagis auto mode.
-- The Harness Mode that the Agent picks.
 - The Harness Mode in the Product App.
 - The switch for Unattended Modes on the Access tab.
 - The Computer place.

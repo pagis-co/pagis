@@ -180,6 +180,7 @@ async fn start_session_with(daemon: &TestDaemon, run_id: RunId, script: Script) 
             directory: DIRECTORY.to_string(),
             worktree: None,
             approval_mode: SessionApprovalMode::Person,
+            harness_mode: None,
             title: "Fix the login bug".to_string(),
             prompt: "Fix the login bug.".to_string(),
         })
@@ -2191,6 +2192,7 @@ async fn the_person_who_stops_allowing_unattended_modes_closes_a_pi_session_and_
             directory: DIRECTORY.to_string(),
             worktree: None,
             approval_mode: SessionApprovalMode::Person,
+            harness_mode: None,
             title: "Fix the login bug".to_string(),
             prompt: PROMPT.to_string(),
         })
@@ -2206,6 +2208,101 @@ async fn the_person_who_stops_allowing_unattended_modes_closes_a_pi_session_and_
     let rows = session_envelope(&brain, &session, "coding_session.ended");
     assert!(rows.contains("state: closed"), "{rows}");
     assert!(rows.contains("reason: approval_mode_narrowed"), "{rows}");
+}
+
+/// The Agent picks a Harness Mode that acts without asking where the
+/// Person allows Unattended Modes: the card names the mode before the
+/// harness runs, and the session reads as unattended.
+#[tokio::test]
+async fn an_agent_starts_a_session_in_bypass_permissions_where_the_person_allows_unattended_modes()
+{
+    let brain = Arc::new(ScriptedBrain::default());
+    brain.push(pagis_testkit::Script::tool_call(
+        &[],
+        "coding_session_start",
+        json!({
+            "harness": "claude",
+            "directory": DIRECTORY,
+            "title": "Fix the login",
+            "prompt": PROMPT,
+            "harness_mode": "bypassPermissions",
+        }),
+    ));
+    brain.push(pagis_testkit::Script::reply(&["Started."]));
+    let daemon = daemon_for_test_runs(&brain).await;
+    let modes: Vec<(&str, &str)> = harness::entry("claude")
+        .unwrap()
+        .modes
+        .iter()
+        .map(|mode| (mode.id, mode.name))
+        .collect();
+    let script = Script::default()
+        .modes("default", &modes)
+        .turn(Turn::until_cancel(vec![]));
+    let client_app = FakeClientApp::running(WORKTREE, move |stream| {
+        let (read, write) = futures::io::AsyncReadExt::split(stream);
+        FakeHarness::serve(script.clone(), write, read);
+    });
+    let host = HostClient::connect(
+        &daemon,
+        "Air",
+        "macos",
+        &["shell", "harness:claude"],
+        HostAnswer::ok(),
+    )
+    .await;
+    let host_id = HostId::from(host.host_id().to_string());
+    let _sessions = SessionClient::connect(&daemon, daemon.cookie(), host.host_id(), client_app)
+        .await
+        .expect("the session socket opens");
+    wait_until("the session socket is not open", || {
+        daemon.host_sessions.is_open(&host_id)
+    })
+    .await;
+    assert_eq!(set_unattended_modes(&daemon, &host_id, true).await, 201);
+    let mut firehose = daemon.event_socket(daemon.cookie()).await;
+
+    send(
+        &daemon,
+        daemon.cookie(),
+        &daemon.dm_channel_id,
+        "fix the login",
+    )
+    .await;
+
+    let created = next_frame_of(&mut firehose, "request.created").await;
+    let request_id = created["payload"]["payload"]["request_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let card = get(&daemon, &format!("/api/v1/requests/{request_id}")).await;
+    let body = card["payload"]["body"].as_str().unwrap_or_default();
+    assert!(
+        body.contains("\nHarness mode: Bypass permissions (acts without asking)\n"),
+        "{body}"
+    );
+    let decided = reqwest::Client::new()
+        .post(format!(
+            "{}/api/v1/requests/{request_id}/decision",
+            daemon.base_url
+        ))
+        .header("cookie", daemon.cookie())
+        .json(&json!({"decision": "approved"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(decided.status(), 200);
+    let result = the_tool_result(&mut firehose, &brain).await;
+    let result: Value = serde_json::from_str(&result)
+        .unwrap_or_else(|error| panic!("the tool result is JSON ({error}): {result}"));
+    let session_id = result["session_id"].as_str().expect("a started session");
+
+    let session = get(&daemon, &format!("/api/v1/coding-sessions/{session_id}")).await;
+    assert_eq!(session["harness_mode"], "bypassPermissions");
+    assert_eq!(session["harness_mode_name"], "Bypass permissions");
+    assert_eq!(session["unattended"], true);
+    assert_eq!(session["harness_modes"].as_array().map(Vec::len), Some(5));
+    assert_eq!(session["state"], "working");
 }
 
 // The `agent` mode: the supervising Agent decides a Harness Permission

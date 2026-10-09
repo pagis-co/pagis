@@ -350,7 +350,7 @@ pub struct CodingSessionUsage {
 }
 
 /// One Harness Mode as the harness names it when a session opens.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct HarnessModeInfo {
     /// The id that `session/set_mode` names.
     pub id: String,
@@ -364,6 +364,8 @@ pub struct HarnessModeInfo {
 pub enum ModeChangedBy {
     /// Pagis set the mode with `session/set_mode`.
     Pagis,
+    /// The supervising Agent set the mode with `coding_session_set_mode`.
+    Agent,
     /// The harness reported the mode in a `current_mode_update`.
     Harness,
 }

@@ -79,7 +79,7 @@ pub use policy::{
 pub use session::{AcpSession, HarnessInfo, Opening, SessionModes, SignInMethod};
 pub use sessions::{
     CloseReason, CodingSessions, CodingSessionsDeps, NewCodingSession, PromptOutcome,
-    ResumeFailure, SessionError, StartFailure,
+    ResumeFailure, SessionError, SetModeFailure, StartFailure,
 };
 pub use sign_in::{SIGN_IN_CHANGED_EVENT, SignInFailure, SignInReports, SignIns};
 pub use starts::{CodingSessionStarts, MAX_OPEN_SESSIONS, worktree_branch};

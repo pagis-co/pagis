@@ -249,6 +249,7 @@ impl World {
                 base: "main".to_string(),
             }),
             approval_mode: SessionApprovalMode::Person,
+            harness_mode: None,
             title: "Fix the login".to_string(),
             prompt: "Fix the login bug.".to_string(),
         }
@@ -3547,8 +3548,10 @@ async fn a_start_in_bypass_permissions_sets_the_first_asking_mode_before_the_fir
     );
 }
 
+/// The card of a start with no Harness Mode names the first asking mode of
+/// the catalog, so a harness that opens in it gets no `session/set_mode`.
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
-async fn a_start_in_an_asking_mode_sends_no_set_mode(pool: SqlitePool) {
+async fn a_start_in_the_mode_that_the_card_names_sends_no_set_mode(pool: SqlitePool) {
     let world = world(pool).await;
     let place = DuplexPlace::new(claude_in("default").turn(Turn::until_cancel(vec![])));
     let sessions = world.coding_sessions(place.clone(), Arc::new(RefuseDecisions));
@@ -3563,6 +3566,54 @@ async fn a_start_in_an_asking_mode_sends_no_set_mode(pool: SqlitePool) {
     assert_eq!(kinds(&world.rows(&session.id).await), [Kind::Prompt]);
     assert_eq!(set_modes(&place.harness()), Vec::<Value>::new());
     assert_eq!(prompts(&place.harness()), ["Fix the login bug."]);
+}
+
+/// The Person approved the mode that the card names, so a harness that
+/// opens in another asking mode is put in it.
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_start_in_plan_with_no_harness_mode_sets_the_mode_that_the_card_names(pool: SqlitePool) {
+    let world = world(pool).await;
+    let place = DuplexPlace::new(claude_in("plan").turn(Turn::until_cancel(vec![])));
+    let sessions = world.coding_sessions(place.clone(), Arc::new(RefuseDecisions));
+
+    let session = sessions
+        .start(world.new_session(&world.run_id))
+        .await
+        .expect("the session starts");
+
+    assert_eq!(session.harness_mode.as_deref(), Some("default"));
+    let rows = world.rows(&session.id).await;
+    assert_eq!(kinds(&rows), [Kind::Mode, Kind::Prompt]);
+    assert_eq!(
+        rows[0].payload,
+        json!({"mode": "default", "name": "Manual", "by": "pagis"})
+    );
+    assert_eq!(
+        set_modes(&place.harness()),
+        [json!({"sessionId": NEW_SESSION_ID, "modeId": "default"})]
+    );
+}
+
+/// A harness that does not offer the mode of the card keeps its own mode
+/// when that mode asks.
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_harness_that_does_not_offer_the_mode_of_the_card_keeps_an_asking_mode(pool: SqlitePool) {
+    let world = world(pool).await;
+    let place = DuplexPlace::new(
+        Script::default()
+            .modes("plan", &[("plan", "Plan"), ("acceptEdits", "Accept edits")])
+            .turn(Turn::until_cancel(vec![])),
+    );
+    let sessions = world.coding_sessions(place.clone(), Arc::new(RefuseDecisions));
+
+    let session = sessions
+        .start(world.new_session(&world.run_id))
+        .await
+        .expect("the session starts");
+
+    assert_eq!(session.harness_mode.as_deref(), Some("plan"));
+    assert_eq!(kinds(&world.rows(&session.id).await), [Kind::Prompt]);
+    assert_eq!(set_modes(&place.harness()), Vec::<Value>::new());
 }
 
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
@@ -3752,4 +3803,74 @@ async fn a_resume_sets_the_recorded_mode_when_the_restored_session_answers_anoth
         set_modes(&place.harness()),
         [json!({"sessionId": NEW_SESSION_ID, "modeId": "plan"})]
     );
+}
+
+/// A start in the Harness Mode `mode_id` of the Agent.
+fn start_in(world: &World, mode_id: &str) -> NewCodingSession {
+    NewCodingSession {
+        harness_mode: Some(mode_id.to_string()),
+        ..world.new_session(&world.run_id)
+    }
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_start_in_plan_sets_plan_before_the_first_prompt(pool: SqlitePool) {
+    let world = world(pool).await;
+    let place = DuplexPlace::new(claude_in("default").turn(Turn::until_cancel(vec![])));
+    let sessions = world.coding_sessions(place.clone(), Arc::new(RefuseDecisions));
+
+    let session = sessions
+        .start(start_in(&world, "plan"))
+        .await
+        .expect("the session starts");
+
+    let record = world.record(&session.id).await;
+    assert_eq!(record.harness_mode.as_deref(), Some("plan"));
+    assert_eq!(record.state, State::Working);
+    let rows = world.rows(&session.id).await;
+    assert_eq!(kinds(&rows), [Kind::Mode, Kind::Prompt]);
+    assert_eq!(
+        rows[0].payload,
+        json!({"mode": "plan", "name": "Plan", "by": "pagis"})
+    );
+    assert_eq!(
+        set_modes(&place.harness()),
+        [json!({"sessionId": NEW_SESSION_ID, "modeId": "plan"})]
+    );
+    assert_eq!(prompts(&place.harness()), ["Fix the login bug."]);
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_start_in_a_mode_that_the_harness_does_not_offer_fails_with_no_prompt(pool: SqlitePool) {
+    let world = world(pool).await;
+    // The adapter offers no bypassPermissions to a process that runs as
+    // root.
+    let place = DuplexPlace::new(
+        Script::default()
+            .modes("default", &[("default", "Manual"), ("plan", "Plan")])
+            .turn(Turn::until_cancel(vec![])),
+    );
+    let sessions = world.coding_sessions(place.clone(), Arc::new(RefuseDecisions));
+
+    let failure = sessions
+        .start(start_in(&world, "bypassPermissions"))
+        .await
+        .expect_err("the harness does not offer the mode");
+
+    let StartFailure::ModeNotOffered {
+        session_id,
+        mode,
+        offered,
+    } = failure
+    else {
+        panic!("{failure:?}");
+    };
+    assert_eq!(mode, "bypassPermissions");
+    assert_eq!(offered, ["default", "plan"]);
+    let record = world.record(&session_id).await;
+    assert_eq!(record.state, State::Failed);
+    assert_eq!(record.end_reason.as_deref(), Some("mode_not_offered"));
+    assert!(record.ended_at.is_some());
+    assert_eq!(prompts(&place.harness()), Vec::<String>::new());
+    assert_eq!(set_modes(&place.harness()), Vec::<Value>::new());
 }
