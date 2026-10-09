@@ -15,6 +15,7 @@ import {
 } from '../../queries'
 import { CONNECTION_CAPABILITIES } from '../ConnectionCapabilities'
 import { NavBar } from '../phone/TopBar'
+import { CodingSessionAccessPhone } from './CodingSessionAccessPhone'
 
 function capabilityLabels(names: string[]) {
   return names
@@ -248,6 +249,7 @@ export function AgentAccessPhone({
                   ))}
               </Frame>
             </section>
+            <CodingSessionAccessPhone api={api} agent={agent} />
             <div className="phone-section">
               <p className="phone-hint">
                 Every sprite can use the {software.data?.length ?? 0} packages in Software.

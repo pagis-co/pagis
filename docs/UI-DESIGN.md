@@ -48,8 +48,9 @@ a URL, so a refresh keeps the place and any view is linkable.
 - **Sprites** (`/sprites`, `/sprites/<id>`) — the roster and a profile
   for each Agent: about (job, personality, voice), the desk (live
   screen, wake, take control, disk), contact (number, mailbox, outgoing
-  caps), access (grants for each Connection and the approval mode of
-  coding sessions on each computer), memory and work.
+  caps), access (grants for each Connection, and the approval mode of
+  coding sessions and the allowance of Unattended Modes on each
+  computer, at every width), memory and work.
 - **Conversations** (`/c/<channel>`, `/c/<channel>/t/<message>`) —
   direct and group Channels, with the inspector slot on the right for
   the Desk Panel, a Thread, a Call or a mail message. The inspector of a

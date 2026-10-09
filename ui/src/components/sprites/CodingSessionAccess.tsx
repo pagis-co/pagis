@@ -9,6 +9,10 @@
 // The allowance is a switch apart from the mode: the mode says who
 // answers a Harness Permission, and the switch says whether the harness
 // may act with no question.
+//
+// This file holds the state, the words and the desktop layout. The
+// phone layout (`CodingSessionAccessPhone`) uses the same state and
+// words.
 
 import type { AgentDto, ApiClient, GrantDto, HostDto, SessionApprovalMode } from '../../api/client'
 import { Select, Switch } from '../../primitives'
@@ -23,13 +27,38 @@ import {
 import '../agent.css'
 import '../settings.css'
 
-const TITLE = 'Coding sessions'
+export const CODING_SESSIONS_TITLE = 'Coding sessions'
+export const UNATTENDED_LABEL = 'Allow modes that act without asking'
+export const NO_MACHINES =
+  'No computer of yours can start a coding harness. Open the Pagis client on a computer that has one.'
 
 /** The words of the modes, from ADR-0033. */
-const MODES: { value: SessionApprovalMode; label: string }[] = [
+export const MODES: { value: SessionApprovalMode; label: string }[] = [
   { value: 'person', label: 'Ask me' },
   { value: 'agent', label: 'Let the sprite decide' },
 ]
+
+export const sectionLead = (agent: AgentDto) =>
+  `The widest approval mode ${agent.name} may use for a coding session on each computer.`
+
+export const modeLabel = (host: HostDto) => `Approvals for coding sessions on ${host.name}`
+
+/** What `mode` does, in one line. */
+export function modeEffect(mode: SessionApprovalMode, agent: AgentDto): string {
+  switch (mode) {
+    case 'person':
+      return 'You answer each permission that Pagis does not allow by its own rules.'
+    case 'agent':
+      return `${agent.name} answers each permission that Pagis does not allow by its own rules, or asks you.`
+  }
+}
+
+export const unattendedHint = (agent: AgentDto) =>
+  `${agent.name} may run a coding harness in a mode that does not ask first, such as ` +
+  'Bypass permissions of Claude Code, and a harness that never asks, such as pi.'
+
+export const unattendedWarning = (host: HostDto) =>
+  `A coding harness can then run any command as you on ${host.name}, with no question.`
 
 /** A computer that declared at least one Coding Harness it can start. */
 function startsHarness(host: HostDto): boolean {
@@ -46,68 +75,67 @@ function hostGrant(agent: AgentDto, host: HostDto, grants: GrantDto[]): GrantDto
   )
 }
 
-/** What `mode` does, in one line. */
-function ModeEffect({ mode, agent }: { mode: SessionApprovalMode; agent: AgentDto }) {
-  switch (mode) {
-    case 'person':
-      return (
-        <p className="settings-hint">
-          You answer each permission that Pagis does not allow by its own rules.
-        </p>
-      )
-    case 'agent':
-      return (
-        <p className="settings-hint">
-          {`${agent.name} answers each permission that Pagis does not allow by its own rules, or asks you.`}
-        </p>
-      )
+/** The computers of the Person that can start a Coding Harness, each
+ *  with the host Grant of `agent` there. `machines` is undefined until
+ *  the computers and the Grants are read, so a row never shows a
+ *  default in place of the saved values. `none` is true when no
+ *  computer can start a harness. */
+export function useCodingMachines(api: ApiClient, agent: AgentDto) {
+  const hosts = useHosts(api)
+  const grants = useGrants(api)
+  const capable = (hosts.data ?? []).filter(startsHarness)
+  const machines =
+    grants.data === undefined
+      ? undefined
+      : capable.map((host) => ({ host, grant: hostGrant(agent, host, grants.data) }))
+  return { machines, none: hosts.data !== undefined && capable.length === 0 }
+}
+
+/** The widest mode of `agent` on `host`, and its change. The choice
+ *  shows while it saves. After a failure the saved mode shows again. */
+export function useMachineMode(
+  api: ApiClient,
+  agent: AgentDto,
+  host: HostDto,
+  grant: GrantDto | undefined,
+) {
+  const setMode = useSetSessionApprovalMode(api)
+  const mode = setMode.isPending
+    ? setMode.variables.mode
+    : (grant?.session_approval_mode ?? 'person')
+  return {
+    mode,
+    pending: setMode.isPending,
+    error: setMode.isError
+      ? errorMessage(setMode.error, 'The approval mode did not change.')
+      : undefined,
+    change: (next: string) =>
+      setMode.mutate({ agentId: agent.id, hostId: host.id, mode: next as SessionApprovalMode }),
   }
 }
 
-/** Whether `agent` may use Unattended Modes on `host`. */
-function UnattendedModes({
-  api,
-  agent,
-  host,
-  saved,
-}: {
-  api: ApiClient
-  agent: AgentDto
-  host: HostDto
-  saved: boolean
-}) {
+/** Whether `agent` may use Unattended Modes on `host`, and its change.
+ *  The choice shows while it saves. After a failure the saved value
+ *  shows again. */
+export function useMachineUnattended(
+  api: ApiClient,
+  agent: AgentDto,
+  host: HostDto,
+  grant: GrantDto | undefined,
+) {
   const setAllowed = useSetUnattendedModes(api)
-  // The choice shows while it saves. After a failure the saved value
-  // shows again.
-  const allowed = setAllowed.isPending ? setAllowed.variables.allowed : saved
-
-  return (
-    <>
-      <Switch
-        checked={allowed}
-        disabled={setAllowed.isPending}
-        onCheckedChange={(next) =>
-          setAllowed.mutate({ agentId: agent.id, hostId: host.id, allowed: next })
-        }
-      >
-        Allow modes that act without asking
-      </Switch>
-      <p className="settings-hint">
-        {`${agent.name} may run a coding harness in a mode that does not ask first, such as ` +
-          'Bypass permissions of Claude Code, and a harness that never asks, such as pi.'}
-      </p>
-      {allowed && (
-        <p className="settings-warning">
-          {`A coding harness can then run any command as you on ${host.name}, with no question.`}
-        </p>
-      )}
-      {setAllowed.isError && (
-        <p role="alert" className="settings-error">
-          {errorMessage(setAllowed.error, 'The allowance of modes did not change.')}
-        </p>
-      )}
-    </>
-  )
+  const allowed = setAllowed.isPending
+    ? setAllowed.variables.allowed
+    : (grant?.unattended_modes ?? false)
+  return {
+    allowed,
+    pending: setAllowed.isPending,
+    error: setAllowed.isError
+      ? errorMessage(setAllowed.error, 'The allowance of modes did not change.')
+      : undefined,
+    change: (next: boolean) =>
+      setAllowed.mutate({ agentId: agent.id, hostId: host.id, allowed: next }),
+  }
 }
 
 function MachineMode({
@@ -121,75 +149,54 @@ function MachineMode({
   host: HostDto
   grant: GrantDto | undefined
 }) {
-  const setMode = useSetSessionApprovalMode(api)
-  // The choice shows while it saves. After a failure the saved mode
-  // shows again.
-  const mode = setMode.isPending
-    ? setMode.variables.mode
-    : (grant?.session_approval_mode ?? 'person')
+  const mode = useMachineMode(api, agent, host, grant)
+  const unattended = useMachineUnattended(api, agent, host, grant)
 
   return (
     <div className="coding-session-access-row" data-testid="coding-session-access-row">
       <strong>{host.name}</strong>
       <Select
-        label={`Approvals for coding sessions on ${host.name}`}
-        value={mode}
-        disabled={setMode.isPending}
+        label={modeLabel(host)}
+        value={mode.mode}
+        disabled={mode.pending}
         items={MODES}
-        onValueChange={(value) =>
-          setMode.mutate({
-            agentId: agent.id,
-            hostId: host.id,
-            mode: value as SessionApprovalMode,
-          })
-        }
+        onValueChange={mode.change}
       />
-      <ModeEffect mode={mode} agent={agent} />
-      {setMode.isError && (
+      <p className="settings-hint">{modeEffect(mode.mode, agent)}</p>
+      {mode.error && (
         <p role="alert" className="settings-error">
-          {errorMessage(setMode.error, 'The approval mode did not change.')}
+          {mode.error}
         </p>
       )}
-      <UnattendedModes
-        api={api}
-        agent={agent}
-        host={host}
-        saved={grant?.unattended_modes ?? false}
-      />
+      <Switch
+        checked={unattended.allowed}
+        disabled={unattended.pending}
+        onCheckedChange={unattended.change}
+      >
+        {UNATTENDED_LABEL}
+      </Switch>
+      <p className="settings-hint">{unattendedHint(agent)}</p>
+      {unattended.allowed && <p className="settings-warning">{unattendedWarning(host)}</p>}
+      {unattended.error && (
+        <p role="alert" className="settings-error">
+          {unattended.error}
+        </p>
+      )}
     </div>
   )
 }
 
 export function CodingSessionAccess({ api, agent }: { api: ApiClient; agent: AgentDto }) {
-  const hosts = useHosts(api)
-  const grants = useGrants(api)
-  const machines = (hosts.data ?? []).filter(startsHarness)
-  // A row waits for the Grants, so it never shows a default in place of
-  // the saved values.
-  const saved = grants.data
+  const { machines, none } = useCodingMachines(api, agent)
 
   return (
     <section className="agent-access-connection" aria-labelledby="coding-session-access-title">
-      <h3 id="coding-session-access-title">{TITLE}</h3>
-      <p className="settings-hint">
-        {`The widest approval mode ${agent.name} may use for a coding session on each computer.`}
-      </p>
-      {hosts.data !== undefined && machines.length === 0 && (
-        <p className="settings-hint">
-          No computer of yours can start a coding harness. Open the Pagis client on a computer
-          that has one.
-        </p>
-      )}
-      {saved !== undefined &&
-        machines.map((host) => (
-          <MachineMode
-            key={host.id}
-            api={api}
-            agent={agent}
-            host={host}
-            grant={hostGrant(agent, host, saved)}
-          />
-        ))}
+      <h3 id="coding-session-access-title">{CODING_SESSIONS_TITLE}</h3>
+      <p className="settings-hint">{sectionLead(agent)}</p>
+      {none && <p className="settings-hint">{NO_MACHINES}</p>}
+      {machines?.map(({ host, grant }) => (
+        <MachineMode key={host.id} api={api} agent={agent} host={host} grant={grant} />
+      ))}
     </section>
   )
 }

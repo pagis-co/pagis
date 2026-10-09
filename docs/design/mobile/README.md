@@ -3,7 +3,8 @@
 These images are the reference design of the phone layout of the Product
 App. The Mobile App shows this layout, and so does a phone browser. Each
 image is one screen at 390 × 844 CSS pixels, drawn at 2× (780 × 1688
-pixels). Home is 390 × 1180, because it scrolls.
+pixels). Home is 390 × 1180 and Sprite access is 390 × 1103, because they
+scroll.
 
 The screens use the tokens of `ui/src/tokens.css` and the voice of
 `docs/UI-DESIGN.md`. The names, numbers and messages in the images are

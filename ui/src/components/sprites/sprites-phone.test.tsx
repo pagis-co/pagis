@@ -1,9 +1,10 @@
 // The Sprites tab at phone width: the roster, the New sprite sheet,
-// the Access switch list, and the Memory and Work screens of a sprite.
+// the Access switch list with its Coding sessions section, and the Memory and Work screens of a sprite.
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryHistory } from '@tanstack/react-router'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { beforeEach, expect, it, vi } from 'vitest'
 import { App } from '../../App'
 import type { ApiClient } from '../../api/client'
@@ -220,6 +221,84 @@ it('shows the daemon reason when a Save of access fails', async () => {
   fireEvent.click(await screen.findByRole('switch', { name: 'Read Gmail' }))
   fireEvent.click(screen.getByRole('button', { name: 'Save access' }))
   expect((await screen.findByRole('alert')).textContent).toBe('Only the owner grants this.')
+})
+
+const air = {
+  id: 'h-1',
+  name: 'Air',
+  platform: 'macos',
+  capabilities: ['shell', 'harness:claude-code'],
+  present: true,
+  last_seen_at: 1,
+}
+
+const hostGrant = (overrides: Record<string, unknown> = {}) => ({
+  ...grant([]),
+  id: 'grant-2',
+  resource_kind: 'host',
+  resource_id: 'h-1',
+  session_approval_mode: 'person',
+  unattended_modes: false,
+  ...overrides,
+})
+
+it('sets the approval mode of coding sessions on a computer from the Access tab', async () => {
+  const user = userEvent.setup()
+  responses['/api/v1/hosts'] = {
+    items: [air, { ...air, id: 'h-2', name: 'Server', capabilities: ['shell'] }],
+  }
+  responses['/api/v1/grants'] = { items: [hostGrant()] }
+  api.PUT.mockResolvedValue({ data: hostGrant({ session_approval_mode: 'agent' }) })
+  mount('/sprites/agent-1/access')
+  const section = await screen.findByRole('region', { name: 'Coding sessions' })
+  const mode = await within(section).findByRole('combobox', {
+    name: 'Approvals for coding sessions on Air',
+  })
+  expect(within(section).queryByRole('combobox', { name: /Server/ })).toBeNull()
+  expect(mode.textContent).toContain('Ask me')
+  await user.click(mode)
+  await user.click(await screen.findByRole('option', { name: 'Let the sprite decide' }))
+  await waitFor(() =>
+    expect(api.PUT).toHaveBeenCalledWith(
+      '/api/v1/agents/{agent_id}/hosts/{host_id}/session-approval-mode',
+      { params: { path: { agent_id: 'agent-1', host_id: 'h-1' } }, body: { mode: 'agent' } },
+    ),
+  )
+})
+
+it('allows modes that act without asking on a computer from the Access tab', async () => {
+  responses['/api/v1/hosts'] = { items: [air] }
+  api.PUT.mockImplementation(async () => {
+    responses['/api/v1/grants'] = { items: [hostGrant({ unattended_modes: true })] }
+    return { data: hostGrant({ unattended_modes: true }) }
+  })
+  mount('/sprites/agent-1/access')
+  const section = await screen.findByRole('region', { name: 'Coding sessions' })
+  const allow = await within(section).findByRole('switch', {
+    name: 'Allow modes that act without asking',
+  })
+  expect(allow.getAttribute('aria-checked')).toBe('false')
+  fireEvent.click(allow)
+  await waitFor(() =>
+    expect(api.PUT).toHaveBeenCalledWith(
+      '/api/v1/agents/{agent_id}/hosts/{host_id}/unattended-modes',
+      { params: { path: { agent_id: 'agent-1', host_id: 'h-1' } }, body: { allowed: true } },
+    ),
+  )
+  expect(
+    await within(section).findByText(
+      'A coding harness can then run any command as you on Air, with no question.',
+    ),
+  ).not.toBeNull()
+})
+
+it('says on the Access tab when no computer can start a coding harness', async () => {
+  responses['/api/v1/hosts'] = { items: [{ ...air, capabilities: ['shell'] }] }
+  mount('/sprites/agent-1/access')
+  const section = await screen.findByRole('region', { name: 'Coding sessions' })
+  expect(
+    await within(section).findByText(/No computer of yours can start a coding harness/),
+  ).not.toBeNull()
 })
 
 it('groups the Work of a sprite by day with the title of each run', async () => {

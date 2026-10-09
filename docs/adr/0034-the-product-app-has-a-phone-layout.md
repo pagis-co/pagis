@@ -52,6 +52,9 @@ text. Both themes meet WCAG AA. Fixed layers respect the safe area.
 
 Administration, the sign-in link maker, the Desks list and the Runs place
 stay on the desktop. The phone keeps the actions of each place it shows.
+The Access tab of a sprite keeps its Coding sessions section: the widest
+Session Approval Mode and the allowance of Unattended Modes on each
+computer that can start a Coding Harness (ADR-0033).
 Google connects through the Installation OAuth Client and Google's own
 account selection; no client ID or secret is entered on the phone.
 
