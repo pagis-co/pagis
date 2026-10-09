@@ -63,6 +63,12 @@ function SessionRow({
           <span>{spriteName}</span>
           <span aria-hidden> · </span>
           <span>{session.harness_name}</span>
+          {session.harness_mode_name != null && session.harness_mode_name !== '' && (
+            <>
+              <span aria-hidden> · </span>
+              <span>{session.harness_mode_name}</span>
+            </>
+          )}
           <span aria-hidden> · </span>
           <span>{machine}</span>
           <span aria-hidden> · </span>

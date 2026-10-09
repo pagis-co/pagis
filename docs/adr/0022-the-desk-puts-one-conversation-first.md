@@ -85,10 +85,10 @@ The Sprites place opens one Agent's page, with the About, Appearance, Desk,
 Contact, Access, Memory and Work tabs. Contact holds the phone number card and
 the mailbox card; a number is bought, assigned, unassigned and released there,
 and the release confirmation names the Agent. Access is the Agent's whole
-authority: Connection capabilities, vault domains, host allow rules and the
-widest Session Approval Mode on each machine. A
-Connection card lists the Agents with access and grants or removes it, and
-edits no capability. Each edit is a Grant revision.
+authority: Connection capabilities, vault domains, host allow rules, and the
+widest Session Approval Mode and the allowance of Unattended Modes on each
+machine. A Connection card lists the Agents with access and grants or
+removes it, and edits no capability. Each edit is a Grant revision.
 
 Automations is a place: a Needs-You Queue at the top, then Schedules, then
 Event Subscriptions, and a detail body with the current revision, the state,

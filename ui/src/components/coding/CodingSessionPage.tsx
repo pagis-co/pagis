@@ -1,12 +1,13 @@
 // `/coding/:sessionId`: one Coding Session (ADR-0033).
 //
-// The head says who runs which coding harness, where, and how far it
-// is. The plan is a checklist, and the transcript shows the messages,
-// the tool calls and one line for each ask. A tool call draws each of
-// its changes as a diff, and "Changed files" is the index to them: a
-// row scrolls to the last change of its file. Everything that the harness
-// writes is foreign text: a message draws only through `Prose`, and
-// each other text draws as plain text.
+// The head says who runs which coding harness, where, in which modes,
+// and how far it is. The plan is a checklist, and the transcript shows
+// the messages, the tool calls, one line for each ask and one line for
+// each change of the Harness Mode. A tool call draws each of its changes
+// as a diff, and "Changed files" is the index to them: a row scrolls to
+// the last change of its file. Everything that the harness writes is
+// foreign text: a message draws only through `Prose`, and each other
+// text, the name of a Harness Mode too, draws as plain text.
 //
 // A frame of the session invalidates the record and the transcript,
 // and the page reads them again (`AppShell`). The back control goes to
@@ -23,6 +24,7 @@ import {
   CircleDot,
   MessageCircleQuestion,
   ShieldCheck,
+  SlidersHorizontal,
   SquareTerminal,
 } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
@@ -41,7 +43,9 @@ import {
   approvalModeBadge,
   changeCountText,
   decisionText,
+  harnessModeBadge,
   lineCountText,
+  modeChangeText,
   planStatusWord,
   sessionSettled,
   sessionStateBadge,
@@ -72,6 +76,7 @@ function Head({
 }) {
   const state = sessionStateBadge(session.state)
   const mode = approvalModeBadge(session.approval_mode, spriteName)
+  const harnessMode = harnessModeBadge(session.harness_mode_name, session.unattended)
   const usage = usageText(session.usage)
   // A session in the Agent's Computer has no Host name.
   const machine = session.machine_name ?? 'Computer'
@@ -90,6 +95,7 @@ function Head({
         <div className="coding-head-badges">
           <Badge tone={state.tone}>{state.label}</Badge>
           <Badge tone={mode.tone}>{mode.label}</Badge>
+          {harnessMode !== null && <Badge tone={harnessMode.tone}>{harnessMode.label}</Badge>}
         </div>
         {!sessionSettled(session.state) && <StopCodingSession api={api} sessionId={session.id} />}
       </div>
@@ -328,6 +334,16 @@ function TranscriptView({
             return <Permission key={item.seq} item={item} spriteName={spriteName} />
           case 'question':
             return <Question key={item.seq} item={item} spriteName={spriteName} />
+          case 'mode':
+            return (
+              <p key={item.seq} className="coding-line">
+                <SlidersHorizontal size={14} aria-hidden />
+                <span className="coding-line-what">
+                  {modeChangeText(item.by, item.name, spriteName, harnessName)}
+                </span>
+                <Cut truncated={item.truncated} />
+              </p>
+            )
           case 'turn_end':
             return (
               <p key={item.seq} className="coding-turn-end">

@@ -1,7 +1,8 @@
 // The Coding sessions section of the Access tab (ADR-0033): the Person
 // sets the widest Session Approval Mode of a sprite on each computer of
-// theirs that can start a Coding Harness. The host Grant of the sprite
-// on that computer holds the mode, and no Grant reads "Ask me".
+// theirs that can start a Coding Harness, and whether the sprite may use
+// Unattended Modes there. The host Grant of the sprite on that computer
+// holds both, and no Grant reads "Ask me" with no Unattended Modes.
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor, within } from '@testing-library/react'
@@ -41,8 +42,9 @@ function grant(overrides: Record<string, unknown> = {}) {
   }
 }
 
-/** An API whose reads answer `hosts` and `grants`, and whose mode
- *  change answers `put`. */
+/** An API whose reads answer `hosts` and `grants`, and whose changes
+ *  answer `put`. Each read of the Grants answers the rows of `grants`
+ *  at that time. */
 function stubApi(
   hosts: unknown[],
   grants: unknown[] = [],
@@ -51,7 +53,7 @@ function stubApi(
   return {
     GET: vi.fn(async (path: string) => {
       if (path === '/api/v1/hosts') return { data: { items: hosts } }
-      if (path === '/api/v1/grants') return { data: { items: grants } }
+      if (path === '/api/v1/grants') return { data: { items: [...grants] } }
       return { data: { items: [] } }
     }),
     PUT: vi.fn(put),
@@ -69,6 +71,10 @@ function mount(api: ReturnType<typeof stubApi>) {
 
 const combobox = (machine: string) =>
   screen.findByRole('combobox', { name: `Approvals for coding sessions on ${machine}` })
+
+const UNATTENDED = 'Allow modes that act without asking'
+const WARNING = 'A coding harness can then run any command as you on Air, with no question.'
+const unattendedSwitch = () => screen.findByRole('switch', { name: UNATTENDED })
 
 describe('CodingSessionAccess', () => {
   it('shows a row for each computer that can start a coding harness, and none for another', async () => {
@@ -177,5 +183,68 @@ describe('CodingSessionAccess', () => {
       ),
     ).toBeTruthy()
     expect(screen.queryByRole('combobox')).toBeNull()
+  })
+
+  describe('the allowance of Unattended Modes', () => {
+    it('shows the saved allowance of the host Grant', async () => {
+      mount(stubApi([host()], [grant({ unattended_modes: true })]))
+
+      await waitFor(async () =>
+        expect((await unattendedSwitch()).getAttribute('aria-checked')).toBe('true'),
+      )
+      expect(screen.getByText(WARNING)).toBeTruthy()
+      expect(
+        screen.getByText(
+          'Sage may run a coding harness in a mode that does not ask first, such as Bypass ' +
+            'permissions of Claude Code, and a harness that never asks, such as pi.',
+        ),
+      ).toBeTruthy()
+    })
+
+    it('is off on a computer where the sprite has no host Grant', async () => {
+      mount(stubApi([host()], [grant({ resource_id: 'h-9', unattended_modes: true })]))
+
+      expect((await unattendedSwitch()).getAttribute('aria-checked')).toBe('false')
+      expect(screen.queryByText(WARNING)).toBeNull()
+    })
+
+    it('sends the allowance once and shows the warning', async () => {
+      const user = userEvent.setup()
+      const grants = [grant({ unattended_modes: false })]
+      const api = stubApi([host()], grants, async () => {
+        grants[0] = grant({ unattended_modes: true, revision: 2 })
+        return { data: grants[0] }
+      })
+      mount(api)
+
+      await user.click(await unattendedSwitch())
+
+      await waitFor(() => expect(api.PUT).toHaveBeenCalledTimes(1))
+      expect(api.PUT).toHaveBeenCalledWith(
+        '/api/v1/agents/{agent_id}/hosts/{host_id}/unattended-modes',
+        { params: { path: { agent_id: 'ag1', host_id: 'h-1' } }, body: { allowed: true } },
+      )
+      expect(await screen.findByText(WARNING)).toBeTruthy()
+      await waitFor(async () =>
+        expect((await unattendedSwitch()).getAttribute('aria-checked')).toBe('true'),
+      )
+    })
+
+    it('shows an alert and the saved allowance again when the change fails', async () => {
+      const user = userEvent.setup()
+      const api = stubApi([host()], [grant({ unattended_modes: false })], async () => ({
+        error: { error: { code: 'forbidden', message: 'Sage cannot use this computer.' } },
+      }))
+      mount(api)
+
+      await user.click(await unattendedSwitch())
+
+      const alert = await screen.findByRole('alert')
+      expect(alert.textContent).toBe('Sage cannot use this computer.')
+      await waitFor(async () =>
+        expect((await unattendedSwitch()).getAttribute('aria-checked')).toBe('false'),
+      )
+      expect(screen.queryByText(WARNING)).toBeNull()
+    })
   })
 })

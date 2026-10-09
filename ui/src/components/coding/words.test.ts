@@ -9,7 +9,9 @@ import {
   changeCountText,
   decisionText,
   endReasonText,
+  harnessModeBadge,
   lineCountText,
+  modeChangeText,
   pendingText,
   planStatusWord,
   sessionStateBadge,
@@ -63,6 +65,30 @@ describe('the Session Approval Mode', () => {
   it('says who approves', () => {
     expect(approvalModeBadge('person', 'Sage')).toEqual({ label: 'You approve', tone: 'neutral' })
     expect(approvalModeBadge('agent', 'Sage')).toEqual({ label: 'Sage approves', tone: 'neutral' })
+  })
+})
+
+describe('the Harness Mode', () => {
+  it('shows the name of the harness, with the waiting hue for an Unattended Mode', () => {
+    expect(harnessModeBadge('Manual', false)).toEqual({ label: 'Manual', tone: 'neutral' })
+    expect(harnessModeBadge('Bypass permissions', true)).toEqual({
+      label: 'Bypass permissions',
+      tone: 'waiting',
+    })
+  })
+
+  it('shows no badge for a session with no Harness Mode', () => {
+    expect(harnessModeBadge(null, true)).toBeNull()
+    expect(harnessModeBadge(undefined, false)).toBeNull()
+  })
+
+  it.each([
+    ['agent', 'Sage set the mode Plan'],
+    ['harness', 'Claude Code changed to the mode Plan'],
+    ['pagis', 'Pagis set the mode Plan'],
+    ['someone', 'The mode changed to Plan'],
+  ])('says who changed the mode when %s did', (by, text) => {
+    expect(modeChangeText(by, 'Plan', 'Sage', 'Claude Code')).toBe(text)
   })
 })
 
@@ -184,6 +210,9 @@ describe('the end of a session', () => {
     ['worktree_failed', 'Pagis could not make the worktree'],
     ['spawn_failed', 'The coding harness did not start'],
     ['host_not_connected', 'The machine was not connected'],
+    ['approval_mode_narrowed', 'You stopped allowing modes that act without asking'],
+    ['unattended_mode_not_allowed', 'The mode acts without asking, and you do not allow that'],
+    ['mode_not_offered', 'The coding harness does not offer the chosen mode'],
   ])('says why %s ended it', (reason, text) => {
     expect(endReasonText(reason, 'Sage')).toBe(text)
   })
