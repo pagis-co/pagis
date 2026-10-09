@@ -1932,6 +1932,90 @@ async fn person_bs_decision_on_person_as_harness_permission_gets_404() {
     assert!(harnesses.lock().unwrap()[0].answers().is_empty());
 }
 
+/// The Needs-You Queue that `cookie` reads.
+async fn needs_you(daemon: &TestDaemon, cookie: &str) -> Vec<Value> {
+    let response = reqwest::Client::new()
+        .get(format!("{}/api/v1/needs-you", daemon.base_url))
+        .header("cookie", cookie)
+        .send()
+        .await
+        .expect("the daemon answers");
+    assert_eq!(response.status(), 200);
+    let queue: Value = response.json().await.expect("a JSON answer");
+    queue["items"].as_array().expect("the items").clone()
+}
+
+/// The item of the queue with `item_id`, if the queue holds it.
+fn item_of(items: &[Value], item_id: &str) -> Option<Value> {
+    items.iter().find(|item| item["id"] == item_id).cloned()
+}
+
+/// In the `person` mode, a Harness Permission is an Approval of the
+/// Needs-You Queue that opens the session's Thread. A decision with no
+/// `scope`, as the service worker sends it from a Notification, answers
+/// the harness with `allow_once`, and the item leaves the queue.
+#[tokio::test]
+async fn a_harness_permission_is_a_needs_you_item_that_a_notification_answers_once() {
+    let started = start_approved_session(Script::default().turn(ends_after(cargo_test()))).await;
+    let mut firehose = started.daemon.event_socket(started.daemon.cookie()).await;
+    let request = started.wait_for_card().await;
+    let record = started.record().await;
+    let item_id = format!("request:{}", request.id);
+
+    let items = needs_you(&started.daemon, started.daemon.cookie()).await;
+
+    let item = item_of(&items, &item_id).expect("the queue holds the Harness Permission");
+    assert_eq!(item["kind"], "approval");
+    assert_eq!(item["request_kind"], Request::HARNESS_PERMISSION_KIND);
+    assert_eq!(
+        item["url"],
+        format!("/c/{}/t/{}", record.channel_id, record.root_message_id)
+    );
+
+    assert_eq!(
+        started
+            .decide(&request, json!({"decision": "approved"}))
+            .await,
+        200
+    );
+
+    loop {
+        let removed = next_frame_of(&mut firehose, "needs_you.removed").await;
+        if removed["payload"]["payload"]["item_id"] == item_id.as_str() {
+            break;
+        }
+    }
+    started.wait_for_state(CodingSessionState::Idle).await;
+    assert_eq!(started.answers(), [allow_once()]);
+    let items = needs_you(&started.daemon, started.daemon.cookie()).await;
+    assert_eq!(item_of(&items, &item_id), None);
+}
+
+/// Person B's Needs-You Queue holds nothing of person A's Harness
+/// Permission.
+#[tokio::test]
+async fn person_bs_queue_holds_nothing_of_person_as_harness_permission() {
+    let started = start_approved_session(
+        Script::default().turn(Turn::until_cancel(vec![]).asks(cargo_test())),
+    )
+    .await;
+    let request = started.wait_for_card().await;
+    let item_id = format!("request:{}", request.id);
+    let Started {
+        daemon,
+        _host: _a_host,
+        _sessions: _a_sessions,
+        ..
+    } = started;
+    let tenants = TwoTenants::on(daemon).await;
+
+    let a_items = needs_you(&tenants.daemon, &tenants.a.cookie).await;
+    let b_items = needs_you(&tenants.daemon, &tenants.b.cookie).await;
+
+    assert!(item_of(&a_items, &item_id).is_some(), "A reads {a_items:?}");
+    assert_eq!(b_items, Vec::<Value>::new());
+}
+
 /// Waits until the record of `session_id` is in `state`.
 async fn wait_for_session_state(
     daemon: &TestDaemon,
