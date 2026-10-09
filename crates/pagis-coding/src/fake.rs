@@ -150,7 +150,7 @@ impl Script {
 pub struct Turn {
     updates: Vec<acp::SessionUpdate>,
     end: TurnEnd,
-    ask: Option<Ask>,
+    asks: Vec<Ask>,
 }
 
 #[derive(Debug, Clone)]
@@ -167,7 +167,7 @@ impl Turn {
         Self {
             updates,
             end: TurnEnd::Stop(stop_reason),
-            ask: None,
+            asks: Vec::new(),
         }
     }
 
@@ -178,7 +178,7 @@ impl Turn {
         Self {
             updates,
             end: TurnEnd::UntilCancel,
-            ask: None,
+            asks: Vec::new(),
         }
     }
 
@@ -189,16 +189,20 @@ impl Turn {
         Self {
             updates: Vec::new(),
             end: TurnEnd::AuthRequired,
-            ask: None,
+            asks: Vec::new(),
         }
     }
 
     /// Sends `ask` first, then the updates, or the updates first for an
     /// ask [`after_updates`](Ask::after_updates). The fake then waits for
     /// the answer, records it, and ends the turn.
+    ///
+    /// A second call adds a second ask, which the fake sends before the
+    /// first has its answer. It records the answers in the order of the
+    /// asks.
     #[must_use]
     pub fn asks(mut self, ask: Ask) -> Self {
-        self.ask = Some(ask);
+        self.asks.push(ask);
         self
     }
 }
@@ -600,18 +604,20 @@ where
                                 .respond(acp::PromptResponse::new(acp::StopReason::EndTurn));
                         };
                         let send = |ask: &Ask| (ask.withdrawn, ask.send(&cx, &session_id));
-                        let mut asked =
-                            turn.ask.as_ref().filter(|ask| !ask.after_updates).map(send);
+                        let mut asked: Vec<_> = turn
+                            .asks
+                            .iter()
+                            .filter(|ask| !ask.after_updates)
+                            .map(send)
+                            .collect();
                         for update in turn.updates {
                             cx.send_notification(acp::SessionNotification::new(
                                 session_id.clone(),
                                 update,
                             ))?;
                         }
-                        if asked.is_none() {
-                            asked = turn.ask.as_ref().map(send);
-                        }
-                        if let Some((withdrawn, sent)) = asked {
+                        asked.extend(turn.asks.iter().filter(|ask| ask.after_updates).map(send));
+                        for (withdrawn, sent) in asked {
                             if withdrawn {
                                 state.withdraw.notified().await;
                                 sent.cancel()?;

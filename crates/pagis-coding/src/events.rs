@@ -27,8 +27,8 @@ use crate::StopReason;
 /// names the session and never the text of the harness, so the Agent
 /// reads the session with a tool.
 pub const SESSION_RULE_INSTRUCTION: &str = "Your coding session changed. Read it with \
-     `coding_session_read`, then supervise it: send the next prompt, decide, or report to the \
-     user.";
+     `coding_session_read`, then supervise it: send the next prompt, decide, answer its \
+     question, or report to the user.";
 
 /// The name of the Session Rule of a session.
 pub fn session_rule_name(session: &CodingSession) -> String {

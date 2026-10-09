@@ -216,6 +216,8 @@ export function answerText(answer: unknown): string {
       return 'Cancelled'
     case 'withdrawn':
       return 'Cancelled with the turn'
+    case 'refused':
+      return 'Refused: Pagis answers only questions in a form'
     default:
       return 'Answered'
   }

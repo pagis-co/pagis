@@ -346,9 +346,10 @@ The Agent drives a Coding Session with core tools (ADR-0005):
   title, the state, the end reason, the usage and the time of the last
   update, which are the daemon's own state, outside the untrusted envelope.
   The harness text is inside one envelope with the source
-  `coding_session:<id>`: the pending decision (the title, the tool kind,
-  the command, the locations and the options of a permission, and whom it
-  waits for), the last agent message (at
+  `coding_session:<id>`: each ask that waits, oldest first (the title, the
+  tool kind, the command, the locations and the options of a permission,
+  or the message and the form of a question, and whom it waits for), the
+  last agent message (at
   most 4,000 characters, with a marker for the cut), the plan, the end
   detail, and the changed files. The changed files are the unique locations
   of the tool calls of the kinds `edit`, `delete` and `move`, newest first,
@@ -386,7 +387,14 @@ The Agent drives a Coding Session with core tools (ADR-0005):
   decision allows once only, and an Agent never writes an allow rule. An
   escalation posts the card with the note and returns at once: the Run
   does not wait for the Person.
-- For a question, `coding_session_answer {session, values}`. Free.
+- For a question, `coding_session_answer {session, values}`. Free, because
+  the answer goes only to a session of the Agent, and a question is not an
+  Approval (ADR-0004). The snapshot holds it with the other session tools.
+  An answer checks, in this order, that the session is the Agent's own
+  (else `session_not_found`), that a question of the session waits (else
+  `no_pending_question`), and that the values match the form of the
+  question (else `invalid_values`, which names the field). A failed check
+  leaves the question waiting.
 
 ### A session Allow Rule lets a start run with no card
 
@@ -584,8 +592,44 @@ expires, and `cancelled` when it waited for the Agent.
 ### A question goes to the supervising Agent
 
 A question of the harness (ACP `elicitation/create`, form mode) goes to the
-supervising Agent first, whatever the mode. The Agent answers it, or asks
-the Person with `ask_user`. The daemon declines the URL mode.
+supervising Agent first, whatever the mode. The Agent answers it from what
+it knows, or asks the Person with `ask_user` and then answers with the
+Person's words. The Person has no card for a question, because a question
+is not an Approval (ADR-0004). The Agent holds no secret (ADR-0005), and ACP
+forbids a secret in the form mode, so an answer holds none.
+
+Pagis declares the form mode alone. A question in another mode, such as the
+URL mode, gets the JSON-RPC error `-32602` (Invalid params), as ACP says for
+a mode that the client did not declare. The transcript records the question
+and the refusal. A form question belongs to the Coding Session of its
+connection, in the session scope and in the request scope alike, because
+one connection carries one Coding Session.
+
+A form that holds a property of a type that ACP does not name gets
+`decline` at once, because Pagis cannot check a value for it. Any other
+form question waits for the Agent, and the session goes `needs_decision`. A
+session holds at most one waiting question, and a later one waits behind
+it, in arrival order. The transcript gets the `question` row with the
+message and the form when the question starts to wait, and the
+`coding_session.needs_decision` event wakes the Agent for each question,
+also when a permission waits already. The event holds no harness text, so
+the Agent reads the message and the form with `coding_session_read`.
+
+The daemon checks the values of an answer against the form, with one
+check for each property type of ACP: each required property is there, no
+property is unknown, each value has the type of its property, a value of
+an enum is one of its options, a string keeps its `minLength` and
+`maxLength` in characters, a number keeps its `minimum` and `maximum`, and
+a multi-select keeps its `minItems`, its `maxItems` and its options. The
+harness checks the values again. Values that match answer `accept` with
+them, and the `answer` row names the Run that answered. The session goes
+back to `working` when nothing else waits.
+
+A question that nobody answers ends with `cancel`. A cancel of the turn
+answers each waiting question `cancel`. A Run of the owning Agent in the
+session's Thread that started after the question came, and that ends with
+the question still waiting, makes the daemon answer `cancel`, and the
+`answer` row says that the Agent did not answer.
 
 ### A Session Rule wakes the owning Agent
 
@@ -606,7 +650,8 @@ Session events enter the Trigger module through `ingest` as Incoming Events
 of the kinds `coding_session.turn_ended`, `coding_session.needs_decision`
 and `coding_session.ended`. The daemon raises `coding_session.turn_ended` at
 each end of a turn, `coding_session.needs_decision` at each move to
-`needs_decision`, and `coding_session.ended` at each move to `interrupted`,
+`needs_decision` and at each question that waits, and
+`coding_session.ended` at each move to `interrupted`,
 `closed` or `failed`. A start that fails raises no event, because the
 starting Run reads the failure in its tool result. The metadata names the
 session, its title, the harness, the machine and the stop reason, the
@@ -732,9 +777,7 @@ Other ways were considered:
 
 ## Not built
 
-- The core tool `coding_session_answer`.
 - A Pagis auto mode.
 - Harness Modes.
 - The switch for Unattended Modes on the Access tab.
-- The question in the daemon.
 - The Computer place.

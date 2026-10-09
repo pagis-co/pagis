@@ -637,22 +637,74 @@ async fn read_puts_the_harness_text_inside_one_envelope_and_the_state_and_usage_
         inside["plan"],
         json!([{"content": "Run the tests", "status": "in_progress"}])
     );
-    assert_eq!(inside["pending_decision"]["kind"], "permission");
-    assert_eq!(inside["pending_decision"]["title"], "Run cargo test");
+    assert_eq!(inside["pending_decisions"][0]["kind"], "permission");
+    assert_eq!(inside["pending_decisions"][0]["title"], "Run cargo test");
     assert_eq!(
-        inside["pending_decision"]["options"],
+        inside["pending_decisions"][0]["options"],
         json!(["allow_once", "reject_once"])
     );
     // What the Agent judges in the `agent` mode, and whom the session
     // waits for.
-    assert_eq!(inside["pending_decision"]["tool_kind"], "execute");
-    assert_eq!(inside["pending_decision"]["command"], "cargo test");
-    assert_eq!(inside["pending_decision"]["locations"], json!([]));
-    assert_eq!(inside["pending_decision"]["waits_for"], "person");
+    assert_eq!(inside["pending_decisions"][0]["tool_kind"], "execute");
+    assert_eq!(inside["pending_decisions"][0]["command"], "cargo test");
+    assert_eq!(inside["pending_decisions"][0]["locations"], json!([]));
+    assert_eq!(inside["pending_decisions"][0]["waits_for"], "person");
     assert_eq!(
         inside["changed_files"],
         json!([login, store_rs, session_rs])
     );
+}
+
+/// A read shows every ask that waits: a permission and a question
+/// together, oldest first. An answered ask, and an ask of a turn that
+/// ended, waits no more.
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn read_shows_every_ask_that_waits(pool: SqlitePool) {
+    let world = world(pool, Script::default()).await;
+    let session = world
+        .record(&world.agent_id, State::NeedsDecision, "Fix the login")
+        .await;
+    let form = json!({"type": "object", "properties": {"branch": {"type": "string"}}});
+    for (kind, payload) in [
+        // An ask of an earlier turn that got no answer row.
+        (
+            Kind::Question,
+            json!({"ask_id": "1", "message": "Old?", "schema": form, "waits_for": "agent"}),
+        ),
+        (Kind::TurnEnd, json!({"stop_reason": "cancelled"})),
+        (Kind::Prompt, json!({"text": "Go on."})),
+        (
+            Kind::Permission,
+            json!({"ask_id": "2", "title": "Run cargo test", "kind": "execute",
+                   "raw_input": {"command": "cargo test"}, "options": ["allow_once"],
+                   "waits_for": "agent"}),
+        ),
+        (
+            Kind::Question,
+            json!({"ask_id": "3", "message": "Which remote?", "schema": form, "waits_for": "agent"}),
+        ),
+        (Kind::Answer, json!({"ask_id": "3", "answer": "cancel"})),
+        (
+            Kind::Question,
+            json!({"ask_id": "4", "message": "Which branch?", "schema": form, "waits_for": "agent"}),
+        ),
+    ] {
+        world.append(&session, kind, payload).await;
+    }
+
+    let read = json_of(&world.read(&session).await);
+
+    let source = format!("coding_session:{}", session.id);
+    let inside: Value =
+        serde_json::from_str(enveloped(read["harness_output"].as_str().unwrap(), &source)).unwrap();
+    let pending = inside["pending_decisions"].as_array().unwrap();
+    assert_eq!(pending.len(), 2, "{pending:#?}");
+    assert_eq!(pending[0]["kind"], "permission");
+    assert_eq!(pending[0]["command"], "cargo test");
+    assert_eq!(pending[1]["kind"], "question");
+    assert_eq!(pending[1]["message"], "Which branch?");
+    assert_eq!(pending[1]["form"], form);
+    assert_eq!(pending[1]["waits_for"], "agent");
 }
 
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
@@ -677,8 +729,8 @@ async fn read_cuts_a_long_agent_message_and_marks_the_cut(pool: SqlitePool) {
     assert!(!last.starts_with(&"a".repeat(4_001)), "{last}");
     assert!(last.ends_with("[1000 more characters]"), "{last}");
     assert_eq!(
-        inside["pending_decision"],
-        Value::Null,
+        inside["pending_decisions"],
+        json!([]),
         "an idle session waits for nothing"
     );
 }

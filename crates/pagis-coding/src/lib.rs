@@ -19,7 +19,9 @@
 //! question. [`PolicyDecisions`] applies Pagis policy to each permission
 //! request and writes its audit fact. A permission that asks the Person
 //! gets an approval card in the session's Thread. A permission that asks
-//! the supervising Agent waits in [`AgentAsks`] for its verdict.
+//! the supervising Agent waits in [`AgentAsks`] for its verdict. Each form
+//! question waits there for the Agent's answer, which the crate checks
+//! against the form of the question.
 //!
 //! Each session raises its news to its Session Rule through
 //! [`SessionEvents`], and [`SessionRules`] makes and ends the rule.
@@ -28,7 +30,8 @@
 //! asks before the card. [`CodingToolRuntime`] executes the core tool
 //! `coding_session_start` after the approval, and the core tools that
 //! prompt, read, cancel, close, list and resume the Agent's own sessions,
-//! and that decide or escalate their Harness Permissions.
+//! that decide or escalate their Harness Permissions, and that answer
+//! their questions.
 //!
 //! [`SignIns`] starts a Harness Sign-In on a Host for the Person, and
 //! [`SignInReports`] tells which harness needs one on which Host.
@@ -40,6 +43,7 @@ mod error;
 mod event;
 mod events;
 pub mod fake;
+mod form;
 mod person;
 mod place;
 mod policy;
@@ -69,7 +73,8 @@ pub use place::{
     SessionPlace, WorktreeRequest,
 };
 pub use policy::{
-    NO_DECISION_NOTE, PERMISSION_DECIDED_EVENT, PolicyDecisions, PolicyDecisionsDeps,
+    NO_ANSWER_NOTE, NO_DECISION_NOTE, PERMISSION_DECIDED_EVENT, PolicyDecisions,
+    PolicyDecisionsDeps,
 };
 pub use session::{AcpSession, HarnessInfo, Opening, SessionModes, SignInMethod};
 pub use sessions::{

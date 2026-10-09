@@ -2605,3 +2605,169 @@ async fn person_bs_agent_that_decides_on_person_as_session_gets_session_not_foun
         "session_not_found"
     );
 }
+
+// A question of the harness goes to the supervising Agent (ADR-0033).
+
+fn asks_for_the_branch() -> Ask {
+    Ask::form(
+        "Which branch?",
+        acp::ElicitationSchema::new()
+            .string("branch", true)
+            .boolean("push", false),
+    )
+}
+
+/// The error codes of the calls of `coding_session_answer`, oldest first.
+/// A call that succeeded has none.
+async fn answer_codes(daemon: &TestDaemon) -> Vec<Value> {
+    let mut calls: Vec<Event> = daemon
+        .stores()
+        .events
+        .list_by_types(&daemon.workspace_id, &["tool.completed"], None, 50)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|event| event.payload["name"] == "coding_session_answer")
+        .collect();
+    calls.sort_by_key(|event| event.seq);
+    calls
+        .into_iter()
+        .map(|event| event.payload["error_code"].clone())
+        .collect()
+}
+
+/// In the `agent` mode a form question wakes the Agent in the session's
+/// Thread with a `coding_session.needs_decision` Wake-up that holds no
+/// harness text. The Agent reads the message and the form with
+/// `coding_session_read`. Values that lack a required property get a tool
+/// error and the question still waits. Values that match the form answer `accept` with
+/// them.
+#[tokio::test]
+async fn in_the_agent_mode_a_form_question_wakes_the_agent_and_its_answer_accepts_the_values() {
+    let agent = start_agent_mode_session(
+        Script::default()
+            .turn(Turn::new(vec![], acp::StopReason::EndTurn).asks(asks_for_the_branch())),
+    )
+    .await;
+    let started = &agent.started;
+    let daemon = &started.daemon;
+
+    agent.woken().await;
+    agent.think(vec![
+        agent.call("coding_session_read", json!({})),
+        agent.call("coding_session_answer", json!({"values": {"push": true}})),
+        agent.call(
+            "coding_session_answer",
+            json!({"values": {"branch": "main", "push": true}}),
+        ),
+        pagis_testkit::Script::reply(&["I answered: main."]),
+    ]);
+
+    started.wait_for_state(CodingSessionState::Idle).await;
+    assert_eq!(
+        started.answers(),
+        [json!({"action": "accept", "content": {"branch": "main", "push": true}})]
+    );
+    wait_for_event_runs(daemon, RunState::Completed, 1).await;
+    assert_eq!(
+        answer_codes(daemon).await,
+        [json!("invalid_values"), Value::Null]
+    );
+    let record = started.record().await;
+    let rows = session_envelope(&agent.decisions, &record, "coding_session.needs_decision");
+    assert!(rows.contains("decision_kind: question"), "{rows}");
+    assert!(
+        !rows.contains("Which branch?"),
+        "the event holds no harness text: {rows}"
+    );
+    let source = format!("[BEGIN UNTRUSTED source=coding_session:{}", record.id);
+    let read = agent
+        .decisions
+        .requests()
+        .iter()
+        .flat_map(|request| request.messages.clone())
+        .find(|message| message.role == TurnRole::Tool && message.text.contains(&source))
+        .expect("the woken Run read the session")
+        .text;
+    let inside = &read[read.find(&source).unwrap()..];
+    assert!(inside.contains("Which branch?"), "{read}");
+    assert!(inside.contains("push"), "the read holds the form: {read}");
+}
+
+/// A woken Run that ends without an answer makes the daemon answer the
+/// question `cancel`, and the transcript says that the Agent did not
+/// answer.
+#[tokio::test]
+async fn a_woken_run_that_ends_without_an_answer_makes_the_daemon_answer_cancel() {
+    let agent = start_agent_mode_session(
+        Script::default()
+            .turn(Turn::new(vec![], acp::StopReason::EndTurn).asks(asks_for_the_branch())),
+    )
+    .await;
+    let started = &agent.started;
+    let daemon = &started.daemon;
+
+    agent.woken().await;
+    agent.think(vec![pagis_testkit::Script::reply(&[
+        "I will look at it later.",
+    ])]);
+
+    started.wait_for_state(CodingSessionState::Idle).await;
+    assert_eq!(started.answers(), [json!({"action": "cancel"})]);
+    let answers: Vec<Value> = daemon
+        .stores()
+        .coding_sessions
+        .list_events(&daemon.workspace_id, &started.session_id, None, 1_000)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|row| row.kind == CodingSessionEventKind::Answer)
+        .map(|row| row.payload)
+        .collect();
+    assert_eq!(answers.len(), 1);
+    assert_eq!(answers[0]["answer"], "cancel");
+    assert_eq!(
+        answers[0]["note"],
+        "The sprite ended its turn without an answer."
+    );
+}
+
+/// Person B's Agent names the id of person A's session. The session reads
+/// as absent.
+#[tokio::test]
+async fn person_bs_agent_that_answers_person_as_session_gets_session_not_found() {
+    let brain = Arc::new(ScriptedBrain::default());
+    let tenants = TwoTenants::on(daemon_with(&brain).await).await;
+    let daemon = &tenants.daemon;
+    let a_session = tenants.a_id("coding_session_id").to_string();
+    brain.push(pagis_testkit::Script::tool_call(
+        &[],
+        "coding_session_answer",
+        json!({"session": a_session, "values": {"branch": "main"}}),
+    ));
+    brain.push(pagis_testkit::Script::reply(&["No such session."]));
+    // B's machine declares a harness, so B's Agent holds the tool.
+    daemon
+        .stores()
+        .hosts
+        .register(
+            &tenants.b.workspace_id,
+            "Mini",
+            "macos",
+            &["harness:claude".to_string()],
+            now_ms(),
+        )
+        .await
+        .unwrap();
+    let channel_id = person_bs_agent(&tenants).await;
+    let mut firehose = daemon.event_socket(&tenants.b.cookie).await;
+
+    send(daemon, &tenants.b.cookie, channel_id.as_str(), "answer it").await;
+
+    let result = the_tool_result(&mut firehose, &brain).await;
+    assert!(result.contains("session_not_found"), "{result}");
+    assert_eq!(
+        error_code_of(daemon, &tenants.b.workspace_id, "coding_session_answer").await,
+        "session_not_found"
+    );
+}

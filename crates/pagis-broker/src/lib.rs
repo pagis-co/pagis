@@ -107,6 +107,9 @@ pub const CODING_SESSION_RESUME: &str = "coding_session_resume";
 /// the Person, in the `agent` mode (ADR-0033).
 pub const CODING_SESSION_DECIDE: &str = "coding_session_decide";
 pub const CODING_SESSION_ESCALATE: &str = "coding_session_escalate";
+/// Answer the question of a Coding Harness that waits for the Agent
+/// (ADR-0033).
+pub const CODING_SESSION_ANSWER: &str = "coding_session_answer";
 
 /// The longest note of a decision or an escalation, in characters.
 pub const DECISION_NOTE_CHARS: usize = 2_000;
@@ -309,6 +312,10 @@ pub enum CoreTool {
     /// on an approval card that the daemon posts. It is `Free` for the
     /// same reason.
     CodingSessionEscalate,
+    /// Answer the question of the harness that waits for the Agent. It is
+    /// `Free`: the answer goes only to a session of the calling Agent, and
+    /// a question is not an Approval (ADR-0004).
+    CodingSessionAnswer,
 }
 
 impl CoreTool {
@@ -327,6 +334,7 @@ impl CoreTool {
                 | CoreTool::CodingSessionResume
                 | CoreTool::CodingSessionDecide
                 | CoreTool::CodingSessionEscalate
+                | CoreTool::CodingSessionAnswer
         )
     }
 
@@ -3656,6 +3664,10 @@ fn validate_core_arguments(
         CoreTool::CodingSessionDecide | CoreTool::CodingSessionEscalate => {
             required_text("session") && required_text("note")
         }
+        // The session checks the values against the form of its question.
+        CoreTool::CodingSessionAnswer => {
+            required_text("session") && arguments["values"].is_object()
+        }
     };
     if valid {
         Ok(())
@@ -4182,6 +4194,21 @@ fn core_manifest() -> CapabilityManifest {
                 EffectClass::Free,
                 None,
             ),
+            core(
+                CODING_SESSION_ANSWER,
+                "Answer the question that one of your coding sessions waits for. Read the session first: it shows the question and its form. Answer from what you know, or ask the user with ask_user first and then answer with the user's words. Give one value for each field of the form, of the type that the form names. Never put a password, a key or another secret in an answer.",
+                serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "session": {"type": "string", "description": "The id of the session."},
+                        "values": {"type": "object", "description": "The value of each field of the form, by the name of the field."}
+                    },
+                    "required": ["session", "values"]
+                }),
+                CoreTool::CodingSessionAnswer,
+                EffectClass::Free,
+                None,
+            ),
             ManifestTool {
                 // The dispatcher waits for the longest command the
                 // tool allows, plus the kill grace, plus the wake
@@ -4697,6 +4724,7 @@ mod tests {
             CODING_SESSION_RESUME,
             CODING_SESSION_DECIDE,
             CODING_SESSION_ESCALATE,
+            CODING_SESSION_ANSWER,
         ] {
             let tool = core_tool(name);
 

@@ -7,9 +7,10 @@
 //! which has its own tests. Here a scripted one stands in.
 
 use pagis_broker::{
-    CODING_SESSION_CANCEL, CODING_SESSION_CLOSE, CODING_SESSION_DECIDE, CODING_SESSION_ESCALATE,
-    CODING_SESSION_LIST, CODING_SESSION_READ, CODING_SESSION_RESUME, CODING_SESSION_SEND,
-    CODING_SESSION_START, InvokeOutcome, SessionStartAction, ToolCall, ToolResult,
+    CODING_SESSION_ANSWER, CODING_SESSION_CANCEL, CODING_SESSION_CLOSE, CODING_SESSION_DECIDE,
+    CODING_SESSION_ESCALATE, CODING_SESSION_LIST, CODING_SESSION_READ, CODING_SESSION_RESUME,
+    CODING_SESSION_SEND, CODING_SESSION_START, InvokeOutcome, SessionStartAction, ToolCall,
+    ToolResult,
 };
 use pagis_core::{
     GrantStore, Host, RequestState, RequestStore, RunStore, SHELL_CAPABILITY, SessionAllowRule,
@@ -28,7 +29,7 @@ const PROMPT: &str = "Fix the login bug.";
 
 /// Every tool of the Coding Sessions. The snapshot holds all of them or
 /// none of them.
-const SESSION_TOOLS: [&str; 7] = [
+const SESSION_TOOLS: [&str; 8] = [
     CODING_SESSION_START,
     CODING_SESSION_SEND,
     CODING_SESSION_READ,
@@ -36,6 +37,7 @@ const SESSION_TOOLS: [&str; 7] = [
     CODING_SESSION_CLOSE,
     CODING_SESSION_LIST,
     CODING_SESSION_RESUME,
+    CODING_SESSION_ANSWER,
 ];
 
 /// The tools of the `agent` mode. The snapshot holds them only for an

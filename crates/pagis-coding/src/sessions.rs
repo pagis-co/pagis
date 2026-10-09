@@ -445,6 +445,7 @@ impl CodingSessions {
             decisions: Arc::clone(&self.decisions),
             commands: commands.clone(),
             session: snapshot_rx,
+            questions: tokio::sync::Mutex::default(),
         });
         let (incoming, outgoing) = opened.stream.split();
         let opening = Opening::New {
@@ -870,6 +871,7 @@ impl CodingSessions {
             decisions: Arc::clone(&self.decisions),
             commands,
             session: snapshot_rx,
+            questions: tokio::sync::Mutex::default(),
         });
         let (incoming, outgoing) = opened.stream.split();
         let opening = Opening::Restore {
@@ -1428,6 +1430,10 @@ struct SessionAsks {
     decisions: Arc<dyn SessionDecisions>,
     commands: mpsc::UnboundedSender<Command>,
     session: watch::Receiver<CodingSession>,
+    /// Held by the question that waits. A session holds at most one
+    /// waiting question, and a later one waits behind it in arrival
+    /// order: the lock of tokio is fair.
+    questions: tokio::sync::Mutex<()>,
 }
 
 impl SessionAsks {
@@ -1520,12 +1526,40 @@ impl AskHandler for SessionAsks {
     }
 
     async fn question(&self, ask: QuestionAsk) -> QuestionAnswer {
+        let _turn = self.questions.lock().await;
+        // A cancel or a withdrawal drops this call. The guard then writes
+        // the answer row before the next question takes the lock, so the
+        // row of the next question always comes after it.
+        let mut unanswered = UnansweredQuestion {
+            commands: self.commands.clone(),
+            ask_id: Some(ask.ask_id.clone()),
+        };
         let session = self.session.borrow().clone();
         let ask_id = ask.ask_id.clone();
         let payload = json!(ask);
         let pending = self.decisions.question(&session, ask).await;
-        self.answer(ask_id, AskKind::Question, payload, pending)
-            .await
+        let answer = self
+            .answer(ask_id, AskKind::Question, payload, pending)
+            .await;
+        unanswered.ask_id = None;
+        answer
+    }
+}
+
+/// Sends the `withdrawn` answer of a question whose call was dropped
+/// before its answer.
+struct UnansweredQuestion {
+    commands: mpsc::UnboundedSender<Command>,
+    ask_id: Option<String>,
+}
+
+impl Drop for UnansweredQuestion {
+    fn drop(&mut self) {
+        if let Some(ask_id) = self.ask_id.take() {
+            let payload = AskKind::Question.withdrawn(&ask_id);
+            // The task ends with the session; then no row waits.
+            let _ = self.commands.send(Command::Answered { ask_id, payload });
+        }
     }
 }
 
@@ -1656,15 +1690,19 @@ impl Task {
             } => {
                 self.asks.insert(ask_id, ask);
                 let seq = self.append(ask.asked(), payload).await;
-                if waits && self.record.state == State::Working {
+                let moved = waits && self.record.state == State::Working;
+                if moved {
                     self.transition(State::NeedsDecision, None).await;
-                    if let Some(seq) = seq {
-                        let news = SessionNews::NeedsDecision {
-                            decision_kind: ask.decision_kind(),
-                            seq,
-                        };
-                        self.raise(news).await;
-                    }
+                }
+                // Each question that waits goes to the Agent, also while
+                // a permission waits.
+                let news = moved || (waits && matches!(ask, AskKind::Question));
+                if news && let Some(seq) = seq {
+                    self.raise(SessionNews::NeedsDecision {
+                        decision_kind: ask.decision_kind(),
+                        seq,
+                    })
+                    .await;
                 }
                 Flow::Go
             }
@@ -1772,6 +1810,17 @@ impl Task {
                 self.transition(State::Failed, Some(End::new(SIGN_IN_REQUIRED, None)))
                     .await;
                 return Flow::End;
+            }
+            SessionEvent::QuestionRefused {
+                ask_id,
+                message,
+                mode,
+            } => {
+                let asked =
+                    json!({"ask_id": ask_id, "message": message, "mode": mode, "waits_for": null});
+                self.append(Kind::Question, asked).await;
+                self.append(Kind::Answer, json!({"ask_id": ask_id, "answer": "refused"}))
+                    .await;
             }
             SessionEvent::AskWithdrawn { ask_id } => {
                 // An ask that the handler had not recorded yet has no row
