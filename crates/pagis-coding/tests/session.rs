@@ -11,9 +11,10 @@ use async_trait::async_trait;
 use pagis_coding::fake::{self, NEW_SESSION_ID, Script, Turn, acp};
 use pagis_coding::{
     AcpSession, AskHandler, CodingError, Cost, Location, Opening, PermissionAnswer, PermissionAsk,
-    PlanEntry, PlanPriority, PlanStatus, QuestionAnswer, QuestionAsk, SessionEvent, SignInMethod,
-    StopReason, ToolKind, ToolStatus,
+    PlanEntry, PlanPriority, PlanStatus, QuestionAnswer, QuestionAsk, SessionEvent, SessionModes,
+    SignInMethod, StopReason, ToolKind, ToolStatus,
 };
+use pagis_core::HarnessModeInfo;
 use serde_json::json;
 use tokio::sync::mpsc::UnboundedReceiver;
 
@@ -158,8 +159,9 @@ async fn a_prompt_gives_its_updates_in_order_then_the_turn_end() {
         acp::SessionUpdate::UsageUpdate(
             acp::UsageUpdate::new(1200, 200_000).cost(acp::Cost::new(0.25, "USD")),
         ),
-        // The crate ignores the updates that are not in the transcript.
-        acp::SessionUpdate::CurrentModeUpdate(acp::CurrentModeUpdate::new("default")),
+        acp::SessionUpdate::CurrentModeUpdate(acp::CurrentModeUpdate::new("plan")),
+        // The crate ignores the updates that Pagis does not show.
+        acp::SessionUpdate::SessionInfoUpdate(acp::SessionInfoUpdate::new().title("Bug fix")),
     ];
     let script = Script::default().turn(Turn::new(updates, acp::StopReason::EndTurn));
     let (harness, session, mut events) = open(script, fake::new_session("/work/repo")).await;
@@ -237,6 +239,12 @@ async fn a_prompt_gives_its_updates_in_order_then_the_turn_end() {
                 amount: 0.25,
                 currency: "USD".to_owned(),
             }),
+        }
+    );
+    assert_eq!(
+        next(&mut events).await,
+        SessionEvent::ModeChanged {
+            mode_id: "plan".to_owned()
         }
     );
     assert_eq!(
@@ -338,7 +346,11 @@ async fn restore_resumes_when_the_harness_declares_resume() {
 async fn restore_loads_when_the_harness_declares_load_only_and_drops_the_replay() {
     let script = Script::default()
         .load()
-        .history(vec![message("old answer"), message("older answer")])
+        .history(vec![
+            message("old answer"),
+            acp::SessionUpdate::CurrentModeUpdate(acp::CurrentModeUpdate::new("plan")),
+            message("older answer"),
+        ])
         .turn(Turn::new(
             vec![message("new answer")],
             acp::StopReason::EndTurn,
@@ -412,6 +424,7 @@ async fn a_closed_stream_gives_closed_and_a_prompt_is_closed() {
     assert_eq!(next(&mut events).await, SessionEvent::Closed);
     assert_eq!(session.prompt("Anyone?"), Err(CodingError::Closed));
     assert_eq!(session.cancel(), Err(CodingError::Closed));
+    assert_eq!(session.set_mode("plan").await, Err(CodingError::Closed));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -495,4 +508,93 @@ fn an_event_serializes_with_its_kind() {
         serde_json::to_value(&event).expect("an event serializes"),
         json!({ "kind": "turn_ended", "stop_reason": "max_turn_requests" })
     );
+}
+
+/// The modes of Claude Code, as the fake offers them.
+fn claude_modes() -> Script {
+    Script::default().modes(
+        "default",
+        &[
+            ("default", "Manual"),
+            ("plan", "Plan"),
+            ("bypassPermissions", "Bypass permissions"),
+        ],
+    )
+}
+
+fn claude_mode_state(current: &str) -> SessionModes {
+    let mode = |id: &str, name: &str| HarnessModeInfo {
+        id: id.to_owned(),
+        name: name.to_owned(),
+        description: None,
+    };
+    SessionModes {
+        current: current.to_owned(),
+        available: vec![
+            mode("default", "Manual"),
+            mode("plan", "Plan"),
+            mode("bypassPermissions", "Bypass permissions"),
+        ],
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_modes_are_those_of_the_answer_of_session_new() {
+    let (_harness, session, _events) = open(claude_modes(), fake::new_session("/work/repo")).await;
+
+    assert_eq!(session.modes(), Some(&claude_mode_state("default")));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_modes_are_those_of_the_answer_of_session_resume() {
+    let script = claude_modes().resume();
+    let (harness, session, _events) = open(script, restore("harness-session-7")).await;
+
+    assert_eq!(harness.params("session/resume").len(), 1);
+    assert_eq!(session.modes(), Some(&claude_mode_state("default")));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_modes_are_those_of_the_answer_of_session_load() {
+    let script = claude_modes().load();
+    let (harness, session, _events) = open(script, restore("harness-session-7")).await;
+
+    assert_eq!(harness.params("session/load").len(), 1);
+    assert_eq!(session.modes(), Some(&claude_mode_state("default")));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_harness_that_answers_no_modes_has_none() {
+    let (_harness, session, _events) =
+        open(Script::default(), fake::new_session("/work/repo")).await;
+
+    assert_eq!(session.modes(), None);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn set_mode_sends_the_session_id_and_the_mode_id() {
+    let (harness, session, _events) = open(claude_modes(), fake::new_session("/work/repo")).await;
+
+    session
+        .set_mode("plan")
+        .await
+        .expect("the harness offers plan");
+
+    assert_eq!(
+        harness.params("session/set_mode"),
+        [json!({ "sessionId": NEW_SESSION_ID, "modeId": "plan" })]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn set_mode_to_a_mode_that_the_harness_does_not_offer_is_its_error() {
+    let (harness, session, _events) = open(claude_modes(), fake::new_session("/work/repo")).await;
+
+    let error = session
+        .set_mode("dontAsk")
+        .await
+        .expect_err("the harness does not offer dontAsk");
+
+    assert!(matches!(error, CodingError::Protocol(_)), "{error:?}");
+    assert_eq!(harness.params("session/set_mode").len(), 1);
 }

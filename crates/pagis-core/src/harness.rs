@@ -3,8 +3,8 @@
 //!
 //! Each entry names a harness, its pinned version, the command that
 //! starts its ACP agent, the programs that command needs on the Person's
-//! `PATH`, whether the harness asks permission, and the vendor's own
-//! sign-in for each sign-in method.
+//! `PATH`, whether the harness asks permission, its Harness Modes, and the
+//! vendor's own sign-in for each sign-in method.
 //!
 //! The catalog ships with the release, as the Provider Catalog does
 //! (ADR-0012). Pagis does not fetch the ACP registry at run time, and the
@@ -41,11 +41,64 @@ pub struct HarnessEntry {
     /// tool acts. A harness that never asks works in an Unattended Mode,
     /// so on a Host it starts only where the host Grant allows one.
     pub asks_permission: bool,
+    /// The Harness Modes that the adapter of the pinned version offers in
+    /// `session/new`. An adapter that answers no `modes` has none. The
+    /// asking modes come first, in the order that `asking_mode` prefers
+    /// them: the mode that does the work and asks before each action
+    /// first.
+    pub modes: &'static [HarnessMode],
     /// One Harness Sign-In for each sign-in method that the harness has.
     pub sign_in: &'static [SignIn],
     /// How the harness starts in the Agent's Computer, or `None` for a
     /// harness that does not run there.
     pub computer: Option<ComputerLaunch>,
+}
+
+/// One Harness Mode: a session mode that a harness offers over ACP.
+///
+/// The harness names its modes when a session opens. The catalog only
+/// says in which of them the harness asks before each action.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HarnessMode {
+    /// The id that `session/set_mode` names.
+    pub id: &'static str,
+    /// The name that the adapter gives.
+    pub name: &'static str,
+    /// The harness asks before each action that changes something in
+    /// this mode.
+    pub asks: bool,
+}
+
+impl HarnessEntry {
+    /// Whether the harness acts without a question in `mode`, its current
+    /// Harness Mode, or `None` when it answered no mode.
+    ///
+    /// A harness that asks no permission always acts unattended. A
+    /// harness with no mode asks. A mode that the entry does not list
+    /// counts as unattended, so a mode that a later adapter adds fails
+    /// closed.
+    #[must_use]
+    pub fn acts_unattended(&self, mode: Option<&str>) -> bool {
+        if !self.asks_permission {
+            return true;
+        }
+        let Some(mode) = mode else {
+            return false;
+        };
+        !self
+            .modes
+            .iter()
+            .any(|listed| listed.asks && listed.id == mode)
+    }
+
+    /// The first asking mode of the entry, in catalog order, that the
+    /// harness offers in `offered`.
+    #[must_use]
+    pub fn asking_mode(&self, offered: &[&str]) -> Option<&'static HarnessMode> {
+        self.modes
+            .iter()
+            .find(|mode| mode.asks && offered.contains(&mode.id))
+    }
 }
 
 /// How a harness starts in the Agent's Computer. The Computer Image
@@ -177,6 +230,14 @@ const COPILOT_CLI: &str = "@github/copilot@1.0.93";
 /// terminal methods `claude-ai-login` ("Use Claude subscription") and
 /// `console-login` ("Anthropic Console (API usage billing)"), which run
 /// `claude auth login` (code.claude.com/docs/en/cli-reference).
+///
+/// Its modes are those of `buildAvailableModes` in
+/// `dist/session-mode.js`. The adapter offers `bypassPermissions` only to
+/// a process that can bypass (not root, `dist/permissions/modes.js`). Its
+/// first current mode comes from `permissions.defaultMode` of the
+/// Person's own Claude settings, which can also be `dontAsk`, a mode that
+/// is not in the list. `acceptEdits` does not ask, because the harness
+/// changes files in it with no question.
 const CLAUDE: HarnessEntry = HarnessEntry {
     id: "claude",
     label: "Claude Code",
@@ -188,6 +249,33 @@ const CLAUDE: HarnessEntry = HarnessEntry {
     },
     requires: &[],
     asks_permission: true,
+    modes: &[
+        HarnessMode {
+            id: "default",
+            name: "Manual",
+            asks: true,
+        },
+        HarnessMode {
+            id: "plan",
+            name: "Plan",
+            asks: true,
+        },
+        HarnessMode {
+            id: "acceptEdits",
+            name: "Accept edits",
+            asks: false,
+        },
+        HarnessMode {
+            id: "auto",
+            name: "Auto",
+            asks: false,
+        },
+        HarnessMode {
+            id: "bypassPermissions",
+            name: "Bypass permissions",
+            asks: false,
+        },
+    ],
     sign_in: &[
         SignIn {
             method: SignInMethod::Subscription,
@@ -213,6 +301,11 @@ const CLAUDE: HarnessEntry = HarnessEntry {
 /// terminal window and ends the input with Ctrl-D. The credential goes to
 /// `~/.codex/auth.json` or the system credential store, which the Codex of
 /// the adapter reads too.
+///
+/// Its modes are those of `class AgentMode` in `dist/index.js`. Only
+/// `read-only` asks before each edit. `workspace-write` edits the
+/// workspace with no question, and `agent` ("Auto review") asks only for
+/// an action that it finds unsafe.
 const CODEX: HarnessEntry = HarnessEntry {
     id: "codex",
     label: "Codex",
@@ -224,6 +317,28 @@ const CODEX: HarnessEntry = HarnessEntry {
     },
     requires: &[],
     asks_permission: true,
+    modes: &[
+        HarnessMode {
+            id: "read-only",
+            name: "Read-only",
+            asks: true,
+        },
+        HarnessMode {
+            id: "workspace-write",
+            name: "Workspace access",
+            asks: false,
+        },
+        HarnessMode {
+            id: "agent",
+            name: "Auto review",
+            asks: false,
+        },
+        HarnessMode {
+            id: "agent-full-access",
+            name: "Full access",
+            asks: false,
+        },
+    ],
     sign_in: &[
         SignIn {
             method: SignInMethod::Subscription,
@@ -275,6 +390,11 @@ const OPENCODE_ARCHIVES: &[Archive] = &[
 /// `opencode auth login`, which signs in to every provider with OAuth or
 /// an API key and keeps the credential in
 /// `~/.local/share/opencode/auth.json` (opencode.ai/docs/cli).
+///
+/// Its `session/new`, `session/load` and `session/resume` answer no
+/// `modes`: the agents of OpenCode come only as the `mode` config option
+/// (`packages/opencode/src/acp/service.ts` at tag v1.18.35). So the entry
+/// lists no mode.
 const OPENCODE: HarnessEntry = HarnessEntry {
     id: "opencode",
     label: "OpenCode",
@@ -287,6 +407,7 @@ const OPENCODE: HarnessEntry = HarnessEntry {
     },
     requires: &[],
     asks_permission: true,
+    modes: &[],
     sign_in: &[
         SignIn {
             method: SignInMethod::Subscription,
@@ -313,7 +434,7 @@ const OPENCODE: HarnessEntry = HarnessEntry {
 /// starts `pi`, and there the Person types `/login` for a subscription or
 /// an API key (pi README). pi has no permission prompt for its tools:
 /// `pi-acp` sends `session/request_permission` only to confirm a pi
-/// extension.
+/// extension. `pi-acp` answers no `modes`.
 const PI: HarnessEntry = HarnessEntry {
     id: "pi",
     label: "pi",
@@ -325,6 +446,7 @@ const PI: HarnessEntry = HarnessEntry {
     },
     requires: &["pi"],
     asks_permission: false,
+    modes: &[],
     sign_in: &[
         SignIn {
             method: SignInMethod::Subscription,
@@ -346,6 +468,16 @@ const PI: HarnessEntry = HarnessEntry {
 /// starts `gemini`, whose auth dialog offers "Sign in with Google" and
 /// "Use Gemini API Key" and keeps the key in the system keychain
 /// (`docs/get-started/authentication.mdx` at tag v0.63.0).
+///
+/// Its modes are those of `buildAvailableModes` in
+/// `packages/cli/src/acp/acpUtils.ts` at tag v0.63.0, with the ids of
+/// `ApprovalMode` in `packages/core/src/policy/types.ts`. It offers `plan`
+/// only when plan mode is on. The policies in
+/// `packages/core/src/policy/policies/` ask before each write and shell
+/// command in `default`. `plan` denies each tool that changes something,
+/// except the harness's own plan files, and asks before it leaves plan
+/// mode. `autoEdit` allows edits with no question, and `yolo` allows each
+/// tool.
 const GEMINI: HarnessEntry = HarnessEntry {
     id: "gemini",
     label: "Gemini CLI",
@@ -357,6 +489,28 @@ const GEMINI: HarnessEntry = HarnessEntry {
     },
     requires: &[],
     asks_permission: true,
+    modes: &[
+        HarnessMode {
+            id: "default",
+            name: "Default",
+            asks: true,
+        },
+        HarnessMode {
+            id: "plan",
+            name: "Plan",
+            asks: true,
+        },
+        HarnessMode {
+            id: "autoEdit",
+            name: "Auto Edit",
+            asks: false,
+        },
+        HarnessMode {
+            id: "yolo",
+            name: "YOLO",
+            asks: false,
+        },
+    ],
     sign_in: &[
         SignIn {
             method: SignInMethod::Subscription,
@@ -375,6 +529,11 @@ const GEMINI: HarnessEntry = HarnessEntry {
 /// "Authenticating GitHub Copilot CLI"). A personal access token works
 /// only through the environment, and Pagis puts no secret there, so the
 /// harness has no API-key sign-in in Pagis.
+///
+/// The pinned version ships its source only inside a compiled program,
+/// and its changelog names an `agent` and a `plan` session mode with no
+/// ids. So the entry lists no mode, and each mode that the harness offers
+/// counts as acting without a question.
 const COPILOT: HarnessEntry = HarnessEntry {
     id: "copilot",
     label: "GitHub Copilot CLI",
@@ -386,6 +545,7 @@ const COPILOT: HarnessEntry = HarnessEntry {
     },
     requires: &[],
     asks_permission: true,
+    modes: &[],
     sign_in: &[SignIn {
         method: SignInMethod::Subscription,
         how: SignInAction::Command(&["npx", "--yes", COPILOT_CLI, "login"]),
@@ -429,6 +589,12 @@ const CURSOR_ARCHIVES: &[Archive] = &[
 /// (cursor.com/docs/cli/reference/authentication). An API key works only
 /// through the environment or a flag, and Pagis puts no secret in either,
 /// so the harness has no API-key sign-in in Pagis.
+///
+/// Its modes are those of `buildModesStateFromCliMode` in
+/// `dist-package/3990.index.js` of the pinned archive. In `agent` the
+/// harness asks before each operation unless the Person's own Cursor
+/// settings run everything. `plan` is read-only and asks before it
+/// carries out its plan, and `ask` makes no edit and runs no command.
 const CURSOR: HarnessEntry = HarnessEntry {
     id: "cursor",
     label: "Cursor CLI",
@@ -441,6 +607,23 @@ const CURSOR: HarnessEntry = HarnessEntry {
     },
     requires: &[],
     asks_permission: true,
+    modes: &[
+        HarnessMode {
+            id: "agent",
+            name: "Agent",
+            asks: true,
+        },
+        HarnessMode {
+            id: "plan",
+            name: "Plan",
+            asks: true,
+        },
+        HarnessMode {
+            id: "ask",
+            name: "Ask",
+            asks: true,
+        },
+    ],
     sign_in: &[SignIn {
         method: SignInMethod::Subscription,
         how: SignInAction::Command(&["cursor-agent", "login"]),
@@ -612,6 +795,85 @@ mod tests {
             }
         }
         assert_eq!(binaries, 2);
+    }
+
+    /// The `(id, name, asks)` of each Harness Mode of an entry, in order.
+    fn modes(id: &str) -> Vec<(&'static str, &'static str, bool)> {
+        harness(id)
+            .modes
+            .iter()
+            .map(|mode| (mode.id, mode.name, mode.asks))
+            .collect()
+    }
+
+    #[test]
+    fn the_modes_of_claude_and_codex_are_those_of_their_pinned_adapters() {
+        assert_eq!(
+            modes("claude"),
+            [
+                ("default", "Manual", true),
+                ("plan", "Plan", true),
+                ("acceptEdits", "Accept edits", false),
+                ("auto", "Auto", false),
+                ("bypassPermissions", "Bypass permissions", false),
+            ]
+        );
+        assert_eq!(
+            modes("codex"),
+            [
+                ("read-only", "Read-only", true),
+                ("workspace-write", "Workspace access", false),
+                ("agent", "Auto review", false),
+                ("agent-full-access", "Full access", false),
+            ]
+        );
+        assert_eq!(modes("pi"), []);
+    }
+
+    #[test]
+    fn each_mode_id_is_unique_in_its_entry() {
+        for entry in catalog() {
+            let mut ids: Vec<&str> = entry.modes.iter().map(|mode| mode.id).collect();
+            let count = ids.len();
+            ids.sort_unstable();
+            ids.dedup();
+            assert_eq!(ids.len(), count, "{}", entry.id);
+        }
+    }
+
+    #[test]
+    fn a_harness_that_asks_no_permission_acts_unattended_in_each_mode() {
+        let pi = harness("pi");
+        assert!(pi.acts_unattended(None));
+        assert!(pi.acts_unattended(Some("default")));
+    }
+
+    #[test]
+    fn a_harness_acts_unattended_only_in_a_mode_that_does_not_ask() {
+        let claude = harness("claude");
+        // A harness that answers no mode asks before each action.
+        assert!(!claude.acts_unattended(None));
+        assert!(!claude.acts_unattended(Some("default")));
+        assert!(!claude.acts_unattended(Some("plan")));
+        assert!(claude.acts_unattended(Some("acceptEdits")));
+        assert!(claude.acts_unattended(Some("bypassPermissions")));
+        // A mode that the catalog does not know fails closed.
+        assert!(claude.acts_unattended(Some("dontAsk")));
+        assert!(harness("codex").acts_unattended(Some("read-only-v2")));
+    }
+
+    #[test]
+    fn the_asking_mode_is_the_first_asking_mode_in_catalog_order_that_the_harness_offers() {
+        let claude = harness("claude");
+        let mode = |offered: &[&str]| claude.asking_mode(offered).map(|mode| mode.id);
+        assert_eq!(
+            mode(&["bypassPermissions", "plan", "acceptEdits", "default"]),
+            Some("default")
+        );
+        assert_eq!(mode(&["auto", "plan"]), Some("plan"));
+        assert_eq!(mode(&["acceptEdits", "auto", "bypassPermissions"]), None);
+        assert_eq!(mode(&[]), None);
+        assert_eq!(harness("pi").asking_mode(&["default"]), None);
     }
 
     #[test]

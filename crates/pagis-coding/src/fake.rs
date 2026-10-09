@@ -40,6 +40,7 @@ pub struct Script {
     load: bool,
     auth_methods: Vec<acp::AuthMethod>,
     new_session_auth_required: bool,
+    modes: Option<acp::SessionModeState>,
     turns: Vec<Turn>,
     history: Vec<acp::SessionUpdate>,
 }
@@ -54,6 +55,7 @@ impl Default for Script {
             load: false,
             auth_methods: Vec::new(),
             new_session_auth_required: false,
+            modes: None,
             turns: Vec::new(),
             history: Vec::new(),
         }
@@ -102,6 +104,29 @@ impl Script {
     pub fn new_session_auth_required(mut self) -> Self {
         self.new_session_auth_required = true;
         self
+    }
+
+    /// The session modes that `session/new`, `session/resume` and
+    /// `session/load` answer: `modes` as `(id, name)`, and `current` the
+    /// current mode. `session/set_mode` then takes each id of `modes`, and
+    /// refuses each other id with the JSON-RPC error `-32602`.
+    #[must_use]
+    pub fn modes(mut self, current: &str, modes: &[(&str, &str)]) -> Self {
+        self.modes = Some(acp::SessionModeState::new(
+            current.to_owned(),
+            modes
+                .iter()
+                .map(|(id, name)| acp::SessionMode::new((*id).to_owned(), *name))
+                .collect(),
+        ));
+        self
+    }
+
+    /// Whether `session/set_mode` takes the mode `mode_id`.
+    fn offers_mode(&self, mode_id: &acp::SessionModeId) -> bool {
+        self.modes
+            .as_ref()
+            .is_some_and(|modes| modes.available_modes.iter().any(|mode| &mode.id == mode_id))
     }
 
     /// Adds the turn that answers the next prompt. A prompt after the last
@@ -506,7 +531,10 @@ where
                     if state.script.new_session_auth_required {
                         return responder.respond_with_error(Error::auth_required());
                     }
-                    responder.respond(acp::NewSessionResponse::new(NEW_SESSION_ID))
+                    responder.respond(
+                        acp::NewSessionResponse::new(NEW_SESSION_ID)
+                            .modes(state.script.modes.clone()),
+                    )
                 }
             },
             agent_client_protocol::on_receive_request!(),
@@ -516,7 +544,9 @@ where
                 let state = state.clone();
                 async move |request: acp::ResumeSessionRequest, responder, _cx| {
                     state.record(&request);
-                    responder.respond(acp::ResumeSessionResponse::new())
+                    responder.respond(
+                        acp::ResumeSessionResponse::new().modes(state.script.modes.clone()),
+                    )
                 }
             },
             agent_client_protocol::on_receive_request!(),
@@ -534,7 +564,22 @@ where
                             update.clone(),
                         ))?;
                     }
-                    responder.respond(acp::LoadSessionResponse::new())
+                    responder
+                        .respond(acp::LoadSessionResponse::new().modes(state.script.modes.clone()))
+                }
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
+        .on_receive_request(
+            {
+                let state = state.clone();
+                async move |request: acp::SetSessionModeRequest, responder, _cx| {
+                    state.record(&request);
+                    if state.script.offers_mode(&request.mode_id) {
+                        responder.respond(acp::SetSessionModeResponse::new())
+                    } else {
+                        responder.respond_with_error(Error::invalid_params())
+                    }
                 }
             },
             agent_client_protocol::on_receive_request!(),

@@ -345,6 +345,15 @@ pub struct CodingSessionUsage {
     pub cost_currency: Option<String>,
 }
 
+/// One Harness Mode as the harness names it when a session opens.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HarnessModeInfo {
+    /// The id that `session/set_mode` names.
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+}
+
 /// One Coding Session.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CodingSession {
