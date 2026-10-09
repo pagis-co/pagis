@@ -1,0 +1,11 @@
+# The configuration of each buildx builder that builds an image of Pagis:
+# the builder of a publish (`cargo xtask release`, `cargo xtask
+# relay-image`) and the builder of the CI test job.
+#
+# Docker Hub refuses the anonymous pulls of a shared runner address with
+# `429 Too Many Requests`. BuildKit pulls each Docker Hub image through
+# mirror.gcr.io, the public Docker Hub mirror of Google, and pulls from
+# Docker Hub when the mirror does not hold the image. Each base image is
+# pinned by digest, so the mirror cannot change what a build gets.
+[registry."docker.io"]
+  mirrors = ["mirror.gcr.io"]

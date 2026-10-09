@@ -102,6 +102,16 @@ fn the_publish_runs_on_a_builder_that_can_export_and_push() {
     assert!(joined(&steps[..1]).contains("buildx create --name pagis"));
 }
 
+/// Docker Hub refuses the anonymous pulls of a shared runner address
+/// with `429 Too Many Requests`, so the builder pulls the base images
+/// through the mirror that `buildkitd.toml` names.
+#[test]
+fn the_builder_pulls_docker_hub_images_through_the_mirror() {
+    let steps = server_image_plan(Path::new("/repo"), &server_image("1.2.3"), target());
+
+    assert!(joined(&steps[..1]).contains("--buildkitd-config buildkitd.toml"));
+}
+
 /// A release builds the server against the digest it resolved, not
 /// against a tag that may move.
 #[test]

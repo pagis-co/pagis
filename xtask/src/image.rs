@@ -82,13 +82,19 @@ pub fn builder_step(root: &Path) -> Step {
     }
 }
 
-/// The shell command that makes the builder, or finds it.
+/// The shell command that makes the builder, or finds it. A new builder
+/// pulls each Docker Hub image through the mirror that
+/// [`BUILDKITD_CONFIG`] names.
 fn builder_script() -> String {
     format!(
         "docker buildx inspect {BUILDER} >/dev/null 2>&1 || \
-         docker buildx create --name {BUILDER} --driver docker-container"
+         docker buildx create --name {BUILDER} --driver docker-container \
+         --buildkitd-config {BUILDKITD_CONFIG}"
     )
 }
+
+/// The BuildKit configuration of each builder, at the workspace root.
+const BUILDKITD_CONFIG: &str = "buildkitd.toml";
 
 /// The directory a publish exports the filesystem of the image `name`
 /// for `platform` to, as `dist/image-fs/computer/linux_amd64`. The scans

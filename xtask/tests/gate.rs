@@ -1447,6 +1447,42 @@ fn the_ci_workflow_runs_each_gate_step() {
     assert_eq!(run, gate);
 }
 
+/// Docker Hub refuses the anonymous pulls of a shared runner address
+/// with `429 Too Many Requests`. The test job pulls its base images and
+/// its test images through mirror.gcr.io: the Docker daemon for `docker
+/// run`, and the buildx builder for the image build.
+#[test]
+fn the_ci_test_job_pulls_docker_hub_images_through_the_mirror() {
+    let workflow = std::fs::read_to_string(workspace_root().join(".github/workflows/ci.yml"))
+        .expect("read .github/workflows/ci.yml");
+    let start = workflow.find("\n  test:\n").expect("a test job");
+    let end = workflow[start + 1..]
+        .find("\n  contract:\n")
+        .map_or(workflow.len(), |at| start + 1 + at);
+    let job = &workflow[start..end];
+
+    let daemon = job
+        .find("run: .github/scripts/docker-hub-mirror.sh")
+        .expect("the job sets the mirror of the Docker daemon");
+    let builder = job
+        .find("docker/setup-buildx-action")
+        .expect("the job makes a buildx builder");
+    assert!(
+        daemon < builder,
+        "the daemon restart must come before the builder starts"
+    );
+    assert!(job[builder..].contains("buildkitd-config: buildkitd.toml"));
+
+    let script =
+        std::fs::read_to_string(workspace_root().join(".github/scripts/docker-hub-mirror.sh"))
+            .expect("read .github/scripts/docker-hub-mirror.sh");
+    assert!(script.contains("https://mirror.gcr.io"));
+    let buildkitd = std::fs::read_to_string(workspace_root().join("buildkitd.toml"))
+        .expect("read buildkitd.toml");
+    assert!(buildkitd.contains("[registry.\"docker.io\"]"));
+    assert!(buildkitd.contains("mirrors = [\"mirror.gcr.io\"]"));
+}
+
 /// Branch protection and the merge queue require one job, which needs
 /// each other job and fails when one of them did not pass.
 #[test]
