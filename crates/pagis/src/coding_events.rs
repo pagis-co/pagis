@@ -30,25 +30,7 @@ impl SessionRules for TriggerSessionRules {
         // source, so one `end_source` ends all of them.
         for kind in CODING_SESSION_EVENT_KINDS {
             self.0
-                .create_subscription(NewSubscription {
-                    workspace_id: session.workspace_id.clone(),
-                    agent_id: session.agent_id.clone(),
-                    source: EventSource::coding_session(session.id.clone()),
-                    event_kind: kind.to_string(),
-                    name: session_rule_name(session),
-                    instruction: SESSION_RULE_INSTRUCTION.to_string(),
-                    channel_id: session.channel_id.clone(),
-                    root_message_id: Some(session.root_message_id.clone()),
-                    // The source names the one session.
-                    filter: serde_json::json!({}),
-                    // The Person approved the start, so the rule is the
-                    // user's. Nobody edits it: it is daemon housekeeping.
-                    creator: CreatorKind::User,
-                    // The rule watches the whole session, so its
-                    // activation is the session's first instant, and every
-                    // event of the session comes after it.
-                    now: session.created_at,
-                })
+                .create_subscription(session_rule(session, kind))
                 .await
                 .map_err(|error| SessionRuleError(error.to_string()))?;
         }
@@ -65,6 +47,31 @@ impl SessionRules for TriggerSessionRules {
             .await
             .map(|_| ())
             .map_err(|error| SessionRuleError(error.to_string()))
+    }
+}
+
+/// The Event Subscription of one kind of event in the Session Rule of
+/// `session`: in the session's Thread, with the provenance of the user.
+fn session_rule(session: &CodingSession, kind: &str) -> NewSubscription {
+    NewSubscription {
+        workspace_id: session.workspace_id.clone(),
+        agent_id: session.agent_id.clone(),
+        source: EventSource::coding_session(session.id.clone()),
+        event_kind: kind.to_string(),
+        name: session_rule_name(session),
+        instruction: SESSION_RULE_INSTRUCTION.to_string(),
+        channel_id: session.channel_id.clone(),
+        root_message_id: Some(session.root_message_id.clone()),
+        // The source names the one session.
+        filter: serde_json::json!({}),
+        // The Person approved the start, so the rule is the user's.
+        // Nobody edits it: it is daemon housekeeping.
+        creator: CreatorKind::User,
+        // A rule wakes only for the events after its activation. The rule
+        // watches the whole session, so it is active from the instant
+        // before the session's first instant: an event in the first
+        // millisecond of the session wakes it too.
+        now: session.created_at - 1,
     }
 }
 
@@ -137,4 +144,31 @@ impl SessionEvents for DeferredSessionEvents {
 
 fn not_ready() -> SessionRuleError {
     SessionRuleError("the trigger module is not ready on this daemon".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pagis_core::{AgentId, ChannelId, HostId, RunId, WorkspaceId};
+
+    /// A turn that ends in the millisecond that the session starts in
+    /// wakes the Agent: the rule is active before that instant.
+    #[test]
+    fn the_session_rule_is_active_before_the_first_instant_of_the_session() {
+        let session = pagis_testkit::fixture::coding_session(
+            &WorkspaceId::generate(),
+            &AgentId::generate(),
+            &RunId::generate(),
+            &ChannelId::generate(),
+            &HostId::generate(),
+        );
+
+        for kind in CODING_SESSION_EVENT_KINDS {
+            let rule = session_rule(&session, kind);
+
+            assert!(rule.now < session.created_at, "{kind}");
+            assert_eq!(rule.event_kind, kind);
+            assert_eq!(rule.root_message_id, Some(session.root_message_id.clone()));
+        }
+    }
 }
