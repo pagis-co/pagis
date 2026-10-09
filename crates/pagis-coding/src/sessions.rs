@@ -16,10 +16,18 @@
 //! reason `sign_in_required`, at `session/new` or at a later prompt, and
 //! the sign-in report then names the harness on the Host.
 //!
-//! A session acts without asking when its harness never asks permission.
-//! Such a session runs only while the live host Grant of its Agent on its
-//! machine allows Unattended Modes. A Grant revision that stops allowing
-//! them, and a revoked Grant, close it with the end reason
+//! The record keeps the Harness Mode of each session: the modes that the
+//! harness offers when the session opens or resumes, and the current one.
+//! A start puts the harness in an asking mode of the Harness Catalog
+//! before the first prompt, and a resume sets the recorded mode again. A
+//! change of the mode by the harness writes the record and a `mode` row.
+//!
+//! A session acts without asking when its harness never asks permission,
+//! or when its mode is not an asking mode of the catalog. Such a session
+//! runs only while the live host Grant of its Agent on its machine allows
+//! Unattended Modes. A Grant revision that stops allowing them, a revoked
+//! Grant, and a change by the harness into such a mode where the Grant
+//! does not allow one, close it with the end reason
 //! `approval_mode_narrowed`. A start and a resume read the live Grant again
 //! before the session takes a prompt.
 
@@ -37,8 +45,8 @@ use pagis_core::{
     AgentId, AuthorKind, Block, Clock, CodingSession, CodingSessionEventKind as Kind,
     CodingSessionId, CodingSessionPlace, CodingSessionState as State, CodingSessionStore,
     CodingSessionUsage, Event, EventBus, EventScope, Grant, GrantStore, HostId, HostStore, Message,
-    MessageId, MessageStatus, MessageStore, NewCodingSessionEvent, NewEvent, RunId, RunStore,
-    SessionApprovalMode, StoreError, WorkspaceId, blocks_text, harness,
+    MessageId, MessageStatus, MessageStore, ModeChangedBy, NewCodingSessionEvent, NewEvent, RunId,
+    RunStore, SessionApprovalMode, StoreError, WorkspaceId, blocks_text, harness, mode_payload,
 };
 use serde_json::{Value, json};
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
@@ -287,8 +295,15 @@ pub struct CodingSessions {
     /// Grant change. A change that comes between the check and the task
     /// thus waits, and then finds the session open.
     grant_checks: tokio::sync::Mutex<()>,
+    /// True once the task that closes the sessions of each Grant change
+    /// hears the bus. A start and a resume wait for it before their check
+    /// of the live Grant, so a later change is never lost.
+    grant_changes_heard: watch::Receiver<bool>,
     cancel: CancellationToken,
     live: LiveSessions,
+    /// The runtime itself, which the task of each session reaches when
+    /// its harness changes the mode.
+    this: Weak<CodingSessions>,
 }
 
 /// The task of one live session. A session that resumes is live from
@@ -313,10 +328,12 @@ impl CodingSessions {
             Arc::clone(&live),
             deps.cancel.clone(),
         ));
+        let (heard, grant_changes_heard) = watch::channel(false);
         Arc::new_cyclic(|sessions| {
             tokio::spawn(close_on_grant_changes(
                 Weak::clone(sessions),
                 Arc::clone(&deps.bus),
+                heard,
                 deps.cancel.clone(),
             ));
             Self {
@@ -335,8 +352,10 @@ impl CodingSessions {
                 sign_in_reports: deps.sign_in_reports,
                 grants: deps.grants,
                 grant_checks: tokio::sync::Mutex::default(),
+                grant_changes_heard,
                 cancel: deps.cancel,
                 live,
+                this: Weak::clone(sessions),
             }
         })
     }
@@ -377,6 +396,8 @@ impl CodingSessions {
                 .as_ref()
                 .map(|worktree| worktree.branch.clone()),
             approval_mode: new.approval_mode,
+            harness_mode: None,
+            harness_modes: Vec::new(),
             title: new.title,
             state: State::Starting,
             end_reason: None,
@@ -473,12 +494,33 @@ impl CodingSessions {
             .signed_in(&record.workspace_id, &new.host_id, entry.id)
             .await;
         record.acp_session_id = Some(acp.acp_session_id().to_string());
+        if let Some(modes) = acp.modes() {
+            record.harness_mode = Some(modes.current.clone());
+            record.harness_modes = modes.available.clone();
+        }
         self.records.write(&mut record).await?;
+        // The harness does nothing in a mode that does not ask before the
+        // first prompt. Its own first mode comes from the Person's settings
+        // of the harness, which do not decide what a session may do.
+        match set_asking_mode(&acp, entry, &record).await {
+            Ok(None) => {}
+            Ok(Some(asking)) => {
+                record.harness_mode = Some(asking.to_string());
+                let payload = mode_payload(asking, &record.harness_modes, ModeChangedBy::Pagis);
+                self.records.write(&mut record).await?;
+                self.records.append(&record, Kind::Mode, payload).await?;
+            }
+            Err(error) => {
+                acp.close();
+                return Err(self.harness_failed(&mut record, error).await);
+            }
+        }
 
         // A Grant change that comes while the stream opens finds the
         // session `starting`, and leaves it to this read of the live Grant.
+        self.hear_grant_changes().await;
         let _checks = self.grant_checks.lock().await;
-        if !entry.asks_permission {
+        if record.acts_unattended() {
             match self.unattended_allowed(&record, &new.host_id).await {
                 Ok(true) => {}
                 Ok(false) => {
@@ -523,6 +565,7 @@ impl CodingSessions {
         );
         let task = Task {
             records: self.records.clone(),
+            sessions: Weak::clone(&self.this),
             record: record.clone(),
             machine: host.name,
             snapshot,
@@ -628,6 +671,15 @@ impl CodingSessions {
         Ok(())
     }
 
+    /// Waits until the task that closes the sessions of each Grant change
+    /// hears the bus. That task subscribes after `new`, so a change before
+    /// its subscription would else be lost. A task that ended, when the
+    /// daemon stops, waits for nothing.
+    async fn hear_grant_changes(&self) {
+        let mut heard = self.grant_changes_heard.clone();
+        let _ = heard.wait_for(|heard| *heard).await;
+    }
+
     /// Whether the live host Grant of the session's Agent on the machine
     /// allows Unattended Modes.
     async fn unattended_allowed(
@@ -696,7 +748,7 @@ impl CodingSessions {
                 && session.agent_id == change.agent_id
                 && session.host_id.as_ref() == Some(&change.host_id)
                 && session.state != State::Starting
-                && acts_without_asking(&session.harness_id)
+                && session.acts_unattended()
         });
         Ok(open)
     }
@@ -888,9 +940,28 @@ impl CodingSessions {
                 CodingError::Protocol(message) => ResumeFailure::Harness(message),
                 other => ResumeFailure::Harness(other.to_string()),
             })?;
+        // The harness restores its session in a mode of its own, so the
+        // recorded mode is set again.
+        let (harness_mode, harness_modes) = match acp.modes() {
+            Some(modes) => {
+                let mode = match &record.harness_mode {
+                    Some(recorded) if *recorded != modes.current => {
+                        if let Err(error) = acp.set_mode(recorded).await {
+                            acp.close();
+                            return Err(ResumeFailure::Harness(harness_message(error)));
+                        }
+                        recorded.clone()
+                    }
+                    _ => modes.current.clone(),
+                };
+                (Some(mode), modes.available.clone())
+            }
+            None => (None, Vec::new()),
+        };
 
         // A close of the record, and a Grant change, can come while the
         // stream opens. The lock holds until the task runs.
+        self.hear_grant_changes().await;
         let _checks = self.grant_checks.lock().await;
         let mut record = self
             .records
@@ -902,7 +973,9 @@ impl CodingSessions {
             acp.close();
             return Err(ResumeFailure::NotInterrupted(record.state));
         }
-        if !entry.asks_permission {
+        record.harness_mode = harness_mode;
+        record.harness_modes = harness_modes;
+        if record.acts_unattended() {
             match self.unattended_allowed(&record, &host_id).await {
                 Ok(true) => {}
                 Ok(false) => {
@@ -933,6 +1006,7 @@ impl CodingSessions {
         }
         let task = Task {
             records: self.records.clone(),
+            sessions: Weak::clone(&self.this),
             record,
             machine: host.name,
             snapshot,
@@ -1043,16 +1117,45 @@ impl CodingSessions {
 
     /// Ends a start that the harness failed, and gives its failure.
     async fn harness_failed(&self, record: &mut CodingSession, error: CodingError) -> StartFailure {
-        let message = match error {
-            CodingError::Protocol(message) => message,
-            other => other.to_string(),
-        };
+        let message = harness_message(error);
         let end = End::new(HARNESS_ERROR, Some(message.clone()));
         self.records.end_start(record, end).await;
         StartFailure::Harness {
             session_id: record.id.clone(),
             message,
         }
+    }
+}
+
+/// Sets the first asking mode of the Harness Catalog that the harness
+/// offers, when the current mode of a new session does not ask, and
+/// answers the mode that it set. A harness that offers no asking mode
+/// stays in its own mode.
+async fn set_asking_mode(
+    acp: &AcpSession,
+    entry: &harness::HarnessEntry,
+    record: &CodingSession,
+) -> Result<Option<&'static str>, CodingError> {
+    if !record.acts_unattended() {
+        return Ok(None);
+    }
+    let offered: Vec<&str> = record
+        .harness_modes
+        .iter()
+        .map(|mode| mode.id.as_str())
+        .collect();
+    let Some(asking) = entry.asking_mode(&offered) else {
+        return Ok(None);
+    };
+    acp.set_mode(asking.id).await?;
+    Ok(Some(asking.id))
+}
+
+/// The message of a failed request of the harness. It is harness text.
+fn harness_message(error: CodingError) -> String {
+    match error {
+        CodingError::Protocol(message) => message,
+        other => other.to_string(),
     }
 }
 
@@ -1261,12 +1364,6 @@ async fn ask_task<T>(
     replied.await.ok()
 }
 
-/// Whether a session of the harness acts without asking: the harness
-/// never asks permission, so Pagis policy sees none of its actions.
-fn acts_without_asking(harness_id: &str) -> bool {
-    harness::entry(harness_id).is_some_and(|entry| !entry.asks_permission)
-}
-
 /// The bus events of a Grant revision and of a revoked Grant.
 const GRANT_CHANGED: &str = "grant.changed";
 const GRANT_REVOKED: &str = "grant.revoked";
@@ -1301,9 +1398,11 @@ impl HostGrantChange {
 async fn close_on_grant_changes(
     sessions: Weak<CodingSessions>,
     bus: Arc<dyn EventBus>,
+    heard: watch::Sender<bool>,
     cancel: CancellationToken,
 ) {
     let mut events = bus.subscribe(EventScope::Installation, None).await;
+    heard.send_replace(true);
     loop {
         let event = tokio::select! {
             () = cancel.cancelled() => return,
@@ -1572,6 +1671,9 @@ enum Flow {
 /// The task of one live session, and the one writer of its record.
 struct Task {
     records: Records,
+    /// The runtime, which closes the session when its harness changes to
+    /// a mode that the live host Grant does not allow.
+    sessions: Weak<CodingSessions>,
     record: CodingSession,
     /// The name of the Host, which the news of the session names.
     machine: String,
@@ -1830,12 +1932,46 @@ impl Task {
                     self.settle().await;
                 }
             }
-            // The record holds no Harness Mode.
-            SessionEvent::ModeChanged { .. } => {}
+            SessionEvent::ModeChanged { mode_id } => self.mode_changed(mode_id).await,
             // `run` reads the end of the stream.
             SessionEvent::Closed => {}
         }
         Flow::Go
+    }
+
+    /// Writes a new Harness Mode that the harness reported, and its `mode`
+    /// row. A Host session that now acts without asking closes when the
+    /// live host Grant does not allow Unattended Modes. That check takes
+    /// the lock of the Grant checks, and the close of a Grant change holds
+    /// the lock while it waits for this task, so the check runs apart.
+    async fn mode_changed(&mut self, mode_id: String) {
+        if self.record.harness_mode.as_deref() == Some(mode_id.as_str()) {
+            return;
+        }
+        let payload = mode_payload(&mode_id, &self.record.harness_modes, ModeChangedBy::Harness);
+        self.record.harness_mode = Some(mode_id);
+        if let Err(error) = self.records.write(&mut self.record).await {
+            tracing::warn!(session = %self.record.id, %error, "the Harness Mode of a Coding Session was not written");
+        }
+        self.snapshot.send_replace(self.record.clone());
+        self.append(Kind::Mode, payload).await;
+        let Some(host_id) = &self.record.host_id else {
+            return;
+        };
+        if !self.record.acts_unattended() {
+            return;
+        }
+        let change = HostGrantChange {
+            workspace_id: self.record.workspace_id.clone(),
+            agent_id: self.record.agent_id.clone(),
+            host_id: host_id.clone(),
+        };
+        let sessions = Weak::clone(&self.sessions);
+        tokio::spawn(async move {
+            if let Some(sessions) = sessions.upgrade() {
+                sessions.close_unallowed(&change).await;
+            }
+        });
     }
 
     /// The process exited by itself, or its stream closed and no exit

@@ -427,6 +427,7 @@ fn last_activity(row: &CodingSessionEvent) -> Option<String> {
         Kind::Prompt => Some("Received a prompt".to_string()),
         Kind::ToolCallUpdate
         | Kind::Usage
+        | Kind::Mode
         | Kind::Permission
         | Kind::Decision
         | Kind::Question

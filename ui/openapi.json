@@ -12422,7 +12422,8 @@
           "decision",
           "question",
           "answer",
-          "turn_end"
+          "turn_end",
+          "mode"
         ]
       },
       "CodingSessionPage": {

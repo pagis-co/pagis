@@ -3681,7 +3681,7 @@ export interface components {
          * @description What one transcript row holds.
          * @enum {string}
          */
-        CodingSessionEventKind: "prompt" | "agent_message" | "thought" | "tool_call" | "tool_call_update" | "plan" | "usage" | "permission" | "decision" | "question" | "answer" | "turn_end";
+        CodingSessionEventKind: "prompt" | "agent_message" | "thought" | "tool_call" | "tool_call_update" | "plan" | "usage" | "permission" | "decision" | "question" | "answer" | "turn_end" | "mode";
         CodingSessionPage: {
             items: components["schemas"]["CodingSessionDto"][];
         };

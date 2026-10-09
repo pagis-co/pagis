@@ -151,6 +151,8 @@ impl World {
                 working_directory: None,
                 worktree_branch: None,
                 approval_mode: SessionApprovalMode::Person,
+                harness_mode: None,
+                harness_modes: Vec::new(),
                 title: "Earlier work".to_string(),
                 state,
                 end_reason: terminal.then(|| "closed".to_string()),

@@ -269,6 +269,42 @@ async fn an_auto_session_reads_person_and_keeps_its_rows_through_person_and_agen
     .await;
 }
 
+/// An older session reads no mode and no offered modes after the
+/// migration that gives a Coding Session its Harness Mode, its transcript
+/// stays, and the transcript then takes a `mode` row (ADR-0033).
+#[tokio::test]
+async fn an_older_session_reads_no_mode_and_keeps_its_rows_through_harness_modes() {
+    let Some(database) = postgres::database().await else {
+        return;
+    };
+    // The test database comes with every migration, so the schema is
+    // made again from the earlier ones.
+    sqlx::raw_sql("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+        .execute(&database.pool)
+        .await
+        .unwrap();
+    let (before, _earlier) = pagis_testkit::migration::migrator_before(
+        &migrations(),
+        pagis_testkit::migration::HARNESS_MODES,
+    )
+    .await;
+    before.run(&database.pool).await.unwrap();
+    sqlx::raw_sql(pagis_testkit::migration::MODELESS_SESSION_ROWS)
+        .execute(&database.pool)
+        .await
+        .unwrap();
+
+    pagis_storage_postgres::MIGRATOR
+        .run(&database.pool)
+        .await
+        .unwrap();
+
+    pagis_testkit::migration::assert_modeless_session_rows(&pagis_storage_postgres::stores(
+        database.pool,
+    ))
+    .await;
+}
+
 /// The migration directory of this crate.
 fn migrations() -> std::path::PathBuf {
     std::path::PathBuf::from(

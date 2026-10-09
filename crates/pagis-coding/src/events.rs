@@ -243,6 +243,8 @@ mod tests {
             working_directory: None,
             worktree_branch: None,
             approval_mode: SessionApprovalMode::Person,
+            harness_mode: None,
+            harness_modes: Vec::new(),
             title: "Fix the login".to_string(),
             state,
             end_reason: end_reason.map(str::to_string),

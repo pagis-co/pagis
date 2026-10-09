@@ -68,6 +68,8 @@ The record holds:
   in (the worktree path when the session has a worktree), and the worktree
   branch or none;
 - the Session Approval Mode;
+- the Harness Mode: the current mode id and the modes that the harness
+  offered;
 - the title, the state and the end reason, and for a failed harness the end
   detail: its exit code and the last 4 KB of its stderr, or the message of
   the request that it failed;
@@ -91,7 +93,7 @@ The transcript is append-only rows of `coding_session_events`: a seq, a time,
 a kind and a JSON payload of at most 16 KB, with a truncation marker. The
 kinds are `prompt`, `agent_message`, `thought`, `tool_call`,
 `tool_call_update`, `plan`, `usage`, `permission`, `decision`, `question`,
-`answer` and `turn_end`. Consecutive chunks of one message merge into one
+`answer`, `turn_end` and `mode`. Consecutive chunks of one message merge into one
 row. A message row holds at most 16 KB of text, and the rest of a longer
 message goes on in rows marked `continued`, so the transcript keeps every
 word.
@@ -455,8 +457,8 @@ first. An absent or unknown value reads as false. The Person sets it with
 Grant, and each change is a Grant revision. A harness that never asks (pi)
 starts only where the Grant allows Unattended Modes.
 
-A session of a harness that never asks acts without asking, so Pagis cannot
-apply a narrower Grant to it. A Grant revision that stops allowing Unattended
+A session that acts without asking sends no Harness Permission, so Pagis
+cannot apply a narrower Grant to it. A Grant revision that stops allowing Unattended
 Modes, and a revoked Grant, close each open session of that Agent on that
 machine that acts without asking, with the end reason
 `approval_mode_narrowed`. The daemon reads `grant.changed` and
@@ -470,6 +472,43 @@ the Grant no longer allows it, the session closes with the end reason
 until the session is open, and the close of each Grant change takes it too,
 so a change that comes during a start is not lost. A session of a harness
 that asks stays open, and its next Harness Permission reads the live Grant.
+
+### A Harness Mode says when a harness asks
+
+A **Harness Mode** is a session mode that a Coding Harness offers over ACP.
+The harness names its modes and its current mode in the answer of
+`session/new`, `session/load` or `session/resume`, and the record keeps
+them. A harness that answers no modes has no mode. A `current_mode_update`
+of the harness changes the current mode of the record and writes a `mode`
+row. The payload of a `mode` row is
+`{"mode": <id>, "name": <name or the id>, "by": "pagis" | "harness"}`, and a
+`mode` row never merges. Thus the transcript shows when the harness stopped
+asking.
+
+A session acts without asking when its harness never asks, or when its
+mode is not an asking mode of the Harness Catalog. A mode that the catalog
+does not list counts as a mode that does not ask, so a mode that a later
+adapter adds fails closed.
+
+A start puts the harness in an asking mode before the first prompt. When
+the first mode of the harness does not ask, the daemon sets the first
+asking mode of the catalog that the harness offers with `session/set_mode`,
+and writes a `mode` row by `pagis`. This occurs whether the Grant allows
+Unattended Modes or not: the Person's own default mode of the harness does
+not decide what a session of an Agent may do. A harness that offers no
+asking mode starts in its own mode. A resume sets the recorded mode again
+when the restored session answers another one.
+
+A Host session that acts without asking needs the allowance of the live
+host Grant. A start and a resume read the live Grant after they set the
+mode, and close the session with `unattended_mode_not_allowed` when the
+Grant does not allow it. A session that comes into an Unattended Mode by a
+change of the harness closes with `approval_mode_narrowed` when the live
+Grant does not allow one. Pagis does not set the mode back, because the
+harness can act in the new mode before a `session/set_mode` arrives.
+
+Not built: the Harness Mode that the Agent picks, and the Harness Mode in
+the Product App.
 
 ### A Harness Permission passes Pagis policy first
 
@@ -778,6 +817,7 @@ Other ways were considered:
 ## Not built
 
 - A Pagis auto mode.
-- Harness Modes.
+- The Harness Mode that the Agent picks.
+- The Harness Mode in the Product App.
 - The switch for Unattended Modes on the Access tab.
 - The Computer place.

@@ -443,6 +443,8 @@ mod tests {
             working_directory: None,
             worktree_branch: None,
             approval_mode: SessionApprovalMode::Person,
+            harness_mode: None,
+            harness_modes: Vec::new(),
             title: "The secret title".to_string(),
             state: CodingSessionState::Starting,
             end_reason: None,
