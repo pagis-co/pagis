@@ -1845,7 +1845,6 @@ async fn each_model_request_records_its_summary_before_the_call(pool: SqlitePool
         .expect("estimate");
     let allowance = payload["input_allowance"].as_u64().expect("allowance");
     assert!(estimated > 0 && estimated <= allowance);
-    assert!(payload["max_output_tokens"].is_null());
     assert_eq!(payload["messages"], 1);
     assert!(payload["tools"].as_u64().is_some_and(|tools| tools > 0));
     assert_eq!(payload["images"], 0);
@@ -1854,6 +1853,115 @@ async fn each_model_request_records_its_summary_before_the_call(pool: SqlitePool
     let completed = next_event(&mut events, "model.completed").await;
     assert!(completed.seq > requested.seq);
     next_state(&mut events, "completed").await;
+}
+
+/// The output reserve of the harness route, `anthropic/claude-haiku-4-5`:
+/// the smallest of 16,384, its output limit of 64,000 and a quarter of
+/// its context window of 200,000.
+const HAIKU_OUTPUT_RESERVE: u32 = 16_384;
+
+/// A reply asks for no more output than the budget keeps for it, so a
+/// provider does not choose a smaller or a larger limit of its own.
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_reply_turn_sends_the_output_reserve_as_its_output_limit(pool: SqlitePool) {
+    let harness = boot(pool, AgentLoopConfig::default()).await;
+    harness.brain.push(Script::reply(&["Hello!"]));
+    let mut events = harness
+        .bus
+        .subscribe(EventScope::Installation, Some(0))
+        .await;
+
+    harness.send("hi").await;
+
+    let requested = next_event(&mut events, "model.requested").await;
+    assert_eq!(requested.payload["phase"], "reply");
+    assert_eq!(requested.payload["max_output_tokens"], HAIKU_OUTPUT_RESERVE);
+    next_state(&mut events, "completed").await;
+    let requests = harness.brain.requests();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].max_output_tokens, Some(HAIKU_OUTPUT_RESERVE));
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn the_answer_turn_at_the_turn_limit_sends_the_output_reserve(pool: SqlitePool) {
+    let config = AgentLoopConfig {
+        max_turns: 1,
+        ..AgentLoopConfig::default()
+    };
+    let harness = boot(pool, config).await;
+    harness.brain.push(teleport_call("call_1"));
+    harness
+        .brain
+        .push(Script::reply(&["Here is what I found."]));
+    let mut events = harness
+        .bus
+        .subscribe(EventScope::Installation, Some(0))
+        .await;
+
+    harness.send("find flights").await;
+
+    next_event(&mut events, "model.requested").await;
+    let answer = next_event(&mut events, "model.requested").await;
+    assert_eq!(answer.payload["max_output_tokens"], HAIKU_OUTPUT_RESERVE);
+    next_state(&mut events, "failed").await;
+    let requests = harness.brain.requests();
+    assert_eq!(requests.len(), 2);
+    assert!(!requests[1].allow_tool_calls);
+    assert_eq!(requests[1].max_output_tokens, Some(HAIKU_OUTPUT_RESERVE));
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_reflection_request_sends_the_output_reserve(pool: SqlitePool) {
+    let harness = boot(pool, AgentLoopConfig::default()).await;
+    harness.brain.push(Script::reply(&["Nothing to keep."]));
+    let mut events = harness
+        .bus
+        .subscribe(EventScope::Installation, Some(0))
+        .await;
+    let mut arrival = fixture::queued_run(&harness.workspace.id, &harness.agent.id, &harness.dm.id);
+    arrival.channel_id = None;
+    arrival.trigger_kind = TriggerKind::Arrival;
+    arrival.trigger_ref = None;
+    harness.runs.create(&arrival).await.unwrap();
+    harness.system.enqueue_proactive(arrival.clone());
+
+    let requested = next_event(&mut events, "model.requested").await;
+    assert_eq!(requested.payload["phase"], "reflection");
+    assert_eq!(requested.payload["max_output_tokens"], HAIKU_OUTPUT_RESERVE);
+    next_state(&mut events, "completed").await;
+    let requests = harness.brain.requests();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].max_output_tokens, Some(HAIKU_OUTPUT_RESERVE));
+}
+
+/// A route whose model writes less than 16,384 tokens asks for that
+/// smaller limit. A model that no table knows has the conservative
+/// output limit of 4,096.
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_route_with_a_small_output_limit_sends_that_limit(pool: SqlitePool) {
+    let aliases = SqliteModelAliasStore::new(pool.clone());
+    let harness = boot(pool, AgentLoopConfig::default()).await;
+    aliases
+        .update_candidates(
+            &harness.workspace.id,
+            &harness.agent.model_alias,
+            &["openai/gpt-unlisted".to_string()],
+            now_ms(),
+        )
+        .await
+        .unwrap();
+    harness.brain.push(Script::reply(&["Hello!"]));
+    let mut events = harness
+        .bus
+        .subscribe(EventScope::Installation, Some(0))
+        .await;
+
+    harness.send("hi").await;
+
+    let requested = next_event(&mut events, "model.requested").await;
+    assert_eq!(requested.payload["max_output_tokens"], 4_096);
+    next_state(&mut events, "completed").await;
+    assert_eq!(harness.brain.requests()[0].max_output_tokens, Some(4_096));
 }
 
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]

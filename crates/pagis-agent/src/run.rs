@@ -603,7 +603,7 @@ pub(crate) async fn execute(
             source_after = Some(checkpoint.through_inclusive.clone());
         }
         let mut reply = Reply::new(&deps, &agent, &run, &target);
-        let streamed = stream_turn(&deps, &run, "reply", turn, &request, &mut reply, &cancel).await;
+        let streamed = stream_turn(&deps, &run, "reply", turn, request, &mut reply, &cancel).await;
 
         match streamed {
             Streamed::Finished {
@@ -2023,7 +2023,7 @@ async fn reflect_and_commit(
             output_schema: None,
         };
         let (text, tool_calls) =
-            match collect_turn(deps, run, "reflection", phase_request, &request, cancel).await {
+            match collect_turn(deps, run, "reflection", phase_request, request, cancel).await {
                 Ok(finished) => finished,
                 Err(TurnError::Canceled) => return Err(ReflectionEnd::Canceled),
                 Err(TurnError::Brain(err)) => {
@@ -2686,17 +2686,17 @@ async fn collect_turn(
     run: &Run,
     phase: &str,
     phase_request: usize,
-    request: &TurnRequest,
+    request: TurnRequest,
     cancel: &CancellationToken,
 ) -> Result<(String, Vec<ToolInvocation>), TurnError> {
     let call = ModelCall::start(deps, run, phase, phase_request, request).await;
-    if let Some(error) = request_budget_error(request, &deps.models) {
+    if let Some(error) = request_budget_error(call.request(), &deps.models) {
         call.finish(Outcome::Rejected, Some(0), None, Some(&error))
             .await;
         return Err(TurnError::Brain(error));
     }
     let mut stream = match tokio::select! {
-        started = deps.brain.turn(request.clone()) => started,
+        started = deps.brain.turn(call.request().clone()) => started,
         _ = cancel.cancelled() => {
             call.finish(Outcome::Canceled, None, None, None).await;
             return Err(TurnError::Canceled);
@@ -3325,20 +3325,20 @@ async fn stream_turn(
     run: &Run,
     phase: &str,
     phase_request: usize,
-    request: &TurnRequest,
+    request: TurnRequest,
     reply: &mut Reply,
     cancel: &CancellationToken,
 ) -> Streamed {
     let mut text = String::new();
     let mut tool_calls = Vec::new();
     let call = ModelCall::start(deps, run, phase, phase_request, request).await;
-    if let Some(error) = request_budget_error(request, &deps.models) {
+    if let Some(error) = request_budget_error(call.request(), &deps.models) {
         call.finish(Outcome::Rejected, Some(0), None, Some(&error))
             .await;
         return Streamed::Errored { text, error };
     }
     let mut stream = match tokio::select! {
-        started = deps.brain.turn(request.clone()) => started,
+        started = deps.brain.turn(call.request().clone()) => started,
         _ = cancel.cancelled() => {
             call.finish(Outcome::Canceled, None, None, None).await;
             return Streamed::Canceled { text };
@@ -3744,7 +3744,7 @@ async fn compact_durable_history(
         tools: vec![],
         computer: false,
         allow_tool_calls: true,
-        max_output_tokens: Some(u32::try_from(budget.output_reserve).unwrap_or(u32::MAX)),
+        max_output_tokens: None,
         output_schema: Some(crate::brain::JsonSchemaFormat {
             name: "conversation_compaction".into(),
             description: Some("Structured working context for the same conversation".into()),
@@ -3759,7 +3759,7 @@ async fn compact_durable_history(
             compaction_estimate.input_tokens, budget.input_allowance
         ));
     }
-    let (text, calls) = collect_turn(deps, run, "compaction", 0, &compaction_request, cancel)
+    let (text, calls) = collect_turn(deps, run, "compaction", 0, compaction_request, cancel)
         .await
         .map_err(|error| match error {
             TurnError::Canceled => "conversation compaction was canceled".to_string(),

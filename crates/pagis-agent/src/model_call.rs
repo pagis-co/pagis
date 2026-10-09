@@ -6,6 +6,11 @@
 //! while the Model Request Capture setting is on, the capture of the
 //! request and its answer (ADR-0031). Every exit path of a call goes
 //! through [`ModelCall::finish`], so none of the three is left out.
+//!
+//! The request asks for the output reserve of its route as its output
+//! limit (ADR-0009). [`ModelCall::start`] sets that limit for every
+//! phase, so the limit the summary records is the limit the provider
+//! gets.
 
 use std::time::Instant;
 
@@ -14,7 +19,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use crate::brain::{BrainError, TurnEnd, TurnMessage, TurnRequest, TurnRole};
-use crate::context_budget::RequestSummary;
+use crate::context_budget::{RequestBudget, RequestSummary};
 use crate::system::AgentDeps;
 
 /// How one model request ended.
@@ -43,20 +48,26 @@ pub(crate) struct ModelCall<'a> {
     run: &'a Run,
     phase: &'a str,
     phase_request: usize,
-    request: &'a TurnRequest,
+    request: TurnRequest,
     started: Instant,
 }
 
 impl<'a> ModelCall<'a> {
-    /// Publish the summary of the request, before the call.
+    /// Set the output limit of the request and publish its summary,
+    /// before the call. A route with no budget sends no limit; the
+    /// budget check then refuses the request before the call.
     pub async fn start(
         deps: &'a AgentDeps,
         run: &'a Run,
         phase: &'a str,
         phase_request: usize,
-        request: &'a TurnRequest,
+        mut request: TurnRequest,
     ) -> Self {
-        let mut payload = serde_json::to_value(RequestSummary::of(request, &deps.models))
+        request.max_output_tokens =
+            RequestBudget::for_candidates(&request.model_candidates, &deps.models)
+                .ok()
+                .map(|budget| u32::try_from(budget.output_reserve).unwrap_or(u32::MAX));
+        let mut payload = serde_json::to_value(RequestSummary::of(&request, &deps.models))
             .expect("a request summary serializes");
         payload["phase"] = phase.into();
         payload["phase_request"] = phase_request.into();
@@ -69,6 +80,11 @@ impl<'a> ModelCall<'a> {
             request,
             started: Instant::now(),
         }
+    }
+
+    /// The request as it goes to the model.
+    pub fn request(&self) -> &TurnRequest {
+        &self.request
     }
 
     /// Record how the request ended: the Usage Record, the capture while
@@ -126,7 +142,7 @@ impl<'a> ModelCall<'a> {
             run_id: self.run.id.clone(),
             phase: self.phase.to_string(),
             phase_request: i64::try_from(self.phase_request).unwrap_or(i64::MAX),
-            request: request_json(self.request),
+            request: request_json(&self.request),
             answer: answer_json(outcome, end, error),
             created_at: self.deps.clock.now_ms(),
         };
