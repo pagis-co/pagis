@@ -545,6 +545,16 @@ becomes the root of the session's Thread. The block is the daemon-made
 `coding_session` type (ADR-0004), because it refers to a row that the daemon
 owns.
 
+The Product App draws the block as one card, running or settled, as the call
+block is (ADR-0022). The card reads the session record, and an event of the
+session makes it read the record again. It shows the harness, the title, the
+machine, the directory, the branch, the state, the mode, the usage and the
+last line of activity. While the session is `needs_decision`, it says where
+the decision waits, and it does not draw the approval card. A closed or
+failed session shows its end reason and its end time. "Open" goes to the
+session page. Stop calls the Person's Stop with no confirmation, and the card
+settles when the record reaches a terminal state.
+
 ### Harness output is foreign text
 
 Everything that a harness writes reaches a prompt inside the untrusted
@@ -600,7 +610,6 @@ Other ways were considered:
 - The item in the Needs-You Queue and the Notification.
 - The question in the daemon.
 - The report of a harness that needs a sign-in.
-- The session block in the Product App.
 - The diffs on the session page.
 - The Coding place.
 - Harness Sign-In in Settings.

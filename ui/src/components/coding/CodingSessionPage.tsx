@@ -28,12 +28,14 @@ import { Prose } from '../../prose'
 import { Avatar, Badge, Button } from '../../primitives'
 import { errorCode, useAgents, useCodingSession, useCodingSessionEvents } from '../../queries'
 import { PageState } from '../PageState'
+import { StopCodingSession } from './StopCodingSession'
 import { foldTranscript, type PlanEntry, type TranscriptItem } from './transcript'
 import {
   answerText,
   approvalModeBadge,
   decisionText,
   planStatusWord,
+  sessionSettled,
   sessionStateBadge,
   toolKindWord,
   toolStatusBadge,
@@ -50,10 +52,12 @@ function Cut({ truncated }: { truncated: boolean }) {
 }
 
 function Head({
+  api,
   session,
   agent,
   spriteName,
 }: {
+  api: ApiClient
   session: CodingSessionDto
   agent: AgentDto | undefined
   spriteName: string
@@ -79,6 +83,7 @@ function Head({
           <Badge tone={state.tone}>{state.label}</Badge>
           <Badge tone={mode.tone}>{mode.label}</Badge>
         </div>
+        {!sessionSettled(session.state) && <StopCodingSession api={api} sessionId={session.id} />}
       </div>
       <dl className="coding-facts">
         <div>
@@ -341,7 +346,7 @@ export function CodingSessionPage({ api, sessionId }: { api: ApiClient; sessionI
 
   return (
     <div className="coding-page">
-      <Head session={record} agent={agent} spriteName={spriteName} />
+      <Head api={api} session={record} agent={agent} spriteName={spriteName} />
       {plan !== null && plan.length > 0 && <Plan entries={plan} />}
       {events.data === undefined ? (
         <p className="coding-empty">Reading the transcript…</p>

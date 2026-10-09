@@ -2506,6 +2506,23 @@ export function useCodingSession(api: ApiClient, sessionId: string) {
   });
 }
 
+/** The Person stops a Coding Session (ADR-0033): the daemon cancels the
+ *  turn that runs and closes the session. The record is read again, and
+ *  it settles when the daemon writes the terminal state. */
+export function useStopCodingSession(api: ApiClient, sessionId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      expectNoContent(
+        api.POST("/api/v1/coding-sessions/{coding_session_id}/stop", {
+          params: { path: { coding_session_id: sessionId } },
+        }),
+      ),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: codingSessionKey(sessionId) }),
+  });
+}
+
 /** The largest page of a transcript that the daemon gives. */
 const TRANSCRIPT_PAGE = 500;
 

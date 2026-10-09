@@ -427,8 +427,8 @@ export function AppShell() {
             }
           }
           // A Coding Session reports each write of its record and of its
-          // transcript, with no text (ADR-0033). The session page reads
-          // both again.
+          // transcript, with no text (ADR-0033). The session page and the
+          // session block read them again.
           if (frame.type.startsWith('coding_session.')) {
             const sessionId = (event.payload as { coding_session_id?: string })
               .coding_session_id

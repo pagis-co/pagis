@@ -7,11 +7,14 @@ import {
   answerText,
   approvalModeBadge,
   decisionText,
+  endReasonText,
+  pendingText,
   planStatusWord,
   sessionStateBadge,
   toolKindWord,
   toolStatusBadge,
   turnEndText,
+  sessionSettled,
   usageText,
 } from './words'
 
@@ -163,5 +166,52 @@ describe('a plan entry', () => {
     expect(planStatusWord('pending')).toBe('Not started')
     expect(planStatusWord('in_progress')).toBe('In progress')
     expect(planStatusWord('completed')).toBe('Done')
+  })
+})
+
+describe('the end of a session', () => {
+  it.each([
+    ['closed', 'Sage closed the session'],
+    ['stopped', 'You stopped the session'],
+    ['harness_error', 'The coding harness failed a request'],
+    ['harness_exited', 'The coding harness stopped by itself'],
+    ['temporarily_unavailable', 'Pagis could not follow the session'],
+    ['not_found', 'The coding harness is not installed on the machine'],
+    ['bad_directory', 'The directory does not exist'],
+    ['worktree_failed', 'Pagis could not make the worktree'],
+    ['spawn_failed', 'The coding harness did not start'],
+    ['host_not_connected', 'The machine was not connected'],
+  ])('says why %s ended it', (reason, text) => {
+    expect(endReasonText(reason, 'Sage')).toBe(text)
+  })
+
+  it('shows a reason that it does not know as the daemon writes it', () => {
+    expect(endReasonText('quota_gone', 'Sage')).toBe('quota_gone')
+  })
+
+  it('says the session ended when the daemon gives no reason', () => {
+    expect(endReasonText(null, 'Sage')).toBe('The session ended')
+  })
+
+  it('settles in the terminal states only', () => {
+    expect(sessionSettled('closed')).toBe(true)
+    expect(sessionSettled('failed')).toBe(true)
+    for (const state of ['starting', 'working', 'needs_decision', 'idle', 'interrupted']) {
+      expect(sessionSettled(state)).toBe(false)
+    }
+  })
+})
+
+describe('a decision that waits', () => {
+  it('says where it waits', () => {
+    expect(pendingText({ kind: 'permission', waits_for: 'person', seq: 1 }, 'Sage', 'Codex')).toBe(
+      'A permission waits for your answer in this thread.',
+    )
+    expect(pendingText({ kind: 'permission', waits_for: 'agent', seq: 1 }, 'Sage', 'Codex')).toBe(
+      'Sage decides a permission.',
+    )
+    expect(pendingText({ kind: 'question', waits_for: 'agent', seq: 1 }, 'Sage', 'Codex')).toBe(
+      'Sage answers a question from Codex.',
+    )
   })
 })

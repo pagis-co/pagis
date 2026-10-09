@@ -104,6 +104,22 @@ describe('the head', () => {
     expect(await screen.findByText('Sage approves')).toBeTruthy()
   })
 
+  it('has Stop while the session is not settled', async () => {
+    mount()
+
+    const title = await screen.findByRole('heading', { name: 'Fix the login bug' })
+    const head = title.closest('header') as HTMLElement
+    expect(within(head).getByRole('button', { name: 'Stop' })).toBeTruthy()
+  })
+
+  it('has no Stop when the session is settled', async () => {
+    mount(stubApi({ session: { ...codingSession, state: 'closed', end_reason: 'closed' } }))
+
+    const title = await screen.findByRole('heading', { name: 'Fix the login bug' })
+    const head = title.closest('header') as HTMLElement
+    expect(within(head).queryByRole('button', { name: 'Stop' })).toBeNull()
+  })
+
   it('opens the Thread of the session from its link', async () => {
     const history = mount()
 

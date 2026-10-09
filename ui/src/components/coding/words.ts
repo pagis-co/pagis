@@ -1,13 +1,13 @@
-// What a Coding Session reads as (ADR-0033). The head, the transcript
-// and the plan of the session page show these words, so they live here
-// and not in each component.
+// What a Coding Session reads as (ADR-0033). The session block in the
+// Thread and the head, the transcript and the plan of the session page
+// show these words, so they live here and not in each component.
 //
 // A session shows beside the sprite's face, so its state words are
 // neither Activity words nor Computer state words
 // (docs/UI-DESIGN.md). The copy calls the program a coding harness, and
 // never names the protocol or a tool identifier.
 
-import type { CodingSessionUsage } from '../../api/client'
+import type { CodingSessionDto, CodingSessionUsage } from '../../api/client'
 import type { BadgeTone } from '../../primitives'
 
 /** A state word and the hue of its badge. */
@@ -30,6 +30,61 @@ const STATE: Record<string, BadgeWord> = {
  *  shows as the daemon writes it. */
 export function sessionStateBadge(state: string): BadgeWord {
   return STATE[state] ?? { label: state, tone: 'neutral' }
+}
+
+/** A closed or failed session is settled: it shows its end, and it has
+ *  no Stop. */
+export function sessionSettled(state: string): boolean {
+  return state === 'closed' || state === 'failed'
+}
+
+/** Why a session ended. A reason that this build does not know shows as
+ *  the daemon writes it. */
+export function endReasonText(reason: string | null | undefined, spriteName: string): string {
+  switch (reason) {
+    case null:
+    case undefined:
+    case '':
+      return 'The session ended'
+    case 'closed':
+      return `${spriteName} closed the session`
+    case 'stopped':
+      return 'You stopped the session'
+    case 'harness_error':
+      return 'The coding harness failed a request'
+    case 'harness_exited':
+      return 'The coding harness stopped by itself'
+    case 'temporarily_unavailable':
+      return 'Pagis could not follow the session'
+    case 'not_found':
+      return 'The coding harness is not installed on the machine'
+    case 'bad_directory':
+      return 'The directory does not exist'
+    case 'worktree_failed':
+      return 'Pagis could not make the worktree'
+    case 'spawn_failed':
+      return 'The coding harness did not start'
+    case 'host_not_connected':
+      return 'The machine was not connected'
+    default:
+      return reason
+  }
+}
+
+/** Where the decision of a `needs_decision` session waits. The block
+ *  does not draw the approval card: the card is its own message in the
+ *  Thread. */
+export function pendingText(
+  pending: NonNullable<CodingSessionDto['pending']>,
+  spriteName: string,
+  harnessName: string,
+): string {
+  if (pending.kind === 'question') {
+    return `${spriteName} answers a question from ${harnessName}.`
+  }
+  return pending.waits_for === 'person'
+    ? 'A permission waits for your answer in this thread.'
+    : `${spriteName} decides a permission.`
 }
 
 /** Who answers a Harness Permission that Pagis policy does not allow. */
