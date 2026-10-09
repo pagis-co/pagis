@@ -3,7 +3,7 @@
   "productName": "Pagis",
   "private": true,
   "license": "MIT",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "The Pagis Client App installs and owns one exact local Server Runtime.",
   "main": "dist/clientMain.js",
   "scripts": {
