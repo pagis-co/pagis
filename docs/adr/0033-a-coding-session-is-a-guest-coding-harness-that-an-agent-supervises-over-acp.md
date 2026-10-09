@@ -453,8 +453,9 @@ The Agent drives a Coding Session with core tools (ADR-0005):
   has no steering. A session that is not open answers `session_not_open`
   with its state. Free.
 - `coding_session_read {session}`: the id, the harness, the machine, the
-  title, the state, the end reason, the usage and the time of the last
-  update, which are the daemon's own state, outside the untrusted envelope.
+  title, the directory, the branch, the state, the end reason, the usage
+  and the time of the last update, which are the daemon's own state,
+  outside the untrusted envelope.
   The harness text is inside one envelope with the source
   `coding_session:<id>`: each ask that waits, oldest first (the title, the
   tool kind, the command, the locations and the options of a permission,
@@ -835,10 +836,9 @@ the question still waiting, makes the daemon answer `cancel`, and the
 
 When a session starts, the daemon makes a **Session Rule**: one Event
 Subscription for each kind of session event, because a rule matches one kind
-(ADR-0006). The rule wakes the owning Agent in the session's Thread, as the
-Standing Call Rule does for a Call. The daemon makes it after it posts the
-block, because the root of the Thread must exist, and before the stream
-opens. A start whose rule is not made fails with `temporarily_unavailable`.
+(ADR-0006). The daemon makes it after it posts the block, because the root of
+the Thread must exist, and before the stream opens. A start whose rule is not
+made fails with `temporarily_unavailable`.
 The daemon archives the rule when the session reaches a terminal state,
 after it gives the last event to the rule. That archive keeps the pending
 Wake-up of the rule, unlike an archive by the Person (ADR-0006), because the
@@ -868,10 +868,31 @@ kind that Pagis itself raises, and their declarations name no capability,
 because a Grant names a Connection. A Coding Session source has no cursor,
 no baseline and no collector: one session event is one batch with one event.
 
+The Session Rule keeps the supervision apart from the report, as a Slack
+thread keeps its replies apart from the channel, and as GitHub Copilot and
+the agents of Linear answer where the person asked:
+
+- `coding_session.turn_ended` and `coding_session.needs_decision` wake the
+  owning Agent in the session's Thread. Its decisions, its escalations and
+  its notes stay there.
+- `coding_session.ended` wakes the owning Agent at the place where the
+  session started: the Thread of the starting Run, or the top level of its
+  Channel when the starting Run had no Thread. The Person asked there, so
+  the Agent's report shows there. The instruction of this rule tells the
+  Agent that its reply is the report to the user. A session that starts in
+  a Thread has that Thread as the session's Thread, so all of its events
+  wake the Agent in one place.
+
 Wake-ups combine as ADR-0006 says: while the Agent's Run for the rule is
 active, new events join one pending Wake-up. A Run that a session event
-starts is a Run of an Incoming Event: a new chain whose Origin is the
-session's Thread (ADR-0003).
+starts is a Run of an Incoming Event: a new chain whose Origin is the place
+where the Run runs (ADR-0003).
+
+The Run of the end does not see the session's Thread. It reads the session
+with `coding_session_read`, which gives the last message of the harness,
+the changed files, the directory and the branch. The Agent therefore asks
+the harness for its final summary in the last turn, and closes the session
+when the work is done.
 
 ### Clients read a session over REST and events
 
@@ -931,6 +952,10 @@ failed session shows its end reason and its end time. "Open" goes to the
 session page. Stop calls the Person's Stop with no confirmation, and the card
 settles when the record reaches a terminal state.
 
+At the top level of the conversation, the card is the root of the session's
+Thread. It shows the replies chip and "Reply in thread", as each root does,
+and both open the Thread.
+
 ### Harness output is foreign text
 
 Everything that a harness writes reaches a prompt inside the untrusted
@@ -949,11 +974,25 @@ Other ways were considered:
   that the model's tools could reach.
 - **A harness process in the daemon.** The daemon is never a Host
   (ADR-0015).
+- **The Run of the end in the session's Thread, with its reply sent to the
+  place where the session started.** The Run would see the supervision, but
+  an Event Subscription would need a second place, and a reply to another
+  Thread of the same Channel would change the relay of ADR-0003.
+- **"Also send to the conversation" on a Thread reply**, as Slack does. Each
+  message, each timeline and each client would need the flag, and the Agent
+  could forget to set it. An end that the Agent does not cause, such as a
+  failure or the Person's Stop, would not reach the conversation.
+- **A report at the end of a turn with no open work.** The daemon cannot
+  know that the work is done, and the Agent often sends the next step.
 
 ## Consequences
 
 - An Agent gives coding work to the Person's own subscription. On a Host,
   Pagis spends no provider key on the harness.
+- Each end of a session, also a failure, an interruption or the Person's
+  Stop, wakes the Agent at the place where the Person asked. The
+  conversation shows the start and the end of the work, and the session's
+  Thread holds the rest.
 - A Host session lives while its Client App and its machine are awake. A
   sleeping laptop interrupts it.
 - Quit and "Restart to Update" in the Client App ask first while Coding

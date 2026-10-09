@@ -10,9 +10,10 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use pagis_broker::CODING_SESSION_EVENT_KINDS;
+use pagis_broker::{CODING_SESSION_ENDED, CODING_SESSION_EVENT_KINDS};
 use pagis_coding::{
-    SESSION_RULE_INSTRUCTION, SessionEvents, SessionRuleError, SessionRules, session_rule_name,
+    SESSION_END_INSTRUCTION, SESSION_RULE_INSTRUCTION, SessionEvents, SessionRuleError,
+    SessionRules, session_rule_name,
 };
 use pagis_core::{CodingSession, CreatorKind, EventSource, IngestBatch, now_ms};
 use pagis_trigger::{NewSubscription, Trigger};
@@ -51,17 +52,27 @@ impl SessionRules for TriggerSessionRules {
 }
 
 /// The Event Subscription of one kind of event in the Session Rule of
-/// `session`: in the session's Thread, with the provenance of the user.
+/// `session`, with the provenance of the user. The supervision wakes the
+/// Agent in the session's Thread. The end wakes it at the place where the
+/// session started, so its report shows where the Person asked.
 fn session_rule(session: &CodingSession, kind: &str) -> NewSubscription {
+    let (root_message_id, instruction) = if kind == CODING_SESSION_ENDED {
+        (session.starting_thread().cloned(), SESSION_END_INSTRUCTION)
+    } else {
+        (
+            Some(session.root_message_id.clone()),
+            SESSION_RULE_INSTRUCTION,
+        )
+    };
     NewSubscription {
         workspace_id: session.workspace_id.clone(),
         agent_id: session.agent_id.clone(),
         source: EventSource::coding_session(session.id.clone()),
         event_kind: kind.to_string(),
         name: session_rule_name(session),
-        instruction: SESSION_RULE_INSTRUCTION.to_string(),
+        instruction: instruction.to_string(),
         channel_id: session.channel_id.clone(),
-        root_message_id: Some(session.root_message_id.clone()),
+        root_message_id,
         // The source names the one session.
         filter: serde_json::json!({}),
         // The Person approved the start, so the rule is the user's.
@@ -168,7 +179,37 @@ mod tests {
 
             assert!(rule.now < session.created_at, "{kind}");
             assert_eq!(rule.event_kind, kind);
-            assert_eq!(rule.root_message_id, Some(session.root_message_id.clone()));
         }
+    }
+
+    /// The supervision stays in the session's Thread, and the end wakes
+    /// the Agent where the session started: the top level when the block
+    /// is the root, else the Thread of the starting Run.
+    #[test]
+    fn the_end_of_a_session_wakes_the_agent_where_the_session_started() {
+        let mut session = pagis_testkit::fixture::coding_session(
+            &WorkspaceId::generate(),
+            &AgentId::generate(),
+            &RunId::generate(),
+            &ChannelId::generate(),
+            &HostId::generate(),
+        );
+        session.root_message_id = session.message_id.clone();
+
+        let ended = session_rule(&session, CODING_SESSION_ENDED);
+        assert_eq!(ended.root_message_id, None);
+        assert_eq!(ended.instruction, SESSION_END_INSTRUCTION);
+        for kind in CODING_SESSION_EVENT_KINDS
+            .into_iter()
+            .filter(|kind| *kind != CODING_SESSION_ENDED)
+        {
+            let rule = session_rule(&session, kind);
+            assert_eq!(rule.root_message_id, Some(session.root_message_id.clone()));
+            assert_eq!(rule.instruction, SESSION_RULE_INSTRUCTION);
+        }
+
+        session.root_message_id = pagis_core::MessageId::generate();
+        let ended = session_rule(&session, CODING_SESSION_ENDED);
+        assert_eq!(ended.root_message_id, Some(session.root_message_id.clone()));
     }
 }

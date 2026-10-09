@@ -66,8 +66,9 @@ pub use event::{
     ToolStatus,
 };
 pub use events::{
-    DecisionKind, InterruptReason, SESSION_RULE_INSTRUCTION, SessionEventMatcher, SessionEvents,
-    SessionNews, SessionRuleError, SessionRules, session_event, session_rule_name,
+    DecisionKind, InterruptReason, SESSION_END_INSTRUCTION, SESSION_RULE_INSTRUCTION,
+    SessionEventMatcher, SessionEvents, SessionNews, SessionRuleError, SessionRules, session_event,
+    session_rule_name,
 };
 pub use model_route::{
     ConfigDirectory, ConfigFile, EndpointRoute, MODEL_TOKEN_VARIABLE, ModelApi, ModelRoute,

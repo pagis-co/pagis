@@ -66,7 +66,8 @@ A Run that a Schedule or an Incoming Event starts begins a new chain at hop
 count zero. Its target Channel and optional Thread are its origin, so work it
 delegates returns to the proactive conversation that started it. A Run that
 a Coding Session event starts is a Run of an Incoming Event. It begins a new
-chain whose origin is the session's Thread (ADR-0033).
+chain whose origin is the place where it runs: the session's Thread, or, for
+the end of the session, the place where the session started (ADR-0033).
 
 ## Consequences
 

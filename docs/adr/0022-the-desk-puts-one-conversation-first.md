@@ -146,7 +146,8 @@ control, and a small player for the recording, the first block that owns a
 media player. The settled block also opens in the inspector. An inbound call
 renders in the Agent's own Channel with the user, as a line that the Agent
 answered its line under its standing rule, then the strip, so strangers add no
-conversations.
+conversations. A call block at the top level is the root of its Thread: it
+shows the replies chip and "Reply in thread", as each root does.
 
 The strip, the inspector and the settled block show the tier as a chip, and
 the inspector states its meaning in one line; on an Unknown call it says that

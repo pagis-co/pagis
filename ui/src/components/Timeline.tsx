@@ -208,7 +208,7 @@ export function Timeline({
       )
     }
     if (item.kind === 'system') {
-      return <SystemRow row={item.row} api={api} />
+      return <SystemRow row={item.row} api={api} onOpenThread={onOpenThread} />
     }
     if (item.kind === 'pointer') {
       return <PointerRow row={item.row} onOpenChannel={onOpenChannel} />

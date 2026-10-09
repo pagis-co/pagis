@@ -269,6 +269,8 @@ impl CodingToolRuntime {
                 "harness": harness_name(&session.harness_id),
                 "machine": machine,
                 "title": session.title,
+                "directory": session.working_directory.as_deref().unwrap_or(&session.directory),
+                "branch": session.worktree_branch,
                 "state": session.state.as_str(),
                 "end_reason": session.end_reason,
                 "usage": session.usage,
