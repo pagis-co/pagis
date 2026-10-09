@@ -266,8 +266,8 @@ fn the_export_options_name_app_store_connect_and_automatic_signing() {
 }
 
 /// The prepare phase checks the exact .ipa that it uploads later: the
-/// signatures, the versions, the relay origin, the privacy manifests and
-/// the production APNs environment.
+/// signatures, the versions, the relay origin, the privacy manifests, the
+/// declaration of exempt encryption and the production APNs environment.
 #[test]
 fn the_prepare_phase_checks_the_exact_ipa() {
     let (tmp, steps) = plan(IosPhase::Prepare, &release_env);
@@ -288,6 +288,7 @@ fn the_prepare_phase_checks_the_exact_ipa() {
         "PagisPushRelayOrigin",
         "'https://push.pagis.co'",
         "PrivacyInfo.xcprivacy",
+        "ITSAppUsesNonExemptEncryption",
         "aps-environment",
         "production",
     ] {

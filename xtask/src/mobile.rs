@@ -449,7 +449,8 @@ fn export_script() -> String {
 
 /// Check the exact `.ipa`: the signatures of the app and the extension,
 /// their versions and privacy manifests, the bundle id, the relay origin,
-/// and the production APNs environment of a distribution signature.
+/// the declaration of exempt encryption, and the production APNs
+/// environment of a distribution signature.
 fn check_script(build: &Build) -> String {
     format!(
         r#"set -eu
@@ -469,6 +470,7 @@ for bundle in "$app" "$appex"; do
 done
 expect CFBundleIdentifier "$(value "$app/Info.plist" CFBundleIdentifier)" '{BUNDLE_ID}'
 expect PagisPushRelayOrigin "$(value "$app/Info.plist" PagisPushRelayOrigin)" '{origin}'
+expect ITSAppUsesNonExemptEncryption "$(value "$app/Info.plist" ITSAppUsesNonExemptEncryption)" false
 /usr/bin/codesign -d --entitlements - --xml "$app" > "$tmp/entitlements.plist"
 expect aps-environment "$(value "$tmp/entitlements.plist" aps-environment)" production
 "#,

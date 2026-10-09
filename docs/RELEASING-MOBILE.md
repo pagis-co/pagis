@@ -67,8 +67,8 @@ and checked:
       automatic signing, and the versions of the archive;
    4. checks the exact `.ipa`: the signature of the app and of the
       extension, their versions and privacy manifests, the bundle id
-      `co.pagis.mobile`, the relay origin, and the APNs environment
-      `production`.
+      `co.pagis.mobile`, the relay origin, the declaration of exempt
+      encryption, and the APNs environment `production`.
 
    The job attests the provenance of the `.ipa` and keeps it as the
    artifact `mobile-ios` of the run.
@@ -162,9 +162,11 @@ the extension keep the keys of the Push Subscription in it.
 App Store Connect processes an upload before it shows the build under
 **TestFlight**. Then:
 
-1. Answer the export compliance question of the build. The app uses the
-   encryption of iOS only: HTTPS, and the decryption of a Web Push with
-   CryptoKit.
+1. The app declares in `Info.plist` that it uses only exempt encryption
+   (`ITSAppUsesNonExemptEncryption` is `false`). It uses the encryption of
+   iOS only: HTTPS, and the decryption of a Web Push with CryptoKit. Thus
+   App Store Connect does not ask the export compliance question of the
+   build. The prepare phase checks the key in the exact `.ipa`.
 2. Add the build to an internal testing group. Each tester installs it
    with the TestFlight app on an iPhone or an iPad.
 3. Before each submission, install the build on an iPhone and on an iPad.
@@ -232,8 +234,8 @@ give in the notes:
 
 - The account steps of [The Apple Developer account](#the-apple-developer-account).
 - The approval of the `release` environment for each release.
-- The export compliance answer, the TestFlight testers, the check on an
-  iPhone and an iPad, and the submission for App Store review.
+- The TestFlight testers, the check on an iPhone and an iPad, and the
+  submission for App Store review.
 - The demo server, the Sign-In Link and the QR code of each submission.
 - The revocation of old development certificates when the account reaches
   its limit.
