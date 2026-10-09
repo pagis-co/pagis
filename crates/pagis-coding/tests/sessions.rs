@@ -22,8 +22,9 @@ use pagis_coding::{
     CodingToolRuntime, InterruptReason, NewCodingSession, OpenFailure, OpenFailureCode,
     OpenRequest, OpenedStream, PERMISSION_DECIDED_EVENT, Pending, PermissionAnswer, PermissionAsk,
     PolicyDecisions, PolicyDecisionsDeps, PromptOutcome, QuestionAnswer, QuestionAsk,
-    RefuseDecisions, ResumeFailure, SessionDecisions, SessionError, SessionEvents, SessionExit,
-    SessionPlace, SessionRuleError, SessionRules, StartFailure, Waited, WaitsFor, WorktreeRequest,
+    RefuseDecisions, ResumeFailure, SIGN_IN_CHANGED_EVENT, SessionDecisions, SessionError,
+    SessionEvents, SessionExit, SessionPlace, SessionRuleError, SessionRules, SignInReports,
+    StartFailure, Waited, WaitsFor, WorktreeRequest,
 };
 use pagis_core::{
     Agent, AgentId, AgentStatus, AgentStore, AuthorKind, Block, Channel, ChannelId, ChannelKind,
@@ -71,6 +72,8 @@ struct World {
     /// The machines that are connected, whose departures the sessions
     /// hear.
     presence: Arc<HostPresence>,
+    /// The harnesses that need a Harness Sign-In, on the bus of the tests.
+    sign_in_reports: Arc<SignInReports>,
 }
 
 async fn world(pool: SqlitePool) -> World {
@@ -114,9 +117,11 @@ async fn world(pool: SqlitePool) -> World {
         .await
         .unwrap();
     let events = Arc::new(SqliteEventLog::new(pool.clone()));
+    let bus = Arc::new(AuditEventBus::new(events.clone()));
     let mut world = World {
         sessions: Arc::new(SqliteCodingSessionStore::new(pool.clone())),
-        bus: Arc::new(AuditEventBus::new(events.clone())),
+        sign_in_reports: Arc::new(SignInReports::new(bus.clone(), Arc::new(SystemClock))),
+        bus,
         events,
         agent_asks: Arc::default(),
         pool,
@@ -220,6 +225,7 @@ impl World {
             decisions,
             rules: self.rules.clone(),
             events: self.rules.clone(),
+            sign_in_reports: self.sign_in_reports.clone(),
             clock: Arc::new(SystemClock),
             departures: self.presence.departures(),
             cancel: CancellationToken::new(),
@@ -300,6 +306,37 @@ impl World {
             );
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
+    }
+
+    /// Whether the report says that Claude Code needs a sign-in on the
+    /// machine.
+    async fn needs_sign_in(&self) -> bool {
+        self.sign_in_reports
+            .needs_sign_in_since(&self.host_id, "claude")
+            .await
+            .is_some()
+    }
+
+    /// The payloads of the `harness.sign_in_changed` events, oldest
+    /// first.
+    async fn sign_in_changes(&self) -> Vec<Value> {
+        let mut events = self
+            .events
+            .list_by_types(&self.workspace_id, &[SIGN_IN_CHANGED_EVENT], None, 100)
+            .await
+            .unwrap();
+        events.sort_by_key(|event| event.seq);
+        events.into_iter().map(|event| event.payload).collect()
+    }
+
+    /// One `harness.sign_in_changed` payload of Claude Code on the
+    /// machine.
+    fn sign_in_change(&self, needs_sign_in: bool) -> Value {
+        json!({
+            "host_id": self.host_id.as_str(),
+            "harness": "claude",
+            "needs_sign_in": needs_sign_in,
+        })
     }
 
     async fn record(&self, id: &CodingSessionId) -> CodingSession {
@@ -1164,6 +1201,97 @@ async fn an_open_answer_not_found_fails_the_session(pool: SqlitePool) {
     assert_eq!(record.state, State::Failed);
     assert_eq!(record.end_reason.as_deref(), Some("not_found"));
     assert!(record.ended_at.is_some());
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_session_new_that_needs_a_sign_in_fails_the_session_and_reports_the_harness(
+    pool: SqlitePool,
+) {
+    let world = world(pool).await;
+    let place = DuplexPlace::new(Script::default().new_session_auth_required());
+    let sessions = world.coding_sessions(place, Arc::new(RefuseDecisions));
+
+    let failed = sessions.start(world.new_session(&world.run_id)).await;
+
+    let Err(failure) = failed else {
+        panic!("the start fails: {failed:?}");
+    };
+    let StartFailure::SignInRequired { session_id, .. } = &failure else {
+        panic!("the start needs a sign-in: {failure:?}");
+    };
+    assert_eq!(
+        failure.to_string(),
+        "Claude Code is not signed in on your Air. Ask the user to sign in: Settings › Hosts › Air."
+    );
+    let record = world.record(session_id).await;
+    assert_eq!(record.state, State::Failed);
+    assert_eq!(record.end_reason.as_deref(), Some("sign_in_required"));
+    assert!(world.needs_sign_in().await);
+    assert_eq!(world.sign_in_changes().await, [world.sign_in_change(true)]);
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_later_session_new_that_succeeds_clears_the_report(pool: SqlitePool) {
+    let world = world(pool).await;
+    let signed_out = DuplexPlace::new(Script::default().new_session_auth_required());
+    world
+        .coding_sessions(signed_out, Arc::new(RefuseDecisions))
+        .start(world.new_session(&world.run_id))
+        .await
+        .expect_err("the harness needs a sign-in");
+    assert!(world.needs_sign_in().await);
+
+    let signed_in = DuplexPlace::new(Script::default().turn(Turn::until_cancel(vec![])));
+    let run_id = world.run(Some(world.channel_id.clone()), None).await;
+    world
+        .coding_sessions(signed_in, Arc::new(RefuseDecisions))
+        .start(world.new_session(&run_id))
+        .await
+        .expect("the session starts");
+
+    assert!(!world.needs_sign_in().await);
+    assert_eq!(
+        world.sign_in_changes().await,
+        [world.sign_in_change(true), world.sign_in_change(false)]
+    );
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_prompt_that_needs_a_sign_in_in_a_later_turn_fails_the_session_and_reports_it(
+    pool: SqlitePool,
+) {
+    let world = world(pool).await;
+    let place = DuplexPlace::new(
+        Script::default()
+            .turn(Turn::new(vec![], acp::StopReason::EndTurn))
+            .turn(Turn::auth_required()),
+    );
+    let sessions = world.coding_sessions(place, Arc::new(RefuseDecisions));
+    let session = sessions
+        .start(world.new_session(&world.run_id))
+        .await
+        .unwrap();
+    world.wait_for_state(&session.id, State::Idle).await;
+    assert!(!world.needs_sign_in().await);
+
+    sessions
+        .prompt(
+            &world.workspace_id,
+            &session.id,
+            "Run the tests.".to_string(),
+        )
+        .await
+        .unwrap();
+
+    let record = world.wait_for_state(&session.id, State::Failed).await;
+    assert_eq!(record.end_reason.as_deref(), Some("sign_in_required"));
+    assert!(world.needs_sign_in().await);
+    assert_eq!(world.sign_in_changes().await, [world.sign_in_change(true)]);
+    let ended = world
+        .rules
+        .wait_for_batches("coding_session.ended", 1)
+        .await;
+    assert_eq!(ended[0].events[0].metadata["reason"], "sign_in_required");
 }
 
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]

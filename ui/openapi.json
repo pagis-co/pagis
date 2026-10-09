@@ -4415,7 +4415,7 @@
           "hosts"
         ],
         "summary": "The signed-in person's own machines, with presence.",
-        "operationId": "list_hosts",
+        "operationId": "list_my_hosts",
         "responses": {
           "200": {
             "description": "",
@@ -14179,7 +14179,8 @@
           "platform",
           "capabilities",
           "present",
-          "last_seen_at"
+          "last_seen_at",
+          "harnesses"
         ],
         "properties": {
           "capabilities": {
@@ -14188,6 +14189,13 @@
               "type": "string"
             },
             "description": "What the client declared it can do, for example `shell`."
+          },
+          "harnesses": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HostHarnessDto"
+            },
+            "description": "One entry for each `harness:<id>` capability, in the order of the\ncapabilities."
           },
           "id": {
             "type": "string"
@@ -14206,6 +14214,24 @@
           "present": {
             "type": "boolean",
             "description": "True while the daemon holds this machine's connection. A host\naction runs only on a present machine."
+          }
+        }
+      },
+      "HostHarnessDto": {
+        "type": "object",
+        "description": "One Coding Harness that a Host declares.",
+        "required": [
+          "id",
+          "needs_sign_in"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The id of the harness in the Harness Catalog."
+          },
+          "needs_sign_in": {
+            "type": "boolean",
+            "description": "True when the last attempt showed that the harness needs a Harness\nSign-In on this machine. After a restart of the daemon it is false\nuntil a start fails again."
           }
         }
       },

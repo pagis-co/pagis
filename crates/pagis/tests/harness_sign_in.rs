@@ -7,13 +7,21 @@
 //! Coding Harness of `pagis_coding`.
 
 use std::collections::{BTreeMap, HashMap};
+use std::sync::Arc;
 use std::time::Duration;
 
+use futures::StreamExt;
+use pagis_agent::TurnRole;
 use pagis_broker::HarnessSignIn;
+use pagis_coding::NewCodingSession;
 use pagis_coding::fake::{Script, acp, serve_client_app};
-use pagis_core::{HostId, harness, now_ms};
-use pagis_testkit::{HostAnswer, HostClient, TestDaemon, TwoTenants};
+use pagis_core::{AgentId, ChannelId, HostId, SessionApprovalMode, harness, now_ms};
+use pagis_testkit::{
+    HostAnswer, HostClient, ScriptedBrain, Socket, TestDaemon, TestDaemonOptions, TwoTenants,
+    fixture,
+};
 use serde_json::{Value, json};
+use tokio_tungstenite::tungstenite::Message as Frame;
 use tokio_util::compat::TokioAsyncReadCompatExt;
 
 const WAIT: Duration = Duration::from_secs(10);
@@ -275,6 +283,201 @@ async fn person_b_cannot_start_a_sign_in_on_person_as_host() {
     assert_eq!(status, 404, "{body}");
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert!(a_host.sign_ins().is_empty());
+}
+
+const SIGN_IN_SENTENCE: &str =
+    "Claude Code is not signed in on your Air. Ask the user to sign in: Settings › Hosts › Air.";
+
+/// The next frame of `frame_type` on an event socket.
+async fn next_frame_of(socket: &mut Socket, frame_type: &str) -> Value {
+    loop {
+        let frame = tokio::time::timeout(WAIT, socket.next())
+            .await
+            .unwrap_or_else(|_| panic!("no {frame_type} frame in time"))
+            .expect("the socket is open")
+            .expect("a frame");
+        let Frame::Text(text) = frame else { continue };
+        let value: Value = serde_json::from_str(&text).expect("a JSON frame");
+        if value["type"] == frame_type {
+            return value;
+        }
+    }
+}
+
+async fn get(daemon: &TestDaemon, cookie: &str, path: &str) -> Value {
+    let response = reqwest::Client::new()
+        .get(format!("{}{path}", daemon.base_url))
+        .header("cookie", cookie)
+        .send()
+        .await
+        .expect("the daemon answers");
+    assert_eq!(response.status(), 200, "GET {path}");
+    response.json().await.expect("a JSON answer")
+}
+
+/// The Agent asks to start Claude Code with a scripted model, the Person
+/// approves the card, and the model reads the tool result. A start that
+/// fails raises no news, so no Wake-up takes a script.
+#[tokio::test]
+async fn a_start_that_needs_a_sign_in_tells_the_agent_where_the_person_signs_in() {
+    let brain = Arc::new(ScriptedBrain::default());
+    brain.push(pagis_testkit::Script::tool_call(
+        &[],
+        "coding_session_start",
+        json!({
+            "harness": "claude",
+            "directory": "/Users/bo/code/app",
+            "title": "Fix the login",
+            "prompt": "Fix the login bug.",
+        }),
+    ));
+    brain.push(pagis_testkit::Script::reply(&["Please sign in."]));
+    let daemon = TestDaemon::start_with(TestDaemonOptions {
+        brain: Arc::clone(&brain) as _,
+        ..TestDaemonOptions::default()
+    })
+    .await;
+    let host = HostClient::connect(
+        &daemon,
+        "Air",
+        "macos",
+        &["shell", "harness:claude", "harness:codex"],
+        HostAnswer::ok(),
+    )
+    .await;
+    let host_id = HostId::from(host.host_id().to_string());
+    open_session_socket(
+        &daemon,
+        &host_id,
+        Script::default().new_session_auth_required(),
+    )
+    .await;
+    let mut firehose = daemon.event_socket(daemon.cookie()).await;
+
+    let sent = reqwest::Client::new()
+        .post(format!(
+            "{}/api/v1/channels/{}/messages",
+            daemon.base_url, daemon.dm_channel_id
+        ))
+        .header("cookie", daemon.cookie())
+        .json(&json!({"pending_id": "fix the login", "text": "fix the login"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(sent.status(), 201);
+    let created = next_frame_of(&mut firehose, "request.created").await;
+    let request_id = created["payload"]["payload"]["request_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let decided = reqwest::Client::new()
+        .post(format!(
+            "{}/api/v1/requests/{request_id}/decision",
+            daemon.base_url
+        ))
+        .header("cookie", daemon.cookie())
+        .json(&json!({"decision": "approved"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(decided.status(), 200);
+
+    let changed = next_frame_of(&mut firehose, "harness.sign_in_changed").await;
+    assert_eq!(
+        changed["payload"]["payload"],
+        json!({"host_id": host.host_id(), "harness": "claude", "needs_sign_in": true})
+    );
+    loop {
+        let run = next_frame_of(&mut firehose, "run.state_changed").await;
+        if run["payload"]["payload"]["to"] == "completed" {
+            break;
+        }
+    }
+    let result = brain
+        .requests()
+        .iter()
+        .rev()
+        .flat_map(|request| request.messages.iter().rev())
+        .find(|message| message.role == TurnRole::Tool)
+        .expect("the model read the tool result")
+        .text
+        .clone();
+    assert_eq!(result, SIGN_IN_SENTENCE);
+
+    let hosts = get(&daemon, daemon.cookie(), "/api/v1/hosts").await;
+    assert_eq!(
+        hosts["items"][0]["harnesses"],
+        json!([
+            {"id": "claude", "needs_sign_in": true},
+            {"id": "codex", "needs_sign_in": false},
+        ])
+    );
+}
+
+/// A Host id is not a secret. Person B's event socket hears nothing of
+/// the sign-in report of person A's Host.
+#[tokio::test]
+async fn person_b_receives_no_sign_in_change_of_person_as_host() {
+    let world = TwoTenants::start().await;
+    let daemon = &world.daemon;
+    let mut a_events = daemon.event_socket(&world.a.cookie).await;
+    let mut b_events = daemon.event_socket(&world.b.cookie).await;
+    let a_host = daemon
+        .stores()
+        .hosts
+        .register(
+            &daemon.workspace_id,
+            "Air",
+            "macos",
+            &["harness:claude".to_string()],
+            now_ms(),
+        )
+        .await
+        .expect("write the Host");
+    open_session_socket(
+        daemon,
+        &a_host.id,
+        Script::default().new_session_auth_required(),
+    )
+    .await;
+    let agent_id = AgentId::from(daemon.agent_id.clone());
+    let run = fixture::queued_run(
+        &daemon.workspace_id,
+        &agent_id,
+        &ChannelId::from(daemon.dm_channel_id.clone()),
+    );
+    daemon
+        .stores()
+        .runs
+        .create(&run)
+        .await
+        .expect("write the Run");
+
+    daemon
+        .coding_sessions
+        .start(NewCodingSession {
+            workspace_id: daemon.workspace_id.clone(),
+            agent_id,
+            run_id: run.id,
+            host_id: a_host.id.clone(),
+            harness_id: "claude".to_string(),
+            directory: "/Users/bo/code/app".to_string(),
+            worktree: None,
+            approval_mode: SessionApprovalMode::Person,
+            title: "Fix the login".to_string(),
+            prompt: "Fix the login bug.".to_string(),
+        })
+        .await
+        .expect_err("the harness needs a sign-in");
+
+    let changed = next_frame_of(&mut a_events, "harness.sign_in_changed").await;
+    assert_eq!(changed["payload"]["payload"]["host_id"], a_host.id.as_str());
+    let heard = tokio::time::timeout(
+        Duration::from_millis(300),
+        next_frame_of(&mut b_events, "harness.sign_in_changed"),
+    )
+    .await;
+    assert!(heard.is_err(), "person B heard {heard:?}");
 }
 
 /// The session socket of `host_id`, whose Client App end runs the fake

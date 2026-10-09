@@ -8,8 +8,8 @@ use std::sync::{Arc, Mutex};
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::schema::v1 as acp;
 use agent_client_protocol::{
-    Agent, ByteStreams, Client, ConnectionTo, Error, JsonRpcResponse, RequestCancellation,
-    Responder,
+    Agent, ByteStreams, Client, ConnectionTo, Error, ErrorCode, JsonRpcResponse,
+    RequestCancellation, Responder,
 };
 use futures::io::{AsyncRead, AsyncWrite};
 use serde::{Deserialize, Serialize};
@@ -216,7 +216,8 @@ impl AcpSession {
 
     /// Sends one `session/prompt` with one text block, and returns at once.
     ///
-    /// The turn's updates come as events, then `TurnEnded` or `TurnFailed`.
+    /// The turn's updates come as events, then `TurnEnded`, `TurnFailed`
+    /// or `SignInRequired`.
     /// A prompt while a turn runs is `CodingError::Busy`, because ACP v1
     /// has no steering.
     pub fn prompt(&self, text: impl Into<String>) -> Result<(), CodingError> {
@@ -250,6 +251,9 @@ impl AcpSession {
                             message: format!("unknown stop reason {:?}", response.stop_reason),
                         },
                     },
+                    Err(error) if error.code == ErrorCode::AuthRequired => {
+                        SessionEvent::SignInRequired
+                    }
                     Err(error) => SessionEvent::TurnFailed {
                         message: error.message,
                     },

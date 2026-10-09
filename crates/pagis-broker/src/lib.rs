@@ -31,7 +31,7 @@ pub use call::{
 pub use coding_session::{
     CODING_SESSION_ENDED, CODING_SESSION_EVENT_KINDS, CODING_SESSION_MATCHER,
     CODING_SESSION_NAMESPACE, CODING_SESSION_NEEDS_DECISION, CODING_SESSION_TURN_ENDED,
-    coding_session_manifest,
+    SIGN_IN_REQUIRED, coding_session_manifest, sign_in_required_message,
 };
 pub use credentials::{
     CredentialAction, CredentialActionKind, MAX_CREDENTIAL_RULES, domain_allowed, normalize_domain,

@@ -5228,6 +5228,7 @@ async fn channel_briefing(deps: &AgentDeps, agent: &Agent, run: &Run) -> String 
             &context.source.to_string(),
             session_rows(&context.events).trim_end(),
         ));
+        briefing.push_str(&sign_in_lines(&context.events));
         return briefing;
     }
     let mut rows = String::new();
@@ -5394,6 +5395,28 @@ fn session_rows(events: &[pagis_core::IncomingEvent]) -> String {
         rows.push_str(&format!(" | occurred_at: {}\n", event.occurred_at));
     }
     rows
+}
+
+/// The words of the daemon for each session that ended because its
+/// harness needs a Harness Sign-In: where the Person signs in. The end
+/// reason is the daemon's own, so the line goes outside the envelope.
+fn sign_in_lines(events: &[pagis_core::IncomingEvent]) -> String {
+    let mut lines = String::new();
+    for event in events {
+        let metadata = &event.metadata;
+        if event.event_kind != pagis_broker::CODING_SESSION_ENDED
+            || metadata["reason"] != pagis_broker::SIGN_IN_REQUIRED
+        {
+            continue;
+        }
+        let harness_id = metadata["harness"].as_str().unwrap_or_default();
+        let harness =
+            pagis_core::harness::entry(harness_id).map_or(harness_id, |entry| entry.label);
+        let machine = metadata["machine"].as_str().unwrap_or_default();
+        lines.push('\n');
+        lines.push_str(&pagis_broker::sign_in_required_message(harness, machine));
+    }
+    lines
 }
 
 /// The source name of incoming event metadata: the event kind and the
@@ -5802,6 +5825,51 @@ pub(crate) async fn publish(
     };
     if let Err(err) = deps.bus.publish(event).await {
         tracing::error!(error = %err, run_id = %run.id, event_type, "event publish failed");
+    }
+}
+
+#[cfg(test)]
+mod session_briefing_tests {
+    use pagis_core::{
+        CodingSessionId, EventSource, IncomingEvent, IncomingEventId, SourceBatchId, WorkspaceId,
+    };
+    use serde_json::json;
+
+    use super::sign_in_lines;
+
+    fn ended(reason: &str) -> IncomingEvent {
+        IncomingEvent {
+            id: IncomingEventId::generate(),
+            workspace_id: WorkspaceId::generate(),
+            source: EventSource::coding_session(CodingSessionId::from("cs_1".to_string())),
+            event_kind: pagis_broker::CODING_SESSION_ENDED.to_string(),
+            provider_event_id: "cs_1:ended:failed".to_string(),
+            metadata: json!({
+                "coding_session_id": "cs_1",
+                "title": "Fix the login",
+                "harness": "claude",
+                "machine": "Air",
+                "state": "failed",
+                "reason": reason,
+            }),
+            occurred_at: 1,
+            received_at: 1,
+            batch_id: SourceBatchId::generate(),
+        }
+    }
+
+    #[test]
+    fn an_end_for_a_sign_in_names_where_the_person_signs_in() {
+        assert_eq!(
+            sign_in_lines(&[ended("sign_in_required")]),
+            "\nClaude Code is not signed in on your Air. Ask the user to sign in: Settings › \
+             Hosts › Air."
+        );
+    }
+
+    #[test]
+    fn another_end_writes_no_line() {
+        assert_eq!(sign_in_lines(&[ended("harness_error")]), "");
     }
 }
 

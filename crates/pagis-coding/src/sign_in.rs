@@ -11,15 +11,24 @@
 //! Pagis never reads, copies, stores or relays the credential. The
 //! sign-in runs in the vendor's own program on the Person's machine, and
 //! the frames carry no credential.
+//!
+//! [`SignInReports`] tells which harness needs a sign-in on which Host.
+//! Pagis cannot read the sign-in state of a harness without the
+//! credential, so the report holds what the last attempt showed.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::time::Duration;
 
 use futures::io::AsyncReadExt;
-use pagis_broker::{HarnessSignIn, HostDispatchError, HostPresence};
+use pagis_broker::{HarnessSignIn, HostDispatchError, HostPresence, SignInOutcome};
 use pagis_core::harness::{self, HarnessEntry, SignInAction, SignInMethod};
-use pagis_core::{CodingSessionId, HarnessSignInId, Host};
+use pagis_core::{
+    Clock, CodingSessionId, EventBus, HarnessSignInId, Host, HostId, NewEvent, UnixMillis,
+    WorkspaceId,
+};
+use serde_json::json;
+use tokio::sync::Mutex;
 
 use crate::{AcpSession, OpenFailureCode, OpenRequest, SessionPlace};
 
@@ -75,6 +84,114 @@ impl SignInFailure {
     }
 }
 
+/// The domain event of a change of the sign-in report of one harness on
+/// one Host.
+pub const SIGN_IN_CHANGED_EVENT: &str = "harness.sign_in_changed";
+
+/// The harnesses that need a Harness Sign-In, by Host.
+///
+/// The report lives in daemon memory, as presence does, so it is empty
+/// after a restart until a start fails again. A start that the harness
+/// refuses for a sign-in sets the entry of its harness on its Host. A
+/// `session/new` that succeeds, or a sign-in that exits with code 0,
+/// clears it. Each change publishes [`SIGN_IN_CHANGED_EVENT`] for the
+/// Workspace of the Host.
+pub struct SignInReports {
+    bus: Arc<dyn EventBus>,
+    clock: Arc<dyn Clock>,
+    /// The time Pagis learned that the harness needs a sign-in, by Host
+    /// and harness id. The lock is held across the publish, so the events
+    /// come in the order of the changes.
+    needs: Mutex<HashMap<(HostId, String), UnixMillis>>,
+}
+
+impl SignInReports {
+    pub fn new(bus: Arc<dyn EventBus>, clock: Arc<dyn Clock>) -> Self {
+        Self {
+            bus,
+            clock,
+            needs: Mutex::default(),
+        }
+    }
+
+    /// When Pagis learned that `harness` needs a sign-in on `host_id`,
+    /// or `None` when no attempt showed that.
+    pub async fn needs_sign_in_since(&self, host_id: &HostId, harness: &str) -> Option<UnixMillis> {
+        self.needs
+            .lock()
+            .await
+            .get(&(host_id.clone(), harness.to_string()))
+            .copied()
+    }
+
+    /// The harness refused a session for a sign-in.
+    pub async fn needs_sign_in(&self, workspace_id: &WorkspaceId, host_id: &HostId, harness: &str) {
+        let mut needs = self.needs.lock().await;
+        let key = (host_id.clone(), harness.to_string());
+        if needs.contains_key(&key) {
+            return;
+        }
+        needs.insert(key, self.clock.now_ms());
+        self.publish(workspace_id, host_id, harness, true).await;
+    }
+
+    /// The harness opened a session, so it is signed in.
+    pub async fn signed_in(&self, workspace_id: &WorkspaceId, host_id: &HostId, harness: &str) {
+        let mut needs = self.needs.lock().await;
+        if needs
+            .remove(&(host_id.clone(), harness.to_string()))
+            .is_some()
+        {
+            self.publish(workspace_id, host_id, harness, false).await;
+        }
+    }
+
+    /// A sign-in ended. An exit code of 0 clears the report at once: the
+    /// next start tells whether the sign-in worked. Any other end leaves
+    /// the report.
+    pub async fn sign_in_ended(
+        &self,
+        workspace_id: &WorkspaceId,
+        host_id: &HostId,
+        harness: &str,
+        outcome: &SignInOutcome,
+    ) {
+        if outcome.exit_code == Some(0) {
+            self.signed_in(workspace_id, host_id, harness).await;
+        }
+    }
+
+    /// Publishes one change. The report holds the change also when the
+    /// event does not reach the clients: their next read of the Hosts
+    /// shows it.
+    async fn publish(
+        &self,
+        workspace_id: &WorkspaceId,
+        host_id: &HostId,
+        harness: &str,
+        needs_sign_in: bool,
+    ) {
+        let published = self
+            .bus
+            .publish(NewEvent {
+                workspace_id: workspace_id.clone(),
+                event_type: SIGN_IN_CHANGED_EVENT.to_string(),
+                agent_id: None,
+                run_id: None,
+                channel_id: None,
+                payload: json!({
+                    "host_id": host_id.as_str(),
+                    "harness": harness,
+                    "needs_sign_in": needs_sign_in,
+                }),
+            })
+            .await;
+        if let Err(error) = published {
+            tracing::warn!(host_id = %host_id, harness, %error, "a change of the sign-in report did not reach the clients");
+        }
+    }
+}
+
 /// The program, the arguments and the environment that the Client App
 /// runs in the terminal window.
 struct Invocation {
@@ -87,21 +204,30 @@ struct Invocation {
 pub struct SignIns {
     presence: Arc<HostPresence>,
     place: Arc<dyn SessionPlace>,
+    reports: Arc<SignInReports>,
 }
 
 impl SignIns {
-    /// `presence` carries the frame to the Host, and `place` opens the
-    /// stream of a probe.
-    pub fn new(presence: Arc<HostPresence>, place: Arc<dyn SessionPlace>) -> Self {
-        Self { presence, place }
+    /// `presence` carries the frame to the Host, `place` opens the stream
+    /// of a probe, and the result of each sign-in goes to `reports`.
+    pub fn new(
+        presence: Arc<HostPresence>,
+        place: Arc<dyn SessionPlace>,
+        reports: Arc<SignInReports>,
+    ) -> Self {
+        Self {
+            presence,
+            place,
+            reports,
+        }
     }
 
     /// Start one sign-in of `method` to the harness `harness_id` on
     /// `host`, and answer its id when the frame is sent.
     ///
     /// The result comes later, when the Person closes the terminal
-    /// window, and the daemon logs it. A Host that is not connected fails
-    /// at once.
+    /// window. The daemon logs it and gives it to the sign-in report. A
+    /// Host that is not connected fails at once.
     pub async fn start(
         &self,
         host: &Host,
@@ -155,18 +281,25 @@ impl SignIns {
             )
             // A sign-in has no deadline, so the one error is absence.
             .map_err(|_: HostDispatchError| SignInFailure::NotConnected)?;
-        let (host_id, harness) = (host.id.clone(), entry.id);
+        let (workspace_id, host_id, harness) =
+            (host.workspace_id.clone(), host.id.clone(), entry.id);
         let sign_in_id = id.clone();
+        let reports = Arc::clone(&self.reports);
         tokio::spawn(async move {
             match answer.await {
-                Ok(outcome) => tracing::info!(
-                    host_id = %host_id,
-                    harness,
-                    sign_in_id = %sign_in_id,
-                    exit_code = ?outcome.exit_code,
-                    error = outcome.error.as_deref(),
-                    "a Harness Sign-In ended"
-                ),
+                Ok(outcome) => {
+                    tracing::info!(
+                        host_id = %host_id,
+                        harness,
+                        sign_in_id = %sign_in_id,
+                        exit_code = ?outcome.exit_code,
+                        error = outcome.error.as_deref(),
+                        "a Harness Sign-In ended"
+                    );
+                    reports
+                        .sign_in_ended(&workspace_id, &host_id, harness, &outcome)
+                        .await;
+                }
                 Err(_) => tracing::info!(
                     host_id = %host_id,
                     harness,
@@ -242,8 +375,10 @@ mod tests {
     use std::sync::Mutex;
 
     use async_trait::async_trait;
-    use pagis_broker::{HostConnection, HostFrame, SignInOutcome};
-    use pagis_core::{HostId, WorkspaceId};
+    use pagis_broker::{HostConnection, HostFrame};
+    use pagis_core::{
+        Event, EventId, EventScope, EventStream, HostId, StoreError, SystemClock, WorkspaceId,
+    };
     use tokio::sync::oneshot;
     use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
@@ -357,12 +492,175 @@ mod tests {
         values.iter().map(|value| (*value).to_string()).collect()
     }
 
+    /// A bus that keeps each event it gets.
+    #[derive(Default)]
+    struct KeptBus {
+        events: Mutex<Vec<NewEvent>>,
+    }
+
+    impl KeptBus {
+        /// The `needs_sign_in` of each change, oldest first.
+        fn changes(&self) -> Vec<bool> {
+            self.events
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|event| {
+                    assert_eq!(event.event_type, SIGN_IN_CHANGED_EVENT);
+                    event.payload["needs_sign_in"].as_bool().unwrap()
+                })
+                .collect()
+        }
+    }
+
+    #[async_trait]
+    impl EventBus for KeptBus {
+        async fn publish(&self, event: NewEvent) -> Result<Event, StoreError> {
+            self.events.lock().unwrap().push(event.clone());
+            Ok(Event {
+                id: EventId::generate(),
+                seq: 1,
+                workspace_id: event.workspace_id,
+                event_type: event.event_type,
+                agent_id: event.agent_id,
+                run_id: event.run_id,
+                channel_id: event.channel_id,
+                payload: event.payload,
+                created_at: 0,
+            })
+        }
+
+        async fn subscribe(&self, _: EventScope, _: Option<i64>) -> EventStream {
+            Box::pin(futures::stream::empty())
+        }
+    }
+
+    fn reports_on(bus: Arc<KeptBus>) -> Arc<SignInReports> {
+        Arc::new(SignInReports::new(bus, Arc::new(SystemClock)))
+    }
+
+    fn reports() -> Arc<SignInReports> {
+        reports_on(Arc::default())
+    }
+
+    fn exited(exit_code: Option<i64>) -> SignInOutcome {
+        SignInOutcome {
+            exit_code,
+            error: exit_code
+                .is_none()
+                .then(|| "the terminal did not open".to_string()),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_sign_in_that_exits_0_clears_the_report_and_any_other_end_leaves_it() {
+        let host = host(&["harness:codex"]);
+        let bus = Arc::new(KeptBus::default());
+        let reports = reports_on(Arc::clone(&bus));
+        let (workspace_id, host_id) = (&host.workspace_id, &host.id);
+        reports.needs_sign_in(workspace_id, host_id, "codex").await;
+        assert!(
+            reports
+                .needs_sign_in_since(host_id, "codex")
+                .await
+                .is_some()
+        );
+
+        for other in [Some(1), None] {
+            reports
+                .sign_in_ended(workspace_id, host_id, "codex", &exited(other))
+                .await;
+            assert!(
+                reports
+                    .needs_sign_in_since(host_id, "codex")
+                    .await
+                    .is_some(),
+                "the end {other:?} cleared the report"
+            );
+        }
+        reports
+            .sign_in_ended(workspace_id, host_id, "codex", &exited(Some(0)))
+            .await;
+
+        assert_eq!(reports.needs_sign_in_since(host_id, "codex").await, None);
+        assert_eq!(bus.changes(), [true, false]);
+    }
+
+    #[tokio::test]
+    async fn a_report_changes_once_for_each_change_and_holds_each_harness_apart() {
+        let host = host(&["harness:codex", "harness:claude"]);
+        let bus = Arc::new(KeptBus::default());
+        let reports = reports_on(Arc::clone(&bus));
+        let (workspace_id, host_id) = (&host.workspace_id, &host.id);
+
+        reports.signed_in(workspace_id, host_id, "codex").await;
+        reports.needs_sign_in(workspace_id, host_id, "codex").await;
+        reports.needs_sign_in(workspace_id, host_id, "codex").await;
+
+        assert!(
+            reports
+                .needs_sign_in_since(host_id, "codex")
+                .await
+                .is_some()
+        );
+        assert_eq!(reports.needs_sign_in_since(host_id, "claude").await, None);
+        assert_eq!(
+            reports
+                .needs_sign_in_since(&HostId::generate(), "codex")
+                .await,
+            None
+        );
+        assert_eq!(bus.changes(), [true]);
+        let event = bus.events.lock().unwrap()[0].clone();
+        assert_eq!(&event.workspace_id, workspace_id);
+        assert_eq!(
+            event.payload,
+            json!({"host_id": host_id.as_str(), "harness": "codex", "needs_sign_in": true})
+        );
+    }
+
+    /// The `harness_sign_in_result` of the Client App reaches the report.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_result_of_the_client_app_clears_the_report() {
+        let host = host(&["shell", "harness:codex"]);
+        let (presence, mut connection) = present(&host);
+        let reports = reports();
+        reports
+            .needs_sign_in(&host.workspace_id, &host.id, "codex")
+            .await;
+        let sign_ins = SignIns::new(
+            Arc::clone(&presence),
+            DuplexPlace::new(Script::default()),
+            Arc::clone(&reports),
+        );
+        sign_ins
+            .start(&host, "codex", SignInMethod::Subscription)
+            .await
+            .expect("the sign-in starts");
+        let sign_in = next_sign_in(&mut connection).await;
+
+        presence.complete_sign_in(&connection, &sign_in.id, exited(Some(0)));
+
+        let deadline = tokio::time::Instant::now() + WAIT;
+        while reports
+            .needs_sign_in_since(&host.id, "codex")
+            .await
+            .is_some()
+        {
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "the result did not clear the report"
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+
     #[tokio::test(flavor = "multi_thread")]
     async fn a_vendor_command_is_the_invocation_and_opens_no_probe() {
         let host = host(&["shell", "harness:codex"]);
         let (presence, mut connection) = present(&host);
         let place = DuplexPlace::new(Script::default());
-        let sign_ins = SignIns::new(Arc::clone(&presence), place.clone());
+        let sign_ins = SignIns::new(Arc::clone(&presence), place.clone(), reports());
 
         let id = sign_ins
             .start(&host, "codex", SignInMethod::ApiKey)
@@ -399,7 +697,7 @@ mod tests {
         let host = host(&["harness:claude"]);
         let (presence, mut connection) = present(&host);
         let place = DuplexPlace::new(claude_script());
-        let sign_ins = SignIns::new(presence, place.clone());
+        let sign_ins = SignIns::new(presence, place.clone(), reports());
 
         sign_ins
             .start(&host, "claude", SignInMethod::Subscription)
@@ -441,7 +739,7 @@ mod tests {
         let host = host(&["harness:claude"]);
         let (presence, _connection) = present(&host);
         let place = DuplexPlace::new(claude_script().new_session_auth_required());
-        let sign_ins = SignIns::new(presence, place.clone());
+        let sign_ins = SignIns::new(presence, place.clone(), reports());
 
         sign_ins
             .start(&host, "claude", SignInMethod::Subscription)
@@ -464,7 +762,7 @@ mod tests {
         // The harness offers `claude-ai-login`, and the API key sign-in
         // of the catalog is `console-login`.
         let place = DuplexPlace::new(claude_script());
-        let sign_ins = SignIns::new(presence, place);
+        let sign_ins = SignIns::new(presence, place, reports());
 
         let failure = sign_ins
             .start(&host, "claude", SignInMethod::ApiKey)
@@ -484,7 +782,7 @@ mod tests {
     async fn a_harness_the_host_does_not_declare_is_refused() {
         let host = host(&["shell"]);
         let (presence, _connection) = present(&host);
-        let sign_ins = SignIns::new(presence, DuplexPlace::new(Script::default()));
+        let sign_ins = SignIns::new(presence, DuplexPlace::new(Script::default()), reports());
 
         let failure = sign_ins
             .start(&host, "codex", SignInMethod::Subscription)
@@ -501,7 +799,7 @@ mod tests {
     async fn a_method_the_catalog_does_not_hold_is_refused() {
         let host = host(&["harness:copilot"]);
         let (presence, _connection) = present(&host);
-        let sign_ins = SignIns::new(presence, DuplexPlace::new(Script::default()));
+        let sign_ins = SignIns::new(presence, DuplexPlace::new(Script::default()), reports());
 
         let failure = sign_ins
             .start(&host, "copilot", SignInMethod::ApiKey)
@@ -515,7 +813,7 @@ mod tests {
     async fn an_absent_host_fails_at_once_without_a_probe() {
         let host = host(&["harness:claude"]);
         let place = DuplexPlace::new(claude_script());
-        let sign_ins = SignIns::new(Arc::new(HostPresence::new()), place.clone());
+        let sign_ins = SignIns::new(Arc::new(HostPresence::new()), place.clone(), reports());
 
         let failure = sign_ins
             .start(&host, "claude", SignInMethod::Subscription)

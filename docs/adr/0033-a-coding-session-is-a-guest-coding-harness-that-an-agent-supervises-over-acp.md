@@ -294,7 +294,25 @@ code in `harness_sign_in_result`.
 
 Pagis never reads, copies, stores or relays the credential. The harness
 keeps it in its own store on that machine, and the frames carry no
-credential. The daemon reports a harness that needs a sign-in.
+credential.
+
+The daemon reports a harness that needs a sign-in. ACP answers a request
+that needs a sign-in with the error `-32000`, "Authentication required".
+When `session/new` or a later `session/prompt` gives that error, the session
+fails with the end reason `sign_in_required`. The start tool and the
+briefing of `coding_session.ended` then tell the Agent: "<harness> is not
+signed in on your <machine>. Ask the user to sign in: Settings › Hosts ›
+<machine>." So the Agent tells the Person where to go, and never asks for a
+key or a password. The report is a map in daemon memory, as presence is,
+from a Host and a harness to the time Pagis learned that the harness needs
+a sign-in there. Pagis cannot read the sign-in state of a harness without
+the credential, so the report holds what the last attempt showed, and it is
+empty after a restart until a start fails again. A `session/new` that
+succeeds clears the entry, and so does a `harness_sign_in_result` with the
+exit code 0: the next start tells whether the sign-in worked. Each change
+publishes `harness.sign_in_changed` with the Host, the harness and
+`needs_sign_in` to the Workspace of the Host. `GET /api/v1/hosts` gives
+each `harness:<id>` capability of a Host with its `needs_sign_in`.
 
 ### The Agent drives a session with core tools
 
@@ -674,6 +692,5 @@ Other ways were considered:
 - The `auto` mode.
 - The item in the Needs-You Queue and the Notification.
 - The question in the daemon.
-- The report of a harness that needs a sign-in.
 - Harness Sign-In in Settings.
 - The Computer place.

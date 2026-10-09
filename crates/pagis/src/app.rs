@@ -562,6 +562,12 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     // down (ADR-0033).
     let session_rules = Arc::new(crate::coding_events::DeferredSessionRules::default());
     let session_events = Arc::new(crate::coding_events::DeferredSessionEvents::default());
+    // The harnesses that need a Harness Sign-In on each Host, in memory as
+    // presence is. A session start and a sign-in result change it.
+    let sign_in_reports = Arc::new(pagis_coding::SignInReports::new(
+        Arc::clone(&bus),
+        Arc::clone(&options.clock),
+    ));
     let coding_sessions = Arc::new(pagis_coding::CodingSessions::new(
         pagis_coding::CodingSessionsDeps {
             sessions: stores.coding_sessions.clone(),
@@ -583,6 +589,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
             )),
             rules: Arc::clone(&session_rules) as _,
             events: Arc::clone(&session_events) as _,
+            sign_in_reports: Arc::clone(&sign_in_reports),
             clock: Arc::clone(&options.clock),
             // A Host that goes away interrupts its sessions.
             departures: host_presence.departures(),
@@ -594,6 +601,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     let sign_ins = Arc::new(pagis_coding::SignIns::new(
         Arc::clone(&host_presence),
         Arc::clone(&host_sessions) as _,
+        Arc::clone(&sign_in_reports),
     ));
     // The checks of a Coding Session start. The broker asks them before
     // the card, and the tool runtime again at the start.
@@ -1421,6 +1429,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         host_sessions: Arc::clone(&host_sessions),
         coding_sessions: Arc::clone(&coding_sessions),
         sign_ins,
+        sign_in_reports,
         coding_session_store: stores.coding_sessions.clone(),
         broker,
         agent_store,
