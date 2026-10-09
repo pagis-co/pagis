@@ -65,9 +65,10 @@ final class PushSubscriber {
 
     /// Ask for the permission, get the token, register with the relay for
     /// `vapidKey`, make the keys, and answer the subscription. With a
-    /// registration for the same key, it registers nothing: it sends a
-    /// token that changed, and answers the stored values. A registration
-    /// for another key goes first, with its keys.
+    /// registration for the same key, it sends the token to the relay and
+    /// answers the stored values. When the relay does not know the
+    /// registration, the app forgets it and registers again. A
+    /// registration for another key goes first, with its keys.
     func subscribe(vapidKey: String, platform: PushPlatform) async throws -> PushSubscription {
         guard try await platform.requestPermission() else { throw PushError.notAllowed }
         let token = try await platform.token()
@@ -76,8 +77,8 @@ final class PushSubscriber {
             try await unsubscribe()
             registration = nil
         }
-        if let stored = registration, stored.token != token {
-            registration = try await changeToken(of: stored, to: token)
+        if let stored = registration {
+            registration = try await sendToken(token, of: stored)
         }
         let current: RelayRegistration
         if let registration {
@@ -98,7 +99,7 @@ final class PushSubscriber {
     /// `PUT`, and the endpoint stays the same.
     func tokenChanged(_ token: String) async throws {
         guard let stored = try registrations.read(), stored.token != token else { return }
-        _ = try await changeToken(of: stored, to: token)
+        _ = try await sendToken(token, of: stored)
     }
 
     /// Delete the registration with the relay, then the keys.
@@ -109,10 +110,11 @@ final class PushSubscriber {
         try forget()
     }
 
-    /// The registration with the new token, or nil when the relay no
-    /// longer knows it. The relay removes a registration when APNs says
-    /// that its token is gone, and the app then forgets it and its keys.
-    private func changeToken(of stored: RelayRegistration, to token: String) async throws -> RelayRegistration? {
+    /// The registration with `token`, or nil when the relay no longer
+    /// knows it. The relay removes a registration when APNs says that its
+    /// token is gone, and a relay that lost its database knows no
+    /// registration. The app then forgets it and its keys.
+    private func sendToken(_ token: String, of stored: RelayRegistration) async throws -> RelayRegistration? {
         guard try await relay.changeToken(of: stored, to: token) else {
             try forget()
             return nil

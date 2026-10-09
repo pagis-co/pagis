@@ -101,14 +101,38 @@ public class PushSubscriberTest {
         assertEquals(keys.authText(), subscription.auth);
     }
 
+    /** A {@code PUT} with the same token asks the relay if it still knows the registration. */
     @Test
-    public void aSecondSubscribeWithTheSameKeyRegistersNothing() throws Exception {
+    public void aSecondSubscribeWithTheSameKeyChecksTheRegistrationAndKeepsIt() throws Exception {
         PushSubscription first = subscriber.subscribe(platform, VAPID_KEY);
 
         PushSubscription second = subscriber.subscribe(platform, VAPID_KEY);
 
         assertEquals(first, second);
-        assertEquals(Collections.singletonList("POST /v1/registrations"), lines());
+        assertEquals(Arrays.asList("POST /v1/registrations", "PUT /v1/registrations/id-1"), lines());
+        assertEquals("token-1", new JSONObject(requests.get(1).body).getString("token"));
+    }
+
+    /**
+     * The relay lost the registration, for example with its database. The
+     * endpoint answers {@code 404} to each push, so the app registers again
+     * with new keys.
+     */
+    @Test
+    public void aSubscribeThatTheRelayDoesNotKnowRegistersAgain() throws Exception {
+        PushSubscription first = subscriber.subscribe(platform, VAPID_KEY);
+        putStatus = 404;
+
+        PushSubscription second = subscriber.subscribe(platform, VAPID_KEY);
+
+        assertEquals(Arrays.asList(
+            "POST /v1/registrations",
+            "PUT /v1/registrations/id-1",
+            "POST /v1/registrations"
+        ), lines());
+        assertEquals("https://relay.example/v1/push/id-2", second.endpoint);
+        assertNotEquals(first.p256dh, second.p256dh);
+        assertEquals("id-2", new RegistrationStore(items).read().id);
     }
 
     @Test

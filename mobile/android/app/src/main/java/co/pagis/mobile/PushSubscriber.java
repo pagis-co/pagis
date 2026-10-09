@@ -47,9 +47,10 @@ final class PushSubscriber {
     /**
      * Ask for the permission, get the token, register with the relay for
      * {@code vapidKey}, make the keys, and answer the subscription. With a
-     * registration for the same key, it registers nothing: it sends a token
-     * that changed, and answers the stored values. A registration for
-     * another key goes first, with its keys.
+     * registration for the same key, it sends the token to the relay and
+     * answers the stored values. When the relay does not know the
+     * registration, the app forgets it and registers again. A registration
+     * for another key goes first, with its keys.
      */
     synchronized PushSubscription subscribe(PushPlatform platform, String vapidKey) throws PushException {
         if (!platform.askPermission()) {
@@ -62,8 +63,8 @@ final class PushSubscriber {
                 unsubscribe();
                 registration = null;
             }
-            if (registration != null && !registration.token.equals(token)) {
-                registration = changeToken(registration, token);
+            if (registration != null) {
+                registration = sendToken(registration, token);
             }
             if (registration == null) {
                 registration = relay.register(token, vapidKey);
@@ -81,7 +82,7 @@ final class PushSubscriber {
         try {
             RelayRegistration registration = registrations.read();
             if (registration == null || registration.token.equals(token)) return;
-            changeToken(registration, token);
+            sendToken(registration, token);
         } catch (IOException ex) {
             throw new PushException("Pagis cannot keep the new token: " + ex.getMessage(), ex);
         }
@@ -99,11 +100,12 @@ final class PushSubscriber {
     }
 
     /**
-     * The registration with the new token, or null when the relay no longer
+     * The registration with {@code token}, or null when the relay no longer
      * knows it. The relay removes a registration when FCM says that its
-     * token is gone, and the app then forgets it and its keys.
+     * token is gone, and a relay that lost its database knows no
+     * registration. The app then forgets it and its keys.
      */
-    private RelayRegistration changeToken(RelayRegistration registration, String token)
+    private RelayRegistration sendToken(RelayRegistration registration, String token)
         throws PushException, IOException {
         if (!relay.changeToken(registration, token)) {
             forget();
