@@ -316,8 +316,9 @@ impl World {
     /// machine.
     async fn needs_sign_in(&self) -> bool {
         self.sign_in_reports
-            .needs_sign_in_since(&self.host_id, "claude")
+            .report(&self.host_id, "claude")
             .await
+            .needs_sign_in_since
             .is_some()
     }
 
@@ -340,6 +341,7 @@ impl World {
             "host_id": self.host_id.as_str(),
             "harness": "claude",
             "needs_sign_in": needs_sign_in,
+            "sign_in_state": "unknown",
         })
     }
 

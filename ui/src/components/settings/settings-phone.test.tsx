@@ -116,7 +116,7 @@ it('says when a host that is not connected was last seen', async () => {
 
 it('lists the Coding Harnesses under a machine that runs commands, and none under a phone', async () => {
   responses['/api/v1/harnesses'] = {
-    items: [{ id: 'claude', name: 'Claude Code', sign_in_methods: [{ method: 'subscription', label: 'Subscription' }] }],
+    items: [{ id: 'claude', name: 'Claude Code', sign_in_methods: [{ method: 'subscription', label: 'Subscription' }], checks_sign_in: true }],
   }
   responses['/api/v1/hosts'] = {
     items: [
@@ -125,7 +125,7 @@ it('lists the Coding Harnesses under a machine that runs commands, and none unde
         name: 'Studio desktop',
         platform: 'macos',
         capabilities: ['shell', 'harness:claude'],
-        harnesses: [{ id: 'claude', needs_sign_in: true }],
+        harnesses: [{ id: 'claude', needs_sign_in: true, sign_in_state: 'unknown', last_sign_in: null }],
         present: true,
         last_seen_at: Date.now(),
       },

@@ -22,7 +22,7 @@ function host(overrides: Record<string, unknown> = {}) {
 }
 
 const CATALOG = {
-  items: [{ id: 'claude', name: 'Claude Code', sign_in_methods: [] }],
+  items: [{ id: 'claude', name: 'Claude Code', sign_in_methods: [], checks_sign_in: true }],
 }
 
 function mount(items: ReturnType<typeof host>[]) {

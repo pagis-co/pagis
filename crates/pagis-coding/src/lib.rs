@@ -86,6 +86,8 @@ pub use sessions::{
     CloseReason, CodingSessions, CodingSessionsDeps, NewCodingSession, PromptOutcome,
     ResumeFailure, SessionError, SetModeFailure, StartFailure,
 };
-pub use sign_in::{SIGN_IN_CHANGED_EVENT, SignInFailure, SignInReports, SignIns};
+pub use sign_in::{
+    SIGN_IN_CHANGED_EVENT, SignInAttempt, SignInFailure, SignInReport, SignInReports, SignIns,
+};
 pub use starts::{CodingSessionStarts, MAX_OPEN_SESSIONS, worktree_branch};
 pub use tools::CodingToolRuntime;

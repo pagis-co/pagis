@@ -446,6 +446,10 @@ fn product_router(state: Arc<AppState>) -> Router {
             "/api/v1/hosts/{host_id}/harnesses/{harness_id}/sign-in",
             post(harnesses::start_sign_in),
         )
+        .route(
+            "/api/v1/hosts/{host_id}/harnesses/{harness_id}/sign-in-check",
+            post(harnesses::check_sign_in),
+        )
         .route("/api/v1/harnesses", get(harnesses::list_harnesses))
         .route(
             "/api/v1/agents",

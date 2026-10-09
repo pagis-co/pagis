@@ -1,8 +1,8 @@
 //! The Harness Catalog as the Product App reads it, and the Harness
 //! Sign-In that the Person starts on one of their Hosts (ADR-0033).
 //!
-//! Only the Person starts a sign-in, through this route. No Agent tool
-//! does. The route answers when the Client App has the sign-in, and the
+//! Only the Person starts a sign-in or a check of the sign-in state,
+//! through these routes. No Agent tool does. The route answers when the Client App has the sign-in, and the
 //! Person signs in in the terminal window that it opens. Pagis never
 //! reads, copies, stores or relays the credential.
 
@@ -30,6 +30,9 @@ pub struct HarnessDto {
     pub name: String,
     /// The ways the Person can sign in to the harness.
     pub sign_in_methods: Vec<SignInMethodDto>,
+    /// True when the harness has a status command, so a Host can check
+    /// whether the Person is signed in.
+    pub checks_sign_in: bool,
 }
 
 /// One way to sign in to a harness.
@@ -80,6 +83,7 @@ pub async fn list_harnesses(_tenant: Tenant) -> Json<HarnessesDto> {
                     label: sign_in.method.label().to_string(),
                 })
                 .collect(),
+            checks_sign_in: entry.sign_in_check.is_some(),
         })
         .collect();
     Json(HarnessesDto { items })
@@ -126,6 +130,41 @@ pub async fn start_sign_in(
     ))
 }
 
+/// Ask one of the Person's Hosts to run the vendor's status command of a
+/// harness. The Client App reports the state on its Host socket, and
+/// `harness.sign_in_changed` tells the clients when it changed.
+#[utoipa::path(
+    post,
+    path = "/api/v1/hosts/{host_id}/harnesses/{harness_id}/sign-in-check",
+    params(
+        ("host_id" = String, Path, description = "The Host"),
+        ("harness_id" = String, Path, description = "The harness, by its id in the Harness Catalog"),
+    ),
+    responses(
+        (status = 204, description = "The Host received the check"),
+        (status = 401, body = crate::error::ErrorBody),
+        (status = 404, body = crate::error::ErrorBody),
+        (status = 409, body = crate::error::ErrorBody, description = "The Host is not connected"),
+        (status = 422, body = crate::error::ErrorBody, description = "The Host does not declare the harness, or the harness has no status command"),
+    )
+)]
+pub async fn check_sign_in(
+    State(state): State<Arc<AppState>>,
+    tenant: Tenant,
+    Path((host_id, harness_id)): Path<(String, String)>,
+) -> Result<StatusCode, ApiError> {
+    let host = state
+        .hosts
+        .get(&tenant.workspace_id, &HostId::from(host_id))
+        .await?
+        .ok_or_else(|| ApiError::not_found("that host"))?;
+    state
+        .sign_ins
+        .check(&host, &harness_id)
+        .map_err(|failure| sign_in_error(&host, failure))?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 fn sign_in_error(host: &Host, failure: SignInFailure) -> ApiError {
     let (status, message) = match &failure {
         SignInFailure::NotConnected => (
@@ -134,6 +173,7 @@ fn sign_in_error(host: &Host, failure: SignInFailure) -> ApiError {
         ),
         SignInFailure::UndeclaredHarness(_)
         | SignInFailure::MethodNotOffered { .. }
+        | SignInFailure::NoCheck(_)
         | SignInFailure::Unavailable { .. } => {
             (StatusCode::UNPROCESSABLE_ENTITY, failure.to_string())
         }

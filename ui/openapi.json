@@ -4640,6 +4640,80 @@
         }
       }
     },
+    "/api/v1/hosts/{host_id}/harnesses/{harness_id}/sign-in-check": {
+      "post": {
+        "tags": [
+          "harnesses"
+        ],
+        "summary": "Ask one of the Person's Hosts to run the vendor's status command of a\nharness. The Client App reports the state on its Host socket, and\n`harness.sign_in_changed` tells the clients when it changed.",
+        "operationId": "check_sign_in",
+        "parameters": [
+          {
+            "name": "host_id",
+            "in": "path",
+            "description": "The Host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "harness_id",
+            "in": "path",
+            "description": "The harness, by its id in the Harness Catalog",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The Host received the check"
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The Host is not connected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The Host does not declare the harness, or the harness has no status command",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/knowledge/forget": {
       "get": {
         "tags": [
@@ -12156,6 +12230,29 @@
           },
           {
             "type": "object",
+            "description": "What the vendor's status command of the harness `harness` showed\non this Host. The Client App sends it when it connects, when a\nsign-in ends, and for a `harness_sign_in_check`. It carries no\noutput of the command.",
+            "required": [
+              "harness",
+              "state",
+              "type"
+            ],
+            "properties": {
+              "harness": {
+                "type": "string"
+              },
+              "state": {
+                "$ref": "#/components/schemas/HarnessSignInState"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "harness_sign_in_state"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
             "description": "How the process of one Coding Session on this Host ended. The\ndaemon keeps the last 4 KiB of `stderr_tail`.",
             "required": [
               "session_id",
@@ -14201,9 +14298,14 @@
         "required": [
           "id",
           "name",
-          "sign_in_methods"
+          "sign_in_methods",
+          "checks_sign_in"
         ],
         "properties": {
+          "checks_sign_in": {
+            "type": "boolean",
+            "description": "True when the harness has a status command, so a Host can check\nwhether the Person is signed in."
+          },
           "id": {
             "type": "string",
             "description": "The id of the harness, as a Host declares it in `harness:<id>`."
@@ -14250,6 +14352,15 @@
         "enum": [
           "subscription",
           "api_key"
+        ]
+      },
+      "HarnessSignInState": {
+        "type": "string",
+        "description": "Whether the Person is signed in to a harness on a Host, as the last\nrun of its [`SignInCheck`] showed.",
+        "enum": [
+          "signed_in",
+          "not_signed_in",
+          "unknown"
         ]
       },
       "HarnessesDto": {
@@ -14413,19 +14524,35 @@
       },
       "HostHarnessDto": {
         "type": "object",
-        "description": "One Coding Harness that a Host declares.",
+        "description": "One Coding Harness that a Host declares, with its sign-in report\n(ADR-0033). The report is daemon memory, so after a restart of the\ndaemon it is empty until the Client App checks again or a start fails.",
         "required": [
           "id",
-          "needs_sign_in"
+          "needs_sign_in",
+          "sign_in_state"
         ],
         "properties": {
           "id": {
             "type": "string",
             "description": "The id of the harness in the Harness Catalog."
           },
+          "last_sign_in": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LastSignInDto",
+                "description": "The last Harness Sign-In that the Person started on this machine."
+              }
+            ]
+          },
           "needs_sign_in": {
             "type": "boolean",
-            "description": "True when the last attempt showed that the harness needs a Harness\nSign-In on this machine. After a restart of the daemon it is false\nuntil a start fails again."
+            "description": "True when the harness refused a session for a sign-in on this\nmachine, and no session opened and no sign-in exited with code 0\nafter that."
+          },
+          "sign_in_state": {
+            "$ref": "#/components/schemas/HarnessSignInState",
+            "description": "What the last run of the vendor's status command on this machine\nshowed. It is `unknown` for a harness with no status command."
           }
         }
       },
@@ -15115,6 +15242,39 @@
           }
         ],
         "description": "The block types the daemon and the UI both know."
+      },
+      "LastSignInDto": {
+        "type": "object",
+        "description": "One Harness Sign-In and how it ended.",
+        "required": [
+          "id",
+          "running"
+        ],
+        "properties": {
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the sign-in has no exit code: for example, it did not end in\n30 minutes, or the machine disconnected."
+          },
+          "exit_code": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "The exit code of the vendor's program. It tells how the program\nended, not that the Person signed in."
+          },
+          "id": {
+            "type": "string",
+            "description": "The id that starting the sign-in answered."
+          },
+          "running": {
+            "type": "boolean",
+            "description": "True while the terminal window is open."
+          }
+        }
       },
       "LinkSignInRequest": {
         "type": "object",

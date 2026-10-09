@@ -15,7 +15,10 @@
 //! and reads the result off the same socket, correlated by the id it
 //! minted. Only the Host connection that received a command answers it.
 //! A Harness Sign-In goes the same way: a `harness_sign_in` frame out,
-//! and one `harness_sign_in_result` back from the same connection.
+//! and one `harness_sign_in_result` back from the same connection. A
+//! `harness_sign_in_check` frame asks the Client App to run the vendor's
+//! status command of a harness, and the Client App reports the state in a
+//! `harness_sign_in_state` frame, also with no check that asked for it.
 //! Nothing about this is a second connection: the transport was
 //! already bidirectional, and the client already proved who it is.
 //!
@@ -35,6 +38,7 @@ use pagis_agent::{DeltaFrame, ProgressFrame};
 use pagis_broker::{
     HarnessSignIn, HostCommand, HostConnection, HostFrame, HostOutcome, SessionExit, SignInOutcome,
 };
+use pagis_core::harness::SignInState;
 use pagis_core::{ChannelId, CodingSessionId, Event, EventScope, HarnessSignInId, Host, harness};
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
@@ -92,6 +96,14 @@ pub enum ClientFrame {
         exit_code: Option<i64>,
         #[serde(default)]
         error: Option<String>,
+    },
+    /// What the vendor's status command of the harness `harness` showed
+    /// on this Host. The Client App sends it when it connects, when a
+    /// sign-in ends, and for a `harness_sign_in_check`. It carries no
+    /// output of the command.
+    HarnessSignInState {
+        harness: String,
+        state: SignInState,
     },
     /// How the process of one Coding Session on this Host ended. The
     /// daemon keeps the last 4 KiB of `stderr_tail`.
@@ -191,7 +203,8 @@ impl ServerFrame {
     /// its machine is known by and the person's surfaces name one record.
     ///
     /// `harnesses` is the Harness Catalog for the platform of the Host:
-    /// each harness with the programs it needs on the Person's `PATH`.
+    /// each harness with the programs it needs on the Person's `PATH`, and
+    /// its status command or null.
     /// The client looks for them and declares `harness:<id>` for each
     /// harness it finds with a second registration, because the client
     /// is the authority for its capabilities (ADR-0015). The daemon is
@@ -204,6 +217,10 @@ impl ServerFrame {
                 serde_json::json!({
                     "id": entry.id,
                     "launchers": harness::launchers(entry),
+                    "sign_in_check": entry.sign_in_check.map(|check| serde_json::json!({
+                        "command": check.command,
+                        "signed_out": check.signed_out,
+                    })),
                 })
             })
             .collect();
@@ -242,6 +259,17 @@ impl ServerFrame {
             replay: None,
             r#type: "harness_sign_in".to_string(),
             payload: Some(serde_json::to_value(sign_in).expect("a sign-in serializes")),
+        }
+    }
+
+    /// A check of the sign-in state of one harness, for the Host this
+    /// socket registered: no `seq`, never replayed, as a command.
+    fn harness_sign_in_check(harness: &str) -> Self {
+        ServerFrame {
+            seq: None,
+            replay: None,
+            r#type: "harness_sign_in_check".to_string(),
+            payload: Some(serde_json::json!({ "harness": harness })),
         }
     }
 
@@ -445,6 +473,11 @@ impl Connection {
                                 .send(ServerFrame::harness_sign_in(&sign_in).to_ws())
                                 .await?;
                         }
+                        Some(HostFrame::SignInCheck { harness }) => {
+                            self.socket
+                                .send(ServerFrame::harness_sign_in_check(&harness).to_ws())
+                                .await?;
+                        }
                         // The registry dropped this connection, which means
                         // another socket of the same machine replaced it.
                         None => self.host = None,
@@ -542,6 +575,25 @@ impl Connection {
                     self.state
                         .host_presence
                         .complete_sign_in(&registered.connection, &id, outcome);
+                }
+            }
+            FrameAction::SignInState { harness, state } => {
+                // A state counts only for a harness of the catalog that
+                // the Host of this socket declares: the client is the
+                // authority for its capabilities, and nothing else.
+                if let Some(registered) = &self.host
+                    && let Some(entry) = harness::entry(&harness)
+                    && registered.host.can(&harness::capability(entry.id))
+                {
+                    self.state
+                        .sign_in_reports
+                        .checked(
+                            &self.tenant.workspace_id,
+                            &registered.host.id,
+                            entry.id,
+                            state,
+                        )
+                        .await;
                 }
             }
             FrameAction::SessionExit { session_id, exit } => {
@@ -684,6 +736,12 @@ enum FrameAction {
         id: HarnessSignInId,
         outcome: SignInOutcome,
     },
+    /// What the status command of one harness showed. The caller hands
+    /// it on only for a harness that the Host of this socket declares.
+    SignInState {
+        harness: String,
+        state: SignInState,
+    },
     /// How the process of one Coding Session ended. The caller hands it
     /// on only for the Host this socket registered.
     SessionExit {
@@ -744,6 +802,9 @@ fn handle_client_frame(text: &str, subscriptions: &mut HashSet<String>) -> Frame
             id: HarnessSignInId::from(id),
             outcome: SignInOutcome { exit_code, error },
         },
+        Ok(ClientFrame::HarnessSignInState { harness, state }) => {
+            FrameAction::SignInState { harness, state }
+        }
         Ok(ClientFrame::SessionExit {
             session_id,
             exit_code,
@@ -785,6 +846,31 @@ mod tests {
             .iter()
             .map(|harness| harness["id"].as_str().unwrap().to_string())
             .collect()
+    }
+
+    /// The answer names the status command of each harness that has one,
+    /// so the Client App runs it with no copy of the catalog.
+    #[test]
+    fn the_answer_names_the_status_command_of_each_harness_or_null() {
+        let frame = ServerFrame::host_registered(&host_on("linux"));
+        let harnesses = frame.payload.expect("the answer has a payload")["harnesses"].clone();
+        let check = |id: &str| {
+            harnesses
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|harness| harness["id"] == id)
+                .unwrap()["sign_in_check"]
+                .clone()
+        };
+        assert_eq!(
+            check("codex"),
+            serde_json::json!({
+                "command": ["npx", "--yes", "@openai/codex@0.159.1", "login", "status"],
+                "signed_out": "Not logged in",
+            })
+        );
+        assert_eq!(check("gemini"), serde_json::Value::Null);
     }
 
     /// A binary harness has a launch command only for the platforms of
