@@ -1,1 +1,3 @@
+#include "app.xcconfig"
+
 CAPACITOR_DEBUG = true
