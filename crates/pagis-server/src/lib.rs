@@ -635,6 +635,10 @@ fn product_router(state: Arc<AppState>) -> Router {
             "/api/v1/agents/{agent_id}/hosts/{host_id}/session-approval-mode",
             put(grants::set_session_approval_mode),
         )
+        .route(
+            "/api/v1/agents/{agent_id}/hosts/{host_id}/unattended-modes",
+            put(grants::set_unattended_modes),
+        )
         .route("/api/v1/user", get(user::get_user))
         .route("/api/v1/workspace", get(workspace::get_workspace))
         .route(

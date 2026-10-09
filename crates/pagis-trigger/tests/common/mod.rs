@@ -214,7 +214,7 @@ pub async fn coding_session(world: &World) -> CodingSessionId {
         "INSERT INTO coding_sessions (id, workspace_id, agent_id, harness_id, harness_version, \
          place, directory, approval_mode, title, state, channel_id, root_message_id, \
          message_id, run_id, created_at, updated_at) \
-         VALUES (?, ?, ?, 'claude', '1.0.0', 'computer', '/work', 'auto', 'Fix it', 'working', \
+         VALUES (?, ?, ?, 'claude', '1.0.0', 'computer', '/work', 'agent', 'Fix it', 'working', \
          ?, ?, ?, ?, ?, ?)",
     )
     .bind(id.as_str())

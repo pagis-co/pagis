@@ -54,7 +54,7 @@ pub use mail::{
     validate_arguments,
 };
 pub use rules::{MAX_PROPOSED_RULES, command_allowed, derive_rules, runs_other_programs};
-pub use session_approval::widest_session_approval_mode;
+pub use session_approval::{SessionAllowance, session_allowance};
 
 pub const HOST_SHELL: &str = "host_shell";
 /// The Computer shell tool: one command inside the
@@ -870,6 +870,9 @@ pub struct SessionStartAction {
     /// in the directory itself.
     pub branch: Option<String>,
     pub mode: pagis_core::SessionApprovalMode,
+    /// Whether the harness asks before it acts (the Harness Catalog). A
+    /// harness that never asks works in an Unattended Mode.
+    pub asks_permission: bool,
 }
 
 /// The checks of a daemon that starts no Coding Session.
@@ -1425,7 +1428,7 @@ impl Broker {
         // the widest mode on a host Grant (ADR-0033).
         let decides_sessions = grants.iter().any(|grant| {
             grant.resource_kind == Grant::HOST_KIND
-                && grant.session_approval_mode() >= pagis_core::SessionApprovalMode::Agent
+                && grant.session_approval_mode() == pagis_core::SessionApprovalMode::Agent
         });
         let holds_number = self
             .deps
@@ -3748,15 +3751,22 @@ fn coding_session_approval_body(
     let mode = match start.mode {
         pagis_core::SessionApprovalMode::Person => "Ask me",
         pagis_core::SessionApprovalMode::Agent => "Let the sprite decide",
-        pagis_core::SessionApprovalMode::Auto => "Allow everything",
     };
     let mut chars = prompt.chars();
     let mut shown: String = chars.by_ref().take(CARD_PROMPT_CHARS).collect();
     if chars.next().is_some() {
         shown.push('…');
     }
+    // Pagis policy sees no action of a harness that never asks, so the
+    // Person reads that before the approval.
+    let unattended = if start.asks_permission {
+        String::new()
+    } else {
+        format!("\n{} does not ask before it acts.", start.harness_name)
+    };
     format!(
-        "Harness: {}\nMachine: {}\nDirectory: {}\n{worktree}\nMode: {mode}\nPrompt: {shown}",
+        "Harness: {}\nMachine: {}\nDirectory: {}\n{worktree}\nMode: {mode}{unattended}\nPrompt: \
+         {shown}",
         start.harness_name, host.name, start.directory
     )
 }
@@ -4047,7 +4057,7 @@ fn core_manifest() -> CapabilityManifest {
                             "machine": {"type": "string", "description": "The name of the user's computer, as the user says it. Omit it when the user has one computer, or to let the user choose."},
                             "directory": {"type": "string", "description": "The absolute path of the directory on that computer that the session works in, usually the root of a git repository."},
                             "worktree": {"type": "boolean", "default": true, "description": "True makes a new git worktree on the branch pagis/<title as a slug>, so the user's own checkout does not change. False works in the directory itself."},
-                            "mode": {"enum": ["person", "agent", "auto"], "default": "person", "description": "Who answers the permission requests of the harness: person (the user), agent (you) or auto (the harness does everything with no question). The user sets the widest mode that you can use on each computer."},
+                            "mode": {"enum": ["person", "agent"], "default": "person", "description": "Who answers the permission requests of the harness: person (the user) or agent (you). The user sets the widest mode that you can use on each computer."},
                             "title": {"type": "string", "description": "A short name of the work, for the user and for the branch."},
                             "prompt": {"type": "string", "description": "The first instructions to the harness. Give the goal, the context and what done looks like."}
                         },

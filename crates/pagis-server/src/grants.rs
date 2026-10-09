@@ -3,9 +3,9 @@
 //! is the off switch — the next call re-enters the approval flow. A
 //! host grant's rules are command prefixes; a credential grant's rules
 //! are registrable domains, capped at five. A host grant also holds its
-//! session allow rules and the widest Session Approval Mode of its Agent
-//! on its machine (ADR-0033), which the Person sets for an Agent and a
-//! machine.
+//! session allow rules, the widest Session Approval Mode of its Agent on
+//! its machine and whether that Agent may use an Unattended Mode there
+//! (ADR-0033). The Person sets the last two for an Agent and a machine.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -48,6 +48,9 @@ pub struct GrantDto {
     /// The widest Session Approval Mode of the Agent on the machine of a
     /// host grant. The other kinds hold none.
     pub session_approval_mode: Option<SessionApprovalMode>,
+    /// Whether the Agent may use an Unattended Mode on the machine of a
+    /// host grant. The other kinds hold none.
+    pub unattended_modes: Option<bool>,
     pub revision: i64,
     pub created_at: i64,
 }
@@ -84,10 +87,22 @@ pub struct SetSessionApprovalModeRequest {
     pub mode: SessionApprovalMode,
 }
 
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct SetUnattendedModesRequest {
+    /// Whether the Agent may use an Unattended Mode on the machine.
+    pub allowed: bool,
+}
+
 /// The widest Session Approval Mode of a host grant, and none for the
 /// other kinds.
 fn host_session_approval_mode(grant: &Grant) -> Option<SessionApprovalMode> {
     (grant.resource_kind == Grant::HOST_KIND).then(|| grant.session_approval_mode())
+}
+
+/// The allowance of Unattended Modes of a host grant, and none for the
+/// other kinds.
+fn host_unattended_modes(grant: &Grant) -> Option<bool> {
+    (grant.resource_kind == Grant::HOST_KIND).then(|| grant.unattended_modes())
 }
 
 pub(crate) fn grant_dto(grant: &Grant, agent_name: &str) -> GrantDto {
@@ -101,6 +116,7 @@ pub(crate) fn grant_dto(grant: &Grant, agent_name: &str) -> GrantDto {
         capabilities: grant.capabilities(),
         sessions: grant.session_allow_rules(),
         session_approval_mode: host_session_approval_mode(grant),
+        unattended_modes: host_unattended_modes(grant),
         revision: grant.revision,
         created_at: grant.created_at,
     }
@@ -404,6 +420,60 @@ pub async fn set_session_approval_mode(
     Path((agent_id, host_id)): Path<(String, String)>,
     Json(request): Json<SetSessionApprovalModeRequest>,
 ) -> Result<(StatusCode, Json<GrantDto>), ApiError> {
+    set_host_grant_field(
+        &state,
+        &tenant,
+        (agent_id, host_id),
+        |grant| grant.session_approval_mode() == request.mode,
+        |grant| grant.with_session_approval_mode(request.mode),
+    )
+    .await
+}
+
+/// Allow or stop the Unattended Modes of an Agent on a machine. As with
+/// the widest mode, the first write makes the host grant.
+#[utoipa::path(
+    put,
+    path = "/api/v1/agents/{agent_id}/hosts/{host_id}/unattended-modes",
+    params(("agent_id" = String, Path,), ("host_id" = String, Path,)),
+    request_body = SetUnattendedModesRequest,
+    responses(
+        (status = 200, description = "The host grant holds the allowance", body = GrantDto),
+        (status = 201, description = "A new host grant holds the allowance", body = GrantDto),
+        (status = 401, body = crate::error::ErrorBody),
+        (status = 404, body = crate::error::ErrorBody),
+        (status = 409, description = "The grant was revoked meanwhile", body = crate::error::ErrorBody),
+        (status = 422, body = crate::error::ErrorBody),
+    )
+)]
+pub async fn set_unattended_modes(
+    State(state): State<Arc<AppState>>,
+    tenant: Tenant,
+    Path((agent_id, host_id)): Path<(String, String)>,
+    Json(request): Json<SetUnattendedModesRequest>,
+) -> Result<(StatusCode, Json<GrantDto>), ApiError> {
+    set_host_grant_field(
+        &state,
+        &tenant,
+        (agent_id, host_id),
+        |grant| grant.unattended_modes() == request.allowed,
+        |grant| grant.with_unattended_modes(request.allowed),
+    )
+    .await
+}
+
+/// Write one field of the scope of the live host grant of an Agent on a
+/// machine: `change` gives the new scope. With no live grant, a new
+/// grant with no allow rules gets it (201). A grant that `holds` the
+/// value already is not written. Each write is a revision and publishes
+/// `grant.changed`.
+async fn set_host_grant_field(
+    state: &AppState,
+    tenant: &Tenant,
+    (agent_id, host_id): (String, String),
+    holds: impl Fn(&Grant) -> bool,
+    change: impl Fn(&Grant) -> serde_json::Value,
+) -> Result<(StatusCode, Json<GrantDto>), ApiError> {
     let agent = state
         .agent_store
         .get(&tenant.workspace_id, &AgentId::from(agent_id))
@@ -435,15 +505,15 @@ pub async fn set_session_approval_mode(
             created_at: now_ms(),
             revoked_at: None,
         };
-        grant.scope = grant.with_session_approval_mode(request.mode);
+        grant.scope = change(&grant);
         state.grants.create(&grant).await?;
-        publish_grant_event(&state, &grant, "grant.changed").await?;
+        publish_grant_event(state, &grant, "grant.changed").await?;
         return Ok((StatusCode::CREATED, Json(grant_dto(&grant, &agent.name))));
     };
-    if grant.session_approval_mode() == request.mode {
+    if holds(&grant) {
         return Ok((StatusCode::OK, Json(grant_dto(&grant, &agent.name))));
     }
-    let scope = grant.with_session_approval_mode(request.mode);
+    let scope = change(&grant);
     if !state
         .grants
         .set_scope(&tenant.workspace_id, &grant.id, &scope)
@@ -456,7 +526,7 @@ pub async fn set_session_approval_mode(
         .get(&tenant.workspace_id, &grant.id)
         .await?
         .ok_or_else(|| ApiError::not_found("grant"))?;
-    publish_grant_event(&state, &changed, "grant.changed").await?;
+    publish_grant_event(state, &changed, "grant.changed").await?;
     Ok((StatusCode::OK, Json(grant_dto(&changed, &agent.name))))
 }
 
@@ -585,6 +655,7 @@ pub(crate) async fn publish_grant_event(
                 "capabilities": grant.capabilities(),
                 "sessions": grant.session_allow_rules(),
                 "session_approval_mode": host_session_approval_mode(grant),
+                "unattended_modes": host_unattended_modes(grant),
                 "revision": grant.revision,
             }),
         })

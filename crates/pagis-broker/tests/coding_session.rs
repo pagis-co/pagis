@@ -63,6 +63,7 @@ fn action(branch: Option<&str>, mode: SessionApprovalMode) -> SessionStartAction
         directory: DIRECTORY.to_string(),
         branch: branch.map(str::to_string),
         mode,
+        asks_permission: true,
     }
 }
 
@@ -142,10 +143,10 @@ async fn the_session_tools_are_absent_when_no_host_declares_a_harness(pool: Sqli
 
 /// The Person delegates the decision of a Harness Permission with the
 /// widest mode on a host Grant (ADR-0033). An Agent with no live host
-/// Grant whose widest mode is `agent` or `auto` cannot decide, so the
-/// decision tools are absent from its snapshot (ADR-0005).
+/// Grant whose widest mode is `agent` cannot decide, so the decision
+/// tools are absent from its snapshot (ADR-0005).
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
-async fn the_decision_tools_are_offered_only_on_a_host_grant_whose_widest_mode_is_agent_or_auto(
+async fn the_decision_tools_are_offered_only_on_a_host_grant_whose_widest_mode_is_agent(
     pool: SqlitePool,
 ) {
     let harness = harness(pool).await;
@@ -168,7 +169,6 @@ async fn the_decision_tools_are_offered_only_on_a_host_grant_whose_widest_mode_i
     for (mode, offered) in [
         (SessionApprovalMode::Person, false),
         (SessionApprovalMode::Agent, true),
-        (SessionApprovalMode::Auto, true),
     ] {
         grant.scope = grant.with_session_approval_mode(mode);
         grants
@@ -498,10 +498,40 @@ async fn the_card_of_a_start_with_no_worktree_and_a_long_prompt(pool: SqlitePool
         "{}",
         card.body
     );
-    assert!(card.body.contains("Mode: Ask me"), "{}", card.body);
+    assert!(
+        card.body.contains("Mode: Ask me\nPrompt: "),
+        "{}",
+        card.body
+    );
     assert!(
         card.body
             .ends_with(&format!("Prompt: {}…", "é".repeat(280))),
+        "{}",
+        card.body
+    );
+}
+
+/// Pagis policy sees no action of a harness that never asks, so the card
+/// of its start says so before the Person approves it.
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn the_card_of_a_harness_that_never_asks_says_so(pool: SqlitePool) {
+    let harness = harness(pool).await;
+    let air = register(&harness, "Air", &["harness:pi"]).await;
+    let _connected = harness.presence().connect(&air.id);
+    harness.starts.answers(Ok(SessionStartAction {
+        harness_id: "pi".to_string(),
+        harness_name: "pi".to_string(),
+        asks_permission: false,
+        ..action(None, SessionApprovalMode::Person)
+    }));
+
+    let InvokeOutcome::Waiting(card) = start(&harness, &arguments("pi", None)).await else {
+        panic!("a start waits for one approval");
+    };
+
+    assert!(
+        card.body
+            .contains("\nMode: Ask me\npi does not ask before it acts.\nPrompt: "),
         "{}",
         card.body
     );

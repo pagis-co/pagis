@@ -1069,10 +1069,10 @@ whose key the request uses (ADR-0033).
 
 ### Harness Permission
 A permission request of a Coding Harness (ACP `session/request_permission`).
-Pagis policy answers it first: the `auto` mode, an action inside the
-session's directory, or a command that a Host Allow Rule matches allows it
-once. Else the Session Approval Mode of the Coding Session decides who
-answers. In the `person` mode the Person answers on an approval card in the
+Pagis policy answers it first: an action inside the session's directory,
+or a command that a Host Allow Rule matches, allows it once. Else the
+Session Approval Mode of the Coding Session decides who answers. In the
+`person` mode the Person answers on an approval card in the
 session's Thread, or from its Notification: the permission is an Approval in
 the Needs-You Queue, and its item opens that Thread. In the `agent` mode the
 owning Agent wakes in that Thread, and it allows once, denies, or escalates
@@ -1092,18 +1092,28 @@ Not built: the sign-in in Settings (ADR-0033).
 _Avoid_: harness login
 
 ### Session Approval Mode
-Who answers a Harness Permission of a Coding Session: `person`, `agent` or
-`auto`. The host Grant holds the widest mode that each Agent may use on each
+Who answers a Harness Permission of a Coding Session: `person` or `agent`.
+The host Grant holds the widest mode that each Agent may use on each
 machine, `person` by default. The Person sets it on the Access tab of the
 Agent, and the Agent picks the mode of each session within it. The live
 host Grant narrows the mode at each Harness Permission, and a narrower
 Grant gives a permission that waits for the Agent to the Person (ADR-0033).
+Not built: a Pagis auto mode.
 _Avoid_: permission mode
 
 ### Session Rule
 The Event Subscriptions that the daemon makes when a Coding Session starts,
 one for each kind of session event, and archives when it ends. They wake
 the owning Agent in the session's Thread (ADR-0033).
+
+### Unattended Mode
+A Coding Harness works in an Unattended Mode when it acts without asking
+Pagis first, so Pagis policy does not see each action. A harness that never
+asks, such as pi, always works in one. The host Grant of each Agent on each
+machine allows Unattended Modes or not, and not by default. A Coding Session
+in the Agent's Computer needs no Grant for one, because the container is the
+sandbox (ADR-0033). Not built: Harness Modes.
+_Avoid_: yolo mode, bypass mode
 
 ## Telephony
 

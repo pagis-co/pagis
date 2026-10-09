@@ -211,6 +211,53 @@ async fn the_rules_batches_and_events_of_a_connection_stay_through_coding_sessio
         .await;
 }
 
+/// The migration that leaves `person` and `agent` as the modes makes
+/// `coding_sessions` again in SQLite. An `auto` session reads `person`,
+/// and its transcript, its model token and the rows that point at it
+/// stay (ADR-0033).
+#[tokio::test]
+async fn an_auto_session_reads_person_and_keeps_its_rows_through_person_and_agent_modes() {
+    let pool = pagis_storage_sqlite::connect_memory().await.unwrap();
+    let (before, _earlier) = pagis_testkit::migration::migrator_before(
+        &migrations(),
+        pagis_testkit::migration::PERSON_AND_AGENT_MODES,
+    )
+    .await;
+    before.run(&pool).await.unwrap();
+    sqlx::raw_sql(pagis_testkit::migration::AUTO_SESSION_ROWS)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    pagis_storage_sqlite::MIGRATOR.run(&pool).await.unwrap();
+
+    let broken: Vec<String> = sqlx::query_scalar("SELECT \"table\" FROM pragma_foreign_key_check")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert_eq!(broken, Vec::<String>::new());
+    let indexes: Vec<String> = sqlx::query_scalar(
+        "SELECT name FROM sqlite_schema WHERE type = 'index' AND tbl_name = 'coding_sessions' \
+         AND name NOT LIKE 'sqlite_%' ORDER BY name",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        indexes,
+        [
+            "idx_coding_sessions_agent_state",
+            "idx_coding_sessions_model_token",
+            "idx_coding_sessions_workspace",
+        ]
+    );
+    let refused = sqlx::raw_sql("UPDATE coding_sessions SET approval_mode = 'auto'")
+        .execute(&pool)
+        .await;
+    assert!(refused.is_err(), "the check refuses auto");
+    pagis_testkit::migration::assert_auto_session_rows(&pagis_storage_sqlite::stores(pool)).await;
+}
+
 /// The migration directory of this crate.
 fn migrations() -> std::path::PathBuf {
     std::path::PathBuf::from(

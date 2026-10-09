@@ -767,6 +767,11 @@ pub const ROUTES: &[Route] = &[
         authenticated: true,
     },
     Route {
+        path: "/api/v1/agents/{agent_id}/hosts/{host_id}/unattended-modes",
+        methods: &["put"],
+        authenticated: true,
+    },
+    Route {
         path: "/api/v1/user",
         methods: &["get"],
         authenticated: true,

@@ -560,21 +560,21 @@ async fn the_person_sets_the_widest_session_approval_mode_on_a_machine() {
         "agent"
     );
 
-    let widened = put_session_approval_mode(&daemon, agent_id, host.host_id(), "auto").await;
-    assert_eq!(widened.status(), 200);
-    let widened: serde_json::Value = widened.json().await.unwrap();
-    assert_eq!(widened["id"], grant["id"]);
-    assert_eq!(widened["session_approval_mode"], "auto");
-    assert_eq!(widened["revision"], 2);
+    let narrowed = put_session_approval_mode(&daemon, agent_id, host.host_id(), "person").await;
+    assert_eq!(narrowed.status(), 200);
+    let narrowed: serde_json::Value = narrowed.json().await.unwrap();
+    assert_eq!(narrowed["id"], grant["id"]);
+    assert_eq!(narrowed["session_approval_mode"], "person");
+    assert_eq!(narrowed["revision"], 2);
 
-    let same = put_session_approval_mode(&daemon, agent_id, host.host_id(), "auto").await;
+    let same = put_session_approval_mode(&daemon, agent_id, host.host_id(), "person").await;
     assert_eq!(same.status(), 200);
     let same: serde_json::Value = same.json().await.unwrap();
     assert_eq!(same["revision"], 2);
 
     let grants = list_grants(&daemon).await;
     assert_eq!(grants.len(), 1);
-    assert_eq!(grants[0]["session_approval_mode"], "auto");
+    assert_eq!(grants[0]["session_approval_mode"], "person");
     assert_eq!(grants[0]["revision"], 2);
 }
 
@@ -589,8 +589,110 @@ async fn the_session_approval_mode_route_refuses_an_unknown_agent_host_or_mode()
     assert_eq!(unknown_agent.status(), 404);
     let unknown_host = put_session_approval_mode(&daemon, agent_id, "01UNKNOWNHOST", "agent").await;
     assert_eq!(unknown_host.status(), 404);
-    let unknown_mode = put_session_approval_mode(&daemon, agent_id, host.host_id(), "always").await;
-    assert_eq!(unknown_mode.status(), 422);
+    for mode in ["always", "auto"] {
+        let unknown_mode = put_session_approval_mode(&daemon, agent_id, host.host_id(), mode).await;
+        assert_eq!(unknown_mode.status(), 422, "{mode}");
+    }
+    assert!(list_grants(&daemon).await.is_empty());
+}
+
+async fn put_unattended_modes(
+    daemon: &TestDaemon,
+    agent_id: &str,
+    host_id: &str,
+    allowed: serde_json::Value,
+) -> reqwest::Response {
+    reqwest::Client::new()
+        .put(format!(
+            "{}/api/v1/agents/{agent_id}/hosts/{host_id}/unattended-modes",
+            daemon.base_url
+        ))
+        .header("cookie", daemon.cookie())
+        .json(&serde_json::json!({ "allowed": allowed }))
+        .send()
+        .await
+        .unwrap()
+}
+
+/// The Person allows Unattended Modes for an Agent on a machine. The
+/// first write makes the host Grant, a change is a new revision that
+/// keeps the allow rules and the widest mode, and the same value again
+/// writes nothing.
+#[tokio::test]
+async fn the_person_allows_unattended_modes_on_a_machine() {
+    let daemon = TestDaemon::start().await;
+    let host = connected_host(&daemon).await;
+    let mut socket = firehose(&daemon).await;
+    let agent_id = daemon.agent_id.as_str();
+
+    let created = put_unattended_modes(&daemon, agent_id, host.host_id(), true.into()).await;
+    assert_eq!(created.status(), 201);
+    let grant: serde_json::Value = created.json().await.unwrap();
+    assert_eq!(grant["resource_kind"], "host");
+    assert_eq!(grant["resource_id"], host.host_id());
+    assert_eq!(grant["allow"], serde_json::json!([]));
+    assert_eq!(grant["session_approval_mode"], "person");
+    assert_eq!(grant["unattended_modes"], true);
+    assert_eq!(grant["revision"], 1);
+    let changed = next_frame_of(&mut socket, "grant.changed").await;
+    assert_eq!(changed["payload"]["payload"]["unattended_modes"], true);
+
+    let grant_id = grant["id"].as_str().unwrap();
+    assert_eq!(
+        put_session_approval_mode(&daemon, agent_id, host.host_id(), "agent")
+            .await
+            .status(),
+        200
+    );
+    assert_eq!(
+        put_rules(&daemon, grant_id, &["git status"]).await.status(),
+        200
+    );
+    next_frame_of(&mut socket, "grant.changed").await;
+    let kept = next_frame_of(&mut socket, "grant.changed").await;
+    assert_eq!(kept["payload"]["payload"]["unattended_modes"], true);
+
+    let off = put_unattended_modes(&daemon, agent_id, host.host_id(), false.into()).await;
+    assert_eq!(off.status(), 200);
+    let off: serde_json::Value = off.json().await.unwrap();
+    assert_eq!(off["id"], grant["id"]);
+    assert_eq!(off["unattended_modes"], false);
+    assert_eq!(off["session_approval_mode"], "agent");
+    assert_eq!(off["allow"], serde_json::json!(["git status"]));
+    assert_eq!(off["revision"], 4);
+    let changed = next_frame_of(&mut socket, "grant.changed").await;
+    assert_eq!(changed["payload"]["payload"]["unattended_modes"], false);
+    assert_eq!(
+        changed["payload"]["payload"]["session_approval_mode"],
+        "agent"
+    );
+
+    let same = put_unattended_modes(&daemon, agent_id, host.host_id(), false.into()).await;
+    assert_eq!(same.status(), 200);
+    let same: serde_json::Value = same.json().await.unwrap();
+    assert_eq!(same["revision"], 4);
+
+    let grants = list_grants(&daemon).await;
+    assert_eq!(grants.len(), 1);
+    assert_eq!(grants[0]["unattended_modes"], false);
+    assert_eq!(grants[0]["session_approval_mode"], "agent");
+    assert_eq!(grants[0]["allow"], serde_json::json!(["git status"]));
+    assert_eq!(grants[0]["revision"], 4);
+}
+
+#[tokio::test]
+async fn the_unattended_modes_route_refuses_an_unknown_agent_host_or_value() {
+    let daemon = TestDaemon::start().await;
+    let host = connected_host(&daemon).await;
+    let agent_id = daemon.agent_id.as_str();
+
+    let unknown_agent =
+        put_unattended_modes(&daemon, "01UNKNOWNAGENT", host.host_id(), true.into()).await;
+    assert_eq!(unknown_agent.status(), 404);
+    let unknown_host = put_unattended_modes(&daemon, agent_id, "01UNKNOWNHOST", true.into()).await;
+    assert_eq!(unknown_host.status(), 404);
+    let not_a_boolean = put_unattended_modes(&daemon, agent_id, host.host_id(), "yes".into()).await;
+    assert_eq!(not_a_boolean.status(), 422);
     assert!(list_grants(&daemon).await.is_empty());
 }
 

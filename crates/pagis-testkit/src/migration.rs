@@ -4,8 +4,8 @@
 use std::path::Path;
 
 use pagis_core::{
-    ConnectionId, EventSource, EventSubscriptionId, IncomingEventId, Stores, WakeupId, WakeupState,
-    WorkspaceId,
+    CodingSessionEventKind, CodingSessionId, ConnectionId, EventSource, EventSubscriptionId,
+    IncomingEventId, SessionApprovalMode, Stores, WakeupId, WakeupState, WorkspaceId,
 };
 use sqlx::migrate::Migrator;
 use tempfile::TempDir;
@@ -45,6 +45,40 @@ INSERT INTO wakeups (id, workspace_id, source_kind, subscription_id, rule_revisi
     'pending', 2);
 INSERT INTO wakeup_sources (workspace_id, wakeup_id, source_kind, source_id)
     VALUES ('w', 'wk', 'incoming_event', 'ie');
+";
+
+/// The version of the migration that leaves `person` and `agent` as the
+/// Session Approval Modes of a Coding Session.
+pub const PERSON_AND_AGENT_MODES: i64 = 12;
+
+/// The hash of the model token of the session of [`AUTO_SESSION_ROWS`].
+pub const AUTO_SESSION_TOKEN_HASH: &str = "4f1c";
+
+/// A Coding Session in the `auto` mode, with one row of its transcript,
+/// its model token hash and a Session Rule, in the schema before
+/// [`PERSON_AND_AGENT_MODES`]. The statements run on both backends.
+pub const AUTO_SESSION_ROWS: &str = "\
+INSERT INTO workspaces (id, name, timezone, created_at) VALUES ('w', 'Home', 'UTC', 1);
+INSERT INTO model_aliases (id, workspace_id, alias, candidates, created_at, updated_at)
+    VALUES ('model', 'w', 'default', '[]', 1, 1);
+INSERT INTO agents (id, workspace_id, name, job, personality, model_alias, status, created_at,
+    updated_at) VALUES ('a', 'w', 'Sage', 'assistant', 'plain', 'default', 'active', 1, 1);
+INSERT INTO channels (id, workspace_id, kind, title, created_at, updated_at)
+    VALUES ('ch', 'w', 'dm', 'Sage', 1, 1);
+INSERT INTO runs (id, workspace_id, agent_id, trigger_kind, state, created_at)
+    VALUES ('r', 'w', 'a', 'message', 'completed', 1);
+INSERT INTO coding_sessions (id, workspace_id, agent_id, harness_id, harness_version, place,
+    directory, approval_mode, title, state, channel_id, root_message_id, message_id, run_id,
+    created_at, updated_at, model_token_hash)
+    VALUES ('cs', 'w', 'a', 'pi', '0.1.0', 'computer', '/home/agent/app', 'auto', 'Fix it',
+    'idle', 'ch', 'm1', 'm2', 'r', 1, 1, '4f1c');
+INSERT INTO coding_session_events (workspace_id, coding_session_id, seq, at, kind, payload)
+    VALUES ('w', 'cs', 1, 1, 'prompt', '{\"text\":\"Fix it.\"}');
+INSERT INTO event_subscriptions (id, workspace_id, agent_id, coding_session_id, event_kind,
+    source_version, name, instruction, channel_id, filter, creator, state, revision,
+    approved_revision, created_at, updated_at)
+    VALUES ('es', 'w', 'a', 'cs', 'coding_session.turn_ended', 'v1', 'Turn ended', 'Read it',
+    'ch', '{}', 'agent', 'active', 1, 1, 1, 1);
 ";
 
 /// The migrations of `directory` before `version`, from a directory of
@@ -129,4 +163,46 @@ pub async fn assert_connection_event_rows(stores: &Stores) {
         .expect("the Wake-up still points at its rule");
     assert_eq!(context.connection_alias.as_deref(), Some("work"));
     assert_eq!(context.events, events);
+}
+
+/// The session of [`AUTO_SESSION_ROWS`] read back through the stores: in
+/// the `person` mode, with its transcript, its model token and its
+/// Session Rule.
+pub async fn assert_auto_session_rows(stores: &Stores) {
+    let workspace_id = WorkspaceId::from("w".to_string());
+    let session_id = CodingSessionId::from("cs".to_string());
+
+    let session = stores
+        .coding_sessions
+        .get(&workspace_id, &session_id)
+        .await
+        .expect("read the session")
+        .expect("the session is kept");
+    assert_eq!(session.approval_mode, SessionApprovalMode::Person);
+    assert_eq!(session.title, "Fix it");
+
+    let events = stores
+        .coding_sessions
+        .list_events(&workspace_id, &session_id, None, 10)
+        .await
+        .expect("read the transcript");
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].kind, CodingSessionEventKind::Prompt);
+    assert_eq!(events[0].payload, serde_json::json!({"text": "Fix it."}));
+
+    let owner = stores
+        .coding_sessions
+        .model_token_owner(AUTO_SESSION_TOKEN_HASH)
+        .await
+        .expect("read the token")
+        .expect("the token hash is kept");
+    assert_eq!(owner.session_id, session_id);
+
+    let rule = stores
+        .subscriptions
+        .get(&workspace_id, &EventSubscriptionId::from("es".to_string()))
+        .await
+        .expect("read the Session Rule")
+        .expect("the Session Rule is kept");
+    assert_eq!(rule.source, EventSource::coding_session(session_id));
 }

@@ -98,7 +98,7 @@ describe('CodingSessionAccess', () => {
         [host()],
         [
           grant(),
-          grant({ id: 'g-2', agent_id: 'ag2', agent_name: 'Rex', session_approval_mode: 'auto' }),
+          grant({ id: 'g-2', agent_id: 'ag2', agent_name: 'Rex', session_approval_mode: 'person' }),
         ],
       ),
     )
@@ -137,13 +137,17 @@ describe('CodingSessionAccess', () => {
     )
   })
 
-  it('warns that "Allow everything" lets a harness run any command on the computer', async () => {
-    mount(stubApi([host()], [grant({ session_approval_mode: 'auto' })]))
+  it('offers the modes "Ask me" and "Let the sprite decide" alone', async () => {
+    const user = userEvent.setup()
+    mount(stubApi([host()]))
 
-    const warning = await screen.findByText(
-      'Pagis allows each permission. A coding harness can then run any command as you on Air.',
-    )
-    expect(warning.classList.contains('settings-warning')).toBe(true)
+    await user.click(await combobox('Air'))
+
+    const options = await screen.findAllByRole('option')
+    expect(options.map((option) => option.textContent)).toEqual([
+      'Ask me',
+      'Let the sprite decide',
+    ])
   })
 
   it('shows an alert and the saved mode again when the change fails', async () => {
@@ -154,7 +158,7 @@ describe('CodingSessionAccess', () => {
     mount(api)
 
     await user.click(await combobox('Air'))
-    await user.click(await screen.findByRole('option', { name: 'Allow everything' }))
+    await user.click(await screen.findByRole('option', { name: 'Let the sprite decide' }))
 
     const alert = await screen.findByRole('alert')
     expect(alert.textContent).toBe('Sage cannot use this computer.')

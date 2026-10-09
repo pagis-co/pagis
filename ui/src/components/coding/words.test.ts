@@ -63,10 +63,6 @@ describe('the Session Approval Mode', () => {
   it('says who approves', () => {
     expect(approvalModeBadge('person', 'Sage')).toEqual({ label: 'You approve', tone: 'neutral' })
     expect(approvalModeBadge('agent', 'Sage')).toEqual({ label: 'Sage approves', tone: 'neutral' })
-    expect(approvalModeBadge('auto', 'Sage')).toEqual({
-      label: 'Approves everything',
-      tone: 'waiting',
-    })
   })
 })
 
@@ -127,9 +123,6 @@ describe('the end of a turn', () => {
 
 describe('the decision on a Harness Permission', () => {
   it('names the policy that allowed it', () => {
-    expect(decisionText('allow_once', 'auto', 'Sage')).toBe(
-      'Allowed: the session allows everything',
-    )
     expect(decisionText('allow_once', 'scope', 'Sage')).toBe(
       "Allowed: inside the session's directory",
     )

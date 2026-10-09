@@ -482,6 +482,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/agents/{agent_id}/hosts/{host_id}/unattended-modes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Allow or stop the Unattended Modes of an Agent on a machine. As with
+         *     the widest mode, the first write makes the host grant.
+         */
+        put: operations["set_unattended_modes"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/agents/{agent_id}/mailbox": {
         parameters: {
             query?: never;
@@ -4311,6 +4331,11 @@ export interface components {
              *     none.
              */
             sessions: components["schemas"]["SessionAllowRule"][];
+            /**
+             * @description Whether the Agent may use an Unattended Mode on the machine of a
+             *     host grant. The other kinds hold none.
+             */
+            unattended_modes?: boolean | null;
         };
         GrantPage: {
             items: components["schemas"]["GrantDto"][];
@@ -6312,7 +6337,7 @@ export interface components {
          * @description Who answers a Harness Permission of a Coding Session.
          * @enum {string}
          */
-        SessionApprovalMode: "person" | "agent" | "auto";
+        SessionApprovalMode: "person" | "agent";
         /** @description One live Session, for the read that says who is signed in. */
         SessionDto: {
             /** @description `browser` or `desktop`. */
@@ -6419,6 +6444,10 @@ export interface components {
         SetTimezoneRequest: {
             /** @description An IANA timezone, for example `America/Los_Angeles`. */
             timezone: string;
+        };
+        SetUnattendedModesRequest: {
+            /** @description Whether the Agent may use an Unattended Mode on the machine. */
+            allowed: boolean;
         };
         /**
          * @description One value a part states about what the installation holds, or what
@@ -8465,6 +8494,75 @@ export interface operations {
                 };
             };
             /** @description A new host grant holds the mode */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GrantDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The grant was revoked meanwhile */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    set_unattended_modes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+                host_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetUnattendedModesRequest"];
+            };
+        };
+        responses: {
+            /** @description The host grant holds the allowance */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GrantDto"];
+                };
+            };
+            /** @description A new host grant holds the allowance */
             201: {
                 headers: {
                     [name: string]: unknown;

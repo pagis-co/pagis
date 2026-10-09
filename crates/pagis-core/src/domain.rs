@@ -1286,6 +1286,18 @@ impl Grant {
         self.with_scope_field("session_approval_mode", serde_json::json!(mode.as_str()))
     }
 
+    /// Whether a host Grant allows its Agent to use an Unattended Mode on
+    /// its machine (ADR-0033). Only the JSON value `true` allows it.
+    pub fn unattended_modes(&self) -> bool {
+        self.scope["unattended_modes"] == serde_json::Value::Bool(true)
+    }
+
+    /// The scope with this allowance of Unattended Modes and every other
+    /// field kept.
+    pub fn with_unattended_modes(&self, allowed: bool) -> serde_json::Value {
+        self.with_scope_field("unattended_modes", serde_json::json!(allowed))
+    }
+
     /// The session Allow Rules of a host Grant (ADR-0033). A malformed
     /// scope, and a malformed rule, read as none.
     pub fn session_allow_rules(&self) -> Vec<SessionAllowRule> {
@@ -3068,11 +3080,7 @@ mod tests {
 
     #[test]
     fn a_host_grant_reads_each_session_approval_mode() {
-        for mode in [
-            SessionApprovalMode::Person,
-            SessionApprovalMode::Agent,
-            SessionApprovalMode::Auto,
-        ] {
+        for mode in [SessionApprovalMode::Person, SessionApprovalMode::Agent] {
             let grant = host_grant_with_scope(
                 serde_json::json!({"allow": [], "session_approval_mode": mode.as_str()}),
             );
@@ -3085,6 +3093,7 @@ mod tests {
         for scope in [
             serde_json::json!({"allow": ["echo"]}),
             serde_json::json!({"allow": [], "session_approval_mode": "everything"}),
+            serde_json::json!({"allow": [], "session_approval_mode": "auto"}),
             serde_json::json!({"allow": [], "session_approval_mode": 2}),
             serde_json::json!(["not", "an", "object"]),
             serde_json::Value::Null,
@@ -3115,11 +3124,55 @@ mod tests {
     fn a_new_session_approval_mode_keeps_the_allow_rules() {
         let grant = host_grant_with_scope(serde_json::json!({"allow": ["echo"]}));
 
-        let scope = grant.with_session_approval_mode(SessionApprovalMode::Auto);
+        let scope = grant.with_session_approval_mode(SessionApprovalMode::Agent);
 
         assert_eq!(
             scope,
-            serde_json::json!({"allow": ["echo"], "session_approval_mode": "auto"})
+            serde_json::json!({"allow": ["echo"], "session_approval_mode": "agent"})
+        );
+    }
+
+    #[test]
+    fn only_the_value_true_allows_unattended_modes() {
+        let allowed = host_grant_with_scope(serde_json::json!({"unattended_modes": true}));
+        assert!(allowed.unattended_modes());
+        for scope in [
+            serde_json::json!({"allow": ["echo"]}),
+            serde_json::json!({"allow": [], "unattended_modes": false}),
+            serde_json::json!({"allow": [], "unattended_modes": "true"}),
+            serde_json::json!({"allow": [], "unattended_modes": 1}),
+            serde_json::json!(["not", "an", "object"]),
+            serde_json::Value::Null,
+        ] {
+            assert!(
+                !host_grant_with_scope(scope.clone()).unattended_modes(),
+                "{scope}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_allowance_of_unattended_modes_keeps_the_other_fields() {
+        let grant = host_grant_with_scope(serde_json::json!({
+            "allow": ["echo"],
+            "session_approval_mode": "agent",
+            "sessions": [{"harness": "claude", "directory": "/work/pagis"}],
+        }));
+
+        let scope = grant.with_unattended_modes(true);
+
+        assert_eq!(
+            scope,
+            serde_json::json!({
+                "allow": ["echo"],
+                "session_approval_mode": "agent",
+                "sessions": [{"harness": "claude", "directory": "/work/pagis"}],
+                "unattended_modes": true,
+            })
+        );
+        assert_eq!(
+            host_grant_with_scope(scope).with_unattended_modes(false)["unattended_modes"],
+            false
         );
     }
 
