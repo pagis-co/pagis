@@ -12,6 +12,7 @@ export interface SwitchProps {
   children: ReactNode
   className?: string
   /** A switch that cannot change now, such as while a change runs. */
+  row?: boolean
   disabled?: boolean
 }
 
@@ -21,6 +22,7 @@ export function Switch({
   children,
   className,
   disabled = false,
+  row = false,
 }: SwitchProps) {
   return (
     <button
@@ -28,7 +30,7 @@ export function Switch({
       role="switch"
       aria-checked={checked}
       disabled={disabled}
-      className={cx('ui-switch', className)}
+      className={cx('ui-switch', row && 'ui-switch-row', className)}
       onClick={() => onCheckedChange(!checked)}
     >
       <span className="ui-switch-track" aria-hidden="true" />

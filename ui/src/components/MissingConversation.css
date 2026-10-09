@@ -6,10 +6,6 @@
   padding: var(--space-3-5) var(--space-6);
 }
 
-.missing-conversation > .mobile-navigation-trigger {
-  align-self: flex-start;
-}
-
 .missing-conversation .page-state-description {
   display: flex;
   flex-direction: column;

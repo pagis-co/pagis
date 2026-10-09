@@ -99,7 +99,7 @@ function mount(
 ) {
   const onOpenAgent = vi.fn()
   const onOpenChannel = vi.fn()
-  const onHire = vi.fn()
+  const onNew = vi.fn()
   render(
     <QueryClientProvider client={queryClient}>
       <DeskPanel
@@ -108,11 +108,11 @@ function mount(
         channelId={channelId}
         onOpenAgent={onOpenAgent}
         onOpenChannel={onOpenChannel}
-        onHire={onHire}
+        onNew={onNew}
       />
     </QueryClientProvider>,
   )
-  return { onOpenAgent, onOpenChannel, onHire, queryClient }
+  return { onOpenAgent, onOpenChannel, onNew, queryClient }
 }
 
 /** An awake Desk draws its live screen, and jsdom carries no WebRTC. */

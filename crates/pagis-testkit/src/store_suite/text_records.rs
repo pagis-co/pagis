@@ -36,6 +36,7 @@ async fn seed(backend: &Backend) -> (Workspace, Agent, Agent, RunId) {
     };
     agents.create(&second).await.unwrap();
     let run = Run {
+        title: "A message with an attachment".into(),
         id: RunId::generate(),
         workspace_id: ws.id.clone(),
         agent_id: first.id.clone(),

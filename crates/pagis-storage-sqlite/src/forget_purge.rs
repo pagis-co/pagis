@@ -362,11 +362,22 @@ async fn runs_that_read(
 
 /// Erase the words of each forgotten message of the Workspace. The row
 /// stays, so the conversation keeps its order, and the Person reads
-/// that the message is unavailable (ADR-0004, ADR-0008).
+/// that the message is unavailable (ADR-0004, ADR-0008). A Run that a
+/// forgotten message started has the first line of that message as its
+/// title, so the title becomes the unavailable title (ADR-0002).
 async fn erase_forgotten_messages(
     tx: &mut SqliteConnection,
     workspace: &WorkspaceId,
 ) -> Result<(), StoreError> {
+    sqlx::query(
+        "UPDATE runs SET title=? WHERE workspace_id=? \
+         AND trigger_kind='message' AND trigger_ref IN (SELECT message_id FROM forgotten_messages)",
+    )
+    .bind(pagis_core::UNAVAILABLE_RUN_TITLE)
+    .bind(workspace.as_str())
+    .execute(&mut *tx)
+    .await
+    .map_err(db_err)?;
     sqlx::query(
         "UPDATE messages SET text_content='', blocks='[]' WHERE workspace_id=? \
          AND id IN (SELECT message_id FROM forgotten_messages) \

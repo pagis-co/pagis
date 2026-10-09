@@ -513,3 +513,15 @@ ins.memory-diff-line {
     grid-template-columns: 1fr;
   }
 }
+
+@media (max-width: 760px) {
+  .memory.memory-phone { background: var(--ground); }
+  .memory-phone .memory-title { padding: 0; }
+  .memory-phone .memory-title h2 { font-family: var(--font-sans); font-size: var(--text-xl); font-weight: var(--weight-bold); line-height: var(--leading-tight); letter-spacing: var(--tracking-tight); }
+  .memory-phone .memory-scopes { background: transparent; padding: 0; margin: 0; gap: var(--space-2); border-radius: 0; }
+  .memory-phone .memory-scopes .memory-scope { flex: none; }
+  .memory-phone .memory-scopes .memory-scope-current { background: var(--accent-soft); }
+  .memory-phone .memory-search { margin: 0; }
+  .memory-phone .memory-group { gap: var(--space-3); }
+  .memory-phone .memory-group-label { margin: 0; }
+}

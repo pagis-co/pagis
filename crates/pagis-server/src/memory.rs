@@ -308,6 +308,7 @@ pub struct MemoryPageDto {
     /// The scope-relative file path.
     pub path: String,
     pub title: String,
+    pub excerpt: String,
     /// One of the page kinds (ADR-0007), or another word the page
     /// declares. A word outside the vocabulary is kept as it is.
     pub kind: Option<String>,
@@ -797,6 +798,7 @@ pub async fn list_pages(
             scope: query.scope.clone(),
             path: entry.path.rel,
             title: entry.title,
+            excerpt: entry.excerpt,
             kind: entry.kind,
             source_connection_id: entry.source_connection_id,
             changed_at: entry.changed_at,

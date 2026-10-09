@@ -80,8 +80,10 @@ impl InboundRuns for RecordingRuns {
         _workspace_id: &WorkspaceId,
         agent_id: &AgentId,
         call_id: &CallId,
+        caller: &str,
     ) -> Result<Run, String> {
         let run = Run {
+            title: pagis_core::run_title(pagis_core::RunTitleSource::InboundCall(caller)),
             id: RunId::generate(),
             workspace_id: self.workspace_id.clone(),
             agent_id: agent_id.clone(),

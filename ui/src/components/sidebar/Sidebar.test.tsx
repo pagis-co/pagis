@@ -141,8 +141,6 @@ function mount(props: {
         onSelectChannel={onSelectChannel}
         onSearch={onSearch}
         onSignOut={onSignOut}
-        open={false}
-        onClose={() => {}}
       />
     </QueryClientProvider>,
   )

@@ -1,6 +1,8 @@
 /** The bundled Connect screen of the Mobile App. */
 
 import { CapacitorHttp } from '@capacitor/core'
+import { Browser } from '@capacitor/browser'
+import '@fontsource-variable/inter'
 
 import { connectToServer, connectWithScannedLink, type ConnectOptions } from './connect'
 import { mountConnectScreen } from './connectScreen'
@@ -21,4 +23,11 @@ mountConnectScreen(document, {
     return scanned === null ? null : connectWithScannedLink(scanned, await options())
   },
   open: (address) => PagisShell.open(address),
+})
+
+document.querySelectorAll<HTMLAnchorElement>('.connect-help a').forEach((link) => {
+  link.addEventListener('click', (event) => {
+    event.preventDefault()
+    void Browser.open({ url: link.href })
+  })
 })

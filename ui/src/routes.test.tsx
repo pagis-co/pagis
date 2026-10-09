@@ -252,13 +252,13 @@ describe('deep URLs', () => {
     expect(screen.getByRole('tab', { name: 'Desk' })).toBeTruthy()
   })
 
-  it('opens the hiring flow from /sprites?new=1', async () => {
+  it('opens the creating flow from /sprites?new=1', async () => {
     mount('/sprites?new=1')
 
     expect(await screen.findByLabelText('Sprite name')).toBeTruthy()
   })
 
-  it('lands on the new agent DM when the four hire steps finish', async () => {
+  it('lands on the new agent DM when the four create steps finish', async () => {
     api.GET.mockImplementation(async (path: string) => {
       if (path === '/api/v1/channels') {
         return {
@@ -292,7 +292,7 @@ describe('deep URLs', () => {
     })
     fireEvent.click(screen.getByText('Next'))
     fireEvent.click(await screen.findByText('Next'))
-    fireEvent.click(await screen.findByText('Hire'))
+    fireEvent.click(await screen.findByText('Create'))
 
     await waitFor(() => expect(history.location.pathname).toBe('/c/channel-9'))
   })
@@ -479,5 +479,95 @@ describe('a wide window', () => {
 
     expect(await screen.findByTestId('desk-panel')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Desk panel' })).toBeNull()
+  })
+})
+
+/** A phone: 390 px wide, or turned on its side when `sideways`. */
+function phone(sideways = false) {
+  vi.stubGlobal('matchMedia', (query: string) => ({
+    matches: sideways ? query.includes('pointer: coarse') : query.includes('max-width'),
+    media: query,
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+    dispatchEvent: () => false,
+  }))
+}
+
+describe('the phone layout', () => {
+  beforeEach(() => phone())
+
+  // `from` comes from the address, so a link on another site can set it.
+  it('drops a from that names another site', async () => {
+    const history = mount('/memory?from=%2F%2Fevil.example')
+
+    fireEvent.click(await screen.findByRole('button', { name: 'You' }))
+
+    await waitFor(() => expect(history.location.pathname).toBe('/you'))
+  })
+
+  it('goes back to the place in from when it is a place of this app', async () => {
+    const history = mount('/memory?from=%2Fsprites%2Fagent-1%2Fmemory')
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Sprite' }))
+
+    await waitFor(() => expect(history.location.pathname).toBe('/sprites/agent-1/memory'))
+  })
+
+  it('opens the live screen from the Desk button of a Thread', async () => {
+    const history = mount('/c/channel-2/t/message-1')
+    await screen.findByText('Ship the launch plan')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Desk' }))
+
+    await waitFor(() => expect(history.location.pathname).toBe('/sprites/agent-1/desk'))
+    expect(new URLSearchParams(history.location.search).get('from')).toBe('/c/channel-2/t/message-1')
+    expect(screen.queryByTestId('desk-panel')).toBeNull()
+  })
+
+  it('opens a Thread with one way back: the nav bar, and no close control', async () => {
+    const history = mount('/c/channel-2/t/message-1')
+    await screen.findByText('Ship the launch plan')
+
+    expect(screen.queryByRole('button', { name: 'Close thread' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Conversation' }))
+
+    await waitFor(() => expect(history.location.pathname).toBe('/c/channel-2'))
+  })
+
+  it('says nothing about the sprite while the sprites load', async () => {
+    api.GET.mockImplementation(async (path: string) =>
+      path === '/api/v1/agents' ? new Promise(() => {}) : shellResponse(path),
+    )
+    mount('/sprites/agent-1/desk')
+
+    expect(await screen.findByText('Reading the sprite…')).toBeTruthy()
+    expect(screen.queryByText('That sprite is not one of yours.')).toBeNull()
+  })
+
+  it('keeps the live screen when the phone turns on its side', async () => {
+    phone(true)
+    const history = mount('/sprites/agent-1/desk?from=%2Fc%2Fchannel-1')
+
+    expect(await screen.findByText("Sage's desk")).toBeTruthy()
+    expect(history.location.pathname).toBe('/sprites/agent-1/desk')
+    expect(screen.queryByRole('navigation', { name: 'Places' })).toBeNull()
+  })
+
+  it('opens the run list with a way back to Home and no tab bar', async () => {
+    const history = mount('/runs')
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Home' }))
+
+    await waitFor(() => expect(history.location.pathname).toBe('/'))
+  })
+
+  it('opens a Coding Session with one way back to the coding place and no tab bar', async () => {
+    const history = mount('/coding/session-1')
+
+    expect(await screen.findByRole('heading', { name: 'Fix the login bug' })).toBeTruthy()
+    expect(screen.queryByRole('navigation', { name: 'Places' })).toBeNull()
+    expect(screen.getAllByRole('button', { name: /back|All coding sessions|Home/i })).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: 'All coding sessions' }))
+    await waitFor(() => expect(history.location.pathname).toBe('/coding'))
   })
 })

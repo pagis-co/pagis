@@ -26,6 +26,7 @@ function run(fields: Partial<RunDto> = {}): RunDto {
     agent_id: 'agent-1',
     channel_id: 'channel-1',
     root_message_id: null,
+    title: 'Book the Austin trip',
     trigger_kind: 'message',
     trigger_ref: 'message-1',
     hop_count: 0,
@@ -56,6 +57,17 @@ describe('the run reads in words', () => {
     expect(triggerText(run(), 'Sage')).toBe('A message in Sage')
     expect(triggerText(run({ trigger_kind: 'schedule' }), null)).toBe('A schedule')
     expect(triggerText(run({ trigger_kind: 'web_hook' }), null)).toBe('web hook')
+  })
+
+  it('names a source arrival and a memory review', () => {
+    expect(triggerText(run({ trigger_kind: 'arrival' }), null)).toBe('A source arriving')
+    expect(triggerText(run({ trigger_kind: 'arrival' }), 'Inbox')).toBe(
+      'A source arriving in Inbox',
+    )
+    expect(triggerText(run({ trigger_kind: 'review' }), null)).toBe('A memory review')
+    expect(triggerSentence(run({ trigger_kind: 'review' }), 'Sage')).toBe(
+      'a memory review in Sage',
+    )
   })
 
   it('lowers only the first letter inside a sentence', () => {

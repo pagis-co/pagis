@@ -15,6 +15,7 @@ const run = {
   agent_id: 'agent-1',
   channel_id: 'channel-1',
   root_message_id: null,
+  title: 'Book the Austin trip',
   trigger_kind: 'message',
   trigger_ref: 'message-1',
   hop_count: 0,
@@ -204,7 +205,7 @@ describe('the run timeline', () => {
   it('opens with the trigger and the failure in plain words', async () => {
     mount()
 
-    expect(await screen.findByText('Started by a message in Sage')).toBeTruthy()
+    expect(await screen.findByText('Sage · Started by a message in Sage')).toBeTruthy()
     expect(within(screen.getByRole('contentinfo')).getByText('Ended because a tool failed')).toBeTruthy()
   })
 
@@ -292,6 +293,18 @@ describe('the run timeline', () => {
       }),
     )
     expect((await screen.findByRole('status')).textContent).toContain('Memory review queued again')
+  })
+
+  it('shows the reason of the daemon when a memory review cannot be queued again', async () => {
+    const api = stubApi({ ...run, trigger_kind: 'review' as const }, [])
+    vi.mocked(api.POST).mockResolvedValueOnce({
+      error: { error: { code: 'conflict', message: 'The review already runs.' } },
+    } as never)
+    mount(api)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Retry memory review' }))
+
+    expect((await screen.findByRole('alert')).textContent).toBe('The review already runs.')
   })
 
   it('shows the recorded error without a hover', async () => {

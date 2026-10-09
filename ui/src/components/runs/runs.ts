@@ -54,12 +54,10 @@ export function triggerText(run: RunDto, channelName: string | null): string {
       return `An event${where}`
     case 'schedule':
       return `A schedule${where}`
-    case 'agent':
-      return `Another sprite${where}`
-    case 'call':
-      return `A phone call${where}`
-    case 'mail':
-      return `An email${where}`
+    case 'arrival':
+      return `A source arriving${where}`
+    case 'review':
+      return `A memory review${where}`
     default:
       return `${run.trigger_kind.replaceAll('_', ' ')}${where}`
   }
@@ -87,6 +85,26 @@ const FAILURE_TEXT: Record<NonNullable<RunDto['failure_kind']>, string> = {
   turn_limit: 'Ended because the turn limit was reached',
   spend_cap_reached: 'Ended because the monthly spend cap was reached',
   unknown: 'Ended with an error',
+}
+
+const FAILURE_NEXT_STEP: Record<NonNullable<RunDto['failure_kind']>, string> = {
+  agent_missing: 'Check the sprite in Sprites before giving it this work again.',
+  model_missing: 'Check its model alias and key in Settings › Models.',
+  context_failed: 'Open the conversation and give the sprite the missing context.',
+  call_failed: 'Check the call record before asking the sprite to call again.',
+  tool_failed: 'Open the desk to see what the tool needs, then ask the sprite to try again.',
+  access_changed: 'Review the sprite’s Access before asking it to try again.',
+  publication_rejected: 'Review the sprite’s Access and ask it to prepare a new reply.',
+  lease_failed: 'Open the desk and check that its computer is available.',
+  daemon_restarted: 'The daemon is back. Ask the sprite to try again.',
+  model_failed: 'Check the model’s key in Settings › Models, then ask the sprite to try again.',
+  turn_limit: 'Ask the sprite to continue with a smaller part of the work.',
+  spend_cap_reached: 'Check Usage in Settings. An administrator can raise the cap.',
+  unknown: 'Open the desk to check what happened, then ask the sprite to try again.',
+}
+
+export function failureNextStep(run: RunDto): string {
+  return run.trigger_kind === 'review' ? 'Retry the memory review.' : FAILURE_NEXT_STEP[run.failure_kind ?? 'unknown']
 }
 
 export function failureText(run: RunDto): string | null {

@@ -47,6 +47,56 @@ INSERT INTO wakeup_sources (workspace_id, wakeup_id, source_kind, source_id)
     VALUES ('w', 'wk', 'incoming_event', 'ie');
 ";
 
+/// Runs created before titles, including a Call that references its Run.
+pub const RUN_TITLE_ROWS: &str = "\
+INSERT INTO messages (id, workspace_id, channel_id, author_kind, status, blocks, text_content, created_at)
+    VALUES ('m', 'w', 'ch', 'user', 'complete', '[]', '  Book the Austin trip  \nIgnore this second line', 3);
+INSERT INTO runs (id, workspace_id, agent_id, trigger_kind, trigger_ref, state, created_at)
+    VALUES ('message', 'w', 'a', 'message', 'm', 'completed', 3),
+           ('attachment', 'w', 'a', 'message', NULL, 'completed', 3),
+           ('arrival', 'w', 'a', 'arrival', NULL, 'completed', 3),
+           ('review', 'w', 'a', 'review', NULL, 'completed', 3),
+           ('rule', 'w', 'a', 'event', 'wk', 'completed', 3),
+           ('call', 'w', 'a', 'event', NULL, 'completed', 3);
+INSERT INTO calls (id, workspace_id, agent_id, run_id, phone_number_id, direction, remote_e164,
+    tier, state, outcome, ended_reason, transcript, created_at)
+    VALUES ('call', 'w', 'a', 'call', 'phone', 'inbound', '+14155550189', 'unknown', 'ended',
+    'no_answer', 'no_answer', '[]', 3);
+";
+
+/// Every backend backfills the same titles without changing Run ids.
+pub async fn assert_run_titles(stores: &Stores) {
+    for (id, title) in [
+        ("message", "Book the Austin trip"),
+        ("attachment", "A message with an attachment"),
+        ("arrival", "Bring a source into memory"),
+        ("review", "Review what was learned"),
+        ("rule", "Inbox"),
+        ("call", "Call from +14155550189"),
+    ] {
+        let run = stores
+            .runs
+            .get(
+                &WorkspaceId::from("w".to_string()),
+                &pagis_core::RunId::from(id.to_string()),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(run.title, title, "{id}");
+    }
+    let call = stores
+        .calls
+        .get(
+            &WorkspaceId::from("w".to_string()),
+            &pagis_core::CallId::from("call".to_string()),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(call.run_id.as_str(), "call");
+}
+
 /// The version of the migration that leaves `person` and `agent` as the
 /// Session Approval Modes of a Coding Session.
 pub const PERSON_AND_AGENT_MODES: i64 = 12;

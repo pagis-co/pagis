@@ -140,7 +140,7 @@ export function DeskPanel({
   channelId,
   onOpenAgent,
   onOpenChannel,
-  onHire,
+  onNew,
 }: {
   api: ApiClient
   surface: DeskSurface
@@ -149,7 +149,7 @@ export function DeskPanel({
   onOpenAgent: (agentId: string) => void
   /** Opens the Chief of Staff's direct channel from Home. */
   onOpenChannel: (agentId: string) => void
-  onHire: () => void
+  onNew: () => void
 }) {
   const agents = useAgents(api)
   const workspace = useWorkspace(api)
@@ -221,12 +221,12 @@ export function DeskPanel({
       {surface === 'home' && (
         <Button
           size="lg"
-          className="desk-hire"
-          aria-label="Hire a sprite"
-          onClick={onHire}
+          className="desk-new"
+          aria-label="New sprite"
+          onClick={onNew}
         >
           <UserPlus size={16} aria-hidden />
-          An empty desk · hire a sprite
+          An empty desk · New sprite
         </Button>
       )}
 

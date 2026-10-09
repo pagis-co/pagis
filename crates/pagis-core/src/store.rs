@@ -827,6 +827,14 @@ pub trait MessageStore: Send + Sync {
         before: Option<&MessageId>,
         limit: u32,
     ) -> Result<Vec<TimelineEntry>, StoreError>;
+    /// The newest top-level message of one channel, which the
+    /// Conversations list shows. A thread reply and a derived progress
+    /// row are not conversation, so they are never the last message.
+    async fn last_message(
+        &self,
+        workspace_id: &WorkspaceId,
+        channel_id: &ChannelId,
+    ) -> Result<Option<Message>, StoreError>;
     /// One page of an agent's complete messages outside one channel,
     /// newest first — the source rows of the DM pointer entries.
     /// `before` is an exclusive ULID cursor.

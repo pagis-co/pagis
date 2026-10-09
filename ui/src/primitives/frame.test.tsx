@@ -2,9 +2,13 @@
 // one line in it. The last row draws no divider, and a hint
 // reads under the frame, outside its border.
 
-import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
 
+import { renderInRouter } from '../test/router'
 import { Frame, Row } from './frame'
 
 describe('Frame', () => {
@@ -52,5 +56,63 @@ describe('Row', () => {
     const row = screen.getByText('acme.slack.com')
     expect(row.className).toContain('ui-row')
     expect(row.className).toContain('vault-row')
+  })
+})
+
+describe('Row with a chevron', () => {
+  it('renders one button with an accessible name when it has an action', () => {
+    const onClick = vi.fn()
+    render(
+      <Frame>
+        <Row chevron onClick={onClick}>
+          Trusted contacts
+        </Row>
+      </Frame>,
+    )
+
+    const row = screen.getByRole('button', { name: 'Trusted contacts' })
+    expect(screen.getAllByRole('button')).toHaveLength(1)
+    fireEvent.click(row)
+    expect(onClick).toHaveBeenCalledTimes(1)
+  })
+
+  it('opens its place in the app with no new page load', async () => {
+    const history = renderInRouter(
+      <Frame>
+        <Row chevron href="/runs/run-1">
+          Book the Austin trip
+        </Row>
+      </Frame>,
+    )
+
+    const link = await screen.findByRole('link', { name: 'Book the Austin trip' })
+    expect(link.getAttribute('href')).toBe('/runs/run-1')
+    expect(fireEvent.click(link)).toBe(false)
+    await waitFor(() => expect(history.location.pathname).toBe('/runs/run-1'))
+    expect(await screen.findByTestId('run-view')).toBeTruthy()
+  })
+
+  // A row with no value has no element that takes the free room, so
+  // the chevron takes it and sits at the trailing edge.
+  it('puts the chevron at the trailing edge', () => {
+    const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'frame.css'), 'utf8')
+    expect(css).toMatch(/\.ui-row-chevron\s*\{[^}]*margin-left:\s*auto/)
+    expect(css).toMatch(/\.ui-row-value\s*\+\s*\.ui-row-chevron\s*\{[^}]*margin-left:\s*0/)
+  })
+})
+
+describe('a disabled Row', () => {
+  it('turns off its button', () => {
+    render(
+      <Row disabled onClick={() => {}}>
+        Delete
+      </Row>,
+    )
+    expect((screen.getByRole('button', { name: 'Delete' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('writes no disabled attribute on a row with no action', () => {
+    render(<Row disabled>Read only</Row>)
+    expect(screen.getByText('Read only').hasAttribute('disabled')).toBe(false)
   })
 })

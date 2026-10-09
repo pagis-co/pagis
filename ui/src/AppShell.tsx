@@ -14,7 +14,7 @@ import {
   useRouteContext,
   useSearch,
 } from '@tanstack/react-router'
-import { ChevronLeft, WifiOff } from 'lucide-react'
+import { WifiOff } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { DeltaFrame, EventRow, ProgressFrame } from './api/client'
@@ -70,7 +70,7 @@ import {
   useWorkspace,
 } from './queries'
 import { useNotificationSync } from './push/useNotificationSync'
-import { useShellNavigation } from './mobileShell'
+import { useIsPhoneDevice, useShellNavigation } from './mobileShell'
 import { createSpeaker } from './speech'
 import {
   useCallInspector,
@@ -78,7 +78,6 @@ import {
   useCallTranscripts,
   useConnection,
   useLiveStreams,
-  useMobileNav,
   useRunProgress,
   useSpeaking,
   useTakeoverCountdowns,
@@ -90,7 +89,7 @@ import { usePresence, usePresenceSeed } from './state/presence'
 import { threadScope } from './timeline'
 import { watchActivity } from './ws/activity'
 import { PagisSocket, type ServerFrame } from './ws/socket'
-import { Button } from './primitives'
+import { PhoneShell } from './components/phone/PhoneShell'
 
 import './AppShell.css'
 
@@ -106,35 +105,6 @@ function ConnectionBanner() {
     <div className="connection-banner" role="status">
       <WifiOff size={14} aria-hidden />
       {status === 'connecting' ? 'Connecting to Pagis…' : 'Connection lost. Reconnecting…'}
-    </div>
-  )
-}
-
-/**
- * The inspector slot and the thread. On a wide screen the
- * wrapper disappears and the tenant is a column of the shell. On a
- * phone the tenant fills the screen, under a Back control the sheet
- * always keeps at the top.
- */
-function Sheet({
-  mobile,
-  onBack,
-  children,
-}: {
-  mobile: boolean
-  onBack: () => void
-  children: React.ReactNode
-}) {
-  if (!mobile) return <>{children}</>
-  return (
-    <div className="workspace-sheet">
-      <div className="workspace-sheet-bar">
-        <Button variant="ghost" size="sm" onClick={onBack}>
-          <ChevronLeft size={16} aria-hidden />
-          Back
-        </Button>
-      </div>
-      {children}
     </div>
   )
 }
@@ -162,6 +132,10 @@ export function AppShell() {
   const signOut = useSignOut(api)
   const isMobile = useIsMobile()
   const isCompact = useIsCompact()
+  // The live screen of a Desk stays on the phone layout when the phone
+  // turns on its side (ADR-0034).
+  const phoneDevice = useIsPhoneDevice()
+  const phoneLayout = isMobile || (phoneDevice && /^\/sprites\/[^/]+\/desk$/.test(location.pathname))
   // On a wide screen the Desk Panel is derived from the route, not
   // toggled (ADR-0022): it owns the slot on Home and in the Chief of
   // Staff's direct channel. At 1100px and below the slot takes room
@@ -183,13 +157,10 @@ export function AppShell() {
     panel !== undefined || (routeOwnsDesk && !isCompact) ? (onHome ? 'home' : 'channel') : null
   // Only the address-bar tenant is a sheet the user closes; the two
   // surfaces that own the panel keep it beside the page.
-  const deskIsSheet = panel !== undefined
   // Presence is right before the first frame.
   usePresenceSeed(api)
   useNotificationSync(api)
   useShellNavigation()
-  const mobileNavOpen = useMobileNav((state) => state.isOpen)
-  const closeMobileNav = useMobileNav((state) => state.close)
   // The call inspector: transient, and open across navigation.
   const callId = useCallInspector((state) => state.callId)
   const closeCall = useCallInspector((state) => state.close)
@@ -197,10 +168,12 @@ export function AppShell() {
   const mail = useMailInspector((state) => state.mail)
   const closeMail = useMailInspector((state) => state.close)
 
-  // A move to another view puts the mobile drawer away.
   useEffect(() => {
-    closeMobileNav()
-  }, [location.href, closeMobileNav])
+    if (isMobile && callId) {
+      void navigate({ to: '/calls/$callId', params: { callId } })
+      closeCall()
+    }
+  }, [isMobile, callId, closeCall, navigate])
 
   const goToChannel = (channelId: string, next?: 'desk') =>
     void navigate({
@@ -535,6 +508,7 @@ export function AppShell() {
           const settled =
             frame.type === 'message.completed' || frame.type === 'message.failed'
           if (settled && event.channel_id != null) {
+            void queryClient.invalidateQueries({ queryKey: channelsKey })
             const payload = event.payload as {
               message_id?: string
               parent_message_id?: string | null
@@ -620,100 +594,23 @@ export function AppShell() {
     return <AvatarRoster agents={agents.data ?? []}><Onboarding api={api} /></AvatarRoster>
   }
 
-  return (
-    <AvatarRoster agents={agents.data ?? []}><div className="app">
-      <ConnectionBanner />
-      <div className="app-body">
-        <Sidebar
-          api={api}
-          pathname={location.pathname}
-          selectedId={selectedId}
-          onSelectPlace={goToPlace}
-          onSelectChannel={(channelId) => goToChannel(channelId)}
-          onSearch={() => setPaletteOpen(true)}
-          onSignOut={() => signOut.mutate()}
-          open={mobileNavOpen}
-          onClose={closeMobileNav}
-        />
-        {mobileNavOpen && (
-          <div
-            className="navigation-backdrop"
-            aria-hidden
-            onClick={closeMobileNav}
-          />
-        )}
-        <main className="channel-pane">
-          <Outlet />
-        </main>
-        {/* The inspector slot has four tenants (ADR-0022, ADR-0019).
-            Call is transient and it holds the slot while it is open,
-            because listening must not stop when the user reads
-            something else; a mail strip takes the slot back, and the
-            call strip is the way back to the Call. */}
-        {callId !== null ? (
-          <Sheet mobile={isMobile} onBack={closeCall}>
-            <aside className="workspace-inspector">
-              <CallInspector api={api} callId={callId} onClose={closeCall} />
-            </aside>
-          </Sheet>
-        ) : mail !== null ? (
-          <Sheet mobile={isMobile} onBack={closeMail}>
-            <aside className="workspace-inspector">
-              <MailInspector api={api} mail={mail} onClose={closeMail} />
-            </aside>
-          </Sheet>
-        ) : selectedId !== null && threadRootId !== null ? (
-          <Sheet mobile={isMobile} onBack={() => goToChannel(selectedId)}>
-            <ThreadPane
-              api={api}
-              channelId={selectedId}
-              rootId={threadRootId}
-              onClose={() => goToChannel(selectedId)}
-              onOpenDesk={() => goToChannel(selectedId, 'desk')}
-            />
-          </Sheet>
-        ) : (
-          deskSurface !== null && (
-            <Sheet
-              mobile={isMobile && deskIsSheet}
-              onBack={() =>
-                selectedId === null
-                  ? void navigate({ to: '/', search: {} })
-                  : goToChannel(selectedId)
-              }
-            >
-            <aside className="workspace-inspector">
-              <DeskPanel
-                api={api}
-                surface={deskSurface}
-                channelId={selectedId}
-                onOpenAgent={(agentId) =>
-                  void navigate({ to: '/sprites/$agentId', params: { agentId } })
-                }
-                onOpenChannel={(agentId) => {
-                  const channelId = directMessageChannel(
-                    channels.data ?? [],
-                    agentId,
-                  )
-                  if (channelId !== null) goToChannel(channelId)
-                }}
-                onHire={() =>
-                  void navigate({ to: '/sprites', search: { new: '1' } })
-                }
-              />
-            </aside>
-            </Sheet>
-          )
-        )}
-      </div>
-      {paletteOpen && (
-        <CommandPalette
-          api={api}
-          open
-          onOpenChange={setPaletteOpen}
-          onNavigate={goToPath}
-        />
-      )}
-    </div></AvatarRoster>
-  )
+  if (phoneLayout) return <AvatarRoster agents={agents.data ?? []}><PhoneShell api={api} banner={<ConnectionBanner />} /></AvatarRoster>
+
+  return <AvatarRoster agents={agents.data ?? []}><div className="app">
+    <ConnectionBanner />
+    <div className="app-body">
+      <Sidebar api={api} pathname={location.pathname} selectedId={selectedId}
+        onSelectPlace={goToPlace} onSelectChannel={goToChannel}
+        onSearch={() => setPaletteOpen(true)} onSignOut={() => signOut.mutate()} />
+      <main className="channel-pane"><Outlet /></main>
+      {callId !== null ? <aside className="workspace-inspector"><CallInspector api={api} callId={callId} onClose={closeCall} /></aside>
+        : mail !== null ? <aside className="workspace-inspector"><MailInspector api={api} mail={mail} onClose={closeMail} /></aside>
+        : selectedId !== null && threadRootId !== null ? <ThreadPane api={api} channelId={selectedId} rootId={threadRootId} onClose={() => goToChannel(selectedId)} onOpenDesk={() => goToChannel(selectedId, 'desk')} />
+        : deskSurface !== null && <aside className="workspace-inspector"><DeskPanel api={api} surface={deskSurface} channelId={selectedId}
+          onOpenAgent={(agentId) => void navigate({ to: '/sprites/$agentId', params: { agentId } })}
+          onOpenChannel={(agentId) => { const id = directMessageChannel(channels.data ?? [], agentId); if (id) goToChannel(id) }}
+          onNew={() => void navigate({ to: '/sprites', search: { new: '1' } })} /></aside>}
+    </div>
+    {paletteOpen && <CommandPalette api={api} open onOpenChange={setPaletteOpen} onNavigate={goToPath} />}
+  </div></AvatarRoster>
 }

@@ -257,6 +257,8 @@ pub struct BriefEntries {
 pub struct MemoryPageEntry {
     pub path: ScopedPath,
     pub title: String,
+    /// The first paragraph of the readable page's current content.
+    pub excerpt: String,
     /// One of the page kinds (ADR-0007), or another word the page
     /// declares. A word outside the vocabulary is kept as it is.
     pub kind: Option<String>,

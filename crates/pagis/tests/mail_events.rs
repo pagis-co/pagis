@@ -532,6 +532,7 @@ async fn seed_run(
 ) -> RunId {
     use pagis_core::RunStore;
     let run = pagis_core::Run {
+        title: "A message with an attachment".into(),
         id: RunId::generate(),
         workspace_id: workspace_id.clone(),
         agent_id: AgentId::from(agent_id.to_string()),

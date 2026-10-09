@@ -662,6 +662,9 @@ impl Actor {
         };
         let run = Run {
             id: RunId::generate(),
+            title: pagis_core::run_title(pagis_core::RunTitleSource::Message(
+                &message.text_content,
+            )),
             workspace_id: message.workspace_id.clone(),
             agent_id: self.agent_id.clone(),
             channel_id: Some(message.channel_id.clone()),

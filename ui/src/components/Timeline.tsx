@@ -20,6 +20,7 @@ import {
   useTimeline,
 } from '../queries'
 import { createSpeaker } from '../speech'
+import { useIsMobile } from '../state/useIsMobile'
 import { useComposerDraft } from '../state/composerDraft'
 import {
   selectLiveStreams,
@@ -93,9 +94,10 @@ export function Timeline({
   onOpenThread: (rootId: string) => void
   /** A pointer row opens the channel it links to. */
   onOpenChannel: (channelId: string) => void
-  /** Opens the Desk panel. */
-  onOpenDesk: () => void
+  /** Opens the Desk of the Agent of the row. */
+  onOpenDesk: (agentId: string) => void
 }) {
+  const phone = useIsMobile()
   const timeline = useTimeline(api, channelId)
   const pending = usePendingSends(selectPendingSends(channelId))
   const live = useLiveStreams(selectLiveStreams(channelId))
@@ -212,13 +214,14 @@ export function Timeline({
       return <PointerRow row={item.row} onOpenChannel={onOpenChannel} />
     }
     if (item.kind === 'working' || item.kind === 'reflecting') {
+      const agentId = item.row.authorAgentId
       return (
         <WorkingRow
           api={api}
           row={item.row}
           agentName={agentName(item.row.authorAgentId)}
           agentAppearance={agentAppearance(item.row.authorAgentId)}
-          onOpenDesk={onOpenDesk}
+          onOpenDesk={agentId === null ? undefined : () => onOpenDesk(agentId)}
         />
       )
     }
@@ -260,8 +263,9 @@ export function Timeline({
             .catch(() => undefined)
         }}
         onShowScreenshot={(screenshotId) => {
+          if (item.row.authorAgentId === null) return
           useDeskFocus.getState().show(screenshotId)
-          onOpenDesk()
+          onOpenDesk(item.row.authorAgentId)
         }}
       />
     )
@@ -272,6 +276,7 @@ export function Timeline({
       <Virtuoso
         ref={scroller}
         className="timeline"
+        alignToBottom={phone}
         data={items}
         computeItemKey={(_index, item) => item.key}
         initialTopMostItemIndex={items.length - 1}

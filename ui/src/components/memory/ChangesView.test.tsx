@@ -16,6 +16,7 @@ const pages: MemoryPageDto[] = [
   {
     scope: 'agent:ag1',
     path: 'subjects/gmail/t1.md',
+    excerpt: '',
     title: 'Priya Sharma',
     kind: 'Person',
     changed_at: NOW,

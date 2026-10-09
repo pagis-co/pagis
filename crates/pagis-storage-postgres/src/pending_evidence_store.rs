@@ -481,6 +481,7 @@ impl PendingEvidenceStore for PostgresPendingEvidenceStore {
             let run_id = RunId::generate();
             let pending = load_record(&mut transaction, &id).await?;
             let run = pagis_core::Run {
+                title: pagis_core::run_title(pagis_core::RunTitleSource::Review),
                 id: run_id,
                 workspace_id: pending.workspace_id.clone(),
                 agent_id: pending.agent_id.clone(),
@@ -499,7 +500,7 @@ impl PendingEvidenceStore for PostgresPendingEvidenceStore {
                 created_at: now,
             };
             sqlx::query(
-                "INSERT INTO runs(id,workspace_id,agent_id,channel_id,root_message_id,trigger_kind,trigger_ref,hop_count,state,created_at) VALUES($1,$2,$3,$4,$5,'review',$6,0,'queued',$7)",
+                "INSERT INTO runs(id,workspace_id,agent_id,channel_id,root_message_id,trigger_kind,trigger_ref,hop_count,state,created_at,title) VALUES($1,$2,$3,$4,$5,'review',$6,0,'queued',$7,$8)",
             )
             .bind(run.id.as_str())
             .bind(run.workspace_id.as_str())
@@ -508,6 +509,7 @@ impl PendingEvidenceStore for PostgresPendingEvidenceStore {
             .bind(run.root_message_id.as_ref().map(MessageId::as_str))
             .bind(run.trigger_ref.as_deref())
             .bind(now)
+            .bind(&run.title)
             .execute(&mut *transaction)
             .await
             .map_err(db_err)?;

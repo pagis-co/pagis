@@ -77,12 +77,15 @@ final class PushNotifier {
      * Show {@code payload}. The tag is the item, so a new push for the same
      * item replaces the old Notification. A payload whose Request has the
      * actions {@code approve_once} and {@code deny} shows the actions
-     * Approve once and Deny.
+     * Approve once and Deny when this phone has Answer on the lock screen
+     * on. With it off, the Notification has no actions.
      */
     void show(PushPayload payload) {
         Notification.Builder builder = itemBuilder(payload.item, payload.kind, payload.title, payload.body, payload.navigate);
         if (payload.badge != null) builder.setNumber(payload.badge);
-        if (payload.request != null && payload.request.actions.equals(ApprovalDecision.actions())) {
+        if (payload.request != null
+            && payload.request.actions.equals(ApprovalDecision.actions())
+            && new ServerStore(context).lockScreenAnswers()) {
             for (ApprovalDecision decision : ApprovalDecision.values()) {
                 builder.addAction(answerAction(decision, payload));
             }
@@ -151,7 +154,9 @@ final class PushNotifier {
             context.getString(decision.title),
             broadcast
         );
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) action.setAuthenticationRequired(true);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            action.setAuthenticationRequired(true);
+        }
         return action.build();
     }
 

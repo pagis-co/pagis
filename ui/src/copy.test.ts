@@ -83,7 +83,7 @@ describe('Person-facing copy', () => {
     // passes on any source.
     const says = (code: string) =>
       copyIn('probe.tsx', `const x = ${code}`).some((text) => agentWord.test(text))
-    expect(says('<p>An empty desk · hire an agent</p>')).toBe(true)
+    expect(says('<p>An empty desk · create an agent</p>')).toBe(true)
     expect(says('<b aria-label="Every Agent of the installation" />')).toBe(true)
     expect(says('`nothing bounds what an agent keeps ${y}`')).toBe(true)
     expect(says("toast('Agents know it')")).toBe(true)

@@ -317,8 +317,16 @@ path of the fixture in the system property `pagis.webPushFixture`.
 ### Inline answers are Approve once and Deny
 
 A Notification of a pending tool action or credential action Approval
-shows **Approve once** and **Deny**. These are the `actions` of the
-payload (ADR-0030).
+shows **Approve once** and **Deny** when this phone has **Answer on the
+lock screen** on. These are the `actions` of the payload (ADR-0030).
+**Answer on the lock screen** is a setting of the phone, not of the
+server, because the app answers without the Product App. It is off when
+the phone stores no value, and the You screen changes it through
+`PagisShell.setLockScreenAnswers`. The app keeps it next to the server
+origin, and **Change server** keeps it. With the setting off, iOS
+registers the category `approval` with no actions and Android draws no
+actions, so a tap on the Notification opens the place of the Request.
+With the setting on, each action still needs an unlocked phone.
 
 - **Approve once** posts `{"decision": "approved"}` to the decision route,
   `POST /api/v1/requests/{request_id}/decision`, with no `scope`. The
@@ -333,9 +341,12 @@ When the answer fails for any reason, the app shows one Notification:
 is no network, a `401`, a `404`, a `409` for a Request that is already
 decided, or no answer in 20 seconds, as in the service worker (ADR-0030).
 
-On iOS, the app registers the category `approval` at launch, with the
-actions `approve_once` and `deny`. Each action has `.authenticationRequired`,
-**Deny** also has `.destructive`, and neither action has `.foreground`. So
+On iOS, the app registers the category `approval` at launch, and again
+each time `PagisShell.setLockScreenAnswers` changes the setting. With the
+setting on, the category has the actions `approve_once` and `deny`. Each
+action has `.authenticationRequired`, **Deny** also has `.destructive`,
+and neither action has `.foreground`. With the setting off, the category
+has no actions. So
 iOS runs the app in the background, with no scene and no bridge, and
 `NotificationResponder` gives the action to `InlineAnswer`:
 
@@ -351,7 +362,8 @@ iOS runs the app in the background, with no scene and no bridge, and
    time of the app first, the task ends at once.
 
 On Android, `PushNotifier` adds **Approve once** and **Deny** to a
-Notification whose `request` has the actions `approve_once` and `deny`.
+Notification whose `request` has the actions `approve_once` and `deny`,
+when the setting is on. It reads the setting for each Notification.
 Each action is an immutable broadcast `PendingIntent` to the receiver
 `ApprovalReceiver`, with the Request id, the item, the kind, the title and
 the `navigate` of the Notification. Each action has
@@ -391,11 +403,14 @@ A tap on a Notification of every other Request (a form, a choice, a
 Widget answer or a question) opens the app at the place of the Request.
 
 An answer needs no step-up sign-in. The Session is the authority, as on
-every client. Each action needs an unlocked phone (`.authenticationRequired`
-on iOS, and `setAuthenticationRequired(true)` on Android 12 and later), so
-a person who holds a locked phone answers nothing. Android 11 and earlier
-have no such setting: there, an action runs from the lock screen when the
-lock screen shows the content of the Notification.
+every client. **Answer on the lock screen** shows the actions on the lock
+screen, and it does not remove the unlock. Each action needs an unlocked
+phone (`.authenticationRequired` on iOS, and
+`setAuthenticationRequired(true)` on Android 12 and later), so a person
+who holds a locked phone answers nothing. Android 11 and earlier have no
+such setting: there, with **Answer on the lock screen** on, an action
+runs from the lock screen when the lock screen shows the content of the
+Notification.
 
 ### A tap opens the place of a Notification
 
@@ -516,6 +531,8 @@ Other ways were considered:
   bound on the versions of the server.
 
 ## Consequences
+
+The Product App draws the phone layout for the Mobile App (ADR-0034).
 
 - App Store review guideline 4.2 refuses an app that is only a repackaged
   website, and this is a real risk. The native value of the Mobile App is

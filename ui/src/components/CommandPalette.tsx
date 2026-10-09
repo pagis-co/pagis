@@ -163,7 +163,7 @@ export function CommandPalette({
     const items: Entry[] = [
       {
         id: 'action-new-agent',
-        label: 'Hire a sprite',
+        label: 'New sprite',
         hint: 'Action',
         run: go('/sprites?new=1'),
       },

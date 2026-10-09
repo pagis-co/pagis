@@ -17,6 +17,7 @@ import {
 } from '../../api/client'
 import { Avatar, Badge, Button } from '../../primitives'
 import {
+  errorMessage,
   useAgents,
   useChannels,
   useMemoryFeed,
@@ -320,9 +321,9 @@ export function RunTimeline({
       <header className="runs-run-head">
         <Avatar appearance={(agents.data ?? []).find((agent) => agent.id === run.agent_id)?.avatar} id={run.agent_id} name={agentName} size="md" />
         <div>
-          <h2>{agentName}</h2>
+          <h2>{run.title}</h2>
           <p className="runs-run-trigger">
-            Started by {triggerSentence(run, channelName)}
+            {agentName} · Started by {triggerSentence(run, channelName)}
           </p>
         </div>
         <Badge tone={badge.tone}>{badge.label}</Badge>
@@ -397,7 +398,7 @@ export function RunTimeline({
               Retry memory review
             </Button>
             {retry.isSuccess && <span role="status">Memory review queued again</span>}
-            {retry.isError && <span role="alert">{retry.error.message}</span>}
+            {retry.isError && <span role="alert">{errorMessage(retry.error, 'The review could not be queued again.')}</span>}
           </span>
         )}
         <span>

@@ -14,6 +14,37 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 @CapacitorPlugin(name = "PagisShell")
 public class PagisShellPlugin extends Plugin {
 
+    /**
+     * Change server of the You screen. The app forgets the server and the
+     * copy of the Session, and shows the Connect screen.
+     */
+    @PluginMethod
+    public void changeServer(PluginCall call) {
+        call.resolve();
+        MainActivity activity = (MainActivity) getActivity();
+        activity.runOnUiThread(activity::changeServer);
+    }
+
+    /** The setting Answer on the lock screen of this phone. */
+    @PluginMethod
+    public void getLockScreenAnswers(PluginCall call) {
+        JSObject result = new JSObject();
+        result.put("on", new ServerStore(getContext()).lockScreenAnswers());
+        call.resolve(result);
+    }
+
+    /**
+     * Keep the setting Answer on the lock screen. The next Notification of
+     * an Approval shows its actions, or none, by the setting (ADR-0032).
+     */
+    @PluginMethod
+    public void setLockScreenAnswers(PluginCall call) {
+        Boolean on = call.getBoolean("on");
+        if (on == null) { call.reject("The setting needs an on or off value."); return; }
+        new ServerStore(getContext()).setLockScreenAnswers(on);
+        call.resolve();
+    }
+
     @PluginMethod
     public void buildType(PluginCall call) {
         JSObject result = new JSObject();

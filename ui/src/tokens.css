@@ -77,6 +77,7 @@
   --ring-working: 0 0 0 2px var(--panel), 0 0 0 4px var(--working);
   --ring-waiting: 0 0 0 2px var(--panel), 0 0 0 4px var(--waiting);
   --ring-on-call: 0 0 0 2px var(--panel), 0 0 0 4px var(--on-call);
+  --ring-on-call-wide: 0 0 0 3px var(--ground), 0 0 0 7px var(--on-call);
   --ring-idle: 0 0 0 1px var(--border-strong);
   /* The gap between two overlapping faces of a group. */
   --ring-overlap: 0 0 0 2px var(--panel);
@@ -284,8 +285,27 @@
   }
 }
 
-:root[data-theme='dark'] {
+:root[data-theme='dark'], [data-theme='dark'] {
   color-scheme: dark;
+
+  --ring-working: 0 0 0 2px var(--panel), 0 0 0 4px var(--working);
+  --ring-waiting: 0 0 0 2px var(--panel), 0 0 0 4px var(--waiting);
+  --ring-on-call: 0 0 0 2px var(--panel), 0 0 0 4px var(--on-call);
+  --ring-idle: 0 0 0 1px var(--border-strong);
+
+  /* A dark surface also resolves the aliases in its own scope. */
+  --ground: var(--warm-2);
+  --panel: var(--warm-1);
+  --sidebar: var(--warm-3);
+  --sunken: var(--warm-4);
+  --hover: var(--warm-4);
+  --active: var(--warm-5);
+  --border: var(--warm-5);
+  --border-strong: var(--warm-6);
+  --border-control: var(--warm-7);
+  --border-control-hover: var(--warm-8);
+  --text: var(--warm-9);
+  --muted: var(--warm-8);
 
   --warm-1: #19191d;
   --warm-2: #141417;

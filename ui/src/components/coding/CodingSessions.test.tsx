@@ -86,7 +86,6 @@ function mount(api: ApiClient) {
         api={api}
         onOpenSession={onOpenSession}
         onOpenChannel={onOpenChannel}
-        onOpenNav={() => {}}
       />
     </QueryClientProvider>,
   )

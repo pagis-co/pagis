@@ -1,0 +1,106 @@
+.desk-phone {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--stage);
+  color: var(--on-solid);
+}
+.desk-phone-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  background: var(--stage-veil);
+  padding: calc(var(--safe-top) + var(--space-3)) var(--space-4) var(--space-3);
+}
+.desk-phone-header .phone-row-copy span {
+  font-size: var(--text-sm);
+}
+.desk-phone-header .phone-row-copy span {
+  color: var(--muted);
+}
+.desk-phone-header .ui-button {
+  color: var(--on-solid);
+}
+.desk-phone-stage {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 0;
+  position: relative;
+}
+.desk-phone-stage .screen-frame {
+  width: 100%;
+  border-radius: 0;
+}
+.desk-phone-stage .screen-frame-agent {
+  border: 0;
+}
+.desk-phone-stage .screen-frame-bar {
+  display: none;
+}
+.desk-phone-control {
+  text-align: center;
+  padding: var(--space-5) var(--space-4);
+  font-size: var(--text-xs);
+}
+.desk-phone-holder {
+  display: inline-flex;
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--waiting-soft);
+  color: var(--waiting-ink);
+  font-size: var(--text-sm);
+}
+.desk-phone-holder-user {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+.desk-phone-holder {
+  font-weight: var(--weight-semibold);
+}
+.desk-phone-footer {
+  background: var(--stage-veil);
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-2) var(--space-4) var(--safe-bottom);
+  gap: var(--space-1);
+}
+.desk-phone-asleep {
+  text-align: center;
+  padding: var(--space-5);
+}
+.desk-phone-keyboard .computer-live-keyboard,
+.desk-phone-keyboard .ui-button {
+  width: 100%;
+}
+.desk-phone-keyboard .computer-live-keyboard {
+  position: relative;
+  right: auto;
+  bottom: auto;
+}
+.desk-phone-keyboard .ui-button {
+  min-height: 52px;
+}
+.desk-phone-stage .screen-frame-user {
+  border: 3px solid var(--accent);
+}
+.desk-phone-footer > .ui-button-link {
+  color: var(--muted);
+}
+@media (orientation: landscape) {
+  .desk-phone-header,
+  .desk-phone-footer {
+    position: absolute;
+    left: 0;
+    right: 0;
+    z-index: var(--z-overlay-controls);
+  }
+  .desk-phone-header {
+    top: 0;
+  }
+  .desk-phone-footer {
+    bottom: 0;
+  }
+}

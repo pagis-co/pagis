@@ -1,10 +1,14 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
+import { useLocation, useNavigate } from '@tanstack/react-router'
+import { useIsMobile } from '../state/useIsMobile'
+import { HeaderActions, NavBar } from './phone/TopBar'
+import { ConnectionsPhone } from './phone/ConnectionsPhone'
 
 import type { ApiClient } from '../api/client'
 import { AdministrationLink } from './settings/AdministrationLink'
 import { Connections } from './Connections'
 import { HomeExit } from './settings/HomeExit'
-import { Hosts } from './settings/Hosts'
+import { HOST_HINT, Hosts } from './settings/Hosts'
 import { ModelsSettings } from './ModelsSettings'
 import { Notifications } from './settings/Notifications'
 import { Retention } from './settings/Retention'
@@ -124,6 +128,8 @@ export function SettingsShell({
   isAdministrator: boolean
   children: ReactNode
 }) {
+  const phone = useIsMobile()
+  if (phone) return <PhoneSettingsShell section={section}>{children}</PhoneSettingsShell>
   return (
     <div className="settings-panel">
       <SettingsNav
@@ -134,6 +140,14 @@ export function SettingsShell({
       <div className="settings-content">{children}</div>
     </div>
   )
+}
+
+function PhoneSettingsShell({ section, children }: { section: SettingsSection; children: ReactNode }) {
+  const navigate = useNavigate()
+  const location = useLocation()
+  const [actions, setActions] = useState<HTMLDivElement | null>(null)
+  const connectionDetail = section === 'connections' && location.pathname !== '/settings/connections'
+  return <HeaderActions.Provider value={actions}><NavBar back={{ label: connectionDetail ? 'Connections' : 'Settings', onBack: () => void navigate({ href: connectionDetail ? '/settings/connections' : '/settings' }) }} actions={<div className="phone-header-actions" ref={setActions} />} /><div className="phone-content settings-phone">{children}</div></HeaderActions.Provider>
 }
 
 export function SettingsPanel({
@@ -151,6 +165,7 @@ export function SettingsPanel({
   /** Whether the person may see the administrator sections. */
   isAdministrator: boolean
 }) {
+  const phone = useIsMobile()
   return (
     <SettingsShell
       section={section}
@@ -158,7 +173,7 @@ export function SettingsPanel({
       isAdministrator={isAdministrator}
     >
       {section === 'connections' && (
-        <section className="settings-section">
+        phone ? <ConnectionsPhone api={api} onOpen={onOpenConnection} /> : <section className="settings-section">
           <h3>Connections</h3>
           <Connections api={api} onOpen={onOpenConnection} />
         </section>
@@ -167,6 +182,7 @@ export function SettingsPanel({
         <>
           <Hosts api={api} />
           <HomeExit api={api} />
+          {phone && <p className="phone-hint">{HOST_HINT}</p>}
         </>
       )}
       {section === 'sessions' && <Sessions api={api} />}

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Plus, X } from 'lucide-react'
+import { Plus, X, ArrowUp } from 'lucide-react'
 
 import { uploadArtifact, type ApiClient } from '../api/client'
 import { useSendMessage } from '../queries'
@@ -13,6 +13,7 @@ import { CommandMenu, matchCommands, type Command } from './composer/CommandMenu
 import { voiceLook, voiceState } from './composer/voice'
 
 import './Composer.css'
+import { useIsMobile } from '../state/useIsMobile'
 
 /** One uploaded attachment waiting in the composer. */
 interface Attachment {
@@ -60,6 +61,7 @@ export function Composer({
    *  Thread the reader is sent to. */
   adoptsDraft?: boolean
 }) {
+  const phone = useIsMobile()
   const [text, setText] = useState('')
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [uploading, setUploading] = useState(0)
@@ -302,14 +304,15 @@ export function Composer({
           trigger={
             <IconButton
               icon={Plus}
-              label="Attach"
+              label={phone ? "Add a file" : "Attach"}
               variant="ghost"
             />
           }
           items={[{ label: 'Attach files', onSelect: pickFiles }]}
         />
         <Textarea
-          bare
+          bare={!phone}
+          pill={phone}
           className={`composer-input${dictating ? ' composer-input-dictating' : ''}`}
           value={shownText}
           placeholder={listening ?? placeholder}
@@ -362,10 +365,11 @@ export function Composer({
             }
           }}
         />
-        <IconButton
+        {phone && canSubmit ? <IconButton icon={ArrowUp} label="Send" variant="primary" shape="pill" type="submit" /> : <IconButton
           icon={look.icon}
-          label={look.label}
-          variant="ghost"
+          label={phone && voice === 'idle' ? 'Dictate a message' : look.label}
+          variant={phone ? 'primary' : 'ghost'}
+          shape={phone ? 'pill' : undefined}
           className={`composer-mic${voice === 'listening' ? ' composer-mic-held' : ''}`}
           data-voice-state={voice}
           data-testid="composer-mic"
@@ -391,15 +395,15 @@ export function Composer({
             if (utterance?.held) release()
           }}
           onContextMenu={(event) => event.preventDefault()}
-        />
-        <TooltipButton
+        />}
+        {!phone && <TooltipButton
           variant="primary"
           type="submit"
           disabled={!canSubmit}
           tooltip="Send the message (Enter)"
         >
           Send
-        </TooltipButton>
+        </TooltipButton>}
       </div>
     </form>
   )

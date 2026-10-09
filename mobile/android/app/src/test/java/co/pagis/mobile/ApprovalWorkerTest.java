@@ -62,6 +62,7 @@ public class ApprovalWorkerTest {
         String url = daemon.url("/").toString();
         server = ServerOrigin.parse(url.substring(0, url.length() - 1), true);
         new ServerStore(context).keep(server);
+        new ServerStore(context).setLockScreenAnswers(true);
         copy = new SessionCopy(new File(folder.getRoot(), "session"), SessionCopyTest.testAead());
         copy.write(server, new Session("s1", 1_900_000_000_000L));
         showApprovalNotification();

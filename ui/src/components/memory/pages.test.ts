@@ -14,6 +14,7 @@ function page(fields: Partial<MemoryPageDto>): MemoryPageDto {
   return {
     scope: 'agent:ag1',
     path: 'subjects/gmail/x.md',
+    excerpt: '',
     title: 'Priya Sharma',
     kind: 'Person',
     source_connection_id: 'con_1',

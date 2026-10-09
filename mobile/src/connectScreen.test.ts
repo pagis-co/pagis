@@ -47,10 +47,13 @@ describe('the Connect screen', () => {
   it('shows one field, "Server address or sign-in link", Connect, and Scan a sign-in link', () => {
     expect(document.querySelector('label[for=address]')?.textContent).toBe('Server address or sign-in link')
     expect(document.querySelectorAll('input')).toHaveLength(1)
-    expect(connectButton().textContent).toBe('Connect')
-    expect(scanButton().textContent).toBe('Scan a sign-in link')
+    expect(connectButton().textContent?.trim()).toBe('Connect')
+    expect(scanButton().textContent?.trim()).toBe('Scan a sign-in link')
     expect(scanButton().type).toBe('button')
     expect(problem().hidden).toBe(true)
+    expect(document.querySelectorAll('.connect-steps li')).toHaveLength(3)
+    expect(scanButton().compareDocumentPosition(field()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(Array.from(document.querySelectorAll<HTMLAnchorElement>('.connect-help a')).map((link) => link.href)).toEqual(['https://docs.pagis.co/mobile-app/connect-to-a-server', 'https://docs.pagis.co/data-and-privacy'])
   })
 
   it('opens the server of a scanned sign-in link through the shell', async () => {

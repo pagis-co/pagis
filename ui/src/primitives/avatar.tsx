@@ -8,7 +8,7 @@ import { cx } from './cx'
 import './avatar.css'
 
 export type Presence = 'working' | 'waiting' | 'oncall' | 'idle' | 'none'
-export type AvatarSize = 'sm' | 'md' | 'lg'
+export type AvatarSize = 'sm' | 'md' | 'lg' | 'xl' | 'face' | 'portrait'
 
 /** The letter drawn on the disc. */
 export function avatarInitial(name: string): string {
@@ -91,11 +91,13 @@ export function OwnerAvatar({
   name,
   size = 'md',
   className,
+  outlined = false,
 }: {
   /** The name the initial comes from. */
   name: string
   size?: AvatarSize
   className?: string
+  outlined?: boolean
 }) {
   return (
     <span
@@ -103,6 +105,7 @@ export function OwnerAvatar({
         'ui-avatar',
         `ui-avatar-${size}`,
         'ui-avatar-owner',
+        outlined && 'ui-avatar-owner-outlined',
         className,
       )}
       aria-hidden

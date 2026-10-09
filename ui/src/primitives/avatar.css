@@ -89,3 +89,12 @@
 }
 
 .ui-avatar-static { animation: none; }
+.ui-avatar-xl, .ui-owner-avatar-xl { width: 56px; height: 56px; }
+.ui-avatar-portrait, .ui-owner-avatar-portrait { width: 96px; height: 96px; }
+.ui-avatar-face { width: 64px; height: 64px; }
+.ui-avatar-owner-outlined { border: 1px solid var(--border); background: var(--panel); color: var(--text); font-size: var(--text-xl); }
+@media (max-width: 760px) {
+  .ui-avatar .sprite-portrait, .ui-avatar .sprite-canvas { transform: none; }
+  .ui-avatar .sprite-avatar { background: var(--accent-soft); }
+  .ui-avatar-portrait.ui-avatar-presence-oncall { box-shadow: var(--ring-on-call-wide); }
+}

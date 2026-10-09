@@ -1,13 +1,22 @@
 import Foundation
 
-/// The origin of the server that the app opens, in the `UserDefaults` of
-/// the App Group, so the Notification Service Extension reads it too. It
-/// holds the origin alone and never a Sign-In Link, because a link holds a
+/// The origin of the server that the app opens, and the setting **Answer
+/// on the lock screen** of this phone, in the `UserDefaults` of the App
+/// Group, so the Notification Service Extension reads them too. It holds
+/// the origin alone and never a Sign-In Link, because a link holds a
 /// secret.
 struct ServerStore {
     private static let key = "serverOrigin"
+    private static let lockScreenAnswersKey = "lockScreenAnswers"
 
     let defaults: UserDefaults
+
+    /// Whether a Notification of an Approval shows **Approve once** and
+    /// **Deny**. It is off when the phone stores no value (ADR-0032).
+    var lockScreenAnswers: Bool {
+        get { defaults.bool(forKey: ServerStore.lockScreenAnswersKey) }
+        nonmutating set { defaults.set(newValue, forKey: ServerStore.lockScreenAnswersKey) }
+    }
 
     init(defaults: UserDefaults = AppGroup.defaults) {
         self.defaults = defaults

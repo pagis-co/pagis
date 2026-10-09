@@ -18,9 +18,11 @@ function clockOf(at: number): string {
 export function Transcript({
   lines,
   agentName,
+  callerLabel,
 }: {
   lines: readonly CallLine[]
   agentName: string
+  callerLabel?: string
 }) {
   if (lines.length === 0) {
     return <p className="call-transcript-empty">Nothing has been said yet.</p>
@@ -30,7 +32,7 @@ export function Transcript({
       {lines.map((line, index) => (
         <li key={index} className={`call-line call-line-${line.speaker}`}>
           <span className="call-line-at">{clockOf(line.at)}</span>
-          <span className="call-line-who">{speakerLabel(line.speaker, agentName)}</span>
+          <span className="call-line-who">{line.speaker === 'caller' && callerLabel ? callerLabel : speakerLabel(line.speaker, agentName)}</span>
           <span className="call-line-text">{line.text}</span>
         </li>
       ))}

@@ -81,6 +81,7 @@ async fn world(pool: SqlitePool) -> World {
         .await
         .unwrap();
     let run = Run {
+        title: "A message with an attachment".into(),
         id: RunId::generate(),
         workspace_id: workspace.id.clone(),
         agent_id: agent.id.clone(),

@@ -65,3 +65,11 @@ export function changeTimeLabel(at: number, now: number = Date.now()): string {
   if (at >= today - DAY) return 'Yesterday'
   return new Date(at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
+
+/** The phone names a day this week before it needs a calendar date. */
+export function phoneTimeLabel(at: number, now: number = Date.now()): string {
+  const today = startOfDay(now)
+  return at < today - DAY && at >= today - 6 * DAY
+    ? new Date(at).toLocaleDateString('en-US', { weekday: 'short' })
+    : changeTimeLabel(at, now)
+}

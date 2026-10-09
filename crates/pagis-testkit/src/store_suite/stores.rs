@@ -154,6 +154,7 @@ pub async fn one_shot_schedule_history_roundtrips_through_the_store(backend: &Ba
         .await
         .unwrap();
     assert_eq!(claims.len(), 1);
+    assert_eq!(claims[0].run.title, wakeups[0].rule_name);
     assert_eq!(
         claims[0].run.trigger_ref.as_deref(),
         Some(wakeups[0].id.as_str())
@@ -520,6 +521,37 @@ pub async fn timeline_entries_carry_thread_rollups(backend: &Backend) {
     assert_eq!(root_entry.last_reply_at, Some(last_reply_at));
 }
 
+/// The last message of a channel is the newest top-level message of
+/// the conversation. A thread reply and a derived progress row are not
+/// the last message, and a channel without messages has none.
+pub async fn the_last_message_of_a_channel_skips_replies_and_progress(backend: &Backend) {
+    let ws = backend.seeded_workspace().await;
+    let ch = channel(&ws.id);
+    let empty = channel(&ws.id);
+    backend.stores().channels.create(&ch).await.unwrap();
+    backend.stores().channels.create(&empty).await.unwrap();
+
+    let store = &backend.stores().messages;
+    let older = user_message(&ws.id, &ch.id, "older");
+    store.insert(&older).await.unwrap();
+    let newest = user_message(&ws.id, &ch.id, "Book the Austin trip");
+    store.insert(&newest).await.unwrap();
+    let mut reply = user_message(&ws.id, &ch.id, "a reply");
+    reply.parent_message_id = Some(newest.id.clone());
+    store.insert(&reply).await.unwrap();
+    // A scheduled Run speaks at the top level, so its progress row
+    // has no parent.
+    let mut progress = user_message(&ws.id, &ch.id, "Failed");
+    progress.blocks = vec![pagis_core::Block::progress("run_1", "Failed")];
+    store.insert(&progress).await.unwrap();
+
+    assert_eq!(
+        store.last_message(&ws.id, &ch.id).await.unwrap(),
+        Some(newest)
+    );
+    assert_eq!(store.last_message(&ws.id, &empty.id).await.unwrap(), None);
+}
+
 pub async fn timeline_entries_name_the_newest_reply_authors(backend: &Backend) {
     let ws = backend.seeded_workspace().await;
     let agents = &backend.stores().agents;
@@ -702,6 +734,7 @@ pub async fn run_roundtrips_and_updates_through_store(backend: &Backend) {
 
     let store = &backend.stores().runs;
     let mut run = queued_run(&ws.id, &a.id, &ch.id);
+    run.title = "Book the Austin trip".into();
     store.create(&run).await.unwrap();
     assert_eq!(store.get(&ws.id, &run.id).await.unwrap(), Some(run.clone()));
     assert_eq!(store.list_unfinished().await.unwrap(), vec![run.clone()]);
@@ -710,7 +743,9 @@ pub async fn run_roundtrips_and_updates_through_store(backend: &Backend) {
     run.error = Some("boom".to_string());
     run.started_at = Some(1);
     run.ended_at = Some(2);
+    run.title = "A later state update cannot rename the work".into();
     store.update(&run).await.unwrap();
+    run.title = "Book the Austin trip".into();
 
     assert_eq!(store.get(&ws.id, &run.id).await.unwrap(), Some(run));
     assert_eq!(store.list_unfinished().await.unwrap(), vec![]);
@@ -2569,6 +2604,7 @@ macro_rules! store_suite_stores {
             same_pending_id_in_another_channel_is_a_new_message,
             timeline_pages_newest_first_with_exclusive_cursor,
             timeline_entries_carry_thread_rollups,
+            the_last_message_of_a_channel_skips_replies_and_progress,
             timeline_entries_name_the_newest_reply_authors,
             timeline_rollups_count_only_replies_of_their_own_workspace,
             thread_lists_root_and_replies_oldest_first,

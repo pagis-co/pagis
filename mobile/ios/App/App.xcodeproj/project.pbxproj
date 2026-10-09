@@ -8,6 +8,8 @@
 
 /* Begin PBXBuildFile section */
 		7A6E15020000000000000006 /* InlineAnswerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E15020000000000000005 /* InlineAnswerTests.swift */; };
+		7A6E15040000000000000002 /* PagisShellPluginTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E15040000000000000001 /* PagisShellPluginTests.swift */; };
+		7A6E15040000000000000004 /* PagisViewControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E15040000000000000003 /* PagisViewControllerTests.swift */; };
 		7A6E15020000000000000004 /* InlineAnswer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E15020000000000000003 /* InlineAnswer.swift */; };
 		7A6E15020000000000000002 /* ApprovalAnswer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E15020000000000000001 /* ApprovalAnswer.swift */; };
 		2FAD9763203C412B000D30F8 /* config.xml in Resources */ = {isa = PBXBuildFile; fileRef = 2FAD9762203C412B000D30F8 /* config.xml */; };
@@ -96,6 +98,8 @@
 
 /* Begin PBXFileReference section */
 		7A6E15020000000000000005 /* InlineAnswerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InlineAnswerTests.swift; sourceTree = "<group>"; };
+		7A6E15040000000000000001 /* PagisShellPluginTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PagisShellPluginTests.swift; sourceTree = "<group>"; };
+		7A6E15040000000000000003 /* PagisViewControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PagisViewControllerTests.swift; sourceTree = "<group>"; };
 		7A6E15020000000000000003 /* InlineAnswer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InlineAnswer.swift; sourceTree = "<group>"; };
 		7A6E15020000000000000001 /* ApprovalAnswer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApprovalAnswer.swift; sourceTree = "<group>"; };
 		2FAD9762203C412B000D30F8 /* config.xml */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = config.xml; sourceTree = "<group>"; };
@@ -255,6 +259,8 @@
 				7A6E15010000000000000019 /* web-push.json */,
 				7A6E15030000000000000001 /* StaleNotificationsTests.swift */,
 				7A6E15030000000000000003 /* NotificationTapTests.swift */,
+				7A6E15040000000000000001 /* PagisShellPluginTests.swift */,
+				7A6E15040000000000000003 /* PagisViewControllerTests.swift */,
 			);
 			path = AppTests;
 			sourceTree = "<group>";
@@ -455,6 +461,8 @@
 				7A6E15020000000000000006 /* InlineAnswerTests.swift in Sources */,
 				7A6E15030000000000000002 /* StaleNotificationsTests.swift in Sources */,
 				7A6E15030000000000000004 /* NotificationTapTests.swift in Sources */,
+				7A6E15040000000000000002 /* PagisShellPluginTests.swift in Sources */,
+				7A6E15040000000000000004 /* PagisViewControllerTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

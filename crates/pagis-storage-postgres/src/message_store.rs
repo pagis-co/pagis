@@ -395,6 +395,26 @@ impl MessageStore for PostgresMessageStore {
         Ok(result.rows_affected())
     }
 
+    async fn last_message(
+        &self,
+        workspace_id: &WorkspaceId,
+        channel_id: &ChannelId,
+    ) -> Result<Option<Message>, StoreError> {
+        let not_progress = not_progress("messages");
+        let row = sqlx::query(&format!(
+            "SELECT {COLUMNS} FROM messages \
+             WHERE channel_id = $1 AND workspace_id = $2 AND parent_message_id IS NULL \
+             AND {not_progress} \
+             ORDER BY id DESC LIMIT 1"
+        ))
+        .bind(channel_id.as_str())
+        .bind(workspace_id.as_str())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(db_err)?;
+        row.as_ref().map(row_to_message).transpose()
+    }
+
     async fn list_agent_elsewhere(
         &self,
         workspace_id: &WorkspaceId,

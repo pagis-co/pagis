@@ -40,6 +40,7 @@ pub trait InboundRuns: Send + Sync {
         workspace_id: &WorkspaceId,
         agent_id: &AgentId,
         call_id: &CallId,
+        caller: &str,
     ) -> Result<Run, String>;
     /// The Run ended: the call settled, or it failed for this reason.
     async fn close(&self, workspace_id: &WorkspaceId, run_id: &RunId, error: Option<String>);
@@ -134,7 +135,12 @@ impl InboundCalls {
         let run = self
             .deps
             .runs
-            .open(&number.workspace_id, &agent.id, &call_id)
+            .open(
+                &number.workspace_id,
+                &agent.id,
+                &call_id,
+                &incoming.from_e164,
+            )
             .await
             .map_err(InboundError)?;
         let placed = match self.brief(&incoming, &agent, &number, &run, &call_id).await {

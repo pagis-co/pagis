@@ -7,8 +7,19 @@
   </head>
   <body>
     <main class="connect">
-      <h1>Connect to a Pagis server</h1>
+      <header class="connect-head">
+        <svg class="connect-mark" viewBox="20 20 120 120" aria-hidden="true" focusable="false"><rect x="20" y="20" width="56" height="56" rx="10" /><path d="M94 20H112A28 28 0 0 1 112 76H94A10 10 0 0 1 84 66V30A10 10 0 0 1 94 20Z" /><rect x="20" y="84" width="56" height="56" rx="10" /></svg>
+        <h1>Connect to a Pagis server</h1>
+        <p>Your sprites work on your server. On this phone you answer them and give them work.</p>
+      </header>
+      <ol class="connect-steps">
+        <li><span>1</span><p>On a computer where you use Pagis, open <strong>Settings › Sessions</strong>.</p></li>
+        <li><span>2</span><p>Select <strong>Sign in another browser or app</strong>.</p></li>
+        <li><span>3</span><p>Scan the QR code with this phone. The code works for 5 minutes.</p></li>
+      </ol>
       <form id="connect" novalidate>
+        <button id="scan" type="button"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 9V4h5m6 0h5v5m0 6v5h-5m-6 0H4v-5M7 12h10" /></svg>Scan a sign-in link</button>
+        <div class="connect-divider"><span>or</span></div>
         <label for="address">Server address or sign-in link</label>
         <input
           id="address"
@@ -19,13 +30,13 @@
           autocapitalize="none"
           autocorrect="off"
           spellcheck="false"
-          placeholder="pagis.example.com"
+          placeholder="https://pagis.example.ts.net"
           aria-describedby="problem"
         />
         <p id="problem" class="problem" role="alert" hidden></p>
-        <button type="submit">Connect</button>
-        <button id="scan" class="secondary" type="button">Scan a sign-in link</button>
+        <button type="submit" class="secondary">Connect</button>
       </form>
+      <footer class="connect-help"><p>No computer signed in? Ask an administrator for an invite link.</p><nav aria-label="Help"><a href="https://docs.pagis.co/mobile-app/connect-to-a-server">How connecting works</a><a href="https://docs.pagis.co/data-and-privacy">Privacy</a></nav></footer>
     </main>
     <script type="module" src="./src/main.ts"></script>
   </body>

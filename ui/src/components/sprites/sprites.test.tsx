@@ -107,7 +107,7 @@ beforeEach(() => {
   );
 });
 
-/** `/sprites?new=1` holds the hiring flow; this stands in for it. */
+/** `/sprites?new=1` holds the creating flow; this stands in for it. */
 function RosterHarness({
   api,
   onOpenChannel = () => {},
@@ -206,9 +206,9 @@ describe("the sprite roster", () => {
   });
 });
 
-/** The four steps of hiring, from the roster button to Hire. */
+/** The four steps of creating, from the roster button to Create. */
 async function walkToAccess(name = "Rex", job = "researcher", hue?: string) {
-  fireEvent.click(await screen.findByText("Hire a sprite"));
+  fireEvent.click(await screen.findByText("New sprite"));
   fireEvent.change(await screen.findByLabelText("Sprite name"), {
     target: { value: name },
   });
@@ -225,10 +225,10 @@ async function walkToAccess(name = "Rex", job = "researcher", hue?: string) {
     target: { value: "curious" },
   });
   fireEvent.click(screen.getByText("Next"));
-  await screen.findByTestId("hire-step-access");
+  await screen.findByTestId("new-sprite-step-access");
 }
 
-describe("hiring an agent", () => {
+describe("creating an agent", () => {
   it("walks the four steps and lands in the new agent DM", async () => {
     const api = stubApi([sage]);
     const opened: string[] = [];
@@ -240,7 +240,7 @@ describe("hiring an agent", () => {
     );
 
     await walkToAccess("Rex", "researcher", "Lavender");
-    fireEvent.click(screen.getByText("Hire"));
+    fireEvent.click(screen.getByText("Create"));
 
     await waitFor(() =>
       expect(api.POST).toHaveBeenCalledWith("/api/v1/agents", {
@@ -254,7 +254,7 @@ describe("hiring an agent", () => {
         },
       }),
     );
-    // The daemon makes the DM with the agent; hiring finds it.
+    // The daemon makes the DM with the agent; creating finds it.
     await waitFor(() => expect(opened).toEqual(["ch3"]));
   });
 
@@ -296,7 +296,7 @@ describe("hiring an agent", () => {
 
     await walkToAccess();
     fireEvent.click(screen.getByLabelText("Read Gmail"));
-    fireEvent.click(screen.getByText("Hire"));
+    fireEvent.click(screen.getByText("Create"));
 
     await waitFor(() =>
       expect(api.POST).toHaveBeenCalledWith("/api/v1/grants", {
@@ -313,10 +313,10 @@ describe("hiring an agent", () => {
     const api = stubApi([sage]);
     mount(<RosterHarness api={api as unknown as ApiClient} />);
 
-    fireEvent.click(await screen.findByText("Hire a sprite"));
+    fireEvent.click(await screen.findByText("New sprite"));
     fireEvent.click(await screen.findByText("Next"));
     expect(await screen.findByText("Give the sprite a name.")).toBeTruthy();
-    expect(screen.getByTestId("hire-step-face")).toBeTruthy();
+    expect(screen.getByTestId("new-sprite-step-face")).toBeTruthy();
 
     fireEvent.change(screen.getByLabelText("Sprite name"), {
       target: { value: "Rex" },
@@ -324,7 +324,7 @@ describe("hiring an agent", () => {
     fireEvent.click(screen.getByText("Next"));
     fireEvent.click(await screen.findByText("Next"));
     expect(await screen.findByText("Say what this sprite does.")).toBeTruthy();
-    expect(screen.getByTestId("hire-step-job")).toBeTruthy();
+    expect(screen.getByTestId("new-sprite-step-job")).toBeTruthy();
   });
 
   it("keeps every entry when the user goes back", async () => {
