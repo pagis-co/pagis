@@ -8,8 +8,8 @@
 
 use pagis_broker::{
     CODING_SESSION_CANCEL, CODING_SESSION_CLOSE, CODING_SESSION_LIST, CODING_SESSION_READ,
-    CODING_SESSION_SEND, CODING_SESSION_START, InvokeOutcome, SessionStartAction, ToolCall,
-    ToolResult,
+    CODING_SESSION_RESUME, CODING_SESSION_SEND, CODING_SESSION_START, InvokeOutcome,
+    SessionStartAction, ToolCall, ToolResult,
 };
 use pagis_core::{
     GrantStore, Host, RequestState, RequestStore, SHELL_CAPABILITY, SessionAllowRule,
@@ -28,13 +28,14 @@ const PROMPT: &str = "Fix the login bug.";
 
 /// Every tool of the Coding Sessions. The snapshot holds all of them or
 /// none of them.
-const SESSION_TOOLS: [&str; 6] = [
+const SESSION_TOOLS: [&str; 7] = [
     CODING_SESSION_START,
     CODING_SESSION_SEND,
     CODING_SESSION_READ,
     CODING_SESSION_CANCEL,
     CODING_SESSION_CLOSE,
     CODING_SESSION_LIST,
+    CODING_SESSION_RESUME,
 ];
 
 fn arguments(harness: &str, machine: Option<&str>) -> String {

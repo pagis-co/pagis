@@ -19,6 +19,9 @@
 //! in a terminal window, which can take minutes, so a sign-in has no
 //! deadline here: the Client App answers it when the window ends, and
 //! the end of the connection ends the wait.
+//!
+//! [`HostPresence::departures`] tells each listener when a machine goes
+//! away, so the Coding Sessions on it are interrupted.
 
 use std::borrow::Borrow;
 use std::collections::{BTreeMap, HashMap};
@@ -28,7 +31,7 @@ use std::time::Duration;
 
 use pagis_core::{HarnessSignInId, HostId};
 use serde::{Deserialize, Serialize};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{broadcast, mpsc, oneshot};
 
 /// One command the daemon sends to a machine, as the client reads it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -136,6 +139,8 @@ impl Drop for HostConnection {
             .is_some_and(|held| held.epoch == self.epoch)
         {
             state.connected.remove(&self.host_id);
+            // Nobody listens when no Coding Session runtime exists.
+            let _ = self.presence.departures.send(self.host_id.clone());
         }
         // Only this connection answers the commands and the sign-ins it
         // took, and nothing more comes from it, replaced or not. So they
@@ -204,15 +209,34 @@ struct PresenceState {
     next_call: u64,
 }
 
+/// How many departures wait for a slow listener before it misses one.
+const DEPARTURES: usize = 256;
+
 /// Which machines are here now, and the commands in flight on them.
-#[derive(Default)]
 pub struct HostPresence {
     state: Mutex<PresenceState>,
+    departures: broadcast::Sender<HostId>,
+}
+
+impl Default for HostPresence {
+    fn default() -> Self {
+        Self {
+            state: Mutex::default(),
+            departures: broadcast::channel(DEPARTURES).0,
+        }
+    }
 }
 
 impl HostPresence {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// The machines that go away: the id of each Host whose registered
+    /// connection drops. A connection that a newer one of the same
+    /// machine replaced sends nothing, because the machine stays.
+    pub fn departures(&self) -> broadcast::Receiver<HostId> {
+        self.departures.subscribe()
     }
 
     /// Make one machine present, and answer the connection that holds it
@@ -503,6 +527,32 @@ mod tests {
         assert_eq!(
             presence.run(&host, "echo hi", false, SHORT).await,
             Err(HostDispatchError::NotConnected)
+        );
+    }
+
+    /// The departure of a machine is news: a Coding Session on it is
+    /// interrupted. A connection that a newer one replaced is no
+    /// departure, because the machine is still here.
+    #[test]
+    fn a_dropped_connection_sends_its_host_once_and_a_replaced_one_sends_nothing() {
+        let presence = Arc::new(HostPresence::new());
+        let mut departures = presence.departures();
+        let host = HostId::generate();
+
+        let first = presence.connect(&host);
+        let second = presence.connect(&host);
+        drop(first);
+        assert_eq!(
+            departures.try_recv(),
+            Err(broadcast::error::TryRecvError::Empty),
+            "the replaced connection sends nothing"
+        );
+
+        drop(second);
+        assert_eq!(departures.try_recv(), Ok(host));
+        assert_eq!(
+            departures.try_recv(),
+            Err(broadcast::error::TryRecvError::Empty)
         );
     }
 

@@ -26,7 +26,7 @@
 //! [`CodingSessionStarts`] holds the checks of a start, which the broker
 //! asks before the card. [`CodingToolRuntime`] executes the core tool
 //! `coding_session_start` after the approval, and the core tools that
-//! prompt, read, cancel, close and list the Agent's own sessions.
+//! prompt, read, cancel, close, list and resume the Agent's own sessions.
 //!
 //! [`SignIns`] starts a Harness Sign-In on a Host for the Person.
 
@@ -56,8 +56,8 @@ pub use event::{
     ToolStatus,
 };
 pub use events::{
-    DecisionKind, SESSION_RULE_INSTRUCTION, SessionEventMatcher, SessionEvents, SessionNews,
-    SessionRuleError, SessionRules, session_event, session_rule_name,
+    DecisionKind, InterruptReason, SESSION_RULE_INSTRUCTION, SessionEventMatcher, SessionEvents,
+    SessionNews, SessionRuleError, SessionRules, session_event, session_rule_name,
 };
 pub use place::{
     OpenFailure, OpenFailureCode, OpenRequest, OpenedStream, PlaceStream, SessionExit,
@@ -66,8 +66,8 @@ pub use place::{
 pub use policy::{PERMISSION_DECIDED_EVENT, PolicyDecisions, PolicyDecisionsDeps};
 pub use session::{AcpSession, HarnessInfo, Opening, SignInMethod};
 pub use sessions::{
-    CloseReason, CodingSessions, CodingSessionsDeps, NewCodingSession, PromptOutcome, SessionError,
-    StartFailure,
+    CloseReason, CodingSessions, CodingSessionsDeps, NewCodingSession, PromptOutcome,
+    ResumeFailure, SessionError, StartFailure,
 };
 pub use sign_in::{SignInFailure, SignIns};
 pub use starts::{CodingSessionStarts, MAX_OPEN_SESSIONS, worktree_branch};

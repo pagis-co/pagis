@@ -202,7 +202,8 @@ impl CoreToolRuntime {
             | CoreTool::CodingSessionRead
             | CoreTool::CodingSessionCancel
             | CoreTool::CodingSessionClose
-            | CoreTool::CodingSessionList => ToolResult::error(
+            | CoreTool::CodingSessionList
+            | CoreTool::CodingSessionResume => ToolResult::error(
                 "temporarily_unavailable",
                 format!("{} is not registered on this daemon", call.tool_name),
             ),

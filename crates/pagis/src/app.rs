@@ -578,6 +578,8 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
             rules: Arc::clone(&session_rules) as _,
             events: Arc::clone(&session_events) as _,
             clock: Arc::clone(&options.clock),
+            // A Host that goes away interrupts its sessions.
+            departures: host_presence.departures(),
             cancel: options.cancel.clone(),
         },
     ));
@@ -897,6 +899,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
                 Arc::clone(&session_starts) as _,
                 stores.coding_sessions.clone(),
                 stores.hosts.clone(),
+                Arc::clone(&grants) as _,
             )) as _,
         )),
         phone_numbers: Arc::clone(&phone_numbers) as _,
@@ -1323,6 +1326,17 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     session_events.set(Arc::new(crate::coding_events::TriggerSessionEvents(
         Arc::clone(&trigger),
     )));
+    // A restart ended every ACP connection, so each session that was open
+    // is interrupted now, and its news wakes the owning Agent (ADR-0033).
+    let interrupted = coding_sessions
+        .interrupt_all(pagis_coding::InterruptReason::DaemonRestart)
+        .await?;
+    if interrupted > 0 {
+        tracing::info!(
+            interrupted,
+            "interrupted the coding sessions a stopped daemon left open"
+        );
+    }
     let mail_collector = Arc::new(pagis_mail::MailCollector::new(
         pagis_mail::MailCollectorDeps {
             workspaces: Arc::clone(&workspaces) as _,
