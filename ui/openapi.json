@@ -1755,6 +1755,105 @@
         }
       }
     },
+    "/api/v1/agents/{agent_id}/hosts/{host_id}/unattended-modes": {
+      "put": {
+        "tags": [
+          "grants"
+        ],
+        "summary": "Allow or stop the Unattended Modes of an Agent on a machine. As with\nthe widest mode, the first write makes the host grant.",
+        "operationId": "set_unattended_modes",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "host_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetUnattendedModesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The host grant holds the allowance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GrantDto"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "A new host grant holds the allowance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GrantDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The grant was revoked meanwhile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/agents/{agent_id}/mailbox": {
       "get": {
         "tags": [
@@ -13996,6 +14095,13 @@
               "$ref": "#/components/schemas/SessionAllowRule"
             },
             "description": "The session allow rules of a host grant: each lets the Agent start\nthe sessions of one Coding Harness in one directory of the machine,\nand in each directory under it, with no card. The other kinds hold\nnone."
+          },
+          "unattended_modes": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether the Agent may use an Unattended Mode on the machine of a\nhost grant. The other kinds hold none."
           }
         }
       },
@@ -19175,8 +19281,7 @@
         "description": "Who answers a Harness Permission of a Coding Session.",
         "enum": [
           "person",
-          "agent",
-          "auto"
+          "agent"
         ]
       },
       "SessionDto": {
@@ -19455,6 +19560,18 @@
           "timezone": {
             "type": "string",
             "description": "An IANA timezone, for example `America/Los_Angeles`."
+          }
+        }
+      },
+      "SetUnattendedModesRequest": {
+        "type": "object",
+        "required": [
+          "allowed"
+        ],
+        "properties": {
+          "allowed": {
+            "type": "boolean",
+            "description": "Whether the Agent may use an Unattended Mode on the machine."
           }
         }
       },

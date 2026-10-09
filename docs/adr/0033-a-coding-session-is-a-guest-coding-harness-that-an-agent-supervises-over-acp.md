@@ -237,12 +237,13 @@ protocol logic, policy and audit stay in the daemon. The trust statement of
 ADR-0015 grows by one clause: a server can start a Coding Harness on the
 Host.
 
-### In the Agent's Computer, a session runs in the `auto` mode
+### In the Agent's Computer, the container is the sandbox
 
 The daemon starts the harness with `docker exec` and attached stdio, the path
 of the stdio MCP servers of the Plugin Computer (ADR-0017). A Computer
 session needs no card, because the container is the sandbox, as for
-`computer_shell`.
+`computer_shell`. A Computer session needs no host Grant. Its Session
+Approval Mode is `agent`, and its harness may run in an Unattended Mode.
 
 The Computer Image ships the four harnesses that a Harness Model Endpoint
 can serve: Claude Code, Codex, OpenCode and pi. It ships no harness that
@@ -325,9 +326,11 @@ The Agent drives a Coding Session with core tools (ADR-0005):
   `harness:<id>`, chosen as `host_shell` chooses them (ADR-0015). The card
   shows the harness, the machine, the directory, the worktree, the mode and
   the start of the brief. Its allow-rule builder offers "Always allow
-  <harness> sessions in <directory> on <machine>". The start refuses a mode
-  wider than the Grant allows, and a mode other than `auto` for a harness
-  that does not ask permission.
+  <harness> sessions in <directory> on <machine>". For a harness that never
+  asks, the card adds the line "<harness> does not ask before it acts." The
+  start refuses a mode wider than the Grant allows, and a harness that never
+  asks where the Grant does not allow Unattended Modes
+  (`unattended_mode_not_allowed`).
 - `coding_session_send {session, prompt}`: a new turn when the session is
   `idle`, and queued until the turn ends when it is `working`, because ACP v1
   has no steering. A session that is not open answers `session_not_open`
@@ -366,9 +369,9 @@ The Agent drives a Coding Session with core tools (ADR-0005):
   because the Person delegated the decision through the mode. The note is
   required, 1 to 2,000 characters: the reason of a decision, or the
   question of an escalation. The snapshot holds the two tools only when
-  the Agent holds a live host Grant whose widest mode is `agent` or
-  `auto`. A decision checks, in this order, that the session is the
-  Agent's own (else `session_not_found`), that a Harness Permission of
+  the Agent holds a live host Grant whose widest mode is `agent`. A
+  decision checks, in this order, that the session is the Agent's own
+  (else `session_not_found`), that a Harness Permission of
   the session waits for the Agent (else `no_pending_decision`), and that
   the effective mode is still `agent`. A narrower Grant gives the
   permission to the Person on a card, and the tool answers `escalated`.
@@ -413,7 +416,6 @@ The **Session Approval Mode** says who answers a Harness Permission:
 - `person` (UI: "Ask me"): Pagis policy first, then the Person.
 - `agent` (UI: "Let the sprite decide"): Pagis policy first, then the
   supervising Agent, which decides or escalates to the Person.
-- `auto` (UI: "Allow everything"): the daemon allows each request.
 
 The host Grant holds the widest mode that each Agent may use on each machine,
 in the field `session_approval_mode` of its scope. An absent or unknown value,
@@ -428,6 +430,15 @@ shows each machine of the Person that declares a `harness:` capability. When the
 Agent holds no live host Grant on that machine, the write makes one with no
 Allow Rules. That Grant is the Person's own act, as a Connection Grant is, and
 it makes the machine a host candidate of the Agent (ADR-0015).
+
+The host Grant also says whether the Agent may use an **Unattended Mode** on
+that machine, in the field `unattended_modes` of its scope, false by default.
+A harness works in an Unattended Mode when it acts without asking Pagis
+first. An absent or unknown value reads as false. The Person sets it with
+`PUT /api/v1/agents/{agent_id}/hosts/{host_id}/unattended-modes` and the body
+`{"allowed": bool}`. As with the widest mode, the first write makes the
+Grant, and each change is a Grant revision. A harness that never asks (pi)
+starts only where the Grant allows Unattended Modes.
 
 ### A Harness Permission passes Pagis policy first
 
@@ -449,16 +460,15 @@ live Grant, the mode is `person` and there are no rules.
 The broker evaluates the permission with a pure function, in this order, and
 stops at the first step that answers:
 
-1. The `auto` mode allows once. The audit decider is `auto`.
-2. By ACP tool kind: a `read`, `search`, `think`, `edit`, `delete` or `move`
+1. By ACP tool kind: a `read`, `search`, `think`, `edit`, `delete` or `move`
    with every location inside the session's directory allows. A request with
    no location passes this step only for `think`, which touches no file. The
    session's directory is the directory that the process runs in. The audit
    decider is `scope`.
-3. An `execute` whose command a live Host Allow Rule of that machine's Grant
+2. An `execute` whose command a live Host Allow Rule of that machine's Grant
    matches, with the tree-sitter-bash matcher of ADR-0015, allows. The audit
    decider is `rule`.
-4. In the `agent` mode, the session goes `needs_decision`, and the Agent
+3. In the `agent` mode, the session goes `needs_decision`, and the Agent
    wakes in the session's Thread and decides or escalates. The decision
    does not wait forever: when a Run of the owning Agent in that Thread
    reaches a terminal state with no decision, and that Run started after
@@ -467,7 +477,7 @@ stops at the first step that answers:
    active when the permission came does not count, because the Wake-up
    of the permission waits behind it (ADR-0006). The daemon reads the
    `run.state_changed` events of the bus for this.
-5. In the `person` mode, or after an escalation: a Request of the kind
+4. In the `person` mode, or after an escalation: a Request of the kind
    `harness_permission` with no Run, an approval card in the session's
    Thread, an item in the Needs-You Queue and a Notification. "Approve once"
    allows once. "Always allow" for an `execute` writes a Host Allow Rule with
@@ -685,10 +695,12 @@ Other ways were considered:
 - Inside a session, Pagis memory, the Briefing and Grants do not apply.
   Pagis policy applies to each Harness Permission.
 - An edit inside the session's directory passes with no card in every mode.
-- In the `auto` mode, a harness on a Host runs each command as the Person's
-  OS user with no card. The Person allows that on the Grant.
+- In an Unattended Mode, a harness on a Host runs each command as the
+  Person's OS user with no card. The Person allows Unattended Modes for each
+  Agent on each machine.
 - A new harness release changes nothing until a Pagis release pins it.
-- A harness that asks no permission runs only in the `auto` mode.
+- A harness that never asks runs only where the Grant allows Unattended
+  Modes.
 - A Computer session spends the Org's provider key, under the Spend Cap.
 - A Request can have no Run: a Harness Permission waits on a Coding Session,
   and it expires when the session ends (ADR-0004).
@@ -698,9 +710,11 @@ Other ways were considered:
 ## Not built
 
 - The core tool `coding_session_answer`.
-- The refusal of a mode other than `auto` for a harness that does not ask
-  permission.
-- The `auto` mode.
+- A Pagis auto mode.
+- The close of the sessions that act without asking when a Grant stops
+  allowing Unattended Modes.
+- Harness Modes.
+- The switch for Unattended Modes on the Access tab.
 - The question in the daemon.
 - Harness Sign-In in Settings.
 - The Computer place.

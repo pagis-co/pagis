@@ -229,6 +229,46 @@ async fn the_rules_batches_and_events_of_a_connection_stay_through_coding_sessio
     .await;
 }
 
+/// An `auto` session reads `person` after the migration that leaves
+/// `person` and `agent` as the modes, and its transcript and its model
+/// token stay (ADR-0033).
+#[tokio::test]
+async fn an_auto_session_reads_person_and_keeps_its_rows_through_person_and_agent_modes() {
+    let Some(database) = postgres::database().await else {
+        return;
+    };
+    // The test database comes with every migration, so the schema is
+    // made again from the earlier ones.
+    sqlx::raw_sql("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+        .execute(&database.pool)
+        .await
+        .unwrap();
+    let (before, _earlier) = pagis_testkit::migration::migrator_before(
+        &migrations(),
+        pagis_testkit::migration::PERSON_AND_AGENT_MODES,
+    )
+    .await;
+    before.run(&database.pool).await.unwrap();
+    sqlx::raw_sql(pagis_testkit::migration::AUTO_SESSION_ROWS)
+        .execute(&database.pool)
+        .await
+        .unwrap();
+
+    pagis_storage_postgres::MIGRATOR
+        .run(&database.pool)
+        .await
+        .unwrap();
+
+    let refused = sqlx::raw_sql("UPDATE coding_sessions SET approval_mode = 'auto'")
+        .execute(&database.pool)
+        .await;
+    assert!(refused.is_err(), "the check refuses auto");
+    pagis_testkit::migration::assert_auto_session_rows(&pagis_storage_postgres::stores(
+        database.pool,
+    ))
+    .await;
+}
+
 /// The migration directory of this crate.
 fn migrations() -> std::path::PathBuf {
     std::path::PathBuf::from(

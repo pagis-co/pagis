@@ -85,8 +85,6 @@ pub enum SessionApprovalMode {
     Person,
     /// The supervising Agent answers each one.
     Agent,
-    /// Nobody answers: the harness runs each tool.
-    Auto,
 }
 
 impl SessionApprovalMode {
@@ -94,7 +92,6 @@ impl SessionApprovalMode {
         match self {
             SessionApprovalMode::Person => "person",
             SessionApprovalMode::Agent => "agent",
-            SessionApprovalMode::Auto => "auto",
         }
     }
 
@@ -113,7 +110,6 @@ impl std::str::FromStr for SessionApprovalMode {
         match value {
             "person" => Ok(SessionApprovalMode::Person),
             "agent" => Ok(SessionApprovalMode::Agent),
-            "auto" => Ok(SessionApprovalMode::Auto),
             other => Err(format!("unknown session approval mode: {other}")),
         }
     }
@@ -993,14 +989,16 @@ mod tests {
 
     #[test]
     fn each_approval_mode_reads_back_from_its_name() {
-        for mode in [
-            SessionApprovalMode::Person,
-            SessionApprovalMode::Agent,
-            SessionApprovalMode::Auto,
-        ] {
+        for mode in [SessionApprovalMode::Person, SessionApprovalMode::Agent] {
             assert_eq!(mode.as_str().parse::<SessionApprovalMode>(), Ok(mode));
         }
-        assert!("always".parse::<SessionApprovalMode>().is_err());
+        for unknown in ["always", "auto"] {
+            assert!(unknown.parse::<SessionApprovalMode>().is_err(), "{unknown}");
+            assert!(
+                serde_json::from_value::<SessionApprovalMode>(json!(unknown)).is_err(),
+                "{unknown}"
+            );
+        }
     }
 
     #[test]
@@ -1049,17 +1047,12 @@ mod tests {
 
     #[test]
     fn a_mode_permits_itself_and_each_narrower_mode() {
-        use SessionApprovalMode::{Agent, Auto, Person};
+        use SessionApprovalMode::{Agent, Person};
         let pairs = [
             (Person, Person, true),
             (Person, Agent, false),
-            (Person, Auto, false),
             (Agent, Person, true),
             (Agent, Agent, true),
-            (Agent, Auto, false),
-            (Auto, Person, true),
-            (Auto, Agent, true),
-            (Auto, Auto, true),
         ];
         for (widest, requested, permitted) in pairs {
             assert_eq!(

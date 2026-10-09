@@ -170,6 +170,12 @@ impl World {
 
     /// The host Grant of the Agent on the machine, with a widest mode.
     async fn grant(&self, mode: SessionApprovalMode) {
+        self.grant_with(mode, false).await;
+    }
+
+    /// The host Grant of the Agent on the machine, with a widest mode and
+    /// the allowance of Unattended Modes.
+    async fn grant_with(&self, mode: SessionApprovalMode, unattended_modes: bool) {
         let mut grant = Grant {
             id: GrantId::generate(),
             workspace_id: self.workspace_id.clone(),
@@ -182,6 +188,7 @@ impl World {
             revoked_at: None,
         };
         grant.scope = grant.with_session_approval_mode(mode);
+        grant.scope = grant.with_unattended_modes(unattended_modes);
         SqliteGrantStore::new(self.pool.clone())
             .create(&grant)
             .await
@@ -225,6 +232,7 @@ async fn an_allowed_start_names_the_harness_the_branch_and_the_mode(pool: Sqlite
             directory: "/Users/bo/code/app".to_string(),
             branch: Some("pagis/fix-the-login-oauth-cookies".to_string()),
             mode: SessionApprovalMode::Person,
+            asks_permission: true,
         }
     );
     let action = world
@@ -308,10 +316,89 @@ async fn a_mode_wider_than_the_grant_allows_is_refused(pool: SqlitePool) {
 
     let action = world.describe(with("mode", json!("agent"))).await.unwrap();
     assert_eq!(action.mode, SessionApprovalMode::Agent);
+}
+
+/// `person` and `agent` are the modes. Any other is not a mode.
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_mode_that_is_not_person_or_agent_is_an_invalid_request(pool: SqlitePool) {
+    let world = world(pool).await;
+    world.grant(SessionApprovalMode::Agent).await;
+
+    for mode in ["auto", "always"] {
+        let refused = world.describe(with("mode", json!(mode))).await;
+
+        assert_eq!(code(refused), "invalid_request", "{mode}");
+    }
+}
+
+/// The arguments of a start of pi, which never asks before it acts, in
+/// `mode`.
+fn pi_in(mode: &str) -> Value {
+    let mut arguments = with("harness", json!("pi"));
+    arguments["mode"] = json!(mode);
+    arguments
+}
+
+const PI_REFUSAL: &str = "pi does not ask before it acts, so it runs only where the user allows \
+                          modes that act without asking. Ask the user to allow them for you on \
+                          Air.";
+
+/// Pagis policy sees no action of a harness that never asks, so it starts
+/// only where the host Grant allows Unattended Modes. With no Grant, the
+/// widest mode is `person` and the allowance is off.
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_harness_that_never_asks_is_refused_where_the_grant_does_not_allow_unattended_modes(
+    pool: SqlitePool,
+) {
+    let world = world(pool).await;
+
     let refused = world
-        .describe(with("mode", json!("auto")))
+        .describe(pi_in("person"))
         .await
         .expect_err("a refusal");
-    assert_eq!(refused.code.as_deref(), Some("mode_not_allowed"));
-    assert!(refused.content.contains("agent"), "{refused:?}");
+    assert_eq!(refused.code.as_deref(), Some("unattended_mode_not_allowed"));
+    assert!(refused.content.contains(PI_REFUSAL), "{refused:?}");
+
+    world.grant(SessionApprovalMode::Agent).await;
+
+    for mode in ["person", "agent"] {
+        let refused = world.describe(pi_in(mode)).await.expect_err("a refusal");
+
+        assert_eq!(
+            refused.code.as_deref(),
+            Some("unattended_mode_not_allowed"),
+            "{mode}"
+        );
+        assert!(refused.content.contains(PI_REFUSAL), "{mode}: {refused:?}");
+    }
+}
+
+/// Where the host Grant allows Unattended Modes, pi starts in each mode
+/// that the Grant allows, and the card learns that it never asks. The
+/// allowance does not widen the mode.
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_harness_that_never_asks_starts_where_the_grant_allows_unattended_modes(
+    pool: SqlitePool,
+) {
+    let world = world(pool).await;
+    world.grant_with(SessionApprovalMode::Person, true).await;
+
+    let action = world.describe(pi_in("person")).await.unwrap();
+
+    assert_eq!(action.harness_name, "pi");
+    assert_eq!(action.mode, SessionApprovalMode::Person);
+    assert!(!action.asks_permission);
+    let refused = world.describe(pi_in("agent")).await;
+    assert_eq!(code(refused), "mode_not_allowed");
+}
+
+/// A harness that asks before it acts starts with no allowance.
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_harness_that_asks_needs_no_allowance_of_unattended_modes(pool: SqlitePool) {
+    let world = world(pool).await;
+    world.grant(SessionApprovalMode::Agent).await;
+
+    let action = world.describe(with("mode", json!("agent"))).await.unwrap();
+
+    assert!(action.asks_permission);
 }

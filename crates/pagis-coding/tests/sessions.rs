@@ -1562,12 +1562,12 @@ async fn a_permission_that_policy_does_not_allow_asks_the_person_until_a_cancel_
 }
 
 /// The effective mode is the narrower of the session's mode and the
-/// widest mode of the live host Grant, so an `auto` session on a Grant
-/// that allows `agent` asks the Agent.
+/// widest mode of the live host Grant, so an `agent` session on a Grant
+/// that allows `person` asks the Person.
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
 async fn the_host_grant_narrows_the_mode_of_the_session(pool: SqlitePool) {
     let world = world(pool).await;
-    world.host_grant(SessionApprovalMode::Agent, &[]).await;
+    world.host_grant(SessionApprovalMode::Person, &[]).await;
     let ask = Ask::permission(
         tool_call(acp::ToolKind::Execute, &[], Some("cargo test")),
         every_option(),
@@ -1575,7 +1575,7 @@ async fn the_host_grant_narrows_the_mode_of_the_session(pool: SqlitePool) {
     let place = DuplexPlace::new(Script::default().turn(Turn::until_cancel(vec![]).asks(ask)));
     let sessions = world.coding_sessions(place.clone(), world.policy());
     let mut new = world.new_session(&world.run_id);
-    new.approval_mode = SessionApprovalMode::Auto;
+    new.approval_mode = SessionApprovalMode::Agent;
     let session = sessions.start(new).await.unwrap();
 
     world
@@ -1584,35 +1584,7 @@ async fn the_host_grant_narrows_the_mode_of_the_session(pool: SqlitePool) {
     let rows = world.wait_for_row(&session.id, Kind::Permission).await;
     assert_eq!(
         rows_of(&rows, Kind::Permission)[0].payload["waits_for"],
-        "agent"
-    );
-}
-
-/// An `auto` session on a Grant that allows `auto` allows each request.
-#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
-async fn an_auto_session_on_an_auto_grant_allows_with_auto_as_decider(pool: SqlitePool) {
-    let world = world(pool).await;
-    world.host_grant(SessionApprovalMode::Auto, &[]).await;
-    let ask = Ask::permission(
-        tool_call(acp::ToolKind::Execute, &[], Some("rm -rf /")),
-        every_option(),
-    );
-    let place = DuplexPlace::new(
-        Script::default().turn(Turn::new(vec![], acp::StopReason::EndTurn).asks(ask)),
-    );
-    let sessions = world.coding_sessions(place.clone(), world.policy());
-    let mut new = world.new_session(&world.run_id);
-    new.approval_mode = SessionApprovalMode::Auto;
-    let session = sessions.start(new).await.unwrap();
-
-    world.wait_for_row(&session.id, Kind::TurnEnd).await;
-
-    let facts = world.wait_for_facts(1).await;
-    assert_eq!(facts[0].payload["decider"], "auto");
-    assert_eq!(facts[0].payload["grant_revision"], 1);
-    assert_eq!(
-        place.harness().answers()[0].as_ref().unwrap(),
-        &json!({"outcome": {"outcome": "selected", "optionId": "allow-once"}})
+        "person"
     );
 }
 

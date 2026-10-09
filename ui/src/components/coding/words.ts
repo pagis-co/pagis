@@ -94,8 +94,6 @@ export function approvalModeBadge(mode: string, spriteName: string): BadgeWord {
       return { label: 'You approve', tone: 'neutral' }
     case 'agent':
       return { label: `${spriteName} approves`, tone: 'neutral' }
-    case 'auto':
-      return { label: 'Approves everything', tone: 'waiting' }
     default:
       return { label: mode, tone: 'neutral' }
   }
@@ -183,8 +181,6 @@ export function decisionText(
     return decider === 'agent' ? `${spriteName} asked you` : 'Sent to you'
   const allowed = decision === 'allow_once'
   switch (decider) {
-    case 'auto':
-      return 'Allowed: the session allows everything'
     case 'scope':
       return "Allowed: inside the session's directory"
     case 'rule':

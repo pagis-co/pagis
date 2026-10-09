@@ -18,7 +18,6 @@ const TITLE = 'Coding sessions'
 const MODES: { value: SessionApprovalMode; label: string }[] = [
   { value: 'person', label: 'Ask me' },
   { value: 'agent', label: 'Let the sprite decide' },
-  { value: 'auto', label: 'Allow everything' },
 ]
 
 /** A computer that declared at least one Coding Harness it can start. */
@@ -39,15 +38,7 @@ function savedMode(agent: AgentDto, host: HostDto, grants: GrantDto[]): SessionA
 }
 
 /** What `mode` does, in one line. */
-function ModeEffect({
-  mode,
-  agent,
-  host,
-}: {
-  mode: SessionApprovalMode
-  agent: AgentDto
-  host: HostDto
-}) {
+function ModeEffect({ mode, agent }: { mode: SessionApprovalMode; agent: AgentDto }) {
   switch (mode) {
     case 'person':
       return (
@@ -59,12 +50,6 @@ function ModeEffect({
       return (
         <p className="settings-hint">
           {`${agent.name} answers each permission that Pagis does not allow by its own rules, or asks you.`}
-        </p>
-      )
-    case 'auto':
-      return (
-        <p className="settings-warning">
-          {`Pagis allows each permission. A coding harness can then run any command as you on ${host.name}.`}
         </p>
       )
   }
@@ -102,7 +87,7 @@ function MachineMode({
           })
         }
       />
-      <ModeEffect mode={mode} agent={agent} host={host} />
+      <ModeEffect mode={mode} agent={agent} />
       {setMode.isError && (
         <p role="alert" className="settings-error">
           {errorMessage(setMode.error, 'The approval mode did not change.')}

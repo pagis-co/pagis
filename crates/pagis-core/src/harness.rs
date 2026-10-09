@@ -38,8 +38,8 @@ pub struct HarnessEntry {
     /// launcher.
     pub requires: &'static [&'static str],
     /// Whether the harness sends `session/request_permission` before a
-    /// tool acts. A harness that asks no permission runs only in the
-    /// `auto` mode.
+    /// tool acts. A harness that never asks works in an Unattended Mode,
+    /// so on a Host it starts only where the host Grant allows one.
     pub asks_permission: bool,
     /// One Harness Sign-In for each sign-in method that the harness has.
     pub sign_in: &'static [SignIn],

@@ -1,27 +1,43 @@
-//! The widest Session Approval Mode of an Agent on a machine (ADR-0033).
+//! What the host Grant of an Agent on a machine allows its Coding
+//! Sessions (ADR-0033).
 //!
-//! The host Grant of the Agent on that machine holds it. The Grant is
-//! read live, so a change of mode applies to the next start. An Agent
-//! that holds no live host Grant on the machine gets `person`.
+//! The Grant is read live, so a change applies to the next start. An
+//! Agent that holds no live host Grant on the machine gets `person` and
+//! no Unattended Mode.
 
 use pagis_core::{
     AgentId, Grant, GrantStore, HostId, SessionApprovalMode, StoreError, WorkspaceId,
 };
 
-/// The widest Session Approval Mode that the Agent may use on the
-/// machine. A Coding Session starts only in a mode that it permits.
-pub async fn widest_session_approval_mode(
+/// What the live host Grant of an Agent on a machine allows its Coding
+/// Sessions there.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SessionAllowance {
+    /// The widest Session Approval Mode. A session starts only in a mode
+    /// that it permits.
+    pub widest_mode: SessionApprovalMode,
+    /// Whether a harness may work in an Unattended Mode. A harness that
+    /// never asks starts only where it may.
+    pub unattended_modes: bool,
+}
+
+/// The allowance of the Agent on the machine, from one read of the live
+/// host Grant.
+pub async fn session_allowance(
     grants: &dyn GrantStore,
     workspace_id: &WorkspaceId,
     agent_id: &AgentId,
     host_id: &HostId,
-) -> Result<SessionApprovalMode, StoreError> {
-    Ok(grants
+) -> Result<SessionAllowance, StoreError> {
+    let grant = grants
         .live_for_resource(workspace_id, agent_id, Grant::HOST_KIND, host_id.as_str())
-        .await?
-        .map_or(SessionApprovalMode::Person, |grant| {
-            grant.session_approval_mode()
-        }))
+        .await?;
+    Ok(SessionAllowance {
+        widest_mode: grant
+            .as_ref()
+            .map_or(SessionApprovalMode::Person, Grant::session_approval_mode),
+        unattended_modes: grant.as_ref().is_some_and(Grant::unattended_modes),
+    })
 }
 
 #[cfg(test)]
@@ -37,6 +53,11 @@ mod tests {
         host_id: HostId,
     }
 
+    const NOTHING: SessionAllowance = SessionAllowance {
+        widest_mode: SessionApprovalMode::Person,
+        unattended_modes: false,
+    };
+
     impl World {
         fn new() -> Self {
             World {
@@ -47,47 +68,57 @@ mod tests {
             }
         }
 
-        /// A live host Grant of the Agent on one machine, in one mode.
+        /// A live host Grant of the Agent on one machine, in one mode,
+        /// that allows Unattended Modes.
         async fn grant(&self, host_id: &HostId, mode: SessionApprovalMode) -> Grant {
             let mut grant = fixture::host_grant(&self.workspace_id, &self.agent_id, host_id, &[]);
             grant.scope = grant.with_session_approval_mode(mode);
+            grant.scope = grant.with_unattended_modes(true);
             self.grants.create(&grant).await.expect("write the grant");
             grant
         }
 
-        async fn widest(&self) -> SessionApprovalMode {
-            widest_session_approval_mode(
+        async fn allowance(&self) -> SessionAllowance {
+            session_allowance(
                 &self.grants,
                 &self.workspace_id,
                 &self.agent_id,
                 &self.host_id,
             )
             .await
-            .expect("read the widest mode")
+            .expect("read the allowance")
         }
     }
 
     #[tokio::test]
-    async fn the_live_host_grant_of_the_machine_gives_the_mode() {
+    async fn the_live_host_grant_of_the_machine_gives_the_allowance() {
         let world = World::new();
         world
             .grant(&world.host_id, SessionApprovalMode::Agent)
             .await;
 
-        assert_eq!(world.widest().await, SessionApprovalMode::Agent);
+        assert_eq!(
+            world.allowance().await,
+            SessionAllowance {
+                widest_mode: SessionApprovalMode::Agent,
+                unattended_modes: true,
+            }
+        );
     }
 
     #[tokio::test]
-    async fn no_host_grant_gives_person() {
+    async fn no_host_grant_gives_person_and_no_unattended_mode() {
         let world = World::new();
 
-        assert_eq!(world.widest().await, SessionApprovalMode::Person);
+        assert_eq!(world.allowance().await, NOTHING);
     }
 
     #[tokio::test]
-    async fn a_revoked_host_grant_gives_person() {
+    async fn a_revoked_host_grant_gives_person_and_no_unattended_mode() {
         let world = World::new();
-        let grant = world.grant(&world.host_id, SessionApprovalMode::Auto).await;
+        let grant = world
+            .grant(&world.host_id, SessionApprovalMode::Agent)
+            .await;
         assert!(
             world
                 .grants
@@ -96,7 +127,7 @@ mod tests {
                 .expect("revoke the grant")
         );
 
-        assert_eq!(world.widest().await, SessionApprovalMode::Person);
+        assert_eq!(world.allowance().await, NOTHING);
     }
 
     #[tokio::test]
@@ -105,10 +136,10 @@ mod tests {
         world
             .grant(
                 &HostId::from("desktop".to_string()),
-                SessionApprovalMode::Auto,
+                SessionApprovalMode::Agent,
             )
             .await;
 
-        assert_eq!(world.widest().await, SessionApprovalMode::Person);
+        assert_eq!(world.allowance().await, NOTHING);
     }
 }

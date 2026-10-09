@@ -9,7 +9,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use pagis_broker::{SessionStartAction, SessionStarts, ToolResult, widest_session_approval_mode};
+use pagis_broker::{SessionStartAction, SessionStarts, ToolResult, session_allowance};
 use pagis_core::{
     AgentId, CodingSessionStore, GrantStore, Host, SessionApprovalMode, StoreError, WorkspaceId,
     harness,
@@ -43,7 +43,9 @@ impl CodingSessionStarts {
 impl SessionStarts for CodingSessionStarts {
     /// Refuses, in this order: a harness that is not in the Harness
     /// Catalog, a directory that is not absolute, a fifth open session of
-    /// the Agent, and a mode wider than the host Grant allows.
+    /// the Agent, a mode wider than the host Grant allows, and a harness
+    /// that never asks where the host Grant does not allow Unattended
+    /// Modes.
     async fn describe(
         &self,
         workspace_id: &WorkspaceId,
@@ -96,10 +98,10 @@ impl SessionStarts for CodingSessionStarts {
                 .parse::<SessionApprovalMode>()
                 .map_err(|error| ToolResult::error("invalid_request", error))?,
         };
-        let widest =
-            widest_session_approval_mode(self.grants.as_ref(), workspace_id, agent_id, &host.id)
-                .await
-                .map_err(unavailable)?;
+        let allowance = session_allowance(self.grants.as_ref(), workspace_id, agent_id, &host.id)
+            .await
+            .map_err(unavailable)?;
+        let widest = allowance.widest_mode;
         if !widest.permits(mode) {
             return Err(ToolResult::error(
                 "mode_not_allowed",
@@ -111,6 +113,17 @@ impl SessionStarts for CodingSessionStarts {
                 ),
             ));
         }
+        // Pagis policy sees no action of a harness that never asks.
+        if !entry.asks_permission && !allowance.unattended_modes {
+            return Err(ToolResult::error(
+                "unattended_mode_not_allowed",
+                format!(
+                    "{} does not ask before it acts, so it runs only where the user allows modes \
+                     that act without asking. Ask the user to allow them for you on {}.",
+                    entry.label, host.name
+                ),
+            ));
+        }
         let worktree = arguments["worktree"].as_bool().unwrap_or(true);
         Ok(SessionStartAction {
             harness_id: entry.id.to_string(),
@@ -119,6 +132,7 @@ impl SessionStarts for CodingSessionStarts {
             branch: worktree
                 .then(|| worktree_branch(arguments["title"].as_str().unwrap_or_default())),
             mode,
+            asks_permission: entry.asks_permission,
         })
     }
 }

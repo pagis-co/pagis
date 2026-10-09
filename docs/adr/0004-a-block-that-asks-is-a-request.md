@@ -36,8 +36,8 @@ dispatches. An Approval is a decision the user makes before an Agent may act;
 
 A `harness_permission` is a permission request of a Coding Harness in a Coding
 Session (ADR-0033). It has no Run, and `expired` means that its session ended.
-In the `agent` or the `auto` Session Approval Mode a Harness Permission is
-decided without the Person, because the Person delegated it with the widest
+In the `agent` Session Approval Mode the supervising Agent decides a Harness
+Permission without the Person, because the Person delegated it with the widest
 mode on the host Grant. An Agent still cannot make an approval card.
 
 One body answers every kind: a decision of `approved` or `denied`, an optional

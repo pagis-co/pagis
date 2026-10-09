@@ -68,8 +68,6 @@ impl HarnessToolKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Decider {
-    /// The `auto` mode of the session.
-    Auto,
     /// Every location is inside the session's directory.
     Scope,
     /// A Host Allow Rule matches the command.
@@ -83,7 +81,6 @@ pub enum Decider {
 impl Decider {
     pub fn as_str(self) -> &'static str {
         match self {
-            Decider::Auto => "auto",
             Decider::Scope => "scope",
             Decider::Rule => "rule",
             Decider::Agent => "agent",
@@ -106,13 +103,12 @@ pub enum PolicyOutcome {
 /// Applies Pagis policy to one Harness Permission, and stops at the
 /// first step that answers:
 ///
-/// 1. The `auto` mode allows.
-/// 2. A `read`, `search`, `think`, `edit`, `delete` or `move` with every
+/// 1. A `read`, `search`, `think`, `edit`, `delete` or `move` with every
 ///    location inside `directory` allows. A request with no location
 ///    passes this step only for `think`, which touches no file.
-/// 3. An `execute` whose command the Host Allow Rules accept allows.
-/// 4. The `agent` mode asks the Agent.
-/// 5. The `person` mode asks the Person.
+/// 2. An `execute` whose command the Host Allow Rules accept allows.
+/// 3. The `agent` mode asks the Agent.
+/// 4. The `person` mode asks the Person.
 ///
 /// `mode` is the effective Session Approval Mode: the narrower of the
 /// mode of the session and the widest mode of the live host Grant.
@@ -126,9 +122,6 @@ pub fn evaluate(
     directory: &str,
     allow_rules: &[String],
 ) -> PolicyOutcome {
-    if mode == SessionApprovalMode::Auto {
-        return PolicyOutcome::Allow(Decider::Auto);
-    }
     if kind.touches_files_only() {
         let inside = if locations.is_empty() {
             kind == HarnessToolKind::Think
@@ -148,7 +141,7 @@ pub fn evaluate(
     }
     match mode {
         SessionApprovalMode::Agent => PolicyOutcome::AskAgent,
-        _ => PolicyOutcome::AskPerson,
+        SessionApprovalMode::Person => PolicyOutcome::AskPerson,
     }
 }
 
@@ -157,7 +150,7 @@ mod tests {
     use super::*;
     use HarnessToolKind as K;
     use PolicyOutcome::{Allow, AskAgent, AskPerson};
-    use SessionApprovalMode::{Agent, Auto, Person};
+    use SessionApprovalMode::{Agent, Person};
 
     const DIRECTORY: &str = "/repo";
 
@@ -199,8 +192,6 @@ mod tests {
     #[rustfmt::skip]
     const ROWS: &[Row] = &[
         // Each mode.
-        row("auto allows outside the scope", Auto, K::Execute, OUTSIDE, Some("rm -rf /"), NONE, Allow(Decider::Auto)),
-        row("auto allows an other", Auto, K::Other, NONE, None, NONE, Allow(Decider::Auto)),
         row("agent asks the agent", Agent, K::Execute, NONE, Some("rm -rf /"), NONE, AskAgent),
         row("person asks the person", Person, K::Execute, NONE, Some("rm -rf /"), NONE, AskPerson),
         // Each tool kind, inside the directory.
