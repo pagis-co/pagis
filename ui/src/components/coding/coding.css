@@ -1,5 +1,6 @@
 /* The session page (docs/UI-DESIGN.md): one Coding Session as its head,
- * its plan and its transcript. Every value comes from `tokens.css`. */
+ * its plan, its changed files and its transcript. Every value comes from
+ * `tokens.css`. */
 
 .coding-page {
   padding: var(--space-4) var(--space-5);
@@ -158,6 +159,49 @@
   font-size: var(--text-xs);
 }
 
+.coding-files {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.coding-files h3 {
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.coding-files ul {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* One row for each file: the path takes the room, and the counts keep
+ * to the end. On a narrow screen the counts wrap under the path. */
+.coding-file.ui-button {
+  display: flex;
+  flex-wrap: wrap;
+  width: 100%;
+  justify-content: flex-start;
+  gap: var(--space-1) var(--space-3);
+  font-weight: var(--weight-regular);
+  text-align: left;
+  white-space: normal;
+}
+
+.coding-file-path {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+.coding-file-lines,
+.coding-file-changes {
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
 .coding-transcript {
   display: flex;
   flex-direction: column;
@@ -249,12 +293,81 @@
   overflow-wrap: anywhere;
 }
 
-.coding-tool-diff {
+.coding-diff {
   display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.coding-diff-head {
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-1-5);
+  color: var(--muted);
+}
+
+.coding-diff-note {
   margin: 0;
   color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+/* A unified diff: one column, so it reads at 390px. A long line wraps
+ * and never widens the page. */
+.coding-diff-body {
+  display: flex;
+  flex-direction: column;
+  max-height: 32rem;
+  overflow: auto;
+  border-radius: var(--radius-sm);
+  background: var(--sunken);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.coding-diff-hunk {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-1) 0;
+}
+
+.coding-diff-hunk + .coding-diff-hunk {
+  border-top: 1px solid var(--border);
+}
+
+.coding-diff-line {
+  display: block;
+  padding: 0 var(--space-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* The sign before each line says its kind without its hue. An empty
+ * line keeps its height from it. */
+.coding-diff-line::before {
+  content: ' ';
+}
+
+del.coding-diff-line {
+  background: var(--failed-soft);
+  color: var(--failed-ink);
+  text-decoration: none;
+}
+
+del.coding-diff-line::before {
+  content: '-';
+}
+
+ins.coding-diff-line {
+  background: var(--working-soft);
+  color: var(--working-ink);
+  text-decoration: none;
+}
+
+ins.coding-diff-line::before {
+  content: '+';
 }
 
 /* A permission or a question: one line, with the outcome after it. */

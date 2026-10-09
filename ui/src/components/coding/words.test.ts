@@ -6,8 +6,10 @@ import { ACTIVITIES, COMPUTER_STATES, activityWord, computerStateWord } from '..
 import {
   answerText,
   approvalModeBadge,
+  changeCountText,
   decisionText,
   endReasonText,
+  lineCountText,
   pendingText,
   planStatusWord,
   sessionStateBadge,
@@ -213,5 +215,16 @@ describe('a decision that waits', () => {
     expect(pendingText({ kind: 'question', waits_for: 'agent', seq: 1 }, 'Sage', 'Codex')).toBe(
       'Sage answers a question from Codex.',
     )
+  })
+})
+
+describe('the changed files', () => {
+  it('counts the added and the removed lines', () => {
+    expect(lineCountText(12, 3)).toBe('+12 −3')
+  })
+
+  it('counts one change and many changes', () => {
+    expect(changeCountText(1)).toBe('1 change')
+    expect(changeCountText(4)).toBe('4 changes')
   })
 })

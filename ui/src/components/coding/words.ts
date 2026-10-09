@@ -232,3 +232,13 @@ const PLAN_STATUS: Record<string, string> = {
 export function planStatusWord(status: string): string {
   return PLAN_STATUS[status] ?? status
 }
+
+/** The lines that the changes of a file add and remove. */
+export function lineCountText(added: number, removed: number): string {
+  return `+${added} −${removed}`
+}
+
+/** The count of changes of one file. */
+export function changeCountText(changes: number): string {
+  return changes === 1 ? '1 change' : `${changes} changes`
+}

@@ -537,6 +537,16 @@ Run is: its head, its last plan, and its transcript as messages, tool calls
 and one line for each ask. An event of the session makes the page read the
 record and every page of the transcript again.
 
+A tool call shows each of its changes as a unified diff. The Product App
+computes the diff from the old and the new text that the harness sends, with
+jsdiff; the daemon stores the payload and computes nothing. The diff shows no
+line numbers, because an ACP diff carries no position in the file. A diff in
+a payload that the daemon cut shows no lines, because a cut text gives a
+false diff. A "Changed files" section under the plan lists each changed file
+once, with its added and removed lines and its count of changes, and a row
+scrolls to the last change of the file. The page has no second copy of a
+diff.
+
 ### The session's Thread shows a daemon-made block
 
 The daemon posts the session's block in the Channel of the starting Run: in
@@ -610,7 +620,6 @@ Other ways were considered:
 - The item in the Needs-You Queue and the Notification.
 - The question in the daemon.
 - The report of a harness that needs a sign-in.
-- The diffs on the session page.
 - The Coding place.
 - Harness Sign-In in Settings.
 - The Computer place.
