@@ -29,6 +29,8 @@
 		7A6E1500000000000000000C /* WebOriginTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E1500000000000000000B /* WebOriginTests.swift */; };
 		7A6E1500000000000000000E /* BridgeGuardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E1500000000000000000D /* BridgeGuardTests.swift */; };
 		7A6E150000000000000000C9 /* NavigationGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E150000000000000000C8 /* NavigationGuard.swift */; };
+		7A6E150000000000000000FF /* UnreachablePage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E150000000000000000FE /* UnreachablePage.swift */; };
+		7A6E15000000000000000101 /* UnreachablePageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E15000000000000000100 /* UnreachablePageTests.swift */; };
 		7A6E150000000000000000CB /* NavigationGuardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E150000000000000000CA /* NavigationGuardTests.swift */; };
 		7A6E150000000000000000D1 /* SessionCopyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E150000000000000000D0 /* SessionCopyTests.swift */; };
 		7A6E150000000000000000D3 /* SessionCopy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E150000000000000000D2 /* SessionCopy.swift */; };
@@ -123,6 +125,8 @@
 		7A6E15000000000000000064 /* AppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		7A6E150000000000000000C8 /* NavigationGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationGuard.swift; sourceTree = "<group>"; };
 		7A6E150000000000000000CA /* NavigationGuardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationGuardTests.swift; sourceTree = "<group>"; };
+		7A6E150000000000000000FE /* UnreachablePage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnreachablePage.swift; sourceTree = "<group>"; };
+		7A6E15000000000000000100 /* UnreachablePageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnreachablePageTests.swift; sourceTree = "<group>"; };
 		7A6E150000000000000000D0 /* SessionCopyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionCopyTests.swift; sourceTree = "<group>"; };
 		7A6E150000000000000000D2 /* SessionCopy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionCopy.swift; sourceTree = "<group>"; };
 		7A6E150000000000000000D4 /* SessionCookies.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionCookies.swift; sourceTree = "<group>"; };
@@ -211,6 +215,7 @@
 				7A6E15000000000000000001 /* WebOrigin.swift */,
 				7A6E15000000000000000003 /* BridgeGuard.swift */,
 				7A6E150000000000000000C8 /* NavigationGuard.swift */,
+				7A6E150000000000000000FE /* UnreachablePage.swift */,
 				7A6E15000000000000000005 /* ServerStore.swift */,
 				7A6E15000000000000000007 /* PagisShellPlugin.swift */,
 				7A6E15000000000000000009 /* PagisViewController.swift */,
@@ -247,6 +252,7 @@
 				7A6E1500000000000000000B /* WebOriginTests.swift */,
 				7A6E1500000000000000000D /* BridgeGuardTests.swift */,
 				7A6E150000000000000000CA /* NavigationGuardTests.swift */,
+				7A6E15000000000000000100 /* UnreachablePageTests.swift */,
 				7A6E150000000000000000D0 /* SessionCopyTests.swift */,
 				7A6E150000000000000000E0 /* MediaGuardTests.swift */,
 				7A6E150000000000000000F0 /* PushSubscriberTests.swift */,
@@ -421,6 +427,7 @@
 				7A6E15000000000000000002 /* WebOrigin.swift in Sources */,
 				7A6E15000000000000000004 /* BridgeGuard.swift in Sources */,
 				7A6E150000000000000000C9 /* NavigationGuard.swift in Sources */,
+				7A6E150000000000000000FF /* UnreachablePage.swift in Sources */,
 				7A6E15000000000000000006 /* ServerStore.swift in Sources */,
 				7A6E15000000000000000008 /* PagisShellPlugin.swift in Sources */,
 				7A6E1500000000000000000A /* PagisViewController.swift in Sources */,
@@ -450,6 +457,7 @@
 				7A6E1500000000000000000C /* WebOriginTests.swift in Sources */,
 				7A6E1500000000000000000E /* BridgeGuardTests.swift in Sources */,
 				7A6E150000000000000000CB /* NavigationGuardTests.swift in Sources */,
+				7A6E15000000000000000101 /* UnreachablePageTests.swift in Sources */,
 				7A6E150000000000000000D1 /* SessionCopyTests.swift in Sources */,
 				7A6E150000000000000000E1 /* MediaGuardTests.swift in Sources */,
 				7A6E150000000000000000F1 /* PushSubscriberTests.swift in Sources */,

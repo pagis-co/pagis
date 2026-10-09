@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Pagis</title>
+  </head>
+  <body>
+    <main class="connect">
+      <header class="connect-head">
+        <svg class="connect-mark" viewBox="20 20 120 120" aria-hidden="true" focusable="false"><rect x="20" y="20" width="56" height="56" rx="10" /><path d="M94 20H112A28 28 0 0 1 112 76H94A10 10 0 0 1 84 66V30A10 10 0 0 1 94 20Z" /><rect x="20" y="84" width="56" height="56" rx="10" /></svg>
+        <h1>Cannot reach the server</h1>
+        <p id="server" class="unreachable-server"></p>
+      </header>
+      <div class="unreachable-error">
+        <p id="error"></p>
+        <p>Make sure that the server is on and that this phone is online. Then try again.</p>
+      </div>
+      <div class="unreachable-actions">
+        <p id="problem" class="problem" role="alert" hidden></p>
+        <button id="retry" type="button">Try again</button>
+        <button id="change" type="button" class="secondary">Change server</button>
+      </div>
+    </main>
+    <script type="module" src="./src/unreachable.ts"></script>
+  </body>
+</html>

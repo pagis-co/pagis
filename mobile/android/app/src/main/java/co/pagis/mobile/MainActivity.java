@@ -14,7 +14,9 @@ import java.util.concurrent.Executors;
 
 /**
  * The bridge of the Mobile App. It shows the Product App of the stored
- * server, or the bundled Connect screen when no server is stored.
+ * server, or the bundled Connect screen when no server is stored. When
+ * the web view cannot load the server, the bridge starts again on the
+ * bundled Unreachable screen.
  *
  * Capacitor reads the server URL once, when it makes the bridge. So to
  * open another server the activity starts again, and with it a new bridge.
@@ -29,9 +31,13 @@ public class MainActivity extends BridgeActivity {
      *  as a Sign-In Link. Nothing stores it. */
     private static final String EXTRA_FIRST_PAGE = "co.pagis.mobile.FIRST_PAGE";
 
+    /** The start path of the Unreachable screen on the app's own origin,
+     *  which the bridge opens in place of the stored server. */
+    private static final String EXTRA_UNREACHABLE = "co.pagis.mobile.UNREACHABLE";
+
     private static final String TAG = "Pagis";
 
-    /** The server that this bridge shows, or null on the Connect screen. */
+    /** The server that this bridge shows, or null on a bundled page. */
     private ServerOrigin server;
     private SessionCopy sessionCopy;
     /** Runs the native requests of the activity off the main thread. */
@@ -65,7 +71,9 @@ public class MainActivity extends BridgeActivity {
         CapConfig.Builder builder = new CapConfig.Builder(this)
             .setUseLegacyBridge(false)
             .setAppendedUserAgentString("Pagis/" + BuildConfig.VERSION_NAME);
-        server = new ServerStore(this).server();
+        String unreachable = getIntent().getStringExtra(EXTRA_UNREACHABLE);
+        server = unreachable == null ? new ServerStore(this).server() : null;
+        if (unreachable != null) builder.setStartPath(unreachable);
         if (server != null) {
             builder.setServerUrl(server.serverUrl());
             String startPath = server.startPath(getIntent().getStringExtra(EXTRA_FIRST_PAGE));
@@ -78,6 +86,7 @@ public class MainActivity extends BridgeActivity {
             SessionCookies.restore(server, cookieJar(), sessionCopy, System.currentTimeMillis());
         }
         getIntent().removeExtra(EXTRA_FIRST_PAGE);
+        getIntent().removeExtra(EXTRA_UNREACHABLE);
         getIntent().removeExtra(PushNotifier.EXTRA_NAVIGATE);
         config = builder.create();
         super.load();
@@ -87,7 +96,7 @@ public class MainActivity extends BridgeActivity {
         // run on the main thread.
         ServerOrigin shown = ServerOrigin.parse(bridge.getLocalUrl(), BuildConfig.DEBUG);
         if (shown != null) {
-            bridge.setWebViewClient(new PagisWebViewClient(bridge, shown, this::followSession));
+            bridge.setWebViewClient(new PagisWebViewClient(bridge, shown, this::followSession, this::loadFailed));
         }
         // The microphone goes to the main frame of the server alone.
         bridge.getWebView().setWebChromeClient(new PagisChromeClient(bridge, server));
@@ -169,6 +178,17 @@ public class MainActivity extends BridgeActivity {
     void open(ServerOrigin server, String firstPage) {
         new ServerStore(this).keep(server);
         restart(new Intent(this, MainActivity.class).putExtra(EXTRA_FIRST_PAGE, firstPage));
+    }
+
+    /**
+     * The web view cannot load the server. Keep the server, and start the
+     * bridge again on the Unreachable screen.
+     */
+    private void loadFailed(String error) {
+        if (server == null) return;
+        String page = UnreachablePage.startPath(server, error);
+        server = null;
+        restart(new Intent(this, MainActivity.class).putExtra(EXTRA_UNREACHABLE, page));
     }
 
     /**

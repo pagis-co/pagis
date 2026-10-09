@@ -40,6 +40,25 @@ final class NavigationGuardTests: XCTestCase {
         XCTAssertEqual(run.next, [page, "https://b.example/frame"])
     }
 
+    /// Capacitor logs a failed load, and then the bridge hears of it.
+    func testAFailedMainFrameLoadReachesTheNextHandlerAndThenTheBridge() {
+        let next = FailureRecorder()
+        var steps: [String] = []
+        next.onFailure = { steps.append("next \($0)") }
+        let guardian = NavigationGuard(allowing: server, next: next, openOutside: { _ in }) { error in
+            steps.append("bridge \((error as? URLError)?.code.rawValue ?? 0)")
+        }
+        let webView = WKWebView(frame: .zero)
+
+        guardian.webView(webView, didFailProvisionalNavigation: nil, withError: URLError(.cannotFindHost))
+        guardian.webView(webView, didFail: nil, withError: URLError(.networkConnectionLost))
+
+        XCTAssertEqual(steps, [
+            "next provisional", "bridge \(URLError.cannotFindHost.rawValue)",
+            "next committed", "bridge \(URLError.networkConnectionLost.rawValue)",
+        ])
+    }
+
     // MARK: - A page in a web view with the guard
 
     private struct Run {
@@ -98,5 +117,19 @@ private final class NextNavigationHandler: NSObject, WKNavigationDelegate {
             decisionHandler(.cancel)
             onOther()
         }
+    }
+}
+
+/// The handler after the guard, which records each failed load, as
+/// Capacitor logs it.
+private final class FailureRecorder: NSObject, WKNavigationDelegate {
+    var onFailure: (String) -> Void = { _ in }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        onFailure("provisional")
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        onFailure("committed")
     }
 }
