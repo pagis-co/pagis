@@ -36,3 +36,14 @@ CVE-2026-78667
 # accepts Encrypted Client Hello can exhaust its memory. gog makes TLS
 # connections only as a client. The update check is the same.
 CVE-2026-97031
+
+# The HTTP/2 code of the Go standard library 1.27.1 and of
+# golang.org/x/net 0.59.0 in gog. A malicious HTTP/2 peer that sends many
+# SETTINGS frames makes the client or the server use excessive CPU. gog
+# is a client of the Google APIs only, over TLS, so the peer is a Google
+# host or an attacker with a certificate that the system trusts. The
+# effect stops at the one gog process, which Pagis ends with its tool
+# call. Go 1.27.2 and golang.org/x/net 0.60.0 have the fix. gog 0.43.0,
+# the latest release, is built with Go 1.27.1 and golang.org/x/net
+# 0.59.0. The maintainer accepted this exception.
+CVE-2026-78669
