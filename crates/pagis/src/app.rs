@@ -568,34 +568,34 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         Arc::clone(&bus),
         Arc::clone(&options.clock),
     ));
-    let coding_sessions = Arc::new(pagis_coding::CodingSessions::new(
-        pagis_coding::CodingSessionsDeps {
-            sessions: stores.coding_sessions.clone(),
-            runs: Arc::clone(&runs) as _,
-            hosts: stores.hosts.clone(),
-            messages: Arc::clone(&messages) as _,
-            bus: Arc::clone(&bus),
-            place: Arc::clone(&host_sessions) as _,
-            decisions: Arc::new(pagis_coding::PolicyDecisions::new(
-                pagis_coding::PolicyDecisionsDeps {
-                    grants: Arc::clone(&grants) as _,
-                    requests: Arc::clone(&requests) as _,
-                    messages: Arc::clone(&messages) as _,
-                    hosts: stores.hosts.clone(),
-                    runs: Arc::clone(&runs) as _,
-                    agent: Arc::clone(&agent_asks),
-                    bus: Arc::clone(&bus),
-                },
-            )),
-            rules: Arc::clone(&session_rules) as _,
-            events: Arc::clone(&session_events) as _,
-            sign_in_reports: Arc::clone(&sign_in_reports),
-            clock: Arc::clone(&options.clock),
-            // A Host that goes away interrupts its sessions.
-            departures: host_presence.departures(),
-            cancel: options.cancel.clone(),
-        },
-    ));
+    let coding_sessions = pagis_coding::CodingSessions::new(pagis_coding::CodingSessionsDeps {
+        sessions: stores.coding_sessions.clone(),
+        runs: Arc::clone(&runs) as _,
+        hosts: stores.hosts.clone(),
+        messages: Arc::clone(&messages) as _,
+        bus: Arc::clone(&bus),
+        // A Grant change closes the sessions that it no longer allows.
+        grants: Arc::clone(&grants) as _,
+        place: Arc::clone(&host_sessions) as _,
+        decisions: Arc::new(pagis_coding::PolicyDecisions::new(
+            pagis_coding::PolicyDecisionsDeps {
+                grants: Arc::clone(&grants) as _,
+                requests: Arc::clone(&requests) as _,
+                messages: Arc::clone(&messages) as _,
+                hosts: stores.hosts.clone(),
+                runs: Arc::clone(&runs) as _,
+                agent: Arc::clone(&agent_asks),
+                bus: Arc::clone(&bus),
+            },
+        )),
+        rules: Arc::clone(&session_rules) as _,
+        events: Arc::clone(&session_events) as _,
+        sign_in_reports: Arc::clone(&sign_in_reports),
+        clock: Arc::clone(&options.clock),
+        // A Host that goes away interrupts its sessions.
+        departures: host_presence.departures(),
+        cancel: options.cancel.clone(),
+    });
     // The Harness Sign-Ins that the Person starts. A probe of a terminal
     // method runs on the session socket, as a session does.
     let sign_ins = Arc::new(pagis_coding::SignIns::new(

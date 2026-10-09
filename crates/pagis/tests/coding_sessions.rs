@@ -2147,6 +2147,67 @@ async fn a_restart_leaves_a_working_session_interrupted() {
     assert_eq!(record.ended_at, None);
 }
 
+/// Allows or stops the Unattended Modes of the daemon's Agent on a
+/// machine, as the Access tab does, and answers the status.
+async fn set_unattended_modes(daemon: &TestDaemon, host_id: &HostId, allowed: bool) -> u16 {
+    reqwest::Client::new()
+        .put(format!(
+            "{}/api/v1/agents/{}/hosts/{host_id}/unattended-modes",
+            daemon.base_url, daemon.agent_id
+        ))
+        .header("cookie", daemon.cookie())
+        .json(&json!({ "allowed": allowed }))
+        .send()
+        .await
+        .unwrap()
+        .status()
+        .as_u16()
+}
+
+/// pi never asks, so Pagis cannot apply a narrower Grant to it: the
+/// session closes, and the end wakes the Agent in the session's Thread.
+#[tokio::test]
+async fn the_person_who_stops_allowing_unattended_modes_closes_a_pi_session_and_the_agent_wakes() {
+    let brain = Arc::new(ScriptedBrain::default());
+    brain.push(pagis_testkit::Script::reply(&["The session ended."]));
+    let daemon = daemon_with(&brain).await;
+    let (run_id, root) = run_in_a_thread(&daemon).await;
+    let host_id = host(&daemon).await;
+    assert_eq!(set_unattended_modes(&daemon, &host_id, true).await, 201);
+    open_session_socket(
+        &daemon,
+        &host_id,
+        Script::default().turn(Turn::until_cancel(vec![])),
+    )
+    .await;
+    let session = daemon
+        .coding_sessions
+        .start(NewCodingSession {
+            workspace_id: daemon.workspace_id.clone(),
+            agent_id: AgentId::from(daemon.agent_id.clone()),
+            run_id,
+            host_id: host_id.clone(),
+            harness_id: "pi".to_string(),
+            directory: DIRECTORY.to_string(),
+            worktree: None,
+            approval_mode: SessionApprovalMode::Person,
+            title: "Fix the login bug".to_string(),
+            prompt: PROMPT.to_string(),
+        })
+        .await
+        .expect("the session starts");
+
+    assert_eq!(set_unattended_modes(&daemon, &host_id, false).await, 200);
+
+    let record = wait_for_session_state(&daemon, &session.id, CodingSessionState::Closed).await;
+    assert_eq!(record.end_reason.as_deref(), Some("approval_mode_narrowed"));
+    let runs = wait_for_event_runs(&daemon, RunState::Completed, 1).await;
+    assert_eq!(runs[0].root_message_id.as_ref(), Some(&root));
+    let rows = session_envelope(&brain, &session, "coding_session.ended");
+    assert!(rows.contains("state: closed"), "{rows}");
+    assert!(rows.contains("reason: approval_mode_narrowed"), "{rows}");
+}
+
 // The `agent` mode: the supervising Agent decides a Harness Permission
 // or gives it to the Person (ADR-0033).
 

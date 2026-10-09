@@ -25,6 +25,7 @@ use serde_json::json;
 use crate::agent::Verdict;
 use crate::policy::{effective_mode, host_grant};
 use crate::report::harness_output;
+use crate::sessions::UNATTENDED_MODE_NOT_ALLOWED;
 use crate::{
     AgentAsks, CloseReason, CodingSessions, DecidedBy, NewCodingSession, PromptOutcome,
     ResumeFailure, SessionError, StartFailure,
@@ -439,6 +440,9 @@ fn resume_failure(session_id: &CodingSessionId, failure: ResumeFailure) -> ToolR
         }
         ResumeFailure::Open(failure) => ToolResult::error(failure.code.as_str(), failure.message),
         ResumeFailure::Harness(message) => harness_error(session_id.clone(), &message),
+        ResumeFailure::UnattendedModeNotAllowed { .. } => {
+            ToolResult::error(UNATTENDED_MODE_NOT_ALLOWED, failure.to_string())
+        }
         ResumeFailure::Store(error) => unavailable(error),
     }
 }
@@ -491,6 +495,9 @@ fn start_failure(failure: StartFailure) -> ToolResult {
         StartFailure::SignInRequired { .. } => {
             ToolResult::plain_error(SIGN_IN_REQUIRED, failure.to_string())
         }
+        StartFailure::UnattendedModeNotAllowed { .. } => {
+            ToolResult::error(UNATTENDED_MODE_NOT_ALLOWED, failure.to_string())
+        }
         StartFailure::Rules { .. } => {
             ToolResult::error("temporarily_unavailable", failure.to_string())
         }
@@ -525,4 +532,37 @@ fn not_a_session_tool(call: &AuthorizedCall) -> ToolResult {
         "temporarily_unavailable",
         format!("{} is not a coding session tool", call.tool_name),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_start_or_a_resume_that_the_live_grant_no_longer_allows_answers_its_error() {
+        let session_id = CodingSessionId::from("s1".to_string());
+        let started = start_failure(StartFailure::UnattendedModeNotAllowed {
+            session_id: session_id.clone(),
+            harness: "pi".to_string(),
+            machine: "Air".to_string(),
+        });
+        let resumed = resume_failure(
+            &session_id,
+            ResumeFailure::UnattendedModeNotAllowed {
+                harness: "pi".to_string(),
+                machine: "Air".to_string(),
+            },
+        );
+
+        for result in [started, resumed] {
+            assert!(result.is_error);
+            assert_eq!(result.code.as_deref(), Some("unattended_mode_not_allowed"));
+            let content: serde_json::Value = serde_json::from_str(&result.content).unwrap();
+            assert_eq!(
+                content["error"]["message"],
+                "pi acts without asking, and the user does not allow modes that act without \
+                 asking for you on Air. The session is closed. Ask the user to allow them."
+            );
+        }
+    }
 }

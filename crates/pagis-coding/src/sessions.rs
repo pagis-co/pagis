@@ -15,22 +15,30 @@
 //! A harness that needs a Harness Sign-In fails its session with the end
 //! reason `sign_in_required`, at `session/new` or at a later prompt, and
 //! the sign-in report then names the harness on the Host.
+//!
+//! A session acts without asking when its harness never asks permission.
+//! Such a session runs only while the live host Grant of its Agent on its
+//! machine allows Unattended Modes. A Grant revision that stops allowing
+//! them, and a revoked Grant, close it with the end reason
+//! `approval_mode_narrowed`. A start and a resume read the live Grant again
+//! before the session takes a prompt.
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use futures::StreamExt;
 use futures::io::AsyncReadExt;
-use pagis_broker::{SIGN_IN_REQUIRED, sign_in_required_message};
+use pagis_broker::{SIGN_IN_REQUIRED, session_allowance, sign_in_required_message};
 use pagis_core::{
     AgentId, AuthorKind, Block, Clock, CodingSession, CodingSessionEventKind as Kind,
     CodingSessionId, CodingSessionPlace, CodingSessionState as State, CodingSessionStore,
-    CodingSessionUsage, EventBus, HostId, HostStore, Message, MessageId, MessageStatus,
-    MessageStore, NewCodingSessionEvent, NewEvent, RunId, RunStore, SessionApprovalMode,
-    StoreError, WorkspaceId, blocks_text, harness,
+    CodingSessionUsage, Event, EventBus, EventScope, Grant, GrantStore, HostId, HostStore, Message,
+    MessageId, MessageStatus, MessageStore, NewCodingSessionEvent, NewEvent, RunId, RunStore,
+    SessionApprovalMode, StoreError, WorkspaceId, blocks_text, harness,
 };
 use serde_json::{Value, json};
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
@@ -58,8 +66,12 @@ pub struct CodingSessionsDeps {
     pub hosts: Arc<dyn HostStore>,
     /// The Thread holds the block of each session.
     pub messages: Arc<dyn MessageStore>,
-    /// Reports the message of each block to the clients.
+    /// Reports the message of each block to the clients, and gives the
+    /// changes of the Grants.
     pub bus: Arc<dyn EventBus>,
+    /// The live host Grant tells whether a session that acts without
+    /// asking may start, resume and go on.
+    pub grants: Arc<dyn GrantStore>,
     pub place: Arc<dyn SessionPlace>,
     pub decisions: Arc<dyn SessionDecisions>,
     /// The Session Rule of each session, which wakes the owning Agent.
@@ -136,8 +148,30 @@ pub enum StartFailure {
         harness: String,
         machine: String,
     },
+    /// The harness acts without asking, and the live host Grant stopped
+    /// allowing Unattended Modes while the session started. The session
+    /// is `closed`. `harness` is its display name.
+    #[error("{}", unattended_mode_not_allowed_message(.harness, .machine))]
+    UnattendedModeNotAllowed {
+        session_id: CodingSessionId,
+        harness: String,
+        machine: String,
+    },
     #[error(transparent)]
     Store(#[from] StoreError),
+}
+
+/// The end reason, and the tool error, of a session that acts without
+/// asking where the live host Grant does not allow Unattended Modes.
+pub(crate) const UNATTENDED_MODE_NOT_ALLOWED: &str = "unattended_mode_not_allowed";
+
+/// The words of a start or a resume that the live host Grant no longer
+/// allows.
+fn unattended_mode_not_allowed_message(harness: &str, machine: &str) -> String {
+    format!(
+        "{harness} acts without asking, and the user does not allow modes that act without \
+         asking for you on {machine}. The session is closed. Ask the user to allow them."
+    )
 }
 
 /// Who closed a session. It gives the end reason.
@@ -147,6 +181,10 @@ pub enum CloseReason {
     Closed,
     /// The Person stopped the session: `stopped`.
     Stopped,
+    /// The session acts without asking, and the host Grant of its Agent on
+    /// its machine stopped allowing Unattended Modes or was revoked:
+    /// `approval_mode_narrowed`.
+    ApprovalModeNarrowed,
 }
 
 impl CloseReason {
@@ -154,6 +192,7 @@ impl CloseReason {
         match self {
             CloseReason::Closed => "closed",
             CloseReason::Stopped => "stopped",
+            CloseReason::ApprovalModeNarrowed => "approval_mode_narrowed",
         }
     }
 }
@@ -221,6 +260,10 @@ pub enum ResumeFailure {
     /// text.
     #[error("the Coding Harness failed: {0}")]
     Harness(String),
+    /// The harness acts without asking, and the live host Grant does not
+    /// allow Unattended Modes. The session is `closed`.
+    #[error("{}", unattended_mode_not_allowed_message(.harness, .machine))]
+    UnattendedModeNotAllowed { harness: String, machine: String },
     #[error(transparent)]
     Store(#[from] StoreError),
 }
@@ -238,6 +281,12 @@ pub struct CodingSessions {
     place: Arc<dyn SessionPlace>,
     decisions: Arc<dyn SessionDecisions>,
     sign_in_reports: Arc<SignInReports>,
+    grants: Arc<dyn GrantStore>,
+    /// Held by a start and a resume from their check of the live host
+    /// Grant until the task of the session runs, and by the close of each
+    /// Grant change. A change that comes between the check and the task
+    /// thus waits, and then finds the session open.
+    grant_checks: tokio::sync::Mutex<()>,
     cancel: CancellationToken,
     live: LiveSessions,
 }
@@ -248,36 +297,48 @@ struct Live {
     workspace_id: WorkspaceId,
     host_id: HostId,
     commands: mpsc::UnboundedSender<Command>,
+    /// The session resumes, and its task does not run yet.
+    resuming: bool,
 }
 
 impl CodingSessions {
-    /// Builds the runtime, and starts the task that interrupts the live
-    /// sessions of each Host that goes away. That task ends when the
+    /// Builds the runtime, and starts its two tasks: one interrupts the
+    /// live sessions of each Host that goes away, and one closes the
+    /// sessions that a Grant change no longer allows. Both end when the
     /// daemon stops.
-    pub fn new(deps: CodingSessionsDeps) -> Self {
+    pub fn new(deps: CodingSessionsDeps) -> Arc<Self> {
         let live = LiveSessions::default();
         tokio::spawn(interrupt_departures(
             deps.departures,
             Arc::clone(&live),
             deps.cancel.clone(),
         ));
-        Self {
-            records: Records {
-                store: deps.sessions,
-                rules: deps.rules,
-                events: deps.events,
-                clock: deps.clock,
-            },
-            runs: deps.runs,
-            hosts: deps.hosts,
-            messages: deps.messages,
-            bus: deps.bus,
-            place: deps.place,
-            decisions: deps.decisions,
-            sign_in_reports: deps.sign_in_reports,
-            cancel: deps.cancel,
-            live,
-        }
+        Arc::new_cyclic(|sessions| {
+            tokio::spawn(close_on_grant_changes(
+                Weak::clone(sessions),
+                Arc::clone(&deps.bus),
+                deps.cancel.clone(),
+            ));
+            Self {
+                records: Records {
+                    store: deps.sessions,
+                    rules: deps.rules,
+                    events: deps.events,
+                    clock: deps.clock,
+                },
+                runs: deps.runs,
+                hosts: deps.hosts,
+                messages: deps.messages,
+                bus: deps.bus,
+                place: deps.place,
+                decisions: deps.decisions,
+                sign_in_reports: deps.sign_in_reports,
+                grants: deps.grants,
+                grant_checks: tokio::sync::Mutex::default(),
+                cancel: deps.cancel,
+                live,
+            }
+        })
     }
 
     /// Starts a Coding Session on a Host and sends its first prompt.
@@ -341,7 +402,7 @@ impl CodingSessions {
         // comes before the stream opens, so no news of the session is
         // lost.
         if let Err(error) = self.records.rules.create(&record).await {
-            let end = End::new(RULES_UNAVAILABLE, None);
+            let end = End::new(TEMPORARILY_UNAVAILABLE, None);
             self.records.end_start(&mut record, end).await;
             return Err(StartFailure::Rules {
                 session_id: record.id,
@@ -413,6 +474,31 @@ impl CodingSessions {
         record.acp_session_id = Some(acp.acp_session_id().to_string());
         self.records.write(&mut record).await?;
 
+        // A Grant change that comes while the stream opens finds the
+        // session `starting`, and leaves it to this read of the live Grant.
+        let _checks = self.grant_checks.lock().await;
+        if !entry.asks_permission {
+            match self.unattended_allowed(&record, &new.host_id).await {
+                Ok(true) => {}
+                Ok(false) => {
+                    acp.close();
+                    self.records.refuse_unattended(&mut record).await;
+                    return Err(StartFailure::UnattendedModeNotAllowed {
+                        session_id: record.id,
+                        harness: entry.label.to_string(),
+                        machine: host.name,
+                    });
+                }
+                Err(error) => {
+                    acp.close();
+                    self.records
+                        .end_start(&mut record, End::new(TEMPORARILY_UNAVAILABLE, None))
+                        .await;
+                    return Err(StartFailure::Store(error));
+                }
+            }
+        }
+
         if let Err(error) = acp.prompt(new.prompt.clone()) {
             acp.close();
             return Err(self.harness_failed(&mut record, error).await);
@@ -431,6 +517,7 @@ impl CodingSessions {
                 workspace_id: record.workspace_id.clone(),
                 host_id: new.host_id,
                 commands,
+                resuming: false,
             },
         );
         let task = Task {
@@ -540,6 +627,102 @@ impl CodingSessions {
         Ok(())
     }
 
+    /// Whether the live host Grant of the session's Agent on the machine
+    /// allows Unattended Modes.
+    async fn unattended_allowed(
+        &self,
+        record: &CodingSession,
+        host_id: &HostId,
+    ) -> Result<bool, StoreError> {
+        let allowance = session_allowance(
+            self.grants.as_ref(),
+            &record.workspace_id,
+            &record.agent_id,
+            host_id,
+        )
+        .await?;
+        Ok(allowance.unattended_modes)
+    }
+
+    /// Closes with `approval_mode_narrowed` each open session of the
+    /// Agent on the machine that acts without asking, when the live host
+    /// Grant there does not allow Unattended Modes. The Grant comes from
+    /// the store and not from the event, so a lost or late event gives no
+    /// wrong answer: the next one reads the same live Grant.
+    ///
+    /// A `starting` session reads the live Grant itself before its first
+    /// prompt, so it stays as it is.
+    async fn close_unallowed(&self, change: &HostGrantChange) {
+        let _checks = self.grant_checks.lock().await;
+        let unallowed = match self.unallowed_sessions(change).await {
+            Ok(unallowed) => unallowed,
+            Err(error) => {
+                tracing::error!(agent = %change.agent_id, host = %change.host_id, %error, "a host Grant change was not read; the Coding Sessions that act without asking on its machine stay open");
+                return;
+            }
+        };
+        for session in &unallowed {
+            match self.close_narrowed(session).await {
+                // The session ended meanwhile.
+                Ok(()) | Err(SessionError::NotOpen(_)) => {}
+                Err(error) => {
+                    tracing::warn!(session = %session.id, %error, "a Coding Session that its host Grant no longer allows was not closed");
+                }
+            }
+        }
+    }
+
+    /// The open sessions of the Agent on the machine of a Grant change
+    /// that act without asking, when the live Grant does not allow
+    /// Unattended Modes. A `starting` session is not one of them.
+    async fn unallowed_sessions(
+        &self,
+        change: &HostGrantChange,
+    ) -> Result<Vec<CodingSession>, StoreError> {
+        let allowance = session_allowance(
+            self.grants.as_ref(),
+            &change.workspace_id,
+            &change.agent_id,
+            &change.host_id,
+        )
+        .await?;
+        if allowance.unattended_modes {
+            return Ok(Vec::new());
+        }
+        let mut open = self.records.store.list_open().await?;
+        open.retain(|session| {
+            session.workspace_id == change.workspace_id
+                && session.agent_id == change.agent_id
+                && session.host_id.as_ref() == Some(&change.host_id)
+                && session.state != State::Starting
+                && acts_without_asking(&session.harness_id)
+        });
+        Ok(open)
+    }
+
+    /// Closes one session for a Grant change, with the lock of the Grant
+    /// checks held. A session whose task runs closes through its task. A
+    /// session with no task, and a session that resumes and waits for the
+    /// lock, close from the record: the resume then finds it closed.
+    async fn close_narrowed(&self, session: &CodingSession) -> Result<(), SessionError> {
+        let reason = CloseReason::ApprovalModeNarrowed;
+        let task = self
+            .live
+            .lock()
+            .expect("the live sessions")
+            .get(&session.id)
+            .filter(|live| !live.resuming)
+            .map(|live| live.commands.clone());
+        if let Some(commands) = task
+            && let Some(closed) =
+                ask_task(&commands, |reply| Command::Close { reason, reply }).await
+        {
+            return closed;
+        }
+        self.close_record(&session.workspace_id, &session.id, reason)
+            .await
+    }
+
     /// The name of the Host of a session, which its news names. A Host
     /// that cannot be read leaves the name empty: the news goes on.
     async fn machine(&self, record: &CodingSession) -> String {
@@ -623,6 +806,7 @@ impl CodingSessions {
                     workspace_id: workspace_id.clone(),
                     host_id: host_id.clone(),
                     commands: commands.clone(),
+                    resuming: true,
                 },
             );
         }
@@ -703,7 +887,9 @@ impl CodingSessions {
                 other => ResumeFailure::Harness(other.to_string()),
             })?;
 
-        // A close of the record can come while the stream opens.
+        // A close of the record, and a Grant change, can come while the
+        // stream opens. The lock holds until the task runs.
+        let _checks = self.grant_checks.lock().await;
         let mut record = self
             .records
             .store
@@ -714,10 +900,35 @@ impl CodingSessions {
             acp.close();
             return Err(ResumeFailure::NotInterrupted(record.state));
         }
+        if !entry.asks_permission {
+            match self.unattended_allowed(&record, &host_id).await {
+                Ok(true) => {}
+                Ok(false) => {
+                    acp.close();
+                    self.records.refuse_unattended(&mut record).await;
+                    return Err(ResumeFailure::UnattendedModeNotAllowed {
+                        harness: entry.label.to_string(),
+                        machine: host.name,
+                    });
+                }
+                Err(error) => {
+                    acp.close();
+                    return Err(ResumeFailure::Store(error));
+                }
+            }
+        }
         self.records
             .transition(&mut record, State::Idle, None)
             .await?;
         snapshot.send_replace(record.clone());
+        if let Some(live) = self
+            .live
+            .lock()
+            .expect("the live sessions")
+            .get_mut(&record.id)
+        {
+            live.resuming = false;
+        }
         let task = Task {
             records: self.records.clone(),
             record,
@@ -753,14 +964,11 @@ impl CodingSessions {
             .get(session_id)
             .filter(|live| live.workspace_id == *workspace_id)
             .map(|live| live.commands.clone());
-        if let Some(commands) = commands {
-            let (reply, replied) = oneshot::channel();
-            // The task can end between the read of the map and the send.
-            if commands.send(command(reply)).is_ok()
-                && let Ok(answer) = replied.await
-            {
-                return answer;
-            }
+        // The task can end between the read of the map and the send.
+        if let Some(commands) = commands
+            && let Some(answer) = ask_task(&commands, command).await
+        {
+            return answer;
         }
         match self.records.store.get(workspace_id, session_id).await? {
             Some(record) => Err(SessionError::NotOpen(record.state)),
@@ -849,8 +1057,9 @@ impl CodingSessions {
 /// The end reason of a harness that failed a request.
 const HARNESS_ERROR: &str = "harness_error";
 
-/// The end reason of a start whose Session Rule was not made.
-const RULES_UNAVAILABLE: &str = "temporarily_unavailable";
+/// The end reason of a start that the Trigger module or a store did not
+/// serve.
+const TEMPORARILY_UNAVAILABLE: &str = "temporarily_unavailable";
 
 /// The end reason of a harness process that exited by itself.
 const HARNESS_EXITED: &str = "harness_exited";
@@ -986,6 +1195,18 @@ impl Records {
         }
         self.end_rules(record).await;
     }
+
+    /// Closes a session that acts without asking, at its start or its
+    /// resume, where the live host Grant does not allow Unattended Modes,
+    /// and ends its Session Rule. The caller hears the refusal, so a
+    /// failed write is only logged, and the rule raises no news.
+    async fn refuse_unattended(&self, record: &mut CodingSession) {
+        let end = End::new(UNATTENDED_MODE_NOT_ALLOWED, None);
+        if let Err(error) = self.transition(record, State::Closed, Some(end)).await {
+            tracing::warn!(session = %record.id, %error, "a refused Coding Session was not written");
+        }
+        self.end_rules(record).await;
+    }
 }
 
 /// A command to the task of a live session.
@@ -1025,6 +1246,77 @@ enum Command {
         reason: InterruptReason,
         reply: oneshot::Sender<()>,
     },
+}
+
+/// Hands a command to the task of a session and waits for its answer. A
+/// task that ends meanwhile gives none.
+async fn ask_task<T>(
+    commands: &mpsc::UnboundedSender<Command>,
+    command: impl FnOnce(oneshot::Sender<Result<T, SessionError>>) -> Command,
+) -> Option<Result<T, SessionError>> {
+    let (reply, replied) = oneshot::channel();
+    commands.send(command(reply)).ok()?;
+    replied.await.ok()
+}
+
+/// Whether a session of the harness acts without asking: the harness
+/// never asks permission, so Pagis policy sees none of its actions.
+fn acts_without_asking(harness_id: &str) -> bool {
+    harness::entry(harness_id).is_some_and(|entry| !entry.asks_permission)
+}
+
+/// The bus events of a Grant revision and of a revoked Grant.
+const GRANT_CHANGED: &str = "grant.changed";
+const GRANT_REVOKED: &str = "grant.revoked";
+
+/// The Agent and the machine of a host Grant that changed or was revoked.
+struct HostGrantChange {
+    workspace_id: WorkspaceId,
+    agent_id: AgentId,
+    host_id: HostId,
+}
+
+impl HostGrantChange {
+    /// The host Grant change that an event of the bus reports, if it
+    /// reports one.
+    fn of(event: &Event) -> Option<Self> {
+        if !matches!(event.event_type.as_str(), GRANT_CHANGED | GRANT_REVOKED)
+            || event.payload["resource_kind"] != Grant::HOST_KIND
+        {
+            return None;
+        }
+        Some(Self {
+            workspace_id: event.workspace_id.clone(),
+            agent_id: event.agent_id.clone()?,
+            host_id: HostId::from(event.payload["resource_id"].as_str()?.to_string()),
+        })
+    }
+}
+
+/// Closes the sessions that each host Grant change no longer allows,
+/// until the daemon stops. The bus catches a slow reader up from the
+/// event log, so no change is lost.
+async fn close_on_grant_changes(
+    sessions: Weak<CodingSessions>,
+    bus: Arc<dyn EventBus>,
+    cancel: CancellationToken,
+) {
+    let mut events = bus.subscribe(EventScope::Installation, None).await;
+    loop {
+        let event = tokio::select! {
+            () = cancel.cancelled() => return,
+            event = events.next() => event,
+        };
+        let Some(event) = event else { return };
+        let Some(change) = HostGrantChange::of(&event) else {
+            continue;
+        };
+        // The runtime is gone when nothing holds it.
+        let Some(sessions) = sessions.upgrade() else {
+            return;
+        };
+        sessions.close_unallowed(&change).await;
+    }
 }
 
 /// Interrupts the live sessions of each Host that goes away, until the
