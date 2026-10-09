@@ -358,6 +358,65 @@ pub struct HarnessModeInfo {
     pub description: Option<String>,
 }
 
+/// One choice of a [`HarnessSetting`], as the harness names it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct HarnessChoice {
+    /// The value that `session/set_config_option` names.
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+}
+
+/// A setting of a Coding Session that its harness offers as one ACP
+/// Session Config Option of the type `select`: the Harness Model (the
+/// category `model`) or the thought level (the category
+/// `thought_level`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct HarnessSetting {
+    /// The id of the config option, which `session/set_config_option`
+    /// names.
+    pub option_id: String,
+    /// The id of the current choice.
+    pub current: String,
+    /// The choices that the harness offers, in its order. A choice of a
+    /// group is in the list of its group, in order.
+    pub choices: Vec<HarnessChoice>,
+}
+
+impl HarnessSetting {
+    /// Whether the harness offers the choice `id`.
+    #[must_use]
+    pub fn offers(&self, id: &str) -> bool {
+        self.choices.iter().any(|choice| choice.id == id)
+    }
+
+    /// The name that the harness gave the current choice, else its id.
+    #[must_use]
+    pub fn current_name(&self) -> &str {
+        self.choices
+            .iter()
+            .find(|choice| choice.id == self.current)
+            .map_or(self.current.as_str(), |choice| choice.name.as_str())
+    }
+
+    /// Each choice as `id (name)`, or the id alone when the name is the
+    /// id, joined with commas. Each one is harness text.
+    #[must_use]
+    pub fn choices_text(&self) -> String {
+        self.choices
+            .iter()
+            .map(|choice| {
+                if choice.name == choice.id {
+                    choice.id.clone()
+                } else {
+                    format!("{} ({})", choice.id, choice.name)
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+}
+
 /// Who changed the Harness Mode of a session, as its `mode` row says.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -407,6 +466,12 @@ pub struct CodingSession {
     /// The Harness Modes that the harness offered when the session opened
     /// or resumed, in its order. Empty when it offered none.
     pub harness_modes: Vec<HarnessModeInfo>,
+    /// The Harness Model and its choices, or `None` when the harness
+    /// offers no config option of the category `model`.
+    pub model: Option<HarnessSetting>,
+    /// The thought level and its choices, or `None` when the harness
+    /// offers no config option of the category `thought_level`.
+    pub thought_level: Option<HarnessSetting>,
     pub title: String,
     pub state: CodingSessionState,
     /// Why the session ended. A terminal session has one, and no other
@@ -1212,6 +1277,30 @@ mod tests {
     }
 
     #[test]
+    fn a_harness_setting_names_its_current_choice_and_lists_its_choices() {
+        let choice = |id: &str, name: &str| HarnessChoice {
+            id: id.to_string(),
+            name: name.to_string(),
+            description: None,
+        };
+        let model = HarnessSetting {
+            option_id: "model".to_string(),
+            current: "opus".to_string(),
+            choices: vec![choice("opus", "Opus 4.7"), choice("gpt-5.5", "gpt-5.5")],
+        };
+
+        assert_eq!(model.current_name(), "Opus 4.7");
+        assert!(model.offers("gpt-5.5"));
+        assert!(!model.offers("Opus 4.7"), "a name is not an id");
+        assert_eq!(model.choices_text(), "opus (Opus 4.7), gpt-5.5");
+        let unlisted = HarnessSetting {
+            current: "haiku".to_string(),
+            ..model
+        };
+        assert_eq!(unlisted.current_name(), "haiku");
+    }
+
+    #[test]
     fn a_mode_row_never_merges() {
         let row = || NewCodingSessionEvent {
             at: 10,
@@ -1242,6 +1331,8 @@ mod tests {
             approval_mode: SessionApprovalMode::Person,
             harness_mode: mode.map(str::to_string),
             harness_modes: Vec::new(),
+            model: None,
+            thought_level: None,
             title: "Fix it".to_string(),
             state: CodingSessionState::Idle,
             end_reason: None,

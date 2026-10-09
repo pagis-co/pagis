@@ -12,7 +12,7 @@ use agent_client_protocol::{
     RequestCancellation, Responder,
 };
 use futures::io::{AsyncRead, AsyncWrite};
-use pagis_core::HarnessModeInfo;
+use pagis_core::{HarnessChoice, HarnessModeInfo, HarnessSetting};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot, watch};
 
@@ -87,6 +87,60 @@ impl SessionModes {
     }
 }
 
+/// The Harness Model and the thought level that the harness offers: the
+/// first select config option of the category `model`, and of the
+/// category `thought_level`. Pagis reads no other config option: the
+/// Harness Mode comes from the session modes.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionSettings {
+    pub model: Option<HarnessSetting>,
+    pub thought_level: Option<HarnessSetting>,
+}
+
+impl SessionSettings {
+    pub(crate) fn from_acp(options: &[acp::SessionConfigOption]) -> Self {
+        Self {
+            model: setting_of(options, &acp::SessionConfigOptionCategory::Model),
+            thought_level: setting_of(options, &acp::SessionConfigOptionCategory::ThoughtLevel),
+        }
+    }
+}
+
+/// The first select option of `category`, with the choices of each group
+/// in the order of the groups.
+fn setting_of(
+    options: &[acp::SessionConfigOption],
+    category: &acp::SessionConfigOptionCategory,
+) -> Option<HarnessSetting> {
+    options.iter().find_map(|option| {
+        if option.category.as_ref() != Some(category) {
+            return None;
+        }
+        let acp::SessionConfigKind::Select(select) = &option.kind else {
+            return None;
+        };
+        let choices: Vec<&acp::SessionConfigSelectOption> = match &select.options {
+            acp::SessionConfigSelectOptions::Ungrouped(choices) => choices.iter().collect(),
+            acp::SessionConfigSelectOptions::Grouped(groups) => {
+                groups.iter().flat_map(|group| &group.options).collect()
+            }
+            _ => Vec::new(),
+        };
+        Some(HarnessSetting {
+            option_id: option.id.0.to_string(),
+            current: select.current_value.0.to_string(),
+            choices: choices
+                .into_iter()
+                .map(|choice| HarnessChoice {
+                    id: choice.value.0.to_string(),
+                    name: choice.name.clone(),
+                    description: choice.description.clone(),
+                })
+                .collect(),
+        })
+    })
+}
+
 /// One ACP session of one Coding Harness, over one byte stream.
 ///
 /// Dropping the session ends the connection, as `close` does.
@@ -95,6 +149,7 @@ pub struct AcpSession {
     harness: HarnessInfo,
     session_id: acp::SessionId,
     modes: Option<SessionModes>,
+    settings: SessionSettings,
     flags: Arc<Flags>,
     events: mpsc::UnboundedSender<SessionEvent>,
     /// Counts the cancels, so that each ask that waits at a cancel ends.
@@ -157,39 +212,39 @@ impl AcpSession {
             .map_err(CodingError::from_acp)?;
         let harness = HarnessInfo::from_initialize(initialized)?;
 
-        let (session_id, modes) = match opening {
+        let (session_id, modes, config_options) = match opening {
             Opening::New { cwd } => {
                 let opened = connection
                     .send_request(acp::NewSessionRequest::new(cwd))
                     .block_task()
                     .await
                     .map_err(CodingError::from_acp)?;
-                (opened.session_id, opened.modes)
+                (opened.session_id, opened.modes, opened.config_options)
             }
             Opening::Restore {
                 acp_session_id,
                 cwd,
             } => {
                 let session_id = acp::SessionId::new(acp_session_id);
-                let modes = if harness.can_resume {
-                    connection
+                let (modes, config_options) = if harness.can_resume {
+                    let resumed = connection
                         .send_request(acp::ResumeSessionRequest::new(session_id.clone(), cwd))
                         .block_task()
                         .await
-                        .map_err(CodingError::from_acp)?
-                        .modes
+                        .map_err(CodingError::from_acp)?;
+                    (resumed.modes, resumed.config_options)
                 } else if harness.can_load {
-                    load(
+                    let loaded = load(
                         &connection,
                         &flags,
                         acp::LoadSessionRequest::new(session_id.clone(), cwd),
                     )
-                    .await?
-                    .modes
+                    .await?;
+                    (loaded.modes, loaded.config_options)
                 } else {
                     return Err(CodingError::CannotRestore);
                 };
-                (session_id, modes)
+                (session_id, modes, config_options)
             }
         };
 
@@ -198,6 +253,7 @@ impl AcpSession {
             harness,
             session_id,
             modes: modes.map(SessionModes::from_acp),
+            settings: SessionSettings::from_acp(&config_options.unwrap_or_default()),
             flags,
             events,
             cancels,
@@ -269,6 +325,41 @@ impl AcpSession {
             .await
             .map_err(CodingError::from_acp)?;
         Ok(())
+    }
+
+    /// The Harness Model and the thought level that the harness answered
+    /// when the session opened. A later change comes as
+    /// `SessionEvent::SettingsChanged`.
+    #[must_use]
+    pub fn settings(&self) -> &SessionSettings {
+        &self.settings
+    }
+
+    /// Sends `session/set_config_option` with the value `value` for the
+    /// config option `option_id`, and answers the settings that the
+    /// harness answered. A change of the model can change the choices of
+    /// the thought level.
+    ///
+    /// The harness refuses a value that it does not offer.
+    pub async fn set_setting(
+        &self,
+        option_id: &str,
+        value: &str,
+    ) -> Result<SessionSettings, CodingError> {
+        if self.is_closed() {
+            return Err(CodingError::Closed);
+        }
+        let answer = self
+            .connection
+            .send_request(acp::SetSessionConfigOptionRequest::new(
+                self.session_id.clone(),
+                option_id.to_owned(),
+                value,
+            ))
+            .block_task()
+            .await
+            .map_err(CodingError::from_acp)?;
+        Ok(SessionSettings::from_acp(&answer.config_options))
     }
 
     /// Sends one `session/prompt` with one text block, and returns at once.

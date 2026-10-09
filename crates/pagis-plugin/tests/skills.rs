@@ -244,7 +244,7 @@ async fn the_widgets_skill_lists_and_loads_for_every_agent() {
 
 /// Each core tool of a Coding Session (ADR-0033). The coding-sessions
 /// Skill names each one, and no other `coding_session_` word.
-const CODING_SESSION_TOOLS: [&str; 12] = [
+const CODING_SESSION_TOOLS: [&str; 13] = [
     pagis_broker::CODING_SESSION_START,
     pagis_broker::COMPUTER_CODING_SESSION_START,
     pagis_broker::CODING_SESSION_SEND,
@@ -257,6 +257,7 @@ const CODING_SESSION_TOOLS: [&str; 12] = [
     pagis_broker::CODING_SESSION_ESCALATE,
     pagis_broker::CODING_SESSION_ANSWER,
     pagis_broker::CODING_SESSION_SET_MODE,
+    pagis_broker::CODING_SESSION_SET_MODEL,
 ];
 
 /// The coding-sessions Skill teaches an Agent to brief, supervise,

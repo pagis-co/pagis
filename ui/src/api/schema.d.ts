@@ -3679,6 +3679,16 @@ export interface components {
             machine_name?: string | null;
             /** @description The message that holds the block of the session. */
             message_id: string;
+            /**
+             * @description The id of the current Harness Model, or none when the harness
+             *     offers no choice of model. It is harness text.
+             */
+            model?: string | null;
+            /**
+             * @description The name that the harness gave the current Harness Model, else its
+             *     id. It is harness text.
+             */
+            model_name?: string | null;
             pending?: null | components["schemas"]["PendingDecisionDto"];
             place: components["schemas"]["CodingSessionPlace"];
             /** @description The root message of that Thread. */
@@ -3686,6 +3696,16 @@ export interface components {
             /** @description The Run that started the session. */
             run_id: string;
             state: components["schemas"]["CodingSessionState"];
+            /**
+             * @description The id of the current thought level, or none when the harness
+             *     offers no choice of thought level. It is harness text.
+             */
+            thought_level?: string | null;
+            /**
+             * @description The name that the harness gave the current thought level, else its
+             *     id. It is harness text.
+             */
+            thought_level_name?: string | null;
             title: string;
             /**
              * @description Whether the session acts without asking: its harness never asks,

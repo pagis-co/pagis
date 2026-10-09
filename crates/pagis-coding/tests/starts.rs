@@ -153,6 +153,8 @@ impl World {
                 approval_mode: SessionApprovalMode::Person,
                 harness_mode: None,
                 harness_modes: Vec::new(),
+                model: None,
+                thought_level: None,
                 title: "Earlier work".to_string(),
                 state,
                 end_reason: terminal.then(|| "closed".to_string()),
@@ -237,6 +239,8 @@ async fn an_allowed_start_names_the_harness_the_branch_and_the_mode(pool: Sqlite
             mode: SessionApprovalMode::Person,
             asks_permission: true,
             harness_mode: None,
+            model: None,
+            thought_level: None,
         }
     );
     let action = world

@@ -70,6 +70,9 @@ The record holds:
 - the Session Approval Mode;
 - the Harness Mode: the current mode id and the modes that the harness
   offered;
+- the Harness Model and the thought level: for each, the id of its ACP
+  config option, the current choice and the choices that the harness
+  offered, or none;
 - the title, the state and the end reason, and for a failed harness the end
   detail: its exit code and the last 4 KB of its stderr, or the message of
   the request that it failed;
@@ -453,7 +456,7 @@ error, such as a sign-in that did not end in 30 minutes.
 The Agent drives a Coding Session with core tools (ADR-0005):
 
 - `coding_session_start {harness, machine?, directory, worktree?, mode?,
-  harness_mode?, title, prompt}`. `worktree` is true by default, on the
+  harness_mode?, model?, thought_level?, title, prompt}`. `worktree` is true by default, on the
   branch `pagis/<slug>`. `mode` is `person` by default. `harness_mode` is the
   id of a Harness Mode of the Harness Catalog for the harness, and the
   description of the tool lists the modes of each harness and marks each
@@ -466,14 +469,19 @@ The Agent drives a Coding Session with core tools (ADR-0005):
   "Harness mode: <name>" takes the name from the catalog, and a mode that
   acts without asking adds " (acts without asking)". With no
   `harness_mode`, the line names the first asking mode of the catalog, and
-  a harness with no catalog modes has no line. For a harness that never
-  asks, the card adds the line "<harness> does not ask before it acts." The
+  a harness with no catalog modes has no line. The line "Model: <id>"
+  names the `model` of the start, and with no `model` it reads "Model: the
+  default of <harness>". The line "Thought level: <id>" names the
+  `thought_level` of the start, and a start with no `thought_level` has no
+  line. For a harness that never asks, the card adds the line "<harness>
+  does not ask before it acts." The
   start refuses a mode wider than the Grant allows, a `harness_mode` that
   the catalog does not list for the harness (`invalid_request`), and a
   harness that never asks or a Harness Mode that acts without asking where
   the Grant does not allow Unattended Modes
   (`unattended_mode_not_allowed`).
-- `computer_coding_session_start {harness, directory, title, prompt}`
+- `computer_coding_session_start {harness, directory, model?,
+  thought_level?, title, prompt}`
   starts a session in the Agent's own Computer. `harness` is a harness with
   a Computer launch: `claude`, `codex`, `opencode` or `pi`. `directory` is
   an absolute directory under `/data/agent`. The effect class is `free`, as
@@ -485,7 +493,9 @@ The Agent drives a Coding Session with core tools (ADR-0005):
   `no_provider_key`, which names the providers), and, where the route needs
   a model of the Agent (pi, and Codex on OpenRouter), a candidate of the
   Agent's model alias from such a provider (else `no_model_candidate`,
-  which names the alias and the providers). The Host and the Computer
+  which names the alias and the providers), and that a start on a route
+  that fixes the model names no `model` (else `model_not_offered`). The
+  Host and the Computer
   are two tools, because one tool cannot hold two effect classes or two
   Grant bindings, and an Agent with a Computer and no Host can still start
   a session.
@@ -567,6 +577,17 @@ The Agent drives a Coding Session with core tools (ADR-0005):
   `session/set_mode` and writes the record and a `mode` row by `agent`. The
   check and the write hold the lock of the Grant checks. The tool accepts
   each mode that the session lists, because the harness named it.
+- `coding_session_set_model {session, model?, thought_level?}` changes the
+  Harness Model or the thought level of a session, and needs one of them.
+  Free, because the Person approves no model, and the snapshot holds it
+  with the other session tools. It checks, in this order, that the session
+  is the Agent's own (else `session_not_found`), that the session has a
+  stream (else `session_not_open` with the state), and that the harness
+  offers each choice (else `model_not_offered` or
+  `thought_level_not_offered`). The task of the session then sets each
+  choice that differs from the current one, and writes the record. The
+  thought level is in the same tool, because the thought levels of a
+  harness can depend on its model.
 
 The first-party Skill `pagis:coding-sessions` (ADR-0017), in
 `computer/skills/coding-sessions/SKILL.md`, teaches each Agent to use these
@@ -710,6 +731,51 @@ badge after the Session Approval Mode, on the session block and in the head
 of the session page. The badge has the waiting hue when the session acts
 without asking. A row of the Coding place shows the name after the harness.
 The transcript shows each `mode` row as one line that says who set the mode.
+
+### A Harness Model says which model a harness uses
+
+A **Harness Model** is the model of a Coding Session, as its harness offers
+it over ACP: a Session Config Option of the category `model`. The thought
+level is a Session Config Option of the category `thought_level`. The
+harness names its config options in the answer of `session/new`,
+`session/load` or `session/resume`, and in a `config_option_update`, each
+time as the full set. The record keeps the first `select` option of each
+category, and its choices without their groups. A harness that answers no
+such option has no choice of it. Gemini CLI is such a harness: it offers
+models only through `session/set_model`, which the ACP schema of Pagis does
+not hold.
+
+The Agent picks the model and the thought level by the ids of the harness,
+because only the harness knows the models that it serves. With no
+`model`, the session uses the default of the harness. The harness lists
+its choices only when the session opens, so the start checks a choice after
+`session/new` and not before the card. The daemon sets the model first and
+then the thought level, each with `session/set_config_option`, before the
+first prompt, and after the Harness Mode. The record takes the settings
+from the answer of the harness, because a change of model can change the
+thought levels. When the harness does not offer a choice, the start ends
+`failed` with the end reason `model_not_offered` or
+`thought_level_not_offered`, and the tool error lists the choices of the
+harness inside the untrusted envelope. A resume sets the recorded choices
+again where the restored harness still offers them. A change of model
+writes no transcript row: a model does not change what Pagis policy sees.
+
+In the Agent's Computer, the model route decides which provider serves
+the harness. Claude Code, OpenCode and pi list only models of the provider
+of their route. Codex on the OpenAI route lists the models of OpenAI.
+Codex on the OpenRouter route lists models of OpenAI that OpenRouter does
+not serve under those ids, so that route fixes the model to the candidate
+of the Agent's model alias. A session on that route keeps no Harness Model,
+and a start or a `coding_session_set_model` with a `model` fails with
+`model_not_offered`. On each other route, a `model` replaces the default
+model of the harness, and the alias gives no model.
+
+`coding_session_read` shows the current choice and the choices of each
+setting inside the untrusted envelope. The REST record of a session holds
+`model`, `model_name`, `thought_level` and `thought_level_name`: the
+current ids and the names that the harness gave them. The session block
+shows the model and the thought level in its facts, and the head of the
+session page shows them as "Model" and "Thought level".
 
 ### A Harness Permission passes Pagis policy first
 
@@ -986,8 +1052,8 @@ owns.
 The Product App draws the block as one card, running or settled, as the call
 block is (ADR-0022). The card reads the session record, and an event of the
 session makes it read the record again. It shows the harness, the title, the
-machine, the directory, the branch, the state, the mode, the usage and the
-last line of activity. While the session is `needs_decision`, it says where
+machine, the directory, the branch, the Harness Model, the state, the mode,
+the usage and the last line of activity. While the session is `needs_decision`, it says where
 the decision waits, and it does not draw the approval card. A closed or
 failed session shows its end reason and its end time. "Open" goes to the
 session page. Stop calls the Person's Stop with no confirmation, and the card

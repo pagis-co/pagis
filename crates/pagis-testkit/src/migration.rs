@@ -303,6 +303,9 @@ pub async fn assert_modeless_session_rows(stores: &Stores) {
         .expect("the session is kept");
     assert_eq!(session.harness_mode, None);
     assert_eq!(session.harness_modes, []);
+    // A later migration gives it no Harness Model and no thought level.
+    assert_eq!(session.model, None);
+    assert_eq!(session.thought_level, None);
     assert_eq!(session.title, "Fix it");
 
     let events = stores

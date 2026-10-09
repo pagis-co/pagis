@@ -13,8 +13,8 @@ use std::time::Duration;
 use futures::StreamExt;
 use pagis_agent::TurnRole;
 use pagis_broker::HarnessSignIn;
-use pagis_coding::NewCodingSession;
 use pagis_coding::fake::{Script, acp, serve_client_app};
+use pagis_coding::{NewCodingSession, SettingChoices};
 use pagis_core::{AgentId, ChannelId, HostId, SessionApprovalMode, harness, now_ms};
 use pagis_testkit::{
     HostAnswer, HostClient, ScriptedBrain, Socket, TestDaemon, TestDaemonOptions, TwoTenants,
@@ -670,6 +670,7 @@ async fn person_b_receives_no_sign_in_change_of_person_as_host() {
             worktree: None,
             approval_mode: SessionApprovalMode::Person,
             harness_mode: None,
+            settings: SettingChoices::default(),
             title: "Fix the login".to_string(),
             prompt: "Fix the login bug.".to_string(),
         })

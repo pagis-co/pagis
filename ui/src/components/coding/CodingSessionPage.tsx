@@ -114,6 +114,18 @@ function Head({
             <dd className="coding-mono">{session.worktree_branch}</dd>
           </div>
         )}
+        {session.model_name != null && session.model_name !== '' && (
+          <div>
+            <dt>Model</dt>
+            <dd>{session.model_name}</dd>
+          </div>
+        )}
+        {session.thought_level_name != null && session.thought_level_name !== '' && (
+          <div>
+            <dt>Thought level</dt>
+            <dd>{session.thought_level_name}</dd>
+          </div>
+        )}
         {usage !== null && (
           <div>
             <dt>Usage</dt>

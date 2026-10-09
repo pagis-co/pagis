@@ -11,8 +11,8 @@ use async_trait::async_trait;
 use pagis_core::coding_session::{TranscriptWrite, fold};
 use pagis_core::{
     AgentId, ChannelId, CodingSession, CodingSessionEvent, CodingSessionEventKind, CodingSessionId,
-    CodingSessionState, CodingSessionStore, CodingSessionUsage, HostId, MessageId, ModelTokenOwner,
-    NewCodingSessionEvent, RunId, StoreError, WorkspaceId,
+    CodingSessionState, CodingSessionStore, CodingSessionUsage, HarnessSetting, HostId, MessageId,
+    ModelTokenOwner, NewCodingSessionEvent, RunId, StoreError, WorkspaceId,
 };
 use sqlx::{PgPool, Row};
 
@@ -33,7 +33,7 @@ const COLUMNS: &str = "id, workspace_id, agent_id, harness_id, harness_version, 
      directory, working_directory, worktree_branch, approval_mode, title, state, end_reason, \
      end_detail, acp_session_id, channel_id, root_message_id, message_id, run_id, context_used, \
      context_size, cost_amount, cost_currency, created_at, updated_at, ended_at, harness_mode, \
-     harness_modes";
+     harness_modes, model, thought_level";
 
 const EVENT_COLUMNS: &str = "workspace_id, coding_session_id, seq, at, kind, payload";
 
@@ -84,6 +84,8 @@ fn from_row(row: &sqlx::postgres::PgRow) -> Result<CodingSession, StoreError> {
         harness_modes: serde_json::from_str(&row.get::<String, _>("harness_modes")).map_err(
             |error| StoreError::Corrupt(format!("the Harness Modes are not JSON: {error}")),
         )?,
+        model: setting_from_db(row.get("model"))?,
+        thought_level: setting_from_db(row.get("thought_level"))?,
         title: row.get("title"),
         state: parse(&row.get::<String, _>("state"))?,
         end_reason: row.get("end_reason"),
@@ -124,6 +126,27 @@ fn modes_json(session: &CodingSession) -> Result<String, StoreError> {
     })
 }
 
+/// A Harness Setting as the JSON of its column, or `NULL` for none.
+fn setting_json(setting: Option<&HarnessSetting>) -> Result<Option<String>, StoreError> {
+    setting
+        .map(|setting| {
+            serde_json::to_string(setting).map_err(|error| {
+                StoreError::Corrupt(format!("a Harness Setting does not serialize: {error}"))
+            })
+        })
+        .transpose()
+}
+
+fn setting_from_db(value: Option<String>) -> Result<Option<HarnessSetting>, StoreError> {
+    value
+        .map(|json| {
+            serde_json::from_str(&json).map_err(|error| {
+                StoreError::Corrupt(format!("a Harness Setting is not JSON: {error}"))
+            })
+        })
+        .transpose()
+}
+
 fn payload_json(payload: &serde_json::Value) -> Result<String, StoreError> {
     serde_json::to_string(payload).map_err(|error| {
         StoreError::Corrupt(format!("a transcript payload does not serialize: {error}"))
@@ -136,7 +159,7 @@ impl CodingSessionStore for PostgresCodingSessionStore {
         sqlx::query(&format!(
             "INSERT INTO coding_sessions ({COLUMNS}) VALUES \
              ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, \
-             $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29)"
+             $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31)"
         ))
         .bind(session.id.as_str())
         .bind(session.workspace_id.as_str())
@@ -167,6 +190,8 @@ impl CodingSessionStore for PostgresCodingSessionStore {
         .bind(session.ended_at)
         .bind(session.harness_mode.as_deref())
         .bind(modes_json(session)?)
+        .bind(setting_json(session.model.as_ref())?)
+        .bind(setting_json(session.thought_level.as_ref())?)
         .execute(&self.pool)
         .await
         .map_err(db_err)?;
@@ -181,7 +206,8 @@ impl CodingSessionStore for PostgresCodingSessionStore {
              acp_session_id = $14, channel_id = $15, root_message_id = $16, message_id = $17, \
              run_id = $18, context_used = $19, context_size = $20, cost_amount = $21, \
              cost_currency = $22, created_at = $23, updated_at = $24, ended_at = $25, \
-             harness_mode = $26, harness_modes = $27 WHERE id = $28 AND workspace_id = $29",
+             harness_mode = $26, harness_modes = $27, model = $28, thought_level = $29 \
+             WHERE id = $30 AND workspace_id = $31",
         )
         .bind(session.agent_id.as_str())
         .bind(&session.harness_id)
@@ -210,6 +236,8 @@ impl CodingSessionStore for PostgresCodingSessionStore {
         .bind(session.ended_at)
         .bind(session.harness_mode.as_deref())
         .bind(modes_json(session)?)
+        .bind(setting_json(session.model.as_ref())?)
+        .bind(setting_json(session.thought_level.as_ref())?)
         .bind(session.id.as_str())
         .bind(session.workspace_id.as_str())
         .execute(&self.pool)

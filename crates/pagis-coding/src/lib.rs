@@ -51,6 +51,7 @@ mod policy;
 mod report;
 mod session;
 mod sessions;
+mod settings;
 mod sign_in;
 mod starts;
 mod tools;
@@ -82,11 +83,12 @@ pub use policy::{
     NO_ANSWER_NOTE, NO_DECISION_NOTE, PERMISSION_DECIDED_EVENT, PolicyDecisions,
     PolicyDecisionsDeps,
 };
-pub use session::{AcpSession, HarnessInfo, Opening, SessionModes, SignInMethod};
+pub use session::{AcpSession, HarnessInfo, Opening, SessionModes, SessionSettings, SignInMethod};
 pub use sessions::{
     CloseReason, CodingSessions, CodingSessionsDeps, NewCodingSession, PromptOutcome,
-    ResumeFailure, SessionError, SetModeFailure, StartFailure,
+    ResumeFailure, SessionError, SetModeFailure, SetSettingsFailure, StartFailure,
 };
+pub use settings::{ChoiceFailure, Setting, SettingChoices};
 pub use sign_in::{
     SIGN_IN_CHANGED_EVENT, SignInAttempt, SignInFailure, SignInReport, SignInReports, SignIns,
 };

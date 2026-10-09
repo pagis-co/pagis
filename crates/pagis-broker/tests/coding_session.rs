@@ -9,7 +9,7 @@
 use pagis_broker::{
     CODING_SESSION_ANSWER, CODING_SESSION_CANCEL, CODING_SESSION_CLOSE, CODING_SESSION_DECIDE,
     CODING_SESSION_ESCALATE, CODING_SESSION_LIST, CODING_SESSION_READ, CODING_SESSION_RESUME,
-    CODING_SESSION_SEND, CODING_SESSION_SET_MODE, CODING_SESSION_START,
+    CODING_SESSION_SEND, CODING_SESSION_SET_MODE, CODING_SESSION_SET_MODEL, CODING_SESSION_START,
     COMPUTER_CODING_SESSION_START, InvokeOutcome, SessionStartAction, ToolCall, ToolResult,
 };
 use pagis_core::{
@@ -28,7 +28,7 @@ const DIRECTORY: &str = "/Users/bo/code/app";
 const PROMPT: &str = "Fix the login bug.";
 
 /// The start on a Host and the tools of a started session.
-const SESSION_TOOLS: [&str; 9] = [
+const SESSION_TOOLS: [&str; 10] = [
     CODING_SESSION_START,
     CODING_SESSION_SEND,
     CODING_SESSION_READ,
@@ -38,6 +38,7 @@ const SESSION_TOOLS: [&str; 9] = [
     CODING_SESSION_RESUME,
     CODING_SESSION_ANSWER,
     CODING_SESSION_SET_MODE,
+    CODING_SESSION_SET_MODEL,
 ];
 
 /// The tools of the `agent` mode. The snapshot holds them only for an
@@ -68,6 +69,8 @@ fn action(branch: Option<&str>, mode: SessionApprovalMode) -> SessionStartAction
         mode,
         asks_permission: true,
         harness_mode: None,
+        model: None,
+        thought_level: None,
     }
 }
 
@@ -548,7 +551,7 @@ async fn the_card_names_the_harness_and_the_machine(pool: SqlitePool) {
         format!(
             "Harness: Claude Code\nMachine: Air\nDirectory: {DIRECTORY}\n\
              Worktree: pagis/fix-the-login\nMode: Let the sprite decide\nHarness mode: \
-             Manual\nPrompt: {PROMPT}"
+             Manual\nModel: the default of Claude Code\nPrompt: {PROMPT}"
         )
     );
     assert_eq!(card.request.payload["body"], card.body);
@@ -614,8 +617,9 @@ async fn the_card_of_a_start_with_no_worktree_and_a_long_prompt(pool: SqlitePool
         card.body
     );
     assert!(
-        card.body
-            .contains("Mode: Ask me\nHarness mode: Manual\nPrompt: "),
+        card.body.contains(
+            "Mode: Ask me\nHarness mode: Manual\nModel: the default of Claude Code\nPrompt: "
+        ),
         "{}",
         card.body
     );
@@ -646,8 +650,9 @@ async fn the_card_of_a_harness_that_never_asks_says_so(pool: SqlitePool) {
     };
 
     assert!(
-        card.body
-            .contains("\nMode: Ask me\npi does not ask before it acts.\nPrompt: "),
+        card.body.contains(
+            "\nMode: Ask me\nModel: the default of pi\npi does not ask before it acts.\nPrompt: "
+        ),
         "{}",
         card.body
     );

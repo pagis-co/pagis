@@ -27,8 +27,8 @@ use pagis_broker::{
 };
 use pagis_core::{
     CodingSession, CodingSessionId, CodingSessionPlace, CodingSessionState as State,
-    CodingSessionStore, EventSource, Grant, GrantStore, HostStore, SessionApprovalMode, StoreError,
-    harness, wrap_untrusted,
+    CodingSessionStore, EventSource, Grant, GrantStore, HarnessSetting, HostStore,
+    SessionApprovalMode, StoreError, harness, wrap_untrusted,
 };
 use serde_json::json;
 
@@ -37,10 +37,11 @@ use crate::model_route::{ModelRoutes, RouteFailure};
 use crate::policy::{effective_mode, host_grant};
 use crate::report::harness_output;
 use crate::sessions::UNATTENDED_MODE_NOT_ALLOWED;
-use crate::starts::MAX_OPEN_SESSIONS;
+use crate::starts::{MAX_OPEN_SESSIONS, choice};
 use crate::{
-    AgentAsks, CloseReason, CodingSessions, DecidedBy, NewCodingSession, Place, PromptOutcome,
-    ResumeFailure, SessionError, SetModeFailure, StartFailure,
+    AgentAsks, ChoiceFailure, CloseReason, CodingSessions, DecidedBy, NewCodingSession, Place,
+    PromptOutcome, ResumeFailure, SessionError, SetModeFailure, SetSettingsFailure, Setting,
+    SettingChoices, StartFailure,
 };
 
 /// The home of the Agent in its own Computer. A session there works in a
@@ -145,6 +146,10 @@ impl CodingToolRuntime {
             directory: start.directory,
             approval_mode: start.mode,
             harness_mode: start.harness_mode,
+            settings: SettingChoices {
+                model: start.model,
+                thought_level: start.thought_level,
+            },
             title: text(call, "title"),
             prompt: text(call, "prompt"),
         };
@@ -156,7 +161,8 @@ impl CodingToolRuntime {
     /// the harness has the first prompt. The checks go in this order: the
     /// harness runs in a Computer, the directory is under `/data/agent`,
     /// the Agent holds fewer than `MAX_OPEN_SESSIONS` open sessions on
-    /// every place, and the harness has a model route. The harness runs
+    /// every place, the harness has a model route, and a route that names
+    /// the model takes no other `model`. The harness runs
     /// in the Harness Mode of its Computer launch, and the Agent decides
     /// what the harness still asks.
     async fn computer_start(&self, call: &AuthorizedCall) -> Result<ToolResult, ToolResult> {
@@ -172,6 +178,10 @@ impl CodingToolRuntime {
             ));
         };
         let directory = text(call, "directory");
+        let settings = SettingChoices {
+            model: choice(&call.arguments, "model")?,
+            thought_level: choice(&call.arguments, "thought_level")?,
+        };
         if !in_computer_home(&directory) {
             return Err(ToolResult::error(
                 "bad_directory",
@@ -195,7 +205,8 @@ impl CodingToolRuntime {
                 ),
             ));
         }
-        self.routes
+        let route = self
+            .routes
             .route(&call.workspace_id, &call.agent_id, entry.id)
             .await
             .map_err(|failure| match failure {
@@ -206,6 +217,21 @@ impl CodingToolRuntime {
                     ToolResult::error("temporarily_unavailable", message)
                 }
             })?;
+        // The route names the model, and the harness lists models that the
+        // route does not serve.
+        if route.fixes_model()
+            && let Some(model) = &settings.model
+        {
+            return Err(ToolResult::error(
+                Setting::Model.not_offered(),
+                format!(
+                    "{} in your computer reaches {} and uses the model {} of your model alias,                      so it takes no other model such as {model:?}. Omit model.",
+                    entry.label,
+                    route.provider().name(),
+                    route.model().unwrap_or_default()
+                ),
+            ));
+        }
         let new = NewCodingSession {
             workspace_id: call.workspace_id.clone(),
             agent_id: call.agent_id.clone(),
@@ -219,6 +245,7 @@ impl CodingToolRuntime {
                 .computer
                 .and_then(|launch| launch.mode)
                 .map(str::to_string),
+            settings,
             title: text(call, "title"),
             prompt: text(call, "prompt"),
         };
@@ -262,6 +289,12 @@ impl CodingToolRuntime {
             None => serde_json::Value::Null,
         };
         output["harness_modes"] = json!(session.harness_modes);
+        // The harness names its models and its thought levels too.
+        output["model"] = current_choice(session.model.as_ref());
+        output["models"] = json!(session.model.as_ref().map(|model| &model.choices));
+        output["thought_level"] = current_choice(session.thought_level.as_ref());
+        output["thought_levels"] =
+            json!(session.thought_level.as_ref().map(|level| &level.choices));
         let source = EventSource::coding_session(session.id.clone()).to_string();
         Ok(ToolResult::success(
             json!({
@@ -478,6 +511,38 @@ impl CodingToolRuntime {
         ))
     }
 
+    /// Changes the Harness Model or the thought level of the session, the
+    /// model first. The checks go in this order: the session is the
+    /// Agent's own, it has a stream, and the harness offers each choice.
+    async fn set_model(&self, call: &AuthorizedCall) -> Result<ToolResult, ToolResult> {
+        let session = self.own_session(call).await?;
+        let choices = SettingChoices {
+            model: choice(&call.arguments, "model")?,
+            thought_level: choice(&call.arguments, "thought_level")?,
+        };
+        self.sessions
+            .set_settings(&call.workspace_id, &session.id, choices.clone())
+            .await
+            .map_err(|failure| match failure {
+                SetSettingsFailure::NotFound => ToolResult::error(
+                    SESSION_NOT_FOUND,
+                    format!("you have no coding session {}", session.id),
+                ),
+                SetSettingsFailure::NotOpen(state) => not_open(state),
+                SetSettingsFailure::Choice(failure) => choice_failure(&session.id, failure, false),
+                SetSettingsFailure::Store(error) => unavailable(error),
+            })?;
+        // The daemon's own state and the Agent's own words.
+        Ok(ToolResult::success(
+            json!({
+                "session_id": session.id.as_str(),
+                "model": choices.model,
+                "thought_level": choices.thought_level,
+            })
+            .to_string(),
+        ))
+    }
+
     /// The Agent's own sessions: each open one, then the newest that
     /// ended. The title and the directory are the Agent's own words, so
     /// they take no envelope.
@@ -594,6 +659,59 @@ fn mode_name<'a>(session: &'a CodingSession, mode_id: &'a str) -> &'a str {
         .iter()
         .find(|mode| mode.id == mode_id)
         .map_or(mode_id, |mode| mode.name.as_str())
+}
+
+/// The current choice of a Harness Setting with the name that the
+/// harness gave it, or null when the harness offers no such setting.
+fn current_choice(setting: Option<&HarnessSetting>) -> serde_json::Value {
+    match setting {
+        Some(setting) => json!({"id": setting.current, "name": setting.current_name()}),
+        None => serde_json::Value::Null,
+    }
+}
+
+/// The tool error of a choice that the harness did not take. The choices
+/// and a failure of the harness are harness text (ADR-0005). After a
+/// failed start, the Agent starts a new session.
+fn choice_failure(session_id: &CodingSessionId, failure: ChoiceFailure, start: bool) -> ToolResult {
+    match failure {
+        ChoiceFailure::NotOffered {
+            setting,
+            choice,
+            offered,
+        } => {
+            let words = setting.words();
+            let outcome = if start {
+                format!(
+                    "so the session failed before its first prompt. Start a new session with \
+                     one of the {words}s that it offers"
+                )
+            } else {
+                format!("Use one of the {words}s that it offers")
+            };
+            let message = if offered.is_empty() {
+                format!(
+                    "The harness offers no choice of {words}, {}. Omit {}.",
+                    if start {
+                        "so the session failed before its first prompt"
+                    } else {
+                        "so the session keeps its own"
+                    },
+                    setting.as_str()
+                )
+            } else {
+                format!(
+                    "The harness does not offer the {words} {choice:?}, {outcome}:\n{}",
+                    wrap_untrusted(
+                        &EventSource::coding_session(session_id.clone()).to_string(),
+                        &offered
+                    )
+                )
+            };
+            ToolResult::plain_error(setting.not_offered(), message)
+        }
+        ChoiceFailure::Harness(message) => harness_error(session_id.clone(), &message),
+    }
 }
 
 /// The display name of a harness. A harness that a later release removed
@@ -722,6 +840,20 @@ fn start_failure(failure: StartFailure) -> ToolResult {
                 )
             ),
         ),
+        StartFailure::ChoiceNotOffered {
+            session_id,
+            setting,
+            choice,
+            offered,
+        } => choice_failure(
+            &session_id,
+            ChoiceFailure::NotOffered {
+                setting,
+                choice,
+                offered,
+            },
+            true,
+        ),
         StartFailure::Rules { .. } => {
             ToolResult::error("temporarily_unavailable", failure.to_string())
         }
@@ -746,6 +878,7 @@ impl ToolExecutor for CodingToolRuntime {
                 CoreTool::CodingSessionEscalate => self.escalate(&call).await,
                 CoreTool::CodingSessionAnswer => self.answer(&call).await,
                 CoreTool::CodingSessionSetMode => self.set_mode(&call).await,
+                CoreTool::CodingSessionSetModel => self.set_model(&call).await,
                 _ => Err(not_a_session_tool(&call)),
             },
             _ => Err(not_a_session_tool(&call)),

@@ -17,8 +17,8 @@ use axum::http::StatusCode;
 use pagis_coding::{CloseReason, SessionError, WaitsFor};
 use pagis_core::{
     AgentId, CodingSession, CodingSessionEvent, CodingSessionEventKind as Kind, CodingSessionId,
-    CodingSessionPlace, CodingSessionState, CodingSessionUsage, HarnessModeInfo, HostId,
-    SessionApprovalMode, WorkspaceId, harness,
+    CodingSessionPlace, CodingSessionState, CodingSessionUsage, HarnessModeInfo, HarnessSetting,
+    HostId, SessionApprovalMode, WorkspaceId, harness,
 };
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -86,6 +86,18 @@ pub struct CodingSessionDto {
     /// The Harness Modes that the harness offered, in its order. They are
     /// harness text.
     pub harness_modes: Vec<HarnessModeInfo>,
+    /// The id of the current Harness Model, or none when the harness
+    /// offers no choice of model. It is harness text.
+    pub model: Option<String>,
+    /// The name that the harness gave the current Harness Model, else its
+    /// id. It is harness text.
+    pub model_name: Option<String>,
+    /// The id of the current thought level, or none when the harness
+    /// offers no choice of thought level. It is harness text.
+    pub thought_level: Option<String>,
+    /// The name that the harness gave the current thought level, else its
+    /// id. It is harness text.
+    pub thought_level_name: Option<String>,
     /// Whether the session acts without asking: its harness never asks,
     /// or its Harness Mode is not an asking mode of the Harness Catalog.
     pub unattended: bool,
@@ -397,6 +409,8 @@ async fn session_dto(
             .find(|mode| mode.id == *id)
             .map_or_else(|| id.clone(), |mode| mode.name.clone())
     });
+    let (model, model_name) = current_choice(session.model.as_ref());
+    let (thought_level, thought_level_name) = current_choice(session.thought_level.as_ref());
     let machine_name = session
         .host_id
         .as_ref()
@@ -418,6 +432,10 @@ async fn session_dto(
         harness_mode: session.harness_mode,
         harness_mode_name,
         harness_modes: session.harness_modes,
+        model,
+        model_name,
+        thought_level,
+        thought_level_name,
         unattended,
         title: session.title,
         state: session.state,
@@ -435,6 +453,17 @@ async fn session_dto(
         last_activity: activity.as_ref().and_then(last_activity),
         pending: decision.as_ref().and_then(pending),
     })
+}
+
+/// The id and the name of the current choice of a Harness Setting.
+fn current_choice(setting: Option<&HarnessSetting>) -> (Option<String>, Option<String>) {
+    match setting {
+        Some(setting) => (
+            Some(setting.current.clone()),
+            Some(setting.current_name().to_string()),
+        ),
+        None => (None, None),
+    }
 }
 
 /// One line about the last row of a transcript that is not `usage`.

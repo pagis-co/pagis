@@ -3,6 +3,8 @@ use std::path::PathBuf;
 use agent_client_protocol::schema::v1 as acp;
 use serde::{Deserialize, Serialize};
 
+use crate::SessionSettings;
+
 /// One event of a Coding Session, in the order that the harness sent it.
 ///
 /// One `AcpSession` is one harness process and one ACP session, so an
@@ -49,6 +51,9 @@ pub enum SessionEvent {
     },
     /// The harness changed its Harness Mode to the mode `mode_id`.
     ModeChanged { mode_id: String },
+    /// The harness reported its config options again, with its Harness
+    /// Model and its thought level.
+    SettingsChanged { settings: SessionSettings },
     /// The turn ended. The updates of the turn always come before it.
     TurnEnded { stop_reason: StopReason },
     /// The prompt request failed. The session can take a new prompt.
@@ -211,8 +216,11 @@ impl SessionEvent {
             acp::SessionUpdate::CurrentModeUpdate(update) => Some(Self::ModeChanged {
                 mode_id: update.current_mode_id.0.to_string(),
             }),
-            // The prompt, the commands, the config options and the session
-            // title are not part of the transcript.
+            acp::SessionUpdate::ConfigOptionUpdate(update) => Some(Self::SettingsChanged {
+                settings: SessionSettings::from_acp(&update.config_options),
+            }),
+            // The prompt, the commands and the session title are not part
+            // of the transcript.
             _ => None,
         }
     }

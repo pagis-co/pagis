@@ -41,6 +41,7 @@ pub struct Script {
     auth_methods: Vec<acp::AuthMethod>,
     new_session_auth_required: bool,
     modes: Option<acp::SessionModeState>,
+    config_options: Option<Vec<acp::SessionConfigOption>>,
     turns: Vec<Turn>,
     history: Vec<acp::SessionUpdate>,
 }
@@ -56,6 +57,7 @@ impl Default for Script {
             auth_methods: Vec::new(),
             new_session_auth_required: false,
             modes: None,
+            config_options: None,
             turns: Vec::new(),
             history: Vec::new(),
         }
@@ -129,6 +131,17 @@ impl Script {
             .is_some_and(|modes| modes.available_modes.iter().any(|mode| &mode.id == mode_id))
     }
 
+    /// The config options that `session/new`, `session/resume` and
+    /// `session/load` answer. `session/set_config_option` then takes each
+    /// value that a select option of the named id offers, and answers the
+    /// options with that value as the current one. It refuses each other
+    /// option or value with the JSON-RPC error `-32602`.
+    #[must_use]
+    pub fn config_options(mut self, options: Vec<acp::SessionConfigOption>) -> Self {
+        self.config_options = Some(options);
+        self
+    }
+
     /// Adds the turn that answers the next prompt. A prompt after the last
     /// scripted turn ends at once with `end_turn`.
     #[must_use]
@@ -143,6 +156,57 @@ impl Script {
         self.history = updates;
         self
     }
+}
+
+/// A select config option of `category` whose choices are `choices` as
+/// `(value, name)`, with the value `current`. Its name is its id.
+#[must_use]
+pub fn select(
+    id: &str,
+    category: acp::SessionConfigOptionCategory,
+    current: &str,
+    choices: &[(&str, &str)],
+) -> acp::SessionConfigOption {
+    acp::SessionConfigOption::select(
+        id.to_owned(),
+        id.to_owned(),
+        current.to_owned(),
+        choices
+            .iter()
+            .map(|(value, name)| acp::SessionConfigSelectOption::new((*value).to_owned(), *name))
+            .collect::<Vec<_>>(),
+    )
+    .category(category)
+}
+
+/// The config options with the value `value` as the current one of the
+/// select option `config_id`, or `None` when no select option of that id
+/// offers the value.
+fn with_value(
+    options: &[acp::SessionConfigOption],
+    config_id: &acp::SessionConfigId,
+    value: &acp::SessionConfigValueId,
+) -> Option<Vec<acp::SessionConfigOption>> {
+    let mut options = options.to_vec();
+    let option = options.iter_mut().find(|option| &option.id == config_id)?;
+    let acp::SessionConfigKind::Select(select) = &mut option.kind else {
+        return None;
+    };
+    let offered = match &select.options {
+        acp::SessionConfigSelectOptions::Ungrouped(choices) => {
+            choices.iter().any(|choice| &choice.value == value)
+        }
+        acp::SessionConfigSelectOptions::Grouped(groups) => groups
+            .iter()
+            .flat_map(|group| &group.options)
+            .any(|choice| &choice.value == value),
+        _ => false,
+    };
+    if !offered {
+        return None;
+    }
+    select.current_value = value.clone();
+    Some(options)
 }
 
 /// How the fake answers one prompt.
@@ -331,6 +395,8 @@ pub struct FakeHarness {
 struct State {
     script: Script,
     turns: Mutex<VecDeque<Turn>>,
+    /// The config options as `session/set_config_option` last left them.
+    config_options: Mutex<Option<Vec<acp::SessionConfigOption>>>,
     received: Mutex<Vec<Received>>,
     answers: Mutex<Vec<Result<serde_json::Value, Error>>>,
     cancel: Notify,
@@ -360,6 +426,13 @@ impl State {
             .push(answer);
     }
 
+    fn config_options(&self) -> Option<Vec<acp::SessionConfigOption>> {
+        self.config_options
+            .lock()
+            .expect("the fake's config lock is not poisoned")
+            .clone()
+    }
+
     fn next_turn(&self) -> Option<Turn> {
         self.turns
             .lock()
@@ -377,6 +450,7 @@ impl FakeHarness {
     {
         let state = Arc::new(State {
             turns: Mutex::new(script.turns.iter().cloned().collect()),
+            config_options: Mutex::new(script.config_options.clone()),
             script,
             received: Mutex::new(Vec::new()),
             answers: Mutex::new(Vec::new()),
@@ -537,7 +611,8 @@ where
                     }
                     responder.respond(
                         acp::NewSessionResponse::new(NEW_SESSION_ID)
-                            .modes(state.script.modes.clone()),
+                            .modes(state.script.modes.clone())
+                            .config_options(state.config_options()),
                     )
                 }
             },
@@ -549,7 +624,9 @@ where
                 async move |request: acp::ResumeSessionRequest, responder, _cx| {
                     state.record(&request);
                     responder.respond(
-                        acp::ResumeSessionResponse::new().modes(state.script.modes.clone()),
+                        acp::ResumeSessionResponse::new()
+                            .modes(state.script.modes.clone())
+                            .config_options(state.config_options()),
                     )
                 }
             },
@@ -568,8 +645,11 @@ where
                             update.clone(),
                         ))?;
                     }
-                    responder
-                        .respond(acp::LoadSessionResponse::new().modes(state.script.modes.clone()))
+                    responder.respond(
+                        acp::LoadSessionResponse::new()
+                            .modes(state.script.modes.clone())
+                            .config_options(state.config_options()),
+                    )
                 }
             },
             agent_client_protocol::on_receive_request!(),
@@ -583,6 +663,29 @@ where
                         responder.respond(acp::SetSessionModeResponse::new())
                     } else {
                         responder.respond_with_error(Error::invalid_params())
+                    }
+                }
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
+        .on_receive_request(
+            {
+                let state = state.clone();
+                async move |request: acp::SetSessionConfigOptionRequest, responder, _cx| {
+                    state.record(&request);
+                    let changed = request.value.as_value_id().and_then(|value| {
+                        with_value(&state.config_options()?, &request.config_id, value)
+                    });
+                    match changed {
+                        Some(options) => {
+                            *state
+                                .config_options
+                                .lock()
+                                .expect("the fake's config lock is not poisoned") =
+                                Some(options.clone());
+                            responder.respond(acp::SetSessionConfigOptionResponse::new(options))
+                        }
+                        None => responder.respond_with_error(Error::invalid_params()),
                     }
                 }
             },
