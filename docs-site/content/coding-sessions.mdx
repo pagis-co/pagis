@@ -210,10 +210,11 @@ in its Computer together.
 
 ## Follow a session
 
-- **The block in the Thread.** It shows the harness, the title, the
+- **The block in the conversation.** It shows the harness, the title, the
   computer, the directory, the branch, the state, the approval mode, the
   Harness Mode, the usage and the last activity. **Open** goes to the
-  session page. **Stop** stops the session at once.
+  session page. **Stop** stops the session at once. The replies chip under
+  the block opens the Thread of the session.
 - **The session page.** It shows the transcript: the messages of the
   harness, its plan, its tool calls with a diff of each change, and one line
   for each permission and question. **Changed files** lists each file that
@@ -226,9 +227,11 @@ in its Computer together.
   session. Its Notification has **Approve once** and **Deny**
   ([Answer an approval from a Notification](/notifications#answer-an-approval-from-a-notification)).
 
-The Agent wakes in the Thread when a turn of the harness ends, when a
-decision waits for it, and when the session ends. It then checks the work
-and reports to you.
+The Agent wakes in the Thread of the session when a turn of the harness
+ends and when a decision waits for it. Its decisions and notes stay in that
+Thread. When the session ends, the Agent wakes where you asked for the work,
+and its report shows there: at the top level of the conversation, or in the
+Thread where you asked.
 
 ## When the computer sleeps
 

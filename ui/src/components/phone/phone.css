@@ -734,7 +734,8 @@ p.approval-phone-body {
   .phone-shell .message-author {
     font-size: var(--text-md);
   }
-  .message-tools {
+  .message-tools,
+  .system-record-tools {
     display: none;
   }
   .composer {

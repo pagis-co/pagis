@@ -1231,6 +1231,102 @@ async fn a_turn_end_and_the_end_of_the_session_wake_the_agent_in_the_thread_of_t
     );
 }
 
+/// A Person asks at the top level of the conversation, so the block of
+/// the session is the root of the session's Thread. The supervision
+/// stays in that Thread, and the end of the session wakes the Agent at
+/// the top level, so its report shows where the Person asked.
+#[tokio::test]
+async fn a_session_from_the_top_level_ends_with_the_report_of_the_agent_at_the_top_level() {
+    const SUPERVISION: &str = "The turn ended, and the checks pass.";
+    const REPORT: &str = "Claude Code fixed the login bug, and the tests pass.";
+    let brain = Arc::new(ScriptedBrain::default());
+    brain.push(pagis_testkit::Script::reply(&[SUPERVISION]));
+    brain.push(pagis_testkit::Script::reply(&[REPORT]));
+    let daemon = daemon_with(&brain).await;
+    let agent_id = AgentId::from(daemon.agent_id.clone());
+    let channel_id = ChannelId::from(daemon.dm_channel_id.clone());
+
+    let session = start_session_with(
+        &daemon,
+        run(&daemon).await,
+        Script::default().turn(Turn::new(vec![], acp::StopReason::EndTurn)),
+    )
+    .await;
+    assert_eq!(session.root_message_id, session.message_id);
+
+    let runs = wait_for_event_runs(&daemon, RunState::Completed, 1).await;
+    assert_eq!(
+        runs[0].root_message_id.as_ref(),
+        Some(&session.root_message_id),
+        "the supervision stays in the session's Thread"
+    );
+
+    daemon
+        .coding_sessions
+        .close(&daemon.workspace_id, &session.id, CloseReason::Closed)
+        .await
+        .expect("close the session");
+
+    let runs = wait_for_event_runs(&daemon, RunState::Completed, 2).await;
+    let ended = &runs[1];
+    assert_eq!(
+        ended.root_message_id, None,
+        "the end wakes the Agent at the top level"
+    );
+    assert_eq!(
+        ended.origin,
+        Some(RunOrigin {
+            agent_id: agent_id.clone(),
+            channel_id: channel_id.clone(),
+            root_message_id: None,
+        })
+    );
+    let briefing = brain
+        .requests()
+        .into_iter()
+        .find(|request| request.system.contains("Event kind: coding_session.ended"))
+        .expect("the briefing of the end")
+        .system;
+    assert!(
+        briefing.contains("report to the user"),
+        "the instruction asks for the report: {briefing}"
+    );
+
+    let top_level: Vec<Message> = daemon
+        .stores()
+        .messages
+        .list_top_level(&daemon.workspace_id, &channel_id, None, 50)
+        .await
+        .expect("read the top level")
+        .into_iter()
+        .map(|entry| entry.message)
+        .collect();
+    let report = top_level
+        .iter()
+        .find(|message| message.text_content == REPORT)
+        .unwrap_or_else(|| panic!("no report at the top level: {top_level:?}"));
+    assert_eq!(report.author_kind, AuthorKind::Agent);
+    assert_eq!(report.author_agent_id.as_ref(), Some(&agent_id));
+    let thread = daemon
+        .stores()
+        .messages
+        .list_thread(&daemon.workspace_id, &session.root_message_id)
+        .await
+        .expect("read the session's Thread");
+    assert!(
+        thread
+            .iter()
+            .any(|message| message.text_content == SUPERVISION),
+        "{thread:?}"
+    );
+    assert!(
+        top_level
+            .iter()
+            .all(|message| message.text_content != SUPERVISION),
+        "the supervision is not at the top level"
+    );
+}
+
 #[tokio::test]
 async fn two_turn_ends_while_the_woken_run_is_active_make_one_pending_wakeup() {
     let brain = Arc::new(ScriptedBrain::default());
@@ -2072,6 +2168,16 @@ async fn a_lost_host_interrupts_the_session_and_the_agent_resumes_it_when_the_ho
     let record =
         wait_for_session_state(&daemon, &session_id, CodingSessionState::Interrupted).await;
     assert_eq!(record.end_reason, None);
+    // The interruption wakes the Agent at the top level, where the Person
+    // asked. The brain of the test has no script for it, so that Run
+    // fails, and then the Person writes there. The end of the turn
+    // before woke the Agent in the session's Thread.
+    let woken = wait_for_event_runs(&daemon, RunState::Failed, 2).await;
+    let places: Vec<_> = woken
+        .iter()
+        .map(|run| run.root_message_id.is_some())
+        .collect();
+    assert_eq!(places, [true, false], "{woken:?}");
     let client_app = FakeClientApp::running(WORKTREE, {
         let harnesses = Arc::clone(&harnesses);
         move |stream| {

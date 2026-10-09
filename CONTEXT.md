@@ -1139,7 +1139,9 @@ _Avoid_: permission mode
 ### Session Rule
 The Event Subscriptions that the daemon makes when a Coding Session starts,
 one for each kind of session event, and archives when it ends. They wake
-the owning Agent in the session's Thread (ADR-0033).
+the owning Agent in the session's Thread for the end of a turn and for a
+decision. The end of the session wakes it at the place where the session
+started, so its report shows where the Person asked (ADR-0033).
 
 ### Unattended Mode
 A Coding Harness works in an Unattended Mode when it acts without asking
