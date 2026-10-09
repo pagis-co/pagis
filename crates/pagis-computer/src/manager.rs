@@ -28,9 +28,9 @@ const SETTLE_MIN: Duration = Duration::from_millis(300);
 const SETTLE_POLL: Duration = Duration::from_millis(200);
 /// The longest wait for a screen that keeps changing.
 const SETTLE_MAX: Duration = Duration::from_secs(3);
-/// The uid a shell command runs as. It owns `/data/agent`, and
-/// it is not root: `pagis-apt` is the one way to root.
-const SHELL_USER: &str = "agent";
+/// The uid a shell command and a Coding Harness run as. It owns
+/// `/data/agent`, and it is not root: `pagis-apt` is the one way to root.
+pub const SHELL_USER: &str = "agent";
 /// The default working directory of a shell command.
 pub const SHELL_HOME: &str = "/data/agent";
 /// The grace between the `TERM` and the `KILL` of the in-container
@@ -904,20 +904,7 @@ impl ComputerManager {
         let Phase::Awake(computer) = self.phase(agent_id) else {
             return Err(ComputerError::Asleep);
         };
-        // The clock and the locale of the container, so a
-        // script reads the times the browser shows. An adopted
-        // container, which this process did not boot, gives its own
-        // `TZ`: the entries here are added to the container's.
-        let mut env = vec![
-            format!("HOME={SHELL_HOME}"),
-            format!("USER={SHELL_USER}"),
-            format!("LOGNAME={SHELL_USER}"),
-            "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin".to_string(),
-            format!("LANG={CONTAINER_LANG}"),
-        ];
-        if let Some(timezone) = self.booted_timezone(agent_id) {
-            env.push(format!("TZ={timezone}"));
-        }
+        let env = self.shell_env(agent_id);
         let request = ExecRequest {
             argv: vec![
                 "timeout".to_string(),
@@ -941,6 +928,64 @@ impl ComputerManager {
         self.touch(agent_id);
         drop(pin);
         outcome.map_err(ComputerError::Runtime)
+    }
+
+    /// The environment of a command of the agent's own computer: the
+    /// home, the user and the `PATH` of uid `agent`, and the clock and
+    /// the locale of the container, so a script reads the times the
+    /// browser shows. An adopted container, which this process did not
+    /// boot, gives its own `TZ`: the entries here are added to the
+    /// container's.
+    pub fn shell_env(&self, agent_id: &AgentId) -> Vec<String> {
+        let mut env = vec![
+            format!("HOME={SHELL_HOME}"),
+            format!("USER={SHELL_USER}"),
+            format!("LOGNAME={SHELL_USER}"),
+            "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin".to_string(),
+            format!("LANG={CONTAINER_LANG}"),
+        ];
+        if let Some(timezone) = self.booted_timezone(agent_id) {
+            env.push(format!("TZ={timezone}"));
+        }
+        env
+    }
+
+    /// Start the Coding Harness of one Coding Session in the agent's own
+    /// computer, with its streams attached (ADR-0033). The computer
+    /// wakes first. The exec holds the computer awake while it lives, so
+    /// the idle stop does not kill the harness, and the computer sleeps
+    /// normally after the session.
+    ///
+    /// The Engine API cannot kill a running exec: the harness ends when
+    /// its stdin closes, and a stop of the computer ends the rest.
+    pub async fn harness(
+        self: &Arc<Self>,
+        agent_id: &AgentId,
+        request: ExecRequest,
+    ) -> Result<HarnessExec, ComputerError> {
+        self.require_own_agent(agent_id).await?;
+        self.ensure_awake(agent_id).await?;
+        let Phase::Awake(computer) = self.phase(agent_id) else {
+            return Err(ComputerError::Asleep);
+        };
+        let pin = self.pin(agent_id);
+        self.touch(agent_id);
+        let stream = self
+            .runtime
+            .exec_stream(&computer, request)
+            .await
+            .map_err(ComputerError::Runtime)?;
+        Ok(HarnessExec { stream, pin })
+    }
+
+    /// Whether the container of the agent's computer runs. A harness
+    /// whose output ends while its container runs exited by itself.
+    pub async fn container_runs(&self, agent_id: &AgentId) -> Result<bool, ComputerError> {
+        self.runtime
+            .running(&self.owner(agent_id))
+            .await
+            .map(|running| running.is_some())
+            .map_err(ComputerError::Runtime)
     }
 
     /// Extract one tar archive into a directory of the agent's own
@@ -1758,9 +1803,18 @@ impl crate::ComputerTokens for ComputerManager {
     }
 }
 
+/// The Coding Harness of one Coding Session in an agent's own
+/// computer: its attached streams, and its claim on the computer.
+pub struct HarnessExec {
+    pub stream: crate::ExecStream,
+    /// Holds the computer awake until it drops.
+    pub pin: ExecPin,
+}
+
 /// One command's claim on an agent's computer. While a claim
-/// stands, the idle-stop sweep leaves that computer awake.
-struct ExecPin {
+/// stands, the idle-stop sweep leaves that computer awake, and a sleep
+/// answers `Busy`.
+pub struct ExecPin {
     manager: Arc<ComputerManager>,
     agent_id: AgentId,
 }

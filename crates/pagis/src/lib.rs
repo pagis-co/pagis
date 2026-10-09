@@ -7,6 +7,7 @@ pub mod backup;
 mod boot;
 pub mod call_events;
 pub mod coding_events;
+mod coding_places;
 pub mod collectors;
 mod config;
 pub mod connections;

@@ -69,8 +69,8 @@ pub use events::{
     SessionNews, SessionRuleError, SessionRules, session_event, session_rule_name,
 };
 pub use place::{
-    OpenFailure, OpenFailureCode, OpenRequest, OpenedStream, PlaceStream, SessionExit,
-    SessionPlace, WorktreeRequest,
+    OpenFailure, OpenFailureCode, OpenRequest, OpenedStream, Place, PlaceStream, SessionExit,
+    SessionPlace, WorktreeRequest, open_on_host,
 };
 pub use policy::{
     NO_ANSWER_NOTE, NO_DECISION_NOTE, PERMISSION_DECIDED_EVENT, PolicyDecisions,

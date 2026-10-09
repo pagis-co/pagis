@@ -1052,16 +1052,22 @@ daemon stores its record and its transcript. The Agent then prompts,
 reads, cancels, closes and lists its own sessions with core tools, and
 changes their Harness Mode. A session of another Agent reads as absent. A question of the harness goes
 to the Agent in each mode. The Agent answers it, and asks the Person with
-`ask_user` first when it does not know: a question is not an Approval. A lost Host or a restart of the
-daemon makes an open session `interrupted`, and the Agent resumes it with
-`coding_session_resume` where the harness can restore its own session.
-Not built: a session in the Agent's Computer (ADR-0033).
+`ask_user` first when it does not know: a question is not an Approval.
+Claude Code runs in the Agent's own Computer too: the Agent starts it with
+`computer_coding_session_start` in a directory under `/data/agent`, with no
+card and no Grant, because the container is the sandbox. There the harness
+runs as uid `agent` in its Computer mode, `bypassPermissions`, and a
+permission that it still asks goes to the supervising Agent. A lost Host, a
+stopped Computer or a restart of the daemon makes an open session
+`interrupted`, and the Agent resumes it with `coding_session_resume` where
+the harness can restore its own session. Not built: a Computer session of
+Codex, OpenCode or pi (ADR-0033).
 _Avoid_: harness session
 
 ### Harness Catalog
 The list of Coding Harnesses that ships with each release, with the pinned
-version, the launch command, the launch in the Agent's Computer, whether
-the harness asks permission, its Harness Modes, and the vendor's own
+version, the launch command, the launch in the Agent's Computer with its
+Computer mode, whether the harness asks permission, its Harness Modes, and the vendor's own
 sign-in commands. Pagis does not fetch it at run time. The daemon sends it
 to each Host in the answer to its registration, and the Client App ships
 no copy (ADR-0033).

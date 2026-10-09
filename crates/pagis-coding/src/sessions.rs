@@ -24,9 +24,16 @@
 //! keeps an asking mode of its own, or else goes to another asking mode. A resume sets the recorded mode again. A change of the
 //! mode by the Agent or by the harness writes the record and a `mode` row.
 //!
+//! A session in the Agent's own Computer needs no host Grant, because the
+//! container is the sandbox. Its harness runs in the Harness Mode of the
+//! Computer launch of the catalog, an Unattended Mode, and a permission
+//! that the harness still asks goes to the supervising Agent. A stop of
+//! the Computer interrupts the session, and a resume opens the harness
+//! again in the same directory.
+//!
 //! A session acts without asking when its harness never asks permission,
 //! or when its mode is not an asking mode of the catalog. Such a session
-//! runs only while the live host Grant of its Agent on its machine allows
+//! on a Host runs only while the live host Grant of its Agent on its machine allows
 //! Unattended Modes. A Grant revision that stops allowing them, a revoked
 //! Grant, and a change by the harness into such a mode where the Grant
 //! does not allow one, close it with the end reason
@@ -57,7 +64,7 @@ use tokio_util::sync::CancellationToken;
 use crate::events::{DecisionKind, InterruptReason, SessionNews, session_batch};
 use crate::{
     AcpSession, AskHandler, CodingError, DecidedBy, OpenFailure, OpenFailureCode, OpenRequest,
-    Opening, Pending, PermissionAnswer, PermissionAsk, QuestionAnswer, QuestionAsk,
+    Opening, Pending, PermissionAnswer, PermissionAsk, Place, QuestionAnswer, QuestionAsk,
     SessionDecisions, SessionEvent, SessionEvents, SessionExit, SessionPlace, SessionRules,
     SignInReports, Waited, WaitsFor, WorktreeRequest,
 };
@@ -103,7 +110,8 @@ pub struct CodingSessionsDeps {
     pub cancel: CancellationToken,
 }
 
-/// A Coding Session that an Agent starts on a Host.
+/// A Coding Session that an Agent starts on a Host or in its own
+/// Computer.
 #[derive(Debug, Clone, PartialEq)]
 pub struct NewCodingSession {
     pub workspace_id: WorkspaceId,
@@ -111,7 +119,7 @@ pub struct NewCodingSession {
     /// The Run that starts the session. Its Channel and its Thread show
     /// the session.
     pub run_id: RunId,
-    pub host_id: HostId,
+    pub place: Place,
     /// The id of the harness in the Harness Catalog.
     pub harness_id: String,
     /// The directory that the Agent named.
@@ -132,6 +140,8 @@ pub struct NewCodingSession {
 pub enum StartFailure {
     #[error("the Coding Harness {0:?} is not in the Harness Catalog")]
     UnknownHarness(String),
+    #[error("the Coding Harness {0:?} does not run in a Computer")]
+    NotInComputer(String),
     #[error("the Workspace has no Run {0}")]
     RunNotFound(RunId),
     #[error("the Workspace has no Host {0}")]
@@ -375,7 +385,8 @@ pub struct CodingSessions {
 /// the start of the resume, so its commands wait for its task.
 struct Live {
     workspace_id: WorkspaceId,
-    host_id: HostId,
+    /// The Host of the session, or `None` in a Computer.
+    host_id: Option<HostId>,
     commands: mpsc::UnboundedSender<Command>,
     /// The session resumes, and its task does not run yet.
     resuming: bool,
@@ -425,7 +436,7 @@ impl CodingSessions {
         })
     }
 
-    /// Starts a Coding Session on a Host and sends its first prompt.
+    /// Starts a Coding Session on its place and sends its first prompt.
     ///
     /// It returns when the prompt is sent, and the session is then
     /// `working`. A turn can run for an hour; its updates go on in the
@@ -439,11 +450,18 @@ impl CodingSessions {
             .await?
             .ok_or_else(|| StartFailure::RunNotFound(new.run_id.clone()))?;
         let channel_id = run.channel_id.ok_or(StartFailure::NoConversation)?;
-        let host = self
-            .hosts
-            .get(&new.workspace_id, &new.host_id)
-            .await?
-            .ok_or_else(|| StartFailure::HostNotFound(new.host_id.clone()))?;
+        let (command, args) = launch(entry, &new.place)
+            .ok_or_else(|| StartFailure::NotInComputer(new.harness_id.clone()))?;
+        let machine = match &new.place {
+            Place::Host(host_id) => {
+                self.hosts
+                    .get(&new.workspace_id, host_id)
+                    .await?
+                    .ok_or_else(|| StartFailure::HostNotFound(host_id.clone()))?
+                    .name
+            }
+            Place::Computer(_) => COMPUTER_MACHINE.to_string(),
+        };
         let now = self.records.clock.now_ms();
         let message_id = MessageId::generate();
         let mut record = CodingSession {
@@ -452,8 +470,11 @@ impl CodingSessions {
             agent_id: new.agent_id,
             harness_id: entry.id.to_string(),
             harness_version: entry.version.to_string(),
-            place: CodingSessionPlace::Host,
-            host_id: Some(new.host_id.clone()),
+            place: match &new.place {
+                Place::Host(_) => CodingSessionPlace::Host,
+                Place::Computer(_) => CodingSessionPlace::Computer,
+            },
+            host_id: new.place.host_id().cloned(),
             directory: new.directory.clone(),
             working_directory: None,
             worktree_branch: new
@@ -481,7 +502,7 @@ impl CodingSessions {
         };
         self.records.store.insert(&record).await?;
         // The Person sees the session from `starting` on.
-        self.post_session_block(&record, entry.label, &host.name)
+        self.post_session_block(&record, entry.label, &machine)
             .await?;
         // The Trigger module checks that the root of the rule's Thread is
         // a message of the Channel, so the rule comes after the block. It
@@ -496,7 +517,6 @@ impl CodingSessions {
             });
         }
 
-        let (command, args) = harness::launch_command(entry);
         let request = OpenRequest {
             session_id: record.id.clone(),
             command: command.to_string(),
@@ -507,7 +527,7 @@ impl CodingSessions {
         };
         let opened = match self
             .place
-            .open(&new.workspace_id, &new.host_id, request)
+            .open(&new.workspace_id, &new.place, request)
             .await
         {
             Ok(opened) => opened,
@@ -538,11 +558,13 @@ impl CodingSessions {
             cwd: PathBuf::from(&opened.cwd),
         };
         // A failed `open` drops its connection, which closes the stream.
+        // A harness in a Computer signs in with the token of the Harness
+        // Model Endpoint, so a sign-in there is a failure of the harness.
         let (acp, events) = match AcpSession::open(outgoing, incoming, opening, asks).await {
             Ok(opened) => opened,
-            Err(CodingError::AuthRequired) => {
+            Err(CodingError::AuthRequired) if let Place::Host(host_id) = &new.place => {
                 self.sign_in_reports
-                    .needs_sign_in(&record.workspace_id, &new.host_id, entry.id)
+                    .needs_sign_in(&record.workspace_id, host_id, entry.id)
                     .await;
                 self.records
                     .end_start(&mut record, End::new(SIGN_IN_REQUIRED, None))
@@ -550,14 +572,16 @@ impl CodingSessions {
                 return Err(StartFailure::SignInRequired {
                     session_id: record.id,
                     harness: entry.label.to_string(),
-                    machine: host.name,
+                    machine,
                 });
             }
             Err(error) => return Err(self.harness_failed(&mut record, error).await),
         };
-        self.sign_in_reports
-            .signed_in(&record.workspace_id, &new.host_id, entry.id)
-            .await;
+        if let Place::Host(host_id) = &new.place {
+            self.sign_in_reports
+                .signed_in(&record.workspace_id, host_id, entry.id)
+                .await;
+        }
         record.acp_session_id = Some(acp.acp_session_id().to_string());
         if let Some(modes) = acp.modes() {
             record.harness_mode = Some(modes.current.clone());
@@ -603,10 +627,13 @@ impl CodingSessions {
 
         // A Grant change that comes while the stream opens finds the
         // session `starting`, and leaves it to this read of the live Grant.
+        // A session in a Computer needs no host Grant.
         self.hear_grant_changes().await;
         let _checks = self.grant_checks.lock().await;
-        if record.acts_unattended() {
-            match self.unattended_allowed(&record, &new.host_id).await {
+        if let Place::Host(host_id) = &new.place
+            && record.acts_unattended()
+        {
+            match self.unattended_allowed(&record, host_id).await {
                 Ok(true) => {}
                 Ok(false) => {
                     acp.close();
@@ -614,7 +641,7 @@ impl CodingSessions {
                     return Err(StartFailure::UnattendedModeNotAllowed {
                         session_id: record.id,
                         harness: entry.label.to_string(),
-                        machine: host.name,
+                        machine,
                     });
                 }
                 Err(error) => {
@@ -643,7 +670,7 @@ impl CodingSessions {
             record.id.clone(),
             Live {
                 workspace_id: record.workspace_id.clone(),
-                host_id: new.host_id,
+                host_id: new.place.host_id().cloned(),
                 commands,
                 resuming: false,
             },
@@ -652,7 +679,7 @@ impl CodingSessions {
             records: self.records.clone(),
             sessions: Weak::clone(&self.this),
             record: record.clone(),
-            machine: host.name,
+            machine,
             snapshot,
             acp: Some(acp),
             sign_in_reports: Arc::clone(&self.sign_in_reports),
@@ -929,9 +956,13 @@ impl CodingSessions {
             .await
     }
 
-    /// The name of the Host of a session, which its news names. A Host
-    /// that cannot be read leaves the name empty: the news goes on.
+    /// The name of the place of a session, which its news names: the
+    /// name of its Host, or the Computer. A Host that cannot be read
+    /// leaves the name empty: the news goes on.
     async fn machine(&self, record: &CodingSession) -> String {
+        if record.place == CodingSessionPlace::Computer {
+            return COMPUTER_MACHINE.to_string();
+        }
         let Some(host_id) = &record.host_id else {
             return String::new();
         };
@@ -977,7 +1008,7 @@ impl CodingSessions {
         Ok(interrupted)
     }
 
-    /// Resumes an `interrupted` session on its Host: a new harness
+    /// Resumes an `interrupted` session on its place: a new harness
     /// process in its working directory, and the harness's own session
     /// again, with ACP `session/resume` or `session/load`. The session is
     /// then `idle`, and its task runs again.
@@ -999,7 +1030,12 @@ impl CodingSessions {
         if record.state != State::Interrupted {
             return Err(ResumeFailure::NotInterrupted(record.state));
         }
-        let host_id = record.host_id.clone().ok_or(ResumeFailure::HostNotFound)?;
+        let place = match record.place {
+            CodingSessionPlace::Host => {
+                Place::Host(record.host_id.clone().ok_or(ResumeFailure::HostNotFound)?)
+            }
+            CodingSessionPlace::Computer => Place::Computer(record.agent_id.clone()),
+        };
         let (commands, commands_rx) = mpsc::unbounded_channel();
         {
             let mut live = self.live.lock().expect("the live sessions");
@@ -1010,13 +1046,13 @@ impl CodingSessions {
                 session_id.clone(),
                 Live {
                     workspace_id: workspace_id.clone(),
-                    host_id: host_id.clone(),
+                    host_id: place.host_id().cloned(),
                     commands: commands.clone(),
                     resuming: true,
                 },
             );
         }
-        let resumed = self.reopen(record, host_id, commands, commands_rx).await;
+        let resumed = self.reopen(record, place, commands, commands_rx).await;
         if resumed.is_err() {
             // The commands that waited get no answer, so their callers
             // read the record.
@@ -1033,22 +1069,28 @@ impl CodingSessions {
     async fn reopen(
         &self,
         record: CodingSession,
-        host_id: HostId,
+        place: Place,
         commands: mpsc::UnboundedSender<Command>,
         commands_rx: mpsc::UnboundedReceiver<Command>,
     ) -> Result<(), ResumeFailure> {
         let entry = harness::entry(&record.harness_id)
             .ok_or_else(|| ResumeFailure::UnknownHarness(record.harness_id.clone()))?;
+        let (command, args) = launch(entry, &place)
+            .ok_or_else(|| ResumeFailure::UnknownHarness(record.harness_id.clone()))?;
         let acp_session_id = record
             .acp_session_id
             .clone()
             .ok_or(ResumeFailure::NotStarted)?;
-        let host = self
-            .hosts
-            .get(&record.workspace_id, &host_id)
-            .await?
-            .ok_or(ResumeFailure::HostNotFound)?;
-        let (command, args) = harness::launch_command(entry);
+        let machine = match &place {
+            Place::Host(host_id) => {
+                self.hosts
+                    .get(&record.workspace_id, host_id)
+                    .await?
+                    .ok_or(ResumeFailure::HostNotFound)?
+                    .name
+            }
+            Place::Computer(_) => COMPUTER_MACHINE.to_string(),
+        };
         let request = OpenRequest {
             session_id: record.id.clone(),
             command: command.to_string(),
@@ -1062,11 +1104,11 @@ impl CodingSessions {
         };
         let opened = self
             .place
-            .open(&record.workspace_id, &host_id, request)
+            .open(&record.workspace_id, &place, request)
             .await
             .map_err(|failure| match failure.code {
                 OpenFailureCode::HostNotConnected => ResumeFailure::HostNotConnected {
-                    machine: host.name.clone(),
+                    machine: machine.clone(),
                 },
                 _ => ResumeFailure::Open(failure),
             })?;
@@ -1128,15 +1170,17 @@ impl CodingSessions {
         }
         record.harness_mode = harness_mode;
         record.harness_modes = harness_modes;
-        if record.acts_unattended() {
-            match self.unattended_allowed(&record, &host_id).await {
+        if let Place::Host(host_id) = &place
+            && record.acts_unattended()
+        {
+            match self.unattended_allowed(&record, host_id).await {
                 Ok(true) => {}
                 Ok(false) => {
                     acp.close();
                     self.records.refuse_unattended(&mut record).await;
                     return Err(ResumeFailure::UnattendedModeNotAllowed {
                         harness: entry.label.to_string(),
-                        machine: host.name,
+                        machine,
                     });
                 }
                 Err(error) => {
@@ -1161,7 +1205,7 @@ impl CodingSessions {
             records: self.records.clone(),
             sessions: Weak::clone(&self.this),
             record,
-            machine: host.name,
+            machine,
             snapshot,
             acp: Some(acp),
             sign_in_reports: Arc::clone(&self.sign_in_reports),
@@ -1277,6 +1321,26 @@ impl CodingSessions {
             session_id: record.id.clone(),
             message,
         }
+    }
+}
+
+/// The name of the place of a session in the Agent's own Computer, which
+/// its block and its news name in place of a machine.
+pub(crate) const COMPUTER_MACHINE: &str = "Computer";
+
+/// The program and the arguments that start a harness on a place: the
+/// launch command of the Harness Catalog on a Host, and the installed
+/// program of its Computer launch in a Computer. `None` for a harness
+/// that does not run in a Computer.
+fn launch(
+    entry: &harness::HarnessEntry,
+    place: &Place,
+) -> Option<(&'static str, Vec<&'static str>)> {
+    match place {
+        Place::Host(_) => Some(harness::launch_command(entry)),
+        Place::Computer(_) => entry
+            .computer
+            .map(|launch| (launch.program, launch.args.to_vec())),
     }
 }
 
@@ -1644,7 +1708,7 @@ async fn interrupt_departures(
                 tokio::spawn(async move {
                     interrupt_live(
                         &live,
-                        |session| session.host_id == host_id,
+                        |session| session.host_id.as_ref() == Some(&host_id),
                         InterruptReason::HostLost,
                     )
                     .await;
@@ -1924,9 +1988,14 @@ impl Task {
                     match exited {
                         Ok(exited) => self.exited(Some(exited)).await,
                         Err(_) => {
-                            // The session socket ended: the place is lost.
+                            // The session socket ended, or the Computer
+                            // stopped: the place is lost.
                             tracing::info!(session = %self.record.id, "the place of a Coding Session is lost");
-                            self.interrupt(InterruptReason::HostLost).await;
+                            let reason = match self.record.place {
+                                CodingSessionPlace::Host => InterruptReason::HostLost,
+                                CodingSessionPlace::Computer => InterruptReason::ComputerStopped,
+                            };
+                            self.interrupt(reason).await;
                             Flow::End
                         }
                     }

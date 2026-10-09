@@ -103,21 +103,22 @@ holds them, as it holds a Call record. Forget does not reach them: a prompt
 is the Agent's own words, and the output of a harness is foreign text that no
 Run read from a source.
 
-A lost Host or a restart of the daemon makes each open session of that place
-`interrupted`. A Host is lost when its Host socket goes away, or when its
-session socket ends, which ends the stream of each session on it. The
-interrupted session closes its stream, its prompts that wait are dropped,
-and a decision that waits is cancelled. The record holds no end reason,
-because `interrupted` is not terminal: the Session Rule stays, and the
-`coding_session.ended` event gives the reason `host_lost` or
-`daemon_restart`. A restart interrupts and does not fail a session, because
-the harness keeps its own session on the Host.
+A lost place or a restart of the daemon makes each open session of that
+place `interrupted`. A Host is lost when its Host socket goes away, or when
+its session socket ends, which ends the stream of each session on it. A
+Computer is lost when its container stops, which ends the exec of each
+session in it. The interrupted session closes its stream, its prompts that
+wait are dropped, and a decision that waits is cancelled. The record holds no
+end reason, because `interrupted` is not terminal: the Session Rule stays,
+and the `coding_session.ended` event gives the reason `host_lost`,
+`computer_stopped` or `daemon_restart`. A restart interrupts and does not
+fail a session, because the harness keeps its own session on its place.
 
 The daemon does not resume a session by itself, because the work may no
 longer make sense. The Agent resumes it with `coding_session_resume`. The
 daemon opens a new stream in the working directory of the record, with the
 launch command of the Harness Catalog and no worktree, because the worktree
-exists. It then restores the stored ACP session id with ACP
+exists. In the Computer, the new exec gets a new token. It then restores the stored ACP session id with ACP
 `session/resume`, or with `session/load` when the harness declares only
 that, and drops the history that the load replays, because the transcript
 holds it. A harness that declares neither answers `cannot_resume`, and the
@@ -154,7 +155,10 @@ The **Harness Catalog** ships with each release, as the Provider Catalog does
 - the launch command for each platform, from the ACP registry:
   `npx <package>@<version>`, or a binary with arguments;
 - for a harness that runs in the Agent's Computer, the npm packages that the
-  Computer Image installs and the program and arguments that start it there;
+  Computer Image installs, the program and arguments that start it there,
+  and for a harness that a Computer session runs, the Computer mode (the
+  Harness Mode that it starts in there) and the provider whose key it
+  spends;
 - whether the harness asks permission (pi does not);
 - the Harness Modes of the pinned version, each with its name and whether
   the harness asks before each action in it;
@@ -243,11 +247,33 @@ Host.
 
 ### In the Agent's Computer, the container is the sandbox
 
-The daemon starts the harness with `docker exec` and attached stdio, the path
-of the stdio MCP servers of the Plugin Computer (ADR-0017). A Computer
-session needs no card, because the container is the sandbox, as for
-`computer_shell`. A Computer session needs no host Grant. Its Session
-Approval Mode is `agent`, and its harness may run in an Unattended Mode.
+Claude Code runs in the Agent's own Computer. The Agent starts it with
+`computer_coding_session_start`. The daemon wakes the Computer, makes the
+working directory as uid `agent`, and starts the harness with `docker exec`
+and attached stdio as uid `agent` in that directory, the path of the stdio
+MCP servers of the Plugin Computer (ADR-0017). The exec holds the Computer
+awake while it runs: the idle stop leaves the Computer, and a sleep answers
+that the Computer is busy. The Engine API cannot kill an exec, so the
+harness ends when its stdin closes, and a container stop ends the rest. The
+token of a session stops with the session, so a harness that ignores the end
+of its stdin can spend nothing more.
+
+A Computer session needs no card and no host Grant, because the container
+is the sandbox, as for `computer_shell`. Its Session Approval Mode is
+`agent`, and its harness runs in the Computer mode of the Harness Catalog:
+`bypassPermissions` for Claude Code. The harness runs as uid `agent` and not
+as root, so the Claude Code adapter offers that mode. Claude Code still asks
+some actions in `bypassPermissions`. Such a Harness Permission goes through
+Pagis policy with the session's own mode, `agent`, so it goes to the
+supervising Agent, which decides it or escalates it to the Person. The card
+of an escalation offers no "Always allow", because no Host Allow Rule
+applies in a Computer.
+
+The working directory is an absolute directory under `/data/agent`, on the
+Agent's own volume, so the files of a session stay between sessions as the
+Agent's other files do. A Computer session makes no git worktree. The Agent
+uses `computer_shell` for git. When the Computer stops, the exec ends and
+the session is `interrupted` with the reason `computer_stopped`.
 
 The Computer Image ships the four harnesses that a Harness Model Endpoint
 can serve: Claude Code, Codex, OpenCode and pi. It ships no harness that
@@ -349,6 +375,19 @@ The Agent drives a Coding Session with core tools (ADR-0005):
   harness that never asks or a Harness Mode that acts without asking where
   the Grant does not allow Unattended Modes
   (`unattended_mode_not_allowed`).
+- `computer_coding_session_start {harness, directory, title, prompt}`
+  starts a session in the Agent's own Computer. `harness` is a harness whose
+  Computer launch names a Computer mode and a provider: `claude`.
+  `directory` is an absolute directory under `/data/agent`. The effect class
+  is `free`, as for `computer_shell`, so the start has no card. It checks, in
+  this order, that the harness runs in a Computer (else `unknown_harness`),
+  that the directory is under `/data/agent` (else `bad_directory`), that the
+  Agent has fewer than four open sessions (else `session_limit`), and that
+  the installation has the key of the harness's provider (else
+  `no_provider_key`, which names the provider). The Host and the Computer
+  are two tools, because one tool cannot hold two effect classes or two
+  Grant bindings, and an Agent with a Computer and no Host can still start
+  a session.
 - `coding_session_send {session, prompt}`: a new turn when the session is
   `idle`, and queued until the turn ends when it is `working`, because ACP v1
   has no steering. A session that is not open answers `session_not_open`
@@ -376,19 +415,25 @@ The Agent drives a Coding Session with core tools (ADR-0005):
 - `coding_session_resume {session}` of an `interrupted` session. Free, with
   a check that the Agent still holds a live host Grant on the session's
   machine, else `permission_revoked`: the Person approved this harness in
-  this directory on this machine, and a revoked Grant takes that back. An
-  absent Host answers `host_not_connected`. The refusal of
+  this directory on this machine, and a revoked Grant takes that back. A
+  session in the Agent's Computer needs no Grant. An absent Host answers
+  `host_not_connected`. The refusal of
   `coding_session_send` for an `interrupted` session names this tool.
 - An Agent reads and acts on its own sessions alone. A session of another
   Agent reads as absent (`session_not_found`), as another Agent's Call does
-  (ADR-0020). The snapshot holds the session tools when a machine of the
-  Workspace declares a Coding Harness.
+  (ADR-0020). The snapshot holds `coding_session_start` when a machine of
+  the Workspace declares a Coding Harness, and
+  `computer_coding_session_start` when the daemon has a Computer for the
+  Agent. It holds the tools of a started session when it holds one of the
+  two starts.
 - In the `agent` mode, `coding_session_decide {session, decision:
   allow|deny, note}` and `coding_session_escalate {session, note}`. Free,
   because the Person delegated the decision through the mode. The note is
   required, 1 to 2,000 characters: the reason of a decision, or the
-  question of an escalation. The snapshot holds the two tools only when
-  the Agent holds a live host Grant whose widest mode is `agent`. A
+  question of an escalation. The snapshot holds the two tools when the
+  Agent holds a live host Grant whose widest mode is `agent`, or when it
+  holds `computer_coding_session_start`, because a session in the Agent's
+  Computer is in the `agent` mode with no host Grant. A
   decision checks, in this order, that the session is the Agent's own
   (else `session_not_found`), that a Harness Permission of
   the session waits for the Agent (else `no_pending_decision`), and that
@@ -572,7 +617,9 @@ The daemon reads the live host Grant of the owning Agent on the session's
 machine at each permission, so a narrower Grant applies to the next
 permission of a running session (ADR-0005). The effective mode is the
 narrower of the session's mode and the widest mode on the Grant. With no
-live Grant, the mode is `person` and there are no rules.
+live Grant, the mode is `person` and there are no rules. A session in the
+Agent's Computer has no machine: its effective mode is its own mode,
+`agent`, and it has no Host Allow Rules.
 
 The broker evaluates the permission with a pure function, in this order, and
 stops at the first step that answers:
@@ -864,4 +911,4 @@ Other ways were considered:
 ## Not built
 
 - A Pagis auto mode.
-- The Computer place.
+- A Computer session of Codex, OpenCode or pi.

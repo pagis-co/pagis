@@ -198,6 +198,7 @@ impl CoreToolRuntime {
             | CoreTool::ContributionView
             | CoreTool::ContributionClose
             | CoreTool::CodingSessionStart
+            | CoreTool::ComputerCodingSessionStart
             | CoreTool::CodingSessionSend
             | CoreTool::CodingSessionRead
             | CoreTool::CodingSessionCancel

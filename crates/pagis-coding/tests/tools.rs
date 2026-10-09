@@ -13,8 +13,8 @@ use pagis_broker::{AuthorizedCall, CoreTool, HostSessions, ToolExecutor, ToolRes
 use pagis_coding::fake::{Script, Turn, acp, serve_client_app};
 use pagis_coding::{
     AgentAsks, CodingSessionStarts, CodingSessions, CodingSessionsDeps, CodingToolRuntime,
-    NewCodingSession, RefuseDecisions, SessionEvents, SessionRuleError, SessionRules,
-    SignInReports,
+    NewCodingSession, OpenFailure, OpenRequest, OpenedStream, Place, RefuseDecisions,
+    SessionEvents, SessionPlace, SessionRuleError, SessionRules, SignInReports, open_on_host,
 };
 use pagis_core::{
     Agent, AgentId, AgentStatus, AgentStore, Channel, ChannelId, ChannelKind, ChannelStore,
@@ -123,7 +123,9 @@ async fn world(pool: SqlitePool, script: Script) -> World {
         )
         .await
         .unwrap();
-    let place = session_socket(&workspace.id, &host.id, script).await;
+    let place = Arc::new(HostPlace(
+        session_socket(&workspace.id, &host.id, script).await,
+    ));
     let store = Arc::new(SqliteCodingSessionStore::new(pool.clone()));
     let sessions = CodingSessions::new(CodingSessionsDeps {
         sessions: store.clone(),
@@ -154,6 +156,7 @@ async fn world(pool: SqlitePool, script: Script) -> World {
         hosts_store,
         Arc::new(SqliteGrantStore::new(pool.clone())),
         Arc::new(AgentAsks::default()),
+        no_provider_keys(),
     );
     let grants = Arc::new(SqliteGrantStore::new(pool.clone()));
     World {
@@ -191,6 +194,24 @@ async fn agent(pool: &SqlitePool, workspace_id: &WorkspaceId, name: &str) -> Age
         .await
         .unwrap();
     agent.id
+}
+
+/// The place of the tests: only the session socket of a Host.
+struct HostPlace(Arc<HostSessions>);
+
+#[async_trait]
+impl SessionPlace for HostPlace {
+    async fn open(
+        &self,
+        workspace_id: &WorkspaceId,
+        place: &Place,
+        request: OpenRequest,
+    ) -> Result<OpenedStream, OpenFailure> {
+        let Place::Host(host_id) = place else {
+            panic!("the tools tests open streams only on a Host");
+        };
+        open_on_host(&self.0, workspace_id, host_id, request).await
+    }
 }
 
 /// The session socket of the machine, whose Client App end runs the
@@ -232,7 +253,7 @@ impl World {
                 workspace_id: self.workspace_id.clone(),
                 agent_id: self.agent_id.clone(),
                 run_id: self.run_id.clone(),
-                host_id: self.host_id.clone(),
+                place: Place::Host(self.host_id.clone()),
                 harness_id: "claude".to_string(),
                 directory: DIRECTORY.to_string(),
                 worktree: None,
@@ -1192,4 +1213,14 @@ async fn read_shows_the_harness_mode_and_the_offered_modes_inside_the_envelope(p
         .collect();
     assert_eq!(inside["harness_modes"], json!(offered));
     assert_eq!(read.get("harness_mode"), None, "{read:#}");
+}
+
+/// A key resolver with no provider key: no environment, no config, and an
+/// empty secret store.
+fn no_provider_keys() -> Arc<pagis_core::ProviderKeys> {
+    Arc::new(pagis_core::ProviderKeys::with_env(
+        |_| None,
+        std::collections::HashMap::new(),
+        Arc::new(pagis_core::MemorySecretStore::default()),
+    ))
 }

@@ -90,7 +90,7 @@ pub fn coding_session_manifest() -> CapabilityManifest {
                         json!({"type": "string", "enum": ["interrupted", "closed", "failed"]}),
                     ),
                     // The end reason, or the reason of an interruption:
-                    // `host_lost` or `daemon_restart`.
+                    // `host_lost`, `computer_stopped` or `daemon_restart`.
                     ("reason", json!({"type": "string"})),
                 ],
             ),

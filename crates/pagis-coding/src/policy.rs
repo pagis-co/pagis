@@ -1,9 +1,11 @@
-//! Pagis policy for each Harness Permission of a Coding Session on a
-//! Host (ADR-0033).
+//! Pagis policy for each Harness Permission of a Coding Session
+//! (ADR-0033).
 //!
 //! [`PolicyDecisions`] reads the live host Grant of the owning Agent at
-//! each permission, so a narrower Grant applies to the next permission
-//! of a running session. The broker's [`evaluate`] decides. Each decision
+//! each permission of a session on a Host, so a narrower Grant applies to
+//! the next permission of a running session. A session in the Agent's
+//! own Computer has no host Grant: its own mode, `agent`, applies, and no
+//! Host Allow Rule. The broker's [`evaluate`] decides. Each decision
 //! writes one audit fact, [`PERMISSION_DECIDED_EVENT`], on the bus.
 //!
 //! A permission that policy does not allow waits. In the `person` mode
@@ -28,9 +30,9 @@ use futures::StreamExt;
 use futures::future::BoxFuture;
 use pagis_broker::{Decider, HarnessToolKind, PolicyOutcome, evaluate};
 use pagis_core::{
-    AgentId, CodingSession, EventBus, EventScope, EventStream, Grant, GrantStore, HostStore,
-    MessageStore, NewEvent, RequestStore, RunId, RunState, RunStore, SessionApprovalMode,
-    WorkspaceId,
+    AgentId, CodingSession, CodingSessionPlace, EventBus, EventScope, EventStream, Grant,
+    GrantStore, HostStore, MessageStore, NewEvent, RequestStore, RunId, RunState, RunStore,
+    SessionApprovalMode, WorkspaceId,
 };
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -145,13 +147,17 @@ pub(crate) async fn host_grant(
         .await
 }
 
-/// The mode that answers a permission now: the narrower of the session's
-/// mode and the widest mode on the live host Grant. With no live Grant
-/// the mode is `person`.
+/// The mode that answers a permission now. On a Host it is the narrower
+/// of the session's mode and the widest mode on the live host Grant, and
+/// with no live Grant it is `person`. A session in the Agent's own
+/// Computer has no host Grant, and its own mode answers.
 pub(crate) fn effective_mode(
     grant: Option<&Grant>,
     session: &CodingSession,
 ) -> SessionApprovalMode {
+    if session.place == CodingSessionPlace::Computer {
+        return session.approval_mode;
+    }
     grant
         .map_or(SessionApprovalMode::Person, Grant::session_approval_mode)
         .min(session.approval_mode)

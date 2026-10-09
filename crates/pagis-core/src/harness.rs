@@ -112,6 +112,14 @@ pub struct ComputerLaunch {
     /// The program on the `PATH` of the Computer.
     pub program: &'static str,
     pub args: &'static [&'static str],
+    /// The Harness Mode that a session in a Computer runs in: an
+    /// Unattended Mode, because the container is the sandbox. `None`
+    /// keeps the mode that the harness starts in.
+    pub mode: Option<&'static str>,
+    /// The provider whose Org key the harness spends through the Harness
+    /// Model Endpoint. The daemon starts a session in a Computer only for
+    /// a harness that names one.
+    pub provider: Option<crate::Provider>,
 }
 
 /// How a harness starts, from its distribution in the ACP registry.
@@ -286,10 +294,14 @@ const CLAUDE: HarnessEntry = HarnessEntry {
             how: SignInAction::TerminalAuth("console-login"),
         },
     ],
+    // The harness runs as uid `agent` and not as root, so the adapter
+    // offers `bypassPermissions`.
     computer: Some(ComputerLaunch {
         packages: &[CLAUDE_ACP],
         program: "claude-agent-acp",
         args: &[],
+        mode: Some("bypassPermissions"),
+        provider: Some(crate::Provider::Anthropic),
     }),
 };
 
@@ -353,6 +365,8 @@ const CODEX: HarnessEntry = HarnessEntry {
         packages: &[CODEX_ACP],
         program: "codex-acp",
         args: &[],
+        mode: None,
+        provider: None,
     }),
 };
 
@@ -424,6 +438,8 @@ const OPENCODE: HarnessEntry = HarnessEntry {
         packages: &[],
         program: "opencode",
         args: &["acp"],
+        mode: None,
+        provider: None,
     }),
 };
 
@@ -461,6 +477,8 @@ const PI: HarnessEntry = HarnessEntry {
         packages: &[PI_ACP, PI_CLI],
         program: "pi-acp",
         args: &[],
+        mode: None,
+        provider: None,
     }),
 };
 
@@ -641,6 +659,17 @@ pub fn catalog() -> &'static [HarnessEntry] {
 /// The entry of one harness, by the id a Coding Session records.
 pub fn entry(id: &str) -> Option<&'static HarnessEntry> {
     CATALOG.iter().find(|entry| entry.id == id)
+}
+
+/// The harnesses whose sessions the daemon starts in the Agent's
+/// Computer: those whose Computer launch names the provider that it
+/// spends, in catalog order.
+pub fn computer_sessions() -> impl Iterator<Item = &'static HarnessEntry> {
+    CATALOG.iter().filter(|entry| {
+        entry
+            .computer
+            .is_some_and(|launch| launch.provider.is_some())
+    })
 }
 
 /// The program and the arguments that start the ACP agent of a harness.
@@ -971,6 +1000,24 @@ mod tests {
         for id in ["gemini", "copilot", "cursor"] {
             assert_eq!(harness(id).computer, None, "{id}");
         }
+    }
+
+    /// Claude Code is the one harness whose sessions the daemon starts in
+    /// a Computer. It acts there in `bypassPermissions`, because the
+    /// container is the sandbox, and it spends the Org's Anthropic key.
+    #[test]
+    fn claude_code_runs_in_a_computer_in_bypass_permissions_on_the_anthropic_key() {
+        let ids: Vec<&str> = computer_sessions().map(|entry| entry.id).collect();
+        assert_eq!(ids, ["claude"]);
+        let launch = harness("claude").computer.expect("a Computer launch");
+        assert_eq!(launch.mode, Some("bypassPermissions"));
+        assert_eq!(launch.provider, Some(crate::Provider::Anthropic));
+        assert!(
+            harness("claude")
+                .modes
+                .iter()
+                .any(|mode| mode.id == "bypassPermissions" && !mode.asks)
+        );
     }
 
     #[test]

@@ -146,6 +146,7 @@ impl World {
             phone_numbers: Arc::clone(&numbers) as _,
             mailboxes: Arc::new(SqliteAgentMailboxStore::new(pool.clone())),
             session_starts: Arc::new(pagis_broker::NoSessionStarts),
+            computer: false,
         });
         Self {
             broker,

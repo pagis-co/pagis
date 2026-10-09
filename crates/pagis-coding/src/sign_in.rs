@@ -30,7 +30,7 @@ use pagis_core::{
 use serde_json::json;
 use tokio::sync::Mutex;
 
-use crate::{AcpSession, OpenFailureCode, OpenRequest, SessionPlace};
+use crate::{AcpSession, OpenFailureCode, OpenRequest, Place, SessionPlace};
 
 /// The longest wait for the answer to `initialize` of a probe. The first
 /// start of an npx harness on a machine downloads the package.
@@ -333,7 +333,7 @@ impl SignIns {
         };
         let opened = self
             .place
-            .open(&host.workspace_id, &host.id, request)
+            .open(&host.workspace_id, &Place::Host(host.id.clone()), request)
             .await
             .map_err(|failure| match failure.code {
                 OpenFailureCode::HostNotConnected => SignInFailure::NotConnected,
@@ -419,7 +419,7 @@ mod tests {
         async fn open(
             &self,
             _workspace_id: &WorkspaceId,
-            _host_id: &HostId,
+            _place: &Place,
             request: OpenRequest,
         ) -> Result<OpenedStream, OpenFailure> {
             self.requests.lock().unwrap().push(request);

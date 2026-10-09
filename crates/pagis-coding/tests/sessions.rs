@@ -22,10 +22,10 @@ use pagis_coding::{
     AgentAsks, CloseReason, CodingSessionStarts, CodingSessions, CodingSessionsDeps,
     CodingToolRuntime, InterruptReason, NewCodingSession, OpenFailure, OpenFailureCode,
     OpenRequest, OpenedStream, PERMISSION_DECIDED_EVENT, Pending, PermissionAnswer, PermissionAsk,
-    PolicyDecisions, PolicyDecisionsDeps, PromptOutcome, QuestionAnswer, QuestionAsk,
+    Place, PolicyDecisions, PolicyDecisionsDeps, PromptOutcome, QuestionAnswer, QuestionAsk,
     RefuseDecisions, ResumeFailure, SIGN_IN_CHANGED_EVENT, SessionDecisions, SessionError,
     SessionEvents, SessionExit, SessionPlace, SessionRuleError, SessionRules, SignInReports,
-    StartFailure, Waited, WaitsFor, WorktreeRequest,
+    StartFailure, Waited, WaitsFor, WorktreeRequest, open_on_host,
 };
 use pagis_core::{
     Agent, AgentId, AgentStatus, AgentStore, AuthorKind, Block, Channel, ChannelId, ChannelKind,
@@ -240,7 +240,7 @@ impl World {
             workspace_id: self.workspace_id.clone(),
             agent_id: self.agent_id.clone(),
             run_id: run_id.clone(),
-            host_id: self.host_id.clone(),
+            place: Place::Host(self.host_id.clone()),
             harness_id: "claude".to_string(),
             directory: DIRECTORY.to_string(),
             worktree: Some(WorktreeRequest {
@@ -508,7 +508,7 @@ fn prompts(harness: &FakeHarness) -> Vec<String> {
 struct DuplexPlace {
     script: Script,
     refusal: Option<OpenFailure>,
-    requests: Mutex<Vec<(WorkspaceId, HostId, OpenRequest)>>,
+    requests: Mutex<Vec<(WorkspaceId, Place, OpenRequest)>>,
     harness: Mutex<Option<FakeHarness>>,
     exit: Mutex<Option<oneshot::Sender<SessionExit>>>,
     /// Set when the daemon drops its end of the stream.
@@ -550,18 +550,36 @@ impl DuplexPlace {
     }
 }
 
+/// The place of the tests that run the session socket of a Host.
+struct HostPlace(Arc<HostSessions>);
+
+#[async_trait]
+impl SessionPlace for HostPlace {
+    async fn open(
+        &self,
+        workspace_id: &WorkspaceId,
+        place: &Place,
+        request: OpenRequest,
+    ) -> Result<OpenedStream, OpenFailure> {
+        let Place::Host(host_id) = place else {
+            panic!("these tests open streams only on a Host");
+        };
+        open_on_host(&self.0, workspace_id, host_id, request).await
+    }
+}
+
 #[async_trait]
 impl SessionPlace for DuplexPlace {
     async fn open(
         &self,
         workspace_id: &WorkspaceId,
-        host_id: &HostId,
+        place: &Place,
         request: OpenRequest,
     ) -> Result<OpenedStream, OpenFailure> {
         self.requests
             .lock()
             .unwrap()
-            .push((workspace_id.clone(), host_id.clone(), request));
+            .push((workspace_id.clone(), place.clone(), request));
         if let Some(refusal) = &self.refusal {
             return Err(refusal.clone());
         }
@@ -753,10 +771,10 @@ async fn start_writes_the_record_and_a_prompt_row_and_leaves_the_session_working
     assert_eq!(rows[0].payload["text"], "Fix the login bug.");
 
     let requests = place.requests.lock().unwrap().clone();
-    let (workspace_id, host_id, request) = &requests[0];
+    let (workspace_id, place_opened, request) = &requests[0];
     assert_eq!(
-        (workspace_id, host_id),
-        (&world.workspace_id, &world.host_id)
+        (workspace_id, place_opened),
+        (&world.workspace_id, &Place::Host(world.host_id.clone()))
     );
     let (command, args) =
         pagis_core::harness::launch_command(pagis_core::harness::entry("claude").unwrap());
@@ -820,7 +838,7 @@ async fn a_host_of_another_workspace_starts_no_session(pool: SqlitePool) {
 
     let refused = sessions
         .start(NewCodingSession {
-            host_id: stranger.clone(),
+            place: Place::Host(stranger.clone()),
             ..world.new_session(&world.run_id)
         })
         .await;
@@ -1597,7 +1615,10 @@ async fn an_exit_on_the_session_socket_fails_the_session_and_an_exit_after_close
         assert!(tokio::time::Instant::now() < deadline, "no session socket");
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
-    let sessions = world.coding_sessions(hosts.clone(), Arc::new(RefuseDecisions));
+    let sessions = world.coding_sessions(
+        Arc::new(HostPlace(hosts.clone())),
+        Arc::new(RefuseDecisions),
+    );
 
     let exited = sessions
         .start(world.new_session(&world.run_id))
@@ -1963,7 +1984,7 @@ async fn a_departure_of_the_host_interrupts_its_sessions_and_no_session_of_anoth
     world.wait_for_state(&idle.id, State::Idle).await;
     let elsewhere = sessions
         .start(NewCodingSession {
-            host_id: other_host,
+            place: Place::Host(other_host),
             ..world.new_session(&world.run_id)
         })
         .await
@@ -2027,14 +2048,17 @@ async fn a_lost_session_socket_interrupts_its_sessions_and_no_session_of_another
         assert!(tokio::time::Instant::now() < deadline, "no session socket");
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
-    let sessions = world.coding_sessions(hosts.clone(), Arc::new(RefuseDecisions));
+    let sessions = world.coding_sessions(
+        Arc::new(HostPlace(hosts.clone())),
+        Arc::new(RefuseDecisions),
+    );
     let working = sessions
         .start(world.new_session(&world.run_id))
         .await
         .unwrap();
     let elsewhere = sessions
         .start(NewCodingSession {
-            host_id: other_host,
+            place: Place::Host(other_host),
             ..world.new_session(&world.run_id)
         })
         .await
@@ -2063,6 +2087,33 @@ async fn a_lost_session_socket_interrupts_an_idle_session(pool: SqlitePool) {
     drop(place.exit.lock().unwrap().take());
 
     world.assert_interrupted(&idle.id, "host_lost").await;
+}
+
+/// A session in the Agent's own Computer has no Host. The end of its
+/// stream with an error means that the Computer stopped, so the session is
+/// interrupted with `computer_stopped`.
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_computer_that_stops_interrupts_its_session(pool: SqlitePool) {
+    let world = world(pool).await;
+    let place = DuplexPlace::new(Script::default().turn(ends_at_once()));
+    let sessions = world.coding_sessions(place.clone(), Arc::new(RefuseDecisions));
+    let idle = sessions
+        .start(NewCodingSession {
+            place: Place::Computer(world.agent_id.clone()),
+            worktree: None,
+            approval_mode: SessionApprovalMode::Agent,
+            ..world.new_session(&world.run_id)
+        })
+        .await
+        .unwrap();
+    world.wait_for_state(&idle.id, State::Idle).await;
+    let record = world.record(&idle.id).await;
+    assert_eq!(record.place, CodingSessionPlace::Computer);
+    assert_eq!(record.host_id, None);
+
+    drop(place.exit.lock().unwrap().take());
+
+    world.assert_interrupted(&idle.id, "computer_stopped").await;
 }
 
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
@@ -2172,8 +2223,8 @@ async fn resume_reopens_the_stream_in_the_working_directory_and_the_session_is_i
     assert_eq!(record.end_reason, None);
     let requests = place.requests.lock().unwrap().clone();
     assert_eq!(requests.len(), 2, "the resume opens a second stream");
-    let (_, host_id, request) = &requests[1];
-    assert_eq!(*host_id, world.host_id);
+    let (_, place_opened, request) = &requests[1];
+    assert_eq!(*place_opened, Place::Host(world.host_id.clone()));
     assert_eq!(request.cwd, WORKTREE_DIRECTORY);
     assert_eq!(request.worktree, None, "the worktree exists");
     let (command, args) =
@@ -2262,7 +2313,10 @@ async fn resume_with_a_harness_that_cannot_restore_answers_cannot_resume(pool: S
 async fn resume_with_no_session_socket_answers_host_not_connected(pool: SqlitePool) {
     let world = world(pool).await;
     let session = world.stored(State::Interrupted).await;
-    let sessions = world.coding_sessions(Arc::new(HostSessions::new()), Arc::new(RefuseDecisions));
+    let sessions = world.coding_sessions(
+        Arc::new(HostPlace(Arc::new(HostSessions::new()))),
+        Arc::new(RefuseDecisions),
+    );
 
     let failure = sessions
         .resume(&world.workspace_id, &session.id)
@@ -2359,6 +2413,7 @@ impl World {
             Arc::new(SqliteHostStore::new(self.pool.clone())),
             grants,
             self.agent_asks.clone(),
+            no_provider_keys(),
         )
     }
 
@@ -2845,7 +2900,7 @@ impl World {
     ) -> NewCodingSession {
         NewCodingSession {
             agent_id: agent_id.clone(),
-            host_id: host_id.clone(),
+            place: Place::Host(host_id.clone()),
             harness_id: harness_id.to_string(),
             title: format!("{harness_id} on {host_id}"),
             ..self.new_session(&self.run_id)
@@ -2898,12 +2953,12 @@ impl SessionPlace for Places {
     async fn open(
         &self,
         workspace_id: &WorkspaceId,
-        host_id: &HostId,
+        at: &Place,
         request: OpenRequest,
     ) -> Result<OpenedStream, OpenFailure> {
         let place = DuplexPlace::new(self.script.clone());
         self.opened.lock().unwrap().push(place.clone());
-        place.open(workspace_id, host_id, request).await
+        place.open(workspace_id, at, request).await
     }
 }
 
@@ -2993,11 +3048,11 @@ impl SessionPlace for NarrowingPlace {
     async fn open(
         &self,
         workspace_id: &WorkspaceId,
-        host_id: &HostId,
+        place: &Place,
         request: OpenRequest,
     ) -> Result<OpenedStream, OpenFailure> {
         stop_unattended_modes(&self.pool, &self.bus, &self.grant).await;
-        self.inner.open(workspace_id, host_id, request).await
+        self.inner.open(workspace_id, place, request).await
     }
 }
 
@@ -3493,7 +3548,7 @@ impl SessionPlace for EachPlace {
     async fn open(
         &self,
         workspace_id: &WorkspaceId,
-        host_id: &HostId,
+        at: &Place,
         request: OpenRequest,
     ) -> Result<OpenedStream, OpenFailure> {
         let place = self
@@ -3503,7 +3558,7 @@ impl SessionPlace for EachPlace {
             .pop_front()
             .expect("a place for each stream");
         self.opened.lock().unwrap().push(place.clone());
-        place.open(workspace_id, host_id, request).await
+        place.open(workspace_id, at, request).await
     }
 }
 
@@ -3873,4 +3928,14 @@ async fn a_start_in_a_mode_that_the_harness_does_not_offer_fails_with_no_prompt(
     assert!(record.ended_at.is_some());
     assert_eq!(prompts(&place.harness()), Vec::<String>::new());
     assert_eq!(set_modes(&place.harness()), Vec::<Value>::new());
+}
+
+/// A key resolver with no provider key: no environment, no config, and an
+/// empty secret store.
+fn no_provider_keys() -> Arc<pagis_core::ProviderKeys> {
+    Arc::new(pagis_core::ProviderKeys::with_env(
+        |_| None,
+        std::collections::HashMap::new(),
+        Arc::new(pagis_core::MemorySecretStore::default()),
+    ))
 }

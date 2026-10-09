@@ -17,7 +17,7 @@ use futures::StreamExt;
 use pagis_agent::{Brain, BrainError, TurnRequest, TurnRole, TurnStream};
 use pagis_broker::fake::FakeClientApp;
 use pagis_coding::fake::{Ask, FakeHarness, NEW_SESSION_ID, Script, Turn, acp, serve_client_app};
-use pagis_coding::{CloseReason, NewCodingSession, PERMISSION_DECIDED_EVENT, PromptOutcome};
+use pagis_coding::{CloseReason, NewCodingSession, PERMISSION_DECIDED_EVENT, Place, PromptOutcome};
 use pagis_core::{
     AgentId, AuthorKind, Block, ChannelId, CodingSession, CodingSessionEventKind, CodingSessionId,
     CodingSessionState, Event, EventSource, HostId, KnownBlock, Message, MessageId,
@@ -30,7 +30,7 @@ use pagis_testkit::{
 };
 use serde_json::{Value, json};
 use tokio_tungstenite::tungstenite::Message as Frame;
-use tokio_util::compat::TokioAsyncReadCompatExt;
+use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
 const WAIT: Duration = Duration::from_secs(10);
 const DIRECTORY: &str = "/Users/bo/code/app";
@@ -175,7 +175,7 @@ async fn start_session_with(daemon: &TestDaemon, run_id: RunId, script: Script) 
             workspace_id: daemon.workspace_id.clone(),
             agent_id: AgentId::from(daemon.agent_id.clone()),
             run_id,
-            host_id,
+            place: Place::Host(host_id),
             harness_id: "claude".to_string(),
             directory: DIRECTORY.to_string(),
             worktree: None,
@@ -2187,7 +2187,7 @@ async fn the_person_who_stops_allowing_unattended_modes_closes_a_pi_session_and_
             workspace_id: daemon.workspace_id.clone(),
             agent_id: AgentId::from(daemon.agent_id.clone()),
             run_id,
-            host_id: host_id.clone(),
+            place: Place::Host(host_id.clone()),
             harness_id: "pi".to_string(),
             directory: DIRECTORY.to_string(),
             worktree: None,
@@ -2867,4 +2867,346 @@ async fn person_bs_agent_that_answers_person_as_session_gets_session_not_found()
         error_code_of(daemon, &tenants.b.workspace_id, "coding_session_answer").await,
         "session_not_found"
     );
+}
+
+// A Claude Code session in the Agent's own Computer: the container is the
+// sandbox, so the start has no card and the harness acts without asking
+// (ADR-0033).
+
+/// The working directory of a session in the Computer, on the Agent's own
+/// volume.
+const COMPUTER_DIRECTORY: &str = "/data/agent/app";
+
+/// The Org's Anthropic key, which the harness never holds.
+const ANTHROPIC_KEY: &str = "sk-ant-org-key";
+
+fn computer_start_call(directory: &str) -> pagis_testkit::Script {
+    pagis_testkit::Script::tool_call(
+        &[],
+        "computer_coding_session_start",
+        json!({
+            "harness": "claude",
+            "directory": directory,
+            "title": "Fix the login",
+            "prompt": PROMPT,
+        }),
+    )
+}
+
+/// The modes of the Claude Code adapter, as the Harness Catalog names
+/// them.
+fn claude_modes() -> Vec<(&'static str, &'static str)> {
+    harness::entry("claude")
+        .unwrap()
+        .modes
+        .iter()
+        .map(|mode| (mode.id, mode.name))
+        .collect()
+}
+
+/// A daemon whose Agent has a Computer, with a fake provider behind the
+/// Harness Model Endpoint.
+struct InComputer {
+    daemon: TestDaemon,
+    runtime: Arc<pagis_computer::fake::FakeComputerRuntime>,
+    harness: Arc<Mutex<Option<FakeHarness>>>,
+    _provider: wiremock::MockServer,
+}
+
+/// Starts a daemon that thinks with `daemon_brain` and holds the
+/// Anthropic key when `with_key` is true.
+async fn computer_daemon(daemon_brain: Arc<dyn Brain>, with_key: bool) -> InComputer {
+    let provider = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/messages/count_tokens"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200).set_body_json(json!({"input_tokens": 12})),
+        )
+        .mount(&provider)
+        .await;
+    let runtime = Arc::new(pagis_computer::fake::FakeComputerRuntime::with_image());
+    let keys = if with_key {
+        vec![("ANTHROPIC_API_KEY", ANTHROPIC_KEY)]
+    } else {
+        Vec::new()
+    };
+    let daemon = TestDaemon::start_with(TestDaemonOptions {
+        brain: daemon_brain,
+        computer: Arc::clone(&runtime) as _,
+        keys: pagis_testkit::test_provider_keys(keys),
+        provider_base_url: Some(provider.uri()),
+        ..TestDaemonOptions::default()
+    })
+    .await;
+    InComputer {
+        daemon,
+        runtime,
+        harness: Arc::default(),
+        _provider: provider,
+    }
+}
+
+impl InComputer {
+    /// Serves the fake harness of `script` on the server end of the next
+    /// streaming exec, as `claude-agent-acp` does in the container.
+    fn serve_harness(&self, script: Script) {
+        let runtime = Arc::clone(&self.runtime);
+        let harness = Arc::clone(&self.harness);
+        tokio::spawn(async move {
+            let deadline = tokio::time::Instant::now() + WAIT;
+            let end = loop {
+                if let Some(end) = runtime.take_server_end() {
+                    break end;
+                }
+                if tokio::time::Instant::now() > deadline {
+                    return;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            };
+            let (read, write) = tokio::io::split(end);
+            *harness.lock().unwrap() = Some(FakeHarness::serve(
+                script,
+                write.compat_write(),
+                read.compat(),
+            ));
+        });
+    }
+
+    fn harness(&self) -> FakeHarness {
+        self.harness
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("the harness runs")
+    }
+
+    /// Sends `text` as the Person, and answers the tool result that the
+    /// model read once the Run completes.
+    async fn tool_result_after(&self, brain: &ScriptedBrain, text: &str) -> String {
+        let mut firehose = self.daemon.event_socket(self.daemon.cookie()).await;
+        send(
+            &self.daemon,
+            self.daemon.cookie(),
+            &self.daemon.dm_channel_id,
+            text,
+        )
+        .await;
+        the_tool_result(&mut firehose, brain).await
+    }
+
+    /// The token of the session from the environment of its exec.
+    fn token(&self) -> String {
+        let streams = self.runtime.exec_streams();
+        streams[0]
+            .env
+            .iter()
+            .find_map(|entry| entry.strip_prefix("ANTHROPIC_AUTH_TOKEN="))
+            .expect("the harness holds a token")
+            .to_string()
+    }
+
+    /// The status of a token count that `token` sends to the Harness
+    /// Model Endpoint, as Claude Code sends it.
+    async fn count_tokens(&self, token: &str) -> u16 {
+        reqwest::Client::new()
+            .post(format!(
+                "http://{}/anthropic/v1/messages/count_tokens",
+                self.daemon.model_addr
+            ))
+            .bearer_auth(token)
+            .header("content-type", "application/json")
+            .body(r#"{"model":"claude-sonnet-4-5","messages":[{"role":"user","content":"hi"}]}"#)
+            .send()
+            .await
+            .unwrap()
+            .status()
+            .as_u16()
+    }
+
+    async fn pending_requests(&self) -> Vec<Request> {
+        self.daemon
+            .stores()
+            .requests
+            .list_by_state(&self.daemon.workspace_id, RequestState::Pending, None)
+            .await
+            .unwrap()
+    }
+}
+
+/// The session id in the JSON tool result of a start.
+fn started_session(result: &str) -> CodingSessionId {
+    let result: Value = serde_json::from_str(result)
+        .unwrap_or_else(|error| panic!("the tool result is JSON ({error}): {result}"));
+    CodingSessionId::from(
+        result["session_id"]
+            .as_str()
+            .unwrap_or_else(|| panic!("a started session: {result}"))
+            .to_string(),
+    )
+}
+
+/// The whole path in the Computer: the Agent starts Claude Code with no
+/// card, the harness runs as `agent` in the directory with a token of the
+/// session and no provider key, it is in `bypassPermissions` before the
+/// first prompt, and its tool call asks nobody. The token reaches the
+/// Harness Model Endpoint while the session is open and stops at its
+/// close.
+#[tokio::test]
+async fn an_agent_starts_claude_code_in_its_computer_where_the_harness_acts_without_asking() {
+    let brain = Arc::new(ScriptedBrain::default());
+    brain.push(computer_start_call(COMPUTER_DIRECTORY));
+    brain.push(pagis_testkit::Script::reply(&["Started."]));
+    let computer = computer_daemon(Arc::new(TestRunsOnly(Arc::clone(&brain))), true).await;
+    let daemon = &computer.daemon;
+    computer.serve_harness(
+        Script::default()
+            .modes("default", &claude_modes())
+            .turn(Turn::new(
+                vec![acp::SessionUpdate::ToolCall(
+                    acp::ToolCall::new("call-1", "Run the tests")
+                        .kind(acp::ToolKind::Execute)
+                        .status(acp::ToolCallStatus::Completed),
+                )],
+                acp::StopReason::EndTurn,
+            )),
+    );
+
+    let result = computer
+        .tool_result_after(&brain, "fix the login in your computer")
+        .await;
+
+    let session_id = started_session(&result);
+    wait_for_session_state(daemon, &session_id, CodingSessionState::Idle).await;
+    let session = get(daemon, &format!("/api/v1/coding-sessions/{session_id}")).await;
+    assert_eq!(session["place"], "computer");
+    assert_eq!(session["harness_mode"], "bypassPermissions");
+    assert_eq!(session["unattended"], true);
+    let harness = computer.harness();
+    assert_eq!(
+        harness.params("session/set_mode")[0]["modeId"],
+        "bypassPermissions"
+    );
+    let methods: Vec<_> = harness
+        .received()
+        .into_iter()
+        .map(|received| received.method)
+        .filter(|method| method == "session/set_mode" || method == "session/prompt")
+        .collect();
+    assert_eq!(methods, ["session/set_mode", "session/prompt"]);
+    assert!(harness.answers().is_empty(), "the harness asked nothing");
+    assert!(computer.pending_requests().await.is_empty());
+    let streams = computer.runtime.exec_streams();
+    assert_eq!(streams.len(), 1);
+    assert_eq!(streams[0].argv, ["claude-agent-acp"]);
+    assert_eq!(streams[0].user, "agent");
+    assert_eq!(streams[0].cwd, COMPUTER_DIRECTORY);
+    assert!(
+        !streams[0]
+            .env
+            .iter()
+            .any(|entry| entry.contains(ANTHROPIC_KEY)),
+        "{:?}",
+        streams[0].env
+    );
+    let token = computer.token();
+    assert_eq!(computer.count_tokens(&token).await, 200);
+
+    brain.push(pagis_testkit::Script::tool_call(
+        &[],
+        "coding_session_close",
+        json!({"session": session_id.as_str()}),
+    ));
+    brain.push(pagis_testkit::Script::reply(&["Closed."]));
+    computer.tool_result_after(&brain, "close it").await;
+    wait_for_session_state(daemon, &session_id, CodingSessionState::Closed).await;
+    assert_eq!(computer.count_tokens(&token).await, 401);
+}
+
+/// A permission that Claude Code still asks in `bypassPermissions` goes
+/// to the supervising Agent: the session waits for its decision, and its
+/// allow answers the harness once, with no card.
+#[tokio::test]
+async fn a_permission_that_claude_code_asks_in_the_computer_waits_for_the_agent() {
+    let brain = Arc::new(ScriptedBrain::default());
+    brain.push(computer_start_call(COMPUTER_DIRECTORY));
+    brain.push(pagis_testkit::Script::reply(&["Started."]));
+    let decisions = Arc::new(ScriptedBrain::default());
+    let entered = Arc::new(tokio::sync::Notify::new());
+    let (gate, opened) = tokio::sync::watch::channel(false);
+    let computer = computer_daemon(
+        Arc::new(DecisionWakeups {
+            test: Arc::clone(&brain),
+            decisions: Arc::clone(&decisions),
+            entered: Arc::clone(&entered),
+            gate: opened,
+        }),
+        true,
+    )
+    .await;
+    let daemon = &computer.daemon;
+    computer.serve_harness(
+        Script::default()
+            .modes("default", &claude_modes())
+            .turn(ends_after(rm_rf_build())),
+    );
+
+    let result = computer
+        .tool_result_after(&brain, "clean the build in your computer")
+        .await;
+
+    let session_id = started_session(&result);
+    wait_for_session_state(daemon, &session_id, CodingSessionState::NeedsDecision).await;
+    tokio::time::timeout(WAIT, entered.notified())
+        .await
+        .expect("the decision wakes the Agent");
+    decisions.push(pagis_testkit::Script::tool_call(
+        &[],
+        "coding_session_decide",
+        json!({"session": session_id.as_str(), "decision": "allow", "note": NOTE}),
+    ));
+    decisions.push(pagis_testkit::Script::reply(&["I allowed it."]));
+    gate.send_replace(true);
+    wait_for_session_state(daemon, &session_id, CodingSessionState::Idle).await;
+    let answers: Vec<Value> = computer
+        .harness()
+        .answers()
+        .into_iter()
+        .map(|answer| answer.expect("an answer and no error"))
+        .collect();
+    assert_eq!(answers, [allow_once()]);
+    assert!(computer.pending_requests().await.is_empty());
+}
+
+/// Claude Code in the Computer spends the installation's Anthropic key.
+/// With no key, the start is a tool error that names the cause, and no
+/// exec starts.
+#[tokio::test]
+async fn with_no_anthropic_key_the_start_in_the_computer_is_a_tool_error_and_no_exec_starts() {
+    let brain = Arc::new(ScriptedBrain::default());
+    brain.push(computer_start_call(COMPUTER_DIRECTORY));
+    brain.push(pagis_testkit::Script::reply(&["No key."]));
+    let computer = computer_daemon(Arc::new(TestRunsOnly(Arc::clone(&brain))), false).await;
+
+    let result = computer.tool_result_after(&brain, "fix the login").await;
+
+    assert!(result.contains("no_provider_key"), "{result}");
+    assert!(result.contains("Anthropic key"), "{result}");
+    assert!(computer.runtime.exec_streams().is_empty());
+    assert!(computer.runtime.execs().is_empty());
+}
+
+/// The working directory of a session in the Computer is on the Agent's
+/// own volume.
+#[tokio::test]
+async fn a_directory_outside_the_agents_home_is_a_tool_error() {
+    let brain = Arc::new(ScriptedBrain::default());
+    brain.push(computer_start_call("/etc"));
+    brain.push(pagis_testkit::Script::reply(&["Bad directory."]));
+    let computer = computer_daemon(Arc::new(TestRunsOnly(Arc::clone(&brain))), true).await;
+
+    let result = computer.tool_result_after(&brain, "fix the login").await;
+
+    assert!(result.contains("bad_directory"), "{result}");
+    assert!(result.contains("/data/agent"), "{result}");
+    assert!(computer.runtime.exec_streams().is_empty());
 }

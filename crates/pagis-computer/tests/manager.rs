@@ -2760,3 +2760,77 @@ async fn a_daemon_does_not_adopt_the_computer_of_a_workspace_it_does_not_serve()
     );
     assert_eq!(after.ceiling().awake_on_server(), 0);
 }
+
+/// The streaming exec of a Coding Harness, as uid `agent` in its
+/// directory.
+fn harness_request() -> pagis_computer::ExecRequest {
+    pagis_computer::ExecRequest {
+        argv: vec!["claude-agent-acp".to_string()],
+        user: pagis_computer::SHELL_USER.to_string(),
+        cwd: format!("{SHELL_HOME}/app"),
+        env: Vec::new(),
+        stdin: None,
+        output_cap: OutputCap { head: 0, tail: 0 },
+    }
+}
+
+/// The harness of a Coding Session holds its Computer awake while it
+/// lives: the idle stop leaves the Computer awake and a sleep answers
+/// `Busy`. After the harness ends, the idle stop stops the Computer.
+#[tokio::test]
+async fn a_harness_exec_holds_the_computer_awake_until_it_drops() {
+    let h = harness_with(FakeComputerRuntime::with_image(), Duration::from_millis(20));
+
+    let exec = h
+        .manager
+        .harness(&h.agent_id, harness_request())
+        .await
+        .expect("the harness starts");
+
+    assert_eq!(h.manager.state(&h.agent_id).await, ComputerState::Awake);
+    let started = h.runtime.exec_streams();
+    assert_eq!(started.len(), 1);
+    assert_eq!(started[0].argv, ["claude-agent-acp"]);
+    assert_eq!(started[0].user, "agent");
+    tokio::time::sleep(Duration::from_millis(30)).await;
+    h.manager.sweep().await;
+    assert_eq!(h.manager.state(&h.agent_id).await, ComputerState::Awake);
+    assert!(matches!(
+        h.manager.sleep(&h.agent_id).await,
+        Err(ComputerError::Busy)
+    ));
+
+    drop(exec);
+    tokio::time::sleep(Duration::from_millis(30)).await;
+    h.manager.sweep().await;
+
+    assert_eq!(h.manager.state(&h.agent_id).await, ComputerState::Off);
+    assert!(!h.runtime.is_running(&h.agent_id));
+}
+
+/// A harness starts only in the Computer of an Agent of the manager's
+/// own Workspace, and nothing runs for another.
+#[tokio::test]
+async fn a_harness_exec_of_a_foreign_agent_is_refused() {
+    let runtime = FakeComputerRuntime::with_image();
+    let h = harness_with(runtime, Duration::from_secs(600));
+    let manager = ComputerManager::new(ComputerManagerDeps {
+        runtime: Arc::clone(&h.runtime) as _,
+        image: ComputerImage::new(Arc::clone(&h.runtime) as _),
+        skills: Arc::clone(&h.skills) as _,
+        workspaces: Arc::clone(&h.workspaces) as _,
+        agents: Arc::new(pagis_computer::fake::FakeAgents::strict()),
+        bus: Arc::clone(&h.bus) as _,
+        workspace_id: h.workspace_id.clone(),
+        screens_dir: h.screens.path().to_path_buf(),
+        idle_stop: Duration::from_secs(600),
+        relay: pagis_computer::fake::loopback_relay(),
+        ceiling: Arc::clone(&h.ceiling),
+        exit: None,
+    });
+
+    let refused = manager.harness(&h.agent_id, harness_request()).await;
+
+    assert!(matches!(refused, Err(ComputerError::ForeignAgent)));
+    assert!(h.runtime.exec_streams().is_empty());
+}
