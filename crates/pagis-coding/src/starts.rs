@@ -16,6 +16,8 @@ use pagis_core::{
 };
 use serde_json::Value;
 
+use crate::sessions::UNATTENDED_MODE_NOT_ALLOWED;
+
 /// The most Coding Sessions that one Agent holds open: not `closed` and
 /// not `failed`.
 pub const MAX_OPEN_SESSIONS: u32 = 4;
@@ -116,7 +118,7 @@ impl SessionStarts for CodingSessionStarts {
         // Pagis policy sees no action of a harness that never asks.
         if !entry.asks_permission && !allowance.unattended_modes {
             return Err(ToolResult::error(
-                "unattended_mode_not_allowed",
+                UNATTENDED_MODE_NOT_ALLOWED,
                 format!(
                     "{} does not ask before it acts, so it runs only where the user allows modes \
                      that act without asking. Ask the user to allow them for you on {}.",

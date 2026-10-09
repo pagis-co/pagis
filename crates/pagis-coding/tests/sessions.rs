@@ -30,10 +30,10 @@ use pagis_core::{
     Agent, AgentId, AgentStatus, AgentStore, AuthorKind, Block, Channel, ChannelId, ChannelKind,
     ChannelStore, CodingSession, CodingSessionEvent, CodingSessionEventKind as Kind,
     CodingSessionId, CodingSessionPlace, CodingSessionState as State, CodingSessionStore, Event,
-    EventBus, EventId, EventLog, EventScope, EventStream, Grant, GrantId, GrantStore, HostId,
-    HostStore, IngestBatch, Message, MessageId, MessageStatus, MessageStore, NewEvent, Request,
-    RequestState, RequestStore, Run, RunId, RunState, RunStore, SessionApprovalMode, StoreError,
-    SystemClock, TriggerKind, Workspace, WorkspaceId, WorkspaceStore, now_ms,
+    EventBus, EventLog, Grant, GrantId, GrantStore, HostId, HostStore, IngestBatch, Message,
+    MessageId, MessageStatus, MessageStore, NewEvent, Request, RequestState, RequestStore, Run,
+    RunId, RunState, RunStore, SessionApprovalMode, SystemClock, TriggerKind, Workspace,
+    WorkspaceId, WorkspaceStore, now_ms,
 };
 use pagis_storage_sqlite::{
     SqliteAgentStore, SqliteChannelStore, SqliteCodingSessionStore, SqliteEventLog,
@@ -215,13 +215,14 @@ impl World {
         &self,
         place: Arc<dyn SessionPlace>,
         decisions: Arc<dyn SessionDecisions>,
-    ) -> CodingSessions {
+    ) -> Arc<CodingSessions> {
         CodingSessions::new(CodingSessionsDeps {
             sessions: self.sessions.clone(),
             runs: Arc::new(SqliteRunStore::new(self.pool.clone())),
             hosts: Arc::new(SqliteHostStore::new(self.pool.clone())),
             messages: Arc::new(SqliteMessageStore::new(self.pool.clone())),
-            bus: Arc::new(SilentBus),
+            bus: self.bus.clone(),
+            grants: Arc::new(SqliteGrantStore::new(self.pool.clone())),
             place,
             decisions,
             rules: self.rules.clone(),
@@ -498,30 +499,6 @@ fn prompts(harness: &FakeHarness) -> Vec<String> {
         .into_iter()
         .map(|params| params["prompt"][0]["text"].as_str().unwrap().to_string())
         .collect()
-}
-
-/// A bus that drops each event. The full-daemon tests read the events.
-struct SilentBus;
-
-#[async_trait]
-impl EventBus for SilentBus {
-    async fn publish(&self, event: NewEvent) -> Result<Event, StoreError> {
-        Ok(Event {
-            id: EventId::generate(),
-            seq: 1,
-            workspace_id: event.workspace_id,
-            event_type: event.event_type,
-            agent_id: event.agent_id,
-            run_id: event.run_id,
-            channel_id: event.channel_id,
-            payload: event.payload,
-            created_at: now_ms(),
-        })
-    }
-
-    async fn subscribe(&self, _: EventScope, _: Option<i64>) -> EventStream {
-        Box::pin(futures::stream::empty())
-    }
 }
 
 /// A place that runs the fake harness at the other end of a
@@ -2150,7 +2127,7 @@ async fn interrupt_all_closes_the_stream_of_a_live_session(pool: SqlitePool) {
 async fn interrupted_session(
     world: &World,
     script: Script,
-) -> (Arc<DuplexPlace>, CodingSessions, CodingSession) {
+) -> (Arc<DuplexPlace>, Arc<CodingSessions>, CodingSession) {
     let place = DuplexPlace::new(script);
     let sessions = world.coding_sessions(place.clone(), Arc::new(RefuseDecisions));
     let connection = world.presence.connect(&world.host_id);
@@ -2346,7 +2323,7 @@ impl World {
         let place = DuplexPlace::new(
             Script::default().turn(Turn::new(vec![], acp::StopReason::EndTurn).asks(rm_rf_build())),
         );
-        let sessions = Arc::new(self.coding_sessions(place.clone(), self.policy()));
+        let sessions = self.coding_sessions(place.clone(), self.policy());
         let grants = Arc::new(SqliteGrantStore::new(self.pool.clone()));
         let tools = CodingToolRuntime::new(
             Arc::clone(&sessions),
@@ -2751,4 +2728,372 @@ async fn a_run_in_the_thread_that_ends_without_a_decision_escalates_the_permissi
         code(&world.decide(&agent, "allow").await),
         "no_pending_decision"
     );
+}
+
+// A host Grant that stops allowing Unattended Modes closes the sessions
+// that act without asking (ADR-0033).
+
+/// Stops a host Grant from allowing Unattended Modes, and reports the
+/// revision on the bus, as the route does.
+async fn stop_unattended_modes(pool: &SqlitePool, bus: &AuditEventBus, grant: &Grant) {
+    let revised = SqliteGrantStore::new(pool.clone())
+        .set_scope(
+            &grant.workspace_id,
+            &grant.id,
+            &grant.with_unattended_modes(false),
+        )
+        .await
+        .unwrap();
+    assert!(revised, "the grant is live");
+    publish_grant_event(bus, grant, "grant.changed").await;
+}
+
+/// One grant event on the bus, with the fields that the route gives.
+async fn publish_grant_event(bus: &AuditEventBus, grant: &Grant, event_type: &str) {
+    bus.publish(NewEvent {
+        workspace_id: grant.workspace_id.clone(),
+        event_type: event_type.to_string(),
+        agent_id: Some(grant.agent_id.clone()),
+        run_id: None,
+        channel_id: None,
+        payload: json!({
+            "grant_id": grant.id.as_str(),
+            "resource_kind": grant.resource_kind,
+            "resource_id": grant.resource_id,
+        }),
+    })
+    .await
+    .unwrap();
+}
+
+impl World {
+    /// A second Agent of the Workspace.
+    async fn other_agent(&self) -> AgentId {
+        let agent = Agent {
+            id: AgentId::generate(),
+            workspace_id: self.workspace_id.clone(),
+            name: "Sage".to_string(),
+            job: "engineer".to_string(),
+            description: String::new(),
+            personality: "calm".to_string(),
+            model_alias: "default".to_string(),
+            avatar: Default::default(),
+            voice: None,
+            standing_brief: None,
+            status: AgentStatus::Active,
+            created_at: now_ms(),
+            updated_at: now_ms(),
+        };
+        SqliteAgentStore::new(self.pool.clone())
+            .create(&agent)
+            .await
+            .unwrap();
+        agent.id
+    }
+
+    /// A live host Grant of an Agent on a machine that allows Unattended
+    /// Modes.
+    async fn unattended_grant(&self, agent_id: &AgentId, host_id: &HostId) -> Grant {
+        let grant = Grant {
+            id: GrantId::generate(),
+            workspace_id: self.workspace_id.clone(),
+            agent_id: agent_id.clone(),
+            resource_kind: Grant::HOST_KIND.to_string(),
+            resource_id: Some(host_id.to_string()),
+            scope: json!({"allow": [], "unattended_modes": true}),
+            revision: 1,
+            created_at: now_ms(),
+            revoked_at: None,
+        };
+        SqliteGrantStore::new(self.pool.clone())
+            .create(&grant)
+            .await
+            .unwrap();
+        grant
+    }
+
+    async fn stop_unattended_modes(&self, grant: &Grant) {
+        stop_unattended_modes(&self.pool, &self.bus, grant).await;
+    }
+
+    /// Revokes a host Grant, and reports it on the bus, as the route does.
+    async fn revoke(&self, grant: &Grant) {
+        let revoked = SqliteGrantStore::new(self.pool.clone())
+            .revoke(&self.workspace_id, &grant.id, now_ms())
+            .await
+            .unwrap();
+        assert!(revoked, "the grant is live");
+        publish_grant_event(&self.bus, grant, "grant.revoked").await;
+    }
+
+    /// A start of `harness_id` for an Agent on a machine.
+    fn new_session_of(
+        &self,
+        agent_id: &AgentId,
+        host_id: &HostId,
+        harness_id: &str,
+    ) -> NewCodingSession {
+        NewCodingSession {
+            agent_id: agent_id.clone(),
+            host_id: host_id.clone(),
+            harness_id: harness_id.to_string(),
+            title: format!("{harness_id} on {host_id}"),
+            ..self.new_session(&self.run_id)
+        }
+    }
+
+    /// Asserts that the session closes with the end reason
+    /// `approval_mode_narrowed`, that the rules heard its end with that
+    /// reason, and that its Session Rule ended.
+    async fn assert_narrowed(&self, id: &CodingSessionId) {
+        let record = self.wait_for_state(id, State::Closed).await;
+        assert_eq!(record.end_reason.as_deref(), Some("approval_mode_narrowed"));
+        let deadline = tokio::time::Instant::now() + WAIT;
+        while !self
+            .rules
+            .calls()
+            .iter()
+            .any(|call| matches!(call, RuleCall::End(ended) if ended == id))
+        {
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "the Session Rule of {id} stays: {:?}",
+                self.rules.calls()
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let ended: Vec<_> = self
+            .rules
+            .batches("coding_session.ended")
+            .into_iter()
+            .flat_map(|batch| batch.events)
+            .filter(|event| event.metadata["coding_session_id"] == id.as_str())
+            .collect();
+        assert_eq!(ended.len(), 1, "one end of {id}: {ended:?}");
+        assert_eq!(ended[0].metadata["state"], "closed");
+        assert_eq!(ended[0].metadata["reason"], "approval_mode_narrowed");
+    }
+}
+
+/// A place that opens each stream on a new `DuplexPlace`, so each session
+/// keeps its own harness and its own exit.
+struct Places {
+    script: Script,
+    /// Each place holds the sender of the exit of its session.
+    opened: Mutex<Vec<Arc<DuplexPlace>>>,
+}
+
+#[async_trait]
+impl SessionPlace for Places {
+    async fn open(
+        &self,
+        workspace_id: &WorkspaceId,
+        host_id: &HostId,
+        request: OpenRequest,
+    ) -> Result<OpenedStream, OpenFailure> {
+        let place = DuplexPlace::new(self.script.clone());
+        self.opened.lock().unwrap().push(place.clone());
+        place.open(workspace_id, host_id, request).await
+    }
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_grant_that_stops_allowing_unattended_modes_closes_only_the_sessions_of_its_agent_on_its_machine_that_act_without_asking(
+    pool: SqlitePool,
+) {
+    let world = world(pool).await;
+    let other_agent = world.other_agent().await;
+    let other_host = world.other_host().await;
+    let grant = world
+        .unattended_grant(&world.agent_id, &world.host_id)
+        .await;
+    world.unattended_grant(&other_agent, &world.host_id).await;
+    world.unattended_grant(&world.agent_id, &other_host).await;
+    let place = Arc::new(Places {
+        script: Script::default().turn(Turn::until_cancel(vec![])),
+        opened: Mutex::default(),
+    });
+    let sessions = world.coding_sessions(place, Arc::new(RefuseDecisions));
+    let mut started = Vec::new();
+    for (agent_id, host_id, harness_id) in [
+        (&world.agent_id, &world.host_id, "pi"),
+        (&world.agent_id, &world.host_id, "claude"),
+        (&other_agent, &world.host_id, "pi"),
+        (&world.agent_id, &other_host, "pi"),
+    ] {
+        let session = sessions
+            .start(world.new_session_of(agent_id, host_id, harness_id))
+            .await
+            .expect("the session starts");
+        started.push(session);
+    }
+
+    world.stop_unattended_modes(&grant).await;
+
+    world.assert_narrowed(&started[0].id).await;
+    for kept in &started[1..] {
+        assert_eq!(
+            world.record(&kept.id).await.state,
+            State::Working,
+            "{} stays open",
+            kept.title
+        );
+    }
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_revoked_grant_closes_the_sessions_that_act_without_asking_an_interrupted_one_included(
+    pool: SqlitePool,
+) {
+    let world = world(pool).await;
+    let grant = world
+        .unattended_grant(&world.agent_id, &world.host_id)
+        .await;
+    let place = DuplexPlace::new(Script::default().turn(Turn::until_cancel(vec![])));
+    let sessions = world.coding_sessions(place.clone(), Arc::new(RefuseDecisions));
+    let working = sessions
+        .start(world.new_session_of(&world.agent_id, &world.host_id, "pi"))
+        .await
+        .expect("the session starts");
+    let mut interrupted = world.stored(State::Interrupted).await;
+    interrupted.harness_id = "pi".to_string();
+    assert!(world.sessions.update(&interrupted).await.unwrap());
+
+    world.revoke(&grant).await;
+
+    world.assert_narrowed(&working.id).await;
+    world.assert_narrowed(&interrupted.id).await;
+    assert!(
+        place.dropped.load(Ordering::SeqCst),
+        "the stream of a closed session closes"
+    );
+}
+
+/// A place that stops the host Grant from allowing Unattended Modes while
+/// it opens the stream, and reports the revision on the bus.
+struct NarrowingPlace {
+    inner: Arc<DuplexPlace>,
+    pool: SqlitePool,
+    bus: Arc<AuditEventBus>,
+    grant: Grant,
+}
+
+#[async_trait]
+impl SessionPlace for NarrowingPlace {
+    async fn open(
+        &self,
+        workspace_id: &WorkspaceId,
+        host_id: &HostId,
+        request: OpenRequest,
+    ) -> Result<OpenedStream, OpenFailure> {
+        stop_unattended_modes(&self.pool, &self.bus, &self.grant).await;
+        self.inner.open(workspace_id, host_id, request).await
+    }
+}
+
+/// The message of a session that the live Grant no longer allows, at its
+/// start or its resume.
+const NOT_ALLOWED: &str = "pi acts without asking, and the user does not allow modes that act \
+                           without asking for you on Air. The session is closed. Ask the user to \
+                           allow them.";
+
+/// Asserts that the session is `closed` with the end reason
+/// `unattended_mode_not_allowed`, that its stream closed with no prompt,
+/// and that its Session Rule ended with no news: the caller reads the
+/// failure in its tool result.
+async fn assert_not_allowed(world: &World, place: &DuplexPlace, id: &CodingSessionId) {
+    let record = world.record(id).await;
+    assert_eq!(record.state, State::Closed);
+    assert_eq!(
+        record.end_reason.as_deref(),
+        Some("unattended_mode_not_allowed")
+    );
+    assert!(
+        prompts(&place.harness()).is_empty(),
+        "the harness got no prompt"
+    );
+    let deadline = tokio::time::Instant::now() + WAIT;
+    while !place.dropped.load(Ordering::SeqCst) {
+        assert!(tokio::time::Instant::now() < deadline, "the stream stays");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let calls = world.rules.calls();
+    assert!(
+        calls
+            .iter()
+            .any(|call| matches!(call, RuleCall::End(ended) if ended == id)),
+        "the Session Rule ends: {calls:?}"
+    );
+    assert!(
+        world.rules.batches("coding_session.ended").is_empty(),
+        "the end raises no news: {calls:?}"
+    );
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_grant_that_stops_allowing_unattended_modes_while_a_pi_session_starts_closes_it_before_its_first_prompt(
+    pool: SqlitePool,
+) {
+    let world = world(pool).await;
+    let grant = world
+        .unattended_grant(&world.agent_id, &world.host_id)
+        .await;
+    let inner = DuplexPlace::new(Script::default().turn(Turn::until_cancel(vec![])));
+    let place = Arc::new(NarrowingPlace {
+        inner: inner.clone(),
+        pool: world.pool.clone(),
+        bus: world.bus.clone(),
+        grant,
+    });
+    let sessions = world.coding_sessions(place, Arc::new(RefuseDecisions));
+
+    let failure = sessions
+        .start(world.new_session_of(&world.agent_id, &world.host_id, "pi"))
+        .await
+        .expect_err("the Grant no longer allows the session");
+
+    assert_eq!(failure.to_string(), NOT_ALLOWED);
+    let StartFailure::UnattendedModeNotAllowed { session_id, .. } = failure else {
+        panic!("{failure:?}");
+    };
+    assert_not_allowed(&world, &inner, &session_id).await;
+}
+
+/// The Grant changes in the store with no event, so only the resume's own
+/// read of the live Grant sees it.
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_resume_that_the_live_grant_no_longer_allows_closes_the_session_before_it_is_idle(
+    pool: SqlitePool,
+) {
+    let world = world(pool).await;
+    let grant = world
+        .unattended_grant(&world.agent_id, &world.host_id)
+        .await;
+    let mut interrupted = world.stored(State::Interrupted).await;
+    interrupted.harness_id = "pi".to_string();
+    assert!(world.sessions.update(&interrupted).await.unwrap());
+    let place = DuplexPlace::new(Script::default().resume());
+    let sessions = world.coding_sessions(place.clone(), Arc::new(RefuseDecisions));
+    assert!(
+        SqliteGrantStore::new(world.pool.clone())
+            .set_scope(
+                &world.workspace_id,
+                &grant.id,
+                &grant.with_unattended_modes(false)
+            )
+            .await
+            .unwrap()
+    );
+
+    let failure = sessions
+        .resume(&world.workspace_id, &interrupted.id)
+        .await
+        .expect_err("the Grant no longer allows the session");
+
+    assert_eq!(failure.to_string(), NOT_ALLOWED);
+    assert!(
+        matches!(failure, ResumeFailure::UnattendedModeNotAllowed { .. }),
+        "{failure:?}"
+    );
+    assert_not_allowed(&world, &place, &interrupted.id).await;
 }

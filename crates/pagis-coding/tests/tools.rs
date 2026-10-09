@@ -124,12 +124,13 @@ async fn world(pool: SqlitePool, script: Script) -> World {
         .unwrap();
     let place = session_socket(&workspace.id, &host.id, script).await;
     let store = Arc::new(SqliteCodingSessionStore::new(pool.clone()));
-    let sessions = Arc::new(CodingSessions::new(CodingSessionsDeps {
+    let sessions = CodingSessions::new(CodingSessionsDeps {
         sessions: store.clone(),
         runs: Arc::new(SqliteRunStore::new(pool.clone())),
         hosts: hosts_store.clone(),
         messages: Arc::new(SqliteMessageStore::new(pool.clone())),
         bus: Arc::new(SilentBus),
+        grants: Arc::new(SqliteGrantStore::new(pool.clone())),
         place,
         decisions: Arc::new(RefuseDecisions),
         rules: Arc::new(SilentRules),
@@ -141,7 +142,7 @@ async fn world(pool: SqlitePool, script: Script) -> World {
         clock: Arc::new(SystemClock),
         departures: pagis_broker::HostPresence::new().departures(),
         cancel: CancellationToken::new(),
-    }));
+    });
     let tools = CodingToolRuntime::new(
         Arc::clone(&sessions),
         Arc::new(CodingSessionStarts::new(

@@ -447,6 +447,22 @@ first. An absent or unknown value reads as false. The Person sets it with
 Grant, and each change is a Grant revision. A harness that never asks (pi)
 starts only where the Grant allows Unattended Modes.
 
+A session of a harness that never asks acts without asking, so Pagis cannot
+apply a narrower Grant to it. A Grant revision that stops allowing Unattended
+Modes, and a revoked Grant, close each open session of that Agent on that
+machine that acts without asking, with the end reason
+`approval_mode_narrowed`. The daemon reads `grant.changed` and
+`grant.revoked` on the bus, and then reads the live Grant from the store, so
+a lost or late event gives no wrong answer. The end goes to the Session Rule,
+so the Agent wakes with `coding_session.ended` and the reason. A session that
+starts or resumes reads the live Grant again before it takes a prompt. When
+the Grant no longer allows it, the session closes with the end reason
+`unattended_mode_not_allowed`, and the tool answers the error
+`unattended_mode_not_allowed`. One lock of the daemon holds from that read
+until the session is open, and the close of each Grant change takes it too,
+so a change that comes during a start is not lost. A session of a harness
+that asks stays open, and its next Harness Permission reads the live Grant.
+
 ### A Harness Permission passes Pagis policy first
 
 A **Harness Permission** is an ACP `session/request_permission`. The ACP
@@ -718,8 +734,6 @@ Other ways were considered:
 
 - The core tool `coding_session_answer`.
 - A Pagis auto mode.
-- The close of the sessions that act without asking when a Grant stops
-  allowing Unattended Modes.
 - Harness Modes.
 - The switch for Unattended Modes on the Access tab.
 - The question in the daemon.
