@@ -339,7 +339,10 @@ A restart forgets the counts of the registration limit.
 
 The database holds every registration. Without it, each endpoint that
 the relay gave answers `404`, and each server removes the Push
-Subscription of that endpoint. Stop the relay before the copy, so that
+Subscription of that endpoint. No phone gets a notification until its
+Person turns notifications on again in the Mobile App: the app then
+finds that the relay does not know its registration, and registers
+again. Stop the relay before the copy, so that
 the SQLite file and its write-ahead log agree:
 
 ```bash

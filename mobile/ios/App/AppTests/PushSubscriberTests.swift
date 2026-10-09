@@ -81,13 +81,35 @@ final class PushSubscriberTests: XCTestCase {
         XCTAssertEqual(StubRelay.requests.first?.json?["environment"] as? String, "production")
     }
 
-    func testASecondSubscribeWithTheSameKeyRegistersNothing() async throws {
+    /// A `PUT` with the same token asks the relay if it still knows the
+    /// registration.
+    func testASecondSubscribeWithTheSameKeyChecksTheRegistrationAndKeepsIt() async throws {
         let first = try await subscriber.subscribe(vapidKey: vapidKey, platform: platform)
 
         let second = try await subscriber.subscribe(vapidKey: vapidKey, platform: platform)
 
         XCTAssertEqual(second, first)
-        XCTAssertEqual(StubRelay.requests.map(\.line), ["POST /v1/registrations"])
+        XCTAssertEqual(StubRelay.requests.map(\.line), ["POST /v1/registrations", "PUT /v1/registrations/id-1"])
+        XCTAssertEqual(StubRelay.requests.last?.json as NSDictionary?, ["token": "token-1"] as NSDictionary)
+    }
+
+    /// The relay lost the registration, for example with its database. The
+    /// endpoint answers `404` to each push, so the app registers again with
+    /// new keys.
+    func testASubscribeThatTheRelayDoesNotKnowRegistersAgain() async throws {
+        let first = try await subscriber.subscribe(vapidKey: vapidKey, platform: platform)
+        StubRelay.putStatus = 404
+
+        let second = try await subscriber.subscribe(vapidKey: vapidKey, platform: platform)
+
+        XCTAssertEqual(StubRelay.requests.map(\.line), [
+            "POST /v1/registrations",
+            "PUT /v1/registrations/id-1",
+            "POST /v1/registrations",
+        ])
+        XCTAssertEqual(second.endpoint, "https://relay.example/v1/push/id-2")
+        XCTAssertNotEqual(second.p256dh, first.p256dh)
+        XCTAssertEqual(try RelayRegistrationStore(items: items).read()?.id, "id-2")
     }
 
     func testSubscribeWithAnotherKeyRemovesTheOldRegistrationFirst() async throws {

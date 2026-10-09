@@ -307,6 +307,28 @@ async fn put_with_the_secret_changes_the_token_and_keeps_the_endpoint() {
     assert_eq!(id_now.as_deref(), Some(id), "the endpoint keeps its id");
 }
 
+/// The Mobile App sends its token again to check that the relay still
+/// knows its registration.
+#[tokio::test]
+async fn put_with_the_same_token_answers_no_content() {
+    let relay = Relay::start(TrustedProxy::none()).await;
+    let body = relay.registered().await;
+    let id = body["id"].as_str().expect("an id");
+    let secret = body["secret"].as_str().expect("a secret");
+
+    let response = relay
+        .client
+        .put(format!("{}/v1/registrations/{id}", relay.origin))
+        .bearer_auth(secret)
+        .json(&json!({ "token": APNS_TOKEN }))
+        .send()
+        .await
+        .expect("the relay answers");
+
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    assert_eq!(relay.token_of(id).await.as_deref(), Some(APNS_TOKEN));
+}
+
 #[tokio::test]
 async fn put_with_a_wrong_or_missing_secret_or_an_unknown_id_answers_not_found() {
     let relay = Relay::start(TrustedProxy::none()).await;

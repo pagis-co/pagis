@@ -13,7 +13,8 @@ export interface PagisPushPlugin {
   /** Ask the phone for the permission, register with the Push Relay for
    *  the VAPID Key of the server, and answer the Push Subscription in the
    *  shape of `PushSubscription.toJSON()`. A second call with the same
-   *  key answers the stored subscription and registers nothing. */
+   *  key answers the stored subscription while the relay knows it, and
+   *  registers again when the relay does not. */
   subscribe(options: { vapidKey: string }): Promise<components['schemas']['SubscribeRequest']>
   /** Delete the registration with the Push Relay, then the keys. */
   unsubscribe(): Promise<void>
