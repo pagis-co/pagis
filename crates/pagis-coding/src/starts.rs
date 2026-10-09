@@ -45,9 +45,10 @@ impl CodingSessionStarts {
 impl SessionStarts for CodingSessionStarts {
     /// Refuses, in this order: a harness that is not in the Harness
     /// Catalog, a directory that is not absolute, a fifth open session of
-    /// the Agent, a mode wider than the host Grant allows, and a harness
-    /// that never asks where the host Grant does not allow Unattended
-    /// Modes.
+    /// the Agent, a mode wider than the host Grant allows, a Harness Mode
+    /// that the catalog does not list for the harness, and a harness that
+    /// never asks or a Harness Mode that acts without asking where the
+    /// host Grant does not allow Unattended Modes.
     async fn describe(
         &self,
         workspace_id: &WorkspaceId,
@@ -115,6 +116,7 @@ impl SessionStarts for CodingSessionStarts {
                 ),
             ));
         }
+        let harness_mode = harness_mode(entry, &arguments["harness_mode"])?;
         // Pagis policy sees no action of a harness that never asks.
         if !entry.asks_permission && !allowance.unattended_modes {
             return Err(ToolResult::error(
@@ -123,6 +125,19 @@ impl SessionStarts for CodingSessionStarts {
                     "{} does not ask before it acts, so it runs only where the user allows modes \
                      that act without asking. Ask the user to allow them for you on {}.",
                     entry.label, host.name
+                ),
+            ));
+        }
+        if let Some(mode) = harness_mode
+            && entry.acts_unattended(Some(mode.id))
+            && !allowance.unattended_modes
+        {
+            return Err(ToolResult::error(
+                UNATTENDED_MODE_NOT_ALLOWED,
+                format!(
+                    "{} of {} acts without asking. Ask the user to allow modes that act without \
+                     asking for you on {}.",
+                    mode.name, entry.label, host.name
                 ),
             ));
         }
@@ -135,8 +150,49 @@ impl SessionStarts for CodingSessionStarts {
                 .then(|| worktree_branch(arguments["title"].as_str().unwrap_or_default())),
             mode,
             asks_permission: entry.asks_permission,
+            harness_mode: harness_mode.map(|mode| mode.id.to_string()),
         })
     }
+}
+
+/// The Harness Mode of the catalog that `argument` names for the harness,
+/// or `None` when the start names none. The start accepts only a mode of
+/// the catalog, so the card names it before the harness runs.
+fn harness_mode(
+    entry: &'static harness::HarnessEntry,
+    argument: &Value,
+) -> Result<Option<&'static harness::HarnessMode>, ToolResult> {
+    let id = match argument {
+        Value::Null => return Ok(None),
+        Value::String(id) => id,
+        other => {
+            return Err(ToolResult::error(
+                "invalid_request",
+                format!("harness_mode must be the id of a Harness Mode, not {other}"),
+            ));
+        }
+    };
+    if let Some(mode) = entry.modes.iter().find(|mode| mode.id == id) {
+        return Ok(Some(mode));
+    }
+    let message = if entry.modes.is_empty() {
+        format!(
+            "{} has no Harness Modes that Pagis knows. Omit harness_mode.",
+            entry.label
+        )
+    } else {
+        let listed = entry
+            .modes
+            .iter()
+            .map(|mode| mode.id)
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!(
+            "{id:?} is not a Harness Mode of {}. Use one of: {listed}.",
+            entry.label
+        )
+    };
+    Err(ToolResult::error("invalid_request", message))
 }
 
 /// Whether a directory is an absolute path on a Host of `platform`. The

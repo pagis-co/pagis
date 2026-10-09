@@ -17,8 +17,8 @@ use axum::http::StatusCode;
 use pagis_coding::{CloseReason, SessionError, WaitsFor};
 use pagis_core::{
     AgentId, CodingSession, CodingSessionEvent, CodingSessionEventKind as Kind, CodingSessionId,
-    CodingSessionPlace, CodingSessionState, CodingSessionUsage, HostId, SessionApprovalMode,
-    WorkspaceId, harness,
+    CodingSessionPlace, CodingSessionState, CodingSessionUsage, HarnessModeInfo, HostId,
+    SessionApprovalMode, WorkspaceId, harness,
 };
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -77,6 +77,18 @@ pub struct CodingSessionDto {
     pub working_directory: Option<String>,
     pub worktree_branch: Option<String>,
     pub approval_mode: SessionApprovalMode,
+    /// The id of the current Harness Mode, or none when the harness
+    /// offered no modes.
+    pub harness_mode: Option<String>,
+    /// The name that the harness gave the current Harness Mode, else its
+    /// id. It is harness text.
+    pub harness_mode_name: Option<String>,
+    /// The Harness Modes that the harness offered, in its order. They are
+    /// harness text.
+    pub harness_modes: Vec<HarnessModeInfo>,
+    /// Whether the session acts without asking: its harness never asks,
+    /// or its Harness Mode is not an asking mode of the Harness Catalog.
+    pub unattended: bool,
     pub title: String,
     pub state: CodingSessionState,
     /// Why the session ended, for example `closed`, `stopped`,
@@ -377,6 +389,14 @@ async fn session_dto(
         || session.harness_id.clone(),
         |entry| entry.label.to_string(),
     );
+    let unattended = session.acts_unattended();
+    let harness_mode_name = session.harness_mode.as_ref().map(|id| {
+        session
+            .harness_modes
+            .iter()
+            .find(|mode| mode.id == *id)
+            .map_or_else(|| id.clone(), |mode| mode.name.clone())
+    });
     let machine_name = session
         .host_id
         .as_ref()
@@ -395,6 +415,10 @@ async fn session_dto(
         working_directory: session.working_directory,
         worktree_branch: session.worktree_branch,
         approval_mode: session.approval_mode,
+        harness_mode: session.harness_mode,
+        harness_mode_name,
+        harness_modes: session.harness_modes,
+        unattended,
         title: session.title,
         state: session.state,
         end_reason: session.end_reason,

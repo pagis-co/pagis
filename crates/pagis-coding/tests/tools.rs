@@ -1,7 +1,7 @@
 //! The tools that an Agent drives its own Coding Sessions with (ADR-0033):
 //! `coding_session_send`, `coding_session_read`, `coding_session_cancel`,
-//! `coding_session_close`, `coding_session_list` and
-//! `coding_session_resume`, against the SQLite
+//! `coding_session_close`, `coding_session_list`,
+//! `coding_session_resume` and `coding_session_set_mode`, against the SQLite
 //! stores. A live session runs the fake harness behind the session socket
 //! registry; a test that reads a transcript writes its rows itself.
 
@@ -20,9 +20,10 @@ use pagis_core::{
     Agent, AgentId, AgentStatus, AgentStore, Channel, ChannelId, ChannelKind, ChannelStore,
     CodingSession, CodingSessionEventKind as Kind, CodingSessionId, CodingSessionPlace,
     CodingSessionState as State, CodingSessionStore, CodingSessionUsage, Event, EventBus, EventId,
-    EventScope, EventStream, Grant, GrantId, GrantStore, HostId, HostStore, IngestBatch, MessageId,
-    NewCodingSessionEvent, NewEvent, Run, RunId, RunState, RunStore, SessionApprovalMode,
-    StoreError, SystemClock, TriggerKind, Workspace, WorkspaceId, WorkspaceStore, now_ms,
+    EventScope, EventStream, Grant, GrantId, GrantStore, HarnessModeInfo, HostId, HostStore,
+    IngestBatch, MessageId, NewCodingSessionEvent, NewEvent, Run, RunId, RunState, RunStore,
+    SessionApprovalMode, StoreError, SystemClock, TriggerKind, Workspace, WorkspaceId,
+    WorkspaceStore, now_ms,
 };
 use pagis_storage_sqlite::{
     SqliteAgentStore, SqliteChannelStore, SqliteCodingSessionStore, SqliteGrantStore,
@@ -236,6 +237,7 @@ impl World {
                 directory: DIRECTORY.to_string(),
                 worktree: None,
                 approval_mode: SessionApprovalMode::Person,
+                harness_mode: None,
                 title: "Fix the login".to_string(),
                 prompt: "Fix the login bug.".to_string(),
             })
@@ -964,4 +966,230 @@ async fn resume_with_a_harness_that_cannot_restore_answers_cannot_resume(pool: S
         "{refused:?}"
     );
     assert_eq!(world.state(&lost).await, State::Interrupted);
+}
+
+// The Harness Mode of a session, which the Agent changes with
+// `coding_session_set_mode` (ADR-0033).
+
+/// The Harness Modes of the pinned Claude Code adapter, as `(id, name)`.
+fn claude_modes() -> Vec<(&'static str, &'static str)> {
+    pagis_core::harness::entry("claude")
+        .unwrap()
+        .modes
+        .iter()
+        .map(|mode| (mode.id, mode.name))
+        .collect()
+}
+
+/// A Claude Code harness whose sessions open in `default` and whose
+/// first turn ends at once.
+fn claude() -> Script {
+    Script::default()
+        .modes("default", &claude_modes())
+        .turn(Turn::new(vec![], acp::StopReason::EndTurn))
+}
+
+impl World {
+    async fn set_mode(&self, session: &CodingSession, mode: &str) -> ToolResult {
+        self.call(
+            CoreTool::CodingSessionSetMode,
+            "coding_session_set_mode",
+            json!({"session": session.id.as_str(), "mode": mode}),
+        )
+        .await
+    }
+
+    /// An idle Claude Code session of the calling Agent in `default`.
+    async fn idle_claude_session(&self) -> CodingSession {
+        let session = self.start().await;
+        self.wait_for_state(&session, State::Idle).await;
+        session
+    }
+
+    /// The live host Grant of the calling Agent on the machine, with the
+    /// allowance of Unattended Modes.
+    async fn unattended_grant(&self) {
+        let mut grant = Grant {
+            id: GrantId::generate(),
+            workspace_id: self.workspace_id.clone(),
+            agent_id: self.agent_id.clone(),
+            resource_kind: Grant::HOST_KIND.to_string(),
+            resource_id: Some(self.host_id.to_string()),
+            scope: Grant::allow_scope(&[]),
+            revision: 1,
+            created_at: now_ms(),
+            revoked_at: None,
+        };
+        grant.scope = grant.with_unattended_modes(true);
+        self.grants.create(&grant).await.unwrap();
+    }
+
+    async fn session_record(&self, session: &CodingSession) -> CodingSession {
+        self.store
+            .get(&self.workspace_id, &session.id)
+            .await
+            .unwrap()
+            .expect("the session record")
+    }
+
+    async fn mode_rows(&self, session: &CodingSession) -> Vec<Value> {
+        self.store
+            .list_events(&self.workspace_id, &session.id, None, 1_000)
+            .await
+            .unwrap()
+            .into_iter()
+            .filter(|row| row.kind == Kind::Mode)
+            .map(|row| row.payload)
+            .collect()
+    }
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn set_mode_sets_the_mode_and_writes_the_record_and_a_mode_row_by_the_agent(
+    pool: SqlitePool,
+) {
+    let world = world(pool, claude()).await;
+    let session = world.idle_claude_session().await;
+
+    let set = json_of(&world.set_mode(&session, "plan").await);
+
+    assert_eq!(
+        set,
+        json!({"session_id": session.id.as_str(), "mode": "plan"})
+    );
+    assert_eq!(
+        world.session_record(&session).await.harness_mode.as_deref(),
+        Some("plan")
+    );
+    assert_eq!(
+        world.mode_rows(&session).await,
+        [json!({"mode": "plan", "name": "Plan", "by": "agent"})]
+    );
+    assert_eq!(world.state(&session).await, State::Idle);
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn set_mode_to_a_mode_that_acts_without_asking_needs_the_allowance_of_unattended_modes(
+    pool: SqlitePool,
+) {
+    let world = world(pool, claude()).await;
+    let session = world.idle_claude_session().await;
+
+    let refused = world.set_mode(&session, "bypassPermissions").await;
+
+    assert_eq!(code(&refused), "unattended_mode_not_allowed");
+    assert!(
+        refused.content.contains(
+            "Bypass permissions acts without asking. Ask the user to allow modes that act \
+             without asking for you on Air."
+        ),
+        "{refused:?}"
+    );
+    assert_eq!(
+        world.session_record(&session).await.harness_mode.as_deref(),
+        Some("default")
+    );
+    assert_eq!(world.mode_rows(&session).await, Vec::<Value>::new());
+
+    world.unattended_grant().await;
+
+    let set = json_of(&world.set_mode(&session, "bypassPermissions").await);
+    assert_eq!(set["mode"], "bypassPermissions");
+    assert_eq!(
+        world.mode_rows(&session).await,
+        [json!({"mode": "bypassPermissions", "name": "Bypass permissions", "by": "agent"})]
+    );
+    assert_eq!(world.state(&session).await, State::Idle);
+}
+
+/// The session lists the modes that its harness offered, and an id that
+/// it does not list is refused with them, inside the envelope of the
+/// session: the harness named them.
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn set_mode_to_a_mode_that_the_session_does_not_list_is_refused(pool: SqlitePool) {
+    let world = world(pool, claude()).await;
+    let session = world.idle_claude_session().await;
+
+    let refused = world.set_mode(&session, "dontAsk").await;
+
+    assert_eq!(code(&refused), "invalid_request");
+    let source = format!("coding_session:{}", session.id);
+    assert!(
+        refused.content.contains(&format!(
+            "[BEGIN UNTRUSTED source={source}]\ndefault, plan, acceptEdits, auto, \
+             bypassPermissions\n[END UNTRUSTED source={source}]"
+        )),
+        "{refused:?}"
+    );
+    assert_eq!(world.mode_rows(&session).await, Vec::<Value>::new());
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn set_mode_on_a_session_whose_harness_offered_no_modes_answers_no_modes(pool: SqlitePool) {
+    let world = world(pool, Script::default()).await;
+    let session = world.record(&world.agent_id, State::Idle, "No modes").await;
+
+    let refused = world.set_mode(&session, "default").await;
+
+    assert_eq!(code(&refused), "no_modes");
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn set_mode_on_another_agents_session_answers_session_not_found(pool: SqlitePool) {
+    let world = world(pool, Script::default()).await;
+    let theirs = world
+        .record(&world.other_agent_id, State::Idle, "Not yours")
+        .await;
+
+    let refused = world.set_mode(&theirs, "plan").await;
+
+    assert_eq!(code(&refused), "session_not_found");
+    assert!(!refused.content.contains("Not yours"), "{refused:?}");
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn set_mode_on_an_interrupted_session_answers_session_not_open(pool: SqlitePool) {
+    let world = world(pool, Script::default()).await;
+    let mut lost = world
+        .record(&world.agent_id, State::Interrupted, "Lost")
+        .await;
+    lost.harness_mode = Some("default".to_string());
+    lost.harness_modes = claude_modes()
+        .into_iter()
+        .map(|(id, name)| HarnessModeInfo {
+            id: id.to_string(),
+            name: name.to_string(),
+            description: None,
+        })
+        .collect();
+    world.store.update(&lost).await.unwrap();
+
+    let refused = world.set_mode(&lost, "plan").await;
+
+    assert_eq!(code(&refused), "session_not_open");
+    assert!(refused.content.contains("interrupted"), "{refused:?}");
+}
+
+/// The harness named its modes, so a read shows them inside the envelope.
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn read_shows_the_harness_mode_and_the_offered_modes_inside_the_envelope(pool: SqlitePool) {
+    let world = world(pool, claude()).await;
+    let session = world.idle_claude_session().await;
+    world.set_mode(&session, "plan").await;
+
+    let read = json_of(&world.read(&session).await);
+
+    let source = format!("coding_session:{}", session.id);
+    let inside: Value =
+        serde_json::from_str(enveloped(read["harness_output"].as_str().unwrap(), &source)).unwrap();
+    assert_eq!(
+        inside["harness_mode"],
+        json!({"id": "plan", "name": "Plan"})
+    );
+    let offered: Vec<Value> = claude_modes()
+        .into_iter()
+        .map(|(id, name)| json!({"id": id, "name": name, "description": null}))
+        .collect();
+    assert_eq!(inside["harness_modes"], json!(offered));
+    assert_eq!(read.get("harness_mode"), None, "{read:#}");
 }

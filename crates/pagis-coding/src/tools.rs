@@ -7,7 +7,9 @@
 //! host Grant of the Agent on the session's machine. A decision needs a
 //! Harness Permission that waits for the Agent, and the `agent` mode
 //! still in force on the live host Grant. An answer needs a question that
-//! waits for the Agent, and values that match its form.
+//! waits for the Agent, and values that match its form. A change of the
+//! Harness Mode needs a mode that the session lists, and the allowance of
+//! the live host Grant for a mode that acts without asking.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -29,7 +31,7 @@ use crate::report::harness_output;
 use crate::sessions::UNATTENDED_MODE_NOT_ALLOWED;
 use crate::{
     AgentAsks, CloseReason, CodingSessions, DecidedBy, NewCodingSession, PromptOutcome,
-    ResumeFailure, SessionError, StartFailure,
+    ResumeFailure, SessionError, SetModeFailure, StartFailure,
 };
 
 /// The ref that the worktree of a session starts from: the commit that
@@ -57,6 +59,7 @@ const SESSION_NOT_OPEN: &str = "session_not_open";
 const NO_PENDING_DECISION: &str = "no_pending_decision";
 const NO_PENDING_QUESTION: &str = "no_pending_question";
 const INVALID_VALUES: &str = "invalid_values";
+const NO_MODES: &str = "no_modes";
 
 /// Executes the Coding Session tools.
 pub struct CodingToolRuntime {
@@ -123,6 +126,7 @@ impl CodingToolRuntime {
             }),
             directory: start.directory,
             approval_mode: start.mode,
+            harness_mode: start.harness_mode,
             title: text(call, "title"),
             prompt: text(call, "prompt"),
         };
@@ -166,9 +170,15 @@ impl CodingToolRuntime {
                 .map(|host| host.name),
             None => None,
         };
-        let output = harness_output(self.store.as_ref(), &session)
+        let mut output = harness_output(self.store.as_ref(), &session)
             .await
             .map_err(unavailable)?;
+        // The harness names its modes, so they go inside the envelope.
+        output["harness_mode"] = match &session.harness_mode {
+            Some(id) => json!({"id": id, "name": mode_name(&session, id)}),
+            None => serde_json::Value::Null,
+        };
+        output["harness_modes"] = json!(session.harness_modes);
         let source = EventSource::coding_session(session.id.clone()).to_string();
         Ok(ToolResult::success(
             json!({
@@ -340,6 +350,48 @@ impl CodingToolRuntime {
         }
     }
 
+    /// Changes the Harness Mode of the session. The checks go in this
+    /// order: the session is the Agent's own, it has a stream, its harness
+    /// offered modes, the mode is one of them, and a mode that acts
+    /// without asking on a Host has the allowance of the live host Grant.
+    async fn set_mode(&self, call: &AuthorizedCall) -> Result<ToolResult, ToolResult> {
+        let session = self.own_session(call).await?;
+        let mode = text(call, "mode");
+        let source = EventSource::coding_session(session.id.clone()).to_string();
+        self.sessions
+            .set_mode(&call.workspace_id, &session.id, &mode)
+            .await
+            .map_err(|failure| match failure {
+                SetModeFailure::NotFound => ToolResult::error(
+                    SESSION_NOT_FOUND,
+                    format!("you have no coding session {}", session.id),
+                ),
+                SetModeFailure::NotOpen(state) => not_open(state),
+                SetModeFailure::NoModes => ToolResult::error(
+                    NO_MODES,
+                    "the harness of this coding session offered no Harness Modes",
+                ),
+                // The ids are harness text (ADR-0005).
+                SetModeFailure::NotOffered { offered } => ToolResult::plain_error(
+                    "invalid_request",
+                    format!(
+                        "The session does not list this mode. Use one of the modes that it \
+                         lists:\n{}",
+                        wrap_untrusted(&source, &offered.join(", "))
+                    ),
+                ),
+                SetModeFailure::UnattendedModeNotAllowed { .. } => {
+                    ToolResult::error(UNATTENDED_MODE_NOT_ALLOWED, failure.to_string())
+                }
+                SetModeFailure::Harness(message) => harness_error(session.id.clone(), &message),
+                SetModeFailure::Store(error) => unavailable(error),
+            })?;
+        // The daemon's own state and the Agent's own words.
+        Ok(ToolResult::success(
+            json!({"session_id": session.id.as_str(), "mode": mode}).to_string(),
+        ))
+    }
+
     /// The Agent's own sessions: each open one, then the newest that
     /// ended. The title and the directory are the Agent's own words, so
     /// they take no envelope.
@@ -423,6 +475,15 @@ fn text(call: &AuthorizedCall, field: &str) -> String {
         .as_str()
         .unwrap_or_default()
         .to_string()
+}
+
+/// The name that the harness gave a mode of the session, else its id.
+fn mode_name<'a>(session: &'a CodingSession, mode_id: &'a str) -> &'a str {
+    session
+        .harness_modes
+        .iter()
+        .find(|mode| mode.id == mode_id)
+        .map_or(mode_id, |mode| mode.name.as_str())
 }
 
 /// The display name of a harness. A harness that a later release removed
@@ -534,6 +595,23 @@ fn start_failure(failure: StartFailure) -> ToolResult {
         StartFailure::UnattendedModeNotAllowed { .. } => {
             ToolResult::error(UNATTENDED_MODE_NOT_ALLOWED, failure.to_string())
         }
+        // The ids of the modes are harness text (ADR-0005).
+        StartFailure::ModeNotOffered {
+            session_id,
+            mode,
+            offered,
+        } => ToolResult::plain_error(
+            "mode_not_offered",
+            format!(
+                "The harness does not offer the Harness Mode {mode:?}, so the session failed \
+                 before its first prompt. Start a new session in one of the modes that it \
+                 offered:\n{}",
+                wrap_untrusted(
+                    &EventSource::coding_session(session_id).to_string(),
+                    &offered.join(", ")
+                )
+            ),
+        ),
         StartFailure::Rules { .. } => {
             ToolResult::error("temporarily_unavailable", failure.to_string())
         }
@@ -556,6 +634,7 @@ impl ToolExecutor for CodingToolRuntime {
                 CoreTool::CodingSessionDecide => self.decide(&call).await,
                 CoreTool::CodingSessionEscalate => self.escalate(&call).await,
                 CoreTool::CodingSessionAnswer => self.answer(&call).await,
+                CoreTool::CodingSessionSetMode => self.set_mode(&call).await,
                 _ => Err(not_a_session_tool(&call)),
             },
             _ => Err(not_a_session_tool(&call)),

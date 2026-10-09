@@ -12227,6 +12227,8 @@
           "place",
           "directory",
           "approval_mode",
+          "harness_modes",
+          "unattended",
           "title",
           "state",
           "channel_id",
@@ -12288,6 +12290,27 @@
           "harness_id": {
             "type": "string",
             "description": "The id of the Coding Harness in the Harness Catalog."
+          },
+          "harness_mode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The id of the current Harness Mode, or none when the harness\noffered no modes."
+          },
+          "harness_mode_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The name that the harness gave the current Harness Mode, else its\nid. It is harness text."
+          },
+          "harness_modes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HarnessModeInfo"
+            },
+            "description": "The Harness Modes that the harness offered, in its order. They are\nharness text."
           },
           "harness_name": {
             "type": "string",
@@ -12351,6 +12374,10 @@
           },
           "title": {
             "type": "string"
+          },
+          "unattended": {
+            "type": "boolean",
+            "description": "Whether the session acts without asking: its harness never asks,\nor its Harness Mode is not an asking mode of the Harness Catalog."
           },
           "updated_at": {
             "type": "integer",
@@ -14191,6 +14218,29 @@
               "$ref": "#/components/schemas/SignInMethodDto"
             },
             "description": "The ways the Person can sign in to the harness."
+          }
+        }
+      },
+      "HarnessModeInfo": {
+        "type": "object",
+        "description": "One Harness Mode as the harness names it when a session opens.",
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "description": "The id that `session/set_mode` names."
+          },
+          "name": {
+            "type": "string"
           }
         }
       },

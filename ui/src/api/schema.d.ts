@@ -3626,6 +3626,21 @@ export interface components {
             ended_at?: number | null;
             /** @description The id of the Coding Harness in the Harness Catalog. */
             harness_id: string;
+            /**
+             * @description The id of the current Harness Mode, or none when the harness
+             *     offered no modes.
+             */
+            harness_mode?: string | null;
+            /**
+             * @description The name that the harness gave the current Harness Mode, else its
+             *     id. It is harness text.
+             */
+            harness_mode_name?: string | null;
+            /**
+             * @description The Harness Modes that the harness offered, in its order. They are
+             *     harness text.
+             */
+            harness_modes: components["schemas"]["HarnessModeInfo"][];
             /** @description The display name of the Coding Harness. */
             harness_name: string;
             harness_version: string;
@@ -3646,6 +3661,11 @@ export interface components {
             run_id: string;
             state: components["schemas"]["CodingSessionState"];
             title: string;
+            /**
+             * @description Whether the session acts without asking: its harness never asks,
+             *     or its Harness Mode is not an asking mode of the Harness Catalog.
+             */
+            unattended: boolean;
             /** Format: int64 */
             updated_at: number;
             usage: components["schemas"]["CodingSessionUsage"];
@@ -4359,6 +4379,13 @@ export interface components {
             name: string;
             /** @description The ways the Person can sign in to the harness. */
             sign_in_methods: components["schemas"]["SignInMethodDto"][];
+        };
+        /** @description One Harness Mode as the harness names it when a session opens. */
+        HarnessModeInfo: {
+            description?: string | null;
+            /** @description The id that `session/set_mode` names. */
+            id: string;
+            name: string;
         };
         /**
          * @description What the Person signs in with.

@@ -110,6 +110,9 @@ pub const CODING_SESSION_ESCALATE: &str = "coding_session_escalate";
 /// Answer the question of a Coding Harness that waits for the Agent
 /// (ADR-0033).
 pub const CODING_SESSION_ANSWER: &str = "coding_session_answer";
+/// Change the Harness Mode of one of the Agent's own Coding Sessions
+/// (ADR-0033).
+pub const CODING_SESSION_SET_MODE: &str = "coding_session_set_mode";
 
 /// The longest note of a decision or an escalation, in characters.
 pub const DECISION_NOTE_CHARS: usize = 2_000;
@@ -316,6 +319,10 @@ pub enum CoreTool {
     /// `Free`: the answer goes only to a session of the calling Agent, and
     /// a question is not an Approval (ADR-0004).
     CodingSessionAnswer,
+    /// Change the Harness Mode of a session of the Agent. It is `Free`:
+    /// the Person bounds the Unattended Modes with the host Grant, and
+    /// the tool reads the live Grant.
+    CodingSessionSetMode,
 }
 
 impl CoreTool {
@@ -335,6 +342,7 @@ impl CoreTool {
                 | CoreTool::CodingSessionDecide
                 | CoreTool::CodingSessionEscalate
                 | CoreTool::CodingSessionAnswer
+                | CoreTool::CodingSessionSetMode
         )
     }
 
@@ -881,6 +889,9 @@ pub struct SessionStartAction {
     /// Whether the harness asks before it acts (the Harness Catalog). A
     /// harness that never asks works in an Unattended Mode.
     pub asks_permission: bool,
+    /// The id of the Harness Mode of the catalog that the Agent named, or
+    /// `None` for an asking mode that the start chooses.
+    pub harness_mode: Option<String>,
 }
 
 /// The checks of a daemon that starts no Coding Session.
@@ -3301,9 +3312,26 @@ pub const SESSION_START_TIMEOUT: std::time::Duration = std::time::Duration::from
 fn coding_session_start_description() -> String {
     let harnesses = pagis_core::harness::catalog()
         .iter()
-        .map(|entry| format!("{} ({})", entry.id, entry.label))
+        .map(|entry| {
+            if entry.modes.is_empty() {
+                return format!("{} ({})", entry.id, entry.label);
+            }
+            let modes = entry
+                .modes
+                .iter()
+                .map(|mode| {
+                    if entry.acts_unattended(Some(mode.id)) {
+                        format!("{} \"{}\" (acts without asking)", mode.id, mode.name)
+                    } else {
+                        format!("{} \"{}\"", mode.id, mode.name)
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("{} ({}; Harness Modes: {modes})", entry.id, entry.label)
+        })
         .collect::<Vec<_>>()
-        .join(", ");
+        .join("; ");
     format!(
         "Start a coding session: a Coding Harness that writes code in a directory on one of \
          the user's own computers, through the Pagis client on it. It never runs on the server. \
@@ -3668,6 +3696,7 @@ fn validate_core_arguments(
         CoreTool::CodingSessionAnswer => {
             required_text("session") && arguments["values"].is_object()
         }
+        CoreTool::CodingSessionSetMode => required_text("session") && required_text("mode"),
     };
     if valid {
         Ok(())
@@ -3769,6 +3798,7 @@ fn coding_session_approval_body(
     if chars.next().is_some() {
         shown.push('…');
     }
+    let harness_mode = harness_mode_line(start);
     // Pagis policy sees no action of a harness that never asks, so the
     // Person reads that before the approval.
     let unattended = if start.asks_permission {
@@ -3777,10 +3807,31 @@ fn coding_session_approval_body(
         format!("\n{} does not ask before it acts.", start.harness_name)
     };
     format!(
-        "Harness: {}\nMachine: {}\nDirectory: {}\n{worktree}\nMode: {mode}{unattended}\nPrompt: \
-         {shown}",
+        "Harness: {}\nMachine: {}\nDirectory: {}\n{worktree}\nMode: \
+         {mode}{harness_mode}{unattended}\nPrompt: {shown}",
         start.harness_name, host.name, start.directory
     )
+}
+
+/// The line of the card that names the Harness Mode of a start, from the
+/// Harness Catalog, after a line break. With no mode that the Agent named,
+/// it names the first asking mode of the catalog. A harness with no
+/// catalog modes has no line.
+fn harness_mode_line(start: &SessionStartAction) -> String {
+    let Some(entry) = pagis_core::harness::entry(&start.harness_id) else {
+        return String::new();
+    };
+    let mode = match &start.harness_mode {
+        Some(id) => entry.modes.iter().find(|mode| mode.id == id),
+        None => entry.modes.iter().find(|mode| mode.asks),
+    };
+    match mode {
+        Some(mode) if entry.acts_unattended(Some(mode.id)) => {
+            format!("\nHarness mode: {} (acts without asking)", mode.name)
+        }
+        Some(mode) => format!("\nHarness mode: {}", mode.name),
+        None => String::new(),
+    }
 }
 
 fn is_schedule_control_without_revision(context: &CallContext) -> bool {
@@ -4070,6 +4121,7 @@ fn core_manifest() -> CapabilityManifest {
                             "directory": {"type": "string", "description": "The absolute path of the directory on that computer that the session works in, usually the root of a git repository."},
                             "worktree": {"type": "boolean", "default": true, "description": "True makes a new git worktree on the branch pagis/<title as a slug>, so the user's own checkout does not change. False works in the directory itself."},
                             "mode": {"enum": ["person", "agent"], "default": "person", "description": "Who answers the permission requests of the harness: person (the user) or agent (you). The user sets the widest mode that you can use on each computer."},
+                            "harness_mode": {"type": "string", "description": "The id of a Harness Mode of the harness, from the list above. Omit it to start in a mode in which the harness asks before it acts."},
                             "title": {"type": "string", "description": "A short name of the work, for the user and for the branch."},
                             "prompt": {"type": "string", "description": "The first instructions to the harness. Give the goal, the context and what done looks like."}
                         },
@@ -4206,6 +4258,21 @@ fn core_manifest() -> CapabilityManifest {
                     "required": ["session", "values"]
                 }),
                 CoreTool::CodingSessionAnswer,
+                EffectClass::Free,
+                None,
+            ),
+            core(
+                CODING_SESSION_SET_MODE,
+                "Change the Harness Mode of one of your coding sessions. Use a mode that the session lists. A mode that acts without asking needs the user's allowance on that computer.",
+                serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "session": {"type": "string", "description": "The id of the session."},
+                        "mode": {"type": "string", "description": "The id of a Harness Mode that coding_session_read lists for the session."}
+                    },
+                    "required": ["session", "mode"]
+                }),
+                CoreTool::CodingSessionSetMode,
                 EffectClass::Free,
                 None,
             ),
@@ -4710,6 +4777,68 @@ mod tests {
             .expect("the core manifest offers the tool")
     }
 
+    /// The start of `harness_id` in the Harness Mode `harness_mode`, as the
+    /// checks of the start answer it.
+    fn start_of(harness_id: &str, harness_mode: Option<&str>) -> SessionStartAction {
+        let entry = pagis_core::harness::entry(harness_id).expect("a harness of the catalog");
+        SessionStartAction {
+            harness_id: harness_id.to_string(),
+            harness_name: entry.label.to_string(),
+            directory: "/Users/bo/code/app".to_string(),
+            branch: None,
+            mode: pagis_core::SessionApprovalMode::Person,
+            asks_permission: entry.asks_permission,
+            harness_mode: harness_mode.map(str::to_string),
+        }
+    }
+
+    fn air() -> pagis_core::Host {
+        pagis_core::Host {
+            id: pagis_core::HostId::from("h".to_string()),
+            workspace_id: WorkspaceId::from("w".to_string()),
+            name: "Air".to_string(),
+            platform: "macos".to_string(),
+            capabilities: Vec::new(),
+            last_seen_at: 1,
+            created_at: 1,
+        }
+    }
+
+    #[test]
+    fn the_card_of_a_start_names_the_harness_mode_and_marks_one_that_acts_without_asking() {
+        let body = coding_session_approval_body(
+            &start_of("claude", Some("bypassPermissions")),
+            &air(),
+            "Fix it.",
+        );
+
+        assert!(
+            body.contains(
+                "\nMode: Ask me\nHarness mode: Bypass permissions (acts without asking)\nPrompt: "
+            ),
+            "{body}"
+        );
+    }
+
+    #[test]
+    fn the_card_of_a_start_with_no_harness_mode_names_the_first_asking_mode_of_the_catalog() {
+        let body = coding_session_approval_body(&start_of("claude", None), &air(), "Fix it.");
+
+        assert!(
+            body.contains("\nMode: Ask me\nHarness mode: Manual\nPrompt: "),
+            "{body}"
+        );
+    }
+
+    #[test]
+    fn the_card_of_a_harness_with_no_catalog_modes_shows_no_harness_mode() {
+        for harness_id in ["opencode", "pi"] {
+            let body = coding_session_approval_body(&start_of(harness_id, None), &air(), "Fix it.");
+
+            assert!(!body.contains("Harness mode"), "{harness_id}: {body}");
+        }
+    }
+
     #[test]
     fn the_tools_of_a_started_coding_session_need_no_approval_and_wrap_their_own_text() {
         // The Person approved the session on its card, and each tool acts
@@ -4725,6 +4854,7 @@ mod tests {
             CODING_SESSION_DECIDE,
             CODING_SESSION_ESCALATE,
             CODING_SESSION_ANSWER,
+            CODING_SESSION_SET_MODE,
         ] {
             let tool = core_tool(name);
 

@@ -9,8 +9,8 @@
 use pagis_broker::{
     CODING_SESSION_ANSWER, CODING_SESSION_CANCEL, CODING_SESSION_CLOSE, CODING_SESSION_DECIDE,
     CODING_SESSION_ESCALATE, CODING_SESSION_LIST, CODING_SESSION_READ, CODING_SESSION_RESUME,
-    CODING_SESSION_SEND, CODING_SESSION_START, InvokeOutcome, SessionStartAction, ToolCall,
-    ToolResult,
+    CODING_SESSION_SEND, CODING_SESSION_SET_MODE, CODING_SESSION_START, InvokeOutcome,
+    SessionStartAction, ToolCall, ToolResult,
 };
 use pagis_core::{
     GrantStore, Host, RequestState, RequestStore, RunStore, SHELL_CAPABILITY, SessionAllowRule,
@@ -29,7 +29,7 @@ const PROMPT: &str = "Fix the login bug.";
 
 /// Every tool of the Coding Sessions. The snapshot holds all of them or
 /// none of them.
-const SESSION_TOOLS: [&str; 8] = [
+const SESSION_TOOLS: [&str; 9] = [
     CODING_SESSION_START,
     CODING_SESSION_SEND,
     CODING_SESSION_READ,
@@ -38,6 +38,7 @@ const SESSION_TOOLS: [&str; 8] = [
     CODING_SESSION_LIST,
     CODING_SESSION_RESUME,
     CODING_SESSION_ANSWER,
+    CODING_SESSION_SET_MODE,
 ];
 
 /// The tools of the `agent` mode. The snapshot holds them only for an
@@ -66,6 +67,7 @@ fn action(branch: Option<&str>, mode: SessionApprovalMode) -> SessionStartAction
         branch: branch.map(str::to_string),
         mode,
         asks_permission: true,
+        harness_mode: None,
     }
 }
 
@@ -435,7 +437,8 @@ async fn the_card_names_the_harness_and_the_machine(pool: SqlitePool) {
         card.body,
         format!(
             "Harness: Claude Code\nMachine: Air\nDirectory: {DIRECTORY}\n\
-             Worktree: pagis/fix-the-login\nMode: Let the sprite decide\nPrompt: {PROMPT}"
+             Worktree: pagis/fix-the-login\nMode: Let the sprite decide\nHarness mode: \
+             Manual\nPrompt: {PROMPT}"
         )
     );
     assert_eq!(card.request.payload["body"], card.body);
@@ -501,7 +504,8 @@ async fn the_card_of_a_start_with_no_worktree_and_a_long_prompt(pool: SqlitePool
         card.body
     );
     assert!(
-        card.body.contains("Mode: Ask me\nPrompt: "),
+        card.body
+            .contains("Mode: Ask me\nHarness mode: Manual\nPrompt: "),
         "{}",
         card.body
     );
