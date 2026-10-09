@@ -270,6 +270,58 @@ describe('the coding place', () => {
   })
 })
 
+describe('the hosts settings', () => {
+  // The daemon reports a harness that needs a sign-in on a Host as a
+  // frame, and Settings › Hosts reads the Hosts again.
+  it('marks a harness that needs a sign-in on a frame of the report, with no reload', async () => {
+    let needsSignIn = false
+    api.GET.mockImplementation(async (path: string) => {
+      if (path === '/api/v1/harnesses') {
+        return {
+          data: { items: [{ id: 'claude', name: 'Claude Code', sign_in_methods: [] }] },
+        }
+      }
+      if (path === '/api/v1/hosts') {
+        return {
+          data: {
+            items: [
+              {
+                id: 'host-1',
+                name: 'Air',
+                platform: 'macos',
+                capabilities: ['shell', 'harness:claude'],
+                harnesses: [{ id: 'claude', needs_sign_in: needsSignIn }],
+                present: true,
+                last_seen_at: 1,
+              },
+            ],
+          },
+        }
+      }
+      return shellResponse(path)
+    })
+    mount('/settings/hosts')
+    const claude = await screen.findByRole('group', { name: 'Claude Code' })
+    expect(within(claude).getByText('Can start')).toBeTruthy()
+    expect(within(claude).queryByText('Needs sign-in')).toBeNull()
+
+    needsSignIn = true
+    act(() =>
+      socket.handlers!.onEvent({
+        type: 'harness.sign_in_changed',
+        payload: {
+          id: 'event-1',
+          event_type: 'harness.sign_in_changed',
+          created_at: Date.now(),
+          payload: { host_id: 'host-1', harness: 'claude', needs_sign_in: true },
+        },
+      }),
+    )
+
+    expect(await within(claude).findByText('Needs sign-in')).toBeTruthy()
+  })
+})
+
 describe('the session block', () => {
   // The block reads the session record. A frame of the session carries
   // no text, and it makes the block read the record again. The block

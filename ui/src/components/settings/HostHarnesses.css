@@ -1,0 +1,23 @@
+/* The harness rows under a machine in Settings › Hosts. The frames and
+ * rows come from the primitives; this sheet indents the rows and their
+ * dividers under their machine and puts the status line on a line of
+ * its own. Every value comes from `tokens.css`. */
+
+.host-harness {
+  flex-wrap: wrap;
+  margin-left: var(--space-8);
+  font-size: var(--text-sm);
+}
+
+.host-harness-name {
+  font-weight: var(--weight-medium);
+}
+
+.host-harness-actions {
+  margin-left: auto;
+}
+
+.host-harness-status {
+  flex-basis: 100%;
+  margin: 0;
+}

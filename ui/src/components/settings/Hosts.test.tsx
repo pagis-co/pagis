@@ -14,14 +14,23 @@ function host(overrides: Record<string, unknown> = {}) {
     name: 'Air',
     platform: 'macos',
     capabilities: ['shell'],
+    harnesses: [],
     present: true,
     last_seen_at: 1_700_000_000_000,
     ...overrides,
   }
 }
 
+const CATALOG = {
+  items: [{ id: 'claude', name: 'Claude Code', sign_in_methods: [] }],
+}
+
 function mount(items: ReturnType<typeof host>[]) {
-  const api = { GET: vi.fn(async () => ({ data: { items } })) }
+  const api = {
+    GET: vi.fn(async (path: string) => ({
+      data: path === '/api/v1/harnesses' ? CATALOG : { items },
+    })),
+  }
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   render(
     <QueryClientProvider client={queryClient}>
@@ -59,6 +68,27 @@ describe('Hosts', () => {
 
     await waitFor(() => expect(screen.getByText('No commands')).toBeTruthy())
     expect(screen.getByText('iOS')).toBeTruthy()
+  })
+
+  /** A phone runs no harness, so its row lists none. */
+  it('lists no harness under a machine that runs no command', async () => {
+    mount([
+      host({ name: 'Phone', platform: 'ios', capabilities: [] }),
+      host({ id: 'h-2', name: 'Studio' }),
+    ])
+
+    expect(await screen.findByRole('group', { name: 'Claude Code' })).toBeTruthy()
+    expect(screen.getAllByRole('group', { name: 'Claude Code' })).toHaveLength(1)
+  })
+
+  /** The Vault add form stays the only place a person types a secret
+   *  (ADR-0022), and the hint says so for a Harness Sign-In. */
+  it('says that Pagis never sees the credential of a sign-in', async () => {
+    mount([host()])
+
+    expect(
+      await screen.findByText(/Pagis never sees your password or your key\./),
+    ).toBeTruthy()
   })
 
   /** A browser-only person has no machine, and the copy says what to do
