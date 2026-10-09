@@ -67,11 +67,13 @@ impl SessionNews {
 }
 
 /// Why a session is `interrupted`. The harness keeps its own session on
-/// the Host, so the Agent can resume it.
+/// its place, so the Agent can resume it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InterruptReason {
     /// The Host or its session socket went away.
     HostLost,
+    /// The Agent's Computer stopped while its harness ran.
+    ComputerStopped,
     /// The daemon stopped, and every ACP connection with it.
     DaemonRestart,
 }
@@ -80,6 +82,7 @@ impl InterruptReason {
     pub fn as_str(self) -> &'static str {
         match self {
             InterruptReason::HostLost => "host_lost",
+            InterruptReason::ComputerStopped => "computer_stopped",
             InterruptReason::DaemonRestart => "daemon_restart",
         }
     }

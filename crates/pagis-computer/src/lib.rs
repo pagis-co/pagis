@@ -28,8 +28,8 @@ pub use exit_listener::{ComputerTokens, ExitListener};
 pub use home_exit::{ExitBytes, ExitError, ExitInUse, ExitStream, HomeExits};
 pub use image::{ComputerImage, ImagePullError};
 pub use manager::{
-    ComputerManager, ComputerManagerDeps, DaemonHold, ExitSwitchFailure, Preview, SHELL_HOME,
-    ShellCommand, TakeoverTiming,
+    ComputerManager, ComputerManagerDeps, DaemonHold, ExecPin, ExitSwitchFailure, HarnessExec,
+    Preview, SHELL_HOME, SHELL_USER, ShellCommand, TakeoverTiming,
 };
 pub use relay::{
     DaemonRelay, IceCredentials, IceServer, MediaForwarder, MediaPath, MediaRelay, OpenPath,

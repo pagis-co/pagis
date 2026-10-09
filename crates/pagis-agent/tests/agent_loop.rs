@@ -513,6 +513,7 @@ where
         hosts: Arc::new(pagis_storage_sqlite::SqliteHostStore::new(pool.clone())),
         presence: Arc::clone(&host_presence),
         session_starts: Arc::new(pagis_broker::NoSessionStarts),
+        computer: config.computer,
     }));
     let capture = Arc::new(pagis_core::CaptureSetting::default());
     let captures = Arc::new(pagis_storage_sqlite::SqliteModelRequestCaptureStore::new(
@@ -889,7 +890,7 @@ async fn a_request_above_the_target_that_fits_the_allowance_is_sent_after_compac
     // 146,892 and a target of 110,169. The message alone is above the
     // target and below the allowance.
     harness
-        .send(&format!("The report: {}", "r".repeat(150_000)))
+        .send(&format!("The report: {}", "r".repeat(140_000)))
         .await;
 
     let compacted = next_event(&mut events, "context.compacted").await;

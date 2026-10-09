@@ -1,10 +1,14 @@
 //! The core tools of the Coding Sessions (ADR-0033).
 //!
-//! A start runs here after the broker has settled the machine, checked
-//! the start and asked the Person. Each other tool acts on one session of
+//! A start on a Host runs here after the broker has settled the machine,
+//! checked the start and asked the Person. A start in the Agent's own
+//! Computer asks nobody, because the container is the sandbox: it checks
+//! the harness, the directory under `/data/agent`, the limit of open
+//! sessions and the Org's key of the provider that the harness spends.
+//! Each other tool acts on one session of
 //! the calling Agent: a session of another Agent reads as absent, as
-//! another Agent's Call does (ADR-0020). A resume also needs the live
-//! host Grant of the Agent on the session's machine. A decision needs a
+//! another Agent's Call does (ADR-0020). A resume of a session on a Host
+//! also needs the live host Grant of the Agent on the session's machine. A decision needs a
 //! Harness Permission that waits for the Agent, and the `agent` mode
 //! still in force on the live host Grant. An answer needs a question that
 //! waits for the Agent, and values that match its form. A change of the
@@ -20,8 +24,9 @@ use pagis_broker::{
     ToolRoute, WorktreeRequest,
 };
 use pagis_core::{
-    CodingSession, CodingSessionId, CodingSessionState as State, CodingSessionStore, EventSource,
-    Grant, GrantStore, HostStore, SessionApprovalMode, StoreError, harness, wrap_untrusted,
+    CodingSession, CodingSessionId, CodingSessionPlace, CodingSessionState as State,
+    CodingSessionStore, EventSource, Grant, GrantStore, HostStore, ProviderKeys,
+    SessionApprovalMode, StoreError, harness, wrap_untrusted,
 };
 use serde_json::json;
 
@@ -29,10 +34,15 @@ use crate::agent::{AnswerRefusal, Verdict};
 use crate::policy::{effective_mode, host_grant};
 use crate::report::harness_output;
 use crate::sessions::UNATTENDED_MODE_NOT_ALLOWED;
+use crate::starts::MAX_OPEN_SESSIONS;
 use crate::{
-    AgentAsks, CloseReason, CodingSessions, DecidedBy, NewCodingSession, PromptOutcome,
+    AgentAsks, CloseReason, CodingSessions, DecidedBy, NewCodingSession, Place, PromptOutcome,
     ResumeFailure, SessionError, SetModeFailure, StartFailure,
 };
+
+/// The home of the Agent in its own Computer. A session there works in a
+/// directory under it.
+const COMPUTER_HOME: &str = "/data/agent";
 
 /// The ref that the worktree of a session starts from: the commit that
 /// the directory has checked out.
@@ -75,6 +85,9 @@ pub struct CodingToolRuntime {
     /// The Harness Permissions that wait for the Agent's verdict, and the
     /// questions that wait for its answer.
     agent: Arc<AgentAsks>,
+    /// The Org's provider keys. A harness in a Computer spends one through
+    /// the Harness Model Endpoint.
+    keys: Arc<ProviderKeys>,
 }
 
 impl CodingToolRuntime {
@@ -85,6 +98,7 @@ impl CodingToolRuntime {
         hosts: Arc<dyn HostStore>,
         grants: Arc<dyn GrantStore>,
         agent: Arc<AgentAsks>,
+        keys: Arc<ProviderKeys>,
     ) -> Self {
         Self {
             sessions,
@@ -93,6 +107,7 @@ impl CodingToolRuntime {
             hosts,
             grants,
             agent,
+            keys,
         }
     }
 
@@ -117,7 +132,7 @@ impl CodingToolRuntime {
             workspace_id: call.workspace_id.clone(),
             agent_id: call.agent_id.clone(),
             run_id: call.run_id.clone(),
-            host_id: host.id.clone(),
+            place: Place::Host(host.id.clone()),
             harness_id: start.harness_id,
             worktree: start.branch.map(|branch| WorktreeRequest {
                 repo: start.directory.clone(),
@@ -131,16 +146,89 @@ impl CodingToolRuntime {
             prompt: text(call, "prompt"),
         };
         let session = self.sessions.start(new).await.map_err(start_failure)?;
-        // The daemon's own state, so it takes no envelope.
-        Ok(ToolResult::success(
-            json!({
-                "session_id": session.id.as_str(),
-                "state": session.state.as_str(),
-                "directory": session.working_directory.as_deref().unwrap_or(&session.directory),
-                "branch": session.worktree_branch,
-            })
-            .to_string(),
-        ))
+        Ok(started(&session))
+    }
+
+    /// Starts the session in the Agent's own Computer, and returns when
+    /// the harness has the first prompt. The checks go in this order: the
+    /// harness runs in a Computer, the directory is under `/data/agent`,
+    /// the Agent holds fewer than `MAX_OPEN_SESSIONS` open sessions on
+    /// every place, and the Org has a key of the provider that the
+    /// harness spends. The harness runs in the Harness Mode of its
+    /// Computer launch, and the Agent decides what the harness still asks.
+    async fn computer_start(&self, call: &AuthorizedCall) -> Result<ToolResult, ToolResult> {
+        let harness_id = text(call, "harness");
+        let Some((entry, provider)) = harness::computer_sessions().find_map(|entry| {
+            let launch = entry.computer.filter(|_| entry.id == harness_id)?;
+            Some((entry, launch.provider?))
+        }) else {
+            let known = harness::computer_sessions()
+                .map(|entry| entry.id)
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(ToolResult::error(
+                "unknown_harness",
+                format!("{harness_id:?} does not run in your computer. Use one of: {known}."),
+            ));
+        };
+        let directory = text(call, "directory");
+        if !in_computer_home(&directory) {
+            return Err(ToolResult::error(
+                "bad_directory",
+                format!(
+                    "{directory:?} is not under {COMPUTER_HOME}. Name an absolute directory \
+                     under {COMPUTER_HOME}, such as {COMPUTER_HOME}/app."
+                ),
+            ));
+        }
+        let open = self
+            .store
+            .count_open(&call.workspace_id, &call.agent_id)
+            .await
+            .map_err(unavailable)?;
+        if open >= MAX_OPEN_SESSIONS {
+            return Err(ToolResult::error(
+                "session_limit",
+                format!(
+                    "You have {open} open coding sessions, and {MAX_OPEN_SESSIONS} is the most. \
+                     Close one of your coding sessions first."
+                ),
+            ));
+        }
+        let key = self
+            .keys
+            .resolve(provider)
+            .map_err(|error| ToolResult::error("temporarily_unavailable", error.to_string()))?;
+        if key.is_none() {
+            return Err(ToolResult::error(
+                "no_provider_key",
+                format!(
+                    "{} in your computer spends this installation's {} key, and the \
+                     installation has none. Ask the user to have an administrator add one in \
+                     the Administration Interface.",
+                    entry.label,
+                    provider.name()
+                ),
+            ));
+        }
+        let new = NewCodingSession {
+            workspace_id: call.workspace_id.clone(),
+            agent_id: call.agent_id.clone(),
+            run_id: call.run_id.clone(),
+            place: Place::Computer(call.agent_id.clone()),
+            harness_id: entry.id.to_string(),
+            directory,
+            worktree: None,
+            approval_mode: SessionApprovalMode::Agent,
+            harness_mode: entry
+                .computer
+                .and_then(|launch| launch.mode)
+                .map(str::to_string),
+            title: text(call, "title"),
+            prompt: text(call, "prompt"),
+        };
+        let session = self.sessions.start(new).await.map_err(start_failure)?;
+        Ok(started(&session))
     }
 
     /// Sends a prompt, or queues it while a turn runs.
@@ -224,13 +312,14 @@ impl CodingToolRuntime {
         Ok(ToolResult::success("The session is closed."))
     }
 
-    /// Resumes an `interrupted` session, when the Agent still holds a
-    /// live host Grant on its machine. The Person approved this harness
-    /// in this directory on this machine, and a revoked Grant takes that
-    /// back.
+    /// Resumes an `interrupted` session. A session on a Host needs a live
+    /// host Grant of the Agent on its machine: the Person approved this
+    /// harness in this directory on this machine, and a revoked Grant
+    /// takes that back. A session in the Agent's own Computer needs none.
     async fn resume(&self, call: &AuthorizedCall) -> Result<ToolResult, ToolResult> {
         let session = self.own_session(call).await?;
         let granted = match &session.host_id {
+            _ if session.place == CodingSessionPlace::Computer => true,
             Some(host_id) => self
                 .grants
                 .live_for_resource(
@@ -469,6 +558,30 @@ impl CodingToolRuntime {
     }
 }
 
+/// The tool result of a session that started: the daemon's own state, so
+/// it takes no envelope.
+fn started(session: &CodingSession) -> ToolResult {
+    ToolResult::success(
+        json!({
+            "session_id": session.id.as_str(),
+            "state": session.state.as_str(),
+            "directory": session.working_directory.as_deref().unwrap_or(&session.directory),
+            "branch": session.worktree_branch,
+        })
+        .to_string(),
+    )
+}
+
+/// Whether `directory` is `/data/agent` or an absolute path under it,
+/// with no `..` that leaves it.
+fn in_computer_home(directory: &str) -> bool {
+    let path = std::path::Path::new(directory);
+    path.starts_with(COMPUTER_HOME)
+        && path
+            .components()
+            .all(|component| !matches!(component, std::path::Component::ParentDir))
+}
+
 /// One text argument of a call. The broker checked the required ones.
 fn text(call: &AuthorizedCall, field: &str) -> String {
     call.arguments[field]
@@ -572,7 +685,7 @@ fn harness_error(session_id: CodingSessionId, message: &str) -> ToolResult {
 /// The tool error of a start that failed.
 fn start_failure(failure: StartFailure) -> ToolResult {
     match failure {
-        StartFailure::UnknownHarness(_) => {
+        StartFailure::UnknownHarness(_) | StartFailure::NotInComputer(_) => {
             ToolResult::error("unknown_harness", failure.to_string())
         }
         StartFailure::RunNotFound(_) => ToolResult::error("not_found", failure.to_string()),
@@ -625,6 +738,7 @@ impl ToolExecutor for CodingToolRuntime {
         let answer = match &call.route {
             ToolRoute::Core { tool } => match tool {
                 CoreTool::CodingSessionStart => self.start(&call).await,
+                CoreTool::ComputerCodingSessionStart => self.computer_start(&call).await,
                 CoreTool::CodingSessionSend => self.send(&call).await,
                 CoreTool::CodingSessionRead => self.read(&call).await,
                 CoreTool::CodingSessionCancel => self.cancel(&call).await,
@@ -653,6 +767,23 @@ fn not_a_session_tool(call: &AuthorizedCall) -> ToolResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_computer_session_works_under_the_home_of_the_agent_only() {
+        for inside in ["/data/agent", "/data/agent/app", "/data/agent/code/app/"] {
+            assert!(in_computer_home(inside), "{inside}");
+        }
+        for outside in [
+            "/data/agentx",
+            "/data",
+            "/etc",
+            "data/agent/app",
+            "/data/agent/../../etc",
+            "",
+        ] {
+            assert!(!in_computer_home(outside), "{outside}");
+        }
+    }
 
     #[test]
     fn a_start_or_a_resume_that_the_live_grant_no_longer_allows_answers_its_error() {

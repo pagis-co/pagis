@@ -472,6 +472,12 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     }
     // The Harness Model Endpoint (ADR-0033): the model API of the harness
     // of a Coding Session in a Computer, on its own listener.
+    let model_port = options
+        .model_listener
+        .as_ref()
+        .map(|listener| listener.local_addr())
+        .transpose()?
+        .map(|address| address.port());
     if let Some(listener) = options.model_listener.take() {
         let address = listener.local_addr()?;
         let endpoint = pagis_server::harness_model::router(pagis_server::HarnessModelDeps {
@@ -552,6 +558,16 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     // The session sockets of the same machines, which carry the Coding
     // Sessions (ADR-0033).
     let host_sessions = Arc::new(pagis_broker::HostSessions::new());
+    // The places of the Coding Sessions: those sockets, and the Agent's own
+    // Computer, whose harness reaches the Harness Model Endpoint.
+    let session_places = Arc::new(crate::coding_places::SessionPlaces::new(
+        Arc::clone(&host_sessions),
+        crate::coding_places::ComputerPlace::new(
+            Arc::clone(&computers),
+            pagis_server::HarnessModelTokens::new(stores.coding_sessions.clone()),
+            model_port,
+        ),
+    ));
     // The Harness Permissions and the questions that wait for the
     // supervising Agent. Pagis policy puts them here, and the decision
     // tools and the answer tool hand them the Agent's word.
@@ -577,7 +593,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         bus: Arc::clone(&bus),
         // A Grant change closes the sessions that it no longer allows.
         grants: Arc::clone(&grants) as _,
-        place: Arc::clone(&host_sessions) as _,
+        place: Arc::clone(&session_places) as _,
         decisions: Arc::new(pagis_coding::PolicyDecisions::new(
             pagis_coding::PolicyDecisionsDeps {
                 grants: Arc::clone(&grants) as _,
@@ -601,7 +617,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     // method runs on the session socket, as a session does.
     let sign_ins = Arc::new(pagis_coding::SignIns::new(
         Arc::clone(&host_presence),
-        Arc::clone(&host_sessions) as _,
+        Arc::clone(&session_places) as _,
         Arc::clone(&sign_in_reports),
     ));
     // The checks of a Coding Session start. The broker asks them before
@@ -916,6 +932,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
                 stores.hosts.clone(),
                 Arc::clone(&grants) as _,
                 Arc::clone(&agent_asks),
+                Arc::clone(&keys),
             )) as _,
         )),
         phone_numbers: Arc::clone(&phone_numbers) as _,
@@ -923,6 +940,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         hosts: stores.hosts.clone(),
         presence: Arc::clone(&host_presence),
         session_starts: Arc::clone(&session_starts) as _,
+        computer: options.agents.computer,
     }));
     // The realtime bridge: the model session, the SIP leg
     // and the recording of one call. A test injects a scripted bridge

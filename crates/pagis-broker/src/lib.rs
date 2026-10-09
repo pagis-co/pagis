@@ -95,6 +95,8 @@ pub const SOFTWARE_PUBLISH: &str = "software_publish";
 pub const TOOL_SEARCH: &str = "tool_search";
 /// Start a Coding Session on one of the Person's machines (ADR-0033).
 pub const CODING_SESSION_START: &str = "coding_session_start";
+/// Start a Coding Session in the Agent's own Computer (ADR-0033).
+pub const COMPUTER_CODING_SESSION_START: &str = "computer_coding_session_start";
 /// Prompt, read, cancel, close, list and resume the Agent's own Coding
 /// Sessions (ADR-0033).
 pub const CODING_SESSION_SEND: &str = "coding_session_send";
@@ -295,6 +297,10 @@ pub enum CoreTool {
     /// candidate machines of `host_shell` and the same first Grant
     /// (ADR-0015).
     CodingSessionStart,
+    /// Start a Coding Session in the Agent's own Computer (ADR-0033). It
+    /// is `Free` with no Grant, as `computer_shell` is: the container is
+    /// the sandbox (ADR-0014).
+    ComputerCodingSessionStart,
     /// The tools that act on a Coding Session that the Agent started.
     /// They are `Free`: the Person approved the session on its card, and
     /// each tool acts only on a session of the calling Agent.
@@ -309,7 +315,8 @@ pub enum CoreTool {
     CodingSessionResume,
     /// Allow once or deny a Harness Permission that waits for the Agent.
     /// It is `Free`: the Person delegated the decision with the widest
-    /// mode on the host Grant, and a decision never writes a rule.
+    /// mode on the host Grant, a session in the Agent's own Computer runs
+    /// in the `agent` mode, and a decision never writes a rule.
     CodingSessionDecide,
     /// Give a Harness Permission that waits for the Agent to the Person,
     /// on an approval card that the daemon posts. It is `Free` for the
@@ -327,12 +334,11 @@ pub enum CoreTool {
 
 impl CoreTool {
     /// Whether the tool is one of the Coding Session tools (ADR-0033).
-    /// A snapshot holds none of them when no machine of the Workspace
-    /// declares a Coding Harness.
     pub fn is_coding_session(&self) -> bool {
         matches!(
             self,
             CoreTool::CodingSessionStart
+                | CoreTool::ComputerCodingSessionStart
                 | CoreTool::CodingSessionSend
                 | CoreTool::CodingSessionRead
                 | CoreTool::CodingSessionCancel
@@ -345,15 +351,36 @@ impl CoreTool {
                 | CoreTool::CodingSessionSetMode
         )
     }
+}
 
-    /// Whether the tool decides a Harness Permission of the `agent`
-    /// mode. Only an Agent that may use that mode on some machine holds
-    /// it.
-    pub fn is_session_decision(&self) -> bool {
-        matches!(
-            self,
-            CoreTool::CodingSessionDecide | CoreTool::CodingSessionEscalate
-        )
+/// Which Coding Session tools a snapshot holds (ADR-0033). An absent
+/// capability is declared, never emulated (ADR-0005), so the snapshot
+/// holds a tool only where the Agent can use it.
+struct SessionToolOffer {
+    /// A machine of the Workspace declares a Coding Harness.
+    on_host: bool,
+    /// The daemon has a Computer for the Agent.
+    in_computer: bool,
+    /// The Agent holds a live host Grant whose widest mode is `agent`.
+    agent_mode_grant: bool,
+}
+
+impl SessionToolOffer {
+    /// Whether the snapshot holds `tool`. A tool that is not a Coding
+    /// Session tool is not this offer's concern.
+    fn offers(&self, tool: &CoreTool) -> bool {
+        match tool {
+            CoreTool::CodingSessionStart => self.on_host,
+            CoreTool::ComputerCodingSessionStart => self.in_computer,
+            // A session in the Agent's own Computer runs in the `agent`
+            // mode with no host Grant.
+            CoreTool::CodingSessionDecide | CoreTool::CodingSessionEscalate => {
+                self.agent_mode_grant || self.in_computer
+            }
+            // The tools of a started session, where a session can start.
+            tool if tool.is_coding_session() => self.on_host || self.in_computer,
+            _ => true,
+        }
     }
 }
 
@@ -943,6 +970,10 @@ pub struct BrokerDeps {
     pub presence: Arc<hosts::HostPresence>,
     /// The checks of a Coding Session start, and what its card shows.
     pub session_starts: Arc<dyn SessionStarts>,
+    /// Whether the daemon has a Computer for each Agent. The snapshot
+    /// holds the start of a Coding Session in the Computer only then
+    /// (ADR-0033).
+    pub computer: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1443,12 +1474,16 @@ impl Broker {
             .filter(|host| !host.harnesses().is_empty())
             .map(|host| host.id.to_string())
             .collect();
-        // The Person delegates the decision of a Harness Permission with
-        // the widest mode on a host Grant (ADR-0033).
-        let decides_sessions = grants.iter().any(|grant| {
-            grant.resource_kind == Grant::HOST_KIND
-                && grant.session_approval_mode() == pagis_core::SessionApprovalMode::Agent
-        });
+        let session_tools = SessionToolOffer {
+            on_host: !harness_hosts.is_empty(),
+            in_computer: self.deps.computer,
+            // The Person delegates the decision of a Harness Permission
+            // with the widest mode on a host Grant (ADR-0033).
+            agent_mode_grant: grants.iter().any(|grant| {
+                grant.resource_kind == Grant::HOST_KIND
+                    && grant.session_approval_mode() == pagis_core::SessionApprovalMode::Agent
+            }),
+        };
         let holds_number = self
             .deps
             .phone_numbers
@@ -1537,16 +1572,7 @@ impl Broker {
                     {
                         continue;
                     }
-                    // A Workspace whose machines declare no Coding Harness
-                    // has no session to start or to drive: an absent
-                    // capability is declared, never emulated (ADR-0005).
-                    if matches!(&tool.route, ToolRoute::Core { tool } if tool.is_coding_session())
-                        && harness_hosts.is_empty()
-                    {
-                        continue;
-                    }
-                    if matches!(&tool.route, ToolRoute::Core { tool } if tool.is_session_decision())
-                        && !decides_sessions
+                    if matches!(&tool.route, ToolRoute::Core { tool } if !session_tools.offers(tool))
                     {
                         continue;
                     }
@@ -3307,6 +3333,36 @@ pub const HOST_DISPATCH_TIMEOUT: std::time::Duration = std::time::Duration::from
 /// which takes minutes on a slow network.
 pub const SESSION_START_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
 
+/// How long the wake of an Agent's Computer may take: the deadline of
+/// `ComputerManager::ensure_awake`.
+const COMPUTER_WAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
+
+/// The ids of the harnesses whose sessions the daemon starts in the
+/// Agent's own Computer.
+fn computer_session_harnesses() -> Vec<&'static str> {
+    pagis_core::harness::computer_sessions()
+        .map(|entry| entry.id)
+        .collect()
+}
+
+/// The description of `computer_coding_session_start`, with the
+/// harnesses that run in a Computer.
+fn computer_coding_session_start_description() -> String {
+    let harnesses = pagis_core::harness::computer_sessions()
+        .map(|entry| format!("{} ({})", entry.id, entry.label))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "Start a coding session in your own computer: a Coding Harness that writes code in a \
+         directory under /data/agent. The user is not asked, because the computer is your \
+         sandbox. The harness acts without asking, and you decide each permission that it \
+         still asks with coding_session_decide. The session spends this installation's \
+         provider key. The directory stays between sessions; use computer_shell for git. The \
+         call returns when the harness has the first prompt, and you wake when its turn ends. \
+         The harnesses: {harnesses}."
+    )
+}
+
 /// The description of `coding_session_start`, with the ids of the
 /// Harness Catalog.
 fn coding_session_start_description() -> String {
@@ -3681,6 +3737,10 @@ fn validate_core_arguments(
                 && required_text("directory")
                 && required_text("title")
                 && required_text("prompt")
+        }
+        // The schema names the harnesses.
+        CoreTool::ComputerCodingSessionStart => {
+            required_text("directory") && required_text("title") && required_text("prompt")
         }
         CoreTool::CodingSessionSend => required_text("session") && required_text("prompt"),
         CoreTool::CodingSessionRead
@@ -4134,6 +4194,28 @@ fn core_manifest() -> CapabilityManifest {
                         body_argument: None,
                         allow_rule_builder: Some(AllowRuleBuilder::CodingSessionScope),
                     }),
+                )
+            },
+            ManifestTool {
+                // The start waits for the wake of the Computer, then for
+                // the harness and its first prompt.
+                call_timeout: Some(COMPUTER_WAKE_TIMEOUT + SESSION_START_TIMEOUT),
+                ..core(
+                    COMPUTER_CODING_SESSION_START,
+                    &computer_coding_session_start_description(),
+                    serde_json::json!({
+                        "type": "object",
+                        "properties": {
+                            "harness": {"enum": computer_session_harnesses(), "description": "The id of the Coding Harness."},
+                            "directory": {"type": "string", "description": "The absolute directory under /data/agent that the session works in. It is made when it does not exist."},
+                            "title": {"type": "string", "description": "A short name of the work, for the user."},
+                            "prompt": {"type": "string", "description": "The first instructions to the harness. Give the goal, the context and what done looks like."}
+                        },
+                        "required": ["harness", "directory", "title", "prompt"]
+                    }),
+                    CoreTool::ComputerCodingSessionStart,
+                    EffectClass::Free,
+                    None,
                 )
             },
             core(

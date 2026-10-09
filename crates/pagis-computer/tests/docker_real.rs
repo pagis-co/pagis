@@ -11,7 +11,8 @@ use pagis_computer::fake::{FakeExitAnswer, FakeHomeExit, FakeWorkspaces, exit_so
 use pagis_computer::{
     AwakeCaps, AwakeCeiling, BollardRuntime, ComputerLimits, ComputerManager, ComputerManagerDeps,
     ComputerOwner, ComputerRuntime, ComputerState, DockerDiscovery, ExecRequest, ExitListener,
-    ExitMode, HomeExits, IMAGE, InputHolder, OutputCap, RuntimeOptions, SHELL_HOME, ShellCommand,
+    ExitMode, HomeExits, IMAGE, InputHolder, OutputCap, RuntimeOptions, SHELL_HOME, SHELL_USER,
+    ShellCommand,
     test_docker::{TestDocker, marked_objects},
 };
 use pagis_core::{AgentId, WorkspaceId};
@@ -2702,4 +2703,106 @@ async fn a_wake_learns_whether_the_writable_layer_is_bounded() {
         );
         assert!(stderr.contains("No space left on device"), "{stderr}");
     }
+}
+
+/// Claude Code runs in the Agent's own Computer over a streaming exec, as
+/// uid `agent` in the directory of its session, and answers ACP there:
+/// `initialize`, then `session/new` with a session id. The harness asks a
+/// model only at the first prompt, so the endpoint and the token of the
+/// environment are placeholders.
+#[tokio::test]
+#[ignore = "needs Docker; run via cargo test -- --ignored"]
+async fn claude_code_answers_acp_in_the_session_directory_of_a_real_computer() {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+    const DIRECTORY: &str = "/data/agent/app";
+    let real = Real::new();
+    let (manager, _screens) = real.manager(Duration::from_secs(600));
+    let agent_id = AgentId::generate();
+    let made = manager
+        .shell(
+            &agent_id,
+            ShellCommand {
+                command: format!("mkdir -p {DIRECTORY}"),
+                timeout: Duration::from_secs(180),
+                cwd: None,
+                stdin: None,
+                output_cap: None,
+            },
+        )
+        .await
+        .expect("the directory is made");
+    assert_eq!(made.exit_code, 0, "{}", made.stderr);
+    let launch = pagis_core::harness::entry("claude")
+        .and_then(|entry| entry.computer)
+        .expect("Claude Code runs in a Computer");
+    let mut argv = vec![launch.program.to_string()];
+    argv.extend(launch.args.iter().map(|arg| arg.to_string()));
+    let mut env = manager.shell_env(&agent_id);
+    env.extend([
+        "ANTHROPIC_BASE_URL=http://host.docker.internal:9/anthropic".to_string(),
+        "ANTHROPIC_AUTH_TOKEN=a-session-token".to_string(),
+        "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1".to_string(),
+    ]);
+
+    let mut harness = manager
+        .harness(
+            &agent_id,
+            ExecRequest {
+                argv,
+                user: SHELL_USER.to_string(),
+                cwd: DIRECTORY.to_string(),
+                env,
+                stdin: None,
+                output_cap: OutputCap { head: 0, tail: 0 },
+            },
+        )
+        .await
+        .expect("the harness starts in the Computer");
+
+    let mut lines = BufReader::new(harness.stream.stdout).lines();
+    let mut answer_to = async |id: u64, request: String| -> serde_json::Value {
+        harness
+            .stream
+            .stdin
+            .write_all(format!("{request}\n").as_bytes())
+            .await
+            .expect("the daemon writes to the harness");
+        harness
+            .stream
+            .stdin
+            .flush()
+            .await
+            .expect("the write reaches it");
+        loop {
+            let line = tokio::time::timeout(Duration::from_secs(60), lines.next_line())
+                .await
+                .unwrap_or_else(|_| panic!("no answer to request {id} in time"))
+                .expect("the stream is readable")
+                .unwrap_or_else(|| panic!("the harness ended before it answered request {id}"));
+            let message: serde_json::Value =
+                serde_json::from_str(&line).unwrap_or_else(|error| panic!("{error}: {line}"));
+            if message["id"] == id {
+                return message;
+            }
+        }
+    };
+    let initialized = answer_to(0, ACP_INITIALIZE.to_string()).await;
+    assert_eq!(initialized["result"]["protocolVersion"], 1, "{initialized}");
+    let opened = answer_to(
+        1,
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "session/new",
+            "params": {"cwd": DIRECTORY, "mcpServers": []},
+        })
+        .to_string(),
+    )
+    .await;
+
+    assert!(
+        opened["result"]["sessionId"].is_string(),
+        "no session id: {opened}"
+    );
 }

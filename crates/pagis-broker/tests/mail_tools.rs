@@ -160,6 +160,7 @@ impl World {
             phone_numbers: Arc::new(SqlitePhoneNumberStore::new(pool.clone())),
             mailboxes: Arc::clone(&mailboxes) as _,
             session_starts: Arc::new(pagis_broker::NoSessionStarts),
+            computer: false,
         });
         Self {
             broker,

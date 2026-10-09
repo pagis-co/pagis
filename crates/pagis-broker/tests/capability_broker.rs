@@ -187,13 +187,24 @@ pub async fn second_workspace(harness: &Harness) -> Workspace {
     workspace
 }
 
+/// A broker of a daemon with no Computer.
 pub async fn harness(pool: SqlitePool) -> Harness {
-    harness_with(pool, None).await
+    harness_with(pool, None, false).await
+}
+
+/// A broker of a daemon with a Computer for each Agent.
+pub async fn harness_with_computer(pool: SqlitePool) -> Harness {
+    harness_with(pool, None, true).await
 }
 
 /// The same daemon with another executor behind the broker, for the
-/// tests that judge what the broker does with a result.
-async fn harness_with(pool: SqlitePool, behind: Option<Arc<dyn ToolExecutor>>) -> Harness {
+/// tests that judge what the broker does with a result, and with or
+/// without a Computer.
+async fn harness_with(
+    pool: SqlitePool,
+    behind: Option<Arc<dyn ToolExecutor>>,
+    computer: bool,
+) -> Harness {
     let workspace = workspace(&pool).await;
     SqliteWorkspaceStore::new(pool.clone())
         .create(&workspace)
@@ -240,6 +251,7 @@ async fn harness_with(pool: SqlitePool, behind: Option<Arc<dyn ToolExecutor>>) -
         hosts: Arc::clone(&hosts) as _,
         presence: Arc::clone(&presence),
         session_starts: Arc::clone(&starts) as _,
+        computer,
     });
     Harness {
         broker,
@@ -1523,7 +1535,7 @@ async fn every_route_takes_the_output_cap(pool: SqlitePool) {
         }
     }
 
-    let harness = harness_with(pool, Some(Arc::new(Blob))).await;
+    let harness = harness_with(pool, Some(Arc::new(Blob)), false).await;
     harness
         .broker
         .install_manifest(&harness.workspace.id, plugin_manifest("plugin-1"))
@@ -1674,7 +1686,12 @@ async fn a_read_that_a_forget_blocks_during_the_call_does_not_reach_the_model(po
         }
     }
 
-    let harness = harness_with(pool.clone(), Some(Arc::new(ForgetDuringTheCall { pool }))).await;
+    let harness = harness_with(
+        pool.clone(),
+        Some(Arc::new(ForgetDuringTheCall { pool })),
+        false,
+    )
+    .await;
 
     let outcome = read_calendar(&harness).await;
 

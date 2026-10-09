@@ -459,7 +459,7 @@ async fn person_b_receives_no_sign_in_change_of_person_as_host() {
             workspace_id: daemon.workspace_id.clone(),
             agent_id,
             run_id: run.id,
-            host_id: a_host.id.clone(),
+            place: pagis_coding::Place::Host(a_host.id.clone()),
             harness_id: "claude".to_string(),
             directory: "/Users/bo/code/app".to_string(),
             worktree: None,

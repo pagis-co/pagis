@@ -13,14 +13,18 @@ use futures::StreamExt;
 use futures::future::BoxFuture;
 use pagis_broker::{Decider, HarnessToolKind, derive_rules};
 use pagis_core::{
-    AuthorKind, Block, CodingSession, DecideOutcome, EventBus, EventScope, EventSource, HostStore,
-    Message, MessageId, MessageStatus, MessageStore, NewEvent, Request, RequestId, RequestState,
-    RequestStore, harness, now_ms, wrap_untrusted,
+    AuthorKind, Block, CodingSession, CodingSessionPlace, DecideOutcome, EventBus, EventScope,
+    EventSource, HostStore, Message, MessageId, MessageStatus, MessageStore, NewEvent, Request,
+    RequestId, RequestState, RequestStore, harness, now_ms, wrap_untrusted,
 };
 use serde_json::{Value, json};
 
 use crate::policy::{Fact, Outcome};
 use crate::{PermissionAnswer, PermissionOptionKind, Waited};
+
+/// What the card of a session in the Agent's own Computer names as the
+/// place where the harness runs.
+const COMPUTER_CARD_NAME: &str = "the sprite's computer";
 
 /// The longest body of a card, in characters.
 const BODY_CHARS: usize = 1_000;
@@ -155,10 +159,15 @@ impl PersonAsks {
         }))
     }
 
+    /// The name of the place of the session that the card names: the
+    /// name of its Host, or the Agent's own Computer.
     async fn host_name(
         &self,
         session: &CodingSession,
     ) -> Result<Option<String>, pagis_core::StoreError> {
+        if session.place == CodingSessionPlace::Computer {
+            return Ok(Some(COMPUTER_CARD_NAME.to_string()));
+        }
         let Some(host_id) = &session.host_id else {
             return Ok(None);
         };
@@ -373,8 +382,12 @@ impl Card {
         );
         let title = format!("{harness_name} wants to {}", action(permission.kind));
         let body = cut(&body(permission));
-        let proposed_rules = match (permission.kind, &permission.command) {
-            (HarnessToolKind::Execute, Some(command)) => derive_rules(command),
+        // A Host Allow Rule applies on a Host alone, so a card of a
+        // session in a Computer offers no "Always allow".
+        let proposed_rules = match (session.place, permission.kind, &permission.command) {
+            (CodingSessionPlace::Host, HarnessToolKind::Execute, Some(command)) => {
+                derive_rules(command)
+            }
             _ => Vec::new(),
         };
         // The directory that the harness runs in.

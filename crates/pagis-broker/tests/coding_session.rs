@@ -9,8 +9,8 @@
 use pagis_broker::{
     CODING_SESSION_ANSWER, CODING_SESSION_CANCEL, CODING_SESSION_CLOSE, CODING_SESSION_DECIDE,
     CODING_SESSION_ESCALATE, CODING_SESSION_LIST, CODING_SESSION_READ, CODING_SESSION_RESUME,
-    CODING_SESSION_SEND, CODING_SESSION_SET_MODE, CODING_SESSION_START, InvokeOutcome,
-    SessionStartAction, ToolCall, ToolResult,
+    CODING_SESSION_SEND, CODING_SESSION_SET_MODE, CODING_SESSION_START,
+    COMPUTER_CODING_SESSION_START, InvokeOutcome, SessionStartAction, ToolCall, ToolResult,
 };
 use pagis_core::{
     GrantStore, Host, RequestState, RequestStore, RunStore, SHELL_CAPABILITY, SessionAllowRule,
@@ -20,15 +20,14 @@ use pagis_storage_sqlite::SqliteGrantStore;
 use pagis_storage_sqlite::{SqliteRequestStore, SqliteRunStore};
 use sqlx::SqlitePool;
 
-use crate::capability_broker::{Harness, harness};
+use crate::capability_broker::{Harness, harness, harness_with_computer};
 use crate::host_dispatch::{grant_host, register};
 
 const DIRECTORY: &str = "/Users/bo/code/app";
 
 const PROMPT: &str = "Fix the login bug.";
 
-/// Every tool of the Coding Sessions. The snapshot holds all of them or
-/// none of them.
+/// The start on a Host and the tools of a started session.
 const SESSION_TOOLS: [&str; 9] = [
     CODING_SESSION_START,
     CODING_SESSION_SEND,
@@ -42,7 +41,8 @@ const SESSION_TOOLS: [&str; 9] = [
 ];
 
 /// The tools of the `agent` mode. The snapshot holds them only for an
-/// Agent that may decide a Harness Permission on some machine.
+/// Agent that may decide a Harness Permission on some machine, or that
+/// has a Computer, where a session runs in the `agent` mode.
 const DECISION_TOOLS: [&str; 2] = [CODING_SESSION_DECIDE, CODING_SESSION_ESCALATE];
 
 fn arguments(harness: &str, machine: Option<&str>) -> String {
@@ -130,19 +130,50 @@ async fn pending_requests(harness: &Harness) -> Vec<pagis_core::Request> {
         .unwrap()
 }
 
-/// An absent capability is declared, never emulated (ADR-0005): a
-/// Workspace whose machines declare no harness offers no session tool.
+/// An absent capability is declared, never emulated (ADR-0005): with no
+/// Computer and no machine that declares a harness, no session can start,
+/// so the snapshot holds no session tool.
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
-async fn the_session_tools_are_absent_when_no_host_declares_a_harness(pool: SqlitePool) {
+async fn the_session_tools_are_absent_when_no_host_declares_a_harness_and_there_is_no_computer(
+    pool: SqlitePool,
+) {
     let harness = harness(pool).await;
     register(&harness, "Air", &[SHELL_CAPABILITY]).await;
 
     let tools = tool_names(&harness).await;
 
-    for tool in SESSION_TOOLS.into_iter().chain(DECISION_TOOLS) {
+    for tool in [COMPUTER_CODING_SESSION_START]
+        .into_iter()
+        .chain(SESSION_TOOLS)
+        .chain(DECISION_TOOLS)
+    {
         assert!(!tools.contains(&tool.to_string()), "{tool}");
     }
     assert!(tools.contains(&"host_shell".to_string()));
+}
+
+/// A session starts in the Agent's own Computer with no Host, in the
+/// `agent` mode and with no host Grant. So with a Computer and no machine
+/// that declares a harness, the snapshot holds the start in the Computer,
+/// the tools of a started session and the tools of the `agent` mode, and
+/// no start on a Host.
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn with_a_computer_the_snapshot_holds_the_start_there_and_the_tools_of_the_agent_mode(
+    pool: SqlitePool,
+) {
+    let harness = harness_with_computer(pool).await;
+    register(&harness, "Air", &[SHELL_CAPABILITY]).await;
+
+    let tools = tool_names(&harness).await;
+
+    assert!(!tools.contains(&CODING_SESSION_START.to_string()));
+    for tool in [COMPUTER_CODING_SESSION_START]
+        .into_iter()
+        .chain(SESSION_TOOLS.into_iter().skip(1))
+        .chain(DECISION_TOOLS)
+    {
+        assert!(tools.contains(&tool.to_string()), "{tool}");
+    }
 }
 
 /// The Person delegates the decision of a Harness Permission with the
@@ -186,6 +217,85 @@ async fn the_decision_tools_are_offered_only_on_a_host_grant_whose_widest_mode_i
     }
 }
 
+/// The start in the Agent's own Computer asks nobody: the container is
+/// the sandbox, as for `computer_shell` (ADR-0014), so it runs with no
+/// card and no Request.
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn the_start_in_the_computer_runs_with_no_card(pool: SqlitePool) {
+    let harness = harness_with_computer(pool).await;
+    let snapshot = harness
+        .broker
+        .prepare_run(&harness.workspace.id, &harness.agent.id, &harness.run.id)
+        .await
+        .unwrap();
+
+    let outcome = harness
+        .broker
+        .invoke(
+            &harness.workspace.id,
+            &harness.run.id,
+            &snapshot.id,
+            ToolCall::new(
+                COMPUTER_CODING_SESSION_START,
+                serde_json::json!({
+                    "harness": "claude",
+                    "directory": "/data/agent/app",
+                    "title": "Fix the login",
+                    "prompt": PROMPT,
+                })
+                .to_string(),
+            ),
+        )
+        .await
+        .unwrap();
+
+    assert!(
+        matches!(outcome, InvokeOutcome::Completed(_)),
+        "{outcome:?}"
+    );
+    assert!(pending_requests(&harness).await.is_empty());
+}
+
+/// The start in the Agent's own Computer names only a harness that runs
+/// there.
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn the_start_in_the_computer_refuses_a_harness_that_does_not_run_there(pool: SqlitePool) {
+    let harness = harness_with_computer(pool).await;
+    let snapshot = harness
+        .broker
+        .prepare_run(&harness.workspace.id, &harness.agent.id, &harness.run.id)
+        .await
+        .unwrap();
+
+    let outcome = harness
+        .broker
+        .invoke(
+            &harness.workspace.id,
+            &harness.run.id,
+            &snapshot.id,
+            ToolCall::new(
+                COMPUTER_CODING_SESSION_START,
+                serde_json::json!({
+                    "harness": "gemini",
+                    "directory": "/data/agent/app",
+                    "title": "Fix the login",
+                    "prompt": PROMPT,
+                })
+                .to_string(),
+            ),
+        )
+        .await
+        .unwrap();
+
+    let InvokeOutcome::Rejected(result) = outcome else {
+        panic!("the start is not rejected: {outcome:?}");
+    };
+    assert_eq!(result.code.as_deref(), Some("invalid_request"));
+}
+
+/// The note of a decision is its reason in the audit fact, and the note
+/// of an escalation is the question on the card, so each needs words, at
+/// most 2,000 characters. A decision allows or denies, and nothing else.
 /// The note of a decision is its reason in the audit fact, and the note
 /// of an escalation is the question on the card, so each needs words, at
 /// most 2,000 characters. A decision allows or denies, and nothing else.
