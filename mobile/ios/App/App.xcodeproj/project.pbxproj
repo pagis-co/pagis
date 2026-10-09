@@ -65,6 +65,8 @@
 		7A6E15030000000000000006 /* NeedsYouRead.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E15030000000000000005 /* NeedsYouRead.swift */; };
 		7A6E15030000000000000008 /* StaleNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E15030000000000000007 /* StaleNotifications.swift */; };
 		7A6E1503000000000000000A /* NotificationTap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E15030000000000000009 /* NotificationTap.swift */; };
+		7A6E15050000000000000002 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 7A6E15050000000000000001 /* PrivacyInfo.xcprivacy */; };
+		7A6E15050000000000000004 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 7A6E15050000000000000003 /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -158,6 +160,8 @@
 		7A6E15030000000000000005 /* NeedsYouRead.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NeedsYouRead.swift; sourceTree = "<group>"; };
 		7A6E15030000000000000007 /* StaleNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StaleNotifications.swift; sourceTree = "<group>"; };
 		7A6E15030000000000000009 /* NotificationTap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationTap.swift; sourceTree = "<group>"; };
+		7A6E15050000000000000001 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		7A6E15050000000000000003 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -225,6 +229,7 @@
 				504EC30E1FED79650016851F /* Assets.xcassets */,
 				504EC3101FED79650016851F /* LaunchScreen.storyboard */,
 				504EC3131FED79650016851F /* Info.plist */,
+				7A6E15050000000000000001 /* PrivacyInfo.xcprivacy */,
 				7A6E150000000000000000D6 /* App.entitlements */,
 				2FAD9762203C412B000D30F8 /* config.xml */,
 				50B271D01FEDC1A000F3C39B /* public */,
@@ -278,6 +283,7 @@
 			children = (
 				7A6E15010000000000000024 /* NotificationService.swift */,
 				7A6E15010000000000000025 /* Info.plist */,
+				7A6E15050000000000000003 /* PrivacyInfo.xcprivacy */,
 				7A6E15010000000000000026 /* PagisNotificationService.entitlements */,
 			);
 			path = PagisNotificationService;
@@ -399,6 +405,7 @@
 				50379B232058CBB4000EE86E /* capacitor.config.json in Resources */,
 				504EC30D1FED79650016851F /* Main.storyboard in Resources */,
 				2FAD9763203C412B000D30F8 /* config.xml in Resources */,
+				7A6E15050000000000000002 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -414,6 +421,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				7A6E15050000000000000004 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

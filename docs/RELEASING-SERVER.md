@@ -298,7 +298,7 @@ release without them sends no analytics.
 | --- | --- | --- |
 | `CSC_LINK` | Repository secret | The Developer ID Application certificate and its private key, a base64 `.p12` |
 | `CSC_KEY_PASSWORD` | Repository secret | The password of the `.p12` |
-| `APPLE_API_KEY_P8` | Repository secret | The text of the `.p8` file of an App Store Connect API key with the Developer role |
+| `APPLE_API_KEY_P8` | Repository secret | The text of the `.p8` file of an App Store Connect API key with the Admin role. The Admin role lets the iOS release of the Mobile App sign with Xcode automatic signing (`docs/RELEASING-MOBILE.md`) |
 | `APPLE_API_KEY_ID` | Repository secret | The Key ID of that key |
 | `APPLE_API_ISSUER` | Repository secret | The Issuer ID of the team |
 | `PAGIS_POSTHOG_PROJECT_ID` | Repository secret | The PostHog project that a release build writes into the daemon (ADR-0026) |

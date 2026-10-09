@@ -1474,3 +1474,128 @@ fn the_ci_workflow_ends_in_one_job_that_needs_every_other_job() {
         assert!(workflow.contains(trigger), "{trigger} is missing");
     }
 }
+
+// --- the release workflow of the Mobile App ---
+
+/// Each job of `workflow`, by its id, with the lines of its block.
+fn workflow_jobs(workflow: &str) -> Vec<(String, String)> {
+    let jobs_at = workflow.find("\njobs:\n").expect("a jobs block");
+    let mut jobs: Vec<(String, String)> = Vec::new();
+    for line in workflow[jobs_at + "\njobs:\n".len()..].lines() {
+        let top = line
+            .strip_prefix("  ")
+            .filter(|rest| !rest.starts_with(' ') && !rest.starts_with('#'))
+            .and_then(|rest| rest.strip_suffix(':'));
+        match (top, jobs.last_mut()) {
+            (Some(id), _) => jobs.push((id.to_string(), String::new())),
+            (None, Some((_, block))) => {
+                block.push_str(line);
+                block.push('\n');
+            }
+            (None, None) => {}
+        }
+    }
+    jobs
+}
+
+/// The ids in the `needs:` of a job block, in the list or the one-line
+/// form.
+fn job_needs(block: &str) -> Vec<String> {
+    let Some(at) = block.find("    needs:") else {
+        return Vec::new();
+    };
+    let rest = &block[at + "    needs:".len()..];
+    let first = rest.lines().next().unwrap_or_default().trim();
+    if !first.is_empty() {
+        return first
+            .trim_matches(['[', ']'])
+            .split(',')
+            .map(|id| id.trim().to_string())
+            .collect();
+    }
+    rest.lines()
+        .skip(1)
+        .map_while(|line| line.trim().strip_prefix("- "))
+        .map(str::to_string)
+        .collect()
+}
+
+/// A `mobile-v*` tag releases the iOS app. The tagged commit passes the
+/// gate, and the lockfile of the Mobile App passes npm audit, before the
+/// prepare job builds anything. The publication waits for a maintainer
+/// in the `release` environment.
+#[test]
+fn the_mobile_release_runs_the_gate_and_the_npm_audit_before_the_prepare_job() {
+    let workflow =
+        std::fs::read_to_string(workspace_root().join(".github/workflows/mobile-release.yml"))
+            .expect("read .github/workflows/mobile-release.yml");
+    assert!(
+        workflow.contains("on:\n  push:\n    tags: [\"mobile-v*\"]\n"),
+        "{workflow}"
+    );
+    let jobs = workflow_jobs(&workflow);
+    let ids: Vec<&str> = jobs.iter().map(|(id, _)| id.as_str()).collect();
+    assert_eq!(
+        ids,
+        [
+            "gate",
+            "mobile-npm-audit",
+            "mobile-ios",
+            "publish-mobile-ios"
+        ]
+    );
+    let job = |id: &str| &jobs.iter().find(|(job, _)| job == id).unwrap().1;
+
+    assert!(
+        job("gate").contains("    uses: ./.github/workflows/ci.yml\n"),
+        "{}",
+        job("gate")
+    );
+
+    let audit = job("mobile-npm-audit");
+    assert_eq!(job_needs(audit), ["gate"]);
+    assert!(
+        audit.contains("run: cargo xtask advisories mobile-npm-audit\n"),
+        "{audit}"
+    );
+
+    let prepare = job("mobile-ios");
+    assert_eq!(job_needs(prepare), ["gate", "mobile-npm-audit"]);
+    assert!(prepare.contains("    runs-on: macos-latest\n"), "{prepare}");
+    assert!(
+        prepare.contains("PUSH_RELAY_ORIGIN: https://push.pagis.co\n"),
+        "{prepare}"
+    );
+    assert!(
+        prepare.contains("run: cargo xtask mobile --ios --tag \"$GITHUB_REF_NAME\" --prepare\n"),
+        "{prepare}"
+    );
+    assert!(
+        prepare.contains("actions/attest-build-provenance@")
+            && prepare.contains("name: mobile-ios\n")
+            && prepare.contains("mobile/release/Pagis.ipa"),
+        "the prepare job attests the .ipa and keeps it as the artifact mobile-ios: {prepare}"
+    );
+
+    let publish = job("publish-mobile-ios");
+    assert_eq!(job_needs(publish), ["mobile-ios"]);
+    assert!(publish.contains("    environment: release\n"), "{publish}");
+    assert!(
+        publish.contains(
+            "run: cargo xtask mobile --ios --tag \"$GITHUB_REF_NAME\" --publish-existing\n"
+        ),
+        "{publish}"
+    );
+    assert!(publish.contains("name: mobile-ios\n"), "{publish}");
+}
+
+/// The `v*` release does not ship the Mobile App (ADR-0025).
+#[test]
+fn the_server_release_does_not_ship_the_mobile_app() {
+    let workflow = std::fs::read_to_string(workspace_root().join(".github/workflows/release.yml"))
+        .expect("read .github/workflows/release.yml");
+    assert!(
+        !workflow.contains("cargo xtask mobile"),
+        "release.yml ships the Mobile App"
+    );
+}

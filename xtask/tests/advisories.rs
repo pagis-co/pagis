@@ -10,7 +10,8 @@ use std::path::Path;
 
 use pagis_versions::{CARGO_DENY_SHA256, CARGO_DENY_VERSION, TRIVY_SHA256, TRIVY_VERSION};
 use xtask::advisories::{
-    DENY_CONFIG, TRIVY_IGNORE, advisory_lane, computer_image_components, published_advisory_lane,
+    DENY_CONFIG, TRIVY_IGNORE, advisory_lane, computer_image_components, named_advisory_steps,
+    published_advisory_lane,
 };
 use xtask::{Action, Lane, Step};
 
@@ -130,6 +131,29 @@ fn the_published_advisory_lane_scans_the_images_of_the_latest_release() {
         scan.contains("HTTP 404"),
         "a repository without a release has no image to scan: {scan}"
     );
+}
+
+/// A release that ships one package checks the lockfile of that package
+/// alone: the iOS release of the Mobile App runs
+/// `cargo xtask advisories mobile-npm-audit`.
+#[test]
+fn a_named_advisory_step_runs_alone() {
+    let tmp = tempfile::tempdir().unwrap();
+    write(tmp.path(), "mobile/package-lock.json", "{}");
+    let steps = named_advisory_steps(tmp.path(), target(), &["mobile-npm-audit".into()]).unwrap();
+    let names: Vec<&str> = steps.iter().map(|step| step.name).collect();
+    assert_eq!(names, ["mobile-npm-audit"]);
+    assert!(matches!(steps[0].action, Action::Run(_)));
+}
+
+#[test]
+fn a_name_that_is_not_an_advisory_step_is_refused_with_the_step_names() {
+    let tmp = tempfile::tempdir().unwrap();
+    let error = named_advisory_steps(tmp.path(), target(), &["mobile-audit".into()])
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("mobile-audit"), "{error}");
+    assert!(error.contains("mobile-npm-audit"), "{error}");
 }
 
 // --- cargo-deny ---
