@@ -287,6 +287,101 @@ pub async fn a_rule_whose_run_is_active_claims_no_second_wakeup(backend: &Backen
     assert_eq!(joined.combined[0].source_count, 2);
 }
 
+pub async fn blocking_a_rule_withdraws_its_pending_work_in_the_same_write(backend: &Backend) {
+    let world = world(backend).await;
+    let session = &world.sessions[0];
+    let subscriptions = &backend.stores().subscriptions;
+    let rule = rule(&world, session);
+    subscriptions.create(&rule).await.unwrap();
+    let created = ingest(
+        backend,
+        &world,
+        session,
+        "turn-1",
+        std::slice::from_ref(&rule),
+        20,
+    )
+    .await
+    .created;
+
+    let blocked = EventSubscription {
+        state: EventSubscriptionState::Blocked,
+        blocked_reason: Some(pagis_core::BlockReason::GrantRevoked),
+        updated_at: 30,
+        ..rule.clone()
+    };
+    let withdrawn = subscriptions.update_and_withdraw(&blocked).await.unwrap();
+
+    assert_eq!(
+        withdrawn
+            .iter()
+            .map(|wakeup| &wakeup.id)
+            .collect::<Vec<_>>(),
+        created.iter().map(|wakeup| &wakeup.id).collect::<Vec<_>>()
+    );
+    assert!(
+        withdrawn
+            .iter()
+            .all(|wakeup| wakeup.state == pagis_core::WakeupState::Withdrawn)
+    );
+    assert_eq!(
+        subscriptions
+            .get(&world.workspace.id, &rule.id)
+            .await
+            .unwrap(),
+        Some(blocked)
+    );
+    let stored = subscriptions
+        .list_wakeups(&world.workspace.id, &rule.id, None, 10)
+        .await
+        .unwrap();
+    assert_eq!(stored, withdrawn);
+}
+
+pub async fn a_collection_pass_that_overlaps_a_block_of_the_rule_adds_no_wakeup(backend: &Backend) {
+    let world = world(backend).await;
+    let session = &world.sessions[0];
+    let rule = rule(&world, session);
+    backend.stores().subscriptions.create(&rule).await.unwrap();
+
+    // A write blocks the rule and has not committed yet. The collection
+    // pass started from a snapshot in which the rule is active.
+    let block = backend
+        .rows()
+        .hold(
+            "UPDATE event_subscriptions SET state = 'blocked' WHERE id = ?",
+            &[rule.id.as_str().into()],
+        )
+        .await
+        .unwrap();
+    let (outcome, ()) = tokio::join!(
+        ingest(
+            backend,
+            &world,
+            session,
+            "turn-1",
+            std::slice::from_ref(&rule),
+            20
+        ),
+        async {
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            block.commit().await.unwrap();
+        }
+    );
+
+    assert!(
+        outcome.created.is_empty(),
+        "a pass adds no Wake-up to a rule that a concurrent write blocks"
+    );
+    let wakeups = backend
+        .stores()
+        .subscriptions
+        .list_wakeups(&world.workspace.id, &rule.id, None, 10)
+        .await
+        .unwrap();
+    assert!(wakeups.is_empty(), "the blocked rule holds no pending work");
+}
+
 #[macro_export]
 macro_rules! store_suite_event_sources {
     ($emit:path) => {
@@ -296,6 +391,8 @@ macro_rules! store_suite_event_sources {
             one_event_id_stored_twice_for_one_session_makes_one_event,
             one_event_id_of_two_sessions_makes_two_events,
             a_rule_whose_run_is_active_claims_no_second_wakeup,
+            blocking_a_rule_withdraws_its_pending_work_in_the_same_write,
+            a_collection_pass_that_overlaps_a_block_of_the_rule_adds_no_wakeup,
         );
     };
 }

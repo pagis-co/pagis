@@ -176,7 +176,9 @@ active Run join one pending Wake-up.
 
 The live Grant is checked before every Wake-up. A revocation blocks the
 subscription, withdraws its pending Wake-ups and posts one notice; a new Grant
-restores delivery from then on. A Connection that needs reauthorization blocks
+restores delivery from then on. The block and the withdrawal are one
+transaction, and `ingest` rechecks each rule under a lock, so a blocked
+subscription never holds a pending Wake-up. A Connection that needs reauthorization blocks
 its subscriptions, posts one notice and keeps the cursor; after
 reauthorization they reactivate and one catch-up collection runs.
 

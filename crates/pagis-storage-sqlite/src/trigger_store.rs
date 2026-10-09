@@ -753,42 +753,6 @@ impl TriggerStore for SqliteTriggerStore {
         }))
     }
 
-    async fn withdraw_pending(
-        &self,
-        workspace_id: &WorkspaceId,
-        rule_id: &str,
-        _at: i64,
-    ) -> Result<Vec<Wakeup>, pagis_core::StoreError> {
-        let mut transaction = crate::pool::begin_write(&self.pool).await.map_err(db_err)?;
-        let rows = sqlx::query(&format!(
-            "SELECT {WAKEUP_COLUMNS} FROM wakeups \
-             WHERE state = 'pending' AND workspace_id = ? \
-             AND (schedule_id = ? OR subscription_id = ?)"
-        ))
-        .bind(workspace_id.as_str())
-        .bind(rule_id)
-        .bind(rule_id)
-        .fetch_all(&mut *transaction)
-        .await
-        .map_err(db_err)?;
-        let mut withdrawn = rows
-            .iter()
-            .map(row_to_wakeup)
-            .collect::<Result<Vec<_>, _>>()?;
-        for wakeup in &mut withdrawn {
-            sqlx::query(
-                "UPDATE wakeups SET state = 'withdrawn' WHERE id = ? AND state = 'pending'",
-            )
-            .bind(wakeup.id.as_str())
-            .execute(&mut *transaction)
-            .await
-            .map_err(db_err)?;
-            wakeup.state = pagis_core::WakeupState::Withdrawn;
-        }
-        transaction.commit().await.map_err(db_err)?;
-        Ok(withdrawn)
-    }
-
     async fn ingest(
         &self,
         batch: IngestBatch,

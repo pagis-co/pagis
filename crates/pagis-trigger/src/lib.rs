@@ -1129,10 +1129,10 @@ impl Trigger {
             )
             .await?;
         }
-        self.subscriptions.update(&next).await?;
-        if !matches!(action, SubscriptionAction::Resume) {
-            self.withdraw_pending(&next.workspace_id, next.id.as_str(), now)
-                .await?;
+        if matches!(action, SubscriptionAction::Resume) {
+            self.subscriptions.update(&next).await?;
+        } else {
+            self.update_and_withdraw(&next).await?;
         }
         self.changed.notify_one();
         self.publish_subscription("event_subscription.updated", &next)
@@ -1441,17 +1441,10 @@ impl Trigger {
             .await?)
     }
 
-    async fn withdraw_pending(
-        &self,
-        workspace_id: &WorkspaceId,
-        rule_id: &str,
-        now: i64,
-    ) -> Result<(), TriggerError> {
-        for wakeup in self
-            .store
-            .withdraw_pending(workspace_id, rule_id, now)
-            .await?
-        {
+    /// Write the rule and withdraw its pending work in one transaction,
+    /// then publish each withdrawal.
+    async fn update_and_withdraw(&self, next: &EventSubscription) -> Result<(), TriggerError> {
+        for wakeup in self.subscriptions.update_and_withdraw(next).await? {
             self.publish_wakeup("wakeup.withdrawn", &wakeup).await?;
         }
         Ok(())
@@ -1471,9 +1464,7 @@ impl Trigger {
             updated_at: now,
             ..subscription
         };
-        self.subscriptions.update(&next).await?;
-        self.withdraw_pending(&next.workspace_id, next.id.as_str(), now)
-            .await?;
+        self.update_and_withdraw(&next).await?;
         self.publish(
             "event_subscription.state_changed",
             &next.workspace_id,

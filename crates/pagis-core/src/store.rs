@@ -468,13 +468,6 @@ pub trait TriggerStore: Send + Sync {
         workspace_id: &WorkspaceId,
         wakeup_id: &WakeupId,
     ) -> Result<Option<EventWakeupContext>, StoreError>;
-    /// Move every pending Wake-up of one rule to `withdrawn`.
-    async fn withdraw_pending(
-        &self,
-        workspace_id: &WorkspaceId,
-        rule_id: &str,
-        at: UnixMillis,
-    ) -> Result<Vec<Wakeup>, StoreError>;
 }
 
 #[async_trait]
@@ -498,6 +491,14 @@ pub trait EventSubscriptionStore: Send + Sync {
     /// Write the mutable fields: name, instruction, destination,
     /// filter, state, revision, approval, watermark, timestamps.
     async fn update(&self, subscription: &EventSubscription) -> Result<bool, StoreError>;
+    /// Write the mutable fields as `update` does, and move every pending
+    /// Wake-up of the rule to `withdrawn`, in one transaction. No reader
+    /// sees the written rule with pending work of the rule before it.
+    /// Answer the withdrawn Wake-ups.
+    async fn update_and_withdraw(
+        &self,
+        subscription: &EventSubscription,
+    ) -> Result<Vec<Wakeup>, StoreError>;
     /// Every Connection with at least one live subscription: the
     /// collector work list. A Connection with none stops collecting.
     async fn collector_targets(&self) -> Result<Vec<CollectorTarget>, StoreError>;
