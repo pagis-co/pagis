@@ -1,0 +1,255 @@
+---
+title: Coding Sessions
+description: Let an Agent give coding work to Claude Code, Codex or another coding harness, sign in to the harness with your own account, and choose who approves what the harness does.
+icon: SquareTerminal
+---
+
+A Coding Session is one session of a Coding Harness, such as Claude Code or
+Codex, that an Agent starts and supervises. The harness writes the code. The
+Agent writes the brief, answers the questions of the harness, decides or
+forwards its permission requests, checks the work and tells you the result
+and the branch. One Thread shows each session.
+
+A Coding Session runs on a computer of yours, through the Client App, or in
+the Agent's own Computer. The Harness Catalog of each release names the
+harnesses and their versions:
+
+| Harness | Launcher on your computer | Sign-in methods | Modes in which it asks | In the Agent's Computer |
+| --- | --- | --- | --- | --- |
+| Claude Code | `npx` | Subscription, API key | Manual, Plan | Yes, in Bypass permissions |
+| Codex | `npx` | Subscription, API key | Read-only | Yes, in Full access |
+| OpenCode | `opencode` | Subscription, API key | It names no mode, and it asks | Yes |
+| pi | `npx` and `pi` | Subscription, API key | None: pi never asks | Yes |
+| Gemini CLI | `npx` | Subscription, API key | Default, Plan | No |
+| GitHub Copilot CLI | `npx` | Subscription | None that the catalog lists | No |
+| Cursor CLI | `cursor-agent` | Subscription | Agent, Plan, Ask | No |
+
+[ADR-0033](https://github.com/pagis-co/pagis/blob/main/docs/adr/0033-a-coding-session-is-a-guest-coding-harness-that-an-agent-supervises-over-acp.md)
+holds the decision.
+
+## What you need
+
+- **The Client App on the computer that holds the repository.** The Client
+  App of a Local Installation, or a Client App that is connected to a server
+  ([Connect to a server](/client-app/connect-to-a-server)). The computer is
+  a Host. A Client App on another computer cannot reach the repository.
+- **The launcher of the harness on the `PATH` of your login shell.** This is
+  `npx` (from Node.js) for most harnesses, or the program of the harness. pi
+  also needs the `pi` program. The Client App reads the environment of your
+  login shell, so the harness runs as it runs in your own terminal.
+- **A harness that is signed in.** See
+  [Sign in to a harness](#sign-in-to-a-harness).
+
+Open **Settings → Hosts** in the Product App. Under each computer that runs
+commands, the page lists each harness of the catalog with **Can start** or
+**Not found on this computer**. The Client App looks for the launchers each
+time it connects. When you install Node.js or a harness, quit the Client App
+and open it again.
+
+## Sign in to a harness
+
+A harness uses your own account: a subscription, such as Claude Pro or Max,
+ChatGPT or Copilot, or an API key. You choose which.
+
+1. Open **Settings → Hosts** in the Product App.
+2. Find the harness under the computer. Select
+   **Sign in with a subscription** or **Sign in with an API key**. A
+   harness with one method shows one button. A button is off when the
+   computer is not connected or cannot start the harness.
+3. A terminal window opens on that computer. It runs the vendor's own
+   sign-in in the vendor's own program. Finish the sign-in there.
+
+Some programs need one more step in the terminal window. In pi, type
+`/login`. For an API key of Codex, paste the key and push Ctrl-D.
+
+The harness keeps the credential in its own store on that computer. Pagis
+never reads, copies, stores or relays it. No field of the Product App takes
+a password or a key, and the Client App reads only the exit code of the
+sign-in.
+
+When a harness refuses a session because it is not signed in, the session
+fails, and the Agent tells you where to sign in. **Settings → Hosts** then
+shows **Needs sign-in** on that harness. The mark goes away when a session
+of the harness opens on that computer, or when a sign-in ends with no error.
+A sign-in that ends with no error does not prove that you signed in: the
+next session tells.
+
+## Choose who answers a harness
+
+A harness asks for permission before an action, such as a command. This is a
+Harness Permission. The Session Approval Mode says who answers it:
+
+| Mode | Who answers a Harness Permission |
+| --- | --- |
+| **Ask me** | You, on an approval card in the Thread of the session. |
+| **Let the sprite decide** | The Agent. It allows the action once, denies it, or asks you on an approval card. |
+
+You set the widest mode for each Agent on each computer. Open the Agent in
+**Sprites**, then the **Access** tab. The part **Coding sessions** shows each
+computer of yours that can start a harness. **Ask me** is the default. The
+Agent picks the mode of each session within the widest mode. A change
+applies also to the sessions that run: Pagis reads the mode again at each
+Harness Permission. After you go back to **Ask me**, a permission that
+waited for the Agent comes to you when the Agent tries to decide it.
+
+In every mode, Pagis answers some permissions first, with no card:
+
+- A read, a search, an edit, a move or a delete of files inside the
+  directory of the session.
+- A command that an allow rule of that computer matches.
+
+The approval card shows **Approve**, **Deny** and, for a command, the
+**Always allow** box. **Always allow** writes an allow rule for the Agent on
+that computer, and then allows the command once. Pagis answers the harness
+"once" only, so each rule stays in Pagis. The same rule also lets the Agent
+run that command on that computer as a host command. You see and remove
+the rules on the **Access** tab of the Agent. When the Agent asks
+you, the card shows its question.
+
+A permission does not wait for the Agent forever. When a turn of the Agent
+ends with no decision, the permission comes to you.
+
+A question of the harness goes to the Agent first, in every mode. The Agent
+answers from what it knows. When only you know the answer, the Agent asks
+you in the Thread.
+
+### Harness Modes
+
+A harness also has modes of its own, such as Manual, Plan and Bypass
+permissions of Claude Code, or Read-only and Full access of Codex. The
+Harness Mode says when the harness asks. The Agent picks one for each
+session, and it can change the mode of a running session. With no choice,
+the harness starts in the first mode in which it asks. The block of the
+session shows the name of the mode.
+
+In some modes the harness acts without asking: Accept edits, Auto and Bypass
+permissions of Claude Code, Workspace access, Auto review and Full access of
+Codex, and Auto Edit and YOLO of Gemini CLI. A mode that the Harness Catalog
+does not list counts as one that acts without asking. pi never asks. In
+these Unattended Modes, Pagis policy does not see the actions of the harness.
+
+An Unattended Mode needs your allowance: the switch
+**Allow modes that act without asking**, under the mode of each computer on
+the **Access** tab. The switch is for each Agent on each computer, and it is
+off by default.
+
+- With the switch off, the Agent cannot start pi or a session in such a
+  mode, or change a session to such a mode. A session whose harness goes
+  into such a mode by itself stops.
+- When you turn the switch off, each session of that Agent on that computer
+  that acts without asking stops.
+
+<Callout type="warn" title="Know what the switch allows">
+With **Allow modes that act without asking** on, a harness in such a mode can
+run any command on that computer as you, with no card.
+</Callout>
+
+## Where a session runs
+
+### Your computer
+
+The Agent asks you before it starts a session on your computer. The card,
+for example "Start Claude Code on your MacBook", names the harness, the
+computer, the directory, the worktree, the mode, the Harness Mode and the
+start of the brief. **Always allow** on this card lets the Agent start that
+harness in that directory, and in each directory under it, on that computer
+with no card. The widest mode still applies to each session that the rule
+starts.
+
+By default the session works in a new git worktree on the branch
+`pagis/<slug of the title>`, made from `HEAD` of your local repository. So
+your own checkout does not change. The worktree is at
+`~/.pagis-worktrees/<repository name>/<branch>`. Pagis does not remove it,
+because it holds the work. Remove it with `git worktree remove` when you
+do not need it. The Agent can also start a session with no worktree. Then
+the card says "No worktree: it works in the directory".
+
+On your computer, the harness spends your own subscription or API key, and
+no provider key of Pagis.
+
+### The Agent's Computer
+
+Claude Code, Codex, OpenCode and pi also run in the Agent's own Computer, in
+a directory under `/data/agent`. A session there needs no card, no access
+on the **Access** tab and no switch, because the container is the sandbox.
+The harness acts without asking: Claude Code runs in Bypass permissions, and
+Codex in Full access. The Agent answers what the harness still asks, or
+asks you on a card with no **Always allow**.
+
+No credential enters the Computer. The model requests of the harness go
+through the server, with the provider key of the Org, and count toward your
+Spend Cap. Claude Code needs an Anthropic key. Codex needs an OpenAI or an
+OpenRouter key; with an OpenRouter key, it also needs an OpenRouter model in
+the Model Alias of the Agent. OpenCode and pi use an Anthropic, OpenAI or
+OpenRouter key, and pi also needs a model of that provider in the Model Alias
+of the Agent.
+A subscription sign-in is not available in the Computer.
+
+An Agent holds at most four open sessions at a time, on your computers and
+in its Computer together.
+
+## Follow a session
+
+- **The block in the Thread.** It shows the harness, the title, the
+  computer, the directory, the branch, the state, the approval mode, the
+  Harness Mode, the usage and the last activity. **Open** goes to the
+  session page. **Stop** stops the session at once.
+- **The session page.** It shows the transcript: the messages of the
+  harness, its plan, its tool calls with a diff of each change, and one line
+  for each permission and question. **Changed files** lists each file that
+  the harness changed.
+- **Coding** in the sidebar. It lists every Coding Session. The open
+  sessions come first, and each one that waits for you has the mark
+  **Needs you**.
+- **Home and Notifications.** A Harness Permission that waits for you is
+  an approval in the Needs-You Queue, and it opens the Thread of the
+  session. Its Notification has **Approve once** and **Deny**
+  ([Answer an approval from a Notification](/notifications#answer-an-approval-from-a-notification)).
+
+The Agent wakes in the Thread when a turn of the harness ends, when a
+decision waits for it, and when the session ends. It then checks the work
+and reports to you.
+
+## When the computer sleeps
+
+A session on your computer runs while the Client App runs and the computer
+is awake. A session stops for a time, and is interrupted, when:
+
+- the computer sleeps, loses the network, or the Client App quits;
+- the Agent's Computer stops;
+- the server restarts.
+
+The Agent then resumes the session where the harness can open its own
+session again. Else the session stays interrupted, and the Agent can start a
+new one.
+
+While Coding Sessions run on your computer, **Quit** and
+**Restart to Update** in the Client App ask first, and say how many sessions
+stop. A quit from the Dock, a logout or a shutdown asks nothing.
+
+## The terms of a harness subscription
+
+Each vendor sets the terms of its harness and its subscription.
+
+Anthropic states its terms for Claude Code in
+[Legal and compliance](https://code.claude.com/docs/en/legal-and-compliance),
+in the part "Authentication and credential use". It says that a third-party
+developer may not offer Claude.ai login in its own application, may not
+route requests through the credentials of a Free, Pro or Max plan on behalf
+of its users, and may not collect, store or intermediate Claude.ai
+credentials or session tokens. A sign-in to a Claude account completes
+through Anthropic's own flow. The page also says that this does not prevent
+an end user from signing in to the unmodified Claude Code binary with their
+own Claude subscription.
+
+What Pagis does:
+
+- It runs Anthropic's own sign-in, in the Claude Code program, on your
+  computer.
+- It offers no Claude.ai login of its own.
+- It never reads, copies, stores or relays your credential. The harness
+  keeps it on your computer.
+- The usage of a session on your computer bills to your own account.
+
+The terms of each other vendor apply to its harness. Read them before you
+sign in.
