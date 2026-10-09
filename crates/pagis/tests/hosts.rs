@@ -70,13 +70,37 @@ async fn the_registration_answer_names_the_catalog_and_a_second_registration_dec
     assert_eq!(
         first["payload"]["harnesses"],
         serde_json::json!([
-            { "id": "claude", "launchers": ["npx"] },
-            { "id": "codex", "launchers": ["npx"] },
-            { "id": "opencode", "launchers": ["opencode"] },
-            { "id": "pi", "launchers": ["npx", "pi"] },
-            { "id": "gemini", "launchers": ["npx"] },
-            { "id": "copilot", "launchers": ["npx"] },
-            { "id": "cursor", "launchers": ["cursor-agent"] },
+            {
+                "id": "claude",
+                "launchers": ["npx"],
+                "sign_in_check": {
+                    "command": [
+                        "npx", "--yes", "@agentclientprotocol/claude-agent-acp@0.87.0",
+                        "--cli", "auth", "status", "--text"
+                    ],
+                    "signed_out": "Not logged in",
+                },
+            },
+            {
+                "id": "codex",
+                "launchers": ["npx"],
+                "sign_in_check": {
+                    "command": ["npx", "--yes", "@openai/codex@0.159.1", "login", "status"],
+                    "signed_out": "Not logged in",
+                },
+            },
+            { "id": "opencode", "launchers": ["opencode"], "sign_in_check": null },
+            { "id": "pi", "launchers": ["npx", "pi"], "sign_in_check": null },
+            { "id": "gemini", "launchers": ["npx"], "sign_in_check": null },
+            { "id": "copilot", "launchers": ["npx"], "sign_in_check": null },
+            {
+                "id": "cursor",
+                "launchers": ["cursor-agent"],
+                "sign_in_check": {
+                    "command": ["cursor-agent", "status"],
+                    "signed_out": "Not logged in",
+                },
+            },
         ])
     );
     assert_eq!(

@@ -24,6 +24,8 @@ import {
   runInShell,
   SHELL_CAPABILITY,
 } from './host'
+import type { SignInRunner } from './harnessSignIn'
+import type { SignInChecker } from './harnessSignInCheck'
 
 /** A socket a test drives: it keeps what the client sent, and hands the
  *  client whatever frame the test wants it to receive. */
@@ -376,6 +378,92 @@ describe('a Harness Sign-In', () => {
 
     expect(signIn).not.toHaveBeenCalled()
     expect(socket.sent.some((frame) => frame.type === 'harness_sign_in_result')).toBe(false)
+  })
+})
+
+describe('the sign-in state of a Coding Harness', () => {
+  const CODEX_CHECK = { command: ['npx', '--yes', '@openai/codex@0.159.1', 'login', 'status'], signed_out: 'Not logged in' }
+  const CATALOG = [
+    { id: 'claude', launchers: ['npx'], sign_in_check: null },
+    { id: 'codex', launchers: ['npx'], sign_in_check: CODEX_CHECK },
+    { id: 'cursor', launchers: ['cursor-agent'], sign_in_check: { command: ['cursor-agent', 'status'], signed_out: 'Not logged in' } },
+  ]
+
+  function registered(capabilities: string[]) {
+    return {
+      type: 'host.registered',
+      payload: { host_id: 'h-1', platform: 'macos', capabilities, harnesses: CATALOG },
+    }
+  }
+
+  function states(socket: FakeSocket) {
+    return socket.sent.filter((frame) => frame.type === 'harness_sign_in_state')
+  }
+
+  /** A connected agent that found Claude Code and Codex, and whose daemon
+   *  acknowledged them. */
+  async function connected(check: SignInChecker, signIn: SignInRunner = async () => ({ exit_code: 0 })) {
+    const socket = new FakeSocket()
+    new HostAgent(socket, 'Air', 'macos', runInShell, [SHELL_CAPABILITY], async () => ['claude', 'codex'], signIn, check).start()
+    socket.receive(registered(['shell']))
+    await vi.waitFor(() => expect(states(socket)).toHaveLength(1))
+    socket.receive(registered(['shell', 'harness:claude', 'harness:codex']))
+    return socket
+  }
+
+  it('checks each harness that it found and that has a status command when it connects', async () => {
+    const check = vi.fn<SignInChecker>(async () => 'signed_in')
+    const socket = await connected(check)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+
+    expect(check).toHaveBeenCalledTimes(1)
+    expect(check).toHaveBeenCalledWith(CODEX_CHECK)
+    // The state follows the registration that declares the harness.
+    const types = socket.sent.map((frame) => frame.type)
+    expect(types.lastIndexOf('register_host')).toBeLessThan(types.indexOf('harness_sign_in_state'))
+    expect(states(socket)).toEqual([{ type: 'harness_sign_in_state', harness: 'codex', state: 'signed_in' }])
+  })
+
+  it('checks the harness again when a sign-in ends, and sends the state before the result', async () => {
+    const check = vi.fn<SignInChecker>(async () => 'not_signed_in')
+    const socket = await connected(check)
+    check.mockResolvedValue('signed_in')
+
+    socket.receive({
+      type: 'harness_sign_in',
+      payload: { id: 'sign-in-1', harness: 'codex', name: 'Codex', command: 'npx', args: [], env: {} },
+    })
+    await vi.waitFor(() => expect(socket.sent.some((frame) => frame.type === 'harness_sign_in_result')).toBe(true))
+
+    const after = socket.sent.slice(socket.sent.findIndex((frame) => frame.type === 'harness_sign_in_state') + 1)
+    expect(after.map((frame) => frame.type)).toEqual(['harness_sign_in_state', 'harness_sign_in_result'])
+    expect(after[0]).toEqual({ type: 'harness_sign_in_state', harness: 'codex', state: 'signed_in' })
+  })
+
+  it('checks one harness when the daemon asks', async () => {
+    const check = vi.fn<SignInChecker>(async () => 'signed_in')
+    const socket = await connected(check)
+    check.mockResolvedValue('not_signed_in')
+
+    socket.receive({ type: 'harness_sign_in_check', payload: { harness: 'codex' } })
+
+    await vi.waitFor(() => expect(states(socket)).toHaveLength(2))
+    expect(states(socket)[1]).toEqual({ type: 'harness_sign_in_state', harness: 'codex', state: 'not_signed_in' })
+  })
+
+  it('runs no check for a harness with no status command or that the machine does not declare', async () => {
+    const check = vi.fn<SignInChecker>(async () => 'signed_in')
+    const socket = await connected(check)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+
+    socket.receive({ type: 'harness_sign_in_check', payload: { harness: 'claude' } })
+    socket.receive({ type: 'harness_sign_in_check', payload: { harness: 'cursor' } })
+    socket.receive({ type: 'harness_sign_in_check', payload: { harness: 7 } })
+    socket.receive({ type: 'harness_sign_in_check' })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+
+    expect(check).toHaveBeenCalledTimes(1)
+    expect(states(socket)).toHaveLength(1)
   })
 })
 

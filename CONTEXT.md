@@ -1129,11 +1129,15 @@ The Person signs in to a Coding Harness on their Host with their own
 subscription or API key, in the vendor's own program. The Person starts it
 in Settings › Hosts, the daemon names the command, and the Client App runs
 it in a terminal window. Pagis never reads, copies, stores or relays the
-credential. When a harness refuses a session for a sign-in, the session
-fails with `sign_in_required`, and the daemon reports that the harness
-needs a sign-in on that Host until a session opens or a sign-in exits with
-code 0.
-_Avoid_: harness login
+credential. The Client App also runs the vendor's own status command of the
+harness, where the Harness Catalog names one, and reports the sign-in
+state: signed in, not signed in or unknown. It reads only the exit code and
+whether the output holds fixed words. When a harness refuses a session for a
+sign-in, the session fails with `sign_in_required`, and the daemon reports
+that the harness needs a sign-in on that Host until a session opens or a
+sign-in exits with code 0. A refusal while the status command says "signed
+in" shows a sign-in that expired.
+_Avoid_: harness login, auth status
 
 ### Session Approval Mode
 Who answers a Harness Permission of a Coding Session: `person` or `agent`.
@@ -1148,7 +1152,9 @@ _Avoid_: permission mode
 ### Session Rule
 The Event Subscriptions that the daemon makes when a Coding Session starts,
 one for each kind of session event, and archives when it ends. They wake
-the owning Agent in the session's Thread (ADR-0033).
+the owning Agent in the session's Thread for the end of a turn and for a
+decision. The end of the session wakes it at the place where the session
+started, so its report shows where the Person asked (ADR-0033).
 
 ### Unattended Mode
 A Coding Harness works in an Unattended Mode when it acts without asking

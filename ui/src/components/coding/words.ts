@@ -76,6 +76,8 @@ export function endReasonText(reason: string | null | undefined, spriteName: str
       return 'The coding harness does not offer the chosen model'
     case 'thought_level_not_offered':
       return 'The coding harness does not offer the chosen thought level'
+    case 'sign_in_required':
+      return 'The coding harness needs a sign-in. Sign in from Settings › Hosts'
     default:
       return reason
   }

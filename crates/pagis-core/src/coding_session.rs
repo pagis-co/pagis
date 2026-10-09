@@ -497,6 +497,15 @@ pub struct CodingSession {
 }
 
 impl CodingSession {
+    /// The Thread of the place where the session started: the Thread of
+    /// the starting Run, or `None` for the top level of the Channel. A
+    /// start at the top level makes the block the root of the session's
+    /// Thread.
+    #[must_use]
+    pub fn starting_thread(&self) -> Option<&MessageId> {
+        (self.root_message_id != self.message_id).then_some(&self.root_message_id)
+    }
+
     /// Whether the session works in an Unattended Mode: its harness never
     /// asks, or its Harness Mode is not an asking mode of the Harness
     /// Catalog. A harness that the catalog does not hold fails closed.

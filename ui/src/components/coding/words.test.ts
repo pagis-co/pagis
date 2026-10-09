@@ -229,6 +229,7 @@ describe('the end of a session', () => {
     ['mode_not_offered', 'The coding harness does not offer the chosen mode'],
     ['model_not_offered', 'The coding harness does not offer the chosen model'],
     ['thought_level_not_offered', 'The coding harness does not offer the chosen thought level'],
+    ['sign_in_required', 'The coding harness needs a sign-in. Sign in from Settings › Hosts'],
   ])('says why %s ended it', (reason, text) => {
     expect(endReasonText(reason, 'Sage')).toBe(text)
   })

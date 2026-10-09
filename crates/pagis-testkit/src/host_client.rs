@@ -73,6 +73,7 @@ pub struct HostClient {
     host_id: String,
     dispatched: Arc<Mutex<Vec<HostDispatch>>>,
     sign_ins: Arc<Mutex<Vec<HarnessSignIn>>>,
+    sign_in_checks: Arc<Mutex<Vec<String>>>,
     results: mpsc::UnboundedSender<Outgoing>,
     task: tokio::task::JoinHandle<()>,
 }
@@ -147,10 +148,12 @@ impl HostClient {
         };
         let dispatched = Arc::new(Mutex::new(Vec::new()));
         let sign_ins = Arc::new(Mutex::new(Vec::new()));
+        let sign_in_checks = Arc::new(Mutex::new(Vec::new()));
         let (results, mut outgoing) = mpsc::unbounded_channel::<Outgoing>();
         let task = {
             let dispatched = Arc::clone(&dispatched);
             let sign_ins = Arc::clone(&sign_ins);
+            let sign_in_checks = Arc::clone(&sign_in_checks);
             tokio::spawn(async move {
                 // The results the test sent, oldest first. Each one waits
                 // for the `pong` of the ping that follows it.
@@ -188,6 +191,14 @@ impl HostClient {
                                 {
                                     return;
                                 }
+                                continue;
+                            }
+                            if frame["type"] == "harness_sign_in_check" {
+                                let harness = frame["payload"]["harness"]
+                                    .as_str()
+                                    .unwrap_or_default()
+                                    .to_string();
+                                sign_in_checks.lock().expect("sign-in checks").push(harness);
                                 continue;
                             }
                             if frame["type"] != "dispatch" {
@@ -246,6 +257,7 @@ impl HostClient {
             host_id,
             dispatched,
             sign_ins,
+            sign_in_checks,
             results,
             task,
         }
@@ -275,6 +287,25 @@ impl HostClient {
     /// [`HostAnswer::Manual`].
     pub fn sign_ins(&self) -> Vec<HarnessSignIn> {
         self.sign_ins.lock().expect("sign-ins").clone()
+    }
+
+    /// The harnesses of the sign-in checks that the daemon asked this
+    /// machine for, in order. The client answers none of them: a test
+    /// sends a state with [`Self::report_sign_in_state`].
+    pub fn sign_in_checks(&self) -> Vec<String> {
+        self.sign_in_checks.lock().expect("sign-in checks").clone()
+    }
+
+    /// Send the sign-in state of `harness`, as the Client App does after
+    /// it runs the vendor's status command, and return once the daemon
+    /// has read it.
+    pub async fn report_sign_in_state(&self, harness: &str, state: &str) {
+        self.send(serde_json::json!({
+            "type": "harness_sign_in_state",
+            "harness": harness,
+            "state": state,
+        }))
+        .await;
     }
 
     /// Send a result with exit code 0 and `stdout` for the call `id` on

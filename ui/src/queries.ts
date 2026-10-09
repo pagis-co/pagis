@@ -698,8 +698,8 @@ export function useHosts(api: ApiClient) {
 
 /** The Harness Catalog: each Coding Harness with its sign-in methods.
  *  The catalog is part of the daemon's build, so it never goes stale.
- *  The report of a harness that needs a sign-in comes with each Host
- *  in `useHosts`. */
+ *  The sign-in report of each harness on a Host comes with each Host in
+ *  `useHosts`. */
 export function useHarnesses(api: ApiClient) {
   return useQuery({
     queryKey: harnessesKey,
@@ -726,6 +726,20 @@ export function useStartHarnessSignIn(api: ApiClient) {
         api.POST("/api/v1/hosts/{host_id}/harnesses/{harness_id}/sign-in", {
           params: { path: { host_id: hostId, harness_id: harnessId } },
           body: { method },
+        }),
+      ),
+  });
+}
+
+/** Ask a Host to run the vendor's status command of one harness. The
+ *  route answers when the Client App has the check, and the state comes
+ *  with the Host after `harness.sign_in_changed` (ADR-0033). */
+export function useCheckHarnessSignIn(api: ApiClient) {
+  return useMutation({
+    mutationFn: ({ hostId, harnessId }: { hostId: string; harnessId: string }) =>
+      expectNoContent(
+        api.POST("/api/v1/hosts/{host_id}/harnesses/{harness_id}/sign-in-check", {
+          params: { path: { host_id: hostId, harness_id: harnessId } },
         }),
       ),
   });

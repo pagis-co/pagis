@@ -62,17 +62,37 @@ ChatGPT or Copilot, or an API key. You choose which.
 Some programs need one more step in the terminal window. In pi, type
 `/login`. For an API key of Codex, paste the key and push Ctrl-D.
 
+When the terminal window closes, **Settings → Hosts** tells how the sign-in
+ended. For example, "You are signed in to Codex on Air." A sign-in that does
+not end in 30 minutes stops, and the page tells you to sign in again.
+
 The harness keeps the credential in its own store on that computer. Pagis
 never reads, copies, stores or relays it. No field of the Product App takes
 a password or a key, and the Client App reads only the exit code of the
 sign-in.
 
-When a harness refuses a session because it is not signed in, the session
-fails, and the Agent tells you where to sign in. **Settings → Hosts** then
-shows **Needs sign-in** on that harness. The mark goes away when a session
-of the harness opens on that computer, or when a sign-in ends with no error.
-A sign-in that ends with no error does not prove that you signed in: the
-next session tells.
+### See the sign-in state
+
+Claude Code, Codex and the Cursor CLI have a status command of their own,
+for example `codex login status`. The Client App runs it when it connects,
+when a sign-in ends, and when you select **Check sign-in**. It reads only
+the exit code and whether the output says "Not logged in". It keeps and
+sends none of the output.
+
+| Mark | What it means |
+| --- | --- |
+| **Signed in** | The status command found a credential on that computer. |
+| **Not signed in** | The status command found no credential. |
+| **Sign-in expired** | The status command found a credential, but the harness refused a session. The credential expired, or the vendor revoked it. Sign in again. |
+| **Needs sign-in** | The harness refused a session, and no status command gave a state. |
+| No mark | Pagis does not know. OpenCode, pi, Gemini CLI and Copilot CLI have no status command that Pagis can use. |
+
+A status command reads the stored credential and does not send it to the
+vendor. So only a refused session shows a credential that expired. When a
+harness refuses a session because it is not signed in, the session fails
+with "The coding harness needs a sign-in", and the Agent tells you where to
+sign in. **Sign-in expired** and **Needs sign-in** go away when a session of
+the harness opens on that computer, or when a sign-in ends with exit code 0.
 
 ## Choose who answers a harness
 
@@ -204,10 +224,11 @@ in its Computer together.
 
 ## Follow a session
 
-- **The block in the Thread.** It shows the harness, the title, the
+- **The block in the conversation.** It shows the harness, the title, the
   computer, the directory, the branch, the model, the state, the approval
   mode, the Harness Mode, the usage and the last activity. **Open** goes to the
-  session page. **Stop** stops the session at once.
+  session page. **Stop** stops the session at once. The replies chip under
+  the block opens the Thread of the session.
 - **The session page.** It shows the transcript: the messages of the
   harness, its plan, its tool calls with a diff of each change, and one line
   for each permission and question. **Changed files** lists each file that
@@ -220,9 +241,11 @@ in its Computer together.
   session. Its Notification has **Approve once** and **Deny**
   ([Answer an approval from a Notification](/notifications#answer-an-approval-from-a-notification)).
 
-The Agent wakes in the Thread when a turn of the harness ends, when a
-decision waits for it, and when the session ends. It then checks the work
-and reports to you.
+The Agent wakes in the Thread of the session when a turn of the harness
+ends and when a decision waits for it. Its decisions and notes stay in that
+Thread. When the session ends, the Agent wakes where you asked for the work,
+and its report shows there: at the top level of the conversation, or in the
+Thread where you asked.
 
 ## When the computer sleeps
 

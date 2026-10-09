@@ -278,7 +278,7 @@ describe('the hosts settings', () => {
     api.GET.mockImplementation(async (path: string) => {
       if (path === '/api/v1/harnesses') {
         return {
-          data: { items: [{ id: 'claude', name: 'Claude Code', sign_in_methods: [] }] },
+          data: { items: [{ id: 'claude', name: 'Claude Code', sign_in_methods: [], checks_sign_in: true }] },
         }
       }
       if (path === '/api/v1/hosts') {
@@ -290,7 +290,9 @@ describe('the hosts settings', () => {
                 name: 'Air',
                 platform: 'macos',
                 capabilities: ['shell', 'harness:claude'],
-                harnesses: [{ id: 'claude', needs_sign_in: needsSignIn }],
+                harnesses: [
+                  { id: 'claude', needs_sign_in: needsSignIn, sign_in_state: 'unknown', last_sign_in: null },
+                ],
                 present: true,
                 last_seen_at: 1,
               },
@@ -313,7 +315,7 @@ describe('the hosts settings', () => {
           id: 'event-1',
           event_type: 'harness.sign_in_changed',
           created_at: Date.now(),
-          payload: { host_id: 'host-1', harness: 'claude', needs_sign_in: true },
+          payload: { host_id: 'host-1', harness: 'claude', needs_sign_in: true, sign_in_state: 'unknown' },
         },
       }),
     )

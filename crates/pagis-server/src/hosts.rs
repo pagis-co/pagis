@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::State;
-use pagis_core::harness;
+use pagis_core::harness::{self, SignInState};
 use serde::Serialize;
 use utoipa::ToSchema;
 
@@ -39,15 +39,37 @@ pub struct HostDto {
     pub harnesses: Vec<HostHarnessDto>,
 }
 
-/// One Coding Harness that a Host declares.
+/// One Coding Harness that a Host declares, with its sign-in report
+/// (ADR-0033). The report is daemon memory, so after a restart of the
+/// daemon it is empty until the Client App checks again or a start fails.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct HostHarnessDto {
     /// The id of the harness in the Harness Catalog.
     pub id: String,
-    /// True when the last attempt showed that the harness needs a Harness
-    /// Sign-In on this machine. After a restart of the daemon it is false
-    /// until a start fails again.
+    /// True when the harness refused a session for a sign-in on this
+    /// machine, and no session opened and no sign-in exited with code 0
+    /// after that.
     pub needs_sign_in: bool,
+    /// What the last run of the vendor's status command on this machine
+    /// showed. It is `unknown` for a harness with no status command.
+    pub sign_in_state: SignInState,
+    /// The last Harness Sign-In that the Person started on this machine.
+    pub last_sign_in: Option<LastSignInDto>,
+}
+
+/// One Harness Sign-In and how it ended.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct LastSignInDto {
+    /// The id that starting the sign-in answered.
+    pub id: String,
+    /// True while the terminal window is open.
+    pub running: bool,
+    /// The exit code of the vendor's program. It tells how the program
+    /// ended, not that the Person signed in.
+    pub exit_code: Option<i64>,
+    /// Why the sign-in has no exit code: for example, it did not end in
+    /// 30 minutes, or the machine disconnected.
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -59,14 +81,20 @@ async fn host_dto(state: &AppState, host: pagis_core::Host) -> HostDto {
     let mut harnesses = Vec::new();
     for capability in &host.capabilities {
         if let Some(id) = capability.strip_prefix(harness::CAPABILITY_PREFIX) {
-            let needs_sign_in = state
-                .sign_in_reports
-                .needs_sign_in_since(&host.id, id)
-                .await
-                .is_some();
+            let report = state.sign_in_reports.report(&host.id, id).await;
             harnesses.push(HostHarnessDto {
                 id: id.to_string(),
-                needs_sign_in,
+                needs_sign_in: report.needs_sign_in_since.is_some(),
+                sign_in_state: report.state,
+                last_sign_in: report.last_sign_in.map(|attempt| LastSignInDto {
+                    id: attempt.id.to_string(),
+                    running: attempt.outcome.is_none(),
+                    exit_code: attempt
+                        .outcome
+                        .as_ref()
+                        .and_then(|outcome| outcome.exit_code),
+                    error: attempt.outcome.and_then(|outcome| outcome.error),
+                }),
             });
         }
     }

@@ -6,9 +6,11 @@
 //! allowance of Unattended Modes, the allow rule of Claude Code sessions
 //! in one directory, and a one-shot Schedule. Then the Person does
 //! nothing. The Schedule's Run starts Claude Code in `bypassPermissions`
-//! with no card, the harness acts without asking, the end of its turn
-//! wakes the Agent in the session's Thread, and the woken Run posts the
-//! report there.
+//! with no card, the harness acts without asking, and the end of its turn
+//! wakes the Agent in the session's Thread. That Run reads the session and
+//! closes it. The end of the session wakes the Agent at the top level of
+//! the Schedule's Channel, where the Schedule asked, and that Run posts
+//! the report there.
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -19,7 +21,8 @@ use pagis_broker::fake::FakeClientApp;
 use pagis_coding::fake::{FakeHarness, Script, Turn, acp};
 use pagis_core::{
     AgentId, AuthorKind, ChannelId, CodingSession, CodingSessionEventKind, CodingSessionState,
-    EventSource, HostId, RequestState, Run, RunOrigin, RunState, TriggerKind, WakeupRule, harness,
+    EventSource, HostId, MessageId, RequestState, Run, RunOrigin, RunState, TriggerKind,
+    WakeupRule, harness,
 };
 use pagis_testkit::evaluation::FixtureClock;
 use pagis_testkit::{
@@ -33,15 +36,18 @@ const DUE: i64 = NOW + 60_000;
 const DIRECTORY: &str = "/work/app";
 const HARNESS_MESSAGE: &str = "The nightly tests pass.";
 const REPORT: &str = "Claude Code ran the nightly tests on Air, and they pass.";
+const CLOSED: &str = "The tests pass, so I closed the session.";
 
 /// The brain of the test. The Schedule's Run takes the scripts of
 /// `schedule`. The Wake-up of the end of a turn waits until the test
 /// opens the gate, and then takes the scripts of `wakeup`: the test
-/// knows the session id only after the Schedule's Run. Each other
+/// knows the session id only after the Schedule's Run. The Wake-up of
+/// the end of the session takes the scripts of `report`. Each other
 /// Wake-up of a Coding Session gets no script.
 struct ScheduleThenWakeup {
     schedule: Arc<ScriptedBrain>,
     wakeup: Arc<ScriptedBrain>,
+    report: Arc<ScriptedBrain>,
     gate: tokio::sync::watch::Receiver<bool>,
 }
 
@@ -55,6 +61,9 @@ impl Brain for ScheduleThenWakeup {
             let mut gate = self.gate.clone();
             let _ = gate.wait_for(|open| *open).await;
             return self.wakeup.turn(request).await;
+        }
+        if request.system.contains("Event kind: coding_session.ended") {
+            return self.report.turn(request).await;
         }
         if request.system.contains("Event kind: coding_session.") {
             return Err(BrainError::new(
@@ -112,13 +121,19 @@ async fn runs(daemon: &TestDaemon) -> Vec<Run> {
         .expect("read the Runs")
 }
 
-/// The one Run of `trigger_kind`, once it is in `state`.
-async fn run_of(daemon: &TestDaemon, trigger_kind: TriggerKind, state: RunState) -> Run {
+/// The one Run of `trigger_kind` in the Thread `root`, or at the top
+/// level for `None`, once it is in `state`.
+async fn run_of(
+    daemon: &TestDaemon,
+    trigger_kind: TriggerKind,
+    root: Option<&MessageId>,
+    state: RunState,
+) -> Run {
     wait_for(&format!("no {trigger_kind:?} Run is {state:?}"), || async {
         let runs: Vec<Run> = runs(daemon)
             .await
             .into_iter()
-            .filter(|run| run.trigger_kind == trigger_kind)
+            .filter(|run| run.trigger_kind == trigger_kind && run.root_message_id.as_ref() == root)
             .collect();
         assert!(runs.len() <= 1, "{runs:?}");
         runs.into_iter().find(|run| run.state == state)
@@ -186,11 +201,13 @@ async fn a_schedule_starts_a_coding_session_that_runs_to_its_report_with_no_pers
     let clock = FixtureClock::at(NOW);
     let schedule_brain = Arc::new(ScriptedBrain::default());
     let wakeup_brain = Arc::new(ScriptedBrain::default());
+    let report_brain = Arc::new(ScriptedBrain::default());
     let (gate, opened) = tokio::sync::watch::channel(false);
     let daemon = TestDaemon::start_with(TestDaemonOptions {
         brain: Arc::new(ScheduleThenWakeup {
             schedule: Arc::clone(&schedule_brain),
             wakeup: Arc::clone(&wakeup_brain),
+            report: Arc::clone(&report_brain),
             gate: opened,
         }),
         clock: Arc::new(clock.clone()),
@@ -306,7 +323,7 @@ async fn a_schedule_starts_a_coding_session_that_runs_to_its_report_with_no_pers
 
     clock.advance_to(DUE);
 
-    let scheduled = run_of(&daemon, TriggerKind::Schedule, RunState::Completed).await;
+    let scheduled = run_of(&daemon, TriggerKind::Schedule, None, RunState::Completed).await;
     assert_eq!(scheduled.root_message_id, None, "{scheduled:?}");
     let session = wait_for("the Schedule's Run started no session", || async {
         daemon
@@ -325,7 +342,18 @@ async fn a_schedule_starts_a_coding_session_that_runs_to_its_report_with_no_pers
         "coding_session_read",
         json!({"session": session.id.as_str()}),
     ));
-    wakeup_brain.push(pagis_testkit::Script::reply(&[REPORT]));
+    wakeup_brain.push(pagis_testkit::Script::tool_call(
+        &[],
+        "coding_session_close",
+        json!({"session": session.id.as_str()}),
+    ));
+    wakeup_brain.push(pagis_testkit::Script::reply(&[CLOSED]));
+    report_brain.push(pagis_testkit::Script::tool_call(
+        &[],
+        "coding_session_read",
+        json!({"session": session.id.as_str()}),
+    ));
+    report_brain.push(pagis_testkit::Script::reply(&[REPORT]));
     gate.send_replace(true);
 
     // The session's block is a top-level message of the Schedule's
@@ -344,7 +372,13 @@ async fn a_schedule_starts_a_coding_session_that_runs_to_its_report_with_no_pers
     assert_eq!(block.parent_message_id, None);
 
     // The Session Rule wakes the Agent in the session's Thread.
-    let woken = run_of(&daemon, TriggerKind::Event, RunState::Completed).await;
+    let woken = run_of(
+        &daemon,
+        TriggerKind::Event,
+        Some(&session.root_message_id),
+        RunState::Completed,
+    )
+    .await;
     let thread = RunOrigin {
         agent_id: agent_id.clone(),
         channel_id: channel_id.clone(),
@@ -361,7 +395,8 @@ async fn a_schedule_starts_a_coding_session_that_runs_to_its_report_with_no_pers
         .list_for_source(
             &daemon.workspace_id,
             &EventSource::coding_session(session.id.clone()),
-            &["active"],
+            // The close of the session archives the rule.
+            &["archived"],
         )
         .await
         .expect("read the Session Rule")
@@ -384,32 +419,57 @@ async fn a_schedule_starts_a_coding_session_that_runs_to_its_report_with_no_pers
 
     // The woken Run read the message of the harness inside the envelope
     // of the session.
-    let envelopes = envelopes(&wakeup_brain, &session);
+    let read = envelopes(&wakeup_brain, &session);
     assert!(
-        envelopes
-            .iter()
+        read.iter()
             .any(|envelope| envelope.contains(HARNESS_MESSAGE)),
-        "{envelopes:#?}"
+        "{read:#?}"
     );
 
-    // The report is an Agent message in the session's Thread.
+    // The supervision stays in the session's Thread.
     let replies = daemon
         .stores()
         .messages
         .list_thread(&daemon.workspace_id, &session.root_message_id)
         .await
         .expect("read the Thread");
-    let report = replies
+    let closed = replies
         .iter()
         .find(|message| {
             message.run_id.as_ref() == Some(&woken.id) && message.author_kind == AuthorKind::Agent
         })
-        .unwrap_or_else(|| panic!("no report in the Thread: {replies:#?}"));
-    assert_eq!(report.text_content, REPORT);
-    assert_eq!(report.channel_id, channel_id);
+        .unwrap_or_else(|| panic!("no note in the Thread: {replies:#?}"));
+    assert_eq!(closed.text_content, CLOSED);
+
+    // The end of the session wakes the Agent at the top level of the
+    // Schedule's Channel, and the report is an Agent message there.
+    let reporting = run_of(&daemon, TriggerKind::Event, None, RunState::Completed).await;
     assert_eq!(
-        report.parent_message_id.as_ref(),
-        Some(&session.root_message_id)
+        reporting.origin,
+        Some(RunOrigin {
+            agent_id: agent_id.clone(),
+            channel_id: channel_id.clone(),
+            root_message_id: None,
+        })
+    );
+    let report = daemon
+        .stores()
+        .messages
+        .list_top_level(&daemon.workspace_id, &channel_id, None, 50)
+        .await
+        .expect("read the top level")
+        .into_iter()
+        .map(|entry| entry.message)
+        .find(|message| message.run_id.as_ref() == Some(&reporting.id))
+        .expect("the report at the top level");
+    assert_eq!(report.author_kind, AuthorKind::Agent);
+    assert_eq!(report.text_content, REPORT);
+    assert_eq!(report.parent_message_id, None);
+    assert!(
+        envelopes(&report_brain, &session)
+            .iter()
+            .any(|envelope| envelope.contains(HARNESS_MESSAGE)),
+        "the report reads the last message of the harness"
     );
 
     // The session acted in `bypassPermissions` and asked nobody.
@@ -420,7 +480,7 @@ async fn a_schedule_starts_a_coding_session_that_runs_to_its_report_with_no_pers
         .await
         .expect("read the session")
         .expect("the session");
-    assert_eq!(record.state, CodingSessionState::Idle);
+    assert_eq!(record.state, CodingSessionState::Closed);
     assert_eq!(record.harness_mode.as_deref(), Some("bypassPermissions"));
     let rows = daemon
         .stores()

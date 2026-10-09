@@ -27,8 +27,17 @@ use crate::StopReason;
 /// names the session and never the text of the harness, so the Agent
 /// reads the session with a tool.
 pub const SESSION_RULE_INSTRUCTION: &str = "Your coding session changed. Read it with \
-     `coding_session_read`, then supervise it: send the next prompt, decide, answer its \
-     question, or report to the user.";
+     `coding_session_read`, then supervise it: send the next prompt, decide, or answer its \
+     question.";
+
+/// What the Wake-up of the end of a session tells the Agent to do. It
+/// wakes at the place where the session started, so its reply is the
+/// report to the user there (ADR-0033).
+pub const SESSION_END_INSTRUCTION: &str = "Your coding session ended or was interrupted. You are \
+     where the user asked for the work, and your reply goes there. Read the session with \
+     `coding_session_read`. When it is interrupted and the work still makes sense, resume it. \
+     Else report to the user: what changed, how you verified it, what is not done, and where \
+     the work is.";
 
 /// The name of the Session Rule of a session.
 pub fn session_rule_name(session: &CodingSession) -> String {

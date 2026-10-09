@@ -26,9 +26,35 @@
 }
 
 .system-record {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
   width: min(100%, var(--conversation-width));
   margin: var(--space-3) auto;
   padding-inline: var(--conversation-gutter);
+}
+
+/* The hover tool of a record: reply in thread. It floats at the top
+   right of the record under the pointer, as the tools of a message do. */
+.system-record-tools {
+  position: absolute;
+  top: -0.875rem;
+  right: var(--conversation-gutter);
+  display: flex;
+  padding: var(--space-0-5);
+  opacity: 0;
+  pointer-events: none;
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-rest);
+}
+
+.system-record:hover .system-record-tools,
+.system-record:focus-within .system-record-tools {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 @media (max-width: 760px) {

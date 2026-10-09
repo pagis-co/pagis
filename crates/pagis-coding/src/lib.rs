@@ -67,8 +67,9 @@ pub use event::{
     ToolStatus,
 };
 pub use events::{
-    DecisionKind, InterruptReason, SESSION_RULE_INSTRUCTION, SessionEventMatcher, SessionEvents,
-    SessionNews, SessionRuleError, SessionRules, session_event, session_rule_name,
+    DecisionKind, InterruptReason, SESSION_END_INSTRUCTION, SESSION_RULE_INSTRUCTION,
+    SessionEventMatcher, SessionEvents, SessionNews, SessionRuleError, SessionRules, session_event,
+    session_rule_name,
 };
 pub use model_route::{
     ConfigDirectory, ConfigFile, EndpointRoute, MODEL_TOKEN_VARIABLE, ModelApi, ModelRoute,
@@ -88,6 +89,8 @@ pub use sessions::{
     ResumeFailure, SessionError, SetModeFailure, SetSettingsFailure, StartFailure,
 };
 pub use settings::{ChoiceFailure, Setting, SettingChoices};
-pub use sign_in::{SIGN_IN_CHANGED_EVENT, SignInFailure, SignInReports, SignIns};
+pub use sign_in::{
+    SIGN_IN_CHANGED_EVENT, SignInAttempt, SignInFailure, SignInReport, SignInReports, SignIns,
+};
 pub use starts::{CodingSessionStarts, MAX_OPEN_SESSIONS, worktree_branch};
 pub use tools::CodingToolRuntime;

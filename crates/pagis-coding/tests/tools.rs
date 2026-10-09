@@ -596,6 +596,9 @@ async fn read_puts_the_harness_text_inside_one_envelope_and_the_state_and_usage_
         cost_amount: Some(0.25),
         cost_currency: Some("USD".to_string()),
     };
+    let worktree = "/Users/bo/.pagis-worktrees/app/pagis-fix-the-login";
+    session.working_directory = Some(worktree.to_string());
+    session.worktree_branch = Some("pagis/fix-the-login".to_string());
     world.store.update(&session).await.unwrap();
     let login = format!("{DIRECTORY}/src/login.rs");
     let session_rs = format!("{DIRECTORY}/src/session.rs");
@@ -646,6 +649,10 @@ async fn read_puts_the_harness_text_inside_one_envelope_and_the_state_and_usage_
     assert_eq!(read["harness"], "Claude Code");
     assert_eq!(read["machine"], "Air");
     assert_eq!(read["title"], "Fix the login");
+    // The Run that reports at the end of the session reads where the
+    // work is.
+    assert_eq!(read["directory"], worktree);
+    assert_eq!(read["branch"], "pagis/fix-the-login");
     assert_eq!(read["state"], "needs_decision");
     assert_eq!(read["end_reason"], Value::Null);
     assert_eq!(read["usage"]["context_used"], 1200);

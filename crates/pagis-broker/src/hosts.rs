@@ -91,6 +91,11 @@ pub struct SignInOutcome {
 pub enum HostFrame {
     Dispatch(HostCommand),
     HarnessSignIn(HarnessSignIn),
+    /// Run the status command of the harness `harness` of the Harness
+    /// Catalog and report the sign-in state (ADR-0033). No answer waits.
+    SignInCheck {
+        harness: String,
+    },
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -400,6 +405,29 @@ impl HostPresence {
         Ok(answer)
     }
 
+    /// Ask a machine to check the sign-in state of one harness. The Client
+    /// App reports the state on its own frame, so nothing waits here. A
+    /// machine that is not connected fails at once.
+    pub fn check_sign_in(&self, host_id: &HostId, harness: &str) -> Result<(), HostDispatchError> {
+        let mut state = self.state.lock().expect("host presence lock");
+        let Some(frames) = state
+            .connected
+            .get(host_id)
+            .map(|connected| connected.frames.clone())
+        else {
+            return Err(HostDispatchError::NotConnected);
+        };
+        let frame = HostFrame::SignInCheck {
+            harness: harness.to_string(),
+        };
+        if frames.send(frame).is_err() {
+            // The handler is gone and has not deregistered yet.
+            state.connected.remove(host_id);
+            return Err(HostDispatchError::NotConnected);
+        }
+        Ok(())
+    }
+
     /// Hand the result of a Harness Sign-In that came in on `from` to the
     /// caller that waits for it, with the rule of [`Self::complete`]:
     /// only the connection that received the sign-in answers it, and a
@@ -439,7 +467,7 @@ mod tests {
     async fn next_command(connection: &mut HostConnection) -> HostCommand {
         match connection.next().await.expect("the frame arrives") {
             HostFrame::Dispatch(command) => command,
-            HostFrame::HarnessSignIn(sign_in) => panic!("a sign-in arrived: {sign_in:?}"),
+            other => panic!("another frame arrived: {other:?}"),
         }
     }
 
@@ -766,8 +794,36 @@ mod tests {
     async fn next_sign_in(connection: &mut HostConnection) -> HarnessSignIn {
         match connection.next().await.expect("the frame arrives") {
             HostFrame::HarnessSignIn(sign_in) => sign_in,
-            HostFrame::Dispatch(command) => panic!("a command arrived: {command:?}"),
+            other => panic!("another frame arrived: {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn a_sign_in_check_reaches_the_registered_connection() {
+        let presence = Arc::new(HostPresence::new());
+        let host = HostId::generate();
+        let mut connection = presence.connect(&host);
+
+        presence
+            .check_sign_in(&host, "codex")
+            .expect("a present host takes the check");
+
+        assert_eq!(
+            connection.next().await,
+            Some(HostFrame::SignInCheck {
+                harness: "codex".to_string()
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn a_sign_in_check_on_an_absent_host_fails_at_once() {
+        let presence = Arc::new(HostPresence::new());
+
+        assert_eq!(
+            presence.check_sign_in(&HostId::generate(), "codex"),
+            Err(HostDispatchError::NotConnected)
+        );
     }
 
     #[tokio::test]

@@ -1284,6 +1284,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/hosts/{host_id}/harnesses/{harness_id}/sign-in-check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask one of the Person's Hosts to run the vendor's status command of a
+         *     harness. The Client App reports the state on its Host socket, and
+         *     `harness.sign_in_changed` tells the clients when it changed.
+         */
+        post: operations["check_sign_in"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/knowledge/forget": {
         parameters: {
             query?: never;
@@ -3586,6 +3607,11 @@ export interface components {
             /** @enum {string} */
             type: "harness_sign_in_result";
         } | {
+            harness: string;
+            state: components["schemas"]["HarnessSignInState"];
+            /** @enum {string} */
+            type: "harness_sign_in_state";
+        } | {
             /** Format: int64 */
             exit_code?: number | null;
             session_id: string;
@@ -4393,6 +4419,11 @@ export interface components {
         };
         /** @description One Coding Harness of the Harness Catalog. */
         HarnessDto: {
+            /**
+             * @description True when the harness has a status command, so a Host can check
+             *     whether the Person is signed in.
+             */
+            checks_sign_in: boolean;
             /** @description The id of the harness, as a Host declares it in `harness:<id>`. */
             id: string;
             /** @description The display name of the harness. */
@@ -4412,6 +4443,12 @@ export interface components {
          * @enum {string}
          */
         HarnessSignInMethod: "subscription" | "api_key";
+        /**
+         * @description Whether the Person is signed in to a harness on a Host, as the last
+         *     run of its [`SignInCheck`] showed.
+         * @enum {string}
+         */
+        HarnessSignInState: "signed_in" | "not_signed_in" | "unknown";
         HarnessesDto: {
             items: components["schemas"]["HarnessDto"][];
         };
@@ -4493,16 +4530,26 @@ export interface components {
              */
             present: boolean;
         };
-        /** @description One Coding Harness that a Host declares. */
+        /**
+         * @description One Coding Harness that a Host declares, with its sign-in report
+         *     (ADR-0033). The report is daemon memory, so after a restart of the
+         *     daemon it is empty until the Client App checks again or a start fails.
+         */
         HostHarnessDto: {
             /** @description The id of the harness in the Harness Catalog. */
             id: string;
+            last_sign_in?: null | components["schemas"]["LastSignInDto"];
             /**
-             * @description True when the last attempt showed that the harness needs a Harness
-             *     Sign-In on this machine. After a restart of the daemon it is false
-             *     until a start fails again.
+             * @description True when the harness refused a session for a sign-in on this
+             *     machine, and no session opened and no sign-in exited with code 0
+             *     after that.
              */
             needs_sign_in: boolean;
+            /**
+             * @description What the last run of the vendor's status command on this machine
+             *     showed. It is `unknown` for a harness with no status command.
+             */
+            sign_in_state: components["schemas"]["HarnessSignInState"];
         };
         HostsDto: {
             items: components["schemas"]["HostDto"][];
@@ -4728,6 +4775,24 @@ export interface components {
             title: string;
             /** @enum {string} */
             type: "coding_session";
+        };
+        /** @description One Harness Sign-In and how it ended. */
+        LastSignInDto: {
+            /**
+             * @description Why the sign-in has no exit code: for example, it did not end in
+             *     30 minutes, or the machine disconnected.
+             */
+            error?: string | null;
+            /**
+             * Format: int64
+             * @description The exit code of the vendor's program. It tells how the program
+             *     ended, not that the Person signed in.
+             */
+            exit_code?: number | null;
+            /** @description The id that starting the sign-in answered. */
+            id: string;
+            /** @description True while the terminal window is open. */
+            running: boolean;
         };
         LinkSignInRequest: {
             /**
@@ -10645,6 +10710,63 @@ export interface operations {
             };
             /** @description The harness did not give its sign-in methods */
             502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    check_sign_in: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Host */
+                host_id: string;
+                /** @description The harness, by its id in the Harness Catalog */
+                harness_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The Host received the check */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The Host is not connected */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The Host does not declare the harness, or the harness has no status command */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

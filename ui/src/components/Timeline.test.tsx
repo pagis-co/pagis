@@ -126,7 +126,12 @@ function stubApi(timelineItems = items, unavailable = false) {
   }
 }
 
-function mount(timelineItems = items, unavailable = false, onOpenDesk = vi.fn()) {
+function mount(
+  timelineItems = items,
+  unavailable = false,
+  onOpenDesk = vi.fn(),
+  onOpenThread = vi.fn(),
+) {
   const api = stubApi(timelineItems, unavailable)
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -137,13 +142,13 @@ function mount(timelineItems = items, unavailable = false, onOpenDesk = vi.fn())
       <Timeline
         api={api as unknown as ApiClient}
         channelId="ch-1"
-        onOpenThread={() => {}}
+        onOpenThread={onOpenThread}
         onOpenChannel={() => {}}
         onOpenDesk={onOpenDesk}
       />
     </QueryClientProvider>,
   )
-  return { onOpenDesk }
+  return { onOpenDesk, onOpenThread }
 }
 
 describe('Timeline', () => {
@@ -180,6 +185,48 @@ describe('Timeline', () => {
     fireEvent.click(await screen.findByTestId('call-strip'))
     expect(useCallInspector.getState().callId).toBe('call_1')
     expect(screen.queryByText('[call]')).toBeNull()
+  })
+
+  // A daemon-made block at the top level is the root of its Thread
+  // (ADR-0033, ADR-0022). It shows the replies chip and "Reply in
+  // thread", as every other root does.
+  it.each([
+    [
+      'coding session',
+      {
+        type: 'coding_session',
+        coding_session_id: 'session-1',
+        harness: 'Codex',
+        machine: 'Ada’s laptop',
+        directory: '/Users/ada/src/app',
+        title: 'Update the readme',
+      },
+    ],
+    ['call', { type: 'call', call_id: 'call_1' }],
+  ])('opens the Thread of a %s block from its replies chip', async (_kind, block) => {
+    const { onOpenThread } = mount(
+      [
+        message('block-message', {
+          author_kind: 'system',
+          author_agent_id: null,
+          blocks: [block],
+          text_content: '[block]',
+          reply_count: 19,
+          last_reply_at: at + 1000,
+          reply_authors: [{ author_kind: 'agent', author_agent_id: 'agent-1' }],
+        }),
+      ],
+      false,
+      vi.fn(),
+      vi.fn(),
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: /19 replies/ }))
+    expect(onOpenThread).toHaveBeenCalledWith('block-message')
+
+    onOpenThread.mockClear()
+    fireEvent.click(screen.getByRole('button', { name: 'Reply in thread' }))
+    expect(onOpenThread).toHaveBeenCalledWith('block-message')
   })
 
   it('gives a run of messages by one author one name line', async () => {

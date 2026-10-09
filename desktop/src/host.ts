@@ -14,6 +14,7 @@ import { exec } from 'node:child_process'
 import os from 'node:os'
 
 import { type HarnessSignInRequest, type HarnessSignInResult, runSignIn, type SignInRunner } from './harnessSignIn'
+import { runSignInCheck, type SignInCheck, type SignInChecker } from './harnessSignInCheck'
 import { findOnPath, loginShellEnvironment } from './loginShell'
 import { isTrustedServerOrigin } from './origin'
 
@@ -33,10 +34,13 @@ export const EXIT_CAPABILITY = 'exit'
 export const HARNESS_CAPABILITY_PREFIX = 'harness:'
 
 /** One harness of the Harness Catalog, as the answer to a registration
- *  names it: its id and the programs that it needs on the PATH. */
+ *  names it: its id, the programs that it needs on the PATH, and the
+ *  vendor's status command that tells whether the person is signed in,
+ *  or null for a harness with none. */
 export interface CatalogHarness {
   id: string
   launchers: readonly string[]
+  sign_in_check?: SignInCheck | null
 }
 
 /** Gives the id of each harness of the catalog that this machine can
@@ -74,6 +78,22 @@ function catalogOf(value: unknown): CatalogHarness[] | null {
       Array.isArray(entry.launchers) &&
       entry.launchers.every((launcher: unknown) => typeof launcher === 'string'),
   )
+}
+
+/** The status command of a catalog entry, or null when the entry names
+ *  none or names one that is not an argument vector with fixed words. */
+function signInCheckOf(value: unknown): SignInCheck | null {
+  const check = value as Partial<SignInCheck> | null | undefined
+  if (
+    !Array.isArray(check?.command) ||
+    check.command.length === 0 ||
+    !check.command.every((arg) => typeof arg === 'string') ||
+    typeof check.signed_out !== 'string' ||
+    check.signed_out === ''
+  ) {
+    return null
+  }
+  return { command: check.command, signed_out: check.signed_out }
 }
 
 /** The request of a `harness_sign_in` frame, or null when the payload is
@@ -215,11 +235,20 @@ export const runInShell: CommandRunner = (dispatch) =>
  * A `harness_sign_in` frame asks for a Harness Sign-In. The agent answers
  * it with one `harness_sign_in_result` that holds only the exit code, and
  * never the output of the window (`harnessSignIn.ts`).
+ *
+ * The agent checks the sign-in state of each harness that it found and
+ * that has a status command in the catalog, after it declares the
+ * harnesses. It checks a harness again when a sign-in to it ends, before
+ * the result, and when a `harness_sign_in_check` frame asks. Each check
+ * sends one `harness_sign_in_state` frame that holds only the state, and
+ * never the output of the command (`harnessSignInCheck.ts`).
  */
 export class HostAgent {
   private hostId: string | null = null
   private capabilitiesHeld: string[] = []
   private harnessesSearched = false
+  /** The status command of each harness of the last catalog. */
+  private checks = new Map<string, SignInCheck>()
 
   constructor(
     private readonly socket: HostSocket,
@@ -229,6 +258,7 @@ export class HostAgent {
     private readonly capabilities: readonly string[] = [SHELL_CAPABILITY],
     private readonly findHarnesses: HarnessFinder = harnessesOnPath,
     private readonly signIn: SignInRunner = runSignIn,
+    private readonly checkSignIn: SignInChecker = runSignInCheck,
   ) {
     this.socket.onMessage((frame) => {
       void this.receive(frame)
@@ -274,10 +304,26 @@ export class HostAgent {
     }
     const declared = found.map((id) => `${HARNESS_CAPABILITY_PREFIX}${id}`)
     const held = this.capabilitiesHeld.filter((capability) => capability.startsWith(HARNESS_CAPABILITY_PREFIX))
-    if (declared.length === held.length && declared.every((capability, index) => capability === held[index])) {
-      return
+    if (declared.length !== held.length || declared.some((capability, index) => capability !== held[index])) {
+      this.register([...this.capabilities, ...declared])
     }
-    this.register([...this.capabilities, ...declared])
+    // The daemon reads the frames of the socket in order, so each state
+    // comes after the registration that declares its harness.
+    await Promise.all(found.map((id) => this.sendSignInState(id)))
+  }
+
+  /** Run the status command of `harness`, when the catalog names one, and
+   *  send the state. */
+  private async sendSignInState(harness: string): Promise<void> {
+    const check = this.checks.get(harness)
+    if (check === undefined) return
+    let state: string
+    try {
+      state = await this.checkSignIn(check)
+    } catch {
+      state = 'unknown'
+    }
+    this.socket.send(JSON.stringify({ type: 'harness_sign_in_state', harness, state }))
   }
 
   private async receive(frame: string): Promise<void> {
@@ -295,6 +341,13 @@ export class HostAgent {
         ? held.filter((capability): capability is string => typeof capability === 'string')
         : []
       const catalog = catalogOf(parsed.payload?.harnesses)
+      if (catalog !== null) {
+        this.checks = new Map()
+        for (const harness of catalog) {
+          const check = signInCheckOf(harness.sign_in_check)
+          if (check !== null) this.checks.set(harness.id, check)
+        }
+      }
       if (catalog !== null && !this.harnessesSearched) {
         this.harnessesSearched = true
         await this.declareHarnesses(catalog)
@@ -303,6 +356,13 @@ export class HostAgent {
     }
     if (parsed.type === 'harness_sign_in') {
       await this.answerSignIn(parsed.payload)
+      return
+    }
+    if (parsed.type === 'harness_sign_in_check') {
+      const harness = parsed.payload?.harness
+      if (typeof harness === 'string' && this.capabilitiesHeld.includes(`${HARNESS_CAPABILITY_PREFIX}${harness}`)) {
+        await this.sendSignInState(harness)
+      }
       return
     }
     if (parsed.type !== 'dispatch') return
@@ -334,6 +394,8 @@ export class HostAgent {
     } catch (error) {
       result = { exit_code: null, error: (error as Error).message }
     }
+    // The state goes first, so the daemon has it when the sign-in ends.
+    await this.sendSignInState(request.harness)
     this.socket.send(JSON.stringify({ type: 'harness_sign_in_result', id: request.id, ...result }))
   }
 }

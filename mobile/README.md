@@ -91,14 +91,32 @@ no push arrives:
 
 - `PUSH_RELAY_ORIGIN`: the `https` origin of the Push Relay. The
   placeholder is `https://push-relay.invalid`, a reserved name that never
-  resolves.
-  - iOS: the build setting `PUSH_RELAY_ORIGIN` of the `App` target in
-    `ios/App/App.xcodeproj`. `Info.plist` gives it to the app as
-    `PagisPushRelayOrigin`. Change the value in **Build Settings** in
-    Xcode for each configuration, or give it to one build:
-    `xcodebuild PUSH_RELAY_ORIGIN=https://<relay host> ...`.
-  - Android: the `buildConfigField` `PUSH_RELAY_ORIGIN` in
-    `android/app/build.gradle`.
+  resolves. The relay of the project, `https://push.pagis.co`, sends only
+  to an app that the team of the project signs. Each value stays out of
+  the repository:
+  - iOS: the build setting `PUSH_RELAY_ORIGIN` of the `App` target.
+    `ios/app.xcconfig` holds the placeholder, and `Info.plist` gives the
+    value to the app as `PagisPushRelayOrigin`. To set the value for the
+    builds of your checkout, in Xcode and with `xcodebuild`, put it in
+    `ios/local.xcconfig`. Git ignores that file. `//` starts a comment in
+    an xcconfig file, so write the value with `$()` between the slashes:
+
+    ```
+    PUSH_RELAY_ORIGIN = https:/$()/push.pagis.co
+    ```
+
+    To set the value for one build, give it on the command line:
+    `xcodebuild PUSH_RELAY_ORIGIN=https://push.pagis.co ...`. Do not set
+    the value in **Build Settings** in Xcode. Xcode writes it to
+    `project.pbxproj`, where it overrides `ios/local.xcconfig`, and a test
+    of the gate fails.
+  - Android: the Gradle property `PUSH_RELAY_ORIGIN`, which
+    `android/app/build.gradle` gives to the app as
+    `BuildConfig.PUSH_RELAY_ORIGIN`. To set the value for your builds, put
+    `PUSH_RELAY_ORIGIN=https://push.pagis.co` in
+    `~/.gradle/gradle.properties`, or set the environment variable
+    `ORG_GRADLE_PROJECT_PUSH_RELAY_ORIGIN`. To set it for one build, give
+    it on the command line: `./gradlew -PPUSH_RELAY_ORIGIN=https://push.pagis.co ...`.
 - `android/app/google-services.json`: the Firebase project of the Push
   Relay. In the Firebase console, add an Android app with the package name
   `co.pagis.mobile` to the project that `PUSH_RELAY_FCM_PROJECT_ID` of the
