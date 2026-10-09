@@ -266,11 +266,12 @@ set_secret CSC_LINK "$CSC_LINK"
 set_secret CSC_KEY_PASSWORD "$CSC_KEY_PASSWORD"
 if confirm "Delete $P12_PATH now that it is a secret?"; then rm -f "$P12_PATH"; say "Deleted."; fi
 
-# ── 3. The notary key ─────────────────────────────────────────────────────
-stage "The App Store Connect API key that notarizes"
-say "Notarization signs in with an API key of the team, not with a person's Apple ID."
+# ── 3. The API key ────────────────────────────────────────────────────────
+stage "The App Store Connect API key"
+say "Notarization, the signature of the iOS app and its upload sign in with an API key of the team, not with a person's Apple ID."
+say "Xcode automatic signing makes certificates and profiles and uses a cloud-managed distribution certificate, which needs the Admin role."
 open_url "https://appstoreconnect.apple.com/access/integrations/api"
-step "Team Keys → Generate API Key. Name it 'pagis notarization' and give it the Developer role."
+step "Team Keys → Generate API Key. Name it 'pagis release' and give it the Admin role."
 step "Download the .p8 file. Apple lets you download it one time only."
 step "Copy the Key ID of the key and the Issuer ID above the list."
 ask_file P8_PATH "Path of the downloaded .p8 file:"

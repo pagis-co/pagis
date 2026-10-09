@@ -16,8 +16,11 @@ import { version } from '../package.json'
 /** The release of this app. */
 export const APP_VERSION: string = version
 
-/** The oldest server release that this app accepts. */
-export const MINIMUM_SERVER_VERSION = '0.2.0'
+/**
+ * The oldest server release that this app accepts: the first release that
+ * sends Notifications and serves the decision route.
+ */
+export const MINIMUM_SERVER_VERSION = '0.3.0'
 
 /**
  * Why this app cannot work with a server of this version, or null when

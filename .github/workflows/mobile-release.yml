@@ -1,0 +1,169 @@
+# The iOS release of the Mobile App for a `mobile-v*` tag. The tag names
+# the version in `mobile/package.json` (`mobile-v0.2.0` for `0.2.0`), and
+# each release job stops on a tag that names another version
+# (docs/RELEASING-MOBILE.md):
+#
+# 1. The gate: the CI workflow on the tagged commit, and npm audit of the
+#    lockfile of the Mobile App.
+# 2. Prepare: the build, the signature and the checks of the exact .ipa,
+#    which the job attests and keeps as the artifact `mobile-ios`.
+# 3. Publish: the upload of that .ipa to App Store Connect. The `release`
+#    environment holds it until a maintainer approves it. App Store review
+#    is a manual step in App Store Connect after the upload.
+#
+# The Mobile App is not an artifact of the `v*` release (release.yml).
+name: Mobile App release
+
+on:
+  push:
+    tags: ["mobile-v*"]
+
+# One run per tag.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+# The actions are pinned as in ci.yml.
+
+jobs:
+  gate:
+    name: gate
+    uses: ./.github/workflows/ci.yml
+
+  # A newly published advisory in a package of the app stops the release
+  # before the build.
+  mobile-npm-audit:
+    name: mobile-npm-audit
+    needs: gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-on-failure: true
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+
+      - run: cargo xtask advisories mobile-npm-audit
+
+  mobile-ios:
+    name: prepare the iOS app
+    needs: [gate, mobile-npm-audit]
+    runs-on: macos-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    env:
+      # The production Push Relay (docs/PUSH-RELAY.md).
+      PUSH_RELAY_ORIGIN: https://push.pagis.co
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-on-failure: true
+
+      # As in ci.yml: Capacitor 8 builds with Xcode 26 or later, and the
+      # newest Xcode of the runner image is selected.
+      - name: select Xcode 26 or later
+        run: |
+          xcode=$(ls -d /Applications/Xcode_2[6-9]*.app 2>/dev/null | sort -V | tail -n 1)
+          if [ -z "$xcode" ]; then
+            echo "the runner has no Xcode 26 or later:" >&2
+            ls -d /Applications/Xcode*.app >&2
+            exit 1
+          fi
+          sudo xcode-select --switch "$xcode"
+          xcodebuild -version
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: write the API key
+        run: .github/scripts/write-notary-key.sh
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+
+      # Xcode automatic signing with the API key makes the profiles of the
+      # app and the extension, and signs the export with a cloud-managed
+      # distribution certificate. The build number is the number of this
+      # run.
+      - name: cargo xtask mobile --ios --prepare
+        run: cargo xtask mobile --ios --tag "$GITHUB_REF_NAME" --prepare
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: mobile/release/Pagis.ipa
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mobile-ios
+          path: mobile/release/Pagis.ipa
+
+  # The publication waits in the `release` environment until a maintainer
+  # approves it. It uploads the prepared .ipa, and builds nothing.
+  publish-mobile-ios:
+    name: upload the iOS app to App Store Connect
+    needs: mobile-ios
+    environment: release
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-on-failure: true
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: mobile-ios
+          path: mobile/release
+
+      - name: write the API key
+        run: .github/scripts/write-notary-key.sh
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+
+      - name: cargo xtask mobile --ios --publish-existing
+        run: cargo xtask mobile --ios --tag "$GITHUB_REF_NAME" --publish-existing
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}

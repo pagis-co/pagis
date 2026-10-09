@@ -1,1 +1,4 @@
 /dist
+
+# The prepared release of `cargo xtask mobile --ios --prepare`
+/release

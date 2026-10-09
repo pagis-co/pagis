@@ -184,6 +184,9 @@ which deploys the documentation site. A manual run of the docs workflow
 deploys the site from `main`. That workflow also uploads a preview of the site for a pull request that changes it.
 For a `push-relay-v*` tag, `.github/workflows/push-relay.yml` runs the
 gate and publishes the Push Relay image (`docs/PUSH-RELAY.md`).
+For a `mobile-v*` tag, `.github/workflows/mobile-release.yml` runs the
+gate, prepares the iOS app of the Mobile App, and uploads it to App Store
+Connect (`docs/RELEASING-MOBILE.md`).
 
 ## Pull requests
 

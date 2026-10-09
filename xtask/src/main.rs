@@ -45,7 +45,15 @@ fn main() -> Result<()> {
         }
         Some("advisories") => {
             let root = workspace_root();
-            let lane = xtask::advisories::published_advisory_lane(&root, &target_dir(&root));
+            let target = target_dir(&root);
+            let lane = if args.len() > 1 {
+                xtask::Lane {
+                    name: "advisories",
+                    steps: xtask::advisories::named_advisory_steps(&root, &target, &args[1..])?,
+                }
+            } else {
+                xtask::advisories::published_advisory_lane(&root, &target)
+            };
             exit_on_red(run_lanes(vec![lane]))
         }
         Some("image") => run_image(&workspace_root(), args.iter().any(|a| a == "--dry-run")),
@@ -60,6 +68,7 @@ fn main() -> Result<()> {
             args.iter().any(|a| a == "--dry-run"),
         ),
         Some("desktop") => run_desktop(&args),
+        Some("mobile") => run_mobile(&args),
         Some("runtime-lock") => run_runtime_lock(&args),
         Some("emergency-numbers") => {
             xtask::emergency::run(&workspace_root(), args.iter().any(|a| a == "--check"))
@@ -68,10 +77,10 @@ fn main() -> Result<()> {
             xtask::pins::run(&workspace_root())
         }
         _ => bail!(
-            "usage: cargo xtask <dev | full | step <name>... | advisories | image [--dry-run] | \
+            "usage: cargo xtask <dev | full | step <name>... | advisories [<name>...] | image [--dry-run] | \
              server-image [--dry-run] | relay-image [--platform <amd64 | arm64> | --manifest] [--tag <tag>] [--dry-run] | release <advisories | computer-image | computer-manifest | server-image | server-manifest | linux | macos | draft> \
              [--platform <amd64 | arm64>] [--tag <tag>] [--dry-run] | desktop [--linux] [--tag <tag>] [--prepare | --publish-existing] [--dry-run] | \
-             emergency-numbers [--check] | pins --check>"
+             mobile --ios --tag <tag> <--prepare | --publish-existing> [--dry-run] | emergency-numbers [--check] | pins --check>"
         ),
     }
 }
@@ -404,6 +413,48 @@ fn run_desktop(args: &[String]) -> Result<()> {
     println!("\n{}", summary(&results));
     if !all_green(&results) {
         bail!("the desktop packaging failed");
+    }
+    Ok(())
+}
+
+/// `cargo xtask mobile --ios`: the iOS release of the Mobile App for a
+/// `mobile-v<version>` tag (`docs/RELEASING-MOBILE.md`). `--prepare`
+/// builds, signs and checks the exact `.ipa`. `--publish-existing`
+/// uploads those bytes to App Store Connect after a maintainer approves
+/// the release.
+fn run_mobile(args: &[String]) -> Result<()> {
+    use xtask::mobile::IosPhase;
+    if !args.iter().any(|arg| arg == "--ios") {
+        bail!("cargo xtask mobile releases the iOS app only; give --ios");
+    }
+    let phase = match (
+        args.iter().any(|arg| arg == "--prepare"),
+        args.iter().any(|arg| arg == "--publish-existing"),
+    ) {
+        (true, false) => IosPhase::Prepare,
+        (false, true) => IosPhase::PublishExisting,
+        _ => bail!("give one of --prepare and --publish-existing"),
+    };
+    let Some(tag) = flag_value(args, "--tag") else {
+        bail!("the iOS release needs --tag mobile-v<version>");
+    };
+    let dry_run = args.iter().any(|arg| arg == "--dry-run");
+    if !cfg!(target_os = "macos") && !dry_run {
+        bail!("the iOS release runs on a macOS host with Xcode");
+    }
+    let root = workspace_root();
+    let steps =
+        xtask::mobile::ios_release_plan(&root, &tag, phase, &|name| std::env::var(name).ok())?;
+
+    if dry_run {
+        println!("{}", xtask::plan_summary(&steps));
+        return Ok(());
+    }
+
+    let results = execute_until_failure(&steps);
+    println!("\n{}", summary(&results));
+    if !all_green(&results) {
+        bail!("the iOS release failed");
     }
     Ok(())
 }

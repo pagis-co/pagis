@@ -73,8 +73,7 @@ The server releases that a connected Client App accepts: its own release
 and every later one that promises the same API. The client checks it on
 every start and refuses a server outside it, saying which end to update
 (ADR-0025). The Mobile App holds a lower bound only: the first release that
-serves Notifications, and every later one. Not built: the bound is 0.2.0,
-not the first release that serves Notifications (ADR-0032).
+serves Notifications, and every later one (ADR-0032).
 
 ### Computer Image
 The container image every Computer and Plugin Computer runs. It has a

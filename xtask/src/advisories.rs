@@ -9,6 +9,7 @@
 //! advisory does not block an unrelated pull request.
 //! `cargo xtask advisories` runs the dependency checks and scans the
 //! images of the latest release, and a daily workflow runs it.
+//! `cargo xtask advisories <step>...` runs the named checks only.
 //! The advisories stage of `cargo xtask release` runs the dependency
 //! checks of what a release ships, before any image build. Each
 //! computer-image job then scans the Computer Image of its platform
@@ -72,6 +73,34 @@ pub fn published_advisory_lane(root: &Path, target_dir: &Path) -> Lane {
         name: "advisories",
         steps,
     }
+}
+
+/// The steps of [`published_advisory_lane`] that `names` names, in the
+/// order of the names. A release that ships one package runs the check of
+/// that package alone: the iOS release of the Mobile App runs
+/// `cargo xtask advisories mobile-npm-audit`.
+pub fn named_advisory_steps(
+    root: &Path,
+    target_dir: &Path,
+    names: &[String],
+) -> anyhow::Result<Vec<Step>> {
+    let steps = published_advisory_lane(root, target_dir).steps;
+    names
+        .iter()
+        .map(|name| {
+            steps
+                .iter()
+                .find(|step| step.name == name)
+                .cloned()
+                .ok_or_else(|| {
+                    let known: Vec<&str> = steps.iter().map(|step| step.name).collect();
+                    anyhow::anyhow!(
+                        "the advisory checks have no step `{name}`; their steps are: {}",
+                        known.join(", ")
+                    )
+                })
+        })
+        .collect()
 }
 
 /// Check the advisories of the lockfiles of the workspace and

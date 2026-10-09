@@ -10,6 +10,14 @@ describe('the server versions that the Mobile App accepts', () => {
     expect(semver.valid(MINIMUM_SERVER_VERSION)).toBe(MINIMUM_SERVER_VERSION)
   })
 
+  /** Pagis 0.3.0 is the first server release that sends Notifications
+   *  and serves the decision route that the app calls from a
+   *  Notification (ADR-0030). Pagis 0.2.0 sends no Notification. */
+  it('starts at the first server release that serves Notifications', () => {
+    expect(MINIMUM_SERVER_VERSION).toBe('0.3.0')
+    expect(serverVersionProblem('0.2.0')).toMatch(/update it to 0\.3\.0 or newer/)
+  })
+
   it('accepts the bound', () => {
     expect(serverVersionProblem(MINIMUM_SERVER_VERSION)).toBeNull()
   })

@@ -1,8 +1,8 @@
 #!/bin/sh
 # Write the App Store Connect API key of APPLE_API_KEY_P8 (the text of its
 # `.p8` file) to the temporary directory of the runner, and name the file
-# in APPLE_API_KEY for the later steps of the job. notarytool and
-# electron-builder read the key from that file.
+# in APPLE_API_KEY for the later steps of the job. notarytool,
+# electron-builder, xcodebuild and altool read the key from that file.
 set -eu
 : "${APPLE_API_KEY_P8:?APPLE_API_KEY_P8 is required}"
 : "${RUNNER_TEMP:?RUNNER_TEMP is required}"

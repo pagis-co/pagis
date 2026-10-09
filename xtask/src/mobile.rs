@@ -13,9 +13,19 @@
 //! native step whose toolchain is absent, as they skip the Docker steps
 //! without Docker. `cargo xtask step` refuses it, so the CI job that names
 //! the step proves that it ran.
+//!
+//! This module also holds the iOS release (`cargo xtask mobile --ios`),
+//! which `.github/workflows/mobile-release.yml` runs for a `mobile-v*`
+//! tag in two phases (`docs/RELEASING-MOBILE.md`). The prepare phase
+//! builds, signs and checks the exact `.ipa`. The publish phase uploads
+//! those bytes to App Store Connect after a maintainer approves the
+//! release. The plan names its inputs, and the shell reads each secret
+//! from the environment when a step runs.
 
 use std::path::Path;
 use std::process::Command;
+
+use anyhow::{Result, bail};
 
 use crate::{Action, Cmd, Lane, Step, npm_deps_action, npm_script_action};
 
@@ -215,4 +225,268 @@ fn native_step(
         ])
     };
     Step { name, action }
+}
+
+/// The phase of the iOS release.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IosPhase {
+    /// Build, sign and check the exact `.ipa`, and stop before the upload.
+    Prepare,
+    /// Upload the prepared `.ipa`. Build and sign nothing.
+    PublishExisting,
+}
+
+/// The `.ipa` that the prepare phase writes and the publish phase
+/// uploads, from the repository root.
+const IPA: &str = "mobile/release/Pagis.ipa";
+
+/// The archive and the export, from `mobile/ios`.
+const ARCHIVE: &str = "../release/Pagis.xcarchive";
+
+/// The bundle id of the app (ADR-0032).
+const BUNDLE_ID: &str = "co.pagis.mobile";
+
+/// The environment variable that holds the `https` origin of the Push
+/// Relay, which the archive gives to `xcodebuild` as a build setting.
+const RELAY_ORIGIN: &str = "PUSH_RELAY_ORIGIN";
+
+/// The environment variable that holds the number of the workflow run,
+/// which is the build number of the app.
+const RUN_NUMBER: &str = "GITHUB_RUN_NUMBER";
+
+/// The App Store Connect API key: the path of its `.p8` file, its key ID
+/// and its issuer ID. Automatic signing and the upload use it.
+const API_KEY_INPUTS: [&str; 3] = ["APPLE_API_KEY", "APPLE_API_KEY_ID", "APPLE_API_ISSUER"];
+
+/// The `xcodebuild` options of automatic signing with the API key.
+const AUTOMATIC_SIGNING: &str = "-allowProvisioningUpdates \
+    -authenticationKeyPath \"$APPLE_API_KEY\" \
+    -authenticationKeyID \"$APPLE_API_KEY_ID\" \
+    -authenticationKeyIssuerID \"$APPLE_API_ISSUER\"";
+
+/// The inputs of the prepare phase, after their checks.
+struct Build {
+    version: String,
+    run_number: String,
+    relay_origin: String,
+}
+
+/// Plan the iOS release of the checkout at `root` for the tag `tag`.
+/// `env` reads the environment. The plan stops when the tag does not
+/// name the version of `mobile/package.json`, or when an input of the
+/// phase is missing or wrong.
+pub fn ios_release_plan(
+    root: &Path,
+    tag: &str,
+    phase: IosPhase,
+    env: &dyn Fn(&str) -> Option<String>,
+) -> Result<Vec<Step>> {
+    let version = package_version(root)?;
+    let expected = format!("mobile-v{version}");
+    if tag != expected {
+        bail!("tag {tag} does not name the version of {PACKAGE}/package.json; expected {expected}");
+    }
+    let value = |name: &str| env(name).filter(|value| !value.trim().is_empty());
+    let missing: Vec<&str> = API_KEY_INPUTS
+        .into_iter()
+        .filter(|name| value(name).is_none())
+        .collect();
+    if !missing.is_empty() {
+        bail!(
+            "the iOS release needs the App Store Connect API key in {}",
+            missing.join(", ")
+        );
+    }
+    let build = match phase {
+        IosPhase::Prepare => Some(Build {
+            version,
+            run_number: run_number(value(RUN_NUMBER))?,
+            relay_origin: relay_origin(value(RELAY_ORIGIN))?,
+        }),
+        // The prepared .ipa holds the build number and the relay origin.
+        IosPhase::PublishExisting => None,
+    };
+    let mobile = root.join(PACKAGE);
+    let ios = mobile.join("ios");
+    let prepared = |name: &'static str, run: &dyn Fn(&Build) -> Cmd| Step {
+        name,
+        action: match &build {
+            Some(build) => Action::Run(vec![run(build)]),
+            None => Action::Skip("publishing the exact .ipa that was prepared".into()),
+        },
+    };
+    let upload = match phase {
+        IosPhase::Prepare => Action::Skip("the prepared .ipa awaits publication".into()),
+        IosPhase::PublishExisting => {
+            Action::Run(vec![Cmd::new("sh", &["-c", &upload_script()]).in_dir(root)])
+        }
+    };
+    Ok(vec![
+        prepared("deps", &|_| Cmd::new("npm", &["ci"]).in_dir(&mobile)),
+        prepared("build", &|_| {
+            Cmd::new("npm", &["run", "build"]).in_dir(&mobile)
+        }),
+        prepared("sync", &|_| {
+            Cmd::new("npx", &["cap", "sync", "ios"]).in_dir(&mobile)
+        }),
+        prepared("archive", &|build| {
+            Cmd::new("sh", &["-c", &archive_script(build)]).in_dir(&ios)
+        }),
+        prepared("export", &|_| {
+            Cmd::new("sh", &["-c", &export_script()]).in_dir(&ios)
+        }),
+        prepared("check-ipa", &|build| {
+            Cmd::new("sh", &["-c", &check_script(build)]).in_dir(root)
+        }),
+        Step {
+            name: "upload",
+            action: upload,
+        },
+    ])
+}
+
+/// The version of `mobile/package.json`. App Store Connect takes a
+/// `CFBundleShortVersionString` of one to three whole numbers with
+/// periods between them.
+fn package_version(root: &Path) -> Result<String> {
+    let path = root.join(PACKAGE).join("package.json");
+    let manifest = std::fs::read_to_string(&path)
+        .map_err(|error| anyhow::anyhow!("read {}: {error}", path.display()))?;
+    let package: serde_json::Value = serde_json::from_str(&manifest)?;
+    let version = package["version"].as_str().unwrap_or_default();
+    let parts: Vec<&str> = version.split('.').collect();
+    let numbers = parts.len() <= 3
+        && parts
+            .iter()
+            .all(|part| !part.is_empty() && part.chars().all(|c| c.is_ascii_digit()));
+    if !numbers {
+        bail!(
+            "{PACKAGE}/package.json is version {version}, and App Store Connect takes one to \
+             three whole numbers with periods between them"
+        );
+    }
+    Ok(version.to_string())
+}
+
+/// The build number: a positive whole number.
+fn run_number(value: Option<String>) -> Result<String> {
+    let Some(value) = value else {
+        bail!("the iOS release needs {RUN_NUMBER}, the build number of the app");
+    };
+    let value = value.trim();
+    if value.parse::<u64>().is_ok_and(|number| number > 0) {
+        Ok(value.to_string())
+    } else {
+        bail!("{RUN_NUMBER} is {value}, and the build number must be a positive whole number")
+    }
+}
+
+/// The `https` origin of the Push Relay: a host and an optional port,
+/// with no user, path, query or fragment. The placeholder of
+/// `mobile/ios/app.xcconfig` is a `.invalid` name, which never resolves.
+fn relay_origin(value: Option<String>) -> Result<String> {
+    let Some(value) = value else {
+        bail!("the iOS release needs {RELAY_ORIGIN}, the https origin of the Push Relay");
+    };
+    let value = value.trim();
+    let authority = value.strip_prefix("https://").unwrap_or_default();
+    let host = authority
+        .rsplit_once(':')
+        .map_or(authority, |(host, port)| {
+            if port.parse::<u16>().is_ok() {
+                host
+            } else {
+                ""
+            }
+        });
+    let plain_host = !host.is_empty()
+        && host.split('.').all(|label| {
+            !label.is_empty() && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+        });
+    if !plain_host {
+        bail!(
+            "{RELAY_ORIGIN} is {value}, which is not an https origin such as https://push.pagis.co"
+        );
+    }
+    if host.ends_with(".invalid") {
+        bail!("{RELAY_ORIGIN} is {value}, the placeholder that never resolves");
+    }
+    Ok(value.to_string())
+}
+
+/// Archive the app and its extension. The settings on the command line
+/// come before each xcconfig file, so the versions and the relay origin
+/// of the release apply to each target.
+fn archive_script(build: &Build) -> String {
+    format!(
+        "set -eu\n\
+         rm -rf ../release\n\
+         mkdir -p ../release\n\
+         xcodebuild archive -project App/App.xcodeproj -scheme App -configuration Release \
+         -destination generic/platform=iOS -archivePath {ARCHIVE} {AUTOMATIC_SIGNING} \
+         MARKETING_VERSION={version} CURRENT_PROJECT_VERSION={run_number} \
+         {RELAY_ORIGIN}={origin}\n",
+        version = build.version,
+        run_number = build.run_number,
+        origin = build.relay_origin,
+    )
+}
+
+/// Export the archive for App Store Connect, and name the `.ipa` after
+/// the app.
+fn export_script() -> String {
+    format!(
+        "set -eu\n\
+         out=$(mktemp -d)\n\
+         trap 'rm -rf \"$out\"' EXIT\n\
+         xcodebuild -exportArchive -archivePath {ARCHIVE} -exportPath \"$out\" \
+         -exportOptionsPlist ExportOptions.plist {AUTOMATIC_SIGNING}\n\
+         set -- \"$out\"/*.ipa\n\
+         [ $# -eq 1 ] && [ -f \"$1\" ] || {{ echo 'the export wrote no single .ipa' >&2; exit 1; }}\n\
+         mv \"$1\" ../release/Pagis.ipa\n"
+    )
+}
+
+/// Check the exact `.ipa`: the signatures of the app and the extension,
+/// their versions and privacy manifests, the bundle id, the relay origin,
+/// and the production APNs environment of a distribution signature.
+fn check_script(build: &Build) -> String {
+    format!(
+        r#"set -eu
+ipa='{IPA}'
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+/usr/bin/ditto -x -k "$ipa" "$tmp"
+app="$tmp/Payload/App.app"
+appex="$app/PlugIns/PagisNotificationService.appex"
+value() {{ /usr/libexec/PlistBuddy -c "Print :$2" "$1"; }}
+expect() {{ [ "$2" = "$3" ] || {{ echo "$1 is $2; expected $3" >&2; exit 1; }}; }}
+for bundle in "$app" "$appex"; do
+  /usr/bin/codesign --verify --strict --verbose=2 "$bundle"
+  expect "CFBundleShortVersionString of $bundle" "$(value "$bundle/Info.plist" CFBundleShortVersionString)" '{version}'
+  expect "CFBundleVersion of $bundle" "$(value "$bundle/Info.plist" CFBundleVersion)" '{run_number}'
+  [ -f "$bundle/PrivacyInfo.xcprivacy" ] || {{ echo "$bundle has no PrivacyInfo.xcprivacy" >&2; exit 1; }}
+done
+expect CFBundleIdentifier "$(value "$app/Info.plist" CFBundleIdentifier)" '{BUNDLE_ID}'
+expect PagisPushRelayOrigin "$(value "$app/Info.plist" PagisPushRelayOrigin)" '{origin}'
+/usr/bin/codesign -d --entitlements - --xml "$app" > "$tmp/entitlements.plist"
+expect aps-environment "$(value "$tmp/entitlements.plist" aps-environment)" production
+"#,
+        version = build.version,
+        run_number = build.run_number,
+        origin = build.relay_origin,
+    )
+}
+
+/// Upload the prepared `.ipa`. altool reads the key from the file
+/// `AuthKey_<key id>.p8` in the directory of `API_PRIVATE_KEYS_DIR`.
+fn upload_script() -> String {
+    format!(
+        r#"set -eu
+keys=$(mktemp -d)
+trap 'rm -rf "$keys"' EXIT
+cp "$APPLE_API_KEY" "$keys/AuthKey_$APPLE_API_KEY_ID.p8"
+API_PRIVATE_KEYS_DIR="$keys" xcrun altool --upload-app -f {IPA} -t ios --apiKey "$APPLE_API_KEY_ID" --apiIssuer "$APPLE_API_ISSUER"
+"#
+    )
 }

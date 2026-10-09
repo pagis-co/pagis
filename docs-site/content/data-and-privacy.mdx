@@ -223,12 +223,11 @@ retention, a Backup holds them, and Forget does not reach them.
 
 ### What the Push Relay receives
 
-A Notification goes to the Mobile App from the App Store or Google Play
-through the Push Relay, a service that the Pagis project runs. Only the
-publisher of an app can send to it through APNs and FCM, so the relay
-holds the keys of the publisher. A browser gets its Notifications from
-its own push service and not from the relay. The registration of the
-Mobile App with the Push Relay is not built.
+A Notification goes to a release of the Mobile App through the Push
+Relay, a service that the Pagis project runs at `https://push.pagis.co`.
+Only the publisher of an app can send to it through APNs and FCM, so the
+relay holds the keys of the publisher. A browser gets its Notifications
+from its own push service and not from the relay.
 
 The server encrypts each Notification for the phone, and only the phone
 decrypts it. The relay receives:

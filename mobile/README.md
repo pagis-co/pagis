@@ -164,6 +164,12 @@ make a Request on the server. `adb logcat -s Pagis` shows why a push shows
 "Something needs you" in place of its text, and why the daemon did not take
 an answer from **Approve once** or **Deny**.
 
+## Release
+
+A `mobile-v<version>` tag releases the iOS app through TestFlight and the
+App Store. [RELEASING-MOBILE.md](../docs/RELEASING-MOBILE.md) holds the
+procedure and the steps in the Apple Developer account.
+
 ## Run the app against a local daemon
 
 A debug build of the app takes `http://` on a loopback host. A release build

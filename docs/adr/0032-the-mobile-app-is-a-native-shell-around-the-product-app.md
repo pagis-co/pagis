@@ -552,6 +552,29 @@ Other ways were considered:
   fall behind the server between releases, and it would need an upper
   bound on the versions of the server.
 
+### The iOS app ships from its own tag
+
+The Mobile App has its own version, in `mobile/package.json`, and its own
+tag, `mobile-v<version>`, as the Push Relay has `push-relay-v<version>`.
+It is not an artifact of the `v*` release, and the Release Matrix of
+ADR-0025 does not change. Store review takes days, and a self-hosted
+server updates on its own schedule, so the two releases do not wait for
+each other.
+
+The iOS release has the two phases of the Client App: prepare, then
+publish after a maintainer approves the `release` environment. The
+prepare phase archives, signs and checks the exact `.ipa`, with Xcode
+automatic signing and the App Store Connect API key. The publish phase
+uploads those bytes to App Store Connect, from where they go to
+TestFlight. App Store review is a manual step in App Store Connect after
+the upload. `docs/RELEASING-MOBILE.md` holds the procedure.
+
+Each bundle that holds code ships a privacy manifest: the app and the
+Notification Service Extension. Neither tracks the Person or collects
+data.
+
+The Android release is not built.
+
 ## Consequences
 
 The Product App draws the phone layout for the Mobile App (ADR-0034).
@@ -575,8 +598,3 @@ The Product App draws the phone layout for the Mobile App (ADR-0034).
   under Sessions. The removal also ends its Push Subscription (ADR-0030).
 - A Person who uses only the Mobile App has no Host. A host action needs
   a computer that runs the Client App.
-
-## Not built
-
-- The lower bound on the server version is 0.2.0, not the first release
-  that serves Notifications.
