@@ -1,0 +1,11 @@
+// The build settings of the App target in each configuration.
+
+// The https origin of the Push Relay (ADR-0032). The placeholder is a
+// reserved name that never resolves, so a build from the repository
+// registers with no relay. `//` starts a comment in an xcconfig file, so
+// `$()` separates the two slashes.
+PUSH_RELAY_ORIGIN = https:/$()/push-relay.invalid
+
+// The settings of this checkout. Git ignores the file, and a build without
+// it uses the values above.
+#include? "local.xcconfig"

@@ -8,6 +8,7 @@ mod emergency;
 mod gate;
 mod gog;
 mod image;
+mod mobile;
 mod pins;
 mod relay_image;
 mod release;
