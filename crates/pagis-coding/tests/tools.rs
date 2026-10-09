@@ -156,7 +156,7 @@ async fn world(pool: SqlitePool, script: Script) -> World {
         hosts_store,
         Arc::new(SqliteGrantStore::new(pool.clone())),
         Arc::new(AgentAsks::default()),
-        no_provider_keys(),
+        no_model_routes(&pool),
     );
     let grants = Arc::new(SqliteGrantStore::new(pool.clone()));
     World {
@@ -1215,12 +1215,18 @@ async fn read_shows_the_harness_mode_and_the_offered_modes_inside_the_envelope(p
     assert_eq!(read.get("harness_mode"), None, "{read:#}");
 }
 
-/// A key resolver with no provider key: no environment, no config, and an
-/// empty secret store.
-fn no_provider_keys() -> Arc<pagis_core::ProviderKeys> {
-    Arc::new(pagis_core::ProviderKeys::with_env(
-        |_| None,
-        std::collections::HashMap::new(),
-        Arc::new(pagis_core::MemorySecretStore::default()),
+/// The model routes of an installation with no provider key: no
+/// environment, no config, and an empty secret store.
+fn no_model_routes(pool: &sqlx::SqlitePool) -> Arc<pagis_coding::ModelRoutes> {
+    Arc::new(pagis_coding::ModelRoutes::new(
+        Arc::new(pagis_core::ProviderKeys::with_env(
+            |_| None,
+            std::collections::HashMap::new(),
+            Arc::new(pagis_core::MemorySecretStore::default()),
+        )),
+        Arc::new(pagis_storage_sqlite::SqliteAgentStore::new(pool.clone())),
+        Arc::new(pagis_storage_sqlite::SqliteModelAliasStore::new(
+            pool.clone(),
+        )),
     ))
 }

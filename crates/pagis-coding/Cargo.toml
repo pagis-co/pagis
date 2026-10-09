@@ -13,12 +13,17 @@ pagis-broker.workspace = true
 pagis-core.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# The configuration directory of a harness in a Computer goes up as one
+# tar.
+tar.workspace = true
 thiserror.workspace = true
 # `io-util` gives the duplex pipes of the public `fake` module.
 tokio = { workspace = true, features = ["sync", "rt", "io-util"] }
 # `compat` joins the tokio pipes of the `fake` module to the futures I/O
 # of the ACP transport.
 tokio-util = { workspace = true, features = ["compat"] }
+# The `config.toml` of Codex in a Computer.
+toml.workspace = true
 tracing.workspace = true
 # The REST answers of the daemon name who a pending ask waits for.
 utoipa.workspace = true

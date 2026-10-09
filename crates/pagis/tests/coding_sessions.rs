@@ -2881,11 +2881,15 @@ const COMPUTER_DIRECTORY: &str = "/data/agent/app";
 const ANTHROPIC_KEY: &str = "sk-ant-org-key";
 
 fn computer_start_call(directory: &str) -> pagis_testkit::Script {
+    computer_start_of("claude", directory)
+}
+
+fn computer_start_of(harness: &str, directory: &str) -> pagis_testkit::Script {
     pagis_testkit::Script::tool_call(
         &[],
         "computer_coding_session_start",
         json!({
-            "harness": "claude",
+            "harness": harness,
             "directory": directory,
             "title": "Fix the login",
             "prompt": PROMPT,
@@ -2916,6 +2920,20 @@ struct InComputer {
 /// Starts a daemon that thinks with `daemon_brain` and holds the
 /// Anthropic key when `with_key` is true.
 async fn computer_daemon(daemon_brain: Arc<dyn Brain>, with_key: bool) -> InComputer {
+    let keys: &[(&'static str, &'static str)] = if with_key {
+        &[("ANTHROPIC_API_KEY", ANTHROPIC_KEY)]
+    } else {
+        &[]
+    };
+    computer_daemon_with(daemon_brain, keys).await
+}
+
+/// Starts a daemon that thinks with `daemon_brain` and holds the Org
+/// keys of `keys`, as pairs of the variable and the key.
+async fn computer_daemon_with(
+    daemon_brain: Arc<dyn Brain>,
+    keys: &[(&'static str, &'static str)],
+) -> InComputer {
     let provider = wiremock::MockServer::start().await;
     wiremock::Mock::given(wiremock::matchers::method("POST"))
         .and(wiremock::matchers::path("/messages/count_tokens"))
@@ -2925,11 +2943,7 @@ async fn computer_daemon(daemon_brain: Arc<dyn Brain>, with_key: bool) -> InComp
         .mount(&provider)
         .await;
     let runtime = Arc::new(pagis_computer::fake::FakeComputerRuntime::with_image());
-    let keys = if with_key {
-        vec![("ANTHROPIC_API_KEY", ANTHROPIC_KEY)]
-    } else {
-        Vec::new()
-    };
+    let keys = keys.to_vec();
     let daemon = TestDaemon::start_with(TestDaemonOptions {
         brain: daemon_brain,
         computer: Arc::clone(&runtime) as _,
@@ -3209,4 +3223,334 @@ async fn a_directory_outside_the_agents_home_is_a_tool_error() {
     assert!(result.contains("bad_directory"), "{result}");
     assert!(result.contains("/data/agent"), "{result}");
     assert!(computer.runtime.exec_streams().is_empty());
+}
+
+// Codex, OpenCode and pi in the Agent's own Computer: each takes the first
+// route of the Harness Model Endpoint whose provider holds an Org key, and
+// its own configuration points it there (ADR-0033).
+
+const OPENAI_KEY: &str = "sk-openai-org-key";
+const OPENROUTER_KEY: &str = "sk-or-org-key";
+
+/// The modes of a harness, as the Harness Catalog names them.
+fn catalog_modes(harness_id: &str) -> Vec<(&'static str, &'static str)> {
+    harness::entry(harness_id)
+        .unwrap()
+        .modes
+        .iter()
+        .map(|mode| (mode.id, mode.name))
+        .collect()
+}
+
+/// A turn that ends at once.
+fn quiet_turn() -> Turn {
+    Turn::new(Vec::new(), acp::StopReason::EndTurn)
+}
+
+impl InComputer {
+    /// The one exec of a harness so far.
+    fn harness_exec(&self) -> pagis_computer::ExecRequest {
+        let streams = self.runtime.exec_streams();
+        assert_eq!(streams.len(), 1, "{streams:?}");
+        streams[0].clone()
+    }
+
+    /// The value of `name` in the environment of the harness's exec.
+    fn exec_variable(&self, name: &str) -> Option<String> {
+        let prefix = format!("{name}=");
+        self.harness_exec()
+            .env
+            .iter()
+            .find_map(|entry| entry.strip_prefix(&prefix).map(str::to_string))
+    }
+
+    /// The files that one shell command wrote into `directory` as uid
+    /// `agent`, from the tar on its stdin, by name.
+    fn uploaded(&self, directory: &str) -> std::collections::BTreeMap<String, String> {
+        let command = format!("mkdir -p '{directory}' && tar -x -C '{directory}'");
+        let writes: Vec<pagis_computer::ExecRequest> = self
+            .runtime
+            .execs()
+            .into_iter()
+            .filter(|exec| exec.argv.last() == Some(&command))
+            .collect();
+        assert_eq!(writes.len(), 1, "the writes into {directory}");
+        assert_eq!(writes[0].user, "agent");
+        let tar = writes[0].stdin.clone().expect("the tar on stdin");
+        let mut archive = tar::Archive::new(tar.as_slice());
+        archive
+            .entries()
+            .unwrap()
+            .map(|entry| {
+                let mut entry = entry.unwrap();
+                let name = entry.path().unwrap().to_string_lossy().into_owned();
+                let mut contents = String::new();
+                std::io::Read::read_to_string(&mut entry, &mut contents).unwrap();
+                (name, contents)
+            })
+            .collect()
+    }
+
+    /// Whether a shell command wrote a configuration directory.
+    fn wrote_a_configuration(&self) -> bool {
+        self.runtime.execs().iter().any(|exec| {
+            exec.argv
+                .last()
+                .is_some_and(|command| command.contains("tar -x"))
+        })
+    }
+
+    /// The base URL of the Harness Model Endpoint as the Computer reaches
+    /// it.
+    fn endpoint(&self) -> String {
+        pagis_computer::model_endpoint(self.daemon.model_addr.port())
+    }
+
+    /// The session token of the exec. The environment holds no Org key
+    /// of `keys`, and no file of `files` holds the token.
+    fn token_only_in_the_environment(
+        &self,
+        keys: &[&str],
+        files: &std::collections::BTreeMap<String, String>,
+    ) -> String {
+        let exec = self.harness_exec();
+        for key in keys {
+            assert!(
+                !exec.env.iter().any(|entry| entry.contains(key)),
+                "{:?}",
+                exec.env
+            );
+        }
+        let token = self
+            .exec_variable("PAGIS_MODEL_TOKEN")
+            .expect("the exec holds the token in PAGIS_MODEL_TOKEN");
+        assert!(!token.is_empty());
+        for (name, contents) in files {
+            assert!(!contents.contains(&token), "{name} holds the token");
+        }
+        token
+    }
+}
+
+/// Codex in the Computer with only the Org's OpenAI key: the daemon writes
+/// the provider `pagis` at `/openai/v1` into `config.toml` in the
+/// session's own `CODEX_HOME`, starts `codex-acp` there with the token in
+/// `PAGIS_MODEL_TOKEN`, and puts the harness in `agent-full-access` before
+/// the first prompt.
+#[tokio::test]
+async fn an_agent_starts_codex_in_its_computer_on_the_openai_route_in_full_access() {
+    let brain = Arc::new(ScriptedBrain::default());
+    brain.push(computer_start_of("codex", COMPUTER_DIRECTORY));
+    brain.push(pagis_testkit::Script::reply(&["Started."]));
+    let computer = computer_daemon_with(
+        Arc::new(TestRunsOnly(Arc::clone(&brain))),
+        &[("OPENAI_API_KEY", OPENAI_KEY)],
+    )
+    .await;
+    computer.serve_harness(
+        Script::default()
+            .modes("read-only", &catalog_modes("codex"))
+            .turn(quiet_turn()),
+    );
+
+    let result = computer
+        .tool_result_after(&brain, "fix the login with codex")
+        .await;
+
+    let session_id = started_session(&result);
+    wait_for_session_state(&computer.daemon, &session_id, CodingSessionState::Idle).await;
+    let harness = computer.harness();
+    let methods: Vec<_> = harness
+        .received()
+        .into_iter()
+        .map(|received| received.method)
+        .filter(|method| method == "session/set_mode" || method == "session/prompt")
+        .collect();
+    assert_eq!(methods, ["session/set_mode", "session/prompt"]);
+    assert_eq!(
+        harness.params("session/set_mode")[0]["modeId"],
+        "agent-full-access"
+    );
+    let exec = computer.harness_exec();
+    assert_eq!(exec.argv, ["codex-acp"]);
+    assert_eq!(exec.user, "agent");
+    assert_eq!(exec.cwd, COMPUTER_DIRECTORY);
+    let codex_home = format!("/data/agent/.pagis/coding/{session_id}/codex");
+    assert_eq!(
+        computer.exec_variable("CODEX_HOME"),
+        Some(codex_home.clone())
+    );
+    let files = computer.uploaded(&codex_home);
+    computer.token_only_in_the_environment(&[OPENAI_KEY], &files);
+    let config: toml::Table = toml::from_str(&files["config.toml"]).unwrap();
+    assert_eq!(config["model_provider"].as_str(), Some("pagis"));
+    let provider = &config["model_providers"]["pagis"];
+    assert_eq!(
+        provider["base_url"].as_str(),
+        Some(format!("{}/openai/v1", computer.endpoint()).as_str())
+    );
+    assert_eq!(provider["env_key"].as_str(), Some("PAGIS_MODEL_TOKEN"));
+    assert_eq!(provider["wire_api"].as_str(), Some("responses"));
+}
+
+/// OpenCode in the Computer with only the Org's OpenRouter key: its inline
+/// configuration gives its own `openrouter` provider the endpoint's
+/// `/openrouter/v1` and the key from `PAGIS_MODEL_TOKEN`, and enables no
+/// other provider. OpenCode lists no mode, so the start sets none.
+#[tokio::test]
+async fn an_agent_starts_opencode_in_its_computer_on_the_openrouter_route() {
+    let brain = Arc::new(ScriptedBrain::default());
+    brain.push(computer_start_of("opencode", COMPUTER_DIRECTORY));
+    brain.push(pagis_testkit::Script::reply(&["Started."]));
+    let computer = computer_daemon_with(
+        Arc::new(TestRunsOnly(Arc::clone(&brain))),
+        &[("OPENROUTER_API_KEY", OPENROUTER_KEY)],
+    )
+    .await;
+    computer.serve_harness(Script::default().turn(quiet_turn()));
+
+    let result = computer
+        .tool_result_after(&brain, "fix the login with opencode")
+        .await;
+
+    let session_id = started_session(&result);
+    wait_for_session_state(&computer.daemon, &session_id, CodingSessionState::Idle).await;
+    assert!(computer.harness().params("session/set_mode").is_empty());
+    let exec = computer.harness_exec();
+    assert_eq!(exec.argv, ["opencode", "acp"]);
+    assert_eq!(exec.user, "agent");
+    assert_eq!(exec.cwd, COMPUTER_DIRECTORY);
+    assert!(!computer.wrote_a_configuration());
+    let content = computer
+        .exec_variable("OPENCODE_CONFIG_CONTENT")
+        .expect("the inline configuration");
+    let token = computer.token_only_in_the_environment(
+        &[OPENROUTER_KEY],
+        &[("OPENCODE_CONFIG_CONTENT".to_string(), content.clone())].into(),
+    );
+    assert!(!content.contains(&token));
+    let config: Value = serde_json::from_str(&content).unwrap();
+    assert_eq!(config["enabled_providers"], json!(["openrouter"]));
+    assert_eq!(
+        config["provider"],
+        json!({"openrouter": {"options": {
+            "baseURL": format!("{}/openrouter/v1", computer.endpoint()),
+            "apiKey": "{env:PAGIS_MODEL_TOKEN}",
+        }}})
+    );
+}
+
+/// pi in the Computer with only the Org's Anthropic key: the daemon writes
+/// one provider `pagis` at the endpoint's `/anthropic` with the first
+/// Anthropic candidate of the Agent's model alias into `models.json`, and
+/// that model as the default into `settings.json`, in the session's own
+/// `PI_CODING_AGENT_DIR`. pi never asks, so the start sets no mode.
+#[tokio::test]
+async fn an_agent_starts_pi_in_its_computer_on_the_anthropic_route_with_its_own_model() {
+    let brain = Arc::new(ScriptedBrain::default());
+    brain.push(computer_start_of("pi", COMPUTER_DIRECTORY));
+    brain.push(pagis_testkit::Script::reply(&["Started."]));
+    let computer = computer_daemon_with(
+        Arc::new(TestRunsOnly(Arc::clone(&brain))),
+        &[("ANTHROPIC_API_KEY", ANTHROPIC_KEY)],
+    )
+    .await;
+    let daemon = &computer.daemon;
+    let alias = daemon
+        .stores()
+        .agents
+        .get(
+            &daemon.workspace_id,
+            &AgentId::from(daemon.agent_id.clone()),
+        )
+        .await
+        .unwrap()
+        .unwrap()
+        .model_alias;
+    daemon
+        .stores()
+        .model_aliases
+        .update_candidates(
+            &daemon.workspace_id,
+            &alias,
+            &[
+                "openai/gpt-6-luna".to_string(),
+                "anthropic/claude-sonnet-5-5".to_string(),
+                "anthropic/claude-opus-5".to_string(),
+            ],
+            now_ms(),
+        )
+        .await
+        .unwrap();
+    computer.serve_harness(Script::default().turn(quiet_turn()));
+
+    let result = computer
+        .tool_result_after(&brain, "fix the login with pi")
+        .await;
+
+    let session_id = started_session(&result);
+    wait_for_session_state(daemon, &session_id, CodingSessionState::Idle).await;
+    assert!(computer.harness().params("session/set_mode").is_empty());
+    let exec = computer.harness_exec();
+    assert_eq!(exec.argv, ["pi-acp"]);
+    assert_eq!(exec.user, "agent");
+    assert_eq!(exec.cwd, COMPUTER_DIRECTORY);
+    let agent_dir = format!("/data/agent/.pagis/coding/{session_id}/pi");
+    assert_eq!(
+        computer.exec_variable("PI_CODING_AGENT_DIR"),
+        Some(agent_dir.clone())
+    );
+    let files = computer.uploaded(&agent_dir);
+    let token = computer.token_only_in_the_environment(&[ANTHROPIC_KEY], &files);
+    let models: Value = serde_json::from_str(&files["models.json"]).unwrap();
+    assert_eq!(
+        models,
+        json!({"providers": {"pagis": {
+            "baseUrl": format!("{}/anthropic", computer.endpoint()),
+            "api": "anthropic-messages",
+            "apiKey": "$PAGIS_MODEL_TOKEN",
+            "models": [{"id": "claude-sonnet-5-5"}],
+        }}})
+    );
+    let settings: Value = serde_json::from_str(&files["settings.json"]).unwrap();
+    assert_eq!(
+        settings,
+        json!({"defaultProvider": "pagis", "defaultModel": "claude-sonnet-5-5"})
+    );
+    // pi sends the token as `x-api-key`, and the endpoint takes it.
+    let status = reqwest::Client::new()
+        .post(format!(
+            "http://{}/anthropic/v1/messages/count_tokens",
+            daemon.model_addr
+        ))
+        .header("x-api-key", &token)
+        .header("content-type", "application/json")
+        .body(r#"{"model":"claude-sonnet-5-5","messages":[{"role":"user","content":"hi"}]}"#)
+        .send()
+        .await
+        .unwrap()
+        .status();
+    assert_eq!(status, 200);
+}
+
+/// Codex spends only the Org's OpenAI or OpenRouter key. With only an
+/// Anthropic key, no route of Codex has a key: the start is a tool error
+/// that names the cause, and no exec starts.
+#[tokio::test]
+async fn with_no_key_on_any_route_of_codex_the_start_is_a_tool_error_and_no_exec_starts() {
+    let brain = Arc::new(ScriptedBrain::default());
+    brain.push(computer_start_of("codex", COMPUTER_DIRECTORY));
+    brain.push(pagis_testkit::Script::reply(&["No key."]));
+    let computer = computer_daemon_with(
+        Arc::new(TestRunsOnly(Arc::clone(&brain))),
+        &[("ANTHROPIC_API_KEY", ANTHROPIC_KEY)],
+    )
+    .await;
+
+    let result = computer.tool_result_after(&brain, "fix the login").await;
+
+    assert!(result.contains("no_provider_key"), "{result}");
+    assert!(result.contains("OpenAI or OpenRouter key"), "{result}");
+    assert!(computer.runtime.exec_streams().is_empty());
+    assert!(computer.runtime.execs().is_empty());
 }

@@ -3356,8 +3356,8 @@ fn computer_coding_session_start_description() -> String {
         "Start a coding session in your own computer: a Coding Harness that writes code in a \
          directory under /data/agent. The user is not asked, because the computer is your \
          sandbox. The harness acts without asking, and you decide each permission that it \
-         still asks with coding_session_decide. The session spends this installation's \
-         provider key. The directory stays between sessions; use computer_shell for git. The \
+         still asks with coding_session_decide. The session spends a provider key of this \
+         installation. The directory stays between sessions; use computer_shell for git. The \
          call returns when the harness has the first prompt, and you wake when its turn ends. \
          The harnesses: {harnesses}."
     )

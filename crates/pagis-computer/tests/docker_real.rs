@@ -2806,3 +2806,312 @@ async fn claude_code_answers_acp_in_the_session_directory_of_a_real_computer() {
         "no session id: {opened}"
     );
 }
+
+/// One request that the recording model API received.
+#[derive(Debug)]
+struct RecordedRequest {
+    method: String,
+    path: String,
+    /// The bearer token or the `x-api-key` of the request.
+    token: Option<String>,
+}
+
+/// A model API on the Docker host that records each request and refuses
+/// it with a 400, which no harness retries. It listens where the
+/// Computers reach the host, and answers its port.
+async fn recording_model_api() -> (u16, tokio::sync::mpsc::UnboundedReceiver<RecordedRequest>) {
+    use axum::extract::{Request, State};
+    use axum::http::{StatusCode, header};
+    use axum::response::IntoResponse;
+
+    async fn record(
+        State(recorded): State<tokio::sync::mpsc::UnboundedSender<RecordedRequest>>,
+        request: Request,
+    ) -> axum::response::Response {
+        let headers = request.headers();
+        let token = headers
+            .get(header::AUTHORIZATION)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.strip_prefix("Bearer "))
+            .or_else(|| {
+                headers
+                    .get("x-api-key")
+                    .and_then(|value| value.to_str().ok())
+            })
+            .map(str::to_string);
+        let _ = recorded.send(RecordedRequest {
+            method: request.method().to_string(),
+            path: request.uri().path().to_string(),
+            token,
+        });
+        (
+            StatusCode::BAD_REQUEST,
+            [(header::CONTENT_TYPE, "application/json")],
+            r#"{"type":"error","error":{"type":"invalid_request_error","message":"the test records this request"}}"#,
+        )
+            .into_response()
+    }
+
+    let (sender, recorded) = tokio::sync::mpsc::unbounded_channel();
+    let listener = tokio::net::TcpListener::bind((address_for_the_computers(), 0))
+        .await
+        .expect("bind the recording model API");
+    let port = listener.local_addr().expect("an address").port();
+    let app = axum::Router::new().fallback(record).with_state(sender);
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    (port, recorded)
+}
+
+/// The JSON-RPC lines of one harness over its exec.
+struct AcpPipe {
+    stdin: std::pin::Pin<Box<dyn tokio::io::AsyncWrite + Send>>,
+    lines: tokio::io::Lines<
+        tokio::io::BufReader<std::pin::Pin<Box<dyn tokio::io::AsyncRead + Send + Unpin>>>,
+    >,
+}
+
+impl AcpPipe {
+    /// Writes the request `id` and returns its answer.
+    async fn request(
+        &mut self,
+        id: u64,
+        method: &str,
+        params: serde_json::Value,
+    ) -> serde_json::Value {
+        self.send(id, method, params).await;
+        loop {
+            let line = tokio::time::timeout(Duration::from_secs(120), self.lines.next_line())
+                .await
+                .unwrap_or_else(|_| panic!("no answer to {method} in time"))
+                .expect("the stream is readable")
+                .unwrap_or_else(|| panic!("the harness ended before it answered {method}"));
+            let message: serde_json::Value =
+                serde_json::from_str(&line).unwrap_or_else(|error| panic!("{error}: {line}"));
+            if message["id"] == id && message.get("method").is_none() {
+                return message;
+            }
+        }
+    }
+
+    /// Writes the request `id` and reads no answer.
+    async fn send(&mut self, id: u64, method: &str, params: serde_json::Value) {
+        use tokio::io::AsyncWriteExt;
+
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": method,
+            "params": params,
+        });
+        self.stdin
+            .write_all(format!("{request}\n").as_bytes())
+            .await
+            .expect("the daemon writes to the harness");
+        self.stdin.flush().await.expect("the write reaches it");
+    }
+}
+
+/// Runs one harness of the Computer on its model route, as the daemon
+/// starts it, with the route pointed at a recording model API on the
+/// Docker host: uid `agent` writes and owns the configuration directory, the
+/// exec gets the variables of the route, and ACP `initialize`,
+/// `session/new` and one `session/prompt` run. The harness then sends a
+/// model request at the path of its route with the token of the session.
+async fn a_harness_reaches_its_model_route(
+    harness_id: &str,
+    keyed: pagis_core::Provider,
+    candidates: &[&str],
+    path: &str,
+) {
+    use tokio::io::{AsyncBufReadExt, BufReader};
+
+    const DIRECTORY: &str = "/data/agent/app";
+    const TOKEN: &str = "a-session-token-of-the-test";
+    let (port, mut recorded) = recording_model_api().await;
+    let candidates: Vec<String> = candidates.iter().map(|model| model.to_string()).collect();
+    let route = pagis_coding::choose_route(harness_id, &[keyed], "default", &candidates)
+        .expect("the harness has a route");
+    let session_id = pagis_core::CodingSessionId::generate();
+    let setup = route.setup(&pagis_computer::model_endpoint(port), &session_id, TOKEN);
+    let real = Real::new();
+    let (manager, _screens) = real.manager(Duration::from_secs(600));
+    let agent_id = AgentId::generate();
+    let made = manager
+        .shell(
+            &agent_id,
+            ShellCommand {
+                command: format!("mkdir -p {DIRECTORY}"),
+                timeout: Duration::from_secs(180),
+                cwd: None,
+                stdin: None,
+                output_cap: None,
+            },
+        )
+        .await
+        .expect("the directory is made");
+    assert_eq!(made.exit_code, 0, "{}", made.stderr);
+    if let Some(config) = &setup.config {
+        let written = manager
+            .shell(
+                &agent_id,
+                ShellCommand {
+                    command: format!("{} && stat -c %U {}/*", config.write_command(), config.path),
+                    timeout: Duration::from_secs(30),
+                    cwd: None,
+                    stdin: Some(config.tar().expect("a tar")),
+                    output_cap: None,
+                },
+            )
+            .await
+            .expect("the configuration is written");
+        assert_eq!(written.exit_code, 0, "{}", written.stderr);
+        let owners: Vec<&str> = written.stdout.lines().collect();
+        assert_eq!(owners.len(), config.files.len(), "{}", written.stdout);
+        assert!(
+            owners.iter().all(|owner| *owner == SHELL_USER),
+            "{owners:?}"
+        );
+    }
+    let launch = pagis_core::harness::entry(harness_id)
+        .and_then(|entry| entry.computer)
+        .expect("the harness runs in a Computer");
+    let mut argv = vec![launch.program.to_string()];
+    argv.extend(launch.args.iter().map(|arg| arg.to_string()));
+    let mut env = manager.shell_env(&agent_id);
+    env.extend(
+        setup
+            .env
+            .iter()
+            .map(|(name, value)| format!("{name}={value}")),
+    );
+    let harness = manager
+        .harness(
+            &agent_id,
+            ExecRequest {
+                argv,
+                user: SHELL_USER.to_string(),
+                cwd: DIRECTORY.to_string(),
+                env,
+                stdin: None,
+                output_cap: OutputCap { head: 0, tail: 0 },
+            },
+        )
+        .await
+        .expect("the harness starts in the Computer");
+    let mut stderr = harness.stream.stderr;
+    let stderr_tail = Arc::new(std::sync::Mutex::new(Vec::new()));
+    tokio::spawn({
+        let stderr_tail = Arc::clone(&stderr_tail);
+        async move {
+            while let Some(chunk) = stderr.recv().await {
+                stderr_tail.lock().unwrap().extend_from_slice(&chunk);
+            }
+        }
+    });
+    let mut acp = AcpPipe {
+        stdin: harness.stream.stdin,
+        lines: BufReader::new(harness.stream.stdout).lines(),
+    };
+    let stderr_of = || String::from_utf8_lossy(&stderr_tail.lock().unwrap()).into_owned();
+
+    let initialized = acp
+        .request(
+            0,
+            "initialize",
+            serde_json::json!({
+                "protocolVersion": 1,
+                "clientCapabilities": {
+                    "fs": {"readTextFile": false, "writeTextFile": false},
+                    "terminal": false,
+                },
+            }),
+        )
+        .await;
+    assert_eq!(initialized["result"]["protocolVersion"], 1, "{initialized}");
+    let opened = acp
+        .request(
+            1,
+            "session/new",
+            serde_json::json!({"cwd": DIRECTORY, "mcpServers": []}),
+        )
+        .await;
+    let acp_session = opened["result"]["sessionId"]
+        .as_str()
+        .unwrap_or_else(|| panic!("no session id: {opened}\n{}", stderr_of()))
+        .to_string();
+    acp.send(
+        2,
+        "session/prompt",
+        serde_json::json!({
+            "sessionId": acp_session,
+            "prompt": [{"type": "text", "text": "Say hello."}],
+        }),
+    )
+    .await;
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(180);
+    let mut seen = Vec::new();
+    loop {
+        let request = tokio::time::timeout_at(deadline, recorded.recv())
+            .await
+            .unwrap_or_else(|_| {
+                panic!(
+                    "no POST {path} in time; the requests: {seen:?}\n{}",
+                    stderr_of()
+                )
+            })
+            .expect("the recording model API runs");
+        if request.method == "POST" && request.path == path {
+            assert_eq!(request.token.as_deref(), Some(TOKEN), "{request:?}");
+            break;
+        }
+        seen.push(request);
+    }
+}
+
+/// Codex reads the provider `pagis` from `config.toml` in its own
+/// `CODEX_HOME`, and sends the Responses API with the token of
+/// `PAGIS_MODEL_TOKEN`.
+#[tokio::test]
+#[ignore = "needs Docker; run via cargo test -- --ignored"]
+async fn codex_sends_its_model_requests_to_the_openai_route_in_a_real_computer() {
+    a_harness_reaches_its_model_route(
+        "codex",
+        pagis_core::Provider::OpenAi,
+        &[],
+        "/openai/v1/responses",
+    )
+    .await;
+}
+
+/// OpenCode reads its own `anthropic` provider from
+/// `OPENCODE_CONFIG_CONTENT`, and sends the Messages API with the token
+/// of `PAGIS_MODEL_TOKEN`.
+#[tokio::test]
+#[ignore = "needs Docker; run via cargo test -- --ignored"]
+async fn opencode_sends_its_model_requests_to_the_anthropic_route_in_a_real_computer() {
+    a_harness_reaches_its_model_route(
+        "opencode",
+        pagis_core::Provider::Anthropic,
+        &[],
+        "/anthropic/v1/messages",
+    )
+    .await;
+}
+
+/// pi reads the provider `pagis` and its default model from `models.json`
+/// and `settings.json` in its own `PI_CODING_AGENT_DIR`, and sends the
+/// Messages API with the token of `PAGIS_MODEL_TOKEN`.
+#[tokio::test]
+#[ignore = "needs Docker; run via cargo test -- --ignored"]
+async fn pi_sends_its_model_requests_to_the_anthropic_route_in_a_real_computer() {
+    a_harness_reaches_its_model_route(
+        "pi",
+        pagis_core::Provider::Anthropic,
+        &["anthropic/claude-sonnet-4-5"],
+        "/anthropic/v1/messages",
+    )
+    .await;
+}

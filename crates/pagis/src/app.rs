@@ -558,6 +558,13 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     // The session sockets of the same machines, which carry the Coding
     // Sessions (ADR-0033).
     let host_sessions = Arc::new(pagis_broker::HostSessions::new());
+    // The model routes of the harnesses in the Agent's own Computer: the
+    // start checks that a harness has one, and each open takes it.
+    let model_routes = Arc::new(pagis_coding::ModelRoutes::new(
+        Arc::clone(&keys),
+        stores.agents.clone(),
+        Arc::clone(&model_aliases) as _,
+    ));
     // The places of the Coding Sessions: those sockets, and the Agent's own
     // Computer, whose harness reaches the Harness Model Endpoint.
     let session_places = Arc::new(crate::coding_places::SessionPlaces::new(
@@ -565,6 +572,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         crate::coding_places::ComputerPlace::new(
             Arc::clone(&computers),
             pagis_server::HarnessModelTokens::new(stores.coding_sessions.clone()),
+            Arc::clone(&model_routes),
             model_port,
         ),
     ));
@@ -932,7 +940,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
                 stores.hosts.clone(),
                 Arc::clone(&grants) as _,
                 Arc::clone(&agent_asks),
-                Arc::clone(&keys),
+                Arc::clone(&model_routes),
             )) as _,
         )),
         phone_numbers: Arc::clone(&phone_numbers) as _,

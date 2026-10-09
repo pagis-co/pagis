@@ -156,9 +156,7 @@ The **Harness Catalog** ships with each release, as the Provider Catalog does
   `npx <package>@<version>`, or a binary with arguments;
 - for a harness that runs in the Agent's Computer, the npm packages that the
   Computer Image installs, the program and arguments that start it there,
-  and for a harness that a Computer session runs, the Computer mode (the
-  Harness Mode that it starts in there) and the provider whose key it
-  spends;
+  and its Computer mode: the Harness Mode that it runs in there, or none;
 - whether the harness asks permission (pi does not);
 - the Harness Modes of the pinned version, each with its name and whether
   the harness asks before each action in it;
@@ -247,10 +245,12 @@ Host.
 
 ### In the Agent's Computer, the container is the sandbox
 
-Claude Code runs in the Agent's own Computer. The Agent starts it with
-`computer_coding_session_start`. The daemon wakes the Computer, makes the
-working directory as uid `agent`, and starts the harness with `docker exec`
-and attached stdio as uid `agent` in that directory, the path of the stdio
+Claude Code, Codex, OpenCode and pi run in the Agent's own Computer. The
+Agent starts one with `computer_coding_session_start`. The daemon wakes the
+Computer, makes the working directory as uid `agent`, writes the
+configuration of the harness's model route, and starts the harness with
+`docker exec` and attached stdio as uid `agent` in that directory, the path
+of the stdio
 MCP servers of the Plugin Computer (ADR-0017). The exec holds the Computer
 awake while it runs: the idle stop leaves the Computer, and a sleep answers
 that the Computer is busy. The Engine API cannot kill an exec, so the
@@ -261,9 +261,14 @@ of its stdin can spend nothing more.
 A Computer session needs no card and no host Grant, because the container
 is the sandbox, as for `computer_shell`. Its Session Approval Mode is
 `agent`, and its harness runs in the Computer mode of the Harness Catalog:
-`bypassPermissions` for Claude Code. The harness runs as uid `agent` and not
-as root, so the Claude Code adapter offers that mode. Claude Code still asks
-some actions in `bypassPermissions`. Such a Harness Permission goes through
+the Harness Mode of its list that acts without asking, set with
+`session/set_mode` before the first prompt and with no Grant check. It is
+`bypassPermissions` for Claude Code and `agent-full-access` for Codex.
+OpenCode lists no mode and pi never asks, so they have no Computer mode and
+keep the mode that they start in. The harness runs as uid `agent` and not
+as root, so the Claude Code adapter offers `bypassPermissions`. A harness
+can still ask some actions, as Claude Code does in `bypassPermissions`. Such
+a Harness Permission goes through
 Pagis policy with the session's own mode, `agent`, so it goes to the
 supervising Agent, which decides it or escalates it to the Person. The card
 of an escalation offers no "Always allow", because no Host Allow Rule
@@ -296,11 +301,63 @@ No credential enters the Computer (ADR-0005). The daemon serves the
 API and the OpenAI Chat Completions API. A per-session token authenticates
 each request. The daemon forwards it with the Org's provider key through
 `crates/llm-router`, under the Spend Cap, and writes Usage Records for the
-Agent. The harness points at the endpoint: `ANTHROPIC_BASE_URL` with
-`ANTHROPIC_AUTH_TOKEN`, a Codex model provider, or an OpenCode or pi provider
-base URL. The endpoint has a TCP port of its own, `[computer] model_port`, on
+Agent. The endpoint has a TCP port of its own, `[computer] model_port`, on
 every interface of the daemon's host. On a Server the egress rules open that
 port to the Computers and close it to everything else (ADR-0014).
+
+Each harness has a **model route**: the routes of the endpoint that it can
+use, in a fixed order. Each open of a session, at the start and at each
+resume, takes the first route whose provider holds an Org key. Anthropic
+comes first where the harness speaks its API, because the Messages
+pass-through keeps the most of a harness's own features. No setting chooses
+another order.
+
+| Harness | Routes, in order |
+| --- | --- |
+| Claude Code | `/anthropic` |
+| Codex | `/openai/v1`, `/openrouter/v1` (Responses) |
+| OpenCode | `/anthropic/v1`, `/openai/v1`, `/openrouter/v1` |
+| pi | `/anthropic` (`anthropic-messages`), `/openrouter/v1`, `/openai/v1` (`openai-completions`) |
+
+The exec holds the token of the session in `PAGIS_MODEL_TOKEN`. No
+configuration file holds the token: each one names the variable. Each
+harness reads the route from its own configuration:
+
+- Claude Code reads `ANTHROPIC_BASE_URL`, and the token from
+  `ANTHROPIC_AUTH_TOKEN`.
+- Codex reads `config.toml` in its `CODEX_HOME`: `model_provider = "pagis"`,
+  `model` on the OpenRouter route, and the provider
+  `[model_providers.pagis]` with the `base_url` of the
+  route, `env_key = "PAGIS_MODEL_TOKEN"`, `wire_api = "responses"` and
+  `supports_websockets = false`. A built-in provider id of Codex cannot be
+  overridden. The endpoint serves no WebSocket, so Codex uses the HTTP
+  transport of the Responses API.
+- OpenCode reads `OPENCODE_CONFIG_CONTENT`: its own `anthropic`, `openai`
+  or `openrouter` provider, which its binary bundles, with `options.baseURL`
+  of the route and `options.apiKey = "{env:PAGIS_MODEL_TOKEN}"`, and
+  `enabled_providers` with that provider alone, so it loads no other
+  provider.
+- pi reads `models.json` and `settings.json` in its `PI_CODING_AGENT_DIR`:
+  one provider `pagis` with the `baseUrl` and `api` of the route,
+  `apiKey: "$PAGIS_MODEL_TOKEN"` and one model, and that model as
+  `defaultProvider` and `defaultModel`.
+
+OpenCode keeps its own default model of the provider, and so does Codex on
+the OpenAI route. pi needs a model in its custom provider, and OpenRouter
+names a model of OpenAI `openai/<model>`, which is not the default model of
+Codex. So pi on each route, and Codex on the OpenRouter route, get the first
+candidate of the Agent's model alias for the provider of the route, in the
+`provider/model` form that the Agent's brain reads. Such a route counts only
+when the alias has a candidate of its provider: else the harness takes the
+next route.
+
+The configuration directory belongs to one session:
+`/data/agent/.pagis/coding/<session_id>/codex` or `.../pi`. So a session
+never changes the Agent's own `~/.codex` or `~/.pi`, and the directory stays
+for a resume, so the harness finds its own session files again. The daemon
+writes the files with a shell command as uid `agent`, with a tar on its
+stdin, so the harness owns its configuration. An upload of the Engine API
+gives the files to the user of the container, which is root.
 
 A subscription sign-in in a Computer is not in scope.
 
@@ -376,15 +433,18 @@ The Agent drives a Coding Session with core tools (ADR-0005):
   the Grant does not allow Unattended Modes
   (`unattended_mode_not_allowed`).
 - `computer_coding_session_start {harness, directory, title, prompt}`
-  starts a session in the Agent's own Computer. `harness` is a harness whose
-  Computer launch names a Computer mode and a provider: `claude`.
-  `directory` is an absolute directory under `/data/agent`. The effect class
-  is `free`, as for `computer_shell`, so the start has no card. It checks, in
-  this order, that the harness runs in a Computer (else `unknown_harness`),
-  that the directory is under `/data/agent` (else `bad_directory`), that the
-  Agent has fewer than four open sessions (else `session_limit`), and that
-  the installation has the key of the harness's provider (else
-  `no_provider_key`, which names the provider). The Host and the Computer
+  starts a session in the Agent's own Computer. `harness` is a harness with
+  a Computer launch: `claude`, `codex`, `opencode` or `pi`. `directory` is
+  an absolute directory under `/data/agent`. The effect class is `free`, as
+  for `computer_shell`, so the start has no card. It checks, in this order,
+  that the harness runs in a Computer (else `unknown_harness`), that the
+  directory is under `/data/agent` (else `bad_directory`), that the Agent
+  has fewer than four open sessions (else `session_limit`), and that the
+  harness has a model route: a provider of its routes with an Org key (else
+  `no_provider_key`, which names the providers), and, where the route needs
+  a model of the Agent (pi, and Codex on OpenRouter), a candidate of the
+  Agent's model alias from such a provider (else `no_model_candidate`,
+  which names the alias and the providers). The Host and the Computer
   are two tools, because one tool cannot hold two effect classes or two
   Grant bindings, and an Agent with a Computer and no Host can still start
   a session.
@@ -911,4 +971,3 @@ Other ways were considered:
 ## Not built
 
 - A Pagis auto mode.
-- A Computer session of Codex, OpenCode or pi.
