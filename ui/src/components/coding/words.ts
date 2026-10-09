@@ -72,6 +72,10 @@ export function endReasonText(reason: string | null | undefined, spriteName: str
       return 'The mode acts without asking, and you do not allow that'
     case 'mode_not_offered':
       return 'The coding harness does not offer the chosen mode'
+    case 'model_not_offered':
+      return 'The coding harness does not offer the chosen model'
+    case 'thought_level_not_offered':
+      return 'The coding harness does not offer the chosen thought level'
     default:
       return reason
   }
@@ -114,6 +118,22 @@ export function harnessModeBadge(
 ): BadgeWord | null {
   if (name == null || name === '') return null
   return { label: name, tone: unattended ? 'waiting' : 'neutral' }
+}
+
+/**
+ * The Harness Model and the thought level of a session, by the names of
+ * the harness, or `null` when the harness offers no choice of either.
+ */
+export function modelText(
+  model: string | null | undefined,
+  thoughtLevel: string | null | undefined,
+): string | null {
+  const hasModel = model != null && model !== ''
+  const hasLevel = thoughtLevel != null && thoughtLevel !== ''
+  if (hasModel && hasLevel) return `${model} · thought level ${thoughtLevel}`
+  if (hasModel) return model
+  if (hasLevel) return `Thought level ${thoughtLevel}`
+  return null
 }
 
 /** A change of the Harness Mode, and who changed it. */

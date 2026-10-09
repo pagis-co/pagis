@@ -144,14 +144,26 @@ With **Allow modes that act without asking** on, a harness in such a mode can
 run any command on that computer as you, with no card.
 </Callout>
 
+### The model
+
+Most harnesses let the Agent choose the model and the thought level of a
+session, such as `opus` of Claude Code or `gpt-5.5` of Codex. Tell the Agent
+which model to use, and it names the model at the start. With no choice,
+the session uses the default model of the harness. The Agent can change the
+model of a running session, and the next turn uses it. Gemini CLI offers no
+choice of model to Pagis.
+
+The card of a start shows the model, or the default of the harness. The
+block and the page of the session show the model and the thought level.
+
 ## Where a session runs
 
 ### Your computer
 
 The Agent asks you before it starts a session on your computer. The card,
 for example "Start Claude Code on your MacBook", names the harness, the
-computer, the directory, the worktree, the mode, the Harness Mode and the
-start of the brief. **Always allow** on this card lets the Agent start that
+computer, the directory, the worktree, the mode, the Harness Mode, the
+model and the start of the brief. **Always allow** on this card lets the Agent start that
 harness in that directory, and in each directory under it, on that computer
 with no card. The widest mode still applies to each session that the rule
 starts.
@@ -183,6 +195,8 @@ OpenRouter key; with an OpenRouter key, it also needs an OpenRouter model in
 the Model Alias of the Agent. OpenCode and pi use an Anthropic, OpenAI or
 OpenRouter key, and pi also needs a model of that provider in the Model Alias
 of the Agent.
+Codex with an OpenRouter key always uses the OpenRouter model of the Model
+Alias, so the Agent cannot choose another model for it.
 A subscription sign-in is not available in the Computer.
 
 An Agent holds at most four open sessions at a time, on your computers and
@@ -191,8 +205,8 @@ in its Computer together.
 ## Follow a session
 
 - **The block in the Thread.** It shows the harness, the title, the
-  computer, the directory, the branch, the state, the approval mode, the
-  Harness Mode, the usage and the last activity. **Open** goes to the
+  computer, the directory, the branch, the model, the state, the approval
+  mode, the Harness Mode, the usage and the last activity. **Open** goes to the
   session page. **Stop** stops the session at once.
 - **The session page.** It shows the transcript: the messages of the
   harness, its plan, its tool calls with a diff of each change, and one line

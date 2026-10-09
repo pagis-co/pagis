@@ -1050,7 +1050,8 @@ An Agent starts it on a Host with `coding_session_start`, after the Person
 approves the card or under a session Allow Rule of the host Grant, and the
 daemon stores its record and its transcript. The Agent then prompts,
 reads, cancels, closes and lists its own sessions with core tools, and
-changes their Harness Mode. A session of another Agent reads as absent. A question of the harness goes
+changes their Harness Mode, and their Harness Model with
+`coding_session_set_model`. A session of another Agent reads as absent. A question of the harness goes
 to the Agent in each mode. The Agent answers it, and asks the Person with
 `ask_user` first when it does not know: a question is not an Approval.
 Claude Code, Codex, OpenCode and pi run in the Agent's own Computer too:
@@ -1086,6 +1087,18 @@ it with `coding_session_set_mode`. A start with no mode puts the harness in
 an asking mode. A mode that acts without asking needs the allowance of the
 host Grant (ADR-0033).
 _Avoid_: permission mode, agent mode
+
+### Harness Model
+The model of a Coding Session, as its Coding Harness offers it over ACP: a
+Session Config Option of the category `model`, such as `opus` of Claude
+Code or `gpt-5.5` of Codex. The thought level is the option of the
+category `thought_level` beside it. The harness lists its choices when a
+session opens, and the record of the session keeps the current choice and
+the choices. The Agent names a model by the id of the harness at the start,
+and changes it with `coding_session_set_model`. With no model, the session
+uses the default of the harness. A harness that offers no such option has
+no choice of model (ADR-0033).
+_Avoid_: session model, harness LLM
 
 ### Harness Model Endpoint
 The model API that the daemon serves to the Computers for a Coding Session

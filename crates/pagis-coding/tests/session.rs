@@ -12,9 +12,9 @@ use pagis_coding::fake::{self, NEW_SESSION_ID, Script, Turn, acp};
 use pagis_coding::{
     AcpSession, AskHandler, CodingError, Cost, Location, Opening, PermissionAnswer, PermissionAsk,
     PlanEntry, PlanPriority, PlanStatus, QuestionAnswer, QuestionAsk, SessionEvent, SessionModes,
-    SignInMethod, StopReason, ToolKind, ToolStatus,
+    SessionSettings, SignInMethod, StopReason, ToolKind, ToolStatus,
 };
-use pagis_core::HarnessModeInfo;
+use pagis_core::{HarnessChoice, HarnessModeInfo, HarnessSetting};
 use serde_json::json;
 use tokio::sync::mpsc::UnboundedReceiver;
 
@@ -597,4 +597,192 @@ async fn set_mode_to_a_mode_that_the_harness_does_not_offer_is_its_error() {
 
     assert!(matches!(error, CodingError::Protocol(_)), "{error:?}");
     assert_eq!(harness.params("session/set_mode").len(), 1);
+}
+
+/// The config options of Claude Code, as the fake offers them: a mode
+/// option, the model, the thought level and a boolean option. Pagis reads
+/// the model and the thought level alone.
+fn claude_settings() -> Script {
+    Script::default().config_options(vec![
+        fake::select(
+            "mode",
+            acp::SessionConfigOptionCategory::Mode,
+            "default",
+            &[("default", "Manual"), ("plan", "Plan")],
+        ),
+        fake::select(
+            "model",
+            acp::SessionConfigOptionCategory::Model,
+            "default",
+            &[("default", "Default (recommended)"), ("sonnet", "Sonnet")],
+        ),
+        fake::select(
+            "effort",
+            acp::SessionConfigOptionCategory::ThoughtLevel,
+            "high",
+            &[("low", "Low"), ("high", "High")],
+        ),
+        acp::SessionConfigOption::boolean("fast", "Fast mode", false),
+    ])
+}
+
+fn setting(option_id: &str, current: &str, choices: &[(&str, &str)]) -> HarnessSetting {
+    HarnessSetting {
+        option_id: option_id.to_owned(),
+        current: current.to_owned(),
+        choices: choices
+            .iter()
+            .map(|(id, name)| HarnessChoice {
+                id: (*id).to_owned(),
+                name: (*name).to_owned(),
+                description: None,
+            })
+            .collect(),
+    }
+}
+
+fn claude_setting_state(model: &str, effort: &str) -> SessionSettings {
+    SessionSettings {
+        model: Some(setting(
+            "model",
+            model,
+            &[("default", "Default (recommended)"), ("sonnet", "Sonnet")],
+        )),
+        thought_level: Some(setting(
+            "effort",
+            effort,
+            &[("low", "Low"), ("high", "High")],
+        )),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_settings_are_the_model_and_the_thought_level_of_the_answer_of_session_new() {
+    let (_harness, session, _events) =
+        open(claude_settings(), fake::new_session("/work/repo")).await;
+
+    assert_eq!(session.settings(), &claude_setting_state("default", "high"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_settings_are_those_of_the_answer_of_session_resume_and_session_load() {
+    let (_harness, resumed, _events) =
+        open(claude_settings().resume(), restore("harness-session-7")).await;
+    let (_harness, loaded, _events) =
+        open(claude_settings().load(), restore("harness-session-7")).await;
+
+    assert_eq!(resumed.settings(), &claude_setting_state("default", "high"));
+    assert_eq!(loaded.settings(), &claude_setting_state("default", "high"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_harness_that_answers_no_config_options_has_no_settings() {
+    let (_harness, session, _events) =
+        open(Script::default(), fake::new_session("/work/repo")).await;
+
+    assert_eq!(session.settings(), &SessionSettings::default());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_choices_of_a_grouped_model_option_are_in_the_order_of_their_groups() {
+    let grouped = acp::SessionConfigOption::select(
+        "model",
+        "Model",
+        "anthropic/claude-sonnet-4-5",
+        vec![
+            acp::SessionConfigSelectGroup::new(
+                "anthropic",
+                "Anthropic",
+                vec![acp::SessionConfigSelectOption::new(
+                    "anthropic/claude-sonnet-4-5",
+                    "Claude Sonnet 4.5",
+                )],
+            ),
+            acp::SessionConfigSelectGroup::new(
+                "openai",
+                "OpenAI",
+                vec![acp::SessionConfigSelectOption::new(
+                    "openai/gpt-5.5",
+                    "GPT-5.5",
+                )],
+            ),
+        ],
+    )
+    .category(acp::SessionConfigOptionCategory::Model);
+    let script = Script::default().config_options(vec![grouped]);
+
+    let (_harness, session, _events) = open(script, fake::new_session("/work/repo")).await;
+
+    assert_eq!(
+        session.settings().model,
+        Some(setting(
+            "model",
+            "anthropic/claude-sonnet-4-5",
+            &[
+                ("anthropic/claude-sonnet-4-5", "Claude Sonnet 4.5"),
+                ("openai/gpt-5.5", "GPT-5.5"),
+            ],
+        ))
+    );
+    assert_eq!(session.settings().thought_level, None);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn set_setting_sends_the_option_and_the_value_and_answers_the_new_settings() {
+    let (harness, session, _events) =
+        open(claude_settings(), fake::new_session("/work/repo")).await;
+
+    let settings = session
+        .set_setting("model", "sonnet")
+        .await
+        .expect("the harness offers sonnet");
+
+    assert_eq!(
+        harness.params("session/set_config_option"),
+        [json!({ "sessionId": NEW_SESSION_ID, "configId": "model", "value": "sonnet" })]
+    );
+    assert_eq!(settings, claude_setting_state("sonnet", "high"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn set_setting_to_a_value_that_the_harness_does_not_offer_is_its_error() {
+    let (harness, session, _events) =
+        open(claude_settings(), fake::new_session("/work/repo")).await;
+
+    let error = session
+        .set_setting("model", "gpt-5.5")
+        .await
+        .expect_err("the harness does not offer gpt-5.5");
+
+    assert!(matches!(error, CodingError::Protocol(_)), "{error:?}");
+    assert_eq!(harness.params("session/set_config_option").len(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_config_option_update_gives_the_new_settings() {
+    let update =
+        acp::SessionUpdate::ConfigOptionUpdate(acp::ConfigOptionUpdate::new(vec![fake::select(
+            "model",
+            acp::SessionConfigOptionCategory::Model,
+            "sonnet",
+            &[("default", "Default (recommended)"), ("sonnet", "Sonnet")],
+        )]));
+    let script = claude_settings().turn(Turn::new(vec![update], acp::StopReason::EndTurn));
+    let (_harness, session, mut events) = open(script, fake::new_session("/work/repo")).await;
+
+    session.prompt("Go on.").expect("the prompt is sent");
+
+    assert_eq!(
+        next(&mut events).await,
+        SessionEvent::SettingsChanged {
+            settings: SessionSettings {
+                model: Some(setting(
+                    "model",
+                    "sonnet",
+                    &[("default", "Default (recommended)"), ("sonnet", "Sonnet")],
+                )),
+                thought_level: None,
+            },
+        }
+    );
 }

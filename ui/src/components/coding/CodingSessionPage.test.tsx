@@ -142,6 +142,33 @@ describe('the head', () => {
     expect(within(head).getByText('You approve').nextElementSibling).toBeNull()
   })
 
+  it('shows the model and the thought level in the facts', async () => {
+    mount(
+      stubApi({
+        session: {
+          ...codingSession,
+          model: 'opus',
+          model_name: 'Opus',
+          thought_level: 'max',
+          thought_level_name: 'Max',
+        },
+      }),
+    )
+
+    const model = await screen.findByText('Model')
+    expect(model.tagName).toBe('DT')
+    expect(model.nextElementSibling?.textContent).toBe('Opus')
+    expect(screen.getByText('Thought level').nextElementSibling?.textContent).toBe('Max')
+  })
+
+  it('shows no model for a session whose harness offers no choice', async () => {
+    mount(stubApi({ session: { ...codingSession, model: null, model_name: null } }))
+
+    await screen.findByRole('heading', { name: 'Fix the login bug' })
+    expect(screen.queryByText('Model')).toBeNull()
+    expect(screen.queryByText('Thought level')).toBeNull()
+  })
+
   it('has Stop while the session is not settled', async () => {
     mount()
 

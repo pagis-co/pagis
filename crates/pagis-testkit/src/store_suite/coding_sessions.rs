@@ -6,8 +6,8 @@
 
 use pagis_core::{
     AgentId, ChannelId, CodingSession, CodingSessionEventKind, CodingSessionId, CodingSessionState,
-    CodingSessionUsage, HarnessModeInfo, HostId, ModelTokenOwner, NewCodingSessionEvent, RunId,
-    SHELL_CAPABILITY, Workspace, WorkspaceId,
+    CodingSessionUsage, HarnessChoice, HarnessModeInfo, HarnessSetting, HostId, ModelTokenOwner,
+    NewCodingSessionEvent, RunId, SHELL_CAPABILITY, Workspace, WorkspaceId,
 };
 use serde_json::json;
 
@@ -202,6 +202,63 @@ pub async fn the_harness_mode_and_the_offered_modes_read_back(backend: &Backend)
         .expect("the session reads back");
     assert_eq!(read.harness_mode, None);
     assert_eq!(read.harness_modes, []);
+}
+
+pub async fn the_harness_model_and_the_thought_level_read_back(backend: &Backend) {
+    let workspace = backend.seeded_workspace().await;
+    let owner = seed_owner(backend, &workspace).await;
+    let sessions = &backend.stores().coding_sessions;
+    let choice = |id: &str, name: &str, description: Option<&str>| HarnessChoice {
+        id: id.to_string(),
+        name: name.to_string(),
+        description: description.map(str::to_string),
+    };
+    let session = CodingSession {
+        model: Some(HarnessSetting {
+            option_id: "model".to_string(),
+            current: "default".to_string(),
+            choices: vec![
+                choice("default", "Default (recommended)", Some("Opus 4.7")),
+                choice("sonnet", "Sonnet", None),
+            ],
+        }),
+        thought_level: Some(HarnessSetting {
+            option_id: "effort".to_string(),
+            current: "high".to_string(),
+            choices: vec![choice("low", "Low", None), choice("high", "High", None)],
+        }),
+        ..owner.session()
+    };
+    sessions.insert(&session).await.unwrap();
+    assert_eq!(
+        sessions.get(&workspace.id, &session.id).await.unwrap(),
+        Some(session.clone())
+    );
+
+    let changed = CodingSession {
+        model: session.model.clone().map(|model| HarnessSetting {
+            current: "sonnet".to_string(),
+            ..model
+        }),
+        thought_level: None,
+        updated_at: session.updated_at + 1_000,
+        ..session.clone()
+    };
+    assert!(sessions.update(&changed).await.unwrap());
+    assert_eq!(
+        sessions.get(&workspace.id, &session.id).await.unwrap(),
+        Some(changed)
+    );
+
+    let plain = owner.session();
+    sessions.insert(&plain).await.unwrap();
+    let read = sessions
+        .get(&workspace.id, &plain.id)
+        .await
+        .unwrap()
+        .expect("the session reads back");
+    assert_eq!(read.model, None);
+    assert_eq!(read.thought_level, None);
 }
 
 pub async fn the_list_is_newest_first_and_filters_by_agent_state_and_before(backend: &Backend) {
@@ -661,6 +718,7 @@ macro_rules! store_suite_coding_sessions {
             coding_sessions,
             a_session_reads_back_and_an_update_writes_its_state_usage_and_end,
             the_harness_mode_and_the_offered_modes_read_back,
+            the_harness_model_and_the_thought_level_read_back,
             the_list_is_newest_first_and_filters_by_agent_state_and_before,
             count_open_counts_the_sessions_of_one_agent_that_are_not_terminal,
             list_open_holds_the_open_sessions_of_every_workspace_oldest_first,

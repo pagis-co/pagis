@@ -17,24 +17,27 @@ use pagis_broker::{
     AuthorizedCall, CoreTool, Decider, HostPresence, HostSessions, ToolExecutor, ToolResult,
     ToolRoute, not_connected_message,
 };
-use pagis_coding::fake::{Ask, FakeHarness, NEW_SESSION_ID, Script, Turn, acp, serve_client_app};
+use pagis_coding::fake::{
+    self, Ask, FakeHarness, NEW_SESSION_ID, Script, Turn, acp, serve_client_app,
+};
 use pagis_coding::{
-    AgentAsks, CloseReason, CodingSessionStarts, CodingSessions, CodingSessionsDeps,
+    AgentAsks, ChoiceFailure, CloseReason, CodingSessionStarts, CodingSessions, CodingSessionsDeps,
     CodingToolRuntime, InterruptReason, NewCodingSession, OpenFailure, OpenFailureCode,
     OpenRequest, OpenedStream, PERMISSION_DECIDED_EVENT, Pending, PermissionAnswer, PermissionAsk,
     Place, PolicyDecisions, PolicyDecisionsDeps, PromptOutcome, QuestionAnswer, QuestionAsk,
     RefuseDecisions, ResumeFailure, SIGN_IN_CHANGED_EVENT, SessionDecisions, SessionError,
-    SessionEvents, SessionExit, SessionPlace, SessionRuleError, SessionRules, SignInReports,
-    StartFailure, Waited, WaitsFor, WorktreeRequest, open_on_host,
+    SessionEvents, SessionExit, SessionPlace, SessionRuleError, SessionRules, SetSettingsFailure,
+    Setting, SettingChoices, SignInReports, StartFailure, Waited, WaitsFor, WorktreeRequest,
+    open_on_host,
 };
 use pagis_core::{
     Agent, AgentId, AgentStatus, AgentStore, AuthorKind, Block, Channel, ChannelId, ChannelKind,
     ChannelStore, CodingSession, CodingSessionEvent, CodingSessionEventKind as Kind,
     CodingSessionId, CodingSessionPlace, CodingSessionState as State, CodingSessionStore, Event,
-    EventBus, EventLog, Grant, GrantId, GrantStore, HarnessModeInfo, HostId, HostStore,
-    IngestBatch, Message, MessageId, MessageStatus, MessageStore, NewEvent, Request, RequestState,
-    RequestStore, Run, RunId, RunState, RunStore, SessionApprovalMode, SystemClock, TriggerKind,
-    Workspace, WorkspaceId, WorkspaceStore, now_ms,
+    EventBus, EventLog, Grant, GrantId, GrantStore, HarnessModeInfo, HarnessSetting, HostId,
+    HostStore, IngestBatch, Message, MessageId, MessageStatus, MessageStore, NewEvent, Request,
+    RequestState, RequestStore, Run, RunId, RunState, RunStore, SessionApprovalMode, SystemClock,
+    TriggerKind, Workspace, WorkspaceId, WorkspaceStore, now_ms,
 };
 use pagis_storage_sqlite::{
     SqliteAgentStore, SqliteChannelStore, SqliteCodingSessionStore, SqliteEventLog,
@@ -250,6 +253,7 @@ impl World {
             }),
             approval_mode: SessionApprovalMode::Person,
             harness_mode: None,
+            settings: SettingChoices::default(),
             title: "Fix the login".to_string(),
             prompt: "Fix the login bug.".to_string(),
         }
@@ -513,6 +517,8 @@ struct DuplexPlace {
     exit: Mutex<Option<oneshot::Sender<SessionExit>>>,
     /// Set when the daemon drops its end of the stream.
     dropped: Arc<AtomicBool>,
+    /// The place names the model of the harness.
+    fixed_model: bool,
 }
 
 impl DuplexPlace {
@@ -532,6 +538,16 @@ impl DuplexPlace {
             harness: Mutex::default(),
             exit: Mutex::default(),
             dropped: Arc::default(),
+            fixed_model: false,
+        })
+    }
+
+    /// A place that names the model of the harness, as the OpenRouter
+    /// route of Codex in a Computer does.
+    fn fixing_the_model(script: Script) -> Arc<Self> {
+        Arc::new(Self {
+            fixed_model: true,
+            ..Arc::into_inner(Self::new(script)).expect("a new place")
         })
     }
 
@@ -600,6 +616,7 @@ impl SessionPlace for DuplexPlace {
             }),
             cwd: WORKTREE_DIRECTORY.to_string(),
             exit: exited,
+            fixed_model: self.fixed_model,
         })
     }
 }
@@ -1887,6 +1904,8 @@ impl World {
             approval_mode: SessionApprovalMode::Person,
             harness_mode: None,
             harness_modes: Vec::new(),
+            model: None,
+            thought_level: None,
             title: format!("A {} session", state.as_str()),
             state,
             end_reason: terminal.then(|| "closed".to_string()),
@@ -3944,4 +3963,366 @@ fn no_model_routes(pool: &sqlx::SqlitePool) -> Arc<pagis_coding::ModelRoutes> {
             pool.clone(),
         )),
     ))
+}
+
+/// A Codex harness that offers two models and three thought levels, and
+/// opens on `gpt-5.5` with `medium`.
+fn codex_settings() -> Script {
+    Script::default().config_options(vec![
+        fake::select(
+            "model",
+            acp::SessionConfigOptionCategory::Model,
+            "gpt-5.5",
+            &[("gpt-5.5", "GPT-5.5"), ("gpt-5.4", "GPT-5.4")],
+        ),
+        fake::select(
+            "reasoning_effort",
+            acp::SessionConfigOptionCategory::ThoughtLevel,
+            "medium",
+            &[("low", "Low"), ("medium", "Medium"), ("high", "High")],
+        ),
+    ])
+}
+
+/// A start of the Agent with the model `model` and the thought level
+/// `thought_level`.
+fn start_with(world: &World, model: Option<&str>, thought_level: Option<&str>) -> NewCodingSession {
+    NewCodingSession {
+        settings: SettingChoices {
+            model: model.map(str::to_string),
+            thought_level: thought_level.map(str::to_string),
+        },
+        ..world.new_session(&world.run_id)
+    }
+}
+
+/// The `session/set_config_option` params that the fake got.
+fn set_config_options(harness: &FakeHarness) -> Vec<Value> {
+    harness.params("session/set_config_option")
+}
+
+fn current(setting: Option<&HarnessSetting>) -> Option<&str> {
+    setting.map(|setting| setting.current.as_str())
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_start_sets_the_model_then_the_thought_level_before_the_first_prompt(pool: SqlitePool) {
+    let world = world(pool).await;
+    let place = DuplexPlace::new(codex_settings().turn(Turn::until_cancel(vec![])));
+    let sessions = world.coding_sessions(place.clone(), Arc::new(RefuseDecisions));
+
+    let session = sessions
+        .start(start_with(&world, Some("gpt-5.4"), Some("high")))
+        .await
+        .expect("the session starts");
+
+    let record = world.record(&session.id).await;
+    assert_eq!(record, session, "start answers the record that it wrote");
+    assert_eq!(current(record.model.as_ref()), Some("gpt-5.4"));
+    assert_eq!(current(record.thought_level.as_ref()), Some("high"));
+    assert_eq!(
+        record.model.as_ref().map(HarnessSetting::current_name),
+        Some("GPT-5.4")
+    );
+    let harness = place.harness();
+    assert_eq!(
+        set_config_options(&harness),
+        [
+            json!({"sessionId": NEW_SESSION_ID, "configId": "model", "value": "gpt-5.4"}),
+            json!({"sessionId": NEW_SESSION_ID, "configId": "reasoning_effort", "value": "high"}),
+        ]
+    );
+    let methods: Vec<_> = harness
+        .received()
+        .into_iter()
+        .map(|received| received.method)
+        .filter(|method| method == "session/set_config_option" || method == "session/prompt")
+        .collect();
+    assert_eq!(
+        methods,
+        [
+            "session/set_config_option",
+            "session/set_config_option",
+            "session/prompt"
+        ],
+        "the harness has the model before it gets the prompt"
+    );
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_start_with_no_choice_keeps_the_settings_of_the_harness(pool: SqlitePool) {
+    let world = world(pool).await;
+    let place = DuplexPlace::new(codex_settings().turn(Turn::until_cancel(vec![])));
+    let sessions = world.coding_sessions(place.clone(), Arc::new(RefuseDecisions));
+
+    let session = sessions
+        .start(start_with(&world, Some("gpt-5.5"), None))
+        .await
+        .expect("the session starts");
+
+    assert_eq!(current(session.model.as_ref()), Some("gpt-5.5"));
+    assert_eq!(current(session.thought_level.as_ref()), Some("medium"));
+    assert_eq!(
+        session.model.as_ref().map(|model| model.choices.len()),
+        Some(2)
+    );
+    assert_eq!(set_config_options(&place.harness()), Vec::<Value>::new());
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_start_with_a_model_that_the_harness_does_not_offer_fails_with_no_prompt(
+    pool: SqlitePool,
+) {
+    let world = world(pool).await;
+    let place = DuplexPlace::new(codex_settings().turn(Turn::until_cancel(vec![])));
+    let sessions = world.coding_sessions(place.clone(), Arc::new(RefuseDecisions));
+
+    let failure = sessions
+        .start(start_with(&world, Some("opus"), Some("high")))
+        .await
+        .expect_err("the harness does not offer opus");
+
+    let StartFailure::ChoiceNotOffered {
+        session_id,
+        setting,
+        choice,
+        offered,
+    } = failure
+    else {
+        panic!("{failure:?}");
+    };
+    assert_eq!(setting, Setting::Model);
+    assert_eq!(choice, "opus");
+    assert_eq!(offered, "gpt-5.5 (GPT-5.5), gpt-5.4 (GPT-5.4)");
+    let record = world.record(&session_id).await;
+    assert_eq!(record.state, State::Failed);
+    assert_eq!(record.end_reason.as_deref(), Some("model_not_offered"));
+    assert_eq!(prompts(&place.harness()), Vec::<String>::new());
+    assert_eq!(set_config_options(&place.harness()), Vec::<Value>::new());
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_start_with_a_thought_level_on_a_harness_with_none_fails_with_no_prompt(
+    pool: SqlitePool,
+) {
+    let world = world(pool).await;
+    let place = DuplexPlace::new(Script::default().turn(Turn::until_cancel(vec![])));
+    let sessions = world.coding_sessions(place.clone(), Arc::new(RefuseDecisions));
+
+    let failure = sessions
+        .start(start_with(&world, None, Some("high")))
+        .await
+        .expect_err("the harness offers no thought level");
+
+    let StartFailure::ChoiceNotOffered {
+        session_id,
+        setting,
+        offered,
+        ..
+    } = failure
+    else {
+        panic!("{failure:?}");
+    };
+    assert_eq!(setting, Setting::ThoughtLevel);
+    assert_eq!(offered, "");
+    let record = world.record(&session_id).await;
+    assert_eq!(
+        record.end_reason.as_deref(),
+        Some("thought_level_not_offered")
+    );
+    assert_eq!(prompts(&place.harness()), Vec::<String>::new());
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn the_agent_changes_the_model_of_a_working_session(pool: SqlitePool) {
+    let world = world(pool).await;
+    let place = DuplexPlace::new(codex_settings().turn(Turn::until_cancel(vec![])));
+    let sessions = world.coding_sessions(place.clone(), Arc::new(RefuseDecisions));
+    let session = sessions
+        .start(world.new_session(&world.run_id))
+        .await
+        .expect("the session starts");
+
+    sessions
+        .set_settings(
+            &world.workspace_id,
+            &session.id,
+            SettingChoices {
+                model: Some("gpt-5.4".to_string()),
+                thought_level: None,
+            },
+        )
+        .await
+        .expect("the harness offers gpt-5.4");
+
+    let record = world.record(&session.id).await;
+    assert_eq!(record.state, State::Working);
+    assert_eq!(current(record.model.as_ref()), Some("gpt-5.4"));
+    assert_eq!(current(record.thought_level.as_ref()), Some("medium"));
+    assert_eq!(
+        set_config_options(&place.harness()),
+        [json!({"sessionId": NEW_SESSION_ID, "configId": "model", "value": "gpt-5.4"})]
+    );
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_change_to_a_thought_level_that_the_harness_does_not_offer_changes_nothing(
+    pool: SqlitePool,
+) {
+    let world = world(pool).await;
+    let place = DuplexPlace::new(codex_settings().turn(Turn::until_cancel(vec![])));
+    let sessions = world.coding_sessions(place.clone(), Arc::new(RefuseDecisions));
+    let session = sessions
+        .start(world.new_session(&world.run_id))
+        .await
+        .expect("the session starts");
+
+    let failure = sessions
+        .set_settings(
+            &world.workspace_id,
+            &session.id,
+            SettingChoices {
+                model: None,
+                thought_level: Some("max".to_string()),
+            },
+        )
+        .await
+        .expect_err("the harness does not offer max");
+
+    let SetSettingsFailure::Choice(ChoiceFailure::NotOffered {
+        setting, offered, ..
+    }) = failure
+    else {
+        panic!("{failure:?}");
+    };
+    assert_eq!(setting, Setting::ThoughtLevel);
+    assert_eq!(offered, "low (Low), medium (Medium), high (High)");
+    assert_eq!(
+        current(world.record(&session.id).await.thought_level.as_ref()),
+        Some("medium")
+    );
+    assert_eq!(set_config_options(&place.harness()), Vec::<Value>::new());
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_session_with_no_stream_changes_no_setting(pool: SqlitePool) {
+    let world = world(pool).await;
+    let (_place, sessions, session) = interrupted_session(&world, codex_settings().resume()).await;
+
+    let failure = sessions
+        .set_settings(
+            &world.workspace_id,
+            &session.id,
+            SettingChoices {
+                model: Some("gpt-5.4".to_string()),
+                thought_level: None,
+            },
+        )
+        .await
+        .expect_err("an interrupted session has no stream");
+
+    assert!(
+        matches!(failure, SetSettingsFailure::NotOpen(State::Interrupted)),
+        "{failure:?}"
+    );
+}
+
+/// A `config_option_update` of the harness with the model `model`.
+fn model_update(model: &str) -> acp::SessionUpdate {
+    acp::SessionUpdate::ConfigOptionUpdate(acp::ConfigOptionUpdate::new(vec![fake::select(
+        "model",
+        acp::SessionConfigOptionCategory::Model,
+        model,
+        &[("gpt-5.5", "GPT-5.5"), ("gpt-5.4", "GPT-5.4")],
+    )]))
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_config_option_update_of_the_harness_changes_the_record(pool: SqlitePool) {
+    let world = world(pool).await;
+    let place = DuplexPlace::new(codex_settings().turn(Turn::new(
+        vec![model_update("gpt-5.4")],
+        acp::StopReason::EndTurn,
+    )));
+    let sessions = world.coding_sessions(place.clone(), Arc::new(RefuseDecisions));
+    let session = sessions
+        .start(world.new_session(&world.run_id))
+        .await
+        .expect("the session starts");
+
+    world.wait_for_state(&session.id, State::Idle).await;
+
+    let record = world.record(&session.id).await;
+    assert_eq!(current(record.model.as_ref()), Some("gpt-5.4"));
+    assert_eq!(
+        record.thought_level, None,
+        "the update holds the full set of options"
+    );
+    assert_eq!(
+        kinds(&world.rows(&session.id).await),
+        [Kind::Prompt, Kind::TurnEnd]
+    );
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_resume_sets_the_recorded_model_when_the_restored_session_answers_another(
+    pool: SqlitePool,
+) {
+    let world = world(pool).await;
+    let (place, sessions, session) = interrupted_session(
+        &world,
+        codex_settings().resume().turn(Turn::new(
+            vec![model_update("gpt-5.4")],
+            acp::StopReason::EndTurn,
+        )),
+    )
+    .await;
+
+    sessions
+        .resume(&world.workspace_id, &session.id)
+        .await
+        .expect("the session resumes");
+
+    let record = world.record(&session.id).await;
+    assert_eq!(record.state, State::Idle);
+    assert_eq!(current(record.model.as_ref()), Some("gpt-5.4"));
+    assert_eq!(
+        set_config_options(&place.harness()),
+        [json!({"sessionId": NEW_SESSION_ID, "configId": "model", "value": "gpt-5.4"})]
+    );
+}
+
+/// Codex on the OpenRouter route of a Computer lists models that the
+/// route does not serve, so the session keeps no Harness Model, and the
+/// model of the configuration stays.
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_place_that_fixes_the_model_keeps_no_harness_model(pool: SqlitePool) {
+    let world = world(pool).await;
+    let place = DuplexPlace::fixing_the_model(codex_settings().turn(Turn::new(
+        vec![model_update("gpt-5.4")],
+        acp::StopReason::EndTurn,
+    )));
+    let sessions = world.coding_sessions(place.clone(), Arc::new(RefuseDecisions));
+
+    let failure = sessions
+        .start(start_with(&world, Some("gpt-5.4"), None))
+        .await
+        .expect_err("the place fixes the model");
+    let StartFailure::ChoiceNotOffered { offered, .. } = failure else {
+        panic!("{failure:?}");
+    };
+    assert_eq!(offered, "");
+
+    let session = sessions
+        .start(start_with(&world, None, Some("high")))
+        .await
+        .expect("the thought level is the harness's own");
+    assert_eq!(session.model, None);
+    assert_eq!(current(session.thought_level.as_ref()), Some("high"));
+    world.wait_for_state(&session.id, State::Idle).await;
+    assert_eq!(
+        world.record(&session.id).await.model,
+        None,
+        "an update of the harness keeps none"
+    );
 }

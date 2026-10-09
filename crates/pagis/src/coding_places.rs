@@ -166,6 +166,7 @@ impl ComputerPlace {
             }),
             cwd: request.cwd,
             exit,
+            fixed_model: route.fixes_model(),
         })
     }
 }

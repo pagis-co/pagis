@@ -141,6 +141,8 @@ impl SessionStarts for CodingSessionStarts {
                 ),
             ));
         }
+        let model = choice(arguments, "model")?;
+        let thought_level = choice(arguments, "thought_level")?;
         let worktree = arguments["worktree"].as_bool().unwrap_or(true);
         Ok(SessionStartAction {
             harness_id: entry.id.to_string(),
@@ -151,7 +153,24 @@ impl SessionStarts for CodingSessionStarts {
             mode,
             asks_permission: entry.asks_permission,
             harness_mode: harness_mode.map(|mode| mode.id.to_string()),
+            model,
+            thought_level,
         })
+    }
+}
+
+/// The id of a choice of a Harness Setting that the start names in
+/// `field`, or `None` when it names none. The harness lists its choices
+/// only when the session opens, so the start checks the id then.
+pub(crate) fn choice(arguments: &Value, field: &str) -> Result<Option<String>, ToolResult> {
+    match &arguments[field] {
+        Value::Null => Ok(None),
+        Value::String(id) if id.trim().is_empty() => Ok(None),
+        Value::String(id) => Ok(Some(id.trim().to_string())),
+        other => Err(ToolResult::error(
+            "invalid_request",
+            format!("{field} must be the id of a choice of the harness, not {other}"),
+        )),
     }
 }
 

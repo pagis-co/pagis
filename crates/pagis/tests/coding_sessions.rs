@@ -17,7 +17,9 @@ use futures::StreamExt;
 use pagis_agent::{Brain, BrainError, TurnRequest, TurnRole, TurnStream};
 use pagis_broker::fake::FakeClientApp;
 use pagis_coding::fake::{Ask, FakeHarness, NEW_SESSION_ID, Script, Turn, acp, serve_client_app};
-use pagis_coding::{CloseReason, NewCodingSession, PERMISSION_DECIDED_EVENT, Place, PromptOutcome};
+use pagis_coding::{
+    CloseReason, NewCodingSession, PERMISSION_DECIDED_EVENT, Place, PromptOutcome, SettingChoices,
+};
 use pagis_core::{
     AgentId, AuthorKind, Block, ChannelId, CodingSession, CodingSessionEventKind, CodingSessionId,
     CodingSessionState, Event, EventSource, HostId, KnownBlock, Message, MessageId,
@@ -181,6 +183,7 @@ async fn start_session_with(daemon: &TestDaemon, run_id: RunId, script: Script) 
             worktree: None,
             approval_mode: SessionApprovalMode::Person,
             harness_mode: None,
+            settings: SettingChoices::default(),
             title: "Fix the login bug".to_string(),
             prompt: "Fix the login bug.".to_string(),
         })
@@ -2193,6 +2196,7 @@ async fn the_person_who_stops_allowing_unattended_modes_closes_a_pi_session_and_
             worktree: None,
             approval_mode: SessionApprovalMode::Person,
             harness_mode: None,
+            settings: SettingChoices::default(),
             title: "Fix the login bug".to_string(),
             prompt: PROMPT.to_string(),
         })
@@ -3551,6 +3555,62 @@ async fn with_no_key_on_any_route_of_codex_the_start_is_a_tool_error_and_no_exec
 
     assert!(result.contains("no_provider_key"), "{result}");
     assert!(result.contains("OpenAI or OpenRouter key"), "{result}");
+    assert!(computer.runtime.exec_streams().is_empty());
+    assert!(computer.runtime.execs().is_empty());
+}
+
+/// Codex on the OpenRouter route lists OpenAI models that OpenRouter does
+/// not serve, so the route fixes its model to the Agent's model alias. A
+/// start that names a model is a tool error that says so, and no exec
+/// starts.
+#[tokio::test]
+async fn codex_on_the_openrouter_route_takes_no_model_of_the_start() {
+    let brain = Arc::new(ScriptedBrain::default());
+    brain.push(pagis_testkit::Script::tool_call(
+        &[],
+        "computer_coding_session_start",
+        json!({
+            "harness": "codex",
+            "directory": COMPUTER_DIRECTORY,
+            "title": "Fix the login",
+            "prompt": PROMPT,
+            "model": "gpt-5.5",
+        }),
+    ));
+    brain.push(pagis_testkit::Script::reply(&["No model."]));
+    let computer = computer_daemon_with(
+        Arc::new(TestRunsOnly(Arc::clone(&brain))),
+        &[("OPENROUTER_API_KEY", OPENROUTER_KEY)],
+    )
+    .await;
+    let daemon = &computer.daemon;
+    let alias = daemon
+        .stores()
+        .agents
+        .get(
+            &daemon.workspace_id,
+            &AgentId::from(daemon.agent_id.clone()),
+        )
+        .await
+        .unwrap()
+        .unwrap()
+        .model_alias;
+    daemon
+        .stores()
+        .model_aliases
+        .update_candidates(
+            &daemon.workspace_id,
+            &alias,
+            &["openrouter/openai/gpt-5.5".to_string()],
+            now_ms(),
+        )
+        .await
+        .unwrap();
+
+    let result = computer.tool_result_after(&brain, "fix the login").await;
+
+    assert!(result.contains("model_not_offered"), "{result}");
+    assert!(result.contains("Omit model"), "{result}");
     assert!(computer.runtime.exec_streams().is_empty());
     assert!(computer.runtime.execs().is_empty());
 }

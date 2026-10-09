@@ -3,8 +3,9 @@
 //
 // One card, running or settled, as the call block is (ADR-0022): the
 // sprite's face, the harness and the title; where the session runs; the
-// state, the Session Approval Mode and the Harness Mode; where a decision waits; the last line of activity;
-// and the end of a settled session. "Open" goes to the session page, and
+// Harness Model; the state, the Session Approval Mode and the Harness
+// Mode; where a decision waits; the last line of activity; and the end of
+// a settled session. "Open" goes to the session page, and
 // Stop closes a session that runs.
 //
 // Every fact comes from the session record. A `coding_session.*` frame
@@ -23,6 +24,7 @@ import {
   approvalModeBadge,
   endReasonText,
   harnessModeBadge,
+  modelText,
   pendingText,
   sessionSettled,
   sessionStateBadge,
@@ -56,6 +58,7 @@ export function CodingSessionBlock({ sessionId, api }: { sessionId: string; api:
   const mode = approvalModeBadge(record.approval_mode, spriteName)
   const harnessMode = harnessModeBadge(record.harness_mode_name, record.unattended)
   const usage = usageText(record.usage)
+  const model = modelText(record.model_name, record.thought_level_name)
   // A session in the Agent's Computer has no Host name.
   const machine = record.machine_name ?? 'Computer'
   return (
@@ -81,6 +84,7 @@ export function CodingSessionBlock({ sessionId, api }: { sessionId: string; api:
               <span className="coding-block-path">{record.worktree_branch}</span>
             </li>
           )}
+          {model !== null && <li>{model}</li>}
         </ul>
         <p className="coding-block-status">
           <Badge tone={state.tone}>{state.label}</Badge>

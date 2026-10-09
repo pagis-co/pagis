@@ -12,6 +12,7 @@ import {
   harnessModeBadge,
   lineCountText,
   modeChangeText,
+  modelText,
   pendingText,
   planStatusWord,
   sessionStateBadge,
@@ -65,6 +66,19 @@ describe('the Session Approval Mode', () => {
   it('says who approves', () => {
     expect(approvalModeBadge('person', 'Sage')).toEqual({ label: 'You approve', tone: 'neutral' })
     expect(approvalModeBadge('agent', 'Sage')).toEqual({ label: 'Sage approves', tone: 'neutral' })
+  })
+})
+
+describe('the Harness Model', () => {
+  it('names the model, and the thought level after it', () => {
+    expect(modelText('Sonnet', null)).toBe('Sonnet')
+    expect(modelText('gpt-5.5', 'High')).toBe('gpt-5.5 · thought level High')
+    expect(modelText(null, 'High')).toBe('Thought level High')
+  })
+
+  it('names nothing for a session with no choice of model or thought level', () => {
+    expect(modelText(null, null)).toBeNull()
+    expect(modelText(undefined, '')).toBeNull()
   })
 })
 
@@ -213,6 +227,8 @@ describe('the end of a session', () => {
     ['approval_mode_narrowed', 'You stopped allowing modes that act without asking'],
     ['unattended_mode_not_allowed', 'The mode acts without asking, and you do not allow that'],
     ['mode_not_offered', 'The coding harness does not offer the chosen mode'],
+    ['model_not_offered', 'The coding harness does not offer the chosen model'],
+    ['thought_level_not_offered', 'The coding harness does not offer the chosen thought level'],
   ])('says why %s ended it', (reason, text) => {
     expect(endReasonText(reason, 'Sage')).toBe(text)
   })

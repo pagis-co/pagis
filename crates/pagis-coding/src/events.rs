@@ -248,6 +248,8 @@ mod tests {
             approval_mode: SessionApprovalMode::Person,
             harness_mode: None,
             harness_modes: Vec::new(),
+            model: None,
+            thought_level: None,
             title: "Fix the login".to_string(),
             state,
             end_reason: end_reason.map(str::to_string),

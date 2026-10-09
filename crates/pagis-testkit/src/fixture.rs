@@ -162,6 +162,8 @@ pub fn coding_session(
         approval_mode: SessionApprovalMode::Person,
         harness_mode: None,
         harness_modes: Vec::new(),
+        model: None,
+        thought_level: None,
         title: "Fix the failing test".to_string(),
         state: CodingSessionState::Idle,
         end_reason: None,

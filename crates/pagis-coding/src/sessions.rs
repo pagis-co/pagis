@@ -62,21 +62,23 @@ use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
 use crate::events::{DecisionKind, InterruptReason, SessionNews, session_batch};
+use crate::settings::{ChoiceFailure, Setting, SettingChoices, apply_choices, record_settings};
 use crate::{
     AcpSession, AskHandler, CodingError, DecidedBy, OpenFailure, OpenFailureCode, OpenRequest,
     Opening, Pending, PermissionAnswer, PermissionAsk, Place, QuestionAnswer, QuestionAsk,
     SessionDecisions, SessionEvent, SessionEvents, SessionExit, SessionPlace, SessionRules,
-    SignInReports, Waited, WaitsFor, WorktreeRequest,
+    SessionSettings, SignInReports, Waited, WaitsFor, WorktreeRequest,
 };
 
 /// How long a session waits for the exit report of its process after
 /// the stream of the process closed.
 const EXIT_GRACE: Duration = Duration::from_secs(10);
 
-/// How long a change of the Harness Mode by the Agent waits for the
-/// answer of the harness. The change holds the lock of the Grant checks,
-/// so a harness that does not answer cannot hold it longer.
-const SET_MODE_TIMEOUT: Duration = Duration::from_secs(30);
+/// How long a change of the Harness Mode, the Harness Model or the
+/// thought level by the Agent waits for the answer of the harness. A
+/// change of the mode holds the lock of the Grant checks, so a harness
+/// that does not answer cannot hold it longer.
+const SET_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// What [`CodingSessions`] is built from.
 pub struct CodingSessionsDeps {
@@ -129,6 +131,9 @@ pub struct NewCodingSession {
     /// The id of the Harness Mode that the Person approved on the card,
     /// or `None` for an asking mode of the Harness Catalog.
     pub harness_mode: Option<String>,
+    /// The Harness Model and the thought level that the Agent chose. A
+    /// setting that it did not name keeps the choice of the harness.
+    pub settings: SettingChoices,
     pub title: String,
     /// The first prompt.
     pub prompt: String,
@@ -195,6 +200,17 @@ pub enum StartFailure {
         mode: String,
         offered: Vec<String>,
     },
+    /// The harness does not offer the Harness Model or the thought level
+    /// that the Agent chose, so the session is `failed` before its first
+    /// prompt. `offered` lists the choices that the harness offers, which
+    /// are harness text.
+    #[error("the Coding Harness does not offer the {} {choice:?}", .setting.words())]
+    ChoiceNotOffered {
+        session_id: CodingSessionId,
+        setting: Setting,
+        choice: String,
+        offered: String,
+    },
     #[error(transparent)]
     Store(#[from] StoreError),
 }
@@ -240,6 +256,35 @@ impl From<SessionError> for SetModeFailure {
             SessionError::NotOpen(state) => SetModeFailure::NotOpen(state),
             SessionError::Harness(message) => SetModeFailure::Harness(message),
             SessionError::Store(error) => SetModeFailure::Store(error),
+        }
+    }
+}
+
+/// Why a change of the Harness Model or the thought level did nothing.
+/// A setting that the harness took before the failure keeps its new
+/// choice.
+#[derive(Debug, thiserror::Error)]
+pub enum SetSettingsFailure {
+    #[error("the Workspace has no such Coding Session")]
+    NotFound,
+    /// Only a session with a stream changes its settings.
+    #[error("the Coding Session is {}", .0.as_str())]
+    NotOpen(State),
+    #[error(transparent)]
+    Choice(#[from] ChoiceFailure),
+    #[error(transparent)]
+    Store(#[from] StoreError),
+}
+
+impl From<SessionError> for SetSettingsFailure {
+    fn from(error: SessionError) -> Self {
+        match error {
+            SessionError::NotFound => SetSettingsFailure::NotFound,
+            SessionError::NotOpen(state) => SetSettingsFailure::NotOpen(state),
+            SessionError::Harness(message) => {
+                SetSettingsFailure::Choice(ChoiceFailure::Harness(message))
+            }
+            SessionError::Store(error) => SetSettingsFailure::Store(error),
         }
     }
 }
@@ -484,6 +529,8 @@ impl CodingSessions {
             approval_mode: new.approval_mode,
             harness_mode: None,
             harness_modes: Vec::new(),
+            model: None,
+            thought_level: None,
             title: new.title,
             state: State::Starting,
             end_reason: None,
@@ -587,6 +634,7 @@ impl CodingSessions {
             record.harness_mode = Some(modes.current.clone());
             record.harness_modes = modes.available.clone();
         }
+        record_settings(&mut record, acp.settings(), opened.fixed_model);
         self.records.write(&mut record).await?;
         // The harness starts in the mode that the card named. Its own first
         // mode comes from the Person's settings of the harness, which do
@@ -622,6 +670,37 @@ impl CodingSessions {
             Err(ModeSetting::Harness(error)) => {
                 acp.close();
                 return Err(self.harness_failed(&mut record, error).await);
+            }
+        }
+        // The harness takes the model and the thought level that the Agent
+        // chose before the first prompt, or the start fails.
+        match apply_choices(&acp, &mut record, &new.settings, true, opened.fixed_model).await {
+            Ok(false) => {}
+            Ok(true) => self.records.write(&mut record).await?,
+            Err(ChoiceFailure::NotOffered {
+                setting,
+                choice,
+                offered,
+            }) => {
+                acp.close();
+                self.records
+                    .end_start(&mut record, End::new(setting.not_offered(), None))
+                    .await;
+                return Err(StartFailure::ChoiceNotOffered {
+                    session_id: record.id,
+                    setting,
+                    choice,
+                    offered,
+                });
+            }
+            Err(ChoiceFailure::Harness(message)) => {
+                acp.close();
+                let end = End::new(HARNESS_ERROR, Some(message.clone()));
+                self.records.end_start(&mut record, end).await;
+                return Err(StartFailure::Harness {
+                    session_id: record.id,
+                    message,
+                });
             }
         }
 
@@ -683,6 +762,7 @@ impl CodingSessions {
             snapshot,
             acp: Some(acp),
             sign_in_reports: Arc::clone(&self.sign_in_reports),
+            fixed_model: opened.fixed_model,
             queue: Vec::new(),
             asks: HashMap::new(),
         };
@@ -848,6 +928,25 @@ impl CodingSessions {
             reply,
         })
         .await?;
+        Ok(())
+    }
+
+    /// Changes the Harness Model or the thought level of a session with a
+    /// stream to choices that its harness offers, for the supervising
+    /// Agent. The task of the session checks each choice against the
+    /// settings that the harness last reported, sets the model first, and
+    /// writes the record.
+    pub async fn set_settings(
+        &self,
+        workspace_id: &WorkspaceId,
+        session_id: &CodingSessionId,
+        choices: SettingChoices,
+    ) -> Result<(), SetSettingsFailure> {
+        self.command(workspace_id, session_id, |reply| Command::SetSettings {
+            choices,
+            reply,
+        })
+        .await??;
         Ok(())
     }
 
@@ -1153,6 +1252,21 @@ impl CodingSessions {
             }
             None => (None, Vec::new()),
         };
+        // The harness restores its session with settings of its own, so
+        // each recorded choice that it still offers is set again.
+        let mut restored = record.clone();
+        record_settings(&mut restored, acp.settings(), opened.fixed_model);
+        let recorded = SettingChoices::recorded(&record);
+        if let Err(failure) =
+            apply_choices(&acp, &mut restored, &recorded, false, opened.fixed_model).await
+        {
+            acp.close();
+            let message = match failure {
+                ChoiceFailure::Harness(message) => message,
+                other => other.to_string(),
+            };
+            return Err(ResumeFailure::Harness(message));
+        }
 
         // A close of the record, and a Grant change, can come while the
         // stream opens. The lock holds until the task runs.
@@ -1170,6 +1284,8 @@ impl CodingSessions {
         }
         record.harness_mode = harness_mode;
         record.harness_modes = harness_modes;
+        record.model = restored.model;
+        record.thought_level = restored.thought_level;
         if let Place::Host(host_id) = &place
             && record.acts_unattended()
         {
@@ -1209,6 +1325,7 @@ impl CodingSessions {
             snapshot,
             acp: Some(acp),
             sign_in_reports: Arc::clone(&self.sign_in_reports),
+            fixed_model: opened.fixed_model,
             queue: Vec::new(),
             asks: HashMap::new(),
         };
@@ -1415,7 +1532,7 @@ async fn set_approved_mode(
 }
 
 /// The message of a failed request of the harness. It is harness text.
-fn harness_message(error: CodingError) -> String {
+pub(crate) fn harness_message(error: CodingError) -> String {
     match error {
         CodingError::Protocol(message) => message,
         other => other.to_string(),
@@ -1612,6 +1729,11 @@ enum Command {
     SetMode {
         mode_id: String,
         reply: oneshot::Sender<Result<(), SessionError>>,
+    },
+    /// The Agent changes the Harness Model or the thought level.
+    SetSettings {
+        choices: SettingChoices,
+        reply: oneshot::Sender<Result<Result<(), ChoiceFailure>, SessionError>>,
     },
     /// The place of the session is lost: the task closes the stream,
     /// moves the session to `interrupted` and ends.
@@ -1950,6 +2072,9 @@ struct Task {
     acp: Option<AcpSession>,
     /// Hears a harness that needs a Harness Sign-In.
     sign_in_reports: Arc<SignInReports>,
+    /// The place names the model of the harness, so the session keeps no
+    /// Harness Model.
+    fixed_model: bool,
     /// The prompts that wait for the end of the turn.
     queue: Vec<String>,
     /// The asks that wait for their answer, by `ask_id`.
@@ -2103,6 +2228,10 @@ impl Task {
                 let _ = reply.send(self.set_mode(mode_id).await);
                 Flow::Go
             }
+            Command::SetSettings { choices, reply } => {
+                let _ = reply.send(self.set_settings(choices).await);
+                Flow::Go
+            }
             Command::Interrupt { reason, reply } => {
                 self.queue.clear();
                 if let Some(acp) = self.acp.take() {
@@ -2210,6 +2339,7 @@ impl Task {
                 }
             }
             SessionEvent::ModeChanged { mode_id } => self.mode_changed(mode_id).await,
+            SessionEvent::SettingsChanged { settings } => self.settings_changed(&settings).await,
             // `run` reads the end of the stream.
             SessionEvent::Closed => {}
         }
@@ -2227,13 +2357,13 @@ impl Task {
         if self.record.harness_mode.as_deref() == Some(mode_id.as_str()) {
             return Ok(());
         }
-        match tokio::time::timeout(SET_MODE_TIMEOUT, acp.set_mode(&mode_id)).await {
+        match tokio::time::timeout(SET_TIMEOUT, acp.set_mode(&mode_id)).await {
             Ok(Ok(())) => {}
             Ok(Err(error)) => return Err(SessionError::Harness(harness_message(error))),
             Err(_) => {
                 return Err(SessionError::Harness(format!(
                     "the harness did not answer session/set_mode in {} seconds",
-                    SET_MODE_TIMEOUT.as_secs()
+                    SET_TIMEOUT.as_secs()
                 )));
             }
         }
@@ -2243,6 +2373,55 @@ impl Task {
         self.snapshot.send_replace(self.record.clone());
         self.append(Kind::Mode, payload).await;
         written.map_err(SessionError::from)
+    }
+
+    /// Sets the choices of the Agent and writes the record. A failure of
+    /// the harness after a setting changed keeps that change in the
+    /// record.
+    async fn set_settings(
+        &mut self,
+        choices: SettingChoices,
+    ) -> Result<Result<(), ChoiceFailure>, SessionError> {
+        let acp = self
+            .acp
+            .as_ref()
+            .ok_or(SessionError::NotOpen(self.record.state))?;
+        let mut record = self.record.clone();
+        let applied = tokio::time::timeout(
+            SET_TIMEOUT,
+            apply_choices(acp, &mut record, &choices, true, self.fixed_model),
+        )
+        .await
+        .unwrap_or_else(|_| {
+            Err(ChoiceFailure::Harness(format!(
+                "the harness did not answer session/set_config_option in {} seconds",
+                SET_TIMEOUT.as_secs()
+            )))
+        });
+        if record.model != self.record.model || record.thought_level != self.record.thought_level {
+            self.record.model = record.model;
+            self.record.thought_level = record.thought_level;
+            self.records.write(&mut self.record).await?;
+            self.snapshot.send_replace(self.record.clone());
+        }
+        Ok(applied.map(|_| ()))
+    }
+
+    /// Writes the Harness Model and the thought level that the harness
+    /// reported. An update that holds neither leaves both.
+    async fn settings_changed(&mut self, settings: &SessionSettings) {
+        if settings == &SessionSettings::default() {
+            return;
+        }
+        let before = (self.record.model.clone(), self.record.thought_level.clone());
+        record_settings(&mut self.record, settings, self.fixed_model);
+        if (self.record.model.clone(), self.record.thought_level.clone()) == before {
+            return;
+        }
+        if let Err(error) = self.records.write(&mut self.record).await {
+            tracing::warn!(session = %self.record.id, %error, "the settings of a Coding Session were not written");
+        }
+        self.snapshot.send_replace(self.record.clone());
     }
 
     /// Writes a new Harness Mode that the harness reported, and its `mode`

@@ -318,6 +318,16 @@ impl ModelRoute {
         self.model.as_deref()
     }
 
+    /// Whether the configuration names the model, and the harness lists
+    /// models that the route does not serve: Codex on the OpenRouter
+    /// route lists the OpenAI ids of its own catalog, and OpenRouter names
+    /// them `openai/<model>`. Such a session keeps no Harness Model, so
+    /// the model of the Agent's alias stays. On each other route the
+    /// harness lists only models of the provider of the route.
+    pub fn fixes_model(&self) -> bool {
+        self.harness_id == "codex" && self.route.provider == Provider::OpenRouter
+    }
+
     /// The configuration of one session: `endpoint` is the base URL of
     /// the Harness Model Endpoint as the Computer reaches it, and `token`
     /// the token of the session.
@@ -684,6 +694,27 @@ mod tests {
         let route = route("codex", &[Provider::OpenRouter]).unwrap();
         assert_eq!(route.provider(), Provider::OpenRouter);
         assert_eq!(route.model(), Some("openai/gpt-5.5"));
+    }
+
+    /// Codex lists the OpenAI ids of its own catalog, which OpenRouter
+    /// does not serve, so on the OpenRouter route the model of the
+    /// configuration is fixed. Each other route lists only models of its
+    /// provider: pi lists the one model of its configuration.
+    #[test]
+    fn only_codex_on_the_openrouter_route_fixes_its_model() {
+        assert!(
+            route("codex", &[Provider::OpenRouter])
+                .unwrap()
+                .fixes_model()
+        );
+        assert!(!route("codex", &[Provider::OpenAi]).unwrap().fixes_model());
+        for harness_id in ["claude", "opencode", "pi"] {
+            for provider in [Provider::Anthropic, Provider::OpenAi, Provider::OpenRouter] {
+                if let Ok(route) = route(harness_id, &[provider]) {
+                    assert!(!route.fixes_model(), "{harness_id} on {provider:?}");
+                }
+            }
+        }
     }
 
     #[test]

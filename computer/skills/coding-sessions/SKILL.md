@@ -1,6 +1,6 @@
 ---
 name: coding-sessions
-description: Hand a code change to a Coding Harness such as Claude Code or Codex. Choose the place, harness and modes, write the brief, supervise, verify, and report the branch.
+description: Hand a code change to a Coding Harness such as Claude Code or Codex. Choose the place, harness, modes and model, write the brief, supervise, verify, and report the branch.
 ---
 
 # Coding Sessions
@@ -89,6 +89,25 @@ For the Harness Mode:
 The start refuses a mode that the Grant does not allow, for example with
 `unattended_mode_not_allowed`. Then stop. Tell the user what the Grant
 allows and which change you need.
+
+## Choose the model
+
+Most harnesses let you choose the model and the thought level of the
+session. The harness lists its choices only when the session opens.
+
+- When the user names a model or a thought level, pass it as `model` or
+  `thought_level` at the start. Use the id of the harness, for example
+  `opus` of Claude Code or `gpt-5.5` of Codex.
+- Else omit both. The session then uses the default of the harness.
+- A choice that the harness does not offer ends the start with
+  `model_not_offered` or `thought_level_not_offered`. The answer lists the
+  choices of the harness. Start again with one of them, or ask the user.
+- `coding_session_read` shows the `model` and the `models` of the session,
+  and the `thought_level` and the `thought_levels`. Change them in a
+  running session with `coding_session_set_model`. The next turn uses the
+  change.
+- In your Computer, Codex on the OpenRouter route uses the model of your
+  model alias, and takes no `model`.
 
 ## Write the brief
 

@@ -169,6 +169,29 @@ describe('the badges', () => {
     expect(mode.classList.contains('ui-badge-waiting')).toBe(true)
   })
 
+  it('shows the model and the thought level in the facts', async () => {
+    mount(
+      stubApi({
+        ...running,
+        model: 'sonnet',
+        model_name: 'Sonnet',
+        thought_level: 'high',
+        thought_level_name: 'High',
+      }),
+    )
+
+    const card = await block()
+    expect(within(card).getByText('Sonnet · thought level High').tagName).toBe('LI')
+  })
+
+  it('shows no model for a session whose harness offers no choice of model', async () => {
+    mount(stubApi({ ...running, model: null, model_name: null }))
+
+    const card = await block()
+    expect(within(card).queryByText(/thought level/)).toBeNull()
+    expect(card.querySelectorAll('.coding-block-facts li')).toHaveLength(3)
+  })
+
   it('shows no mode badge for a session with no Harness Mode', async () => {
     mount(stubApi({ ...running, harness_mode: null, harness_mode_name: null, unattended: true }))
 

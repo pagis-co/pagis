@@ -61,6 +61,10 @@ pub struct OpenedStream {
     pub cwd: String,
     /// How the process ended. An error when the place was lost first.
     pub exit: oneshot::Receiver<SessionExit>,
+    /// The place names the model in the configuration of the harness, and
+    /// the harness lists models that the place does not serve. The
+    /// session then keeps no Harness Model (`ModelRoute::fixes_model`).
+    pub fixed_model: bool,
 }
 
 /// Why no harness process started.
@@ -133,5 +137,6 @@ pub async fn open_on_host(
         stream: Box::new(opened.stream),
         cwd: opened.cwd,
         exit: opened.exit,
+        fixed_model: false,
     })
 }

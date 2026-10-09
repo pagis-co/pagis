@@ -12347,6 +12347,20 @@
             "type": "string",
             "description": "The message that holds the block of the session."
           },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The id of the current Harness Model, or none when the harness\noffers no choice of model. It is harness text."
+          },
+          "model_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The name that the harness gave the current Harness Model, else its\nid. It is harness text."
+          },
           "pending": {
             "oneOf": [
               {
@@ -12371,6 +12385,20 @@
           },
           "state": {
             "$ref": "#/components/schemas/CodingSessionState"
+          },
+          "thought_level": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The id of the current thought level, or none when the harness\noffers no choice of thought level. It is harness text."
+          },
+          "thought_level_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The name that the harness gave the current thought level, else its\nid. It is harness text."
           },
           "title": {
             "type": "string"

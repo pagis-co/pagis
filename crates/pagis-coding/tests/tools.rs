@@ -10,11 +10,12 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use pagis_broker::{AuthorizedCall, CoreTool, HostSessions, ToolExecutor, ToolResult, ToolRoute};
-use pagis_coding::fake::{Script, Turn, acp, serve_client_app};
+use pagis_coding::fake::{self, Script, Turn, acp, serve_client_app};
 use pagis_coding::{
     AgentAsks, CodingSessionStarts, CodingSessions, CodingSessionsDeps, CodingToolRuntime,
     NewCodingSession, OpenFailure, OpenRequest, OpenedStream, Place, RefuseDecisions,
-    SessionEvents, SessionPlace, SessionRuleError, SessionRules, SignInReports, open_on_host,
+    SessionEvents, SessionPlace, SessionRuleError, SessionRules, SettingChoices, SignInReports,
+    open_on_host,
 };
 use pagis_core::{
     Agent, AgentId, AgentStatus, AgentStore, Channel, ChannelId, ChannelKind, ChannelStore,
@@ -259,6 +260,7 @@ impl World {
                 worktree: None,
                 approval_mode: SessionApprovalMode::Person,
                 harness_mode: None,
+                settings: SettingChoices::default(),
                 title: "Fix the login".to_string(),
                 prompt: "Fix the login bug.".to_string(),
             })
@@ -285,6 +287,8 @@ impl World {
             approval_mode: SessionApprovalMode::Person,
             harness_mode: None,
             harness_modes: Vec::new(),
+            model: None,
+            thought_level: None,
             title: title.to_string(),
             state,
             end_reason: terminal.then(|| "closed".to_string()),
@@ -1229,4 +1233,152 @@ fn no_model_routes(pool: &sqlx::SqlitePool) -> Arc<pagis_coding::ModelRoutes> {
             pool.clone(),
         )),
     ))
+}
+
+/// A Codex harness that offers two models and two thought levels, and
+/// whose first turn ends at once.
+fn codex() -> Script {
+    Script::default()
+        .config_options(vec![
+            fake::select(
+                "model",
+                acp::SessionConfigOptionCategory::Model,
+                "gpt-5.5",
+                &[("gpt-5.5", "GPT-5.5"), ("gpt-5.4", "GPT-5.4")],
+            ),
+            fake::select(
+                "reasoning_effort",
+                acp::SessionConfigOptionCategory::ThoughtLevel,
+                "medium",
+                &[("medium", "Medium"), ("high", "High")],
+            ),
+        ])
+        .turn(Turn::new(vec![], acp::StopReason::EndTurn))
+}
+
+impl World {
+    async fn set_model(&self, session: &CodingSession, arguments: Value) -> ToolResult {
+        let mut arguments = arguments;
+        arguments["session"] = json!(session.id.as_str());
+        self.call(
+            CoreTool::CodingSessionSetModel,
+            "coding_session_set_model",
+            arguments,
+        )
+        .await
+    }
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn set_model_sets_the_model_and_the_thought_level_of_the_session(pool: SqlitePool) {
+    let world = world(pool, codex()).await;
+    let session = world.idle_claude_session().await;
+
+    let set = world
+        .set_model(
+            &session,
+            json!({"model": "gpt-5.4", "thought_level": "high"}),
+        )
+        .await;
+
+    assert!(!set.is_error, "{set:?}");
+    assert_eq!(
+        json_of(&set),
+        json!({"session_id": session.id.as_str(), "model": "gpt-5.4", "thought_level": "high"})
+    );
+    let record = world.session_record(&session).await;
+    assert_eq!(
+        record.model.map(|model| model.current).as_deref(),
+        Some("gpt-5.4")
+    );
+    assert_eq!(
+        record.thought_level.map(|level| level.current).as_deref(),
+        Some("high")
+    );
+}
+
+/// The harness named its models, so a refusal names them inside the
+/// envelope of the session.
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn set_model_to_a_model_that_the_session_does_not_list_names_the_models(pool: SqlitePool) {
+    let world = world(pool, codex()).await;
+    let session = world.idle_claude_session().await;
+
+    let refused = world.set_model(&session, json!({"model": "gpt-9"})).await;
+
+    assert_eq!(code(&refused), "model_not_offered");
+    let source = format!("coding_session:{}", session.id);
+    assert!(
+        refused.content.contains(&format!(
+            "[BEGIN UNTRUSTED source={source}]\ngpt-5.5 (GPT-5.5), gpt-5.4 (GPT-5.4)\n[END \
+             UNTRUSTED source={source}]"
+        )),
+        "{refused:?}"
+    );
+    let record = world.session_record(&session).await;
+    assert_eq!(
+        record.model.map(|model| model.current).as_deref(),
+        Some("gpt-5.5")
+    );
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn set_model_on_a_harness_with_no_model_choice_answers_model_not_offered(pool: SqlitePool) {
+    let world = world(pool, claude()).await;
+    let session = world.idle_claude_session().await;
+
+    let refused = world.set_model(&session, json!({"model": "opus"})).await;
+
+    assert_eq!(code(&refused), "model_not_offered");
+    assert!(
+        refused.content.contains("offers no choice of model"),
+        "{refused:?}"
+    );
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn set_model_on_another_agents_session_or_an_interrupted_one_changes_nothing(
+    pool: SqlitePool,
+) {
+    let world = world(pool, Script::default()).await;
+    let theirs = world
+        .record(&world.other_agent_id, State::Idle, "Not yours")
+        .await;
+    let lost = world
+        .record(&world.agent_id, State::Interrupted, "Lost")
+        .await;
+
+    let not_found = world.set_model(&theirs, json!({"model": "gpt-5.4"})).await;
+    let not_open = world.set_model(&lost, json!({"model": "gpt-5.4"})).await;
+
+    assert_eq!(code(&not_found), "session_not_found");
+    assert_eq!(code(&not_open), "session_not_open");
+}
+
+/// The harness named its models and its thought levels, so a read shows
+/// them inside the envelope.
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn read_shows_the_model_and_the_thought_level_inside_the_envelope(pool: SqlitePool) {
+    let world = world(pool, codex()).await;
+    let session = world.idle_claude_session().await;
+
+    let read = json_of(&world.read(&session).await);
+
+    let source = format!("coding_session:{}", session.id);
+    let inside: Value =
+        serde_json::from_str(enveloped(read["harness_output"].as_str().unwrap(), &source)).unwrap();
+    assert_eq!(inside["model"], json!({"id": "gpt-5.5", "name": "GPT-5.5"}));
+    assert_eq!(
+        inside["models"],
+        json!([
+            {"id": "gpt-5.5", "name": "GPT-5.5", "description": null},
+            {"id": "gpt-5.4", "name": "GPT-5.4", "description": null}
+        ])
+    );
+    assert_eq!(
+        inside["thought_level"],
+        json!({"id": "medium", "name": "Medium"})
+    );
+    assert_eq!(inside["thought_levels"].as_array().map(Vec::len), Some(2));
+    assert_eq!(read.get("model"), None, "{read:#}");
 }

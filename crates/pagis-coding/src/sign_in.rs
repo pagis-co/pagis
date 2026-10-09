@@ -436,6 +436,7 @@ mod tests {
                 stream: Box::new(daemon_end.compat()),
                 cwd: "/Users/bo".to_string(),
                 exit: exited,
+                fixed_model: false,
             })
         }
     }
