@@ -65,7 +65,11 @@ cargo xtask image             # build each architecture, scan, push, and join
 The daemon pulls `ghcr.io/pagis-co/pagis-computer` the first time an Agent
 wakes, so an installation works only while the pinned tag is on GHCR. The
 command builds `computer/` for `linux/amd64` and then for `linux/arm64` on
-a buildx container builder that it makes one time. It scans the filesystem
+a buildx container builder that it makes one time. The builder pulls each
+Docker Hub base image through mirror.gcr.io (`buildkitd.toml`), because
+Docker Hub refuses the anonymous pulls of a shared runner address. A
+builder that an older `cargo xtask` made keeps its old configuration:
+remove it with `docker buildx rm pagis`. It scans the filesystem
 of each architecture for secrets and for known vulnerabilities, and then
 pushes that architecture by its digest, with no tag. Last, it joins both
 digests into one multi-architecture index under the pin in

@@ -110,10 +110,18 @@ jobs:
         with:
           node-version-file: .nvmrc
 
+      # The tests run the Rust image and the Postgres image from Docker
+      # Hub, so the daemon pulls them through mirror.gcr.io. The restart
+      # comes before the builder starts.
+      - run: .github/scripts/docker-hub-mirror.sh
+
       # The image build reads its layers from the GitHub Actions cache,
       # which a buildx builder of the docker-container driver reaches
-      # with the runtime token of the job.
+      # with the runtime token of the job. The builder pulls the base
+      # images through mirror.gcr.io (buildkitd.toml).
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          buildkitd-config: buildkitd.toml
 
       - uses: crazy-max/ghaction-github-runtime@04d248b84655b509d8c44dc1d6f990c879747487 # v4.0.0
 
