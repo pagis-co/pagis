@@ -3,7 +3,7 @@
 //
 // One card, running or settled, as the call block is (ADR-0022): the
 // sprite's face, the harness and the title; where the session runs; the
-// state and the mode; where a decision waits; the last line of activity;
+// state, the Session Approval Mode and the Harness Mode; where a decision waits; the last line of activity;
 // and the end of a settled session. "Open" goes to the session page, and
 // Stop closes a session that runs.
 //
@@ -22,6 +22,7 @@ import { StopCodingSession } from '../components/coding/StopCodingSession'
 import {
   approvalModeBadge,
   endReasonText,
+  harnessModeBadge,
   pendingText,
   sessionSettled,
   sessionStateBadge,
@@ -53,6 +54,7 @@ export function CodingSessionBlock({ sessionId, api }: { sessionId: string; api:
   const settled = sessionSettled(record.state)
   const state = sessionStateBadge(record.state)
   const mode = approvalModeBadge(record.approval_mode, spriteName)
+  const harnessMode = harnessModeBadge(record.harness_mode_name, record.unattended)
   const usage = usageText(record.usage)
   // A session in the Agent's Computer has no Host name.
   const machine = record.machine_name ?? 'Computer'
@@ -83,6 +85,7 @@ export function CodingSessionBlock({ sessionId, api }: { sessionId: string; api:
         <p className="coding-block-status">
           <Badge tone={state.tone}>{state.label}</Badge>
           <Badge tone={mode.tone}>{mode.label}</Badge>
+          {harnessMode !== null && <Badge tone={harnessMode.tone}>{harnessMode.label}</Badge>}
           {usage !== null && <span className="coding-block-usage">{usage}</span>}
         </p>
         {record.state === 'needs_decision' && record.pending != null && (

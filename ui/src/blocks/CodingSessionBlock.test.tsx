@@ -144,6 +144,38 @@ describe('the badges', () => {
     const card = await block()
     expect(await within(card).findByText('Sage approves')).toBeTruthy()
   })
+
+  it('shows the Harness Mode after the approval mode', async () => {
+    mount(stubApi({ ...running, harness_mode: 'default', harness_mode_name: 'Manual' }))
+
+    const card = await block()
+    const mode = within(card).getByText('Manual')
+    expect(mode.classList.contains('ui-badge-neutral')).toBe(true)
+    const approval = within(card).getByText('You approve')
+    expect(approval.nextElementSibling).toBe(mode)
+  })
+
+  it('shows an Unattended Mode in the waiting hue', async () => {
+    mount(
+      stubApi({
+        ...running,
+        harness_mode: 'bypassPermissions',
+        harness_mode_name: 'Bypass permissions',
+        unattended: true,
+      }),
+    )
+
+    const mode = within(await block()).getByText('Bypass permissions')
+    expect(mode.classList.contains('ui-badge-waiting')).toBe(true)
+  })
+
+  it('shows no mode badge for a session with no Harness Mode', async () => {
+    mount(stubApi({ ...running, harness_mode: null, harness_mode_name: null, unattended: true }))
+
+    const card = await block()
+    const approval = within(card).getByText('You approve')
+    expect(approval.nextElementSibling?.classList.contains('ui-badge')).not.toBe(true)
+  })
 })
 
 describe('a decision that waits', () => {

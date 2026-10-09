@@ -66,6 +66,12 @@ export function endReasonText(reason: string | null | undefined, spriteName: str
       return 'The coding harness did not start'
     case 'host_not_connected':
       return 'The machine was not connected'
+    case 'approval_mode_narrowed':
+      return 'You stopped allowing modes that act without asking'
+    case 'unattended_mode_not_allowed':
+      return 'The mode acts without asking, and you do not allow that'
+    case 'mode_not_offered':
+      return 'The coding harness does not offer the chosen mode'
     default:
       return reason
   }
@@ -96,6 +102,36 @@ export function approvalModeBadge(mode: string, spriteName: string): BadgeWord {
       return { label: `${spriteName} approves`, tone: 'neutral' }
     default:
       return { label: mode, tone: 'neutral' }
+  }
+}
+
+/** The Harness Mode of a session, by the name that the harness gave
+ *  it, so the Person reads the word of the harness. An Unattended Mode
+ *  shows in the waiting hue. `null` for a session with no mode. */
+export function harnessModeBadge(
+  name: string | null | undefined,
+  unattended: boolean,
+): BadgeWord | null {
+  if (name == null || name === '') return null
+  return { label: name, tone: unattended ? 'waiting' : 'neutral' }
+}
+
+/** A change of the Harness Mode, and who changed it. */
+export function modeChangeText(
+  by: string,
+  name: string,
+  spriteName: string,
+  harnessName: string,
+): string {
+  switch (by) {
+    case 'agent':
+      return `${spriteName} set the mode ${name}`
+    case 'harness':
+      return `${harnessName} changed to the mode ${name}`
+    case 'pagis':
+      return `Pagis set the mode ${name}`
+    default:
+      return `The mode changed to ${name}`
   }
 }
 

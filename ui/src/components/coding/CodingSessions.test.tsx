@@ -152,6 +152,30 @@ describe('the list of coding sessions', () => {
     expect(within(row).getByText(formatMoment(working.updated_at))).toBeTruthy()
   })
 
+  it('shows the Harness Mode after the harness', async () => {
+    mount(stubApi({ '': [session({ ...working, harness_mode_name: 'Plan' })] }))
+
+    const open = await screen.findByRole('region', { name: 'Open' })
+    const [row] = within(open).getAllByRole('button')
+    const harness = within(row).getByText('Claude Code')
+    const mode = within(row).getByText('Plan')
+    expect(harness.compareDocumentPosition(mode) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(
+      mode.compareDocumentPosition(within(row).getByText('Ada’s laptop')) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+  })
+
+  it('shows no Harness Mode for a session with none', async () => {
+    mount(stubApi({ '': [session({ ...working, harness_mode_name: null })] }))
+
+    const open = await screen.findByRole('region', { name: 'Open' })
+    const [row] = within(open).getAllByRole('button')
+    const facts = row.querySelector('.coding-list-facts')
+    await within(row).findByText('Sage')
+    expect(facts?.textContent).toBe('Sage · Claude Code · Ada’s laptop · /Users/ada/src/working')
+  })
+
   it('opens the session of a row', async () => {
     const { onOpenSession } = mount(stubApi({ '': [working] }))
 

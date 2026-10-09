@@ -6,8 +6,8 @@
 // call opens one item, and each update of it changes only the fields
 // that the update holds. Each plan replaces the whole plan, so the last
 // plan row is the plan. A permission and its decision, and a question
-// and its answer, are one line each. The usage makes no item, because
-// the record holds it.
+// and its answer, are one line each, and so is a change of the Harness
+// Mode. The usage makes no item, because the record holds it.
 
 import type { CodingSessionEventDto } from '../../api/client'
 
@@ -74,6 +74,16 @@ export type TranscriptItem =
       truncated: boolean
     }
   | { kind: 'turn_end'; seq: number; stopReason: string; truncated: boolean }
+  | {
+      kind: 'mode'
+      seq: number
+      mode: string
+      /** The name that the harness gave the mode, else its id. */
+      name: string
+      /** Who changed the mode: `pagis`, `agent` or `harness`. */
+      by: string
+      truncated: boolean
+    }
 
 export interface Transcript {
   items: TranscriptItem[]
@@ -262,6 +272,18 @@ export function foldTranscript(rows: readonly CodingSessionEventDto[]): Transcri
           truncated,
         })
         break
+      case 'mode': {
+        const mode = text(payload.mode) ?? ''
+        items.push({
+          kind: 'mode',
+          seq,
+          mode,
+          name: text(payload.name) ?? mode,
+          by: text(payload.by) ?? '',
+          truncated,
+        })
+        break
+      }
       case 'usage':
         break
     }

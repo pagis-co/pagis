@@ -858,6 +858,31 @@ export function useSetSessionApprovalMode(api: ApiClient) {
   });
 }
 
+/** Allow or forbid Unattended Modes for one Agent on one machine. The
+ *  host Grant holds the allowance, and the first write on a machine with
+ *  no Grant makes one. */
+export function useSetUnattendedModes(api: ApiClient) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      agentId,
+      hostId,
+      allowed,
+    }: {
+      agentId: string;
+      hostId: string;
+      allowed: boolean;
+    }) =>
+      unwrap(
+        api.PUT("/api/v1/agents/{agent_id}/hosts/{host_id}/unattended-modes", {
+          params: { path: { agent_id: agentId, host_id: hostId } },
+          body: { allowed },
+        }),
+      ),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: grantsKey }),
+  });
+}
+
 /** Revoke a grant: the off switch. The next host call asks again. */
 export function useRevokeGrant(api: ApiClient) {
   const queryClient = useQueryClient();

@@ -478,7 +478,10 @@ first. An absent or unknown value reads as false. The Person sets it with
 `PUT /api/v1/agents/{agent_id}/hosts/{host_id}/unattended-modes` and the body
 `{"allowed": bool}`. As with the widest mode, the first write makes the
 Grant, and each change is a Grant revision. A harness that never asks (pi)
-starts only where the Grant allows Unattended Modes.
+starts only where the Grant allows Unattended Modes. The Access tab shows the
+allowance as a switch under the mode of each machine, apart from the mode,
+because the mode says who answers a Harness Permission and the switch says
+whether the harness may skip the question.
 
 A session that acts without asking sends no Harness Permission, so Pagis
 cannot apply a narrower Grant to it. A Grant revision that stops allowing Unattended
@@ -548,7 +551,11 @@ and the offered modes inside the untrusted envelope, because the harness
 names them. The REST record of a session holds `harness_mode`,
 `harness_mode_name`, `harness_modes` and `unattended`.
 
-Not built: the Harness Mode in the Product App.
+The Product App shows the name that the harness gave the current mode in a
+badge after the Session Approval Mode, on the session block and in the head
+of the session page. The badge has the waiting hue when the session acts
+without asking. A row of the Coding place shows the name after the harness.
+The transcript shows each `mode` row as one line that says who set the mode.
 
 ### A Harness Permission passes Pagis policy first
 
@@ -857,6 +864,4 @@ Other ways were considered:
 ## Not built
 
 - A Pagis auto mode.
-- The Harness Mode in the Product App.
-- The switch for Unattended Modes on the Access tab.
 - The Computer place.

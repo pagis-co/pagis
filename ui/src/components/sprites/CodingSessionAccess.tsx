@@ -1,13 +1,24 @@
 // The Coding sessions section of the Access tab (ADR-0033): the widest
 // Session Approval Mode of an Agent on each computer of the Person that
-// can start a Coding Harness. The host Grant of the Agent on the
-// computer holds the mode. With no Grant the mode is `person`, and the
-// first wider choice makes the Grant. A choice saves at once, and the
-// change is a Grant revision.
+// can start a Coding Harness, and whether the Agent may use Unattended
+// Modes there. The host Grant of the Agent on the computer holds both.
+// With no Grant the mode is `person` and Unattended Modes are not
+// allowed, and the first change makes the Grant. A change saves at
+// once, and it is a Grant revision.
+//
+// The allowance is a switch apart from the mode: the mode says who
+// answers a Harness Permission, and the switch says whether the harness
+// may act with no question.
 
 import type { AgentDto, ApiClient, GrantDto, HostDto, SessionApprovalMode } from '../../api/client'
-import { Select } from '../../primitives'
-import { errorMessage, useGrants, useHosts, useSetSessionApprovalMode } from '../../queries'
+import { Select, Switch } from '../../primitives'
+import {
+  errorMessage,
+  useGrants,
+  useHosts,
+  useSetSessionApprovalMode,
+  useSetUnattendedModes,
+} from '../../queries'
 
 import '../agent.css'
 import '../settings.css'
@@ -25,16 +36,14 @@ function startsHarness(host: HostDto): boolean {
   return host.capabilities.some((capability) => capability.startsWith('harness:'))
 }
 
-/** The widest mode of `agent` on `host`: the mode on its host Grant
- *  there, else `person`. */
-function savedMode(agent: AgentDto, host: HostDto, grants: GrantDto[]): SessionApprovalMode {
-  const grant = grants.find(
+/** The host Grant of `agent` on `host`, if there is one. */
+function hostGrant(agent: AgentDto, host: HostDto, grants: GrantDto[]): GrantDto | undefined {
+  return grants.find(
     (item) =>
       item.agent_id === agent.id &&
       item.resource_kind === 'host' &&
       item.resource_id === host.id,
   )
-  return grant?.session_approval_mode ?? 'person'
 }
 
 /** What `mode` does, in one line. */
@@ -55,7 +64,8 @@ function ModeEffect({ mode, agent }: { mode: SessionApprovalMode; agent: AgentDt
   }
 }
 
-function MachineMode({
+/** Whether `agent` may use Unattended Modes on `host`. */
+function UnattendedModes({
   api,
   agent,
   host,
@@ -64,12 +74,59 @@ function MachineMode({
   api: ApiClient
   agent: AgentDto
   host: HostDto
-  saved: SessionApprovalMode
+  saved: boolean
+}) {
+  const setAllowed = useSetUnattendedModes(api)
+  // The choice shows while it saves. After a failure the saved value
+  // shows again.
+  const allowed = setAllowed.isPending ? setAllowed.variables.allowed : saved
+
+  return (
+    <>
+      <Switch
+        checked={allowed}
+        disabled={setAllowed.isPending}
+        onCheckedChange={(next) =>
+          setAllowed.mutate({ agentId: agent.id, hostId: host.id, allowed: next })
+        }
+      >
+        Allow modes that act without asking
+      </Switch>
+      <p className="settings-hint">
+        {`${agent.name} may run a coding harness in a mode that does not ask first, such as ` +
+          'Bypass permissions of Claude Code, and a harness that never asks, such as pi.'}
+      </p>
+      {allowed && (
+        <p className="settings-warning">
+          {`A coding harness can then run any command as you on ${host.name}, with no question.`}
+        </p>
+      )}
+      {setAllowed.isError && (
+        <p role="alert" className="settings-error">
+          {errorMessage(setAllowed.error, 'The allowance of modes did not change.')}
+        </p>
+      )}
+    </>
+  )
+}
+
+function MachineMode({
+  api,
+  agent,
+  host,
+  grant,
+}: {
+  api: ApiClient
+  agent: AgentDto
+  host: HostDto
+  grant: GrantDto | undefined
 }) {
   const setMode = useSetSessionApprovalMode(api)
   // The choice shows while it saves. After a failure the saved mode
   // shows again.
-  const mode = setMode.isPending ? setMode.variables.mode : saved
+  const mode = setMode.isPending
+    ? setMode.variables.mode
+    : (grant?.session_approval_mode ?? 'person')
 
   return (
     <div className="coding-session-access-row" data-testid="coding-session-access-row">
@@ -93,6 +150,12 @@ function MachineMode({
           {errorMessage(setMode.error, 'The approval mode did not change.')}
         </p>
       )}
+      <UnattendedModes
+        api={api}
+        agent={agent}
+        host={host}
+        saved={grant?.unattended_modes ?? false}
+      />
     </div>
   )
 }
@@ -102,7 +165,7 @@ export function CodingSessionAccess({ api, agent }: { api: ApiClient; agent: Age
   const grants = useGrants(api)
   const machines = (hosts.data ?? []).filter(startsHarness)
   // A row waits for the Grants, so it never shows a default in place of
-  // the saved mode.
+  // the saved values.
   const saved = grants.data
 
   return (
@@ -124,7 +187,7 @@ export function CodingSessionAccess({ api, agent }: { api: ApiClient; agent: Age
             api={api}
             agent={agent}
             host={host}
-            saved={savedMode(agent, host, saved)}
+            grant={hostGrant(agent, host, saved)}
           />
         ))}
     </section>

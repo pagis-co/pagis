@@ -104,6 +104,44 @@ describe('the head', () => {
     expect(await screen.findByText('Sage approves')).toBeTruthy()
   })
 
+  it('shows the Harness Mode after the approval mode, in the waiting hue when unattended', async () => {
+    mount(
+      stubApi({
+        session: {
+          ...codingSession,
+          harness_mode: 'bypassPermissions',
+          harness_mode_name: 'Bypass permissions',
+          unattended: true,
+        },
+      }),
+    )
+
+    const title = await screen.findByRole('heading', { name: 'Fix the login bug' })
+    const head = title.closest('header') as HTMLElement
+    const mode = within(head).getByText('Bypass permissions')
+    expect(mode.classList.contains('ui-badge-waiting')).toBe(true)
+    expect(within(head).getByText('You approve').nextElementSibling).toBe(mode)
+  })
+
+  it('shows an asking Harness Mode in the neutral hue', async () => {
+    mount(
+      stubApi({
+        session: { ...codingSession, harness_mode: 'default', harness_mode_name: 'Manual' },
+      }),
+    )
+
+    const mode = await screen.findByText('Manual')
+    expect(mode.classList.contains('ui-badge-neutral')).toBe(true)
+  })
+
+  it('shows no mode badge for a session with no Harness Mode', async () => {
+    mount(stubApi({ session: { ...codingSession, harness_mode_name: null, unattended: true } }))
+
+    const title = await screen.findByRole('heading', { name: 'Fix the login bug' })
+    const head = title.closest('header') as HTMLElement
+    expect(within(head).getByText('You approve').nextElementSibling).toBeNull()
+  })
+
   it('has Stop while the session is not settled', async () => {
     mount()
 
@@ -211,6 +249,22 @@ describe('the transcript', () => {
 
     expect(await screen.findByText('Edit src/login.rs')).toBeTruthy()
     expect(screen.getByText("Allowed: inside the session's directory")).toBeTruthy()
+  })
+
+  it('shows a change of the Harness Mode as one line, with who changed it', async () => {
+    mount(
+      stubApi({
+        transcript: [
+          row(1, 'mode', { mode: 'default', name: 'Manual', by: 'pagis' }),
+          row(2, 'mode', { mode: 'plan', name: 'Plan', by: 'agent' }),
+          row(3, 'mode', { mode: 'acceptEdits', name: 'Accept edits', by: 'harness' }),
+        ],
+      }),
+    )
+
+    expect(await screen.findByText('Pagis set the mode Manual')).toBeTruthy()
+    expect(await screen.findByText('Sage set the mode Plan')).toBeTruthy()
+    expect(screen.getByText('Claude Code changed to the mode Accept edits')).toBeTruthy()
   })
 
   it('marks a row that the daemon cut', async () => {

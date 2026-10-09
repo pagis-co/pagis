@@ -227,6 +227,35 @@ describe('the asks', () => {
   })
 })
 
+describe('the Harness Mode', () => {
+  it('makes one line of each mode row, with who changed the mode', () => {
+    const { items } = foldTranscript([
+      row(1, 'mode', { mode: 'default', name: 'Manual', by: 'pagis' }),
+      row(2, 'mode', { mode: 'plan', name: 'Plan', by: 'agent' }),
+      row(3, 'mode', { mode: 'acceptEdits', name: 'Accept edits', by: 'harness' }),
+    ])
+
+    expect(items).toEqual([
+      { kind: 'mode', seq: 1, mode: 'default', name: 'Manual', by: 'pagis', truncated: false },
+      { kind: 'mode', seq: 2, mode: 'plan', name: 'Plan', by: 'agent', truncated: false },
+      {
+        kind: 'mode',
+        seq: 3,
+        mode: 'acceptEdits',
+        name: 'Accept edits',
+        by: 'harness',
+        truncated: false,
+      },
+    ])
+  })
+
+  it('names a mode with no name by its id', () => {
+    const { items } = foldTranscript([row(1, 'mode', { mode: 'plan', by: 'harness' })])
+
+    expect(only(items, 'mode')[0]?.name).toBe('plan')
+  })
+})
+
 describe('the other rows', () => {
   it('makes a hairline of the end of a turn and no item of the usage', () => {
     const { items } = foldTranscript([
