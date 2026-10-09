@@ -527,7 +527,7 @@ async fn a_cancel_answers_a_pending_question_cancel_and_withdraws_it() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_url_question_is_declined_and_the_handler_sees_no_call() {
+async fn a_url_question_gets_invalid_params_and_the_handler_sees_no_call() {
     let ask = Ask::url("Sign in to continue", "https://example.com/login");
     let script = Script::default().turn(Turn::new(vec![], acp::StopReason::EndTurn).asks(ask));
     let Opened {
@@ -539,7 +539,18 @@ async fn a_url_question_is_declined_and_the_handler_sees_no_call() {
 
     session.prompt("Deploy").expect("the prompt is sent");
 
+    let SessionEvent::QuestionRefused {
+        ask_id,
+        message,
+        mode,
+    } = next(&mut events).await
+    else {
+        panic!("the session hears of the refused question first");
+    };
+    assert!(!ask_id.is_empty());
+    assert_eq!(message, "Sign in to continue");
+    assert_eq!(mode, "url");
     assert_eq!(next(&mut events).await, ended(StopReason::EndTurn));
-    assert_eq!(answers(&harness), [Ok(json!({ "action": "decline" }))]);
+    assert_eq!(answers(&harness), [Err(acp::ErrorCode::InvalidParams)]);
     assert!(asks.try_recv().is_err(), "the handler saw no call");
 }

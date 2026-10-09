@@ -56,6 +56,15 @@ pub enum SessionEvent {
     /// The prompt request failed because the harness needs a Harness
     /// Sign-In.
     SignInRequired,
+    /// The harness asked a question in a mode other than the form mode,
+    /// which Pagis does not declare. The harness got the JSON-RPC error
+    /// `-32602` (Invalid params), and the caller's `AskHandler` saw no
+    /// call. `mode` is the mode that the harness named, such as `url`.
+    QuestionRefused {
+        ask_id: String,
+        message: String,
+        mode: String,
+    },
     /// A permission request or a question that waits for its answer ended
     /// without one: the session was cancelled, or the harness withdrew the
     /// request. `ask_id` is the `ask_id` of its ask.

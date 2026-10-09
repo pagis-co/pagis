@@ -160,6 +160,7 @@ describe('the answer to a question', () => {
     expect(answerText('decline')).toBe('Declined')
     expect(answerText('cancel')).toBe('Cancelled')
     expect(answerText('withdrawn')).toBe('Cancelled with the turn')
+    expect(answerText('refused')).toBe('Refused: Pagis answers only questions in a form')
   })
 })
 

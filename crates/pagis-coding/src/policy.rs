@@ -13,6 +13,12 @@
 //! Person. It does not wait forever: a Run of the owning Agent in the
 //! session's Thread that started after the permission came, and that
 //! ends with no verdict, gives it to the Person.
+//!
+//! A form question goes to the supervising Agent in each mode, and waits
+//! in [`AgentAsks`] for its answer. A Run of the owning Agent in the
+//! session's Thread that started after the question came, and that ends
+//! with no answer, answers it `cancel`. A form that holds a property that
+//! Pagis cannot check is declined at once.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -30,6 +36,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::agent::Verdict;
+use crate::form::Form;
 use crate::person::{Permission, PersonAsks};
 use crate::{
     AgentAsks, DecidedBy, Pending, PermissionAnswer, PermissionAsk, PermissionOptionKind,
@@ -41,6 +48,10 @@ pub const PERMISSION_DECIDED_EVENT: &str = "coding_session.permission_decided";
 
 /// The note of the card when the Agent ended its turn with no verdict.
 pub const NO_DECISION_NOTE: &str = "The sprite ended its turn without a decision.";
+
+/// The note of the answer `cancel` when the Agent ended its turn with no
+/// answer to a question.
+pub const NO_ANSWER_NOTE: &str = "The sprite ended its turn without an answer.";
 
 /// The active Runs of the Agent in one Channel that one read sees. An
 /// Agent has far fewer active Runs in one Thread.
@@ -75,8 +86,8 @@ pub struct PolicyDecisionsDeps {
     pub bus: Arc<dyn EventBus>,
 }
 
-/// Applies Pagis policy to each Harness Permission, and cancels each
-/// question of a harness.
+/// Applies Pagis policy to each Harness Permission, and gives each
+/// question of a harness to the supervising Agent.
 pub struct PolicyDecisions {
     grants: Arc<dyn GrantStore>,
     runs: Arc<dyn RunStore>,
@@ -258,16 +269,49 @@ impl SessionDecisions for PolicyDecisions {
         }
     }
 
-    /// The question in the daemon is not built, so each question is
-    /// cancelled at once.
-    async fn question(
-        &self,
-        _session: &CodingSession,
-        _ask: QuestionAsk,
-    ) -> Pending<QuestionAnswer> {
-        Pending::Decided {
-            answer: QuestionAnswer::Cancel,
-            decider: None,
+    /// Gives the question to the supervising Agent, whatever the mode,
+    /// and waits for its answer. The Agent answers from what it knows, or
+    /// asks the Person with `ask_user` first. The answer is `accept` with
+    /// the Agent's values, or `cancel` when a woken Run ends without one.
+    async fn question(&self, session: &CodingSession, ask: QuestionAsk) -> Pending<QuestionAnswer> {
+        let Some(form) = Form::parse(&ask.schema) else {
+            // Pagis cannot check a value for the form, so nobody answers.
+            return Pending::Decided {
+                answer: QuestionAnswer::Decline,
+                decider: None,
+            };
+        };
+        let watch = self.turn_watch(session).await;
+        let (waiting, answer) = self.agent.wait_question(&session.id, form);
+        Pending::Waits {
+            waits_for: WaitsFor::Agent,
+            answer: Box::pin(async move {
+                let _waiting = waiting;
+                tokio::select! {
+                    biased;
+                    answer = answer => match answer {
+                        Ok(answer) => Waited::Answered {
+                            answer: QuestionAnswer::Accept(answer.values),
+                            by: DecidedBy {
+                                decider: Some(Decider::Agent),
+                                note: None,
+                                run_id: Some(answer.run_id),
+                            },
+                        },
+                        // The daemon stops: nobody answers, so the
+                        // question waits until the session drops it.
+                        Err(_) => std::future::pending().await,
+                    },
+                    () = watch.ended() => Waited::Answered {
+                        answer: QuestionAnswer::Cancel,
+                        by: DecidedBy {
+                            decider: None,
+                            note: Some(NO_ANSWER_NOTE.to_string()),
+                            run_id: None,
+                        },
+                    },
+                }
+            }),
         }
     }
 }
@@ -282,18 +326,7 @@ impl PolicyDecisions {
         options: Vec<PermissionOptionKind>,
         fact: Fact,
     ) -> Pending<PermissionAnswer> {
-        // Subscribe before the read of the active Runs, so no end of a
-        // later Run slips past.
-        let events = self
-            .bus
-            .subscribe(EventScope::workspace(&session.workspace_id), None)
-            .await;
-        let watch = TurnWatch {
-            runs: Arc::clone(&self.runs),
-            session: session.clone(),
-            active: self.active_runs(session).await,
-            events,
-        };
+        let watch = self.turn_watch(session).await;
         let (waiting, verdict) = self.agent.wait(&session.id);
         let unanswered = Unanswered {
             bus: Arc::clone(&self.bus),
@@ -333,6 +366,23 @@ impl PolicyDecisions {
                 unanswered.event = None;
                 agent.apply(verdict).await
             }),
+        }
+    }
+
+    /// The watch of the ends of the Runs of the owning Agent in the
+    /// session's Thread, for an ask that comes now.
+    async fn turn_watch(&self, session: &CodingSession) -> TurnWatch {
+        // Subscribe before the read of the active Runs, so no end of a
+        // later Run slips past.
+        let events = self
+            .bus
+            .subscribe(EventScope::workspace(&session.workspace_id), None)
+            .await;
+        TurnWatch {
+            runs: Arc::clone(&self.runs),
+            session: session.clone(),
+            active: self.active_runs(session).await,
+            events,
         }
     }
 
@@ -456,20 +506,19 @@ impl AgentWait {
 }
 
 /// Watches the ends of the Runs of the owning Agent in the session's
-/// Thread, for a permission that waits for the Agent.
+/// Thread, for an ask that waits for the Agent.
 struct TurnWatch {
     runs: Arc<dyn RunStore>,
     session: CodingSession,
-    /// The Runs that were not over when the permission came. The Wake-up
-    /// of the permission waits behind them (ADR-0006), so their ends do
-    /// not count.
+    /// The Runs that were not over when the ask came. The Wake-up of the
+    /// ask waits behind them (ADR-0006), so their ends do not count.
     active: HashSet<RunId>,
     events: EventStream,
 }
 
 impl TurnWatch {
     /// Ends when a Run of the Agent in the Thread, that started after the
-    /// permission came, reaches a terminal state. It never ends when the
+    /// ask came, reaches a terminal state. It never ends when the
     /// bus ends.
     async fn ended(mut self) {
         while let Some(event) = self.events.next().await {

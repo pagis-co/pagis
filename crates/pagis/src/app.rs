@@ -552,14 +552,15 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     // The session sockets of the same machines, which carry the Coding
     // Sessions (ADR-0033).
     let host_sessions = Arc::new(pagis_broker::HostSessions::new());
-    // The Harness Permissions that wait for the supervising Agent. Pagis
-    // policy puts them here, and the decision tools hand them a verdict.
+    // The Harness Permissions and the questions that wait for the
+    // supervising Agent. Pagis policy puts them here, and the decision
+    // tools and the answer tool hand them the Agent's word.
     let agent_asks = Arc::new(pagis_coding::AgentAsks::default());
     // The Coding Sessions on those sockets. Pagis policy answers each
     // Harness Permission, or asks the supervising Agent or the Person on
-    // an approval card, and each question is cancelled. The Session Rule
-    // of each session needs the Trigger module, which is built further
-    // down (ADR-0033).
+    // an approval card, and each question goes to the supervising Agent.
+    // The Session Rule of each session needs the Trigger module, which is
+    // built further down (ADR-0033).
     let session_rules = Arc::new(crate::coding_events::DeferredSessionRules::default());
     let session_events = Arc::new(crate::coding_events::DeferredSessionEvents::default());
     // The harnesses that need a Harness Sign-In on each Host, in memory as

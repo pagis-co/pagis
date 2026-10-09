@@ -514,11 +514,21 @@ async fn run_connection<W, R>(
                 async move |request: acp::CreateElicitationRequest,
                             responder: Responder<acp::CreateElicitationResponse>,
                             cx: ConnectionTo<Agent>| {
-                    let acp::ElicitationMode::Form(form) = request.mode else {
-                        // Pagis declares form mode only.
-                        return responder.respond(acp::CreateElicitationResponse::new(
-                            acp::ElicitationAction::Decline,
-                        ));
+                    // One connection carries one Coding Session, so a
+                    // question belongs to it in the session scope and in
+                    // the request scope alike.
+                    let form = match request.mode {
+                        acp::ElicitationMode::Form(form) => form,
+                        other => {
+                            // Pagis declares the form mode alone, and ACP
+                            // answers an undeclared mode with Invalid params.
+                            let _ = asks.events.send(SessionEvent::QuestionRefused {
+                                ask_id: responder.id().to_string(),
+                                message: request.message,
+                                mode: elicitation_mode(&other),
+                            });
+                            return responder.respond_with_error(Error::invalid_params());
+                        }
                     };
                     let ask = QuestionAsk {
                         ask_id: responder.id().to_string(),
@@ -792,6 +802,17 @@ fn permission_response(
         },
     );
     acp::RequestPermissionResponse::new(outcome)
+}
+
+/// The name of the mode of a question, as the harness sends it.
+fn elicitation_mode(mode: &acp::ElicitationMode) -> String {
+    match raw_json(mode)
+        .get("mode")
+        .and_then(serde_json::Value::as_str)
+    {
+        Some(name) => name.to_owned(),
+        None => "unknown".to_owned(),
+    }
 }
 
 /// The ACP answer to a question. A value that ACP cannot carry makes the

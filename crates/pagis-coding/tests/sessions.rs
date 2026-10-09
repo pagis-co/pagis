@@ -2324,18 +2324,7 @@ impl World {
             Script::default().turn(Turn::new(vec![], acp::StopReason::EndTurn).asks(rm_rf_build())),
         );
         let sessions = self.coding_sessions(place.clone(), self.policy());
-        let grants = Arc::new(SqliteGrantStore::new(self.pool.clone()));
-        let tools = CodingToolRuntime::new(
-            Arc::clone(&sessions),
-            Arc::new(CodingSessionStarts::new(
-                self.sessions.clone(),
-                grants.clone(),
-            )),
-            self.sessions.clone(),
-            Arc::new(SqliteHostStore::new(self.pool.clone())),
-            grants,
-            self.agent_asks.clone(),
-        );
+        let tools = self.tools(&sessions);
         let mut new = self.new_session(run_id);
         new.approval_mode = SessionApprovalMode::Agent;
         let session = sessions.start(new).await.unwrap();
@@ -2353,6 +2342,22 @@ impl World {
         }
     }
 
+    /// The tools of the Agent on `sessions`.
+    fn tools(&self, sessions: &Arc<CodingSessions>) -> CodingToolRuntime {
+        let grants = Arc::new(SqliteGrantStore::new(self.pool.clone()));
+        CodingToolRuntime::new(
+            Arc::clone(sessions),
+            Arc::new(CodingSessionStarts::new(
+                self.sessions.clone(),
+                grants.clone(),
+            )),
+            self.sessions.clone(),
+            Arc::new(SqliteHostStore::new(self.pool.clone())),
+            grants,
+            self.agent_asks.clone(),
+        )
+    }
+
     /// One call of `tool` by the Agent in `run_id`.
     async fn call_as(
         &self,
@@ -2365,6 +2370,7 @@ impl World {
         let tool_name = match tool {
             CoreTool::CodingSessionDecide => "coding_session_decide",
             CoreTool::CodingSessionEscalate => "coding_session_escalate",
+            CoreTool::CodingSessionAnswer => "coding_session_answer",
             _ => "coding_session_read",
         };
         tools
@@ -3096,4 +3102,315 @@ async fn a_resume_that_the_live_grant_no_longer_allows_closes_the_session_before
         "{failure:?}"
     );
     assert_not_allowed(&world, &place, &interrupted.id).await;
+}
+
+// The questions of a harness go to the supervising Agent first, in each
+// mode (ADR-0033).
+
+fn branch_form() -> acp::ElicitationSchema {
+    acp::ElicitationSchema::new()
+        .string("branch", true)
+        .boolean("push", false)
+}
+
+fn asks_for_the_branch() -> Ask {
+    Ask::form("Which branch?", branch_form())
+}
+
+/// A Coding Session in the `person` mode whose harness plays `turn`, with
+/// Pagis policy and the tools of its Agent.
+struct QuestionSession {
+    place: Arc<DuplexPlace>,
+    tools: CodingToolRuntime,
+    session: CodingSession,
+}
+
+impl World {
+    async fn question_session(&self, run_id: &RunId, turn: Turn) -> QuestionSession {
+        let place = DuplexPlace::new(Script::default().turn(turn));
+        let sessions = self.coding_sessions(place.clone(), self.policy());
+        let tools = self.tools(&sessions);
+        let session = sessions.start(self.new_session(run_id)).await.unwrap();
+        QuestionSession {
+            place,
+            tools,
+            session,
+        }
+    }
+
+    async fn answer(&self, question: &QuestionSession, values: Value) -> ToolResult {
+        self.call_as(
+            &question.tools,
+            &self.workspace_id,
+            &self.agent_id,
+            CoreTool::CodingSessionAnswer,
+            json!({"session": question.session.id.as_str(), "values": values}),
+        )
+        .await
+    }
+}
+
+/// In the `person` mode too, a form question waits for the Agent. Its
+/// news holds the message and the form, and a read shows it. Values that
+/// lack a required property are refused and the question still waits.
+/// Values that match the form answer `accept` with them, and the session
+/// goes on.
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_form_question_waits_for_the_agent_and_its_answer_accepts_the_values(pool: SqlitePool) {
+    let world = world(pool).await;
+    let question = world
+        .question_session(
+            &world.run_id,
+            Turn::new(vec![], acp::StopReason::EndTurn).asks(asks_for_the_branch()),
+        )
+        .await;
+    let id = &question.session.id;
+
+    world.wait_for_state(id, State::NeedsDecision).await;
+    let rows = world.wait_for_row(id, Kind::Question).await;
+    let asked = &rows_of(&rows, Kind::Question)[0].payload;
+    assert_eq!(asked["waits_for"], "agent");
+    assert_eq!(asked["message"], "Which branch?");
+    let news = world
+        .rules
+        .wait_for_batches("coding_session.needs_decision", 1)
+        .await;
+    let metadata = &news[0].events[0].metadata;
+    assert_eq!(metadata["decision_kind"], "question");
+    assert!(
+        !metadata.to_string().contains("Which branch?"),
+        "the news holds no harness text: {metadata}"
+    );
+    let read = world
+        .call_as(
+            &question.tools,
+            &world.workspace_id,
+            &world.agent_id,
+            CoreTool::CodingSessionRead,
+            json!({"session": id.as_str()}),
+        )
+        .await;
+    let read = success(&read);
+    assert!(read.contains("pending_decisions"), "{read}");
+    assert!(read.contains("Which branch?"), "{read}");
+
+    let missing = world.answer(&question, json!({"push": true})).await;
+
+    assert_eq!(code(&missing), "invalid_values");
+    assert!(missing.content.contains("branch"), "{missing:?}");
+    assert!(question.place.harness().answers().is_empty());
+    assert_eq!(world.record(id).await.state, State::NeedsDecision);
+
+    let answered = world
+        .answer(&question, json!({"branch": "main", "push": true}))
+        .await;
+
+    assert_eq!(success(&answered), "The harness has your answer.");
+    let rows = world.wait_for_row(id, Kind::TurnEnd).await;
+    assert_eq!(
+        question.place.harness().answers()[0].as_ref().unwrap(),
+        &json!({"action": "accept", "content": {"branch": "main", "push": true}})
+    );
+    let answer = &rows_of(&rows, Kind::Answer)[0].payload;
+    assert_eq!(
+        answer["answer"],
+        json!({"accept": {"branch": "main", "push": true}})
+    );
+    assert_eq!(answer["run_id"], world.run_id.as_str());
+    world.wait_for_state(id, State::Idle).await;
+    assert_eq!(
+        code(&world.answer(&question, json!({"branch": "main"})).await),
+        "no_pending_question"
+    );
+}
+
+/// An answer checks first that the session is the Agent's own, in its
+/// Workspace.
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn answer_reads_another_agents_session_as_absent(pool: SqlitePool) {
+    let world = world(pool).await;
+    let question = world
+        .question_session(
+            &world.run_id,
+            Turn::new(vec![], acp::StopReason::EndTurn).asks(asks_for_the_branch()),
+        )
+        .await;
+    world
+        .wait_for_state(&question.session.id, State::NeedsDecision)
+        .await;
+    let arguments = json!({"session": question.session.id.as_str(), "values": {"branch": "main"}});
+
+    for (workspace_id, agent_id) in [
+        (world.workspace_id.clone(), AgentId::generate()),
+        (WorkspaceId::generate(), world.agent_id.clone()),
+    ] {
+        let answered = world
+            .call_as(
+                &question.tools,
+                &workspace_id,
+                &agent_id,
+                CoreTool::CodingSessionAnswer,
+                arguments.clone(),
+            )
+            .await;
+        assert_eq!(code(&answered), "session_not_found");
+    }
+    assert!(
+        question.place.harness().answers().is_empty(),
+        "the question waits"
+    );
+}
+
+/// Pagis cannot check a value of a property of a type that ACP does not
+/// name, so such a form is declined at once and nobody wakes.
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_form_with_a_property_that_pagis_cannot_check_is_declined_at_once(pool: SqlitePool) {
+    let world = world(pool).await;
+    let form = acp::ElicitationSchema::new()
+        .string("branch", true)
+        .property(
+            "config",
+            acp::ElicitationPropertySchema::Other(acp::OtherElicitationPropertySchema::new(
+                "object",
+                Default::default(),
+            )),
+            false,
+        );
+    let question = world
+        .question_session(
+            &world.run_id,
+            Turn::new(vec![], acp::StopReason::EndTurn).asks(Ask::form("Which config?", form)),
+        )
+        .await;
+
+    let rows = world
+        .wait_for_row(&question.session.id, Kind::TurnEnd)
+        .await;
+
+    assert_eq!(
+        question.place.harness().answers()[0].as_ref().unwrap(),
+        &json!({"action": "decline"})
+    );
+    assert_eq!(
+        rows_of(&rows, Kind::Question)[0].payload["waits_for"],
+        Value::Null
+    );
+    assert_eq!(rows_of(&rows, Kind::Answer)[0].payload["answer"], "decline");
+    assert!(
+        world
+            .rules
+            .batches("coding_session.needs_decision")
+            .is_empty(),
+        "nobody wakes"
+    );
+}
+
+/// A session holds at most one waiting question. A second question waits
+/// behind the first, and its row comes after the answer of the first.
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_later_question_waits_behind_the_first_in_arrival_order(pool: SqlitePool) {
+    let world = world(pool).await;
+    let (decisions, gate) = GatedDecisions::new();
+    let place = DuplexPlace::new(
+        Script::default().turn(
+            Turn::new(vec![], acp::StopReason::EndTurn)
+                .asks(asks_for_the_branch())
+                .asks(Ask::form(
+                    "Which remote?",
+                    acp::ElicitationSchema::new().string("remote", true),
+                )),
+        ),
+    );
+    let sessions = world.coding_sessions(place.clone(), decisions);
+    let session = sessions
+        .start(world.new_session(&world.run_id))
+        .await
+        .unwrap();
+    world.wait_for_row(&session.id, Kind::Question).await;
+
+    gate.notify_one();
+    let rows = world.wait_for_rows(&session.id, Kind::Question, 2).await;
+
+    let asks: Vec<_> = rows
+        .iter()
+        .filter(|row| matches!(row.kind, Kind::Question | Kind::Answer))
+        .map(|row| (row.kind, row.payload["message"].clone()))
+        .collect();
+    assert_eq!(
+        asks,
+        [
+            (Kind::Question, json!("Which branch?")),
+            (Kind::Answer, Value::Null),
+            (Kind::Question, json!("Which remote?")),
+        ]
+    );
+    gate.notify_one();
+    world.wait_for_row(&session.id, Kind::TurnEnd).await;
+    assert_eq!(place.harness().answers().len(), 2);
+}
+
+/// Pagis declares the form mode alone, so a URL question gets the
+/// JSON-RPC error `-32602`. The transcript records the question and the
+/// refusal.
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_url_question_is_refused_and_the_transcript_records_it(pool: SqlitePool) {
+    let world = world(pool).await;
+    let ask = Ask::url("Sign in to continue", "https://example.com/login");
+    let place = DuplexPlace::new(
+        Script::default().turn(Turn::new(vec![], acp::StopReason::EndTurn).asks(ask)),
+    );
+    let sessions = world.coding_sessions(place.clone(), Arc::new(RefuseDecisions));
+    let session = sessions
+        .start(world.new_session(&world.run_id))
+        .await
+        .unwrap();
+
+    let rows = world.wait_for_row(&session.id, Kind::TurnEnd).await;
+
+    let asked = &rows_of(&rows, Kind::Question)[0].payload;
+    assert_eq!(asked["message"], "Sign in to continue");
+    assert_eq!(asked["mode"], "url");
+    assert_eq!(asked["waits_for"], Value::Null);
+    let answer = &rows_of(&rows, Kind::Answer)[0].payload;
+    assert_eq!(answer["ask_id"], asked["ask_id"]);
+    assert_eq!(answer["answer"], "refused");
+    assert_eq!(
+        place.harness().answers()[0].as_ref().unwrap_err().code,
+        acp::ErrorCode::InvalidParams
+    );
+}
+
+/// The question does not wait forever on the Agent. A Run of the Agent in
+/// the session's Thread that started after the question came and ends
+/// with no answer makes the daemon answer `cancel`.
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_run_in_the_thread_that_ends_without_an_answer_cancels_the_question(pool: SqlitePool) {
+    let world = world(pool).await;
+    let (starting_run, root) = world.run_in_thread().await;
+    let question = world
+        .question_session(
+            &starting_run,
+            Turn::new(vec![], acp::StopReason::EndTurn).asks(asks_for_the_branch()),
+        )
+        .await;
+    world
+        .wait_for_state(&question.session.id, State::NeedsDecision)
+        .await;
+
+    world.end_run(&starting_run).await;
+    let woken = world.run(Some(world.channel_id.clone()), Some(root)).await;
+    world.end_run(&woken).await;
+
+    let rows = world
+        .wait_for_row(&question.session.id, Kind::TurnEnd)
+        .await;
+    let answers = question.place.harness().answers();
+    assert_eq!(answers.len(), 1);
+    assert_eq!(answers[0].as_ref().unwrap(), &json!({"action": "cancel"}));
+    let answer = &rows_of(&rows, Kind::Answer)[0].payload;
+    assert_eq!(answer["answer"], "cancel");
+    assert_eq!(
+        answer["note"],
+        "The sprite ended its turn without an answer."
+    );
 }

@@ -6,7 +6,8 @@
 //! another Agent's Call does (ADR-0020). A resume also needs the live
 //! host Grant of the Agent on the session's machine. A decision needs a
 //! Harness Permission that waits for the Agent, and the `agent` mode
-//! still in force on the live host Grant.
+//! still in force on the live host Grant. An answer needs a question that
+//! waits for the Agent, and values that match its form.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -22,7 +23,7 @@ use pagis_core::{
 };
 use serde_json::json;
 
-use crate::agent::Verdict;
+use crate::agent::{AnswerRefusal, Verdict};
 use crate::policy::{effective_mode, host_grant};
 use crate::report::harness_output;
 use crate::sessions::UNATTENDED_MODE_NOT_ALLOWED;
@@ -54,6 +55,8 @@ const OPEN_STATES: [State; 5] = [
 const SESSION_NOT_FOUND: &str = "session_not_found";
 const SESSION_NOT_OPEN: &str = "session_not_open";
 const NO_PENDING_DECISION: &str = "no_pending_decision";
+const NO_PENDING_QUESTION: &str = "no_pending_question";
+const INVALID_VALUES: &str = "invalid_values";
 
 /// Executes the Coding Session tools.
 pub struct CodingToolRuntime {
@@ -66,7 +69,8 @@ pub struct CodingToolRuntime {
     /// The live host Grant lets a resume run, and holds the mode of a
     /// decision.
     grants: Arc<dyn GrantStore>,
-    /// The Harness Permissions that wait for the Agent's verdict.
+    /// The Harness Permissions that wait for the Agent's verdict, and the
+    /// questions that wait for its answer.
     agent: Arc<AgentAsks>,
 }
 
@@ -304,6 +308,38 @@ impl CodingToolRuntime {
         ))
     }
 
+    /// Answers the question that waits for the Agent. The checks go in
+    /// this order: the session is the Agent's own, a question waits for
+    /// the Agent, and the values match its form. A failed check leaves
+    /// the question waiting.
+    async fn answer(&self, call: &AuthorizedCall) -> Result<ToolResult, ToolResult> {
+        let session = self.own_session(call).await?;
+        let values = call.arguments["values"]
+            .as_object()
+            .cloned()
+            .unwrap_or_default();
+        match self.agent.answer(&session.id, values, call.run_id.clone()) {
+            Ok(()) => Ok(ToolResult::success("The harness has your answer.")),
+            Err(AnswerRefusal::NoQuestion) => Err(ToolResult::error(
+                NO_PENDING_QUESTION,
+                "no question of this coding session waits for your answer",
+            )),
+            // The name of a field is harness text, so the problem goes
+            // inside the envelope of the session (ADR-0005).
+            Err(AnswerRefusal::Invalid(error)) => Err(ToolResult::plain_error(
+                INVALID_VALUES,
+                format!(
+                    "The values do not match the form of the question, and the question still \
+                     waits. Answer again with values that match the form. The problem:\n{}",
+                    wrap_untrusted(
+                        &EventSource::coding_session(session.id.clone()).to_string(),
+                        &error.to_string(),
+                    )
+                ),
+            )),
+        }
+    }
+
     /// The Agent's own sessions: each open one, then the newest that
     /// ended. The title and the directory are the Agent's own words, so
     /// they take no envelope.
@@ -519,6 +555,7 @@ impl ToolExecutor for CodingToolRuntime {
                 CoreTool::CodingSessionResume => self.resume(&call).await,
                 CoreTool::CodingSessionDecide => self.decide(&call).await,
                 CoreTool::CodingSessionEscalate => self.escalate(&call).await,
+                CoreTool::CodingSessionAnswer => self.answer(&call).await,
                 _ => Err(not_a_session_tool(&call)),
             },
             _ => Err(not_a_session_tool(&call)),
