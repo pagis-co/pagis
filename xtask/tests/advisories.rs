@@ -382,7 +382,14 @@ fn the_advisory_workflow_runs_daily_and_on_request_and_reports_in_one_issue() {
         "gh issue list",
         "gh issue comment",
         "gh issue create",
+        // `gh issue list --app` matches no issue of the workflow's bot, so
+        // the search qualifier finds the open issue.
+        "--search \"author:app/github-actions",
     ] {
         assert!(workflow.contains(needed), "{needed} is missing");
     }
+    assert!(
+        !workflow.contains("--app "),
+        "--app finds no issue, so each run opens a new one"
+    );
 }

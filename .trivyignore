@@ -22,3 +22,17 @@ CVE-2026-102278
 # bundle undici 6.28.0. pnpm 11.28.2 bundles the fixed undici 6.28.1.
 # The maintainer accepted this exception.
 CVE-2026-19534
+
+# The Go standard library 1.27.1 in gog, which the Headless Server image
+# and each Server Package bundle. The flaw makes an HTTP server that
+# serves Range requests through FileServer, ServeFile or ServeContent use
+# excessive CPU. Pagis runs gog as a command-line client for each Google
+# tool call and never runs its only server command, `gmail watch serve`,
+# which serves no file. Go 1.27.2 has the fix. gog 0.42.0 and gog 0.43.0,
+# the latest release, are both built with Go 1.27.1. The maintainer
+# accepted this exception.
+CVE-2026-78667
+# The second Go standard library advisory in gog: a TLS server that
+# accepts Encrypted Client Hello can exhaust its memory. gog makes TLS
+# connections only as a client. The update check is the same.
+CVE-2026-97031
