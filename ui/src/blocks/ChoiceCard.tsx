@@ -4,10 +4,12 @@
 // and the chosen value come from the Request row. A settled choice
 // collapses to one line that names the chosen option and the state.
 
+import { useState } from 'react'
+import { useIsMobile } from '../state/useIsMobile'
 import { ListChecks } from 'lucide-react'
 
 import type { ApiClient } from '../api/client'
-import { Button } from '../primitives'
+import { Button, Frame, Row } from '../primitives'
 import { errorMessage, useDecideRequest } from '../queries'
 import { Card, CardBody, CardFooter, CardHeader, SettledLine } from './Card'
 import type { SettledTone } from './Card'
@@ -33,6 +35,8 @@ export function ChoiceCard({
   body: string | null | undefined
   options: ChoiceOption[]
 }) {
+  const phone = useIsMobile()
+  const [selected, setSelected] = useState<string | null>(null)
   const question = useQuestion(api, requestId)
   const decide = useDecideRequest(api, requestId)
   const options = optionsOf(question.payload, denormalized)
@@ -55,6 +59,53 @@ export function ChoiceCard({
       </Card>
     )
   }
+
+  if (phone)
+    return (
+      <Frame data-testid="choice-card">
+        <Row>
+          <strong>{title}</strong>
+        </Row>
+        {body && <Row>{body}</Row>}
+        {options.map((option) => (
+          <Row key={option.value}>
+            <label className="phone-choice-row">
+              <input
+                type="radio"
+                name={`choice-${requestId}`}
+                checked={selected === option.value}
+                disabled={!question.pending || decide.isPending}
+                onChange={() => setSelected(option.value)}
+              />
+              <span className="phone-row-copy">
+                <strong>{option.label}</strong>
+                {option.description && <span className="phone-hint">{option.description}</span>}
+              </span>
+            </label>
+          </Row>
+        ))}
+        <Row>
+          <div className="phone-actions phone-choice-submit">
+            <Button
+              disabled={!question.pending || decide.isPending}
+              onClick={() => decide.mutate({ decision: 'denied' })}
+            >
+              Dismiss
+            </Button>
+            <Button
+              variant="primary"
+              disabled={!selected || !question.pending || decide.isPending}
+              onClick={() => decide.mutate({ decision: 'approved', values: { value: selected } })}
+            >
+              Submit
+            </Button>
+          </div>
+        </Row>
+        {decide.isError && (
+          <Row role="alert">{errorMessage(decide.error, 'The daemon refused this answer.')}</Row>
+        )}
+      </Frame>
+    )
 
   return (
     <Card className="choice-card" data-testid="choice-card">

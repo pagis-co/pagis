@@ -41,7 +41,7 @@ const STATE_TONE: Record<string, SettledTone> = {
   denied: 'failed',
 }
 
-interface ApprovalPayload {
+export interface ApprovalPayload {
   proposed_rules?: string[]
   tool_name?: string
   domain?: string
@@ -65,6 +65,38 @@ interface ApprovalPayload {
   /** What the sprite asks the Person, when it gave the permission to
    *  the Person. */
   note?: string | null
+}
+
+/** The words of "Always allow": the daemon's own label, or a lead and
+ *  the rules it writes. `null` when the request proposes no rule. The
+ *  desktop card and the phone approval sheet both read these words. */
+export function alwaysAllowWords(
+  payload: ApprovalPayload | undefined,
+): { lead: string; rules: string | null } | null {
+  const label = payload?.always_label ?? null
+  if (label !== null) return { lead: label, rules: null }
+  const rules = payload?.proposed_rules ?? []
+  if (rules.length === 0) return null
+  return {
+    lead: typeof payload?.plugin_id === 'string' ? 'Always allow this tool' : 'Always allow',
+    rules: rules.join(', '),
+  }
+}
+
+/** The reach of a host command rule, which "Always allow" states
+ *  (ADR-0015). `null` when the rules are not host commands. */
+export function alwaysAllowReach(
+  kind: string | undefined,
+  payload: ApprovalPayload | undefined,
+): string | null {
+  const rules = payload?.proposed_rules ?? []
+  const hostCommand =
+    payload?.tool_name === 'host_shell' ||
+    (kind === 'harness_permission' && payload?.tool_kind === 'execute')
+  if (!hostCommand || rules.length === 0) return null
+  return rules.length === 1
+    ? 'This rule also allows every flag and argument of the command, including flags that write files or run other programs.'
+    : 'These rules also allow every flag and argument of their commands, including flags that write files or run other programs.'
 }
 
 /** The clock a settled card shows beside the decision. */
@@ -93,18 +125,14 @@ export function ApprovalCard({
 
   const state = request.data?.state
   const payload = request.data?.payload as ApprovalPayload | undefined
-  const proposedRules = payload?.proposed_rules ?? []
   const credential =
     request.data?.kind === 'credential_action' && payload?.domain !== undefined
   // A Plugin tool (ADR-0017): `Host` by default, so it waits
   // here, and its one rule is the tool's own qualified name.
   const pluginTool = typeof payload?.plugin_id === 'string'
   const harnessPermission = request.data?.kind === 'harness_permission'
-  const hostCommand =
-    payload?.tool_name === 'host_shell' ||
-    (harnessPermission && payload?.tool_kind === 'execute')
-  const alwaysLabel = payload?.always_label ?? null
-  const offersAlways = proposedRules.length > 0 || alwaysLabel !== null
+  const alwaysWords = alwaysAllowWords(payload)
+  const reach = alwaysAllowReach(request.data?.kind, payload)
   const alwaysId = `approval-always-${requestId}`
   const scopeId = `approval-always-scope-${requestId}`
 
@@ -172,31 +200,30 @@ export function ApprovalCard({
           >
             Approve
           </Button>
-          {offersAlways && (
+          {alwaysWords !== null && (
             <label className="approval-always" htmlFor={alwaysId}>
               <input
                 id={alwaysId}
                 type="checkbox"
                 checked={always}
                 disabled={decide.isPending}
-                aria-describedby={hostCommand ? scopeId : undefined}
+                aria-describedby={reach !== null ? scopeId : undefined}
                 onChange={(event) => setAlways(event.target.checked)}
               />
-              {alwaysLabel !== null ? (
-                <span>{alwaysLabel}</span>
-              ) : (
-                <span>
-                  {pluginTool ? 'Always allow this tool' : 'Always allow'}{' '}
-                  <code>{proposedRules.join(', ')}</code>
-                </span>
-              )}
+              <span>
+                {alwaysWords.lead}
+                {alwaysWords.rules !== null && (
+                  <>
+                    {' '}
+                    <code>{alwaysWords.rules}</code>
+                  </>
+                )}
+              </span>
             </label>
           )}
-          {proposedRules.length > 0 && hostCommand && (
+          {reach !== null && (
             <p id={scopeId} className="approval-always-scope">
-              {proposedRules.length === 1
-                ? 'This rule also allows every flag and argument of the command, including flags that write files or run other programs.'
-                : 'These rules also allow every flag and argument of their commands, including flags that write files or run other programs.'}
+              {reach}
             </p>
           )}
           <Button

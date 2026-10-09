@@ -101,33 +101,6 @@ describe('conversation desk', () => {
     expect(screen.getByRole('heading', { name: 'Launch planning' })).toBeTruthy()
   })
 
-  it('opens the conversation drawer and closes it after channel selection', async () => {
-    mount()
-
-    await screen.findByText('Say hello to Sage')
-    fireEvent.click(screen.getByRole('button', { name: 'Open conversations' }))
-    expect(screen.getByRole('button', { name: 'Close conversations' })).toBeTruthy()
-
-    fireEvent.click(screen.getByRole('button', { name: /Launch planning/ }))
-
-    expect(
-      await screen.findByRole('heading', { name: 'Launch planning' }),
-    ).toBeTruthy()
-    expect(screen.queryByRole('button', { name: 'Close conversations' })).toBeNull()
-  })
-
-  it('closes the conversation drawer after opening a workspace view', async () => {
-    mount()
-
-    await screen.findByText('Say hello to Sage')
-    fireEvent.click(screen.getByRole('button', { name: 'Open conversations' }))
-    const navigation = screen.getByRole('navigation', { name: 'Places' })
-    fireEvent.click(within(navigation).getByRole('button', { name: 'Automations' }))
-
-    expect(screen.queryByRole('button', { name: 'Close conversations' })).toBeNull()
-    expect(await screen.findByRole('heading', { name: 'Automations' })).toBeTruthy()
-  })
-
   // ADR-0022: listening is the reason the call inspector exists, so
   // navigation must not stop it. Call is a transient tenant of the
   // slot: it is absent until a Call opens it.

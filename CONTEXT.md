@@ -538,10 +538,14 @@ the arrival slot pool (ADR-0010).
 
 ### Run
 A unit of work an Agent performs: its loop from a Trigger to the end. A Run
-binds to one Channel, and to one Thread when the Trigger is in a Thread. It
-is `queued`, then `running`; an Arrival Run and a Review Run are
-`reflecting`. It can wait for the Person or for an approval, and it ends
-`completed`, `failed` or `canceled` (ADR-0002, ADR-0010).
+has a title derived from its Trigger and fixed at creation. A message gives
+its first line, a Wake-up its rule name, and an inbound Call its caller. A
+Forget of the message is the one change: the title then becomes "This message
+is unavailable". A Run binds to one Channel, and to one Thread when the
+Trigger is in a Thread. It is `queued`, then `running`; an Arrival Run and a
+Review Run are `reflecting`. It can wait for the Person or for an approval,
+and it ends `completed`, `failed` or `canceled` (ADR-0002, ADR-0008,
+ADR-0010).
 
 ### Schedule
 A durable rule that asks one Agent to act at future times in a target
@@ -1230,6 +1234,10 @@ One of the three core tools to send a text, read one Text Conversation, or
 list recent ones. Not built (ADR-0020).
 
 ## Messages and UI
+
+### Phone layout
+The layout of the Product App at 760 px and below: a tab bar of four places,
+pushed screens and bottom sheets (ADR-0034).
 
 ### Activity
 What one Agent does now, in one word: **Working** while a Run is queued or

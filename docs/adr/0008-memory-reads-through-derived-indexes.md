@@ -238,9 +238,11 @@ Connection read.
 
 A forgotten message keeps its row, so the conversation keeps its order and
 Threads. The Person reads that it is unavailable, and no Agent reads it
-(ADR-0004, ADR-0009). The structured purge erases its words. The SQLite
-conversation search tables have `secure-delete`; on Postgres the compaction
-rewrites the conversation tables.
+(ADR-0004, ADR-0009). The structured purge erases its words. A Run that a
+forgotten message started has the first line of that message as its title, so
+the purge also writes "This message is unavailable" over that title (ADR-0002).
+The SQLite conversation search tables have `secure-delete`; on Postgres the
+compaction rewrites the conversation tables.
 
 A Forget does not reach these parts, which are not built: memory page words
 that a Brief or a memory read gave a Run; a message of another Run that quoted

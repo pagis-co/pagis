@@ -537,10 +537,9 @@ describe('Composer control names and tooltips', () => {
   })
 })
 
-// The composer at the phone width: every control of the row but
-// Send is an icon, so the row fits 375 px.
+// The phone composer uses icons so it fits a narrow screen.
 describe('the composer at the phone width', () => {
-  it('leaves Send as the only control of the row that carries words', () => {
+  it('uses icon controls and replaces dictation with Send for a draft', () => {
     setViewport(375)
     renderComposer()
     const row = screen.getByTestId('composer-mic').parentElement
@@ -548,6 +547,10 @@ describe('the composer at the phone width', () => {
     const worded = [...row.querySelectorAll('button')]
       .map((button) => button.textContent?.trim() ?? '')
       .filter((words) => words !== '')
-    expect(worded).toEqual(['Send'])
+    expect(worded).toEqual([])
+    expect(screen.getByRole('button', { name: 'Dictate a message' })).toBeTruthy()
+    fireEvent.change(screen.getByPlaceholderText('Message'), { target: { value: 'Book the trip' } })
+    expect(screen.getByRole('button', { name: 'Send' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Dictate a message' })).toBeNull()
   })
 })

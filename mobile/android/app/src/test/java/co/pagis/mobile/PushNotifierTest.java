@@ -116,7 +116,25 @@ public class PushNotifierTest {
     }
 
     @Test
+    public void anApprovalShowsNoActionWhenThePhoneStoresNoSetting() {
+        notifier.show(approval("request:r-1", 3));
+
+        assertNull(onlyNotification().getNotification().actions);
+    }
+
+    @Test
+    public void anApprovalShowsNoActionWithLockScreenAnswersOff() {
+        lockScreenAnswers(false);
+
+        notifier.show(approval("request:r-1", 3));
+
+        assertNull(onlyNotification().getNotification().actions);
+    }
+
+    @Test
     public void anApprovalShowsApproveOnceAndDenyThatEachSendABroadcast() {
+        lockScreenAnswers(true);
+
         notifier.show(approval("request:r-1", 3));
 
         Notification.Action[] actions = onlyNotification().getNotification().actions;
@@ -139,9 +157,12 @@ public class PushNotifierTest {
         }
     }
 
+    /** With Answer on the lock screen on, each action still needs an unlocked phone. */
     @Test
     @Config(sdk = { 31, 36 })
     public void bothActionsRequireAnUnlockedPhone() {
+        lockScreenAnswers(true);
+
         notifier.show(approval("request:r-1", 3));
 
         for (Notification.Action action : onlyNotification().getNotification().actions) {
@@ -151,6 +172,8 @@ public class PushNotifierTest {
 
     @Test
     public void eachApprovalAnswersItsOwnRequest() {
+        lockScreenAnswers(true);
+
         notifier.show(approval("request:r-1", 3));
         notifier.show(new PushPayload(
             "Sam", "Sam needs your approval", ORIGIN + "/c/ch-2", 4, "request:r-2", "approval",
@@ -167,6 +190,8 @@ public class PushNotifierTest {
 
     @Test
     public void aKindOtherThanAnApprovalGetsNoAction() {
+        lockScreenAnswers(true);
+
         notifier.show(new PushPayload("Robin", "Robin waits for you", ORIGIN + "/c/ch-1", 3, "run:r-1", "waiting", null));
 
         assertNull(onlyNotification().getNotification().actions);
@@ -174,6 +199,8 @@ public class PushNotifierTest {
 
     @Test
     public void aRequestWithOtherActionsGetsNoAction() {
+        lockScreenAnswers(true);
+
         notifier.show(new PushPayload(
             "Robin", "Robin asks a question", ORIGIN + "/c/ch-1", 3, "request:r-1", "approval",
             new PushPayload.Request("r-1", Arrays.asList("approve_once"))
@@ -248,6 +275,11 @@ public class PushNotifierTest {
         assertEquals("Something needs you", notification.extras.getCharSequence(Notification.EXTRA_TEXT).toString());
         assertEquals(ORIGIN, navigate(notification));
         assertNull(notification.getGroup());
+    }
+
+    /** Set Answer on the lock screen of this phone. */
+    private void lockScreenAnswers(boolean on) {
+        new ServerStore(context).setLockScreenAnswers(on);
     }
 
     private StatusBarNotification onlyNotification() {

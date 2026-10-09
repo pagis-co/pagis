@@ -5,7 +5,8 @@
 // made with several Agents stays writable, because the user is in it.
 
 import type { ApiClient } from '../../api/client'
-import { useChannels } from '../../queries'
+import { useAgentNames, useChannels } from '../../queries'
+import { useIsMobile } from '../../state/useIsMobile'
 import { Composer } from '../Composer'
 
 import './ChannelComposer.css'
@@ -26,8 +27,13 @@ export function ChannelComposer({
    *  another page leaves that Channel's draft alone. */
   adoptsDraft?: boolean
 }) {
+  const phone = useIsMobile()
+  const names = useAgentNames(api)
   const channels = useChannels(api)
   const channel = channels.data?.find((row) => row.id === channelId)
+  const partner = channel?.kind === 'dm' && channel.agent_ids.length === 1
+    ? names[channel.agent_ids[0]]
+    : undefined
 
   if (channel !== undefined && !channel.user_member) {
     return (
@@ -41,7 +47,7 @@ export function ChannelComposer({
       api={api}
       channelId={channelId}
       rootId={rootId}
-      placeholder={placeholder}
+      placeholder={placeholder ?? (phone && partner ? `Message ${partner}` : undefined)}
       adoptsDraft={adoptsDraft}
     />
   )

@@ -9,7 +9,7 @@
 // its items in its order. The queue is live without a reload, because
 // the `needs_you.added` and `needs_you.removed` WS events invalidate it.
 
-import { CheckCheck, Clock3, Menu as MenuIcon, Monitor, PenLine } from 'lucide-react'
+import { CheckCheck, Clock3, Monitor, PenLine } from 'lucide-react'
 import { useMemo } from 'react'
 
 import type { ApiClient } from '../../api/client'
@@ -42,6 +42,8 @@ import { briefLine, homeDate, workRecord } from './report'
 import { callBackDraft, isDismissible, queueAction, queueDetail, type QueueItem } from './queue'
 
 import './home.css'
+import { useIsMobile } from '../../state/useIsMobile'
+import { HomePhone } from './HomePhone'
 
 /** One row of the queue. The row is one card frame: a dot in the
  *  state hue, the daemon's line that says what waits, the detail under
@@ -114,17 +116,16 @@ export function Home({
   api,
   onOpenChannel,
   onOpenRun,
-  onOpenNav,
   desk = null,
 }: {
   api: ApiClient
   onOpenChannel: (channelId: string) => void
   onOpenRun: (runId: string) => void
-  onOpenNav: () => void
   /** The Desk Panel toggle, where the person opens the panel; `null`
    *  where the route keeps it open. */
   desk?: { open: boolean; onToggle: () => void } | null
 }) {
+  const phone = useIsMobile()
   const agents = useAgents(api)
   const agentNames = useAgentNames(api)
   const channels = useChannels(api)
@@ -195,16 +196,15 @@ export function Home({
   const reportMessage = report.data?.message ?? null
   const scheduleId = report.data?.schedule_id ?? null
 
+  if (phone) return <HomePhone api={api} agents={agents.data ?? []} chief={chief} channelId={chiefChannelId}
+    items={queueItems} count={queue.data?.count ?? 0} report={reportMessage} writing={writing} record={record} loading={queue.isPending} queueError={queue.isError} recordError={completed.isError} onRetryQueue={() => { void queue.refetch() }} onRetryRecord={() => { void completed.refetch() }}
+    onOpen={openItem} onDismiss={dismissItem} onOpenRun={onOpenRun}
+    onWrite={scheduleId === null ? undefined : () => writeNow.mutate(scheduleId)}
+    onReply={() => { if (chiefChannelId) onOpenChannel(chiefChannelId) }} />
+
   return (
     <div className="home" data-testid="home">
       <header className="home-header">
-        <IconButton
-          icon={MenuIcon}
-          label="Open conversations"
-          variant="ghost"
-          className="mobile-navigation-trigger"
-          onClick={onOpenNav}
-        />
         <div className="home-header-title">
           <h2>{homeDate(Date.now())}</h2>
           <p className="page-intro">
@@ -315,9 +315,9 @@ export function Home({
                     size="sm"
                   />
                   <span className="home-recent-what">
-                    <strong>{agentNames[run.agent_id] ?? 'A sprite'}</strong>
+                    <strong>{run.title}</strong>
                     <span className="home-recent-trigger">
-                      {triggerText(
+                      {agentNames[run.agent_id]} · {triggerText(
                         run,
                         run.channel_id == null ? null : channelNames.get(run.channel_id) ?? null,
                       )}

@@ -11,6 +11,7 @@ it('restores live presence after a resync even when the API returns the same run
       agent_id: 'sage',
       channel_id: 'conversation',
       state: 'running',
+      title: 'Book the Austin trip',
       trigger_kind: 'message',
     },
   ]

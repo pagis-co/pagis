@@ -1,6 +1,5 @@
-// The two breakpoints the shell branches on. Below the phone one the
-// sidebar becomes a drawer and the inspector and the thread become
-// sheets. Below the compact one the inspector is a column that the
+// The two breakpoints the shell branches on. The phone has four tabs,
+// pushed screens and sheets. Below the compact one the inspector is a column that the
 // person opens and closes, so the Desk Panel does not open by itself.
 // The layout below a breakpoint differs in structure, not only in
 // style, so the shell reads the query rather than the stylesheet.

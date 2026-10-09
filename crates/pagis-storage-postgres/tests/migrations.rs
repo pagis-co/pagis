@@ -276,3 +276,32 @@ fn migrations() -> std::path::PathBuf {
     )
     .join("migrations")
 }
+
+#[tokio::test]
+async fn run_titles_are_backfilled_without_losing_references() {
+    let Some(database) = postgres::database().await else {
+        return;
+    };
+    sqlx::raw_sql("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+        .execute(&database.pool)
+        .await
+        .unwrap();
+    let (before, _earlier) = pagis_testkit::migration::migrator_before(&migrations(), 11).await;
+    before.run(&database.pool).await.unwrap();
+    sqlx::raw_sql(pagis_testkit::migration::CONNECTION_EVENT_ROWS)
+        .execute(&database.pool)
+        .await
+        .unwrap();
+    sqlx::raw_sql(pagis_testkit::migration::RUN_TITLE_ROWS)
+        .execute(&database.pool)
+        .await
+        .unwrap();
+    pagis_storage_postgres::MIGRATOR
+        .run(&database.pool)
+        .await
+        .unwrap();
+    pagis_testkit::migration::assert_run_titles(&pagis_storage_postgres::stores(
+        database.pool.clone(),
+    ))
+    .await;
+}

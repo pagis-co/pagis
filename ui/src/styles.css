@@ -90,30 +90,3 @@ body {
   min-height: 0;
   position: relative;
 }
-
-/* The navigation trigger is a wide-screen absence and a narrow-screen
-   presence. `inline-flex` is the primitive's own display. */
-.mobile-navigation-trigger {
-  display: none;
-}
-
-.navigation-backdrop {
-  display: none;
-}
-
-@media (max-width: 760px) {
-  /* Between the drawer and the sheets: the scrim dims a sheet that is
-     open behind the drawer, and never the drawer itself. */
-  .navigation-backdrop {
-    display: block;
-    position: fixed;
-    z-index: var(--z-overlay);
-    inset: 0;
-    background: var(--scrim);
-    backdrop-filter: blur(2px);
-  }
-
-  .mobile-navigation-trigger {
-    display: inline-flex;
-  }
-}

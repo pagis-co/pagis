@@ -47,6 +47,7 @@ async fn seeded_run(backend: &Backend, workspace_id: &WorkspaceId) -> RunId {
         .await
         .expect("write the Agent");
     let run = Run {
+        title: "A message with an attachment".into(),
         id: RunId::generate(),
         workspace_id: workspace_id.clone(),
         agent_id: agent.id,

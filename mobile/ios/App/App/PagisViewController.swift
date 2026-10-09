@@ -8,13 +8,14 @@ import WebKit
 /// Capacitor reads the server URL once, when it makes the bridge. So to
 /// open another server the app makes a new view controller, and with it a
 /// new bridge.
-final class PagisViewController: CAPBridgeViewController, PlaceShell {
-    private let store = ServerStore()
-    private let sessionCopy: SessionCopy = KeychainSessionCopy()
+final class PagisViewController: CAPBridgeViewController, PlaceShell, ServerShell {
+    private let store: ServerStore
+    private let sessionCopy: SessionCopy
     /// The server that this bridge shows, read at launch.
     let server: WebOrigin?
-    /// The plugin that sends the Product App the place of a tap.
-    private let shell = PagisShellPlugin()
+    /// The plugin `PagisShell`. It also sends the Product App the place of
+    /// a tap.
+    private let shellPlugin = PagisShellPlugin()
     /// The page that the bridge opens first in place of the origin, such
     /// as a Sign-In Link. Nothing stores it.
     private let firstPage: URL?
@@ -25,13 +26,17 @@ final class PagisViewController: CAPBridgeViewController, PlaceShell {
     /// The web view holds its UI delegate weakly.
     private var mediaGuard: MediaGuard?
 
-    init(firstPage: URL? = nil) {
-        self.server = store.server
+    init(firstPage: URL? = nil, servers: ServerStore = ServerStore(), sessionCopy: SessionCopy = KeychainSessionCopy()) {
+        store = servers
+        self.sessionCopy = sessionCopy
+        self.server = servers.server
         self.firstPage = firstPage
         super.init(nibName: nil, bundle: nil)
     }
 
     required init?(coder: NSCoder) {
+        store = ServerStore()
+        sessionCopy = KeychainSessionCopy()
         self.server = store.server
         self.firstPage = nil
         super.init(coder: coder)
@@ -53,7 +58,8 @@ final class PagisViewController: CAPBridgeViewController, PlaceShell {
 
     override func capacitorDidLoad() {
         guard let bridge = bridge as? CapacitorBridge, let webView else { return }
-        bridge.registerPluginInstance(shell)
+        shellPlugin.shell = self
+        bridge.registerPluginInstance(shellPlugin)
         NotificationTap.shared.shell = self
         bridge.registerPluginInstance(PagisPushPlugin())
         // The origin that the bridge shows: the server, or the app's own
@@ -81,7 +87,7 @@ final class PagisViewController: CAPBridgeViewController, PlaceShell {
     }
 
     func navigate(to place: String) {
-        shell.navigate(to: place)
+        shellPlugin.navigate(to: place)
     }
 
     /// Keep the server, and start the bridge again at it.
@@ -108,7 +114,8 @@ final class PagisViewController: CAPBridgeViewController, PlaceShell {
         if let sessionFollower {
             webView?.configuration.websiteDataStore.httpCookieStore.remove(sessionFollower)
         }
-        guard let window = view.window else { return }
+        // A view that is not loaded is in no window.
+        guard let window = viewIfLoaded?.window else { return }
         PagisViewController.launch(in: window, firstPage: firstPage)
     }
 

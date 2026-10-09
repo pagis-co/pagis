@@ -16,6 +16,7 @@ function run(fields: Partial<RunDto>): RunDto {
     channel_id: 'ch-1',
     origin_channel_id: null,
     root_message_id: null,
+    title: 'Book the Austin trip',
     trigger_kind: 'message',
     trigger_ref: null,
     hop_count: 0,

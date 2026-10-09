@@ -17,6 +17,7 @@ function run(fields: Partial<RunDto>): RunDto {
     agent_id: 'agent-1',
     channel_id: 'channel-1',
     root_message_id: null,
+    title: 'Book the Austin trip',
     trigger_kind: 'message',
     trigger_ref: 'message-1',
     hop_count: 0,
@@ -67,7 +68,7 @@ function mount(onOpenRun = vi.fn()) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   render(
     <QueryClientProvider client={client}>
-      <RunsList api={stubApi()} onOpenRun={onOpenRun} onOpenNav={vi.fn()} />
+      <RunsList api={stubApi()} onOpenRun={onOpenRun} />
     </QueryClientProvider>,
   )
   return onOpenRun
@@ -84,7 +85,8 @@ describe('the runs record', () => {
     mount()
 
     expect(await screen.findByRole('region', { name: 'Today' })).toBeTruthy()
-    expect(screen.getAllByText('A message in Sage').length).toBe(3)
+    expect(screen.getAllByText('Book the Austin trip').length).toBe(3)
+    expect(screen.getAllByText(/· A message in Sage/).length).toBe(3)
   })
 
   it('says why a run failed in plain words, not as a JSON blob', async () => {

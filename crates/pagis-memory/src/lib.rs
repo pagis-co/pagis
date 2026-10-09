@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use git2::{Oid, Repository, Signature};
 use pagis_core::memory_page::PageSummary;
-use pagis_core::subject_page::BriefEntry;
+use pagis_core::subject_page::{BriefEntry, FrontMatter, SubjectPage};
 use pagis_core::{
     AgentId, BriefEntries, IndexedPage, MEMORY_INDEX_FILE, MemoryAccess, MemoryAuthor,
     MemoryChangeset, MemoryCommitDiff, MemoryContentKind, MemoryError, MemoryExposure, MemoryFile,
@@ -23,6 +23,25 @@ use pagis_core::{
 };
 
 mod purge;
+
+/// A list previews current truth, never the page's source Timeline.
+fn page_excerpt(content: &str) -> String {
+    let subject = SubjectPage::parse(content);
+    let body = if subject.layout_valid {
+        subject.page.truth.as_str()
+    } else {
+        FrontMatter::split(content).1
+    };
+    body.lines()
+        .map(str::trim)
+        .skip_while(|line| line.is_empty() || line.starts_with('#'))
+        .take_while(|line| !line.is_empty() && !line.starts_with('#'))
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(240)
+        .collect()
+}
 
 /// The seed header a scope's index shows before the agent writes one.
 /// It states the convention; it is not committed.
@@ -1296,6 +1315,7 @@ impl MemoryStore for GitMemoryStore {
                     scope,
                     rel: row.path[root.len()..].to_string(),
                 },
+                excerpt: page_excerpt(&row.body),
                 title: row.title,
                 kind: row.kind,
                 source_connection_id: row.source_connection_id,

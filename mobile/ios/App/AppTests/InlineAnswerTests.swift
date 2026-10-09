@@ -36,8 +36,17 @@ final class InlineAnswerTests: XCTestCase {
 
     // MARK: - The category
 
-    func testTheApprovalCategoryHasApproveOnceAndDeny() {
-        let category = InlineAnswer.category
+    /// With **Answer on the lock screen** off, a Notification of an
+    /// Approval shows no action.
+    func testWithLockScreenAnswersOffTheApprovalCategoryHasNoActions() {
+        let category = InlineAnswer.category(lockScreenAnswers: false)
+
+        XCTAssertEqual(category.identifier, "approval")
+        XCTAssertTrue(category.actions.isEmpty)
+    }
+
+    func testWithLockScreenAnswersOnTheApprovalCategoryHasApproveOnceAndDeny() {
+        let category = InlineAnswer.category(lockScreenAnswers: true)
 
         XCTAssertEqual(category.identifier, "approval")
         XCTAssertEqual(category.actions.map(\.identifier), ["approve_once", "deny"])
@@ -45,16 +54,34 @@ final class InlineAnswerTests: XCTestCase {
     }
 
     /// An action from the lock screen asks the Person to unlock the phone,
-    /// and runs the app in the background with no scene.
+    /// also with **Answer on the lock screen** on, and runs the app in the
+    /// background with no scene.
     func testBothActionsNeedAnUnlockedPhoneAndRunInTheBackground() {
-        XCTAssertEqual(InlineAnswer.category.actions.count, 2)
-        guard InlineAnswer.category.actions.count == 2 else { return }
-        for action in InlineAnswer.category.actions {
+        let actions = InlineAnswer.category(lockScreenAnswers: true).actions
+        XCTAssertEqual(actions.count, 2)
+        guard actions.count == 2 else { return }
+        for action in actions {
             XCTAssertTrue(action.options.contains(.authenticationRequired), action.identifier)
             XCTAssertFalse(action.options.contains(.foreground), action.identifier)
         }
-        XCTAssertFalse(InlineAnswer.category.actions[0].options.contains(.destructive))
-        XCTAssertTrue(InlineAnswer.category.actions[1].options.contains(.destructive))
+        XCTAssertFalse(actions[0].options.contains(.destructive))
+        XCTAssertTrue(actions[1].options.contains(.destructive))
+    }
+
+    /// The app registers the category of the stored setting, and only it.
+    func testTheAppRegistersTheCategoryOfTheStoredSetting() {
+        let categories = FakeCategories()
+        let servers = ServerStore(defaults: defaults)
+
+        servers.lockScreenAnswers = true
+        InlineAnswer.registerCategory(servers: servers, in: categories)
+        XCTAssertEqual(categories.registered.last?.map(\.identifier), ["approval"])
+        XCTAssertEqual(categories.registered.last?.first?.actions.map(\.identifier), ["approve_once", "deny"])
+
+        servers.lockScreenAnswers = false
+        InlineAnswer.registerCategory(servers: servers, in: categories)
+        XCTAssertEqual(categories.registered.last?.map(\.identifier), ["approval"])
+        XCTAssertEqual(categories.registered.last?.first?.actions.count, 0)
     }
 
     func testOnlyTheTwoActionsGiveADecision() {
@@ -259,6 +286,17 @@ final class InlineAnswerTests: XCTestCase {
 }
 
 // MARK: - Fakes
+
+/// The notification categories of the app. Each item of `registered` is
+/// one call to `setNotificationCategories`.
+@MainActor
+final class FakeCategories: NotificationCategories {
+    var registered: [[UNNotificationCategory]] = []
+
+    func setNotificationCategories(_ categories: Set<UNNotificationCategory>) {
+        registered.append(Array(categories))
+    }
+}
 
 /// The notification center. It writes each change to the steps.
 @MainActor

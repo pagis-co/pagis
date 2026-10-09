@@ -13,7 +13,7 @@ html,
 body {
   margin: 0;
   min-height: 100%;
-  background: var(--ground);
+  background: var(--panel);
   color: var(--text);
   font-family: var(--font-sans);
 }
@@ -28,16 +28,35 @@ body {
 .connect {
   max-width: var(--reading-width);
   margin: 0 auto;
-  padding: calc(var(--safe-top) + var(--space-16)) calc(var(--safe-right) + var(--space-6))
-    calc(var(--safe-bottom) + var(--space-6)) calc(var(--safe-left) + var(--space-6));
+  padding: calc(var(--safe-top) + var(--space-3) - var(--space-px)) calc(var(--safe-right) + var(--space-6))
+    calc(var(--safe-bottom) + var(--space-5)) calc(var(--safe-left) + var(--space-6));
 }
 
+.connect-head { display: flex; flex-direction: column; align-items: center; text-align: center; gap: var(--space-1-5); margin-bottom: var(--space-8); }
+.connect-head p { margin: 0; color: var(--muted); }
+.connect-mark { width: 48px; height: 48px; margin-bottom: var(--space-3); }
+.connect-mark rect:first-child { fill: var(--logo-top); }
+.connect-mark path { fill: var(--logo-bowl); }
+.connect-mark rect:last-child { fill: var(--logo-bottom); }
+.connect-steps { border: var(--space-px) solid var(--border); border-radius: var(--radius-lg); background: var(--raised); padding: var(--space-4); margin: 0 0 var(--space-7); list-style: none; }
+.connect-steps li { display: flex; gap: var(--space-3); align-items: center; }
+.connect-steps li + li { margin-top: var(--space-5); }
+.connect-steps li > span { display: grid; place-items: center; flex: none; width: 24px; height: 24px; border-radius: var(--radius-pill); background: var(--accent-soft); color: var(--accent-ink); font-size: var(--text-sm); font-weight: var(--weight-semibold); }
+.connect-steps p { margin: 0; }
+.connect-divider { display: flex; align-items: center; gap: var(--space-3); color: var(--muted); font-size: var(--text-sm); margin: var(--space-3) 0; }
+.connect-divider::before, .connect-divider::after { content: ''; height: var(--space-px); flex: 1; background: var(--border); }
+.connect-help { margin-top: var(--space-8); text-align: center; color: var(--muted); font-size: var(--text-sm); }
+.connect-help p { margin: 0 0 var(--space-4); }
+.connect-help nav { display: flex; justify-content: center; gap: var(--space-6); }
+.connect-help a { color: var(--accent); text-decoration: none; min-height: 44px; display: inline-flex; align-items: center; }
+
 .connect h1 {
-  margin: 0 0 var(--space-6);
+  margin: 0;
   font-size: var(--text-xl);
-  font-weight: var(--weight-semibold);
+  font-weight: var(--weight-bold);
   line-height: var(--leading-tight);
   letter-spacing: var(--tracking-tight);
+  line-height: var(--leading-tight);
 }
 
 .connect form {
@@ -56,7 +75,7 @@ body {
   min-height: var(--space-11);
   padding: var(--space-2) var(--space-3);
   border: var(--space-px) solid var(--border-control);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   background: var(--panel);
   color: var(--text);
   font: inherit;
@@ -85,22 +104,26 @@ body {
 }
 
 .connect button {
-  min-height: var(--space-11);
-  margin-top: var(--space-2);
+  min-height: 52px;
+  margin-top: 0;
   border: none;
   border-radius: var(--radius-md);
   background: var(--accent);
   color: var(--on-accent);
   font: inherit;
-  font-weight: var(--weight-semibold);
+  font-weight: var(--weight-regular);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
 }
 
 .connect button.secondary {
-  margin-top: 0;
+  margin-top: var(--space-2);
   border: var(--space-px) solid var(--border-control);
   background: var(--panel);
   color: var(--text);
-  font-weight: var(--weight-medium);
+  font-weight: var(--weight-regular);
 }
 
 .connect button:disabled {

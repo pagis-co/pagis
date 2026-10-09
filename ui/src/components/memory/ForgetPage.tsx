@@ -8,7 +8,8 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 
 import type { ApiClient } from '../../api/client'
-import { Button, Dialog } from '../../primitives'
+import { ActionSheet, Button, Dialog } from '../../primitives'
+import { useIsMobile } from '../../state/useIsMobile'
 import { ForgetControl } from '../ForgetControl'
 import { parseSourceReference, type TimelineEntry } from './subjectPage'
 
@@ -42,6 +43,7 @@ export function ForgetPage({
   title: string
   timeline: readonly TimelineEntry[]
 }) {
+  const phone = useIsMobile()
   const [open, setOpen] = useState(false)
   const queryClient = useQueryClient()
   const items = sourceItems(timeline)
@@ -54,19 +56,8 @@ export function ForgetPage({
     await queryClient.resetQueries({ queryKey: ['memory-file'] })
   }
 
-  return (
-    <Dialog
-      open={open}
-      onOpenChange={setOpen}
-      title="Forget this page"
-      description={`${title} comes from ${items.length} source ${items.length === 1 ? 'item' : 'items'}. Forget each item to remove what it wrote and to stop a new import of it.`}
-      trigger={
-        <Button variant="ghost" size="sm">
-          Forget this page
-        </Button>
-      }
-    >
-      {items.map((item) => {
+  const description = `${title} comes from ${items.length} source ${items.length === 1 ? 'item' : 'items'}. Forget each item to remove what it wrote and to stop a new import of it.`
+  const controls = <>      {items.map((item) => {
         const target = {
           kind: 'source' as const,
           source: {
@@ -111,7 +102,22 @@ export function ForgetPage({
             }}
           />
         )
-      })}
+      })}</>
+  if (phone) return <><Button variant="danger-quiet" onClick={() => setOpen(true)}>Forget this page</Button><ActionSheet open={open} onOpenChange={setOpen} title="Forget this page" description={description} cancelLabel="Done">{controls}</ActionSheet></>
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={setOpen}
+      title="Forget this page"
+      description={description}
+      trigger={
+        <Button variant="ghost" size="sm">
+          Forget this page
+        </Button>
+      }
+    >
+      {controls}
     </Dialog>
   )
 }

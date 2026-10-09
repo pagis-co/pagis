@@ -4,25 +4,26 @@
 // panel. The face and the name of a direct message open the Agent
 // itself, where the user changes it and reads its memory.
 
-import { Link } from '@tanstack/react-router'
-import { Menu as MenuIcon, Monitor, Phone, Search, Volume2, VolumeX } from 'lucide-react'
+import { Link, useNavigate } from '@tanstack/react-router'
+import { MoreHorizontal, Monitor, Phone, Search, Volume2, VolumeX } from 'lucide-react'
 import { useState } from 'react'
 
 import type { ApiClient } from '../api/client'
-import { Avatar, IconButton, Input } from '../primitives'
+import { Avatar, IconButton, Input, Menu } from '../primitives'
 import { useAgentNames, useAgents, useChannels } from '../queries'
 import { agentPresence, channelCaption, liveCallOf, usePresence } from '../state/presence'
 import {
   selectSpeaking,
   selectThreadQuery,
   useCallInspector,
-  useMobileNav,
   useSpeaking,
   useThreadSearch,
 } from '../state/stores'
 import { activityWord } from './stateWords'
 
 import './ThreadHeader.css'
+import { useIsMobile } from '../state/useIsMobile'
+import { NavBar } from './phone/TopBar'
 
 export type ThreadPanel = 'desk'
 
@@ -42,6 +43,8 @@ export function ThreadHeader({
   panelIsRouteOwned?: boolean
   onTogglePanel: (panel: ThreadPanel) => void
 }) {
+  const phone = useIsMobile()
+  const navigate = useNavigate()
   const channels = useChannels(api)
   const agents = useAgents(api)
   const agentNames = useAgentNames(api)
@@ -67,13 +70,11 @@ export function ThreadHeader({
   const query = useThreadSearch(selectThreadQuery(channelId))
   const setQuery = useThreadSearch((state) => state.set)
   const [searching, setSearching] = useState(query !== '')
-  const openNav = useMobileNav((state) => state.open)
-  const navOpen = useMobileNav((state) => state.isOpen)
 
   // With no Run to caption, a direct message says the Agent's
   // Activity.
   const status =
-    caption ??
+    (phone && presence !== 'working' ? null : caption) ??
     (channel === undefined
       ? null
       : agentId === null
@@ -90,13 +91,13 @@ export function ThreadHeader({
   const identity = (
     <>
       {agentId !== null && (
-        <Avatar id={agentId} name={name ?? ''} appearance={appearance} playful active size="lg" presence={presence} />
+        <Avatar id={agentId} name={name ?? ''} appearance={appearance} playful active size={phone ? "md" : "lg"} presence={presence} />
       )}
       <div className="thread-top-title">
         {name !== null && <h1>{name}</h1>}
         {status !== null && (
           <span
-            className={`thread-top-status${caption !== null || presence === 'working' ? ' thread-top-status-working' : ''}`}
+            className={`thread-top-status${(presence === 'working' || (!phone && caption !== null)) ? ' thread-top-status-working' : presence === 'waiting' ? ' thread-top-status-waiting' : ''}`}
           >
             {status}
           </span>
@@ -105,16 +106,22 @@ export function ThreadHeader({
     </>
   )
 
+  // The phone menu holds only what this conversation has: a search
+  // where there is a message to find, and spoken replies where the
+  // person posts and an Agent answers.
+  const moreItems = [
+    ...(channel?.last_message ? [{ label: 'Search this conversation', onSelect: () => setSearching(!searching) }] : []),
+    ...(channel?.user_member && channel.agent_ids.length > 0 ? [{ label: speaking ? 'Stop speaking replies' : 'Speak replies', onSelect: () => toggleSpeaking(channelId) }] : []),
+  ]
+
+  if (phone) return <><NavBar back={{ label: 'Conversations', onBack: () => void navigate({ to: '/conversations' }) }} actions={<>
+    <IconButton icon={Phone} label={name ? `Call ${name}` : 'Call'} variant="ghost" disabled={callId === null} onClick={() => { if (callId) void navigate({ to: '/calls/$callId', params: { callId } }) }} />
+    {agentId && <IconButton icon={Monitor} label={`${name}'s desk`} variant="ghost" onClick={() => void navigate({ to: '/sprites/$agentId/desk', params: { agentId }, search: { from: `/c/${channelId}` } })} />}
+    {moreItems.length > 0 && <Menu label="More" trigger={<IconButton icon={MoreHorizontal} label="More" variant="ghost" />} items={moreItems} />}
+  </>}>{agentId ? <Link className="phone-thread-identity" to="/sprites/$agentId" params={{ agentId }}>{identity}</Link> : <div className="phone-thread-identity">{identity}</div>}</NavBar>{searching && <div className="phone-thread-search"><Input autoFocus aria-label="Search this conversation" placeholder="Search this conversation" value={query} onChange={(event) => setQuery(channelId, event.target.value)} /></div>}</>
+
   return (
     <header className="thread-top">
-      <IconButton
-        icon={MenuIcon}
-        label="Open conversations"
-        variant="ghost"
-        className="mobile-navigation-trigger"
-        aria-expanded={navOpen}
-        onClick={openNav}
-      />
       {agentId === null ? (
         identity
       ) : (

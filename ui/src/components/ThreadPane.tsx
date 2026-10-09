@@ -49,7 +49,9 @@ export function ThreadPane({
   api: ApiClient
   channelId: string
   rootId: string
-  onClose: () => void
+  /** Empties the inspector slot. A pushed Thread on the phone has the
+   *  back control of its nav bar instead, so it passes none. */
+  onClose?: () => void
   /** Puts the Desk panel back in the slot. */
   onOpenDesk: () => void
 }) {
@@ -91,12 +93,14 @@ export function ThreadPane({
           <Monitor size={14} aria-hidden focusable="false" />
           Desk
         </Button>
-        <IconButton
-          icon={X}
-          label="Close thread"
-          variant="ghost"
-          onClick={onClose}
-        />
+        {onClose !== undefined && (
+          <IconButton
+            icon={X}
+            label="Close thread"
+            variant="ghost"
+            onClick={onClose}
+          />
+        )}
       </div>
       {thread.isPending ? (
         <div className="timeline-empty">Loading…</div>

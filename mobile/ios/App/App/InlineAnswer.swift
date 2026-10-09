@@ -12,6 +12,15 @@ protocol DeliveredNotifications: AnyObject {
 
 extension UNUserNotificationCenter: DeliveredNotifications {}
 
+/// The notification categories of the app, which give the actions of a
+/// Notification. `UNUserNotificationCenter` is one.
+@MainActor
+protocol NotificationCategories: AnyObject {
+    func setNotificationCategories(_ categories: Set<UNNotificationCategory>)
+}
+
+extension UNUserNotificationCenter: NotificationCategories {}
+
 /// The background tasks of the app, which keep the app running while an
 /// answer waits for the daemon.
 @MainActor
@@ -44,16 +53,27 @@ final class InlineAnswer {
     static let failureText = "Pagis did not take this answer. Open Pagis to see the request."
 
     /// The category `approval`, which the Notification Service Extension
-    /// gives to a Notification of an Approval. Each action asks the Person
-    /// to unlock the phone, and no action opens the app.
-    static let category = UNNotificationCategory(
-        identifier: NotificationContent.approvalCategory,
-        actions: [
+    /// gives to a Notification of an Approval. With **Answer on the lock
+    /// screen** off, the category has no actions. With it on, it has
+    /// **Approve once** and **Deny**: each action asks the Person to unlock
+    /// the phone, and no action opens the app.
+    static func category(lockScreenAnswers: Bool) -> UNNotificationCategory {
+        let actions = lockScreenAnswers ? [
             UNNotificationAction(identifier: "approve_once", title: "Approve once", options: [.authenticationRequired]),
             UNNotificationAction(identifier: "deny", title: "Deny", options: [.authenticationRequired, .destructive]),
-        ],
-        intentIdentifiers: []
-    )
+        ] : []
+        return UNNotificationCategory(
+            identifier: NotificationContent.approvalCategory,
+            actions: actions,
+            intentIdentifiers: []
+        )
+    }
+
+    /// Register the category `approval` of the setting in `servers`. The
+    /// app does this at launch and again each time the setting changes.
+    static func registerCategory(servers: ServerStore, in center: NotificationCategories) {
+        center.setNotificationCategories([category(lockScreenAnswers: servers.lockScreenAnswers)])
+    }
 
     static let app = InlineAnswer(
         answer: ApprovalAnswer(),

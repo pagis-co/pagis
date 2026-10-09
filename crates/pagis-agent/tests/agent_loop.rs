@@ -205,6 +205,14 @@ impl MessageStore for RecordingMessages {
             .await
     }
 
+    async fn last_message(
+        &self,
+        workspace_id: &pagis_core::WorkspaceId,
+        channel_id: &pagis_core::ChannelId,
+    ) -> Result<Option<Message>, pagis_core::StoreError> {
+        self.inner.last_message(workspace_id, channel_id).await
+    }
+
     async fn list_agent_elsewhere(
         &self,
         workspace_id: &pagis_core::WorkspaceId,

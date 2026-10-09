@@ -18,7 +18,8 @@ export type CallItem = Extract<QueueItem, { kind: 'call' }>
 /** Why the item is in the queue, in one line under the daemon's line,
  *  or `null` when there is nothing more. The UI writes it because it
  *  depends on the reader's locale: the clock of the keypad delay and the
- *  words of a failure. A run that waits shows its line and no caption. */
+ *  words of a failure. A run that waits has no caption here; the phone
+ *  row shows the last message of the Agent in its place. */
 export function queueDetail(item: QueueItem, now: number = Date.now()): string | null {
   switch (item.kind) {
     case 'keypad':
@@ -38,7 +39,7 @@ export function queueDetail(item: QueueItem, now: number = Date.now()): string |
 /** The first message the Call back action writes into the Agent's DM.
  *  It is a message and not a command: the call goes through the Call
  *  Brief and the approval card like every other call (ADR-0020). */
-export function callBackDraft(item: CallItem): string {
+export function callBackDraft(item: Pick<CallItem, 'remote_e164' | 'left_message'>): string {
   const why = item.left_message
     ? 'They called and left a message.'
     : 'They called and nobody answered.'

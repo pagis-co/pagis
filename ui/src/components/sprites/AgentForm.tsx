@@ -1,8 +1,8 @@
 // The Agent profile form: name, job, description, personality
 // and voice. It is the one form behind "Edit" on the profile.
 //
-// Creation does not come through here: hiring is four steps of its own
-// (`HireAgent.tsx`), and it carries the Mailbox section (ADR-0019).
+// Creation does not come through here: creating is four steps of its own
+// (`NewSprite.tsx`), and it carries the Mailbox section (ADR-0019).
 
 import { useState } from "react";
 

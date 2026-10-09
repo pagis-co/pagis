@@ -2154,6 +2154,7 @@ const QUESTION: &str = "What does the mail say?";
 /// Run.
 struct QuotingRun {
     scope: pagis_core::ConversationScope,
+    run: pagis_core::Run,
     question: pagis_core::Message,
     progress: pagis_core::Message,
     reply: pagis_core::Message,
@@ -2204,6 +2205,7 @@ async fn quoting_run(
     let question = crate::fixture::user_message(&key.workspace_id, &channel.id, QUESTION);
     stores.messages.insert(&question).await.unwrap();
     let run = pagis_core::Run {
+        title: pagis_core::run_title(pagis_core::RunTitleSource::Message(QUESTION)),
         trigger_ref: Some(question.id.to_string()),
         ..crate::fixture::queued_run(&key.workspace_id, agent, &channel.id)
     };
@@ -2259,6 +2261,7 @@ async fn quoting_run(
         .unwrap();
     QuotingRun {
         scope,
+        run,
         question,
         progress,
         reply,
@@ -2387,6 +2390,64 @@ pub async fn a_forget_leaves_no_text_of_the_item_in_the_conversations_that_quote
             assert_eq!(stored.text_content, text);
         }
     }
+}
+
+/// A Run read the forgotten item and answered with its words, and that
+/// reply started a second Run. The title of the second Run is the first
+/// line of the reply, so it holds the words of the item. The purge
+/// replaces that title with the unavailable title that the Person reads.
+/// The first Run keeps the title of the question of the Person
+/// (ADR-0002, ADR-0008).
+pub async fn a_forget_replaces_the_title_of_the_run_that_a_forgotten_message_started(
+    backend: &Backend,
+) {
+    let (store, state) = setup(backend).await;
+    let key = state.key();
+    let agent = state.config.agent_id.clone();
+    acquire(
+        store.as_ref(),
+        backend.keys(),
+        &key,
+        vec![forgotten_item("1", true), kept()],
+    )
+    .await;
+    let words = format!("The {FORGOTTEN_WORD} invoice of {FORGOTTEN} is due on Friday.");
+    let quoting = quoting_run(
+        backend,
+        &key,
+        &agent,
+        &[SourceRead::Item {
+            resource: key.resource.clone(),
+            id: FORGOTTEN.into(),
+        }],
+        &words,
+    )
+    .await;
+    let runs = &backend.stores().runs;
+    let started = pagis_core::Run {
+        title: pagis_core::run_title(pagis_core::RunTitleSource::Message(&words)),
+        trigger_ref: Some(quoting.reply.id.to_string()),
+        ..crate::fixture::queued_run(&key.workspace_id, &agent, &quoting.scope.channel_id)
+    };
+    runs.create(&started).await.unwrap();
+
+    forget_the_item(backend, &key).await;
+
+    let mut titles = Vec::new();
+    for run in [&started, &quoting.run] {
+        let stored = runs.get(&key.workspace_id, &run.id).await.unwrap();
+        titles.push(stored.expect("the Run stays").title);
+    }
+    assert_eq!(
+        titles,
+        [pagis_core::UNAVAILABLE_RUN_TITLE, QUESTION],
+        "the purge replaces the title of the Run that the forgotten reply started, and no other"
+    );
+    assert_eq!(
+        holding(backend, FORGOTTEN_WORD).await,
+        Vec::<String>::new(),
+        "a value of the database holds the text of the forgotten item"
+    );
 }
 
 /// A Forget of one item forgets the messages of the Runs that read it
@@ -3381,8 +3442,8 @@ async fn end_run(
     let run_id = pagis_core::RunId::generate();
     backend
         .execute(
-            "INSERT INTO runs (id, workspace_id, agent_id, trigger_kind, trigger_ref, state, created_at) \
-             VALUES (?, ?, ?, 'arrival', ?, ?, 0)",
+            "INSERT INTO runs (id, workspace_id, agent_id, trigger_kind, trigger_ref, state, created_at, title) \
+             VALUES (?, ?, ?, 'arrival', ?, ?, 0, 'Bring a source into memory')",
             &[
                 Bind::from(run_id.as_str()),
                 Bind::from(state.config.workspace_id.as_str()),
@@ -3602,6 +3663,7 @@ macro_rules! store_suite_knowledge {
             a_forget_leaves_no_path_or_title_of_the_purged_page_in_the_feed_or_a_brief,
             a_forget_leaves_no_copy_of_the_purged_page_in_the_database_files,
             a_forget_leaves_no_text_of_the_item_in_the_conversations_that_quoted_it,
+            a_forget_replaces_the_title_of_the_run_that_a_forgotten_message_started,
             a_forget_of_one_item_keeps_the_messages_that_quoted_only_other_items,
             a_forget_forgets_the_reply_of_the_run_that_the_item_woke,
             an_account_forget_deletes_the_tool_results_and_the_reads_of_its_connection,

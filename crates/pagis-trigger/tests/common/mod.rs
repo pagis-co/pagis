@@ -199,8 +199,8 @@ pub async fn world() -> World {
 pub async fn coding_session(world: &World) -> CodingSessionId {
     let run_id = RunId::generate();
     sqlx::query(
-        "INSERT INTO runs (id, workspace_id, agent_id, trigger_kind, state, created_at) \
-         VALUES (?, ?, ?, 'message', 'completed', ?)",
+        "INSERT INTO runs (id, workspace_id, agent_id, trigger_kind, state, created_at, title) \
+         VALUES (?, ?, ?, 'message', 'completed', ?, 'Fix it')",
     )
     .bind(run_id.as_str())
     .bind(world.workspace_id.as_str())

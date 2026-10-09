@@ -1,4 +1,4 @@
-// "Hire a sprite": four short steps instead of one long form.
+// "New sprite": four short steps instead of one long form.
 // Name and face, job and description, personality and voice, then the access the new
 // Agent starts with. The draft lives in this component, so Back keeps
 // every entry, and each step answers for its own fields.
@@ -8,16 +8,10 @@
 // lands in the Agent's DM. The daemon makes the DM with the Agent
 // (agents.rs), so the flow only has to find it.
 
-import { useEffect, useState } from "react";
+import { useEffect, useState } from 'react'
 
-import type { ApiClient } from "../../api/client";
-import {
-  Avatar,
-  Button,
-  Dialog,
-  Input,
-  Textarea,
-} from "../../primitives";
+import type { ApiClient } from '../../api/client'
+import { Avatar, Button, Dialog, Input, Textarea } from '../../primitives'
 import {
   errorMessage,
   useConnections,
@@ -25,9 +19,9 @@ import {
   useCreateConnectionGrant,
   useMailboxOffers,
   type NewMailboxBody,
-} from "../../queries";
-import { CapabilityPicker } from "../ConnectionCapabilities";
-import { VoicePicker } from "./VoicePicker";
+} from '../../queries'
+import { CapabilityPicker } from '../ConnectionCapabilities'
+import { VoicePicker } from './VoicePicker'
 import {
   MailboxFields,
   NoMailboxProvider,
@@ -36,106 +30,97 @@ import {
   offerOf,
   type MailboxDraft,
   type MailboxOffer,
-} from "../AgentMailbox";
+} from '../AgentMailbox'
 
-import { AppearanceControls } from "../../avatars/AppearanceControls";
-import {
-  defaultAppearance,
-  type SpriteAppearance,
-} from "../../avatars/catalog";
+import { AppearanceControls } from '../../avatars/AppearanceControls'
+import { defaultAppearance, type SpriteAppearance } from '../../avatars/catalog'
 
-import "../agent.css";
-import "../settings.css";
-import "./sprites.css";
+import '../agent.css'
+import '../settings.css'
+import './sprites.css'
+import { useIsMobile } from '../../state/useIsMobile'
+import { NewSpriteSheet } from '../phone/NewSpriteSheet'
 
-const STEPS = ["face", "job", "voice", "access"] as const;
-type Step = (typeof STEPS)[number];
+const STEPS = ['face', 'job', 'voice', 'access'] as const
+type Step = (typeof STEPS)[number]
 
 const STEP_TITLE: Record<Step, string> = {
-  face: "Name and face",
-  job: "What is the job?",
-  voice: "Personality and voice",
-  access: "What may it reach?",
-};
+  face: 'Name and face',
+  job: 'What is the job?',
+  voice: 'Personality and voice',
+  access: 'What may it reach?',
+}
 
 /** What the four steps fill in. One object, so Back loses nothing. */
-interface HireDraft {
-  avatar: SpriteAppearance;
-  name: string;
-  job: string;
-  description: string;
-  personality: string;
-  voice: string;
+export interface NewSpriteDraft {
+  avatar: SpriteAppearance
+  name: string
+  job: string
+  description: string
+  personality: string
+  voice: string
   /** Capabilities per Connection id; an empty list grants nothing. */
-  capabilities: Record<string, string[]>;
-  mailboxWanted: boolean;
-  mailbox: MailboxDraft;
+  capabilities: Record<string, string[]>
+  mailboxWanted: boolean
+  mailbox: MailboxDraft
 }
 
-const EMPTY_DRAFT: HireDraft = {
+const EMPTY_DRAFT: NewSpriteDraft = {
   avatar: defaultAppearance(),
-  name: "",
-  job: "",
-  description: "",
-  personality: "",
-  voice: "",
+  name: '',
+  job: '',
+  description: '',
+  personality: '',
+  voice: '',
   capabilities: {},
   mailboxWanted: false,
-  mailbox: { connectionId: "", localPart: "", outgoingCap: "", password: "" },
-};
-
-/** What one step refuses to leave with, or `null` when it is ready. */
-function stepError(
-  step: Step,
-  draft: HireDraft,
-  offer?: MailboxOffer,
-): string | null {
-  if (step === "face" && draft.name.trim() === "") {
-    return "Give the sprite a name.";
-  }
-  if (step === "job" && draft.job.trim() === "") {
-    return "Say what this sprite does.";
-  }
-  if (
-    step === "access" &&
-    draft.mailboxWanted &&
-    !draftIsReady(draft.mailbox, offer)
-  ) {
-    return "Finish the mailbox, or leave it out.";
-  }
-  return null;
+  mailbox: { connectionId: '', localPart: '', outgoingCap: '', password: '' },
 }
 
-export function HireAgent({
+/** What one step refuses to leave with, or `null` when it is ready. */
+function stepError(step: Step, draft: NewSpriteDraft, offer?: MailboxOffer): string | null {
+  if (step === 'face' && draft.name.trim() === '') {
+    return 'Give the sprite a name.'
+  }
+  if (step === 'job' && draft.job.trim() === '') {
+    return 'Say what this sprite does.'
+  }
+  if (step === 'access' && draft.mailboxWanted && !draftIsReady(draft.mailbox, offer)) {
+    return 'Finish the mailbox, or leave it out.'
+  }
+  return null
+}
+
+export function NewSprite({
   api,
   open,
   onCancel,
-  onHired,
+  onCreated,
 }: {
-  api: ApiClient;
-  open: boolean;
-  onCancel: () => void;
+  api: ApiClient
+  open: boolean
+  onCancel: () => void
   /** The new Agent's DM, so the flow ends where the work starts. */
-  onHired: (channelId: string) => void;
+  onCreated: (channelId: string) => void
 }) {
-  const [step, setStep] = useState<Step>("face");
-  const [draft, setDraft] = useState<HireDraft>(EMPTY_DRAFT);
-  const [shown, setShown] = useState<string | null>(null);
-  const [failure, setFailure] = useState<unknown>(null);
-  const [hiring, setHiring] = useState(false);
+  const phone = useIsMobile()
+  const [step, setStep] = useState<Step>('face')
+  const [draft, setDraft] = useState<NewSpriteDraft>(EMPTY_DRAFT)
+  const [shown, setShown] = useState<string | null>(null)
+  const [failure, setFailure] = useState<unknown>(null)
+  const [creating, setCreating] = useState(false)
 
-  const connections = useConnections(api);
-  const createAgent = useCreateAgent(api);
-  const createGrant = useCreateConnectionGrant(api);
-  const offers = (useMailboxOffers(api, draft.name, open).data ??
-    []) as MailboxOffer[];
-  const [namedMailbox, setNamedMailbox] = useState(false);
+  const connections = useConnections(api)
+  const createAgent = useCreateAgent(api)
+  const createGrant = useCreateConnectionGrant(api)
+  const offers = (useMailboxOffers(api, draft.name, open).data ?? []) as MailboxOffer[]
+  const [namedMailbox, setNamedMailbox] = useState(false)
 
   // The suggested address follows the Agent's name until the user
   // writes one of their own.
-  const suggestion = offers[0];
+  const suggestion = offers[0]
   useEffect(() => {
-    if (namedMailbox || suggestion === undefined) return;
+    if (namedMailbox || suggestion === undefined) return
     setDraft((current) =>
       current.mailbox.connectionId === suggestion.connection_id &&
       current.mailbox.localPart === suggestion.suggested_local_part
@@ -148,104 +133,118 @@ export function HireAgent({
               localPart: suggestion.suggested_local_part,
             },
           },
-    );
-  }, [namedMailbox, suggestion]);
+    )
+  }, [namedMailbox, suggestion])
 
-  const offer = offerOf(offers, draft.mailbox.connectionId);
-  const patch = (next: Partial<HireDraft>) => {
-    setShown(null);
-    setDraft((current) => ({ ...current, ...next }));
-  };
+  const offer = offerOf(offers, draft.mailbox.connectionId)
+  const patch = (next: Partial<NewSpriteDraft>) => {
+    setShown(null)
+    setDraft((current) => ({ ...current, ...next }))
+  }
 
   const close = () => {
-    setStep("face");
-    setDraft(EMPTY_DRAFT);
-    setNamedMailbox(false);
-    setShown(null);
-    setFailure(null);
-    onCancel();
-  };
+    setStep('face')
+    setDraft(EMPTY_DRAFT)
+    setNamedMailbox(false)
+    setShown(null)
+    setFailure(null)
+    onCancel()
+  }
 
   const advance = () => {
-    const error = stepError(step, draft, offer);
+    const error = stepError(step, draft, offer)
     if (error !== null) {
-      setShown(error);
-      return;
+      setShown(error)
+      return
     }
-    setShown(null);
-    setStep(STEPS[STEPS.indexOf(step) + 1]);
-  };
+    setShown(null)
+    setStep(STEPS[STEPS.indexOf(step) + 1])
+  }
 
   const back = () => {
-    setShown(null);
-    setStep(STEPS[STEPS.indexOf(step) - 1]);
-  };
+    setShown(null)
+    setStep(STEPS[STEPS.indexOf(step) - 1])
+  }
 
-  const hire = async () => {
-    const error = stepError("access", draft, offer);
+  const create = async () => {
+    const error = stepError('access', draft, offer)
     if (error !== null) {
-      setShown(error);
-      return;
+      setShown(error)
+      return
     }
-    setFailure(null);
-    setHiring(true);
+    setFailure(null)
+    setCreating(true)
     try {
       const mailbox: NewMailboxBody | undefined =
-        draft.mailboxWanted && offer !== undefined
-          ? mailboxBody(draft.mailbox, offer)
-          : undefined;
+        draft.mailboxWanted && offer !== undefined ? mailboxBody(draft.mailbox, offer) : undefined
       const agent = await createAgent.mutateAsync({
         avatar: draft.avatar,
         name: draft.name.trim(),
         job: draft.job.trim(),
         description: draft.description.trim(),
         personality: draft.personality.trim(),
-        voice: draft.voice === "" ? null : draft.voice,
+        voice: draft.voice === '' ? null : draft.voice,
         mailbox,
-      });
-      for (const [connectionId, capabilities] of Object.entries(
-        draft.capabilities,
-      )) {
-        if (capabilities.length === 0) continue;
+      })
+      for (const [connectionId, capabilities] of Object.entries(draft.capabilities)) {
+        if (capabilities.length === 0) continue
         await createGrant.mutateAsync({
           agent_id: agent.id,
           connection_id: connectionId,
           capabilities,
-        });
+        })
       }
-      const { data } = await api.GET("/api/v1/channels");
+      const { data } = await api.GET('/api/v1/channels')
       // The new agent's own channel with the user (ADR-0003).
       const dm = (data?.items ?? []).find(
         (channel) =>
-          channel.kind === "dm" &&
-          channel.user_member &&
-          channel.agent_ids.includes(agent.id),
-      );
-      if (dm === undefined) throw new Error("the new sprite has no DM yet");
-      close();
-      onHired(dm.id);
+          channel.kind === 'dm' && channel.user_member && channel.agent_ids.includes(agent.id),
+      )
+      if (dm === undefined) throw new Error('the new sprite has no DM yet')
+      close()
+      onCreated(dm.id)
     } catch (error) {
-      setFailure(error);
+      setFailure(error)
     } finally {
-      setHiring(false);
+      setCreating(false)
     }
-  };
+  }
 
-  const index = STEPS.indexOf(step);
-  const last = index === STEPS.length - 1;
+  const index = STEPS.indexOf(step)
+  const last = index === STEPS.length - 1
+
+  if (phone)
+    return (
+      <NewSpriteSheet
+        api={api}
+        open={open}
+        onClose={close}
+        draft={draft}
+        onChange={patch}
+        busy={creating}
+        problem={shown}
+        failure={failure}
+        offers={offers}
+        onMailboxChange={(mailbox) => {
+          setNamedMailbox(true)
+          patch({ mailbox })
+        }}
+        onCreate={() => void create()}
+      />
+    )
 
   return (
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        if (!next) close();
+        if (!next) close()
       }}
-      title="Hire a sprite"
+      title="New sprite"
       description={`Step ${index + 1} of ${STEPS.length}: ${STEP_TITLE[step]}`}
       footer={
-        <div className="hire-actions">
+        <div className="new-sprite-actions">
           {index > 0 && (
-            <Button type="button" onClick={back} disabled={hiring}>
+            <Button type="button" onClick={back} disabled={creating}>
               Back
             </Button>
           )}
@@ -253,10 +252,10 @@ export function HireAgent({
             <Button
               type="button"
               variant="primary"
-              disabled={hiring}
-              onClick={() => void hire()}
+              disabled={creating}
+              onClick={() => void create()}
             >
-              Hire
+              Create
             </Button>
           ) : (
             <Button type="button" variant="primary" onClick={advance}>
@@ -266,15 +265,10 @@ export function HireAgent({
         </div>
       }
     >
-      <div className="hire-step" data-testid={`hire-step-${step}`}>
-        {step === "face" && (
+      <div className="new-sprite-step" data-testid={`new-sprite-step-${step}`}>
+        {step === 'face' && (
           <>
-            <Avatar
-              id={draft.name}
-              name={draft.name}
-              appearance={draft.avatar}
-              size="lg"
-            />
+            <Avatar id={draft.name} name={draft.name} appearance={draft.avatar} size="lg" />
             <AppearanceControls
               compact
               value={draft.avatar}
@@ -288,12 +282,11 @@ export function HireAgent({
             />
           </>
         )}
-        {step === "job" && (
+        {step === 'job' && (
           <>
             <p className="settings-hint">
-              The job is the first thing the sprite reads about itself. The
-              description is what the other sprites read, so they know what to
-              ask this one for.
+              The job is the first thing the sprite reads about itself. The description is what the
+              other sprites read, so they know what to ask this one for.
             </p>
             <Input
               aria-label="Sprite job"
@@ -309,7 +302,7 @@ export function HireAgent({
             />
           </>
         )}
-        {step === "voice" && (
+        {step === 'voice' && (
           <>
             <p className="settings-hint">
               How it writes, and how it sounds on a call. Both are optional.
@@ -320,26 +313,22 @@ export function HireAgent({
               value={draft.personality}
               onChange={(event) => patch({ personality: event.target.value })}
             />
-            <VoicePicker
-              api={api}
-              value={draft.voice}
-              onChange={(voice) => patch({ voice })}
-            />
+            <VoicePicker api={api} value={draft.voice} onChange={(voice) => patch({ voice })} />
           </>
         )}
-        {step === "access" && (
+        {step === 'access' && (
           <>
             <p className="settings-hint">
-              Pick what the sprite may reach on day one. You can change every
-              grant later from its Access section.
+              Pick what the sprite may reach on day one. You can change every grant later from its
+              Access section.
             </p>
             {(connections.data ?? []).length === 0 && (
-              <p className="settings-hint" data-testid="hire-no-connections">
+              <p className="settings-hint" data-testid="new-sprite-no-connections">
                 No account is connected yet, so there is nothing to grant.
               </p>
             )}
             {(connections.data ?? []).map((connection) => (
-              <div className="hire-connection" key={connection.id}>
+              <div className="new-sprite-connection" key={connection.id}>
                 <strong>{connection.display_name}</strong>
                 <span>{connection.account ?? connection.alias}</span>
                 <CapabilityPicker
@@ -355,7 +344,7 @@ export function HireAgent({
                 />
               </div>
             ))}
-            <div className="hire-mailbox">
+            <div className="new-sprite-mailbox">
               <h5>Mailbox</h5>
               {offers.length === 0 ? (
                 <NoMailboxProvider api={api} />
@@ -366,9 +355,7 @@ export function HireAgent({
                       type="checkbox"
                       aria-label="Give this sprite its own mailbox"
                       checked={draft.mailboxWanted}
-                      onChange={(event) =>
-                        patch({ mailboxWanted: event.target.checked })
-                      }
+                      onChange={(event) => patch({ mailboxWanted: event.target.checked })}
                     />
                     Give {draft.name.trim()} its own mailbox
                   </label>
@@ -378,8 +365,8 @@ export function HireAgent({
                       offers={offers}
                       draft={draft.mailbox}
                       onChange={(next) => {
-                        setNamedMailbox(true);
-                        patch({ mailbox: next });
+                        setNamedMailbox(true)
+                        patch({ mailbox: next })
                       }}
                     />
                   )}
@@ -395,10 +382,10 @@ export function HireAgent({
         )}
         {failure != null && (
           <p className="settings-error" role="alert">
-            {errorMessage(failure, "That sprite could not be hired.")}
+            {errorMessage(failure, 'That sprite could not be made.')}
           </p>
         )}
       </div>
     </Dialog>
-  );
+  )
 }

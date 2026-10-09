@@ -78,8 +78,12 @@ public class ApprovalReceiverTest {
         assertEquals(NetworkType.CONNECTED, work.get(0).getConstraints().getRequiredNetworkType());
     }
 
-    /** The broadcast of the action {@code index} of the Notification of an Approval. */
+    /**
+     * The broadcast of the action {@code index} of the Notification of an
+     * Approval, with Answer on the lock screen on.
+     */
     private Intent broadcast(int index) {
+        new ServerStore(context).setLockScreenAnswers(true);
         new PushNotifier(context).show(new PushPayload(
             "Robin",
             "Robin needs your approval\nhost_shell",

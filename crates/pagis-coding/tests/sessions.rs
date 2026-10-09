@@ -159,6 +159,7 @@ async fn workspace(pool: &SqlitePool, user_id: pagis_core::UserId) -> WorkspaceI
 impl World {
     async fn run(&self, channel_id: Option<ChannelId>, root: Option<MessageId>) -> RunId {
         let run = Run {
+            title: "A message with an attachment".into(),
             id: RunId::generate(),
             workspace_id: self.workspace_id.clone(),
             agent_id: self.agent_id.clone(),

@@ -57,6 +57,7 @@ impl From<RunState> for RunStateDto {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct RunDto {
     pub id: String,
+    pub title: String,
     pub agent_id: String,
     pub channel_id: Option<String>,
     pub root_message_id: Option<String>,
@@ -87,6 +88,7 @@ impl From<Run> for RunDto {
             .map(|(started, ended)| ended - started);
         Self {
             id: run.id.to_string(),
+            title: run.title,
             agent_id: run.agent_id.to_string(),
             channel_id: run.channel_id.map(|id| id.to_string()),
             root_message_id: run.root_message_id.map(|id| id.to_string()),
@@ -107,6 +109,29 @@ impl From<Run> for RunDto {
             dismissed_at: run.dismissed_at,
         }
     }
+}
+
+/// A title derived from a message obeys that message's current source access.
+async fn readable_run(app: &AppState, mut run: Run) -> Result<RunDto, ApiError> {
+    if run.trigger_kind == TriggerKind::Message
+        && let Some(reference) = &run.trigger_ref
+    {
+        let message = app
+            .messages
+            .get(
+                &run.workspace_id,
+                &pagis_core::MessageId::from(reference.clone()),
+            )
+            .await?;
+        let readable = match message {
+            Some(message) => crate::channels::message_is_readable(app, &message).await?,
+            None => false,
+        };
+        if !readable {
+            run.title = pagis_core::UNAVAILABLE_RUN_TITLE.into();
+        }
+    }
+    Ok(run.into())
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -181,7 +206,7 @@ pub async fn run_events(
         })
         .collect();
     Ok(Json(RunTranscriptDto {
-        run: run.into(),
+        run: readable_run(&app, run).await?,
         usage,
         events,
     }))
@@ -315,7 +340,7 @@ pub async fn list_runs(
     let channel_id = query.channel_id.map(ChannelId::from);
     let before = query.before.map(RunId::from);
     let limit = query.limit.unwrap_or(50).clamp(1, 100);
-    let items = app
+    let runs = app
         .runs
         .list(
             &tenant.workspace_id,
@@ -325,10 +350,11 @@ pub async fn list_runs(
             before.as_ref(),
             limit,
         )
-        .await?
-        .into_iter()
-        .map(RunDto::from)
-        .collect();
+        .await?;
+    let mut items = Vec::with_capacity(runs.len());
+    for run in runs {
+        items.push(readable_run(&app, run).await?);
+    }
     Ok(Json(RunPage { items }))
 }
 

@@ -9,7 +9,7 @@ import {
   createRootRouteWithContext,
   createRoute,
   createRouter,
-  redirect,
+  useParams,
   useNavigate,
   useRouteContext,
   type RouterHistory,
@@ -18,6 +18,16 @@ import { useEffect } from 'react'
 
 import type { ApiClient } from './api/client'
 import { AppShell } from './AppShell'
+import { ConversationsPhone } from './components/phone/ConversationsPhone'
+import { You } from './components/phone/You'
+import { SettingsPhone } from './components/phone/SettingsPhone'
+import { KeypadCodeRow } from './components/TrustedContacts'
+import { NavBar } from './components/phone/TopBar'
+import { ThreadPane } from './components/ThreadPane'
+import { CallInspector } from './components/CallInspector'
+import { CallPhone } from './components/phone/CallPhone'
+import { RunPhone } from './components/phone/RunPhone'
+import { DeskPhone } from './components/phone/DeskPhone'
 import { Automations } from './components/Automations'
 import { CodingSessionPage } from './components/coding/CodingSessionPage'
 import { CodingSessions } from './components/coding/CodingSessions'
@@ -39,6 +49,9 @@ import { MissingConversation } from './components/MissingConversation'
 import { directMessageChannel } from './components/AskAnAgent'
 import { chiefOfStaff } from './components/sidebar/conversations'
 import { AgentProfile } from './components/sprites/AgentProfile'
+import { AgentAccessPhone } from './components/sprites/AgentAccessPhone'
+import { AgentMemory } from './components/sprites/AgentMemory'
+import { AgentWork } from './components/sprites/AgentWork'
 import { SpriteRoster } from './components/sprites/SpriteRoster'
 import { Software } from './components/Software'
 import { ThreadHeader } from './components/ThreadHeader'
@@ -48,12 +61,15 @@ import {
   useAgents,
   useChannels,
   useIsAdministrator,
+  useThread,
   useTimeline,
+  useTrustList,
   useWorkspace,
 } from './queries'
 import { openDocument } from './navigation'
-import { useCallInspector, useMailInspector, useMobileNav } from './state/stores'
-import { useIsCompact } from './state/useIsMobile'
+import { appPath, phoneParent, useIsPhoneDevice } from './mobileShell'
+import { useCallInspector, useMailInspector } from './state/stores'
+import { useIsCompact, useIsMobile } from './state/useIsMobile'
 
 export interface RouterContext {
   api: ApiClient
@@ -64,18 +80,30 @@ export type Panel = 'desk'
 
 export interface PanelSearch {
   panel?: Panel
+  request?: string
+  from?: string
 }
 
 const rootRoute = createRootRouteWithContext<RouterContext>()({
   component: AppShell,
   // The search is the shell's, so it is validated once, at the root.
-  // An unknown parameter does not survive a navigation.
+  // An unknown parameter does not survive a navigation. The router lays
+  // the result over the raw search, so `from` is always set: a value
+  // that is not a place of this app reads as no value.
   validateSearch: (search: Record<string, unknown>): PanelSearch =>
-    search.panel === 'desk' ? { panel: search.panel } : {},
+    ({ ...(search.panel === 'desk' ? { panel: 'desk' as const } : {}), ...(typeof search.request === 'string' ? { request: search.request } : {}), from: appPath(search.from) }),
 })
 
 function useApi(): ApiClient {
   return useRouteContext({ from: '__root__' }).api
+}
+
+/** The navigation bar of a pushed screen whose view draws none: back
+ *  to the fixed parent of its path (ADR-0034). */
+function PhoneBack({ path }: { path: string }) {
+  const navigate = useNavigate()
+  const parent = phoneParent(path)
+  return <NavBar back={{ label: parent.label, onBack: () => void navigate({ href: parent.path }) }} />
 }
 
 /** Home: the first place and the landing view (ADR-0022). It
@@ -85,7 +113,6 @@ function useApi(): ApiClient {
 function HomeView() {
   const api = useApi()
   const navigate = useNavigate()
-  const openNav = useMobileNav((state) => state.open)
   const panel = indexRoute.useSearch().panel
   const closeCall = useCallInspector((state) => state.close)
   const closeMail = useMailInspector((state) => state.close)
@@ -105,18 +132,18 @@ function HomeView() {
         void navigate({ to: '/c/$channelId', params: { channelId }, search: {} })
       }
       onOpenRun={(runId) => void navigate({ to: '/runs/$runId', params: { runId } })}
-      onOpenNav={openNav}
     />
   )
 }
 
 const indexRoute = createRoute({
+  staticData: { phone: 'tab' },
   getParentRoute: () => rootRoute,
   path: '/',
   component: HomeView,
 })
 
-/** Sprites: the roster of every Agent. `?new=1` opens the hiring
+/** Sprites: the roster of every Agent. `?new=1` opens the creating
  *  form, so a link and the command palette both reach it. */
 function SpritesView() {
   const api = useApi()
@@ -144,6 +171,7 @@ export interface SpritesSearch {
 }
 
 const spritesRoute = createRoute({
+  staticData: { phone: 'tab' },
   getParentRoute: () => rootRoute,
   path: '/sprites',
   component: SpritesView,
@@ -187,6 +215,8 @@ const conversationsIndexRoute = createRoute({
 
 function ConversationView() {
   const api = useApi()
+  const phone = useIsMobile()
+  const { messageId } = useParams({ strict: false }) as { messageId?: string }
   const { channelId } = channelRoute.useParams()
   const navigate = useNavigate()
   const panel = channelRoute.useSearch().panel
@@ -207,7 +237,6 @@ function ConversationView() {
     directMessageChannel(channels.data ?? [], chief.id) === channelId
   const closeCall = useCallInspector((state) => state.close)
   const closeMail = useMailInspector((state) => state.close)
-  const openNav = useMobileNav((state) => state.open)
   // The daemon answers a channel that is not the person's as not
   // found, the same as a channel that never was.
   const timeline = useTimeline(api, channelId)
@@ -224,14 +253,28 @@ function ConversationView() {
     })
   }
 
+  // The phone has no Desk Panel: a Desk opens as the live screen of its
+  // Agent, with the way back to this place.
+  const here = messageId ? `/c/${channelId}/t/${messageId}` : `/c/${channelId}`
+  const openDesk = (agentId: string) => {
+    if (phone) {
+      void navigate({ to: '/sprites/$agentId/desk', params: { agentId }, search: { from: here } })
+      return
+    }
+    closeCall()
+    closeMail()
+    void navigate({ to: '/c/$channelId', params: { channelId }, search: { panel: 'desk' } })
+  }
+
   if (errorCode(timeline.error) === 'not_found') {
     return (
       <MissingConversation
-        onOpenNav={openNav}
         onOpenHome={() => void navigate({ to: '/' })}
       />
     )
   }
+
+  if (phone && messageId) return <PhoneThread api={api} channelId={channelId} rootId={messageId} onOpenDesk={openDesk} />
 
   return (
     <>
@@ -255,15 +298,7 @@ function ConversationView() {
         onOpenChannel={(next) =>
           void navigate({ to: '/c/$channelId', params: { channelId: next }, search: {} })
         }
-        onOpenDesk={() => {
-          closeCall()
-          closeMail()
-          void navigate({
-            to: '/c/$channelId',
-            params: { channelId },
-            search: { panel: 'desk' },
-          })
-        }}
+        onOpenDesk={openDesk}
       />
       <ChannelComposer api={api} channelId={channelId} />
       {/* The thread route renders nothing of its own: the thread pane
@@ -273,13 +308,27 @@ function ConversationView() {
   )
 }
 
+/** A Thread on the phone: a pushed screen over its conversation. */
+function PhoneThread({ api, channelId, rootId, onOpenDesk }: { api: ApiClient; channelId: string; rootId: string; onOpenDesk: (agentId: string) => void }) {
+  const navigate = useNavigate()
+  const thread = useThread(api, channelId, rootId)
+  const channel = useChannels(api).data?.find((row) => row.id === channelId)
+  // The Desk of a Thread is the Agent that wrote its root, or else the
+  // first Agent of the conversation.
+  const deskAgent = thread.data?.root.author_agent_id ?? channel?.agent_ids[0]
+  const back = () => void navigate({ to: '/c/$channelId', params: { channelId } })
+  return <><NavBar back={{ label: 'Conversation', onBack: back }} /><ThreadPane api={api} channelId={channelId} rootId={rootId} onOpenDesk={() => { if (deskAgent) onOpenDesk(deskAgent) }} /></>
+}
+
 const channelRoute = createRoute({
+  staticData: { phone: 'pushed' },
   getParentRoute: () => conversationsRoute,
   path: '$channelId',
   component: ConversationView,
 })
 
 const threadRoute = createRoute({
+  staticData: { phone: 'pushed' },
   getParentRoute: () => channelRoute,
   path: '/t/$messageId',
   component: () => null,
@@ -289,13 +338,12 @@ const threadRoute = createRoute({
 function RunsView() {
   const api = useApi()
   const navigate = useNavigate()
-  const openNav = useMobileNav((state) => state.open)
+  const phone = useIsMobile()
   return (
-    <RunsList
+    <>{phone && <PhoneBack path="/runs" />}<RunsList
       api={api}
       onOpenRun={(runId) => void navigate({ to: '/runs/$runId', params: { runId } })}
-      onOpenNav={openNav}
-    />
+    /></>
   )
 }
 
@@ -305,6 +353,7 @@ const runsRoute = createRoute({
 })
 
 const runsIndexRoute = createRoute({
+  staticData: { phone: 'pushed' },
   getParentRoute: () => runsRoute,
   path: '/',
   component: RunsView,
@@ -315,10 +364,12 @@ function RunView() {
   const api = useApi()
   const { runId } = runRoute.useParams()
   const navigate = useNavigate()
-  return <RunTimeline api={api} runId={runId} onBack={() => void navigate({ to: '/runs' })} />
+  const phone = useIsMobile()
+  return phone ? <RunPhone api={api} runId={runId} /> : <RunTimeline api={api} runId={runId} onBack={() => void navigate({ to: '/runs' })} />
 }
 
 const runRoute = createRoute({
+  staticData: { phone: 'pushed' },
   getParentRoute: () => runsRoute,
   path: '$runId',
   component: RunView,
@@ -333,7 +384,6 @@ const codingRoute = createRoute({
 function CodingSessionsView() {
   const api = useApi()
   const navigate = useNavigate()
-  const openNav = useMobileNav((state) => state.open)
   return (
     <CodingSessions
       api={api}
@@ -343,7 +393,6 @@ function CodingSessionsView() {
       onOpenChannel={(channelId) =>
         void navigate({ to: '/c/$channelId', params: { channelId }, search: {} })
       }
-      onOpenNav={openNav}
     />
   )
 }
@@ -370,6 +419,7 @@ function CodingSessionView() {
 }
 
 const codingSessionRoute = createRoute({
+  staticData: { phone: 'pushed' },
   getParentRoute: () => codingRoute,
   path: '$sessionId',
   component: CodingSessionView,
@@ -400,10 +450,55 @@ function AgentView() {
 }
 
 const agentRoute = createRoute({
+  staticData: { phone: 'pushed' },
   getParentRoute: () => rootRoute,
   path: '/sprites/$agentId',
   component: AgentView,
 })
+
+function AgentDeskView() {
+  const api = useApi()
+  const { agentId } = agentDeskRoute.useParams()
+  const agents = useAgents(api)
+  const channels = useChannels(api)
+  // A phone keeps the live screen when it turns on its side, where the
+  // screen reads larger.
+  const phone = useIsPhoneDevice()
+  const navigate = useNavigate()
+  const { from } = agentDeskRoute.useSearch()
+  const agent = agents.data?.find((row) => row.id === agentId)
+  useEffect(() => {
+    if (!phone && agent) {
+      const channelId = directMessageChannel(channels.data ?? [], agent.id)
+      if (channelId) void navigate({ to: '/c/$channelId', params: { channelId }, search: { panel: 'desk' }, replace: true })
+    }
+  }, [phone, agent, channels.data, navigate])
+  if (!agent) return <p className="phone-hint">{agents.isPending ? 'Reading the sprite…' : 'That sprite is not one of yours.'}</p>
+  return phone ? <DeskPhone api={api} agent={agent} onClose={() => void navigate({ href: phoneParent(`/sprites/${agentId}/desk`, from).path })} /> : null
+}
+const agentDeskRoute = createRoute({ getParentRoute: () => rootRoute, path: '/sprites/$agentId/desk', component: AgentDeskView, staticData: { phone: 'pushed' } })
+
+function AgentSectionView({ section }: { section: 'access' | 'memory' | 'work' }) {
+  const api = useApi()
+  const { agentId, resourceId } = useParams({ strict: false })
+  const agents = useAgents(api)
+  const phone = useIsMobile()
+  const navigate = useNavigate()
+  const agent = agents.data?.find((row) => row.id === agentId)
+  useEffect(() => {
+    if (!phone && agentId) void navigate({ to: '/sprites/$agentId', params: { agentId }, replace: true })
+  }, [phone, agentId, navigate])
+  if (!phone) return null
+  if (!agent) return <p className="phone-hint">{agents.isPending ? 'Reading the sprite…' : 'That sprite is not one of yours.'}</p>
+  const openRun = (runId: string) => void navigate({ to: '/runs/$runId', params: { runId }, search: { from: `/sprites/${agent.id}/work` } })
+  if (section === 'access') return <AgentAccessPhone key={`${agent.id}:${resourceId ?? 'list'}`} api={api} agent={agent} resourceId={resourceId} />
+  const content = section === 'memory' ? <AgentMemory api={api} agent={agent} onOpenMemory={(location) => void navigate({ to: '/memory', search: { ...location, from: `/sprites/${agent.id}/memory` } })} onOpenSyncSettings={() => void navigate({ to: '/settings/$section', params: { section: 'connections' } })} onOpenRun={openRun} /> : <AgentWork api={api} agentId={agent.id} agentName={agent.name} onOpenRun={openRun} />
+  return <><NavBar back={{ label: agent.name, onBack: () => void navigate({ to: '/sprites/$agentId', params: { agentId: agent.id } }) }} /><div className="phone-content"><h1 className="phone-heading">{section.charAt(0).toUpperCase() + section.slice(1)}</h1>{content}</div></>
+}
+const agentAccessRoute = createRoute({ getParentRoute: () => rootRoute, path: '/sprites/$agentId/access', component: () => <AgentSectionView section="access" />, staticData: { phone: 'pushed' } })
+const agentAccessResourceRoute = createRoute({ getParentRoute: () => rootRoute, path: '/sprites/$agentId/access/$resourceId', component: () => <AgentSectionView section="access" />, staticData: { phone: 'pushed' } })
+const agentMemoryRoute = createRoute({ getParentRoute: () => rootRoute, path: '/sprites/$agentId/memory', component: () => <AgentSectionView section="memory" />, staticData: { phone: 'pushed' } })
+const agentWorkRoute = createRoute({ getParentRoute: () => rootRoute, path: '/sprites/$agentId/work', component: () => <AgentSectionView section="work" />, staticData: { phone: 'pushed' } })
 
 export interface MemorySearch {
   scope?: string
@@ -417,10 +512,10 @@ export interface MemorySearch {
 function MemoryPlaceView() {
   const api = useApi()
   const navigate = useNavigate()
-  const { scope, path, view } = memoryRoute.useSearch()
-  const openNav = useMobileNav((state) => state.open)
+  const { scope, path, view, from } = memoryRoute.useSearch()
+  const phone = useIsMobile()
   return (
-    <MemoryPage
+    <>{phone && <NavBar back={{ label: path ? 'Memory' : from ? 'Sprite' : 'You', onBack: () => path ? void navigate({ to: '/memory', search: { scope, view, from } }) : void navigate({ href: from ?? '/you' }) }} />}<MemoryPage
       api={api}
       scope={scope}
       path={path}
@@ -430,6 +525,7 @@ function MemoryPlaceView() {
           to: '/memory',
           search: {
             scope: next.scope,
+            from,
             ...(next.path === undefined ? {} : { path: next.path }),
             ...(next.view === 'pages' ? {} : { view: next.view }),
           },
@@ -439,12 +535,12 @@ function MemoryPlaceView() {
         void navigate({ to: '/c/$channelId', params: { channelId }, search: {} })
       }
       onOpenRun={(runId) => void navigate({ to: '/runs/$runId', params: { runId } })}
-      onOpenNav={openNav}
-    />
+    /></>
   )
 }
 
 const memoryRoute = createRoute({
+  staticData: { phone: 'pushed' },
   getParentRoute: () => rootRoute,
   path: '/memory',
   component: MemoryPlaceView,
@@ -458,12 +554,14 @@ const memoryRoute = createRoute({
 function AutomationsView() {
   const api = useApi()
   const navigate = useNavigate()
-  const openNav = useMobileNav((state) => state.open)
+  const { rule } = automationsRoute.useSearch()
+  const phone = useIsMobile()
   return (
     <Automations
       api={api}
-      onClose={() => void navigate({ to: '/' })}
-      onOpenNav={openNav}
+      selection={phone ? rule ?? null : undefined}
+      onSelect={(next) => void navigate({ to: '/automations', search: { rule: next ?? undefined } })}
+      onClose={() => void navigate({ to: phone ? '/you' : '/' })}
       onOpenChannel={(channelId) =>
         void navigate({ to: '/c/$channelId', params: { channelId }, search: {} })
       }
@@ -472,20 +570,24 @@ function AutomationsView() {
 }
 
 const automationsRoute = createRoute({
+  staticData: { phone: 'pushed' },
   getParentRoute: () => rootRoute,
   path: '/automations',
   component: AutomationsView,
+  validateSearch: (search: Record<string, unknown>): { rule?: { kind: 'schedule' | 'subscription'; id: string } } => { const rule = search.rule; if (rule && typeof rule === 'object' && 'kind' in rule && 'id' in rule && (rule.kind === 'schedule' || rule.kind === 'subscription') && typeof rule.id === 'string') return { rule: { kind: rule.kind, id: rule.id } }; return {} },
 })
 
 function SoftwareView() {
   const api = useApi()
   const navigate = useNavigate()
-  const openNav = useMobileNav((state) => state.open)
+  const { package: packageName } = softwareRoute.useSearch()
+  const phone = useIsMobile()
   return (
     <Software
       api={api}
-      onClose={() => void navigate({ to: '/' })}
-      onOpenNav={openNav}
+      selection={phone ? packageName ?? null : undefined}
+      onSelect={(name) => void navigate({ to: '/software', search: { package: name ?? undefined } })}
+      onClose={() => void navigate({ to: phone ? '/you' : '/' })}
       onOpenChannel={(channelId) =>
         void navigate({ to: '/c/$channelId', params: { channelId }, search: {} })
       }
@@ -494,9 +596,11 @@ function SoftwareView() {
 }
 
 const softwareRoute = createRoute({
+  staticData: { phone: 'pushed' },
   getParentRoute: () => rootRoute,
   path: '/software',
   component: SoftwareView,
+  validateSearch: (search: Record<string, unknown>): { package?: string } => typeof search.package === 'string' ? { package: search.package } : {},
 })
 
 /** Settings holds the workspace and the system, in three groups.
@@ -506,16 +610,18 @@ function SettingsView() {
   const { section } = settingsRoute.useParams()
   const navigate = useNavigate()
   const known = isSettingsSection(section) ? section : null
+  const phone = useIsMobile()
   const isAdministrator = useIsAdministrator(api)
   // A member who types the address of an administrator section lands on
   // the first section they may open.
-  const forbidden = known !== null && isAdministratorSection(known) && !isAdministrator
+  const forbidden = known !== null && isAdministratorSection(known) && (!isAdministrator || phone)
 
   useEffect(() => {
     if (known === null) {
       void navigate({ to: '/sprites', search: {}, replace: true })
       return
     }
+    if (forbidden && phone) { void navigate({ to: '/settings', replace: true }); return }
     if (forbidden) {
       void navigate({
         to: '/settings/$section',
@@ -523,7 +629,7 @@ function SettingsView() {
         replace: true,
       })
     }
-  }, [forbidden, known, navigate])
+  }, [forbidden, known, navigate, phone])
 
   if (known === null || forbidden) return null
   return (
@@ -567,12 +673,14 @@ function ConnectionView() {
 }
 
 const connectionRoute = createRoute({
+  staticData: { phone: 'pushed' },
   getParentRoute: () => rootRoute,
   path: '/settings/connections/$connectionId',
   component: ConnectionView,
 })
 
 const settingsRoute = createRoute({
+  staticData: { phone: 'pushed' },
   getParentRoute: () => rootRoute,
   path: '/settings/$section',
   component: SettingsView,
@@ -580,17 +688,52 @@ const settingsRoute = createRoute({
 
 /** `/settings` holds no view of its own: it opens the first section
  *  that every person sees. */
-const settingsIndexRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/settings',
-  beforeLoad: () => {
-    throw redirect({
-      to: '/settings/$section',
-      params: { section: visibleSettingsSections(false)[0].value },
-      replace: true,
-    })
-  },
-})
+function SettingsIndexView() {
+  const api = useApi()
+  const phone = useIsMobile()
+  const navigate = useNavigate()
+  useEffect(() => { if (!phone) void navigate({ to: '/settings/$section', params: { section: 'connections' }, replace: true }) }, [phone, navigate])
+  return phone ? <SettingsPhone api={api} /> : null
+}
+const settingsIndexRoute = createRoute({ getParentRoute: () => rootRoute, path: '/settings', component: SettingsIndexView, staticData: { phone: 'pushed' } })
+
+function KeypadView() {
+  const api = useApi()
+  const list = useTrustList(api)
+  const navigate = useNavigate()
+  const phone = useIsMobile()
+  useEffect(() => {
+    if (!phone) void navigate({ to: '/settings/$section', params: { section: 'trusted-contacts' }, replace: true })
+  }, [phone, navigate])
+  if (!phone) return null
+  return <><NavBar back={{ label: 'Trusted contacts', onBack: () => void navigate({ to: '/settings/$section', params: { section: 'trusted-contacts' } }) }} /><div className="phone-content"><h1 className="phone-heading">Keypad code</h1>{list.data && <KeypadCodeRow api={api} keypad={list.data.keypad_code} />}{list.isError && <p role="alert" className="phone-hint">Could not read the keypad code.</p>}</div></>
+}
+const keypadRoute = createRoute({ getParentRoute: () => rootRoute, path: '/settings/trusted-contacts/keypad', component: KeypadView, staticData: { phone: 'pushed' } })
+
+function ConversationsPhoneView() {
+  const api = useApi()
+  const phone = useIsMobile()
+  const navigate = useNavigate()
+  useEffect(() => { if (!phone) void navigate({ to: '/c', replace: true }) }, [phone, navigate])
+  return phone ? <ConversationsPhone api={api} /> : null
+}
+const phoneConversationsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/conversations', component: ConversationsPhoneView, staticData: { phone: 'tab' }, validateSearch: (search: Record<string, unknown>): { new?: 'group' } => search.new === 'group' ? { new: 'group' } : {} })
+function YouView() {
+  const api = useApi()
+  const phone = useIsMobile()
+  const navigate = useNavigate()
+  useEffect(() => { if (!phone) void navigate({ to: '/settings', replace: true }) }, [phone, navigate])
+  return phone ? <You api={api} /> : null
+}
+const youRoute = createRoute({ getParentRoute: () => rootRoute, path: '/you', component: YouView, staticData: { phone: 'tab' } })
+function CallView() {
+  const api = useApi()
+  const { callId } = callRoute.useParams()
+  const navigate = useNavigate()
+  const phone = useIsMobile()
+  return phone ? <CallPhone api={api} callId={callId} /> : <CallInspector api={api} callId={callId} onClose={() => void navigate({ to: '/' })} />
+}
+const callRoute = createRoute({ getParentRoute: () => rootRoute, path: '/calls/$callId', component: CallView, staticData: { phone: 'pushed' } })
 
 /** The start route of a Google authorization on the daemon. */
 const GOOGLE_START_ROUTE = '/api/v1/connections/google/start'
@@ -628,6 +771,9 @@ const googleStartRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   indexRoute,
+  phoneConversationsRoute,
+  youRoute,
+  callRoute,
   spritesRoute,
   conversationsRoute.addChildren([
     conversationsIndexRoute,
@@ -636,10 +782,16 @@ const routeTree = rootRoute.addChildren([
   runsRoute.addChildren([runsIndexRoute, runRoute]),
   codingRoute.addChildren([codingIndexRoute, codingSessionRoute]),
   agentRoute,
+  agentDeskRoute,
+  agentAccessRoute,
+  agentAccessResourceRoute,
+  agentMemoryRoute,
+  agentWorkRoute,
   memoryRoute,
   automationsRoute,
   softwareRoute,
   settingsIndexRoute,
+  keypadRoute,
   settingsRoute,
   connectionRoute,
   googleStartRoute,
@@ -650,6 +802,7 @@ export function createAppRouter(context: RouterContext, history?: RouterHistory)
 }
 
 declare module '@tanstack/react-router' {
+  interface StaticDataRouteOption { phone?: 'tab' | 'pushed' }
   interface Register {
     router: ReturnType<typeof createAppRouter>
   }

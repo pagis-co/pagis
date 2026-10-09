@@ -10,7 +10,7 @@ use std::time::Duration;
 use futures::{SinkExt, StreamExt};
 use pagis_telephony::fake::{FakeCallTransport, FakeNumberCatalog, PartyState, TokioClock};
 use pagis_telephony::{CallDirection, FakeCallBridge};
-use pagis_testkit::{TestDaemon, TestDaemonOptions};
+use pagis_testkit::{Script, ScriptedBrain, TestDaemon, TestDaemonOptions};
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
@@ -44,6 +44,11 @@ struct Desk {
 impl Desk {
     /// A daemon whose default Agent holds a registered line.
     async fn start() -> Self {
+        Self::start_with(TestDaemonOptions::default()).await
+    }
+
+    /// A daemon on `options` whose default Agent holds a registered line.
+    async fn start_with(options: TestDaemonOptions) -> Self {
         let transport = Arc::new(FakeCallTransport::new(Arc::new(TokioClock)));
         let bridge = Arc::new(FakeCallBridge::reporting(FakeCallBridge::answered_report(
             "I would like to book a table.",
@@ -52,7 +57,7 @@ impl Desk {
             call_transport: Arc::clone(&transport) as _,
             call_bridge: Some(Arc::clone(&bridge) as _),
             number_catalog: Arc::new(FakeNumberCatalog::offering(&[OWN])),
-            ..TestDaemonOptions::default()
+            ..options
         })
         .await;
         let desk = Self {
@@ -314,5 +319,90 @@ async fn a_call_the_agent_answered_wakes_it_afterwards() {
     assert!(
         !events.to_string().contains("book a table"),
         "the event carries the envelope alone: {events}"
+    );
+}
+
+/// The run list names each Run by its trigger: the first line of a
+/// message, the name of a Schedule and the caller of an inbound Call
+/// (ADR-0002).
+#[tokio::test]
+async fn the_run_list_names_each_run_by_its_trigger() {
+    let brain = Arc::new(ScriptedBrain::default());
+    for reply in ["Booked.", "Your plan is ready.", "I took the message."] {
+        brain.push(Script::reply(&[reply]));
+    }
+    let desk = Desk::start_with(TestDaemonOptions {
+        brain: Arc::clone(&brain) as _,
+        ..TestDaemonOptions::default()
+    })
+    .await;
+    let mut socket = desk.firehose().await;
+
+    let (status, body) = desk
+        .post(
+            &format!("/api/v1/channels/{}/messages", desk.daemon.dm_channel_id),
+            serde_json::json!({
+                "pending_id": "trip",
+                "text": "Book the Austin trip\nwith a late checkout",
+            }),
+        )
+        .await;
+    assert_eq!(status, 201, "{body}");
+    // The Schedule comes due on the wall clock, as the socket waits on
+    // the clock of the daemon.
+    let due = chrono::DateTime::from_timestamp_millis(pagis_core::now_ms() + 3_000)
+        .unwrap()
+        .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    let (status, body) = desk
+        .post(
+            "/api/v1/schedules",
+            serde_json::json!({
+                "agent_id": desk.daemon.agent_id,
+                "name": "Morning plan",
+                "instruction": "Prepare today's plan",
+                "channel_id": desk.daemon.dm_channel_id,
+                "root_message_id": null,
+                "local_time": due.trim_end_matches('Z'),
+                "timezone": "UTC",
+            }),
+        )
+        .await;
+    assert_eq!(status, 201, "{body}");
+    desk.transport.ring(OWN, REMOTE);
+    let placed = next_frame_of(&mut socket, "call.placed").await;
+    let call_run = placed["payload"]["run_id"].as_str().unwrap().to_string();
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    let runs = loop {
+        let (status, page) = desk.get("/api/v1/runs").await;
+        assert_eq!(status, 200, "{page}");
+        let runs = page["items"].as_array().unwrap().clone();
+        if runs.iter().any(|run| run["trigger_kind"] == "schedule") {
+            break runs;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the Schedule starts a Run: {page}"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    };
+
+    let title_of = |found: &dyn Fn(&serde_json::Value) -> bool| {
+        runs.iter()
+            .find(|run| found(run))
+            .map(|run| run["title"].clone())
+            .unwrap_or_else(|| panic!("the Run is listed: {runs:?}"))
+    };
+    assert_eq!(
+        title_of(&|run| run["trigger_kind"] == "message"),
+        "Book the Austin trip"
+    );
+    assert_eq!(
+        title_of(&|run| run["trigger_kind"] == "schedule"),
+        "Morning plan"
+    );
+    assert_eq!(
+        title_of(&|run| run["id"] == call_run),
+        format!("Call from {REMOTE}")
     );
 }

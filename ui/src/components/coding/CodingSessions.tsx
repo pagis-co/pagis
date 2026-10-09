@@ -8,11 +8,11 @@
 // the record and not a second queue. A frame of any session makes the
 // list read again (`AppShell`).
 
-import { Menu as MenuIcon, SquareTerminal } from 'lucide-react'
+import { SquareTerminal } from 'lucide-react'
 import { useMemo } from 'react'
 
 import type { AgentDto, ApiClient, CodingSessionDto } from '../../api/client'
-import { Avatar, Badge, Button, Frame, IconButton } from '../../primitives'
+import { Avatar, Badge, Button, Frame } from '../../primitives'
 import { useAgents, useChannels, useCodingSessions, useWorkspace } from '../../queries'
 import { formatMoment } from '../../timeline'
 import { directMessageChannel } from '../AskAnAgent'
@@ -113,12 +113,10 @@ export function CodingSessions({
   api,
   onOpenSession,
   onOpenChannel,
-  onOpenNav,
 }: {
   api: ApiClient
   onOpenSession: (sessionId: string) => void
   onOpenChannel: (channelId: string) => void
-  onOpenNav: () => void
 }) {
   const list = useCodingSessions(api)
   const agents = useAgents(api)
@@ -179,13 +177,6 @@ export function CodingSessions({
   return (
     <div className="coding-page">
       <header className="coding-list-header">
-        <IconButton
-          icon={MenuIcon}
-          label="Open conversations"
-          variant="ghost"
-          className="mobile-navigation-trigger"
-          onClick={onOpenNav}
-        />
         <h2>Coding</h2>
       </header>
       <p className="coding-list-summary">Every coding session of your sprites.</p>

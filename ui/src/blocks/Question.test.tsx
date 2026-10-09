@@ -7,7 +7,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ApiClient, MessageDto } from '../api/client'
 import { Blocks } from './BlockView'
@@ -382,5 +382,61 @@ describe('the choice card block', () => {
       { type: 'choice_card', title: 'Orphan', options: [] },
     ])
     expect(screen.getByTestId('unknown-block')).toBeTruthy()
+  })
+})
+
+describe('the choice card block at phone width', () => {
+  beforeEach(() => {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query.includes('max-width'),
+      media: query,
+      addEventListener() {},
+      removeEventListener() {},
+    }))
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('shows the label and the description of an option, and never its value', async () => {
+    mount(
+      stubApi({
+        kind: 'choice',
+        payload: {
+          title: 'Which flight do you want?',
+          options: [{ value: 'united', label: '07:40 to 11:05', description: 'Direct · Seat 12C' }],
+        },
+        state: 'pending',
+      }),
+      [
+        {
+          ...choiceBlock,
+          options: [{ value: 'united', label: '07:40 to 11:05', description: 'Direct · Seat 12C' }],
+        },
+      ],
+    )
+    expect(await screen.findByText('07:40 to 11:05')).toBeTruthy()
+    expect(screen.getByText('Direct · Seat 12C')).toBeTruthy()
+    expect(screen.queryByText('united')).toBeNull()
+  })
+
+  it('submits the chosen value, or dismisses the question', async () => {
+    const api = pendingChoice()
+    mount(api, [choiceBlock])
+    fireEvent.click(await screen.findByRole('radio', { name: /Wednesday/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Submit' }))
+    await waitFor(() =>
+      expect(api.POST).toHaveBeenCalledWith('/api/v1/requests/{request_id}/decision', {
+        params: { path: { request_id: 'rq1' } },
+        body: { decision: 'approved', scope: undefined, values: { value: 'wed' } },
+      }),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
+    await waitFor(() =>
+      expect(api.POST).toHaveBeenCalledWith('/api/v1/requests/{request_id}/decision', {
+        params: { path: { request_id: 'rq1' } },
+        body: { decision: 'denied', scope: undefined, values: undefined },
+      }),
+    )
   })
 })

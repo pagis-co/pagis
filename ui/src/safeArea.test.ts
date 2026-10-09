@@ -57,13 +57,19 @@ function insets(body: string): Side[] {
 const layers: { name: string; file: string; path: string[]; edges: Side[] }[] = [
   { name: 'the shell root', file: 'styles.css', path: ['.app'], edges: [...sides] },
   { name: 'the sign-in page', file: 'sign-in.css', path: ['.sign-in'], edges: [...sides] },
+  { name: 'the phone shell', file: 'components/phone/phone.css', path: ['.phone-shell'], edges: ['right', 'left'] },
+  { name: 'the phone large title', file: 'components/phone/phone.css', path: ['.large-title'], edges: ['top'] },
+  { name: 'the phone nav bar', file: 'components/phone/phone.css', path: ['.nav-bar'], edges: ['top'] },
   {
-    name: 'the drawer',
-    file: 'components/sidebar/Sidebar.css',
-    path: ['@media (max-width: 760px)', '.sidebar'],
-    edges: ['top', 'bottom', 'left'],
+    name: 'the connection banner of the phone',
+    file: 'components/phone/phone.css',
+    path: ['.phone-shell > .connection-banner'],
+    edges: ['top'],
   },
-  { name: 'the sheet', file: 'AppShell.css', path: ['.workspace-sheet'], edges: [...sides] },
+  { name: 'the tab bar', file: 'components/phone/phone.css', path: ['.tab-bar'], edges: ['bottom'] },
+  { name: 'the form sheet', file: 'primitives/sheet.css', path: ['.ui-sheet'], edges: ['top', 'right', 'left'] },
+  { name: 'the form sheet footer', file: 'primitives/sheet.css', path: ['.ui-sheet-footer'], edges: ['bottom'] },
+  { name: 'the action sheet', file: 'primitives/sheet.css', path: ['.ui-action-sheet'], edges: ['right', 'bottom', 'left'] },
   {
     name: 'the expanded live screen',
     file: 'components/Computers.css',
@@ -86,6 +92,16 @@ describe('the root and each fixed layer stay inside the safe area', () => {
       expect(insets(body)).toEqual(layer.edges)
     })
   }
+
+  // A pushed screen scrolls inside `.phone-main`, and its nav bar holds
+  // the back control, so the bar stays at the top while the page moves.
+  it('keeps the phone nav bar at the top of a long screen', () => {
+    const css = stripComments(readFileSync(join(srcDir, 'components/phone/phone.css'), 'utf8'))
+    const body = blocks(css, '.nav-bar')
+    expect(body).toMatch(/position:\s*sticky/)
+    expect(body).toMatch(/top:\s*0/)
+    expect(css).not.toMatch(/\.nav-bar\s*\{[^}]*position:\s*relative/)
+  })
 
   // In a phone browser `100vh` is the height with the browser bars
   // hidden, so the foot of a layer that reads it goes under the bars.

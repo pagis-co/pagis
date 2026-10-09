@@ -86,6 +86,9 @@
   color: var(--on-failed);
 }
 
+.ui-button-danger-solid { background: var(--failed); color: var(--on-failed); }
+.ui-button-danger-solid:hover:not(:disabled) { background: var(--failed-ink); }
+
 /* The way in to a destructive act, sitting among the other acts of a
    row: quiet until it is reached for. The act that destroys is loud;
    the door to it is not, or every row shouts. */
@@ -116,6 +119,10 @@
 
 .ui-icon-button.ui-button-lg {
   padding: var(--space-2);
+}
+
+.ui-icon-button.ui-button-primary {
+  color: var(--on-accent);
 }
 
 /* A chip and a filter: the same button with the ends rounded. */
@@ -158,3 +165,14 @@
   box-shadow: var(--shadow-rest);
   z-index: var(--z-overlay-controls);
 }
+@media (max-width: 760px) {
+  .ui-button { min-height: 44px; font-size: var(--text-md); }
+  .ui-button-lg { min-height: 52px; }
+  .ui-icon-button { min-width: 44px; }
+  .ui-icon-button > svg { width: 20px; height: 20px; }
+  .ui-button-sm { font-size: var(--text-sm); }
+}
+
+.ui-button-dashed { border: 1px dashed var(--border-control); background: transparent; color: var(--accent); text-align: left; white-space: normal; }
+
+.ui-button-outline.ui-button-pill[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); }

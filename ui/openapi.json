@@ -11891,6 +11891,17 @@
             "type": "string",
             "description": "`dm` or `group`."
           },
+          "last_message": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ChannelLastMessageDto",
+                "description": "The latest top-level message after its source access is checked."
+              }
+            ]
+          },
           "title": {
             "type": [
               "string",
@@ -11906,6 +11917,32 @@
             "description": "True when the user is a participant. A channel two agents opened\nbetween themselves has agents alone, and the user reads it\nwithout writing in it (ADR-0003)."
           },
           "workspace_id": {
+            "type": "string"
+          }
+        }
+      },
+      "ChannelLastMessageDto": {
+        "type": "object",
+        "required": [
+          "text_content",
+          "author_kind",
+          "created_at"
+        ],
+        "properties": {
+          "author_agent_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "author_kind": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "text_content": {
             "type": "string"
           }
         }
@@ -15892,6 +15929,7 @@
           "scope",
           "path",
           "title",
+          "excerpt",
           "changed_at",
           "changed_by"
         ],
@@ -15910,6 +15948,9 @@
               "string",
               "null"
             ]
+          },
+          "excerpt": {
+            "type": "string"
           },
           "kind": {
             "type": [
@@ -18400,6 +18441,7 @@
         "type": "object",
         "required": [
           "id",
+          "title",
           "agent_id",
           "trigger_kind",
           "hop_count",
@@ -18489,6 +18531,9 @@
           },
           "state": {
             "$ref": "#/components/schemas/RunStateDto"
+          },
+          "title": {
+            "type": "string"
           },
           "trigger_kind": {
             "type": "string"

@@ -1670,6 +1670,9 @@ async fn list_pages_gives_the_summary_of_each_page_from_the_index() {
         .expect("private pages")
         .pages;
 
+    assert_eq!(pages[0].excerpt, "");
+    assert_eq!(pages[1].excerpt, "Priya leads the pilot.");
+
     let rows: Vec<_> = pages
         .iter()
         .map(|page| {

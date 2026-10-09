@@ -108,6 +108,7 @@ async fn seed_version(daemon: &TestDaemon, name: &str, manifest: serde_json::Val
         .expect("agents")
         .remove(0);
     let run = Run {
+        title: "A message with an attachment".into(),
         id: RunId::generate(),
         workspace_id: workspace.id.clone(),
         agent_id: author.id.clone(),

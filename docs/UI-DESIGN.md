@@ -217,9 +217,11 @@ one sounds.
   alias, never a ramp step, and a font stack or a shell width only
   through its token.
 - The Product App shows in a browser, in the product window of the Client
-  App, and in the browser of a phone. Its layout follows ADR-0022 "Layout
-  rules" and works at 390 px: the conversation list goes off-canvas at
-  760 px and below, where an inspector is a sheet. Above 760 px an
+  App, and in the browser of a phone. At 760 px and below its phone layout
+  has Home, Conversations, Sprites and You tabs, large titles, pushed
+  screens, bottom sheets and action sheets (ADR-0034). The live screen of
+  a Desk keeps the phone layout on a phone turned on its side. Controls have
+  44 px touch targets and 15 px text. Above 760 px an
   inspector is a column that never covers the composer, and at 1100 px
   and below the person opens and closes the Desk Panel. A master-detail
   body becomes two steps with a back control. A stylesheet breaks only
@@ -227,7 +229,7 @@ one sounds.
   breakpoint the code reads.
 - The root and each fixed layer stay inside the safe area. The page
   draws under the notch and the home indicator of a phone. The shell
-  root, the sign-in page, the drawer, the sheet, the expanded live
+  root, the sign-in page, the navigation and tab bars, the sheet, the expanded live
   screen and the toast viewport add the `--safe-*` tokens to their
   padding or their offsets. A dialog is never taller than the safe
   area of the visible page (`100dvh`). No rule reads `100vh`, which is

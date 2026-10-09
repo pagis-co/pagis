@@ -199,27 +199,3 @@
   font-size: var(--text-md);
   font-weight: var(--weight-regular);
 }
-
-@media (max-width: 760px) {
-  /* The drawer is the top layer: it covers the sheets, so a
-     user who opens it always reaches its own close control. */
-  .sidebar {
-    position: fixed;
-    z-index: var(--z-overlay-controls);
-    inset: 0 auto 0 0;
-    width: min(290px, 86vw);
-    transform: translateX(-102%);
-    transition: transform var(--duration-fast) ease;
-    box-shadow: var(--shadow-raised);
-    /* The drawer touches the top, the bottom and the left edge of the
-       screen. It adds the inset of each one to the padding of the
-       Sidebar layout primitive. */
-    padding-top: calc(var(--space-4) + var(--safe-top));
-    padding-bottom: calc(var(--space-4) + var(--safe-bottom));
-    padding-left: calc(var(--space-3) + var(--safe-left));
-  }
-
-  .sidebar-open {
-    transform: translateX(0);
-  }
-}

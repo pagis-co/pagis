@@ -35,6 +35,8 @@ import { lastActiveAt, lastActiveLabel } from "./labels";
 import "../agent.css";
 import "../settings.css";
 import "./sprites.css";
+import { useIsMobile } from "../../state/useIsMobile";
+import { AgentProfilePhone } from "./AgentProfilePhone";
 
 type Section =
   | "appearance"
@@ -176,6 +178,7 @@ export function AgentProfile({
   onOpenMemory: AgentMemoryProps["onOpenMemory"];
   onOpenSyncSettings: () => void;
 }) {
+  const phone = useIsMobile();
   const agents = useAgents(api);
   const workspace = useWorkspace(api);
   const runs = useRuns(api, agentId, "", "");
@@ -198,6 +201,8 @@ export function AgentProfile({
       </div>
     );
   }
+
+  if (phone) return <AgentProfilePhone api={api} agent={agent} />;
 
   return (
     <div className="agent-profile" data-testid="agent-profile">
