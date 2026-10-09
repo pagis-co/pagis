@@ -4,7 +4,9 @@
 //! checked the start and asked the Person. A start in the Agent's own
 //! Computer asks nobody, because the container is the sandbox: it checks
 //! the harness, the directory under `/data/agent`, the limit of open
-//! sessions and the Org's key of the provider that the harness spends.
+//! sessions and the model route of the harness: a provider of its routes
+//! with an Org key, and a model of the Agent's alias on a route that needs
+//! one.
 //! Each other tool acts on one session of
 //! the calling Agent: a session of another Agent reads as absent, as
 //! another Agent's Call does (ADR-0020). A resume of a session on a Host
@@ -25,12 +27,13 @@ use pagis_broker::{
 };
 use pagis_core::{
     CodingSession, CodingSessionId, CodingSessionPlace, CodingSessionState as State,
-    CodingSessionStore, EventSource, Grant, GrantStore, HostStore, ProviderKeys,
-    SessionApprovalMode, StoreError, harness, wrap_untrusted,
+    CodingSessionStore, EventSource, Grant, GrantStore, HostStore, SessionApprovalMode, StoreError,
+    harness, wrap_untrusted,
 };
 use serde_json::json;
 
 use crate::agent::{AnswerRefusal, Verdict};
+use crate::model_route::{ModelRoutes, RouteFailure};
 use crate::policy::{effective_mode, host_grant};
 use crate::report::harness_output;
 use crate::sessions::UNATTENDED_MODE_NOT_ALLOWED;
@@ -85,9 +88,9 @@ pub struct CodingToolRuntime {
     /// The Harness Permissions that wait for the Agent's verdict, and the
     /// questions that wait for its answer.
     agent: Arc<AgentAsks>,
-    /// The Org's provider keys. A harness in a Computer spends one through
-    /// the Harness Model Endpoint.
-    keys: Arc<ProviderKeys>,
+    /// The model routes of the harnesses in a Computer, from the Org's
+    /// provider keys and the Agent's model alias.
+    routes: Arc<ModelRoutes>,
 }
 
 impl CodingToolRuntime {
@@ -98,7 +101,7 @@ impl CodingToolRuntime {
         hosts: Arc<dyn HostStore>,
         grants: Arc<dyn GrantStore>,
         agent: Arc<AgentAsks>,
-        keys: Arc<ProviderKeys>,
+        routes: Arc<ModelRoutes>,
     ) -> Self {
         Self {
             sessions,
@@ -107,7 +110,7 @@ impl CodingToolRuntime {
             hosts,
             grants,
             agent,
-            keys,
+            routes,
         }
     }
 
@@ -153,15 +156,12 @@ impl CodingToolRuntime {
     /// the harness has the first prompt. The checks go in this order: the
     /// harness runs in a Computer, the directory is under `/data/agent`,
     /// the Agent holds fewer than `MAX_OPEN_SESSIONS` open sessions on
-    /// every place, and the Org has a key of the provider that the
-    /// harness spends. The harness runs in the Harness Mode of its
-    /// Computer launch, and the Agent decides what the harness still asks.
+    /// every place, and the harness has a model route. The harness runs
+    /// in the Harness Mode of its Computer launch, and the Agent decides
+    /// what the harness still asks.
     async fn computer_start(&self, call: &AuthorizedCall) -> Result<ToolResult, ToolResult> {
         let harness_id = text(call, "harness");
-        let Some((entry, provider)) = harness::computer_sessions().find_map(|entry| {
-            let launch = entry.computer.filter(|_| entry.id == harness_id)?;
-            Some((entry, launch.provider?))
-        }) else {
+        let Some(entry) = harness::computer_sessions().find(|entry| entry.id == harness_id) else {
             let known = harness::computer_sessions()
                 .map(|entry| entry.id)
                 .collect::<Vec<_>>()
@@ -195,22 +195,17 @@ impl CodingToolRuntime {
                 ),
             ));
         }
-        let key = self
-            .keys
-            .resolve(provider)
-            .map_err(|error| ToolResult::error("temporarily_unavailable", error.to_string()))?;
-        if key.is_none() {
-            return Err(ToolResult::error(
-                "no_provider_key",
-                format!(
-                    "{} in your computer spends this installation's {} key, and the \
-                     installation has none. Ask the user to have an administrator add one in \
-                     the Administration Interface.",
-                    entry.label,
-                    provider.name()
-                ),
-            ));
-        }
+        self.routes
+            .route(&call.workspace_id, &call.agent_id, entry.id)
+            .await
+            .map_err(|failure| match failure {
+                RouteFailure::NoRoute(refusal) => {
+                    ToolResult::error(refusal.code(), refusal.to_string())
+                }
+                RouteFailure::Unavailable(message) => {
+                    ToolResult::error("temporarily_unavailable", message)
+                }
+            })?;
         let new = NewCodingSession {
             workspace_id: call.workspace_id.clone(),
             agent_id: call.agent_id.clone(),

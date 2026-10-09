@@ -112,14 +112,10 @@ pub struct ComputerLaunch {
     /// The program on the `PATH` of the Computer.
     pub program: &'static str,
     pub args: &'static [&'static str],
-    /// The Harness Mode that a session in a Computer runs in: an
-    /// Unattended Mode, because the container is the sandbox. `None`
-    /// keeps the mode that the harness starts in.
+    /// The Harness Mode that a session in a Computer runs in: the mode
+    /// of `modes` that acts without asking, because the container is the
+    /// sandbox. `None` keeps the mode that the harness starts in.
     pub mode: Option<&'static str>,
-    /// The provider whose Org key the harness spends through the Harness
-    /// Model Endpoint. The daemon starts a session in a Computer only for
-    /// a harness that names one.
-    pub provider: Option<crate::Provider>,
 }
 
 /// How a harness starts, from its distribution in the ACP registry.
@@ -301,7 +297,6 @@ const CLAUDE: HarnessEntry = HarnessEntry {
         program: "claude-agent-acp",
         args: &[],
         mode: Some("bypassPermissions"),
-        provider: Some(crate::Provider::Anthropic),
     }),
 };
 
@@ -361,12 +356,13 @@ const CODEX: HarnessEntry = HarnessEntry {
             how: SignInAction::Command(&["npx", "--yes", CODEX_CLI, "login", "--with-api-key"]),
         },
     ],
+    // In a Computer, the container is the sandbox, so Codex has full
+    // access there and asks nothing.
     computer: Some(ComputerLaunch {
         packages: &[CODEX_ACP],
         program: "codex-acp",
         args: &[],
-        mode: None,
-        provider: None,
+        mode: Some("agent-full-access"),
     }),
 };
 
@@ -439,7 +435,6 @@ const OPENCODE: HarnessEntry = HarnessEntry {
         program: "opencode",
         args: &["acp"],
         mode: None,
-        provider: None,
     }),
 };
 
@@ -478,7 +473,6 @@ const PI: HarnessEntry = HarnessEntry {
         program: "pi-acp",
         args: &[],
         mode: None,
-        provider: None,
     }),
 };
 
@@ -662,14 +656,9 @@ pub fn entry(id: &str) -> Option<&'static HarnessEntry> {
 }
 
 /// The harnesses whose sessions the daemon starts in the Agent's
-/// Computer: those whose Computer launch names the provider that it
-/// spends, in catalog order.
+/// Computer: those with a Computer launch, in catalog order.
 pub fn computer_sessions() -> impl Iterator<Item = &'static HarnessEntry> {
-    CATALOG.iter().filter(|entry| {
-        entry
-            .computer
-            .is_some_and(|launch| launch.provider.is_some())
-    })
+    CATALOG.iter().filter(|entry| entry.computer.is_some())
 }
 
 /// The program and the arguments that start the ACP agent of a harness.
@@ -1002,22 +991,37 @@ mod tests {
         }
     }
 
-    /// Claude Code is the one harness whose sessions the daemon starts in
-    /// a Computer. It acts there in `bypassPermissions`, because the
-    /// container is the sandbox, and it spends the Org's Anthropic key.
+    /// The daemon starts a session in a Computer for each harness with a
+    /// Computer launch. Each runs there in the mode of its catalog list
+    /// that acts without asking, because the container is the sandbox.
+    /// OpenCode lists no mode and pi never asks, so they keep the mode
+    /// that they start in.
     #[test]
-    fn claude_code_runs_in_a_computer_in_bypass_permissions_on_the_anthropic_key() {
+    fn each_harness_of_the_computer_runs_there_in_a_mode_that_acts_without_asking() {
         let ids: Vec<&str> = computer_sessions().map(|entry| entry.id).collect();
-        assert_eq!(ids, ["claude"]);
-        let launch = harness("claude").computer.expect("a Computer launch");
-        assert_eq!(launch.mode, Some("bypassPermissions"));
-        assert_eq!(launch.provider, Some(crate::Provider::Anthropic));
-        assert!(
-            harness("claude")
-                .modes
-                .iter()
-                .any(|mode| mode.id == "bypassPermissions" && !mode.asks)
+        assert_eq!(ids, ["claude", "codex", "opencode", "pi"]);
+        let modes: Vec<(&str, Option<&str>)> = computer_sessions()
+            .map(|entry| (entry.id, entry.computer.and_then(|launch| launch.mode)))
+            .collect();
+        assert_eq!(
+            modes,
+            [
+                ("claude", Some("bypassPermissions")),
+                ("codex", Some("agent-full-access")),
+                ("opencode", None),
+                ("pi", None),
+            ]
         );
+        for entry in computer_sessions() {
+            if let Some(mode) = entry.computer.and_then(|launch| launch.mode) {
+                assert!(
+                    entry.modes.iter().any(|listed| listed.id == mode),
+                    "{}: {mode}",
+                    entry.id
+                );
+                assert!(entry.acts_unattended(Some(mode)), "{}: {mode}", entry.id);
+            }
+        }
     }
 
     #[test]

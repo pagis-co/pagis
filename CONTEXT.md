@@ -1053,15 +1053,17 @@ reads, cancels, closes and lists its own sessions with core tools, and
 changes their Harness Mode. A session of another Agent reads as absent. A question of the harness goes
 to the Agent in each mode. The Agent answers it, and asks the Person with
 `ask_user` first when it does not know: a question is not an Approval.
-Claude Code runs in the Agent's own Computer too: the Agent starts it with
-`computer_coding_session_start` in a directory under `/data/agent`, with no
-card and no Grant, because the container is the sandbox. There the harness
-runs as uid `agent` in its Computer mode, `bypassPermissions`, and a
-permission that it still asks goes to the supervising Agent. A lost Host, a
-stopped Computer or a restart of the daemon makes an open session
-`interrupted`, and the Agent resumes it with `coding_session_resume` where
-the harness can restore its own session. Not built: a Computer session of
-Codex, OpenCode or pi (ADR-0033).
+Claude Code, Codex, OpenCode and pi run in the Agent's own Computer too:
+the Agent starts one with `computer_coding_session_start` in a directory
+under `/data/agent`, with no card and no Grant, because the container is the
+sandbox. There the harness runs as uid `agent` in its Computer mode, the
+Harness Mode that acts without asking where it has one, and a permission
+that it still asks goes to the supervising Agent. It reaches a model through
+the Harness Model Endpoint on the first route whose provider holds an Org
+key. A lost Host, a stopped Computer or a restart of the daemon makes an
+open session `interrupted`, and the Agent resumes it with
+`coding_session_resume` where the harness can restore its own session
+(ADR-0033).
 _Avoid_: harness session
 
 ### Harness Catalog
@@ -1091,7 +1093,10 @@ there. A per-session token authenticates a harness, and the daemon forwards
 each request with the Org's provider key under the Spend Cap. The endpoint
 serves the Anthropic Messages API, the OpenAI Responses API and the OpenAI
 Chat Completions API. The first segment of the path names the provider
-whose key the request uses (ADR-0033).
+whose key the request uses. Each harness in a Computer has a fixed order of
+routes, and its own configuration points it at the first route whose
+provider holds an Org key, with the token in `PAGIS_MODEL_TOKEN`
+(ADR-0033).
 
 ### Harness Permission
 A permission request of a Coding Harness (ACP `session/request_permission`).

@@ -6,7 +6,10 @@
 //! under `/data/agent`, with the environment of `computer_shell`. No
 //! credential enters the Computer (ADR-0005): the harness reaches the
 //! Harness Model Endpoint with a token of its session, which each open
-//! mints again, so a resume gets a new token and the old one stops.
+//! mints again, so a resume gets a new token and the old one stops. Each
+//! open chooses the model route of the harness again and writes its
+//! configuration directory again, so a resume uses the Org's keys of that
+//! time.
 //!
 //! The end of the harness's stdout is the end of the process. The exec
 //! reports no exit code, so the exit holds only the last 4 KB of stderr.
@@ -22,8 +25,8 @@ use async_trait::async_trait;
 use pagis_broker::HostSessions;
 use pagis_broker::host_sessions::STDERR_TAIL_LIMIT;
 use pagis_coding::{
-    OpenFailure, OpenFailureCode, OpenRequest, OpenedStream, Place, SessionExit, SessionPlace,
-    open_on_host,
+    ConfigDirectory, ModelRoutes, OpenFailure, OpenFailureCode, OpenRequest, OpenedStream, Place,
+    SessionExit, SessionPlace, open_on_host,
 };
 use pagis_computer::{
     ComputerManager, ComputerManagers, ExecPin, ExecRequest, OutputCap, SHELL_USER, ShellCommand,
@@ -32,7 +35,7 @@ use pagis_core::{AgentId, WorkspaceId, harness};
 use pagis_server::HarnessModelTokens;
 use tokio::sync::{mpsc, oneshot};
 
-/// How long the directory of a session may take to make.
+/// How long a directory of a session may take to make and write.
 const MKDIR_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// How long the exit waits for the rest of stderr after the end of
@@ -70,6 +73,7 @@ impl SessionPlace for SessionPlaces {
 pub struct ComputerPlace {
     computers: Arc<ComputerManagers>,
     tokens: HarnessModelTokens,
+    routes: Arc<ModelRoutes>,
     /// The port of the Harness Model Endpoint, or `None` when the daemon
     /// serves none.
     model_port: Option<u16>,
@@ -79,17 +83,20 @@ impl ComputerPlace {
     pub fn new(
         computers: Arc<ComputerManagers>,
         tokens: HarnessModelTokens,
+        routes: Arc<ModelRoutes>,
         model_port: Option<u16>,
     ) -> Self {
         Self {
             computers,
             tokens,
+            routes,
             model_port,
         }
     }
 
-    /// Makes the session directory, mints the token of the session, and
-    /// starts the harness that `request` names.
+    /// Chooses the model route of the harness that `request` names, makes
+    /// the session directory, mints the token of the session, writes the
+    /// configuration directory of the route, and starts the harness.
     async fn open(
         &self,
         workspace_id: &WorkspaceId,
@@ -111,6 +118,11 @@ impl ComputerPlace {
         let port = self.model_port.ok_or_else(|| {
             spawn_failed("this daemon serves no Harness Model Endpoint".to_string())
         })?;
+        let route = self
+            .routes
+            .route(workspace_id, agent_id, entry.id)
+            .await
+            .map_err(|failure| spawn_failed(failure.to_string()))?;
         let manager = self.computers.get(workspace_id);
         make_directory(&manager, agent_id, &request.cwd).await?;
         let token = self
@@ -119,13 +131,19 @@ impl ComputerPlace {
             .await
             .map_err(|error| spawn_failed(error.to_string()))?
             .ok_or_else(|| spawn_failed("the Coding Session is gone".to_string()))?;
-        let exec = harness_request(
-            entry.id,
-            &request,
-            manager.shell_env(agent_id),
+        let setup = route.setup(
             &pagis_computer::model_endpoint(port),
+            &request.session_id,
             &token,
         );
+        if let Some(config) = &setup.config {
+            write_config(&manager, agent_id, config).await?;
+        }
+        let env = setup
+            .env
+            .iter()
+            .map(|(name, value)| format!("{name}={value}"));
+        let exec = harness_request(&request, manager.shell_env(agent_id), env);
         let started = manager
             .harness(agent_id, exec)
             .await
@@ -191,22 +209,53 @@ async fn make_directory(
     Ok(())
 }
 
+/// Writes the configuration directory of a session as uid `agent`, so the
+/// harness owns its configuration. The Computer wakes first.
+async fn write_config(
+    manager: &Arc<ComputerManager>,
+    agent_id: &AgentId,
+    config: &ConfigDirectory,
+) -> Result<(), OpenFailure> {
+    let tar = config
+        .tar()
+        .map_err(|error| spawn_failed(format!("the configuration was not packed: {error}")))?;
+    let outcome = manager
+        .shell(
+            agent_id,
+            ShellCommand {
+                command: config.write_command(),
+                timeout: MKDIR_TIMEOUT,
+                cwd: None,
+                stdin: Some(tar),
+                output_cap: None,
+            },
+        )
+        .await
+        .map_err(|error| spawn_failed(error.to_string()))?;
+    if outcome.exit_code != 0 {
+        return Err(spawn_failed(format!(
+            "the configuration was not written to {}: {}",
+            config.path,
+            outcome.stderr.trim()
+        )));
+    }
+    Ok(())
+}
+
 /// The exec of a harness in a Computer: the program of the open request
 /// as uid `agent` in its directory, with the environment of a shell
-/// command and the variables that point the harness at the Harness Model
-/// Endpoint. The environment holds the token of the session and no
-/// provider key.
+/// command and `model_env`, the variables that point the harness at the
+/// Harness Model Endpoint. The environment holds the token of the session
+/// and no provider key.
 fn harness_request(
-    harness_id: &str,
     request: &OpenRequest,
     shell_env: Vec<String>,
-    endpoint: &str,
-    token: &str,
+    model_env: impl IntoIterator<Item = String>,
 ) -> ExecRequest {
     let mut argv = vec![request.command.clone()];
     argv.extend(request.args.iter().cloned());
     let mut env = shell_env;
-    env.extend(model_env(harness_id, endpoint, token));
+    env.extend(model_env);
     ExecRequest {
         argv,
         user: SHELL_USER.to_string(),
@@ -216,20 +265,6 @@ fn harness_request(
         // A stream has no head and tail cap: the session reads stdout to
         // its end, and the exit keeps the tail of stderr.
         output_cap: OutputCap { head: 0, tail: 0 },
-    }
-}
-
-/// The variables that point a harness at the Harness Model Endpoint.
-/// Claude Code takes the base URL of the Messages API and a bearer token,
-/// and sends no traffic that the work does not need.
-fn model_env(harness_id: &str, endpoint: &str, token: &str) -> Vec<String> {
-    match harness_id {
-        "claude" => vec![
-            format!("ANTHROPIC_BASE_URL={endpoint}/anthropic"),
-            format!("ANTHROPIC_AUTH_TOKEN={token}"),
-            "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1".to_string(),
-        ],
-        _ => Vec::new(),
     }
 }
 
@@ -379,12 +414,22 @@ mod tests {
             "TZ=Australia/Sydney".to_string(),
         ];
 
+        let setup =
+            pagis_coding::choose_route("claude", &[pagis_core::Provider::Anthropic], "", &[])
+                .expect("a route")
+                .setup(
+                    &pagis_computer::model_endpoint(4404),
+                    &request.session_id,
+                    "session-token",
+                );
+
         let exec = harness_request(
-            "claude",
             &request,
             shell_env,
-            &pagis_computer::model_endpoint(4404),
-            "session-token",
+            setup
+                .env
+                .iter()
+                .map(|(name, value)| format!("{name}={value}")),
         );
 
         assert_eq!(exec.argv, ["claude-agent-acp"]);
@@ -397,6 +442,7 @@ mod tests {
             "ANTHROPIC_BASE_URL=http://host.docker.internal:4404/anthropic",
             "ANTHROPIC_AUTH_TOKEN=session-token",
             "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",
+            "PAGIS_MODEL_TOKEN=session-token",
         ] {
             assert!(
                 exec.env.iter().any(|set| set == entry),

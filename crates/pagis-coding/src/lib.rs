@@ -44,6 +44,7 @@ mod event;
 mod events;
 pub mod fake;
 mod form;
+mod model_route;
 mod person;
 mod place;
 mod policy;
@@ -67,6 +68,10 @@ pub use event::{
 pub use events::{
     DecisionKind, InterruptReason, SESSION_RULE_INSTRUCTION, SessionEventMatcher, SessionEvents,
     SessionNews, SessionRuleError, SessionRules, session_event, session_rule_name,
+};
+pub use model_route::{
+    ConfigDirectory, ConfigFile, EndpointRoute, MODEL_TOKEN_VARIABLE, ModelApi, ModelRoute,
+    ModelRoutes, ModelSetup, NoModelRoute, RouteFailure, choose_route, routes,
 };
 pub use place::{
     OpenFailure, OpenFailureCode, OpenRequest, OpenedStream, Place, PlaceStream, SessionExit,

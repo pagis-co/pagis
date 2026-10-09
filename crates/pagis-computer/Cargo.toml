@@ -43,6 +43,9 @@ webrtc-util.workspace = true
 [dev-dependencies]
 axum.workspace = true
 pagis-audit.workspace = true
+# The docker-real tests start each harness on the model route that the
+# daemon gives it.
+pagis-coding.workspace = true
 # The docker-real tests make a browser's offer, which needs DTLS.
 str0m = { workspace = true, features = ["openssl", "vendored", "sha1"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "test-util"] }
