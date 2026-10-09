@@ -213,6 +213,7 @@ describe('the end of a session', () => {
     ['approval_mode_narrowed', 'You stopped allowing modes that act without asking'],
     ['unattended_mode_not_allowed', 'The mode acts without asking, and you do not allow that'],
     ['mode_not_offered', 'The coding harness does not offer the chosen mode'],
+    ['sign_in_required', 'The coding harness needs a sign-in. Sign in from Settings › Hosts'],
   ])('says why %s ended it', (reason, text) => {
     expect(endReasonText(reason, 'Sage')).toBe(text)
   })

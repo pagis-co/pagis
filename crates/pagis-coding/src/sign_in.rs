@@ -12,9 +12,13 @@
 //! sign-in runs in the vendor's own program on the Person's machine, and
 //! the frames carry no credential.
 //!
-//! [`SignInReports`] tells which harness needs a sign-in on which Host.
-//! Pagis cannot read the sign-in state of a harness without the
-//! credential, so the report holds what the last attempt showed.
+//! [`SignIns::check`] asks the Client App to run the vendor's own status
+//! command of a harness. The Client App reads only its exit code and
+//! whether its output holds fixed words, and reports a sign-in state.
+//!
+//! [`SignInReports`] tells, for each harness on each Host, the state of
+//! the last check, whether the harness refused a session for a sign-in,
+//! and how the last sign-in ended.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -22,7 +26,7 @@ use std::time::Duration;
 
 use futures::io::AsyncReadExt;
 use pagis_broker::{HarnessSignIn, HostDispatchError, HostPresence, SignInOutcome};
-use pagis_core::harness::{self, HarnessEntry, SignInAction, SignInMethod};
+use pagis_core::harness::{self, HarnessEntry, SignInAction, SignInMethod, SignInState};
 use pagis_core::{
     Clock, CodingSessionId, EventBus, HarnessSignInId, Host, HostId, NewEvent, UnixMillis,
     WorkspaceId,
@@ -54,6 +58,9 @@ pub enum SignInFailure {
         harness: &'static str,
         method: &'static str,
     },
+    /// The Harness Catalog holds no status command for the harness.
+    #[error("{0} has no status command, so Pagis cannot check its sign-in")]
+    NoCheck(&'static str),
     /// The Host has no connection, or its session socket is not open for
     /// the probe.
     #[error("the host is not connected")]
@@ -77,6 +84,7 @@ impl SignInFailure {
         match self {
             SignInFailure::UndeclaredHarness(_) => "undeclared_harness",
             SignInFailure::MethodNotOffered { .. } => "method_not_offered",
+            SignInFailure::NoCheck(_) => "no_sign_in_check",
             SignInFailure::NotConnected => "host_not_connected",
             SignInFailure::Unavailable { .. } => "sign_in_unavailable",
             SignInFailure::ProbeFailed(_) => "probe_failed",
@@ -88,21 +96,53 @@ impl SignInFailure {
 /// one Host.
 pub const SIGN_IN_CHANGED_EVENT: &str = "harness.sign_in_changed";
 
-/// The harnesses that need a Harness Sign-In, by Host.
+/// The error of a sign-in whose Host connection closed before the Client
+/// App reported how it ended.
+const DISCONNECTED: &str = "the machine disconnected before the sign-in ended";
+
+/// One Harness Sign-In that the Person started, and how it ended.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SignInAttempt {
+    pub id: HarnessSignInId,
+    /// `None` while the terminal window is open.
+    pub outcome: Option<SignInOutcome>,
+}
+
+/// What Pagis knows about the sign-in to one harness on one Host.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SignInReport {
+    /// When the harness refused a session for a sign-in, until a session
+    /// opens or a sign-in exits with code 0.
+    pub needs_sign_in_since: Option<UnixMillis>,
+    /// What the last run of the vendor's status command showed.
+    pub state: SignInState,
+    /// The last Harness Sign-In that the Person started.
+    pub last_sign_in: Option<SignInAttempt>,
+}
+
+/// The sign-in report of each harness, by Host.
 ///
 /// The report lives in daemon memory, as presence does, so it is empty
-/// after a restart until a start fails again. A start that the harness
-/// refuses for a sign-in sets the entry of its harness on its Host. A
-/// `session/new` that succeeds, or a sign-in that exits with code 0,
-/// clears it. Each change publishes [`SIGN_IN_CHANGED_EVENT`] for the
-/// Workspace of the Host.
+/// after a restart. It holds three facts:
+///
+/// - A start that the harness refuses for a sign-in sets the refusal of
+///   its harness on its Host. A `session/new` that succeeds, or a
+///   sign-in that exits with code 0, clears it.
+/// - The Client App reports the state that the vendor's status command
+///   gives. A state of "signed in" does not clear a refusal: the command
+///   reads the stored credential and does not test it, so it does not
+///   see a credential that expired or that the vendor revoked.
+/// - The last Harness Sign-In runs until the Client App reports how it
+///   ended, or until its Host connection closes.
+///
+/// Each change publishes [`SIGN_IN_CHANGED_EVENT`] for the Workspace of
+/// the Host.
 pub struct SignInReports {
     bus: Arc<dyn EventBus>,
     clock: Arc<dyn Clock>,
-    /// The time Pagis learned that the harness needs a sign-in, by Host
-    /// and harness id. The lock is held across the publish, so the events
-    /// come in the order of the changes.
-    needs: Mutex<HashMap<(HostId, String), UnixMillis>>,
+    /// The report by Host and harness id. The lock is held across the
+    /// publish, so the events come in the order of the changes.
+    reports: Mutex<HashMap<(HostId, String), SignInReport>>,
 }
 
 impl SignInReports {
@@ -110,67 +150,128 @@ impl SignInReports {
         Self {
             bus,
             clock,
-            needs: Mutex::default(),
+            reports: Mutex::default(),
         }
     }
 
-    /// When Pagis learned that `harness` needs a sign-in on `host_id`,
-    /// or `None` when no attempt showed that.
-    pub async fn needs_sign_in_since(&self, host_id: &HostId, harness: &str) -> Option<UnixMillis> {
-        self.needs
+    /// The report of `harness` on `host_id`. A harness with no report has
+    /// the default: no refusal, an unknown state, and no sign-in.
+    pub async fn report(&self, host_id: &HostId, harness: &str) -> SignInReport {
+        self.reports
             .lock()
             .await
             .get(&(host_id.clone(), harness.to_string()))
-            .copied()
+            .cloned()
+            .unwrap_or_default()
     }
 
     /// The harness refused a session for a sign-in.
     pub async fn needs_sign_in(&self, workspace_id: &WorkspaceId, host_id: &HostId, harness: &str) {
-        let mut needs = self.needs.lock().await;
-        let key = (host_id.clone(), harness.to_string());
-        if needs.contains_key(&key) {
-            return;
-        }
-        needs.insert(key, self.clock.now_ms());
-        self.publish(workspace_id, host_id, harness, true).await;
+        let now = self.clock.now_ms();
+        self.change(workspace_id, host_id, harness, |report| {
+            if report.needs_sign_in_since.is_some() {
+                return false;
+            }
+            report.needs_sign_in_since = Some(now);
+            true
+        })
+        .await;
     }
 
     /// The harness opened a session, so it is signed in.
     pub async fn signed_in(&self, workspace_id: &WorkspaceId, host_id: &HostId, harness: &str) {
-        let mut needs = self.needs.lock().await;
-        if needs
-            .remove(&(host_id.clone(), harness.to_string()))
-            .is_some()
-        {
-            self.publish(workspace_id, host_id, harness, false).await;
-        }
+        self.change(workspace_id, host_id, harness, |report| {
+            report.needs_sign_in_since.take().is_some()
+        })
+        .await;
     }
 
-    /// A sign-in ended. An exit code of 0 clears the report at once: the
-    /// next start tells whether the sign-in worked. Any other end leaves
-    /// the report.
+    /// The Client App ran the vendor's status command of the harness.
+    pub async fn checked(
+        &self,
+        workspace_id: &WorkspaceId,
+        host_id: &HostId,
+        harness: &str,
+        state: SignInState,
+    ) {
+        self.change(workspace_id, host_id, harness, |report| {
+            std::mem::replace(&mut report.state, state) != state
+        })
+        .await;
+    }
+
+    /// The Host received the sign-in `id`.
+    pub async fn sign_in_started(
+        &self,
+        workspace_id: &WorkspaceId,
+        host_id: &HostId,
+        harness: &str,
+        id: &HarnessSignInId,
+    ) {
+        self.change(workspace_id, host_id, harness, |report| {
+            report.last_sign_in = Some(SignInAttempt {
+                id: id.clone(),
+                outcome: None,
+            });
+            true
+        })
+        .await;
+    }
+
+    /// The sign-in `id` ended. An exit code of 0 clears the refusal at
+    /// once: the next start tells whether the sign-in worked. Any other
+    /// end leaves it. The outcome stays with the last sign-in when `id`
+    /// is that sign-in.
     pub async fn sign_in_ended(
         &self,
         workspace_id: &WorkspaceId,
         host_id: &HostId,
         harness: &str,
+        id: &HarnessSignInId,
         outcome: &SignInOutcome,
     ) {
-        if outcome.exit_code == Some(0) {
-            self.signed_in(workspace_id, host_id, harness).await;
-        }
+        self.change(workspace_id, host_id, harness, |report| {
+            let mut changed = false;
+            if outcome.exit_code == Some(0) {
+                changed |= report.needs_sign_in_since.take().is_some();
+            }
+            if let Some(attempt) = report
+                .last_sign_in
+                .as_mut()
+                .filter(|attempt| &attempt.id == id)
+            {
+                attempt.outcome = Some(outcome.clone());
+                changed = true;
+            }
+            changed
+        })
+        .await;
     }
 
-    /// Publishes one change. The report holds the change also when the
-    /// event does not reach the clients: their next read of the Hosts
-    /// shows it.
-    async fn publish(
+    /// Applies `apply` to the report of one harness, and publishes the
+    /// report when `apply` answers that it changed. The report holds the
+    /// change also when the event does not reach the clients: their next
+    /// read of the Hosts shows it.
+    async fn change(
         &self,
         workspace_id: &WorkspaceId,
         host_id: &HostId,
         harness: &str,
-        needs_sign_in: bool,
+        apply: impl FnOnce(&mut SignInReport) -> bool,
     ) {
+        let mut reports = self.reports.lock().await;
+        let report = reports
+            .entry((host_id.clone(), harness.to_string()))
+            .or_default();
+        if !apply(report) {
+            return;
+        }
+        let payload = json!({
+            "host_id": host_id.as_str(),
+            "harness": harness,
+            "needs_sign_in": report.needs_sign_in_since.is_some(),
+            "sign_in_state": report.state,
+        });
         let published = self
             .bus
             .publish(NewEvent {
@@ -179,17 +280,21 @@ impl SignInReports {
                 agent_id: None,
                 run_id: None,
                 channel_id: None,
-                payload: json!({
-                    "host_id": host_id.as_str(),
-                    "harness": harness,
-                    "needs_sign_in": needs_sign_in,
-                }),
+                payload,
             })
             .await;
         if let Err(error) = published {
             tracing::warn!(host_id = %host_id, harness, %error, "a change of the sign-in report did not reach the clients");
         }
     }
+}
+
+/// The catalog entry of the harness `harness_id`, when `host` declares
+/// it.
+fn declared(host: &Host, harness_id: &str) -> Result<&'static HarnessEntry, SignInFailure> {
+    harness::entry(harness_id)
+        .filter(|entry| host.can(&harness::capability(entry.id)))
+        .ok_or_else(|| SignInFailure::UndeclaredHarness(harness_id.to_string()))
 }
 
 /// The program, the arguments and the environment that the Client App
@@ -234,9 +339,7 @@ impl SignIns {
         harness_id: &str,
         method: SignInMethod,
     ) -> Result<HarnessSignInId, SignInFailure> {
-        let entry = harness::entry(harness_id)
-            .filter(|entry| host.can(&harness::capability(entry.id)))
-            .ok_or_else(|| SignInFailure::UndeclaredHarness(harness_id.to_string()))?;
+        let entry = declared(host, harness_id)?;
         let action = entry
             .sign_in
             .iter()
@@ -283,10 +386,13 @@ impl SignIns {
             .map_err(|_: HostDispatchError| SignInFailure::NotConnected)?;
         let (workspace_id, host_id, harness) =
             (host.workspace_id.clone(), host.id.clone(), entry.id);
+        self.reports
+            .sign_in_started(&workspace_id, &host_id, harness, &id)
+            .await;
         let sign_in_id = id.clone();
         let reports = Arc::clone(&self.reports);
         tokio::spawn(async move {
-            match answer.await {
+            let outcome = match answer.await {
                 Ok(outcome) => {
                     tracing::info!(
                         host_id = %host_id,
@@ -296,19 +402,40 @@ impl SignIns {
                         error = outcome.error.as_deref(),
                         "a Harness Sign-In ended"
                     );
-                    reports
-                        .sign_in_ended(&workspace_id, &host_id, harness, &outcome)
-                        .await;
+                    outcome
                 }
-                Err(_) => tracing::info!(
-                    host_id = %host_id,
-                    harness,
-                    sign_in_id = %sign_in_id,
-                    "a Harness Sign-In has no result: the Host connection that received it closed"
-                ),
-            }
+                Err(_) => {
+                    tracing::info!(
+                        host_id = %host_id,
+                        harness,
+                        sign_in_id = %sign_in_id,
+                        "a Harness Sign-In has no result: the Host connection that received it closed"
+                    );
+                    SignInOutcome {
+                        exit_code: None,
+                        error: Some(DISCONNECTED.to_string()),
+                    }
+                }
+            };
+            reports
+                .sign_in_ended(&workspace_id, &host_id, harness, &sign_in_id, &outcome)
+                .await;
         });
         Ok(id)
+    }
+
+    /// Ask `host` to run the vendor's status command of the harness
+    /// `harness_id`. The Client App reports the state on its own frame,
+    /// and the report publishes a change. A Host that is not connected
+    /// fails at once.
+    pub fn check(&self, host: &Host, harness_id: &str) -> Result<(), SignInFailure> {
+        let entry = declared(host, harness_id)?;
+        if entry.sign_in_check.is_none() {
+            return Err(SignInFailure::NoCheck(entry.id));
+        }
+        self.presence
+            .check_sign_in(&host.id, entry.id)
+            .map_err(|_: HostDispatchError| SignInFailure::NotConnected)
     }
 
     /// The invocation of the ACP terminal method `method_id`: the launch
@@ -484,7 +611,7 @@ mod tests {
             .expect("the connection stays registered")
         {
             HostFrame::HarnessSignIn(sign_in) => sign_in,
-            HostFrame::Dispatch(command) => panic!("a command arrived: {command:?}"),
+            other => panic!("another frame arrived: {other:?}"),
         }
     }
 
@@ -499,16 +626,31 @@ mod tests {
     }
 
     impl KeptBus {
-        /// The `needs_sign_in` of each change, oldest first.
-        fn changes(&self) -> Vec<bool> {
+        fn payloads(&self) -> Vec<serde_json::Value> {
             self.events
                 .lock()
                 .unwrap()
                 .iter()
                 .map(|event| {
                     assert_eq!(event.event_type, SIGN_IN_CHANGED_EVENT);
-                    event.payload["needs_sign_in"].as_bool().unwrap()
+                    event.payload.clone()
                 })
+                .collect()
+        }
+
+        /// The `needs_sign_in` of each change, oldest first.
+        fn refusals(&self) -> Vec<bool> {
+            self.payloads()
+                .iter()
+                .map(|payload| payload["needs_sign_in"].as_bool().unwrap())
+                .collect()
+        }
+
+        /// The `sign_in_state` of each change, oldest first.
+        fn states(&self) -> Vec<String> {
+            self.payloads()
+                .iter()
+                .map(|payload| payload["sign_in_state"].as_str().unwrap().to_string())
                 .collect()
         }
     }
@@ -543,6 +685,26 @@ mod tests {
         reports_on(Arc::default())
     }
 
+    /// The report of Codex on `host_id`, once `done` holds for it.
+    async fn eventually(
+        reports: &SignInReports,
+        host_id: &HostId,
+        done: impl Fn(&SignInReport) -> bool,
+    ) -> SignInReport {
+        let deadline = tokio::time::Instant::now() + WAIT;
+        loop {
+            let report = reports.report(host_id, "codex").await;
+            if done(&report) {
+                return report;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "the report did not change: {report:?}"
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+
     fn exited(exit_code: Option<i64>) -> SignInOutcome {
         SignInOutcome {
             exit_code,
@@ -552,38 +714,43 @@ mod tests {
         }
     }
 
+    fn needs(report: &SignInReport) -> bool {
+        report.needs_sign_in_since.is_some()
+    }
+
     #[tokio::test]
-    async fn a_sign_in_that_exits_0_clears_the_report_and_any_other_end_leaves_it() {
+    async fn a_sign_in_that_exits_0_clears_the_refusal_and_any_other_end_leaves_it() {
         let host = host(&["harness:codex"]);
         let bus = Arc::new(KeptBus::default());
         let reports = reports_on(Arc::clone(&bus));
         let (workspace_id, host_id) = (&host.workspace_id, &host.id);
         reports.needs_sign_in(workspace_id, host_id, "codex").await;
-        assert!(
-            reports
-                .needs_sign_in_since(host_id, "codex")
-                .await
-                .is_some()
-        );
+        assert!(needs(&reports.report(host_id, "codex").await));
 
         for other in [Some(1), None] {
+            let id = HarnessSignInId::generate();
             reports
-                .sign_in_ended(workspace_id, host_id, "codex", &exited(other))
+                .sign_in_started(workspace_id, host_id, "codex", &id)
+                .await;
+            reports
+                .sign_in_ended(workspace_id, host_id, "codex", &id, &exited(other))
                 .await;
             assert!(
-                reports
-                    .needs_sign_in_since(host_id, "codex")
-                    .await
-                    .is_some(),
-                "the end {other:?} cleared the report"
+                needs(&reports.report(host_id, "codex").await),
+                "the end {other:?} cleared the refusal"
             );
         }
+        let id = HarnessSignInId::generate();
         reports
-            .sign_in_ended(workspace_id, host_id, "codex", &exited(Some(0)))
+            .sign_in_started(workspace_id, host_id, "codex", &id)
+            .await;
+        reports
+            .sign_in_ended(workspace_id, host_id, "codex", &id, &exited(Some(0)))
             .await;
 
-        assert_eq!(reports.needs_sign_in_since(host_id, "codex").await, None);
-        assert_eq!(bus.changes(), [true, false]);
+        assert!(!needs(&reports.report(host_id, "codex").await));
+        assert_eq!(bus.refusals().first(), Some(&true));
+        assert_eq!(bus.refusals().last(), Some(&false));
     }
 
     #[tokio::test]
@@ -597,31 +764,144 @@ mod tests {
         reports.needs_sign_in(workspace_id, host_id, "codex").await;
         reports.needs_sign_in(workspace_id, host_id, "codex").await;
 
-        assert!(
-            reports
-                .needs_sign_in_since(host_id, "codex")
-                .await
-                .is_some()
-        );
-        assert_eq!(reports.needs_sign_in_since(host_id, "claude").await, None);
+        assert!(needs(&reports.report(host_id, "codex").await));
         assert_eq!(
-            reports
-                .needs_sign_in_since(&HostId::generate(), "codex")
-                .await,
-            None
+            reports.report(host_id, "claude").await,
+            SignInReport::default()
         );
-        assert_eq!(bus.changes(), [true]);
+        assert_eq!(
+            reports.report(&HostId::generate(), "codex").await,
+            SignInReport::default()
+        );
+        assert_eq!(bus.refusals(), [true]);
         let event = bus.events.lock().unwrap()[0].clone();
         assert_eq!(&event.workspace_id, workspace_id);
         assert_eq!(
             event.payload,
-            json!({"host_id": host_id.as_str(), "harness": "codex", "needs_sign_in": true})
+            json!({
+                "host_id": host_id.as_str(),
+                "harness": "codex",
+                "needs_sign_in": true,
+                "sign_in_state": "unknown",
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn a_check_sets_the_state_and_publishes_only_a_change() {
+        let host = host(&["harness:codex"]);
+        let bus = Arc::new(KeptBus::default());
+        let reports = reports_on(Arc::clone(&bus));
+        let (workspace_id, host_id) = (&host.workspace_id, &host.id);
+
+        reports
+            .checked(workspace_id, host_id, "codex", SignInState::Unknown)
+            .await;
+        reports
+            .checked(workspace_id, host_id, "codex", SignInState::NotSignedIn)
+            .await;
+        reports
+            .checked(workspace_id, host_id, "codex", SignInState::NotSignedIn)
+            .await;
+        reports
+            .checked(workspace_id, host_id, "codex", SignInState::SignedIn)
+            .await;
+
+        assert_eq!(
+            reports.report(host_id, "codex").await.state,
+            SignInState::SignedIn
+        );
+        assert_eq!(bus.states(), ["not_signed_in", "signed_in"]);
+    }
+
+    /// A status command reads the stored credential and does not test
+    /// it, so a check that says "signed in" does not hide a session that
+    /// the harness refused: the credential expired, or the vendor revoked
+    /// it.
+    #[tokio::test]
+    async fn a_check_that_says_signed_in_leaves_the_refusal_of_a_session() {
+        let host = host(&["harness:claude"]);
+        let reports = reports();
+        let (workspace_id, host_id) = (&host.workspace_id, &host.id);
+        reports
+            .checked(workspace_id, host_id, "claude", SignInState::SignedIn)
+            .await;
+        reports.needs_sign_in(workspace_id, host_id, "claude").await;
+
+        reports
+            .checked(workspace_id, host_id, "claude", SignInState::SignedIn)
+            .await;
+
+        let report = reports.report(host_id, "claude").await;
+        assert!(needs(&report));
+        assert_eq!(report.state, SignInState::SignedIn);
+    }
+
+    #[tokio::test]
+    async fn the_last_sign_in_runs_until_its_result_and_then_keeps_how_it_ended() {
+        let host = host(&["harness:codex"]);
+        let bus = Arc::new(KeptBus::default());
+        let reports = reports_on(Arc::clone(&bus));
+        let (workspace_id, host_id) = (&host.workspace_id, &host.id);
+        let id = HarnessSignInId::generate();
+
+        reports
+            .sign_in_started(workspace_id, host_id, "codex", &id)
+            .await;
+        assert_eq!(
+            reports.report(host_id, "codex").await.last_sign_in,
+            Some(SignInAttempt {
+                id: id.clone(),
+                outcome: None
+            })
+        );
+        let timed_out = SignInOutcome {
+            exit_code: None,
+            error: Some("The sign-in did not end in 30 minutes".to_string()),
+        };
+        reports
+            .sign_in_ended(workspace_id, host_id, "codex", &id, &timed_out)
+            .await;
+
+        assert_eq!(
+            reports.report(host_id, "codex").await.last_sign_in,
+            Some(SignInAttempt {
+                id,
+                outcome: Some(timed_out)
+            })
+        );
+        assert_eq!(bus.events.lock().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn the_end_of_an_older_sign_in_does_not_replace_the_newer_one() {
+        let host = host(&["harness:codex"]);
+        let reports = reports();
+        let (workspace_id, host_id) = (&host.workspace_id, &host.id);
+        let (older, newer) = (HarnessSignInId::generate(), HarnessSignInId::generate());
+        reports
+            .sign_in_started(workspace_id, host_id, "codex", &older)
+            .await;
+        reports
+            .sign_in_started(workspace_id, host_id, "codex", &newer)
+            .await;
+
+        reports
+            .sign_in_ended(workspace_id, host_id, "codex", &older, &exited(Some(1)))
+            .await;
+
+        assert_eq!(
+            reports.report(host_id, "codex").await.last_sign_in,
+            Some(SignInAttempt {
+                id: newer,
+                outcome: None
+            })
         );
     }
 
     /// The `harness_sign_in_result` of the Client App reaches the report.
     #[tokio::test(flavor = "multi_thread")]
-    async fn the_result_of_the_client_app_clears_the_report() {
+    async fn the_result_of_the_client_app_ends_the_sign_in_and_clears_the_refusal() {
         let host = host(&["shell", "harness:codex"]);
         let (presence, mut connection) = present(&host);
         let reports = reports();
@@ -633,26 +913,111 @@ mod tests {
             DuplexPlace::new(Script::default()),
             Arc::clone(&reports),
         );
-        sign_ins
+        let id = sign_ins
             .start(&host, "codex", SignInMethod::Subscription)
             .await
             .expect("the sign-in starts");
+        assert_eq!(
+            reports.report(&host.id, "codex").await.last_sign_in,
+            Some(SignInAttempt {
+                id: id.clone(),
+                outcome: None
+            })
+        );
         let sign_in = next_sign_in(&mut connection).await;
 
         presence.complete_sign_in(&connection, &sign_in.id, exited(Some(0)));
 
-        let deadline = tokio::time::Instant::now() + WAIT;
-        while reports
-            .needs_sign_in_since(&host.id, "codex")
+        let report = eventually(&reports, &host.id, |report| !needs(report)).await;
+        assert_eq!(
+            report.last_sign_in,
+            Some(SignInAttempt {
+                id,
+                outcome: Some(exited(Some(0)))
+            })
+        );
+    }
+
+    /// A sign-in whose Host connection closes has no result, and the
+    /// report says so.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_sign_in_whose_connection_closes_ends_with_no_exit_code() {
+        let host = host(&["shell", "harness:codex"]);
+        let (presence, mut connection) = present(&host);
+        let reports = reports();
+        let sign_ins = SignIns::new(
+            Arc::clone(&presence),
+            DuplexPlace::new(Script::default()),
+            Arc::clone(&reports),
+        );
+        sign_ins
+            .start(&host, "codex", SignInMethod::Subscription)
             .await
-            .is_some()
+            .expect("the sign-in starts");
+        next_sign_in(&mut connection).await;
+
+        drop(connection);
+
+        let report = eventually(&reports, &host.id, |report| {
+            report
+                .last_sign_in
+                .as_ref()
+                .is_some_and(|attempt| attempt.outcome.is_some())
+        })
+        .await;
+        let outcome = report.last_sign_in.unwrap().outcome.unwrap();
+        assert_eq!(outcome.exit_code, None);
+        assert_eq!(
+            outcome.error.as_deref(),
+            Some("the machine disconnected before the sign-in ended")
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_check_sends_the_harness_to_the_host() {
+        let host = host(&["shell", "harness:codex"]);
+        let (presence, mut connection) = present(&host);
+        let sign_ins = SignIns::new(presence, DuplexPlace::new(Script::default()), reports());
+
+        sign_ins.check(&host, "codex").expect("the check is sent");
+
+        match tokio::time::timeout(WAIT, connection.next())
+            .await
+            .expect("a frame before the timeout")
+            .expect("the connection stays registered")
         {
-            assert!(
-                tokio::time::Instant::now() < deadline,
-                "the result did not clear the report"
-            );
-            tokio::time::sleep(Duration::from_millis(10)).await;
+            HostFrame::SignInCheck { harness } => assert_eq!(harness, "codex"),
+            other => panic!("another frame arrived: {other:?}"),
         }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_check_of_a_harness_with_no_status_command_or_on_an_absent_host_is_refused() {
+        let host = host(&["shell", "harness:gemini", "harness:codex"]);
+        let (presence, _connection) = present(&host);
+        let sign_ins = SignIns::new(presence, DuplexPlace::new(Script::default()), reports());
+        let absent = SignIns::new(
+            Arc::new(HostPresence::new()),
+            DuplexPlace::new(Script::default()),
+            reports(),
+        );
+
+        assert_eq!(
+            sign_ins
+                .check(&host, "gemini")
+                .map_err(|failure| failure.code()),
+            Err("no_sign_in_check")
+        );
+        assert_eq!(
+            sign_ins
+                .check(&host, "claude")
+                .map_err(|failure| failure.code()),
+            Err("undeclared_harness")
+        );
+        assert_eq!(
+            absent.check(&host, "codex"),
+            Err(SignInFailure::NotConnected)
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]

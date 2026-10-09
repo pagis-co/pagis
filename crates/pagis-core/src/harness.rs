@@ -3,8 +3,9 @@
 //!
 //! Each entry names a harness, its pinned version, the command that
 //! starts its ACP agent, the programs that command needs on the Person's
-//! `PATH`, whether the harness asks permission, its Harness Modes, and the
-//! vendor's own sign-in for each sign-in method.
+//! `PATH`, whether the harness asks permission, its Harness Modes, the
+//! vendor's own sign-in for each sign-in method, and the vendor's own
+//! status command that tells whether the Person is signed in.
 //!
 //! The catalog ships with the release, as the Provider Catalog does
 //! (ADR-0012). Pagis does not fetch the ACP registry at run time, and the
@@ -49,6 +50,9 @@ pub struct HarnessEntry {
     pub modes: &'static [HarnessMode],
     /// One Harness Sign-In for each sign-in method that the harness has.
     pub sign_in: &'static [SignIn],
+    /// The vendor's own status command, or `None` for a harness that has
+    /// none. Its sign-in state on a Host is then unknown.
+    pub sign_in_check: Option<SignInCheck>,
     /// How the harness starts in the Agent's Computer, or `None` for a
     /// harness that does not run there.
     pub computer: Option<ComputerLaunch>,
@@ -181,6 +185,33 @@ impl SignInMethod {
     }
 }
 
+/// Whether the Person is signed in to a harness on a Host, as the last
+/// run of its [`SignInCheck`] showed.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    Default,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+    utoipa::ToSchema,
+)]
+#[serde(rename_all = "snake_case")]
+#[schema(as = HarnessSignInState)]
+pub enum SignInState {
+    /// The status command exited with 0.
+    SignedIn,
+    /// The status command wrote the words of a Person who is not signed
+    /// in.
+    NotSignedIn,
+    /// The harness has no status command, no check ran, or the check
+    /// ended in a different way.
+    #[default]
+    Unknown,
+}
+
 /// What the Client App runs in a terminal window for a Harness Sign-In.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SignInAction {
@@ -198,6 +229,32 @@ pub struct SignIn {
     pub method: SignInMethod,
     pub how: SignInAction,
 }
+
+/// The vendor's own status command of a harness, which tells whether the
+/// Person is signed in on a machine (ADR-0033).
+///
+/// The Client App runs it with no terminal window. It reads only the exit
+/// code and whether the output holds `signed_out`, and it keeps and sends
+/// none of the output. The output can name the account. A command that
+/// writes `signed_out` tells that the Person is not signed in. Else an
+/// exit code of 0 tells that the Person is signed in, and any other end
+/// tells nothing.
+///
+/// The command reads the stored credential and does not send it to the
+/// vendor, so it does not see a credential that expired or that the
+/// vendor revoked. Only a refused session shows that.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SignInCheck {
+    /// The argument vector. Its program is a launcher of the harness.
+    pub command: &'static [&'static str],
+    /// The fixed words that the command writes when the Person is not
+    /// signed in.
+    pub signed_out: &'static str,
+}
+
+/// The words that each status command of the catalog writes when the
+/// Person is not signed in, at its pinned version.
+const NOT_LOGGED_IN: &str = "Not logged in";
 
 /// The Codex CLI that the sign-in runs: the version that the dependency
 /// `@openai/codex` `^0.159.1` of the npm package
@@ -233,7 +290,10 @@ const COPILOT_CLI: &str = "@github/copilot@1.0.93";
 /// binary, so the Person installs no `claude`. Its `initialize` gives the
 /// terminal methods `claude-ai-login` ("Use Claude subscription") and
 /// `console-login` ("Anthropic Console (API usage billing)"), which run
-/// `claude auth login` (code.claude.com/docs/en/cli-reference).
+/// `claude auth login` (code.claude.com/docs/en/cli-reference). The
+/// adapter runs that binary with `--cli`, so the check runs `claude auth
+/// status --text` through it: Claude Code 2.1.287 exits with 0 when the
+/// Person is signed in, and with 1 and "Not logged in." when not.
 ///
 /// Its modes are those of `buildAvailableModes` in
 /// `dist/session-mode.js`. The adapter offers `bypassPermissions` only to
@@ -290,6 +350,12 @@ const CLAUDE: HarnessEntry = HarnessEntry {
             how: SignInAction::TerminalAuth("console-login"),
         },
     ],
+    sign_in_check: Some(SignInCheck {
+        command: &[
+            "npx", "--yes", CLAUDE_ACP, "--cli", "auth", "status", "--text",
+        ],
+        signed_out: NOT_LOGGED_IN,
+    }),
     // The harness runs as uid `agent` and not as root, so the adapter
     // offers `bypassPermissions`.
     computer: Some(ComputerLaunch {
@@ -307,7 +373,8 @@ const CLAUDE: HarnessEntry = HarnessEntry {
 /// --with-api-key` reads the key from stdin: the Person pastes it in the
 /// terminal window and ends the input with Ctrl-D. The credential goes to
 /// `~/.codex/auth.json` or the system credential store, which the Codex of
-/// the adapter reads too.
+/// the adapter reads too. `codex login status` exits with 0 when the
+/// Person is signed in, and with 1 and "Not logged in" when not.
 ///
 /// Its modes are those of `class AgentMode` in `dist/index.js`. Only
 /// `read-only` asks before each edit. `workspace-write` edits the
@@ -356,6 +423,10 @@ const CODEX: HarnessEntry = HarnessEntry {
             how: SignInAction::Command(&["npx", "--yes", CODEX_CLI, "login", "--with-api-key"]),
         },
     ],
+    sign_in_check: Some(SignInCheck {
+        command: &["npx", "--yes", CODEX_CLI, "login", "status"],
+        signed_out: NOT_LOGGED_IN,
+    }),
     // In a Computer, the container is the sandbox, so Codex has full
     // access there and asks nothing.
     computer: Some(ComputerLaunch {
@@ -428,6 +499,9 @@ const OPENCODE: HarnessEntry = HarnessEntry {
             how: SignInAction::Command(&["opencode", "auth", "login"]),
         },
     ],
+    // `opencode auth list` lists the credentials of each provider and
+    // tells nothing by its exit code, so the sign-in state is unknown.
+    sign_in_check: None,
     // The Computer Image downloads the release archive of its
     // architecture, so the launch installs no npm package.
     computer: Some(ComputerLaunch {
@@ -468,6 +542,10 @@ const PI: HarnessEntry = HarnessEntry {
             how: SignInAction::TerminalAuth("pi_terminal_login"),
         },
     ],
+    // `pi auth check` checks one provider that the command names, and
+    // Pagis does not know the provider of the Person, so the sign-in
+    // state is unknown.
+    sign_in_check: None,
     computer: Some(ComputerLaunch {
         packages: &[PI_ACP, PI_CLI],
         program: "pi-acp",
@@ -533,6 +611,8 @@ const GEMINI: HarnessEntry = HarnessEntry {
             how: SignInAction::Command(&["npx", "--yes", GEMINI_CLI]),
         },
     ],
+    // Gemini CLI 0.63.0 has no status command.
+    sign_in_check: None,
     computer: None,
 };
 
@@ -562,6 +642,8 @@ const COPILOT: HarnessEntry = HarnessEntry {
         method: SignInMethod::Subscription,
         how: SignInAction::Command(&["npx", "--yes", COPILOT_CLI, "login"]),
     }],
+    // Copilot CLI 1.0.93 has no status command.
+    sign_in_check: None,
     computer: None,
 };
 
@@ -640,6 +722,12 @@ const CURSOR: HarnessEntry = HarnessEntry {
         method: SignInMethod::Subscription,
         how: SignInAction::Command(&["cursor-agent", "login"]),
     }],
+    // `cursor-agent status` writes "Not logged in" and exits with 0 when
+    // the Person is not signed in.
+    sign_in_check: Some(SignInCheck {
+        command: &["cursor-agent", "status"],
+        signed_out: NOT_LOGGED_IN,
+    }),
     computer: None,
 };
 
@@ -931,6 +1019,69 @@ mod tests {
                         .unwrap_or_else(|| panic!("{} runs {package} with no version", entry.id));
                     assert!(is_exact_version(version), "{} runs {package}", entry.id);
                 }
+            }
+        }
+    }
+
+    /// Only Claude Code, Codex and the Cursor CLI have a status command
+    /// of their own at the pinned version. OpenCode lists its
+    /// credentials, and pi, Gemini CLI and Copilot CLI have none.
+    #[test]
+    fn the_harnesses_with_a_status_command_check_the_sign_in_with_it() {
+        let checks: Vec<(&str, &[&str], &str)> = catalog()
+            .iter()
+            .filter_map(|entry| {
+                entry
+                    .sign_in_check
+                    .map(|check| (entry.id, check.command, check.signed_out))
+            })
+            .collect();
+        assert_eq!(
+            checks,
+            [
+                (
+                    "claude",
+                    &[
+                        "npx",
+                        "--yes",
+                        "@agentclientprotocol/claude-agent-acp@0.87.0",
+                        "--cli",
+                        "auth",
+                        "status",
+                        "--text"
+                    ][..],
+                    "Not logged in"
+                ),
+                (
+                    "codex",
+                    &["npx", "--yes", "@openai/codex@0.159.1", "login", "status"][..],
+                    "Not logged in"
+                ),
+                ("cursor", &["cursor-agent", "status"][..], "Not logged in"),
+            ]
+        );
+    }
+
+    /// A check runs on a machine that declares the harness, so it needs
+    /// no program that the declaration does not find, and an npx check
+    /// runs a pinned package with no question.
+    #[test]
+    fn each_sign_in_check_runs_a_launcher_of_its_harness_at_a_pinned_version() {
+        for entry in catalog() {
+            let Some(check) = entry.sign_in_check else {
+                continue;
+            };
+            let (program, rest) = check
+                .command
+                .split_first()
+                .unwrap_or_else(|| panic!("{} checks with no program", entry.id));
+            assert!(launchers(entry).contains(program), "{}", entry.id);
+            assert!(!check.signed_out.is_empty(), "{}", entry.id);
+            if *program == "npx" {
+                assert_eq!(rest.first(), Some(&"--yes"), "{}", entry.id);
+                let version = package_version(rest[1])
+                    .unwrap_or_else(|| panic!("{} checks with no version", entry.id));
+                assert!(is_exact_version(version), "{}", entry.id);
             }
         }
     }

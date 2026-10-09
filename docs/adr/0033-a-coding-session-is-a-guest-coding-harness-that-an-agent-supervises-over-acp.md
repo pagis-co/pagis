@@ -161,7 +161,9 @@ The **Harness Catalog** ships with each release, as the Provider Catalog does
 - the Harness Modes of the pinned version, each with its name and whether
   the harness asks before each action in it;
 - the vendor's own sign-in command for each sign-in method (subscription,
-  API key), where ACP `initialize` gives no terminal method.
+  API key), where ACP `initialize` gives no terminal method;
+- the vendor's own status command, where the harness has one, with the
+  fixed words that it writes when the Person is not signed in.
 
 Pagis does not fetch the registry at run time. The Client App declares
 `harness:<id>` as a Host capability for each harness whose launcher it finds
@@ -372,11 +374,12 @@ program, in a terminal window on that Host: the ACP terminal method that
 Only the Person starts a sign-in, through REST:
 `POST /api/v1/hosts/{host_id}/harnesses/{harness_id}/sign-in` with the
 method. `GET /api/v1/harnesses` gives each harness of the catalog with its
-sign-in methods. No Agent tool starts a sign-in. Settings › Hosts lists
-each harness of the catalog under each machine that runs commands: whether
-the machine can start it, a "Needs sign-in" mark from the report below, and
-one button for each sign-in method. A button is off when the machine is not
-connected or cannot start the harness. No field of the Product App takes
+sign-in methods and whether it has a status command. No Agent tool starts a
+sign-in. Settings › Hosts lists each harness of the catalog under each
+machine that runs commands: whether the machine can start it, a mark from
+the report below, a "Check sign-in" button for a harness with a status
+command, and one button for each sign-in method. A button is off when the
+machine is not connected or cannot start the harness. No field of the Product App takes
 the credential (ADR-0022). The daemon names what the
 Client App runs, and sends it as a `harness_sign_in` frame on the Host's
 connection. For an ACP terminal method, the daemon starts the harness on the
@@ -389,6 +392,33 @@ Pagis never reads, copies, stores or relays the credential. The harness
 keeps it in its own store on that machine, and the frames carry no
 credential.
 
+The Client App checks the sign-in state with the vendor's own status
+command, which the answer to a registration names for each harness:
+`claude auth status --text` through the Claude Code adapter with `--cli`,
+`codex login status`, and `cursor-agent status`. At the pinned versions,
+each one writes "Not logged in" when the Person is not signed in. Claude
+Code and Codex then exit with 1, and the Cursor CLI exits with 0. OpenCode
+lists its credentials with no state in the exit code, pi checks one
+provider that the command must name, and Gemini CLI and Copilot CLI have
+no status command. Their state is unknown, and Pagis does not guess it.
+The Client App runs the command with no terminal window and no input, in
+the environment of the login shell, with a deadline of 60 seconds. Output
+that holds the fixed words gives "not signed in". Else the exit code 0
+gives "signed in", and any other end gives "unknown". The output can name
+the account or show part of a key, so the Client App keeps, logs and
+sends none of it: a `harness_sign_in_state` frame holds only the harness
+and the state. The Client App checks each harness that it declares when
+it connects, the harness of a sign-in when the sign-in ends (before its
+`harness_sign_in_result`), and one harness when a `harness_sign_in_check`
+frame asks. The Person asks for that through REST:
+`POST /api/v1/hosts/{host_id}/harnesses/{harness_id}/sign-in-check`. The
+daemon keeps a state only for a harness that the Host of the socket
+declares.
+
+A status command reads the stored credential and does not send it to the
+vendor, so it does not see a credential that expired or that the vendor
+revoked. Only a refused session shows that.
+
 The daemon reports a harness that needs a sign-in. ACP answers a request
 that needs a sign-in with the error `-32000`, "Authentication required".
 When `session/new` or a later `session/prompt` gives that error, the session
@@ -398,14 +428,25 @@ signed in on your <machine>. Ask the user to sign in: Settings › Hosts ›
 <machine>." So the Agent tells the Person where to go, and never asks for a
 key or a password. The report is a map in daemon memory, as presence is,
 from a Host and a harness to the time Pagis learned that the harness needs
-a sign-in there. Pagis cannot read the sign-in state of a harness without
-the credential, so the report holds what the last attempt showed, and it is
-empty after a restart until a start fails again. A `session/new` that
-succeeds clears the entry, and so does a `harness_sign_in_result` with the
-exit code 0: the next start tells whether the sign-in worked. Each change
-publishes `harness.sign_in_changed` with the Host, the harness and
-`needs_sign_in` to the Workspace of the Host. `GET /api/v1/hosts` gives
-each `harness:<id>` capability of a Host with its `needs_sign_in`.
+a sign-in there, with the state of the last check and the last sign-in
+that the Person started. It is empty after a restart until the Client App
+checks again or a start fails again. A `session/new` that succeeds clears
+the refusal, and so does a `harness_sign_in_result` with the exit code 0:
+the next start tells whether the sign-in worked. A check that gives
+"signed in" does not clear a refusal, because the check does not see an
+expired credential. The last sign-in runs until its result comes, or until
+the Host connection that received it closes, and then it keeps the exit
+code or the error. Each change publishes `harness.sign_in_changed` with the
+Host, the harness, `needs_sign_in` and `sign_in_state` to the Workspace of
+the Host. `GET /api/v1/hosts` gives each `harness:<id>` capability of a
+Host with its `needs_sign_in`, its `sign_in_state` and its `last_sign_in`.
+
+Settings › Hosts marks a harness "Signed in", "Not signed in", "Sign-in
+expired" (a refusal while the check gives "signed in"), "Needs sign-in" (a
+refusal with no state), or with no mark. After the Person starts a
+sign-in, the row says that a terminal window opened, and when the sign-in
+ends it says how: signed in, still not signed in, an exit code, or the
+error, such as a sign-in that did not end in 30 minutes.
 
 ### The Agent drives a session with core tools
 

@@ -72,6 +72,8 @@ export function endReasonText(reason: string | null | undefined, spriteName: str
       return 'The mode acts without asking, and you do not allow that'
     case 'mode_not_offered':
       return 'The coding harness does not offer the chosen mode'
+    case 'sign_in_required':
+      return 'The coding harness needs a sign-in. Sign in from Settings › Hosts'
     default:
       return reason
   }

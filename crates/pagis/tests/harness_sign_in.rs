@@ -247,6 +247,7 @@ async fn the_harness_list_names_each_catalog_harness_and_its_sign_in_methods() {
                 { "method": "subscription", "label": "Subscription" },
                 { "method": "api_key", "label": "API key" },
             ],
+            "checks_sign_in": true,
         })
     );
     let copilot = items.iter().find(|item| item["id"] == "copilot").unwrap();
@@ -254,6 +255,7 @@ async fn the_harness_list_names_each_catalog_harness_and_its_sign_in_methods() {
         copilot["sign_in_methods"],
         json!([{ "method": "subscription", "label": "Subscription" }])
     );
+    assert_eq!(copilot["checks_sign_in"], false);
 }
 
 /// A Host id is not a secret. Person B's sign-in on person A's Host reads
@@ -283,6 +285,204 @@ async fn person_b_cannot_start_a_sign_in_on_person_as_host() {
     assert_eq!(status, 404, "{body}");
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert!(a_host.sign_ins().is_empty());
+}
+
+async fn check(daemon: &TestDaemon, cookie: &str, host_id: &str, harness_id: &str) -> (u16, Value) {
+    let response = reqwest::Client::new()
+        .post(format!(
+            "{}/api/v1/hosts/{host_id}/harnesses/{harness_id}/sign-in-check",
+            daemon.base_url
+        ))
+        .header("cookie", cookie)
+        .send()
+        .await
+        .expect("the daemon answers");
+    let status = response.status().as_u16();
+    (status, response.json().await.unwrap_or(Value::Null))
+}
+
+/// The harnesses of the first Host of the Person, once `done` holds for
+/// them.
+async fn eventually_harnesses(daemon: &TestDaemon, done: impl Fn(&Value) -> bool) -> Value {
+    let deadline = tokio::time::Instant::now() + WAIT;
+    loop {
+        let hosts = get(daemon, daemon.cookie(), "/api/v1/hosts").await;
+        let harnesses = hosts["items"][0]["harnesses"].clone();
+        if done(&harnesses) {
+            return harnesses;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the harnesses did not change: {harnesses}"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+/// The Person asks for a check, the Client App runs the status command
+/// and reports the state, and the state shows with the Host.
+#[tokio::test]
+async fn a_check_asks_the_host_and_the_state_that_it_reports_shows_with_the_host() {
+    let daemon = TestDaemon::start().await;
+    let mut events = daemon.event_socket(daemon.cookie()).await;
+    let host = HostClient::connect(
+        &daemon,
+        "Air",
+        "macos",
+        &["shell", "harness:codex"],
+        HostAnswer::ok(),
+    )
+    .await;
+
+    let (status, body) = check(&daemon, daemon.cookie(), host.host_id(), "codex").await;
+    assert_eq!(status, 204, "{body}");
+    let deadline = tokio::time::Instant::now() + WAIT;
+    while host.sign_in_checks().is_empty() {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "no check reached the Host"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(host.sign_in_checks(), ["codex"]);
+
+    host.report_sign_in_state("codex", "signed_in").await;
+
+    let changed = next_frame_of(&mut events, "harness.sign_in_changed").await;
+    assert_eq!(
+        changed["payload"]["payload"],
+        json!({
+            "host_id": host.host_id(),
+            "harness": "codex",
+            "needs_sign_in": false,
+            "sign_in_state": "signed_in",
+        })
+    );
+    let hosts = get(&daemon, daemon.cookie(), "/api/v1/hosts").await;
+    assert_eq!(
+        hosts["items"][0]["harnesses"],
+        json!([
+            {"id": "codex", "needs_sign_in": false, "sign_in_state": "signed_in", "last_sign_in": null},
+        ])
+    );
+}
+
+/// The Client App is the authority for its capabilities, so a state for
+/// a harness that the Host does not declare is dropped.
+#[tokio::test]
+async fn a_state_of_a_harness_that_the_host_does_not_declare_is_dropped() {
+    let daemon = TestDaemon::start().await;
+    let host = HostClient::connect(
+        &daemon,
+        "Air",
+        "macos",
+        &["shell", "harness:codex"],
+        HostAnswer::ok(),
+    )
+    .await;
+
+    host.report_sign_in_state("claude", "signed_in").await;
+    host.report_sign_in_state("codex", "not_signed_in").await;
+
+    let hosts = get(&daemon, daemon.cookie(), "/api/v1/hosts").await;
+    assert_eq!(
+        hosts["items"][0]["harnesses"],
+        json!([
+            {"id": "codex", "needs_sign_in": false, "sign_in_state": "not_signed_in", "last_sign_in": null},
+        ])
+    );
+}
+
+#[tokio::test]
+async fn a_check_of_a_harness_with_no_status_command_answers_422_and_of_an_absent_host_409() {
+    let daemon = TestDaemon::start().await;
+    let host = HostClient::connect(
+        &daemon,
+        "Air",
+        "macos",
+        &["shell", "harness:gemini"],
+        HostAnswer::ok(),
+    )
+    .await;
+    let absent = daemon
+        .stores()
+        .hosts
+        .register(
+            &daemon.workspace_id,
+            "Studio",
+            "macos",
+            &["harness:codex".to_string()],
+            now_ms(),
+        )
+        .await
+        .expect("write the Host");
+
+    let (status, body) = check(&daemon, daemon.cookie(), host.host_id(), "gemini").await;
+    assert_eq!(status, 422, "{body}");
+    assert_eq!(body["error"]["code"], "no_sign_in_check");
+    let (status, body) = check(&daemon, daemon.cookie(), host.host_id(), "codex").await;
+    assert_eq!(status, 422, "{body}");
+    assert_eq!(body["error"]["code"], "undeclared_harness");
+    let (status, body) = check(&daemon, daemon.cookie(), absent.id.as_str(), "codex").await;
+    assert_eq!(status, 409, "{body}");
+    assert_eq!(body["error"]["code"], "host_not_connected");
+    assert!(host.sign_in_checks().is_empty());
+}
+
+/// The last sign-in shows with the Host, so Settings › Hosts can tell
+/// when the terminal window closed and how the sign-in ended.
+#[tokio::test]
+async fn the_last_sign_in_and_how_it_ended_show_with_the_host() {
+    let daemon = TestDaemon::start().await;
+    let host = HostClient::connect(
+        &daemon,
+        "Air",
+        "macos",
+        &["shell", "harness:codex"],
+        HostAnswer::ok(),
+    )
+    .await;
+
+    let (status, body) = sign_in(
+        &daemon,
+        daemon.cookie(),
+        host.host_id(),
+        "codex",
+        "subscription",
+    )
+    .await;
+    assert_eq!(status, 202, "{body}");
+
+    let harnesses = eventually_harnesses(&daemon, |harnesses| {
+        harnesses[0]["last_sign_in"]["running"] == false
+    })
+    .await;
+    assert_eq!(
+        harnesses[0]["last_sign_in"],
+        json!({"id": body["id"], "running": false, "exit_code": 0, "error": null})
+    );
+}
+
+/// A Host id is not a secret. Person B's check on person A's Host reads
+/// the Host as absent, and A's machine receives nothing.
+#[tokio::test]
+async fn person_b_cannot_check_the_sign_in_on_person_as_host() {
+    let world = TwoTenants::start().await;
+    let a_host = HostClient::connect_as(
+        &world.daemon,
+        &world.a.cookie,
+        "Air",
+        "macos",
+        &["shell", "harness:codex"],
+        HostAnswer::ok(),
+    )
+    .await;
+
+    let (status, body) = check(&world.daemon, &world.b.cookie, a_host.host_id(), "codex").await;
+
+    assert_eq!(status, 404, "{body}");
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(a_host.sign_in_checks().is_empty());
 }
 
 const SIGN_IN_SENTENCE: &str =
@@ -385,7 +585,12 @@ async fn a_start_that_needs_a_sign_in_tells_the_agent_where_the_person_signs_in(
     let changed = next_frame_of(&mut firehose, "harness.sign_in_changed").await;
     assert_eq!(
         changed["payload"]["payload"],
-        json!({"host_id": host.host_id(), "harness": "claude", "needs_sign_in": true})
+        json!({
+            "host_id": host.host_id(),
+            "harness": "claude",
+            "needs_sign_in": true,
+            "sign_in_state": "unknown",
+        })
     );
     loop {
         let run = next_frame_of(&mut firehose, "run.state_changed").await;
@@ -408,8 +613,8 @@ async fn a_start_that_needs_a_sign_in_tells_the_agent_where_the_person_signs_in(
     assert_eq!(
         hosts["items"][0]["harnesses"],
         json!([
-            {"id": "claude", "needs_sign_in": true},
-            {"id": "codex", "needs_sign_in": false},
+            {"id": "claude", "needs_sign_in": true, "sign_in_state": "unknown", "last_sign_in": null},
+            {"id": "codex", "needs_sign_in": false, "sign_in_state": "unknown", "last_sign_in": null},
         ])
     );
 }
