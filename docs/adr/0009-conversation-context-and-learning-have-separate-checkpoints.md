@@ -117,10 +117,11 @@ candidate route. They come from the Provider Model List, then `models.json`,
 then a conservative default, so an unknown model still has a budget.
 
 The output reserve is the smallest of 16,384 tokens, the route's output limit
-and a quarter of its context limit. The input allowance is the rest. The
-daemon estimates the whole encoded request before each model call, including
-calls after tool results. An input with no bounded estimate cannot enter the
-request.
+and a quarter of its context limit. The input allowance is the rest. Each
+model request of a Run sends the output reserve as its output limit, so the
+provider does not choose a different limit. The daemon estimates the whole
+encoded request before each model call, including calls after tool results.
+An input with no bounded estimate cannot enter the request.
 
 An image costs the provider's documented formula at its pixel size on the most
 expensive candidate. A model with no documented formula takes the largest

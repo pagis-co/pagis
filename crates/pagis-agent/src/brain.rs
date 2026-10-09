@@ -198,9 +198,9 @@ pub struct TurnRequest {
     /// request, because a provider refuses a history that calls a tool
     /// the request lacks, and forbids a new call (`tool_choice: none`).
     pub allow_tool_calls: bool,
-    /// The longest answer the provider may write, in tokens. `None`
-    /// takes the provider's own default, which is a few thousand tokens
-    /// and cuts a long structured answer.
+    /// The longest answer the provider may write, in tokens. A Run sets
+    /// it to the output reserve of the route when the model call starts
+    /// (`ModelCall::start`). `None` takes the provider's own default.
     pub max_output_tokens: Option<u32>,
     /// A provider-native JSON Schema contract for the final text, when this
     /// turn feeds a typed daemon workflow instead of a conversation.
@@ -1217,6 +1217,42 @@ mod tests {
         assert_eq!(shape("type")["properties"]["text"]["minLength"], 1);
         assert!(shape("type")["properties"].get("x").is_none());
         assert_eq!(shape("screenshot")["required"], json!(["type"]));
+    }
+
+    /// OpenRouter checks the credit of the key against the output limit
+    /// of the request. A reply sends the output reserve of its route, so
+    /// the check does not use the full output limit of the model.
+    #[tokio::test]
+    async fn an_openrouter_reply_sends_its_output_limit_on_the_wire() {
+        let server = MockServer::start().await;
+        let sse = concat!(
+            "data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"delta\":\"Hi.\"}\n\n",
+            "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"usage\":{\"input_tokens\":12,\"output_tokens\":1}}}\n\n",
+        );
+        Mock::given(method("POST"))
+            .and(path("/responses"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "text/event-stream")
+                    .set_body_raw(sse, "text/event-stream"),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+        let keys = keys();
+        keys.set(Provider::OpenRouter, "sk-openrouter").unwrap();
+        let brain =
+            RouterBrain::new(keys, catalog()).with_base_url(Provider::OpenRouter, server.uri());
+        let mut request = request();
+        request.model_candidates = vec!["openrouter/anthropic/claude-sonnet-4.6".to_string()];
+        request.max_output_tokens = Some(16_384);
+
+        let _: Vec<_> = brain.turn(request).await.unwrap().collect().await;
+
+        let sent: Value = server.received_requests().await.unwrap()[0]
+            .body_json()
+            .unwrap();
+        assert_eq!(sent["max_output_tokens"], 16_384, "{sent}");
     }
 
     #[tokio::test]
