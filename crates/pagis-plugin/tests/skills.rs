@@ -96,6 +96,18 @@ impl Fixture {
             .map(|skill| format!("{}: {}", skill.qualified(), skill.description))
             .collect()
     }
+
+    async fn coding_sessions_body(&self) -> String {
+        self.catalog
+            .body(
+                &self.workspace_id,
+                &self.agent_id,
+                FIRST_PARTY_SKILLS,
+                "coding-sessions",
+            )
+            .await
+            .expect("the body of the coding-sessions Skill")
+    }
 }
 
 const FORECAST: &str = "---\nname: forecast\ndescription: Read the forecast.\n---\n\n# Forecast\n\nCall the service.\n";
@@ -227,6 +239,81 @@ async fn the_widgets_skill_lists_and_loads_for_every_agent() {
         "/opt/pagis/skills/widgets/scaffold",
     ] {
         assert!(body.contains(named), "the Skill names {named}");
+    }
+}
+
+/// Each core tool of a Coding Session (ADR-0033). The coding-sessions
+/// Skill names each one, and no other `coding_session_` word.
+const CODING_SESSION_TOOLS: [&str; 12] = [
+    pagis_broker::CODING_SESSION_START,
+    pagis_broker::COMPUTER_CODING_SESSION_START,
+    pagis_broker::CODING_SESSION_SEND,
+    pagis_broker::CODING_SESSION_READ,
+    pagis_broker::CODING_SESSION_CANCEL,
+    pagis_broker::CODING_SESSION_CLOSE,
+    pagis_broker::CODING_SESSION_LIST,
+    pagis_broker::CODING_SESSION_RESUME,
+    pagis_broker::CODING_SESSION_DECIDE,
+    pagis_broker::CODING_SESSION_ESCALATE,
+    pagis_broker::CODING_SESSION_ANSWER,
+    pagis_broker::CODING_SESSION_SET_MODE,
+];
+
+/// The coding-sessions Skill teaches an Agent to brief, supervise,
+/// verify and report a Coding Session, so every Agent must see it
+/// without a Grant.
+#[tokio::test]
+async fn the_coding_sessions_skill_lists_and_loads_for_every_agent() {
+    let fixture = Fixture::new();
+
+    let listed = fixture
+        .catalog
+        .list(&fixture.workspace_id, &fixture.agent_id)
+        .await;
+    let skill = listed
+        .iter()
+        .find(|skill| skill.qualified() == "pagis:coding-sessions")
+        .expect("the image ships the coding-sessions Skill");
+    assert!(
+        skill.description.contains("Coding Harness"),
+        "{}",
+        skill.description
+    );
+    assert!(
+        !skill.description.ends_with('…'),
+        "the listing cuts the description: {}",
+        skill.description
+    );
+
+    let body = fixture.coding_sessions_body().await;
+    for named in CODING_SESSION_TOOLS.into_iter().chain([
+        "`person`",
+        "`agent`",
+        "harness_mode",
+        "pagis/<slug>",
+        "private/skills/pagis/coding-sessions.md",
+    ]) {
+        assert!(body.contains(named), "the Skill names {named}");
+    }
+}
+
+/// A renamed tool fails here: each `coding_session_` word of the
+/// Skill is the name of a tool that exists.
+#[tokio::test]
+async fn each_coding_session_tool_the_skill_names_exists() {
+    let fixture = Fixture::new();
+    let body = fixture.coding_sessions_body().await;
+
+    let words: Vec<&str> = body
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .filter(|word| word.contains("coding_session_"))
+        .collect();
+    assert!(!words.is_empty(), "the Skill names the tools");
+    for word in words {
+        assert!(
+            CODING_SESSION_TOOLS.contains(&word),
+            "the Skill names {word}, which is no tool"
+        );
     }
 }
 

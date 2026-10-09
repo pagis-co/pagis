@@ -526,6 +526,13 @@ The Agent drives a Coding Session with core tools (ADR-0005):
   check and the write hold the lock of the Grant checks. The tool accepts
   each mode that the session lists, because the harness named it.
 
+The first-party Skill `pagis:coding-sessions` (ADR-0017), in
+`computer/skills/coding-sessions/SKILL.md`, teaches each Agent to use these
+tools: how to choose the place, the harness and the modes, how to write the
+brief, and how to supervise, verify and report a session. Its rules for a
+Harness Permission are guidance for the model. Pagis policy, the Grant and
+the modes stay the authority.
+
 ### A session Allow Rule lets a start run with no card
 
 An approve with "Always allow" on a start card writes a **session Allow
