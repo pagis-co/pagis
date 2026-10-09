@@ -20,22 +20,24 @@ use pagis_core::{
 use serde_json::{Value, json};
 
 use crate::policy::{Fact, Outcome};
-use crate::{PermissionAnswer, PermissionOptionKind};
+use crate::{PermissionAnswer, PermissionOptionKind, Waited};
 
 /// The longest body of a card, in characters.
 const BODY_CHARS: usize = 1_000;
 
 /// One Harness Permission, as Pagis policy read it.
-pub(crate) struct Permission<'a> {
-    pub tool_call_id: &'a str,
+#[derive(Debug, Clone)]
+pub(crate) struct Permission {
+    pub tool_call_id: String,
     /// The title of the tool call, as the harness wrote it.
-    pub title: Option<&'a str>,
+    pub title: Option<String>,
     pub kind: HarnessToolKind,
-    pub command: Option<&'a str>,
-    pub locations: &'a [String],
+    pub command: Option<String>,
+    pub locations: Vec<String>,
 }
 
 /// Asks the Person on an approval card.
+#[derive(Clone)]
 pub(crate) struct PersonAsks {
     pub requests: Arc<dyn RequestStore>,
     pub messages: Arc<dyn MessageStore>,
@@ -46,16 +48,18 @@ pub(crate) struct PersonAsks {
 impl PersonAsks {
     /// Opens the Request, posts its card, and gives the answer as a
     /// future that waits for the decision. It gives `None` when the card
-    /// is not posted, and the permission is then cancelled.
+    /// is not posted, and the permission is then cancelled. The card of
+    /// an escalation shows the `note` of the Agent or of the daemon.
     ///
     /// A drop of the future before the decision expires the Request.
     pub(crate) async fn ask(
         &self,
         session: &CodingSession,
-        permission: &Permission<'_>,
+        permission: &Permission,
         options: &[PermissionOptionKind],
         fact: Fact,
-    ) -> Option<BoxFuture<'static, PermissionAnswer>> {
+        note: Option<&str>,
+    ) -> Option<BoxFuture<'static, Waited<PermissionAnswer>>> {
         let host_name = match self.host_name(session).await {
             Ok(Some(name)) => name,
             Ok(None) => {
@@ -67,7 +71,7 @@ impl PersonAsks {
                 return None;
             }
         };
-        let card = Card::new(session, &host_name, permission);
+        let card = Card::new(session, &host_name, permission, note);
         // Subscribe before the row exists, so no decision slips past.
         let mut events = self
             .bus
@@ -142,12 +146,12 @@ impl PersonAsks {
                 fact.payload["scope"] = event.payload["scope"].clone();
                 if let Err(error) = bus.publish(fact).await {
                     tracing::error!(%error, "the audit fact of a Harness Permission was not written, so it is cancelled");
-                    return PermissionAnswer::Cancel;
+                    return Waited::answered(PermissionAnswer::Cancel, decided.decider);
                 }
-                return decided.answer;
+                return Waited::answered(decided.answer, decided.decider);
             }
             // The bus ended. The drop of the expiry expires the Request.
-            PermissionAnswer::Cancel
+            Waited::answered(PermissionAnswer::Cancel, None)
         }))
     }
 
@@ -357,14 +361,19 @@ struct Card {
 }
 
 impl Card {
-    fn new(session: &CodingSession, host_name: &str, permission: &Permission<'_>) -> Self {
+    fn new(
+        session: &CodingSession,
+        host_name: &str,
+        permission: &Permission,
+        note: Option<&str>,
+    ) -> Self {
         let harness_name = harness::entry(&session.harness_id).map_or_else(
             || session.harness_id.clone(),
             |entry| entry.label.to_string(),
         );
         let title = format!("{harness_name} wants to {}", action(permission.kind));
         let body = cut(&body(permission));
-        let proposed_rules = match (permission.kind, permission.command) {
+        let proposed_rules = match (permission.kind, &permission.command) {
             (HarnessToolKind::Execute, Some(command)) => derive_rules(command),
             _ => Vec::new(),
         };
@@ -389,6 +398,9 @@ impl Card {
             "action_title": title,
             "body": body,
             "proposed_rules": proposed_rules,
+            // What the Agent asks the Person on an escalation. It is the
+            // Agent's text, or the daemon's.
+            "note": note,
         });
         Self {
             title,
@@ -423,16 +435,16 @@ fn action(kind: HarnessToolKind) -> &'static str {
 
 /// The command of an `execute`, else the locations, else the title of
 /// the tool call.
-fn body(permission: &Permission<'_>) -> String {
+fn body(permission: &Permission) -> String {
     if permission.kind == HarnessToolKind::Execute
-        && let Some(command) = permission.command
+        && let Some(command) = &permission.command
     {
-        return command.to_string();
+        return command.clone();
     }
     if !permission.locations.is_empty() {
         return permission.locations.join("\n");
     }
-    permission.title.unwrap_or_default().to_string()
+    permission.title.clone().unwrap_or_default()
 }
 
 /// The first [`BODY_CHARS`] characters of `text`.
@@ -487,12 +499,13 @@ mod tests {
             &session,
             "Air",
             &Permission {
-                tool_call_id: "call-1",
-                title: Some("Run the tests"),
+                tool_call_id: "call-1".to_string(),
+                title: Some("Run the tests".to_string()),
                 kind: HarnessToolKind::Execute,
-                command: Some("cargo test"),
-                locations: &[],
+                command: Some("cargo test".to_string()),
+                locations: Vec::new(),
             },
+            None,
         );
 
         assert_eq!(card.title, "Claude Code wants to run a command");
@@ -515,6 +528,7 @@ mod tests {
                 "action_title": "Claude Code wants to run a command",
                 "body": "cargo test",
                 "proposed_rules": ["cargo test"],
+                "note": null,
             })
         );
         assert_eq!(
@@ -529,17 +543,18 @@ mod tests {
     #[test]
     fn an_edit_outside_the_directory_shows_its_locations_and_proposes_no_rule() {
         let session = session();
-        let locations = ["/etc/hosts".to_string(), "/etc/passwd".to_string()];
+        let locations = vec!["/etc/hosts".to_string(), "/etc/passwd".to_string()];
         let card = Card::new(
             &session,
             "Air",
             &Permission {
-                tool_call_id: "call-2",
-                title: Some("Edit the hosts file"),
+                tool_call_id: "call-2".to_string(),
+                title: Some("Edit the hosts file".to_string()),
                 kind: HarnessToolKind::Edit,
                 command: None,
-                locations: &locations,
+                locations: locations.clone(),
             },
+            None,
         );
 
         assert_eq!(card.title, "Claude Code wants to edit files");
@@ -565,16 +580,36 @@ mod tests {
             &session(),
             "Air",
             &Permission {
-                tool_call_id: "call-3",
-                title: Some(&title),
+                tool_call_id: "call-3".to_string(),
+                title: Some(title),
                 kind: HarnessToolKind::Fetch,
                 command: None,
-                locations: &[],
+                locations: Vec::new(),
             },
+            None,
         );
 
         assert_eq!(card.title, "Claude Code wants to fetch from the web");
         assert_eq!(card.body.chars().count(), BODY_CHARS);
+    }
+
+    #[test]
+    fn the_card_of_an_escalation_holds_the_note() {
+        let card = Card::new(
+            &session(),
+            "Air",
+            &Permission {
+                tool_call_id: "call-4".to_string(),
+                title: None,
+                kind: HarnessToolKind::Execute,
+                command: Some("rm -rf build".to_string()),
+                locations: Vec::new(),
+            },
+            Some("Delete the build directory?"),
+        );
+
+        assert_eq!(card.payload["note"], "Delete the build directory?");
+        assert_eq!(card.body, "rm -rf build");
     }
 
     #[test]

@@ -7,16 +7,16 @@
 //! which has its own tests. Here a scripted one stands in.
 
 use pagis_broker::{
-    CODING_SESSION_CANCEL, CODING_SESSION_CLOSE, CODING_SESSION_LIST, CODING_SESSION_READ,
-    CODING_SESSION_RESUME, CODING_SESSION_SEND, CODING_SESSION_START, InvokeOutcome,
-    SessionStartAction, ToolCall, ToolResult,
+    CODING_SESSION_CANCEL, CODING_SESSION_CLOSE, CODING_SESSION_DECIDE, CODING_SESSION_ESCALATE,
+    CODING_SESSION_LIST, CODING_SESSION_READ, CODING_SESSION_RESUME, CODING_SESSION_SEND,
+    CODING_SESSION_START, InvokeOutcome, SessionStartAction, ToolCall, ToolResult,
 };
 use pagis_core::{
-    GrantStore, Host, RequestState, RequestStore, SHELL_CAPABILITY, SessionAllowRule,
+    GrantStore, Host, RequestState, RequestStore, RunStore, SHELL_CAPABILITY, SessionAllowRule,
     SessionApprovalMode,
 };
 use pagis_storage_sqlite::SqliteGrantStore;
-use pagis_storage_sqlite::SqliteRequestStore;
+use pagis_storage_sqlite::{SqliteRequestStore, SqliteRunStore};
 use sqlx::SqlitePool;
 
 use crate::capability_broker::{Harness, harness};
@@ -37,6 +37,10 @@ const SESSION_TOOLS: [&str; 7] = [
     CODING_SESSION_LIST,
     CODING_SESSION_RESUME,
 ];
+
+/// The tools of the `agent` mode. The snapshot holds them only for an
+/// Agent that may decide a Harness Permission on some machine.
+const DECISION_TOOLS: [&str; 2] = [CODING_SESSION_DECIDE, CODING_SESSION_ESCALATE];
 
 fn arguments(harness: &str, machine: Option<&str>) -> String {
     let mut arguments = serde_json::json!({
@@ -66,6 +70,28 @@ async fn tool_names(harness: &Harness) -> Vec<String> {
     harness
         .broker
         .prepare_run(&harness.workspace.id, &harness.agent.id, &harness.run.id)
+        .await
+        .unwrap()
+        .tools
+        .into_iter()
+        .map(|tool| tool.name)
+        .collect()
+}
+
+/// The tool names of the snapshot of a new Run of the Agent. A Run takes
+/// one snapshot, so a second look needs a second Run.
+async fn tool_names_of_a_new_run(harness: &Harness) -> Vec<String> {
+    let run = pagis_core::Run {
+        id: pagis_core::RunId::generate(),
+        ..harness.run.clone()
+    };
+    SqliteRunStore::new(harness.pool.clone())
+        .create(&run)
+        .await
+        .unwrap();
+    harness
+        .broker
+        .prepare_run(&harness.workspace.id, &harness.agent.id, &run.id)
         .await
         .unwrap()
         .tools
@@ -108,10 +134,120 @@ async fn the_session_tools_are_absent_when_no_host_declares_a_harness(pool: Sqli
 
     let tools = tool_names(&harness).await;
 
-    for tool in SESSION_TOOLS {
+    for tool in SESSION_TOOLS.into_iter().chain(DECISION_TOOLS) {
         assert!(!tools.contains(&tool.to_string()), "{tool}");
     }
     assert!(tools.contains(&"host_shell".to_string()));
+}
+
+/// The Person delegates the decision of a Harness Permission with the
+/// widest mode on a host Grant (ADR-0033). An Agent with no live host
+/// Grant whose widest mode is `agent` or `auto` cannot decide, so the
+/// decision tools are absent from its snapshot (ADR-0005).
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn the_decision_tools_are_offered_only_on_a_host_grant_whose_widest_mode_is_agent_or_auto(
+    pool: SqlitePool,
+) {
+    let harness = harness(pool).await;
+    let air = register(&harness, "Air", &[SHELL_CAPABILITY, "harness:claude"]).await;
+    let has_decision_tools = |tools: &[String]| {
+        DECISION_TOOLS
+            .iter()
+            .map(|tool| tools.contains(&tool.to_string()))
+            .collect::<Vec<_>>()
+    };
+
+    let tools = tool_names(&harness).await;
+    assert_eq!(has_decision_tools(&tools), [false, false], "no host Grant");
+    for tool in SESSION_TOOLS {
+        assert!(tools.contains(&tool.to_string()), "{tool}");
+    }
+
+    let mut grant = grant_host(&harness, &air, &[]).await;
+    let grants = SqliteGrantStore::new(harness.pool.clone());
+    for (mode, offered) in [
+        (SessionApprovalMode::Person, false),
+        (SessionApprovalMode::Agent, true),
+        (SessionApprovalMode::Auto, true),
+    ] {
+        grant.scope = grant.with_session_approval_mode(mode);
+        grants
+            .set_scope(&harness.workspace.id, &grant.id, &grant.scope)
+            .await
+            .unwrap();
+
+        let tools = tool_names_of_a_new_run(&harness).await;
+
+        assert_eq!(has_decision_tools(&tools), [offered, offered], "{mode:?}");
+    }
+}
+
+/// The note of a decision is its reason in the audit fact, and the note
+/// of an escalation is the question on the card, so each needs words, at
+/// most 2,000 characters. A decision allows or denies, and nothing else.
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_decision_needs_allow_or_deny_and_a_note_of_at_most_2000_characters(pool: SqlitePool) {
+    let harness = harness(pool).await;
+    let air = register(&harness, "Air", &["harness:claude"]).await;
+    let mut grant = grant_host(&harness, &air, &[]).await;
+    grant.scope = grant.with_session_approval_mode(SessionApprovalMode::Agent);
+    SqliteGrantStore::new(harness.pool.clone())
+        .set_scope(&harness.workspace.id, &grant.id, &grant.scope)
+        .await
+        .unwrap();
+    let snapshot = harness
+        .broker
+        .prepare_run(&harness.workspace.id, &harness.agent.id, &harness.run.id)
+        .await
+        .unwrap();
+    let long = "x".repeat(2_001);
+
+    for (tool, arguments) in [
+        (
+            CODING_SESSION_DECIDE,
+            serde_json::json!({"session": "cs-1", "decision": "allow", "note": "  "}),
+        ),
+        (
+            CODING_SESSION_DECIDE,
+            serde_json::json!({"session": "cs-1", "decision": "allow", "note": long}),
+        ),
+        (
+            CODING_SESSION_DECIDE,
+            serde_json::json!({"session": "cs-1", "decision": "allow_always", "note": "Safe."}),
+        ),
+        (
+            CODING_SESSION_DECIDE,
+            serde_json::json!({"session": "cs-1", "decision": "allow"}),
+        ),
+        (
+            CODING_SESSION_ESCALATE,
+            serde_json::json!({"session": "cs-1", "note": ""}),
+        ),
+        (
+            CODING_SESSION_ESCALATE,
+            serde_json::json!({"session": "cs-1", "note": long}),
+        ),
+    ] {
+        let outcome = harness
+            .broker
+            .invoke(
+                &harness.workspace.id,
+                &harness.run.id,
+                &snapshot.id,
+                ToolCall::new(tool, arguments.to_string()),
+            )
+            .await
+            .unwrap();
+
+        let InvokeOutcome::Rejected(result) = outcome else {
+            panic!("{tool} {arguments} is not rejected: {outcome:?}");
+        };
+        assert_eq!(
+            result.code.as_deref(),
+            Some("invalid_request"),
+            "{arguments}"
+        );
+    }
 }
 
 /// One machine that declares a harness offers the start and the tools of

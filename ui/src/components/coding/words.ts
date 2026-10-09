@@ -178,6 +178,9 @@ export function decisionText(
 ): string {
   if (decision === 'withdrawn') return 'Cancelled with the turn'
   if (decision === 'cancel') return 'Cancelled'
+  // The sprite, or Pagis for it, gave the request to the Person.
+  if (decision === 'escalated')
+    return decider === 'agent' ? `${spriteName} asked you` : 'Sent to you'
   const allowed = decision === 'allow_once'
   switch (decider) {
     case 'auto':

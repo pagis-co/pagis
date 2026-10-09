@@ -1073,8 +1073,10 @@ Pagis policy answers it first: the `auto` mode, an action inside the
 session's directory, or a command that a Host Allow Rule matches allows it
 once. Else the Session Approval Mode of the Coding Session decides who
 answers. In the `person` mode the Person answers on an approval card in the
-session's Thread. Pagis answers once, never "always", and each decision
-writes one audit fact. Not built: the answer of the Agent (ADR-0033).
+session's Thread. In the `agent` mode the owning Agent wakes in that Thread,
+and it allows once, denies, or escalates to the Person with a note on the
+card. A woken Run that ends with no decision escalates it. Pagis answers
+once, never "always", and each decision writes one audit fact (ADR-0033).
 
 ### Harness Sign-In
 The Person signs in to a Coding Harness on their Host with their own
@@ -1090,8 +1092,8 @@ Who answers a Harness Permission of a Coding Session: `person`, `agent` or
 `auto`. The host Grant holds the widest mode that each Agent may use on each
 machine, `person` by default. The Person sets it on the Access tab of the
 Agent, and the Agent picks the mode of each session within it. The live
-host Grant narrows the mode at each Harness Permission. Not built: the
-answer of the Agent (ADR-0033).
+host Grant narrows the mode at each Harness Permission, and a narrower
+Grant gives a permission that waits for the Agent to the Person (ADR-0033).
 _Avoid_: permission mode
 
 ### Session Rule

@@ -12,8 +12,8 @@ use async_trait::async_trait;
 use pagis_broker::{AuthorizedCall, CoreTool, HostSessions, ToolExecutor, ToolResult, ToolRoute};
 use pagis_coding::fake::{Script, Turn, acp, serve_client_app};
 use pagis_coding::{
-    CodingSessionStarts, CodingSessions, CodingSessionsDeps, CodingToolRuntime, NewCodingSession,
-    RefuseDecisions, SessionEvents, SessionRuleError, SessionRules,
+    AgentAsks, CodingSessionStarts, CodingSessions, CodingSessionsDeps, CodingToolRuntime,
+    NewCodingSession, RefuseDecisions, SessionEvents, SessionRuleError, SessionRules,
 };
 use pagis_core::{
     Agent, AgentId, AgentStatus, AgentStore, Channel, ChannelId, ChannelKind, ChannelStore,
@@ -145,6 +145,7 @@ async fn world(pool: SqlitePool, script: Script) -> World {
         store.clone(),
         hosts_store,
         Arc::new(SqliteGrantStore::new(pool.clone())),
+        Arc::new(AgentAsks::default()),
     );
     let grants = Arc::new(SqliteGrantStore::new(pool.clone()));
     World {
@@ -635,6 +636,12 @@ async fn read_puts_the_harness_text_inside_one_envelope_and_the_state_and_usage_
         inside["pending_decision"]["options"],
         json!(["allow_once", "reject_once"])
     );
+    // What the Agent judges in the `agent` mode, and whom the session
+    // waits for.
+    assert_eq!(inside["pending_decision"]["tool_kind"], "execute");
+    assert_eq!(inside["pending_decision"]["command"], "cargo test");
+    assert_eq!(inside["pending_decision"]["locations"], json!([]));
+    assert_eq!(inside["pending_decision"]["waits_for"], "person");
     assert_eq!(
         inside["changed_files"],
         json!([login, store_rs, session_rs])

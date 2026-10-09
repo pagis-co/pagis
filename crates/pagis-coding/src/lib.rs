@@ -18,7 +18,8 @@
 //! [`SessionDecisions`] for the answer to each permission request and
 //! question. [`PolicyDecisions`] applies Pagis policy to each permission
 //! request and writes its audit fact. A permission that asks the Person
-//! gets an approval card in the session's Thread.
+//! gets an approval card in the session's Thread. A permission that asks
+//! the supervising Agent waits in [`AgentAsks`] for its verdict.
 //!
 //! Each session raises its news to its Session Rule through
 //! [`SessionEvents`], and [`SessionRules`] makes and ends the rule.
@@ -26,10 +27,12 @@
 //! [`CodingSessionStarts`] holds the checks of a start, which the broker
 //! asks before the card. [`CodingToolRuntime`] executes the core tool
 //! `coding_session_start` after the approval, and the core tools that
-//! prompt, read, cancel, close, list and resume the Agent's own sessions.
+//! prompt, read, cancel, close, list and resume the Agent's own sessions,
+//! and that decide or escalate their Harness Permissions.
 //!
 //! [`SignIns`] starts a Harness Sign-In on a Host for the Person.
 
+mod agent;
 mod ask;
 mod decisions;
 mod error;
@@ -46,10 +49,11 @@ mod sign_in;
 mod starts;
 mod tools;
 
+pub use agent::AgentAsks;
 pub use ask::{
     AskHandler, PermissionAnswer, PermissionAsk, PermissionOptionKind, QuestionAnswer, QuestionAsk,
 };
-pub use decisions::{Pending, RefuseDecisions, SessionDecisions, WaitsFor};
+pub use decisions::{DecidedBy, Pending, RefuseDecisions, SessionDecisions, Waited, WaitsFor};
 pub use error::CodingError;
 pub use event::{
     Cost, Location, PlanEntry, PlanPriority, PlanStatus, SessionEvent, StopReason, ToolKind,
@@ -63,7 +67,9 @@ pub use place::{
     OpenFailure, OpenFailureCode, OpenRequest, OpenedStream, PlaceStream, SessionExit,
     SessionPlace, WorktreeRequest,
 };
-pub use policy::{PERMISSION_DECIDED_EVENT, PolicyDecisions, PolicyDecisionsDeps};
+pub use policy::{
+    NO_DECISION_NOTE, PERMISSION_DECIDED_EVENT, PolicyDecisions, PolicyDecisionsDeps,
+};
 pub use session::{AcpSession, HarnessInfo, Opening, SignInMethod};
 pub use sessions::{
     CloseReason, CodingSessions, CodingSessionsDeps, NewCodingSession, PromptOutcome,

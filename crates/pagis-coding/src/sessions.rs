@@ -33,9 +33,10 @@ use tokio_util::sync::CancellationToken;
 
 use crate::events::{DecisionKind, InterruptReason, SessionNews, session_batch};
 use crate::{
-    AcpSession, AskHandler, CodingError, OpenFailure, OpenFailureCode, OpenRequest, Opening,
-    Pending, PermissionAnswer, PermissionAsk, QuestionAnswer, QuestionAsk, SessionDecisions,
-    SessionEvent, SessionEvents, SessionExit, SessionPlace, SessionRules, WorktreeRequest,
+    AcpSession, AskHandler, CodingError, DecidedBy, OpenFailure, OpenFailureCode, OpenRequest,
+    Opening, Pending, PermissionAnswer, PermissionAsk, QuestionAnswer, QuestionAsk,
+    SessionDecisions, SessionEvent, SessionEvents, SessionExit, SessionPlace, SessionRules, Waited,
+    WaitsFor, WorktreeRequest,
 };
 
 /// How long a session waits for the exit report of its process after
@@ -975,6 +976,14 @@ enum Command {
     },
     /// An ask of the harness got its answer.
     Answered { ask_id: String, payload: Value },
+    /// An ask went to the Person: its answer row says `escalated`, and
+    /// the ask is asked again of the Person. The session stays
+    /// `needs_decision`.
+    Escalated {
+        ask_id: String,
+        answered: Value,
+        asked: Value,
+    },
     /// The place of the session is lost: the task closes the stream,
     /// moves the session to `interrupted` and ends.
     Interrupt {
@@ -1103,7 +1112,9 @@ impl SessionAsks {
 
     /// Records the ask and, when it comes, its answer. The row of the
     /// ask names who the session waits for, or none for an answer that
-    /// the daemon gives at once. The row of a decision names its decider.
+    /// the daemon gives at once. The row of a decision names its decider,
+    /// and the note and the Run of an Agent's decision. An escalation
+    /// writes its own answer row and asks the Person again.
     async fn answer<T: serde::Serialize>(
         &self,
         ask_id: String,
@@ -1111,30 +1122,63 @@ impl SessionAsks {
         mut payload: Value,
         pending: Pending<T>,
     ) -> T {
-        let (waits_for, decider) = match &pending {
-            Pending::Decided { decider, .. } => (None, *decider),
-            Pending::Waits { waits_for, .. } => (Some(*waits_for), Some(waits_for.decider())),
+        let waits_for = match &pending {
+            Pending::Decided { .. } => None,
+            Pending::Waits { waits_for, .. } => Some(*waits_for),
         };
         payload["waits_for"] = json!(waits_for);
         self.send(Command::Asked {
             ask_id: ask_id.clone(),
             ask,
-            payload,
+            payload: payload.clone(),
             waits: waits_for.is_some(),
         });
-        let answer = match pending {
-            Pending::Decided { answer, .. } => answer,
-            Pending::Waits { answer, .. } => answer.await,
-        };
-        let payload = match ask {
-            AskKind::Permission => {
-                json!({"ask_id": ask_id, "decision": answer, "decider": decider})
+        let (answer, by) = match pending {
+            Pending::Decided { answer, decider } => (
+                answer,
+                DecidedBy {
+                    decider,
+                    ..DecidedBy::default()
+                },
+            ),
+            Pending::Waits { answer, .. } => {
+                let mut waited = answer.await;
+                loop {
+                    match waited {
+                        Waited::Answered { answer, by } => break (answer, by),
+                        Waited::Escalated { by, answer } => {
+                            payload["waits_for"] = json!(WaitsFor::Person);
+                            self.send(Command::Escalated {
+                                ask_id: ask_id.clone(),
+                                answered: answer_row(ask, &ask_id, json!("escalated"), &by),
+                                asked: payload.clone(),
+                            });
+                            waited = answer.await;
+                        }
+                    }
+                }
             }
-            AskKind::Question => json!({"ask_id": ask_id, "answer": answer}),
         };
+        let payload = answer_row(ask, &ask_id, json!(answer), &by);
         self.send(Command::Answered { payload, ask_id });
         answer
     }
+}
+
+/// The answer row of an ask. A field that the decision does not have is
+/// left out.
+fn answer_row(ask: AskKind, ask_id: &str, answer: Value, by: &DecidedBy) -> Value {
+    let mut row = match ask {
+        AskKind::Permission => json!({"ask_id": ask_id, "decision": answer, "decider": by.decider}),
+        AskKind::Question => json!({"ask_id": ask_id, "answer": answer}),
+    };
+    if let Some(note) = &by.note {
+        row["note"] = json!(note);
+    }
+    if let Some(run_id) = &by.run_id {
+        row["run_id"] = json!(run_id);
+    }
+    row
 }
 
 #[async_trait]
@@ -1299,6 +1343,17 @@ impl Task {
                 if let Some(ask) = self.asks.remove(&ask_id) {
                     self.append(ask.answered(), payload).await;
                     self.settle().await;
+                }
+                Flow::Go
+            }
+            Command::Escalated {
+                ask_id,
+                answered,
+                asked,
+            } => {
+                if let Some(ask) = self.asks.get(&ask_id).copied() {
+                    self.append(ask.answered(), answered).await;
+                    self.append(ask.asked(), asked).await;
                 }
                 Flow::Go
             }
