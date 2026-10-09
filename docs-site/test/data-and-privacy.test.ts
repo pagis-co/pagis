@@ -7,6 +7,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { source } from '@/lib/source';
+import { links, requiredSection, section } from './markdown';
 
 const PRIVACY = ['data-and-privacy'];
 const ENCRYPTION = 'What Pagis encrypts';
@@ -19,34 +20,6 @@ async function text(slugs: string[]): Promise<string> {
   const page = source.getPage(slugs);
   if (!page) throw new Error(`/${slugs.join('/')} is not a page`);
   return page.data.getText('raw');
-}
-
-/**
- * The lines under the heading `name` of `level`, up to the next heading of
- * the same level or a higher one. A `#` line in a fenced code block is not
- * a heading.
- */
-function section(document: string, level: number, name: string): string | undefined {
-  const lines: string[] = [];
-  let inside = false;
-  let fenced = false;
-  for (const line of document.split('\n')) {
-    if (line.trimStart().startsWith('```')) fenced = !fenced;
-    const heading = fenced ? undefined : line.match(/^(#+) /)?.[1].length;
-    if (inside) {
-      if (heading !== undefined && heading <= level) break;
-      lines.push(line);
-    } else if (heading === level && line.trimEnd() === `${'#'.repeat(level)} ${name}`) {
-      inside = true;
-    }
-  }
-  return inside ? lines.join('\n') : undefined;
-}
-
-function requiredSection(document: string, level: number, name: string): string {
-  const found = section(document, level, name);
-  if (found === undefined) throw new Error(`no "${'#'.repeat(level)} ${name}" section`);
-  return found;
 }
 
 /** The cells of each body row of every Markdown table in `text`. */
@@ -73,11 +46,6 @@ function tableRows(text: string): string[][] {
 /** Every `code` span in `text`, without the backticks. */
 function codeSpans(text: string): string[] {
   return text.split('`').filter((_, index) => index % 2 === 1);
-}
-
-/** The target of each Markdown link in `text`. */
-function links(text: string): string[] {
-  return [...text.matchAll(/\]\(([^)\s]+)\)/g)].map((match) => match[1]);
 }
 
 async function encryptionRows(): Promise<string[][]> {

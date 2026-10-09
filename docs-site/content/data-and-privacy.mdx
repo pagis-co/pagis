@@ -202,6 +202,25 @@ On a server, and on a local installation in Remote Access, the
 Administrator stores the provider keys for the whole Org. The providers of
 these keys get the model requests of every Person.
 
+### What a Coding Harness sends
+
+A [Coding Session](/coding-sessions) on your computer runs the Coding
+Harness there, under your own account. The harness sends the brief, the
+code that it reads and its own requests to its vendor, such as Anthropic
+or OpenAI. Pagis does not see those requests, and it spends no provider
+key on them.
+
+In the Agent's Computer, the harness sends its model requests through the
+server to the provider of the Org, as a Run does. The server adds the key
+of the Org, and the provider reads the content of each request.
+
+Pagis keeps the record and the transcript of each session: the brief, the
+messages of the harness, its plan, its tool calls with their changes, and
+each permission, question and decision. A row of the transcript holds at
+most 16 KB. A longer message goes on in the next rows, and Pagis cuts other
+content at that size, with a mark. The record and the transcript have no
+retention, a Backup holds them, and Forget does not reach them.
+
 ### What the Push Relay receives
 
 A Notification goes to the Mobile App from the App Store or Google Play
