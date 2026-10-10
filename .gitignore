@@ -7,3 +7,4 @@ target/
 __pycache__/
 /crates/pagis-evaluation/suites/continuous-learning/runs/
 node_modules
+*.tsbuildinfo
