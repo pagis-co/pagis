@@ -35,10 +35,10 @@ The script clones the main checkout's `target/` copy-on-write, so the worktree r
 
 `git worktree remove` deletes the worktree's `target/` together with the worktree.
 
-The seed is the main checkout's last build. A worktree compiles again each third-party crate that changed after that build. Refresh the seed when `Cargo.lock` changes on main, or when the clone takes more than a minute. The command goes to the main checkout first, so it works from any checkout:
+The seed is the main checkout's last build. A worktree compiles again each third-party crate that changed after that build. Refresh the seed when `Cargo.lock` changes on main, or when the clone takes more than a minute. The command goes to the main checkout, moves it to the newest main, and builds the seed again, so it works from any checkout. Run it when the main checkout holds no work in progress:
 
 ```bash
-cd "$(git worktree list --porcelain | sed -n '1s/^worktree //p')" && rm -rf target && cargo clippy --workspace --all-targets && cargo nextest run --workspace --no-run
+cd "$(git worktree list --porcelain | sed -n '1s/^worktree //p')" && git fetch origin && git checkout --detach origin/main && rm -rf target && cargo clippy --workspace --all-targets && cargo nextest run --workspace --no-run
 ```
 
 Use `cargo xtask dev` for the edit loop. It checks changed Rust packages and their reverse dependants, and it selects the changed UI, desktop, Mobile App, Computer, or documentation site checks. Shared build configuration and unknown paths select the full gate.
