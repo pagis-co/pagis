@@ -25,16 +25,24 @@ record, say so and reopen the decision instead of working around it.
 
 ## Worktrees
 
-A session that builds in a git worktree points Cargo at the main checkout's `target/` before its first cargo command:
+A session that builds in a git worktree seeds the worktree's own `target/` before its first cargo command:
 
 ```bash
-export CARGO_TARGET_DIR="$(git worktree list | head -1 | awk '{print $1}')/target"
+scripts/seed-worktree-target.sh
 ```
 
-The shared directory reuses the main checkout's compiled third-party crates, so a worktree build finishes in minutes. Cargo holds a lock on the directory, so parallel worktree builds queue and never corrupt it. A worktree without this variable compiles the whole workspace from scratch into its own `target/` (about 40 GB and over ten minutes for clippy alone), and parallel worktrees then compete for the CPU.
+The script clones the main checkout's `target/` copy-on-write, so the worktree reuses the compiled third-party crates and the clone uses almost no disk. Then it removes the fingerprints of the workspace members, so Cargo builds each member from the sources of this worktree. The worktree builds into its own `target/` with `CARGO_TARGET_DIR` unset. Cargo gives a workspace member the same unit hash in every checkout and checks its freshness by file times, so in a target directory that two checkouts share, a build uses the member that the other checkout compiled.
+
+`git worktree remove` deletes the worktree's `target/` together with the worktree.
+
+The seed is the main checkout's last build. A worktree compiles again each third-party crate that changed after that build. Refresh the seed when `Cargo.lock` changes on main, or when the clone takes more than a minute. The command goes to the main checkout first, so it works from any checkout:
+
+```bash
+cd "$(git worktree list --porcelain | sed -n '1s/^worktree //p')" && rm -rf target && cargo clippy --workspace --all-targets && cargo nextest run --workspace --no-run
+```
 
 Use `cargo xtask dev` for the edit loop. It checks changed Rust packages and their reverse dependants, and it selects the changed UI, desktop, Mobile App, Computer, or documentation site checks. Shared build configuration and unknown paths select the full gate.
 
 Use `cargo xtask full` for every gate step, and `cargo xtask step <name>...` for the named ones. A pull request merges when the CI workflow passes; its jobs run the same steps.
 
-Cargo keys the workspace crates on the worktree path, so each worktree writes its own copy of them. A binary built in one worktree can still be reused in another, so a path into the repository is read at run time (`std::env::var_os("CARGO_MANIFEST_DIR")`), never baked in with `env!`, which would hold the path of a worktree that no longer exists. Run focused tests with `cargo nextest run`, not `cargo test`: nextest gives per-test timing and retries.
+Run focused tests with `cargo nextest run`, not `cargo test`: nextest gives per-test timing and retries.

@@ -15,6 +15,7 @@ mod release;
 mod screend;
 mod secrets;
 mod security_policy;
+mod seed_worktree_target;
 mod server_image;
 mod server_package;
 mod support;
