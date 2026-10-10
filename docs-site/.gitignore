@@ -4,5 +4,4 @@
 /.source/
 /out/
 /.wrangler/
-*.tsbuildinfo
 next-env.d.ts
