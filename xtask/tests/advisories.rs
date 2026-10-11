@@ -1,6 +1,6 @@
 //! Tests for the advisory checks: cargo-deny over the Cargo lockfiles,
-//! pnpm audit and npm audit over the lockfiles, the Trivy scans, the pins of the
-//! tools, the reviewed exceptions and the daily workflow.
+//! pnpm audit over the lockfile of the workspace, the Trivy scans, the pins
+//! of the tools, the reviewed exceptions and the daily workflow.
 //!
 //! The tests do not run the checks. A check reads the advisories that
 //! are published today, so its result changes without a change to the

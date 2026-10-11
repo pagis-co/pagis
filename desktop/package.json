@@ -16,20 +16,20 @@
   },
   "devDependencies": {
     "@electron/asar": "^3.4.1",
-    "@fontsource-variable/inter": "^5.3.0",
+    "@fontsource-variable/inter": "catalog:",
     "@types/jsdom": "^30.0.0",
-    "@types/node": "^26.4.1",
-    "@types/semver": "^7.8.0",
+    "@types/node": "catalog:",
+    "@types/semver": "catalog:",
     "electron": "^44.1.1",
     "electron-builder": "^26.17.0",
     "js-yaml": "^4.3.2",
-    "jsdom": "^30.1.1",
-    "typescript": "^5.9.3",
-    "vitest": "^4.1.11"
+    "jsdom": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   },
   "dependencies": {
     "electron-updater": "^6.8.10",
-    "semver": "^7.8.5"
+    "semver": "catalog:"
   },
   "homepage": "https://github.com/pagis-co/pagis",
   "desktopName": "pagis-client.desktop"

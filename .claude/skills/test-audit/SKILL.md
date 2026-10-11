@@ -31,9 +31,8 @@ glossary terms. Fixtures must not read as real people or real events.
 - Browser tests: the `browser_*` modules of the daemon suite drive a real
   Chromium.
 - Gate and release tooling: `xtask/tests`.
-- TypeScript: `ui/`, `desktop/` and `docs-site/` run Vitest
-  (`pnpm --filter ./ui run test` for `ui/`, `pnpm --filter ./desktop run test`
-  for `desktop/`, `npm run test` in the others).
+- TypeScript: `ui/`, `desktop/`, `mobile/` and `docs-site/` run Vitest
+  (`pnpm --filter ./<project> run test`).
 - `.config/nextest.toml` holds the retries, the slow timeout, the test groups
   that limit Docker and Postgres concurrency, and the `ci` profile filter.
 
