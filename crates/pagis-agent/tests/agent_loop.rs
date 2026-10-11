@@ -5381,6 +5381,18 @@ async fn an_agent_with_a_computer_is_offered_the_computer_tool(pool: SqlitePool)
     );
 }
 
+/// The arguments of an Anthropic computer call: the `tool_use` block of
+/// one computer toolset member.
+fn computer_member(name: &str, input: serde_json::Value) -> serde_json::Value {
+    serde_json::json!({
+        "type": "tool_use",
+        "id": "toolu_1",
+        "name": name,
+        "toolset_name": "computer",
+        "input": input,
+    })
+}
+
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
 async fn an_anthropic_screenshot_lands_in_context_and_as_a_run_artifact(pool: SqlitePool) {
     let harness = boot(pool, AgentLoopConfig::default()).await;
@@ -5388,7 +5400,7 @@ async fn an_anthropic_screenshot_lands_in_context_and_as_a_run_artifact(pool: Sq
     harness.brain.push(Script::tool_call(
         &[],
         "computer",
-        serde_json::json!({ "action": "screenshot" }),
+        computer_member("screenshot", serde_json::json!({})),
     ));
     harness
         .brain
@@ -5658,13 +5670,13 @@ async fn a_failed_action_stops_the_batch_and_skips_later_calls(pool: SqlitePool)
             pagis_agent::ToolInvocation {
                 id: "call_1".to_string(),
                 name: "computer".to_string(),
-                arguments: serde_json::json!({"action": "left_click", "coordinate": [1, 2]})
+                arguments: computer_member("left_click", serde_json::json!({"coordinate": [1, 2]}))
                     .to_string(),
             },
             pagis_agent::ToolInvocation {
                 id: "call_2".to_string(),
                 name: "computer".to_string(),
-                arguments: serde_json::json!({"action": "screenshot"}).to_string(),
+                arguments: computer_member("screenshot", serde_json::json!({})).to_string(),
             },
         ],
     ));
@@ -5696,7 +5708,7 @@ async fn cancel_while_the_computer_wakes_stops_the_run(pool: SqlitePool) {
     harness.brain.push(Script::tool_call(
         &[],
         "computer",
-        serde_json::json!({"action": "screenshot"}),
+        computer_member("screenshot", serde_json::json!({})),
     ));
     let mut events = harness
         .bus
@@ -5792,7 +5804,7 @@ async fn the_screen_lease_serializes_batches_and_releases_between_turns(pool: Sq
     harness.brain.push(Script::tool_call(
         &[],
         "computer",
-        serde_json::json!({ "action": "screenshot" }),
+        computer_member("screenshot", serde_json::json!({})),
     ));
     harness.brain.push(Script::reply(&["Done."]));
     harness.brain.push(Script::reply(&["nothing to record"]));

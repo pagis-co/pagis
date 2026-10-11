@@ -100,8 +100,11 @@ body, and maps a byte stream to a `StreamEvent` stream. The router owns the shar
   a request timeout for a non-streaming call, a first-event timeout that
   falls through, and an idle timeout that surfaces in band.
 - **Reasoning.** One `reasoning` parameter maps to `reasoning_effort` on
-  openai-chat and to a thinking budget on anthropic-messages. Reasoning
-  parts and stream events round-trip their thinking signatures.
+  openai-chat. On anthropic-messages it maps to adaptive thinking with
+  `output_config.effort` for a Claude model from 4.6 on, and to a
+  thinking-token budget for an earlier Claude model or a model that is
+  not Claude. Reasoning parts and stream events round-trip their
+  thinking signatures.
   `CachePolicy::Auto` hints at the system message, the last tool and the
   last message.
 - **Cost.** A model metadata registry (`models.json`, curated and
@@ -117,10 +120,15 @@ body, and maps a byte stream to a `StreamEvent` stream. The router owns the shar
   compatible servers. A zero or negative value reads as unreported.
 - **Computer use.** `Tool::provider_defined(kind, name, config)` passes a
   provider-defined tool through as data. On anthropic-messages this
-  reaches `computer_20251124`, `bash_20250124` and
-  `text_editor_20250728`; set the matching `anthropic-beta` header
-  through `ProviderConfig::headers`, and a screenshot returns as an image
-  part in the tool result. The `openai-responses` protocol
+  reaches `bash_20250124` and `text_editor_20250728`; set any
+  `anthropic-beta` header a type needs through `ProviderConfig::headers`.
+  `Tool::provider_toolset(kind, name, config)` passes a toolset through,
+  such as the computer toolset `computer_toolset_20260801`: one entry
+  without a name. A call to a toolset member becomes a tool call named
+  by the toolset (`computer`) that carries the whole `tool_use` block,
+  which names the member. The block replays verbatim, the tool result
+  echoes `toolset_name`, and a screenshot returns as an image part in the
+  tool result. The `openai-responses` protocol
   (`ProviderConfig::openai_responses`) reaches OpenAI computer use:
   stateless `POST /responses`, a `computer_call` item becomes a tool call
   named `computer` that carries the whole item (an item with no action

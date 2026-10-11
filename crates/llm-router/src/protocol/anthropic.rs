@@ -104,10 +104,17 @@ impl Protocol for AnthropicMessages {
         }
 
         let auto_cache = req.cache == CachePolicy::Auto;
-        let thinking_budget = req.reasoning.as_ref().map(thinking_budget);
+        let thinking = req.reasoning.as_ref().map(|reasoning| {
+            if adaptive_thinking(model) {
+                Thinking::Adaptive(crate::protocol::openai::effort_name(reasoning))
+            } else {
+                Thinking::Budget(thinking_budget(reasoning))
+            }
+        });
         // The API requires max_tokens greater than the thinking budget.
+        // Adaptive thinking shares max_tokens with the answer.
         let mut max_tokens = req.max_tokens.unwrap_or(DEFAULT_MAX_TOKENS);
-        if let Some(budget) = thinking_budget {
+        if let Some(Thinking::Budget(budget)) = thinking {
             max_tokens = max_tokens.max(budget + DEFAULT_MAX_TOKENS);
         }
 
@@ -136,11 +143,16 @@ impl Protocol for AnthropicMessages {
                 obj.insert("system".into(), json!(system));
             }
         }
-        if let Some(budget) = thinking_budget {
-            obj.insert(
-                "thinking".into(),
-                json!({"type": "enabled", "budget_tokens": budget}),
-            );
+        let mut output_config = Map::new();
+        if let Some(thinking) = thinking {
+            let wire = match thinking {
+                Thinking::Adaptive(effort) => {
+                    output_config.insert("effort".into(), json!(effort));
+                    json!({"type": "adaptive"})
+                }
+                Thinking::Budget(budget) => json!({"type": "enabled", "budget_tokens": budget}),
+            };
+            obj.insert("thinking".into(), wire);
         } else {
             // The API rejects sampling params when thinking is on.
             if let Some(t) = req.temperature {
@@ -160,10 +172,15 @@ impl Protocol for AnthropicMessages {
                 .map(|t| match &t.kind {
                     // Provider-defined tools (computer use, bash, text
                     // editor) pass through: the type plus their config.
-                    // Some need an `anthropic-beta` header — set it via
+                    // A toolset entry has no name. Some types need an
+                    // `anthropic-beta` header — set it via
                     // `ProviderConfig::headers`.
                     Some(kind) => {
-                        let mut tool = json!({"type": kind, "name": t.name});
+                        let mut tool = if t.toolset {
+                            json!({"type": kind})
+                        } else {
+                            json!({"type": kind, "name": t.name})
+                        };
                         let obj = tool.as_object_mut().expect("tool is an object");
                         for (key, value) in &t.config {
                             obj.insert(key.clone(), value.clone());
@@ -192,15 +209,16 @@ impl Protocol for AnthropicMessages {
             obj.insert("tool_choice".into(), value);
         }
         if let Some(format) = &req.output_schema {
-            obj.insert(
-                "output_config".into(),
+            output_config.insert(
+                "format".into(),
                 json!({
-                    "format": {
-                        "type": "json_schema",
-                        "schema": format.schema,
-                    }
+                    "type": "json_schema",
+                    "schema": format.schema,
                 }),
             );
+        }
+        if !output_config.is_empty() {
+            obj.insert("output_config".into(), Value::Object(output_config));
         }
         if stream {
             obj.insert("stream".into(), json!(true));
@@ -249,7 +267,19 @@ impl Protocol for AnthropicMessages {
                 WireBlock::RedactedThinking { data } => {
                     content.push(ContentPart::RedactedReasoning { data })
                 }
-                WireBlock::ToolUse { id, name, input } => tool_calls.push(ToolCall {
+                WireBlock::ToolUse {
+                    id,
+                    name,
+                    toolset_name: Some(toolset),
+                    input,
+                } => tool_calls.push(ToolCall {
+                    arguments: member_call(&id, &name, &toolset, input).to_string(),
+                    id,
+                    name: toolset,
+                }),
+                WireBlock::ToolUse {
+                    id, name, input, ..
+                } => tool_calls.push(ToolCall {
                     id,
                     name,
                     arguments: input.to_string(),
@@ -309,6 +339,10 @@ impl Protocol for AnthropicMessages {
             // Open thinking blocks: index -> accumulated signature.
             let mut thinking: std::collections::HashMap<u32, String> =
                 std::collections::HashMap::new();
+            // Open toolset member calls: index -> the `tool_use` block and
+            // its accumulated input JSON. Each arrives whole at its stop.
+            let mut members: std::collections::HashMap<u32, (Value, String)> =
+                std::collections::HashMap::new();
 
             while let Some(event) = events.next().await {
                 let event = match event {
@@ -342,11 +376,15 @@ impl Protocol for AnthropicMessages {
                         let Some(block) = data.get("content_block") else { continue };
                         match block.get("type").and_then(Value::as_str) {
                             Some("tool_use") => {
-                                yield Ok(StreamEvent::ToolCallStart {
-                                    index,
-                                    id: str_field(block, "id"),
-                                    name: str_field(block, "name"),
-                                });
+                                let id = str_field(block, "id");
+                                let name = match block.get("toolset_name").and_then(Value::as_str) {
+                                    Some(toolset) => {
+                                        members.insert(index, (block.clone(), String::new()));
+                                        toolset.to_owned()
+                                    }
+                                    None => str_field(block, "name"),
+                                };
+                                yield Ok(StreamEvent::ToolCallStart { index, id, name });
                             }
                             Some("thinking") => {
                                 thinking.insert(index, String::new());
@@ -373,7 +411,9 @@ impl Protocol for AnthropicMessages {
                             }
                             Some("input_json_delta") => {
                                 let arguments = str_field(delta, "partial_json");
-                                if !arguments.is_empty() {
+                                if let Some((_, input)) = members.get_mut(&index) {
+                                    input.push_str(&arguments);
+                                } else if !arguments.is_empty() {
                                     yield Ok(StreamEvent::ToolCallDelta { index, arguments });
                                 }
                             }
@@ -393,6 +433,33 @@ impl Protocol for AnthropicMessages {
                     }
                     "content_block_stop" => {
                         let index = index_of(&data);
+                        if let Some((block, input)) = members.remove(&index) {
+                            // A call without input streams no delta.
+                            let input = if input.is_empty() {
+                                json!({})
+                            } else {
+                                match serde_json::from_str(&input) {
+                                    Ok(input) => input,
+                                    Err(e) => {
+                                        yield Err(Error::Stream {
+                                            provider: provider.clone(),
+                                            message: format!("failed to decode tool input: {e}"),
+                                        });
+                                        return;
+                                    }
+                                }
+                            };
+                            let call = member_call(
+                                &str_field(&block, "id"),
+                                &str_field(&block, "name"),
+                                &str_field(&block, "toolset_name"),
+                                input,
+                            );
+                            yield Ok(StreamEvent::ToolCallDelta {
+                                index,
+                                arguments: call.to_string(),
+                            });
+                        }
                         if let Some(signature) = thinking.remove(&index) {
                             yield Ok(StreamEvent::ReasoningEnd {
                                 signature: (!signature.is_empty()).then_some(signature),
@@ -503,6 +570,42 @@ impl Meter for MessagesMeter {
     }
 }
 
+/// How a request thinks on the wire.
+#[derive(Clone, Copy)]
+enum Thinking {
+    /// `thinking: {type: "adaptive"}` with `output_config.effort`.
+    Adaptive(&'static str),
+    /// `thinking: {type: "enabled", budget_tokens}`.
+    Budget(u32),
+}
+
+/// The Claude models before 4.6, by id prefix. They take a thinking-token
+/// budget and no adaptive thinking. Every later Claude model takes
+/// adaptive thinking, and the models from 4.7 on refuse a budget.
+const BUDGET_THINKING_MODELS: &[&str] = &[
+    "claude-2",
+    "claude-3",
+    "claude-instant",
+    "claude-opus-4-0",
+    "claude-opus-4-1",
+    "claude-opus-4-5",
+    "claude-opus-4-2025",
+    "claude-sonnet-4-0",
+    "claude-sonnet-4-5",
+    "claude-sonnet-4-2025",
+    "claude-haiku-4-5",
+];
+
+/// Whether `model` thinks adaptively: a Claude model from 4.6 on. A model
+/// that is not Claude, such as one behind a compatible server, keeps the
+/// budget form.
+fn adaptive_thinking(model: &str) -> bool {
+    model.starts_with("claude-")
+        && !BUDGET_THINKING_MODELS
+            .iter()
+            .any(|prefix| model.starts_with(prefix))
+}
+
 /// The thinking-token budget: an explicit budget wins; an effort level
 /// converts to one.
 fn thinking_budget(reasoning: &ReasoningConfig) -> u32 {
@@ -543,9 +646,42 @@ fn system_text(messages: &[Message]) -> String {
         .join("\n\n")
 }
 
+/// The `tool_use` block of a toolset member call: the arguments of the
+/// [`ToolCall`] named by the toolset, so the call replays verbatim.
+fn member_call(id: &str, member: &str, toolset: &str, input: Value) -> Value {
+    json!({
+        "type": "tool_use",
+        "id": id,
+        "name": member,
+        "toolset_name": toolset,
+        "input": input,
+    })
+}
+
+/// The toolset name of a call whose arguments are a member call's
+/// `tool_use` block, classified by the arguments and not by the name.
+fn member_toolset(call: &ToolCall) -> Option<String> {
+    let block: Value = serde_json::from_str(&call.arguments).ok()?;
+    if block.get("type").and_then(Value::as_str) != Some("tool_use") {
+        return None;
+    }
+    block
+        .get("toolset_name")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+}
+
 /// Encode non-system messages. Tool results become `tool_result` blocks in a
 /// user message; consecutive same-role messages merge into one wire message.
+/// A toolset member call replays as its `tool_use` block, and its result
+/// echoes the toolset name.
 fn encode_messages(messages: &[Message]) -> Vec<Value> {
+    let toolsets: std::collections::HashMap<&str, String> = messages
+        .iter()
+        .filter(|m| m.role == Role::Assistant)
+        .flat_map(|m| &m.tool_calls)
+        .filter_map(|call| Some((call.id.as_str(), member_toolset(call)?)))
+        .collect();
     let mut out: Vec<(&str, Vec<Value>)> = Vec::new();
     for message in messages {
         let (role, blocks) = match message.role {
@@ -556,6 +692,10 @@ fn encode_messages(messages: &[Message]) -> Vec<Value> {
                 for call in &message.tool_calls {
                     let input: Value =
                         serde_json::from_str(&call.arguments).unwrap_or_else(|_| json!({}));
+                    if toolsets.contains_key(call.id.as_str()) {
+                        blocks.push(input);
+                        continue;
+                    }
                     blocks.push(json!({
                         "type": "tool_use",
                         "id": call.id,
@@ -567,14 +707,21 @@ fn encode_messages(messages: &[Message]) -> Vec<Value> {
             }
             // Tool results carry full content blocks, so tools can return
             // images (screenshots) alongside text.
-            Role::Tool => (
-                "user",
-                vec![json!({
+            Role::Tool => {
+                let mut result = json!({
                     "type": "tool_result",
                     "tool_use_id": message.tool_call_id,
                     "content": encode_content(&message.content),
-                })],
-            ),
+                });
+                if let Some(toolset) = message
+                    .tool_call_id
+                    .as_deref()
+                    .and_then(|id| toolsets.get(id))
+                {
+                    result["toolset_name"] = json!(toolset);
+                }
+                ("user", vec![result])
+            }
         };
         match out.last_mut() {
             Some((last_role, last_blocks)) if *last_role == role => {
@@ -713,6 +860,7 @@ enum WireBlock {
     ToolUse {
         id: String,
         name: String,
+        toolset_name: Option<String>,
         input: Value,
     },
     #[serde(other)]

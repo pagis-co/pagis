@@ -30,13 +30,21 @@ pub(crate) struct ComputerCall {
 }
 
 /// Parse one `computer` tool call's arguments. Anthropic sends the
-/// action object itself; OpenAI sends the whole `computer_call` item;
-/// the portable function wraps one OpenAI-style action object in
-/// `action`.
+/// `tool_use` block of one computer toolset member; OpenAI sends the
+/// whole `computer_call` item; the portable function wraps one
+/// OpenAI-style action object in `action`.
 pub(crate) fn parse_call(arguments: &str) -> Result<ComputerCall, String> {
     let parsed: Value =
         serde_json::from_str(arguments).map_err(|err| format!("bad computer call: {err}"))?;
-    if parsed.get("type").and_then(Value::as_str) == Some("computer_call") {
+    let kind = parsed.get("type").and_then(Value::as_str);
+    if kind == Some("tool_use") {
+        return Ok(ComputerCall {
+            vocabulary: Vocabulary::Anthropic,
+            actions: vec![exec::parse_anthropic(&parsed)?],
+            safety_checks: Vec::new(),
+        });
+    }
+    if kind == Some("computer_call") {
         let raw_actions = parsed
             .get("actions")
             .and_then(Value::as_array)
@@ -58,16 +66,13 @@ pub(crate) fn parse_call(arguments: &str) -> Result<ComputerCall, String> {
             safety_checks,
         });
     }
-    if let Some(action) = parsed.get("action").filter(|action| action.is_object()) {
-        return Ok(ComputerCall {
-            vocabulary: Vocabulary::Portable,
-            actions: vec![exec::parse_openai(action)?],
-            safety_checks: Vec::new(),
-        });
-    }
+    let action = parsed
+        .get("action")
+        .filter(|action| action.is_object())
+        .ok_or_else(|| format!("bad computer call: no action in {parsed}"))?;
     Ok(ComputerCall {
-        vocabulary: Vocabulary::Anthropic,
-        actions: vec![exec::parse_anthropic(&parsed)?],
+        vocabulary: Vocabulary::Portable,
+        actions: vec![exec::parse_openai(action)?],
         safety_checks: Vec::new(),
     })
 }
@@ -190,8 +195,12 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn an_anthropic_action_object_parses_as_one_action() {
-        let call = parse_call(r#"{"action": "screenshot"}"#).unwrap();
+    fn an_anthropic_toolset_call_parses_as_one_action() {
+        let block = json!({
+            "type": "tool_use", "id": "toolu_1", "name": "screenshot",
+            "toolset_name": "computer", "input": {}
+        });
+        let call = parse_call(&block.to_string()).unwrap();
         assert_eq!(call.vocabulary, Vocabulary::Anthropic);
         assert_eq!(call.actions, vec![Action::Screenshot]);
         assert!(call.safety_checks.is_empty());
@@ -225,6 +234,7 @@ mod tests {
     #[test]
     fn bad_actions_are_errors() {
         assert!(parse_call("not json").is_err());
-        assert!(parse_call(r#"{"action": "levitate"}"#).is_err());
+        assert!(parse_call(r#"{"action": "screenshot"}"#).is_err());
+        assert!(parse_call(r#"{"action": {"type": "levitate"}}"#).is_err());
     }
 }
