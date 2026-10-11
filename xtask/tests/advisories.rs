@@ -202,51 +202,6 @@ fn cargo_deny_checks_the_two_lockfiles_with_the_pinned_binary() {
     }
 }
 
-// --- npm audit ---
-
-#[test]
-fn npm_audit_reads_each_npm_lockfile_at_the_high_level() {
-    let tmp = tempfile::tempdir().unwrap();
-    for package in ["desktop", "docs-site"] {
-        write(tmp.path(), &format!("{package}/package.json"), "{}");
-        write(tmp.path(), &format!("{package}/package-lock.json"), "{}");
-    }
-    let lane = published_advisory_lane(tmp.path(), target());
-
-    for (name, package) in [
-        ("desktop-npm-audit", "desktop"),
-        ("docs-site-npm-audit", "docs-site"),
-    ] {
-        let Action::Run(cmds) = &step(&lane, name).action else {
-            panic!("{name} must run");
-        };
-        assert_eq!(cmds.len(), 1);
-        assert_eq!(cmds[0].program, "npm");
-        // The audit reads the lockfile only, so it needs no
-        // node_modules.
-        assert_eq!(
-            cmds[0].args,
-            ["audit", "--audit-level=high", "--package-lock-only"]
-        );
-        assert_eq!(
-            cmds[0].cwd.as_deref(),
-            Some(tmp.path().join(package).as_path())
-        );
-    }
-}
-
-#[test]
-fn npm_audit_skips_a_package_without_a_lockfile() {
-    let tmp = tempfile::tempdir().unwrap();
-    let lane = published_advisory_lane(tmp.path(), target());
-    for name in ["desktop-npm-audit", "docs-site-npm-audit"] {
-        assert!(
-            matches!(step(&lane, name).action, Action::Skip(_)),
-            "{name} must skip without a lockfile"
-        );
-    }
-}
-
 // --- pnpm audit ---
 
 /// pnpm audits a project of the workspace from the root, where the one

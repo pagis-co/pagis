@@ -1,6 +1,6 @@
 //! The advisory checks. cargo-deny checks the Cargo lockfiles, and pnpm
-//! audit and npm audit check the JavaScript lockfiles against the
-//! published advisories.
+//! audit checks the JavaScript lockfiles against the published
+//! advisories.
 //! Trivy scans the filesystem of each image and of each Server Package
 //! for known vulnerabilities before a publish pushes it. `deny.toml` and
 //! `.trivyignore` hold each reviewed exception with its reason.
@@ -153,25 +153,6 @@ fn pnpm_audit_step(root: &Path, package: &str, name: &'static str) -> Step {
             )
             .in_dir(root),
         ])
-    };
-    Step { name, action }
-}
-
-/// Check the advisories of the npm lockfile of `package` at the high
-/// level. The audit reads the lockfile only, so it needs no
-/// `node_modules`.
-fn npm_audit_step(root: &Path, package: &str, name: &'static str) -> Step {
-    let dir = root.join(package);
-    let action = if dir.join("package-lock.json").exists() {
-        Action::Run(vec![
-            Cmd::new(
-                "npm",
-                &["audit", "--audit-level=high", "--package-lock-only"],
-            )
-            .in_dir(dir),
-        ])
-    } else {
-        Action::Skip(format!("{package}/package-lock.json is not present"))
     };
     Step { name, action }
 }
