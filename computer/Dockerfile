@@ -153,7 +153,10 @@ RUN set -eux; \
 # the pnpm of the agents does not change, and it stays in this stage, so
 # the final image does not hold it. pnpm copies each file from its store
 # instead of a hard link: Trivy does not read a package.json that a layer
-# holds as a hard link, and a package can hold the same file twice.
+# holds as a hard link, and a package can hold the same file twice. pnpm
+# does not always give a directory that it makes the owner and the mode
+# of the tree, so the stage sets root as the owner of each path and
+# removes the write permission of the group and the others.
 FROM runtimes AS harnesses
 ARG TARGETARCH
 ARG HARNESS_PNPM_VERSION=12.11.2
@@ -176,7 +179,9 @@ COPY harnesses/package.json harnesses/pnpm-workspace.yaml harnesses/pnpm-lock.ya
 RUN cd /opt/pagis/harnesses \
     && /opt/harness-pnpm/pnpm install --frozen-lockfile --prod \
       --config.store-dir=/tmp/pnpm-store --config.package-import-method=copy \
-    && rm -rf /tmp/pnpm-store
+    && rm -rf /tmp/pnpm-store \
+    && chown -R root:root /opt/pagis/harnesses \
+    && chmod -R go-w /opt/pagis/harnesses
 
 # OpenCode is a native program, so it comes from the vendor's release
 # archive of its architecture, pinned by version and by the sha256 of the
