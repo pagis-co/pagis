@@ -377,9 +377,21 @@ async fn open_a_page_and_report(computer_call: serde_json::Value) {
     assert!(!runtime.inputs().is_empty() || runtime.frames_served() > 0);
 }
 
+/// An Anthropic computer call: the `tool_use` block of the toolset's
+/// `screenshot` member.
+fn anthropic_screenshot() -> serde_json::Value {
+    serde_json::json!({
+        "type": "tool_use",
+        "id": "toolu_1",
+        "name": "screenshot",
+        "toolset_name": "computer",
+        "input": {},
+    })
+}
+
 #[tokio::test]
 async fn pixie_opens_a_page_and_reports_it_on_the_anthropic_vocabulary() {
-    open_a_page_and_report(serde_json::json!({ "action": "screenshot" })).await;
+    open_a_page_and_report(anthropic_screenshot()).await;
 }
 
 #[tokio::test]
@@ -453,11 +465,7 @@ async fn takeover_denies_the_agent_and_handback_resumes_with_the_note() {
     let runtime = Arc::new(FakeComputerRuntime::with_image());
     runtime.set_frame(&display_png());
     let brain = Arc::new(ScriptedBrain::default());
-    brain.push(Script::tool_call(
-        &[],
-        "computer",
-        serde_json::json!({ "action": "screenshot" }),
-    ));
+    brain.push(Script::tool_call(&[], "computer", anthropic_screenshot()));
     brain.push(Script::reply(&["Done looking."]));
     let daemon = TestDaemon::start_with(TestDaemonOptions {
         brain: Arc::clone(&brain) as _,
