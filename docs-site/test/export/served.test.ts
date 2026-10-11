@@ -1,6 +1,6 @@
 // The exported site as Cloudflare serves it. The test starts the Worker of
 // `wrangler.jsonc` in the local runtime of Cloudflare, over the files that
-// `npm run build` wrote to `out/`, and reads each address as a browser or
+// the `build` script wrote to `out/`, and reads each address as a browser or
 // an agent does.
 
 import { existsSync } from 'node:fs';
@@ -17,7 +17,7 @@ let base: URL;
 
 beforeAll(async () => {
   if (!existsSync(path.join(site, 'out', 'index.html'))) {
-    throw new Error('out/ holds no export. Run `npm run build` first.');
+    throw new Error('out/ holds no export. Run `pnpm --filter ./docs-site run build` first.');
   }
   worker = await unstable_startWorker({
     config: path.join(site, 'wrangler.jsonc'),

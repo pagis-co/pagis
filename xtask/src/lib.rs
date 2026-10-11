@@ -645,23 +645,23 @@ fn docs_site_steps(root: &Path) -> [Step; 5] {
     [
         Step {
             name: "docs-site-deps",
-            action: npm_deps_action(root, "docs-site"),
+            action: pnpm_deps_action(root, "docs-site"),
         },
         Step {
             name: "docs-site-typecheck",
-            action: npm_script_action(root, "docs-site", "typecheck"),
+            action: pnpm_script_action(root, "docs-site", "typecheck"),
         },
         Step {
             name: "docs-site-test",
-            action: npm_script_action(root, "docs-site", "test"),
+            action: pnpm_script_action(root, "docs-site", "test"),
         },
         Step {
             name: "docs-site-build",
-            action: npm_script_action(root, "docs-site", "build"),
+            action: pnpm_script_action(root, "docs-site", "build"),
         },
         Step {
             name: "docs-site-export",
-            action: npm_script_action(root, "docs-site", "test:export"),
+            action: pnpm_script_action(root, "docs-site", "test:export"),
         },
     ]
 }
