@@ -20,6 +20,10 @@
 //! The command is the first `tailscale` on `PATH`, else the command inside
 //! the macOS app, because a daemon that the Client App starts may have no
 //! `PATH` that names the command line tool.
+//! The command inside the macOS app acts as the command line tool only
+//! where a terminal runs it or `TAILSCALE_BE_CLI` is set. Else it starts the
+//! app, prints nothing and ends with status 0. The daemon runs it with no
+//! terminal, so each call sets the variable.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::ffi::OsString;
@@ -35,6 +39,10 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 /// The command inside the app that the standalone build and the Mac App
 /// Store build of Tailscale install on macOS.
 const MACOS_APP_COMMAND: &str = "/Applications/Tailscale.app/Contents/MacOS/Tailscale";
+
+/// The variable that makes the command inside the macOS app act as the
+/// command line tool. The other builds of the command ignore it.
+const BE_CLI: (&str, &str) = ("TAILSCALE_BE_CLI", "1");
 
 /// How long a read of the state may take. The command answers from the
 /// local daemon of Tailscale and touches no network.
@@ -499,6 +507,7 @@ impl Output {
 async fn run(program: &Path, args: &[&str], timeout: Duration) -> Result<Output, String> {
     let output = tokio::process::Command::new(program)
         .args(args)
+        .env(BE_CLI.0, BE_CLI.1)
         .stdin(Stdio::null())
         .kill_on_drop(true)
         .output();
@@ -529,6 +538,7 @@ async fn run_streaming(
 ) -> Result<(), String> {
     let mut child = tokio::process::Command::new(program)
         .args(args)
+        .env(BE_CLI.0, BE_CLI.1)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -918,6 +928,33 @@ mod tests {
             }
         );
         assert_eq!(command.calls(), ["status --json", "funnel status --json"]);
+    }
+
+    /// The command inside the macOS app starts the app, prints nothing
+    /// and ends with status 0, unless `TAILSCALE_BE_CLI` is set or a
+    /// terminal runs it. The daemon has no terminal, so each call sets
+    /// the variable.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn each_call_asks_the_command_of_the_macos_app_to_be_the_cli() {
+        let command = ScriptedCommand::new(
+            r#"  *) [ "$TAILSCALE_BE_CLI" = 1 ] || exit 0 ;;
+esac
+case "$*" in
+  "status --json") cat $F/status-running.json ;;
+  "funnel status --json") cat $F/funnel-status-empty.json ;;
+  funnel*) ;;"#,
+        );
+
+        assert_eq!(
+            command.driver().state(TARGETS).await,
+            TailscaleState::Ready {
+                dns_name: DNS_NAME.to_string(),
+                port_443: FunnelPort::Nothing,
+                port_8443: FunnelPort::Nothing,
+            }
+        );
+        command.driver().funnel_on(TARGETS, &|_| {}).await.unwrap();
     }
 
     #[cfg(unix)]
