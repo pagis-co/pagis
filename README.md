@@ -63,11 +63,12 @@ check it.
 
 ### From source
 
-You need Rust, Node.js (the version in `.nvmrc`) and, for the Agents'
-computers, Docker.
+You need Rust, Node.js (the version in `.nvmrc`), pnpm 12 and, for the
+Agents' computers, Docker.
 
 ```bash
-(cd ui && npm ci && npm run build)
+pnpm install --frozen-lockfile --filter ./ui
+pnpm --filter ./ui run build
 cargo run -p pagis -- --local
 ```
 

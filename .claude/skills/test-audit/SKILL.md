@@ -32,7 +32,7 @@ glossary terms. Fixtures must not read as real people or real events.
   Chromium.
 - Gate and release tooling: `xtask/tests`.
 - TypeScript: `ui/`, `desktop/` and `docs-site/` run Vitest
-  (`npm run test` in each).
+  (`pnpm --filter ./ui run test` for `ui/`, `npm run test` in the others).
 - `.config/nextest.toml` holds the retries, the slow timeout, the test groups
   that limit Docker and Postgres concurrency, and the `ci` profile filter.
 

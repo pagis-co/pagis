@@ -17,18 +17,45 @@
 # digest (`cargo xtask pins --check`). Dependabot opens the pull requests
 # that move the digests.
 
+# pnpm installs the Product App from the workspace lockfile. pnpm is a
+# native program, and `@pnpm/exe.linux-<arch>` holds only its binary. It
+# comes from the npm registry tarball, pinned by the version that the
+# `packageManager` of the root `package.json` names and by the sha512 of
+# the registry's `integrity` field. Neither curl nor the binary reaches
+# the final image.
+FROM debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a AS pnpm
+ARG TARGETARCH
+ARG PNPM_VERSION=12.11.2
+ARG PNPM_SHA512_amd64=14aed029edb8018829a49c0ede6a68a18a6d76ebaf206a8a24f8b969cecc7675a48d4cb8e8905f621096d20ae7916282f1839fd31faf1af8ae42a2448f74a941
+ARG PNPM_SHA512_arm64=e9ef190105301570161c71efe457ac5aa7ff9042b4e30ba2b41bf97ff831ce40b40e205f6a2c6bf9ffba25079d7bc485e098b92dc33054525bcc0b5f7e95b112
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+RUN set -eux; \
+    case "${TARGETARCH:-$(dpkg --print-architecture)}" in \
+      amd64) package=linux-x64; sha="$PNPM_SHA512_amd64" ;; \
+      arm64) package=linux-arm64; sha="$PNPM_SHA512_arm64" ;; \
+      *) echo "no pnpm build for ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://registry.npmjs.org/@pnpm/exe.${package}/-/exe.${package}-${PNPM_VERSION}.tgz" -o /tmp/pnpm.tgz; \
+    echo "${sha}  /tmp/pnpm.tgz" | sha512sum -c -; \
+    mkdir -p /out; \
+    tar -xzf /tmp/pnpm.tgz -C /out --strip-components=1 --no-same-owner package/pnpm; \
+    chmod 755 /out/pnpm
+
 # The Product App and the Administration Interface are two entry points
 # of one Vite package, and a release build embeds `ui/dist` in the
 # binary, so the bundle is built before cargo runs.
 FROM node:26-slim@sha256:ec7758ee051e457b468b32bde57b0879010b325bb9862718e9615225ce4aaae1 AS ui
-WORKDIR /src/ui
-COPY ui/package.json ui/package-lock.json ./
-RUN npm ci
+COPY --from=pnpm /out/pnpm /usr/local/bin/pnpm
+WORKDIR /src
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+COPY ui/package.json ui/
+RUN pnpm install --frozen-lockfile --filter ./ui
 # The avatar catalogue, the portraits and the model the Agent pages
 # import. They live above `ui/`, so the bundle needs both directories.
-COPY assets/ /src/assets/
-COPY ui/ ./
-RUN npm run build
+COPY assets/ assets/
+COPY ui/ ui/
+RUN pnpm --filter ./ui run build
 
 FROM rust:1-trixie@sha256:a8a5f0a1e5fe7dfe1d352591e4a1c7dd2c08fd70475cae872cf3458ba0df0546 AS build
 RUN apt-get update && apt-get install -y --no-install-recommends \

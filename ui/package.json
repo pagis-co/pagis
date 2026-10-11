@@ -8,7 +8,7 @@
     "typecheck": "tsc --noEmit && tsc --noEmit -p sw",
     "test": "vitest run",
     "api:generate": "cargo run -q -p pagis-server --bin openapi > openapi.json && openapi-typescript openapi.json -o src/api/schema.d.ts",
-    "api:check": "npm run -s api:generate && git diff --exit-code -- openapi.json src/api/schema.d.ts"
+    "api:check": "pnpm run -s api:generate && git diff --exit-code -- openapi.json src/api/schema.d.ts"
   },
   "devDependencies": {
     "@testing-library/react": "^16.3.2",

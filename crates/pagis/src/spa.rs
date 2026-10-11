@@ -3,7 +3,8 @@
 //! administration port. Both are entry points of the one `ui` package
 //! and share its assets, so one build serves both. Release builds embed
 //! the bundle in the binary (rust-embed); debug builds read `ui/dist`
-//! from disk, so `npm run build` output shows without a recompile.
+//! from disk, so the output of `pnpm --filter ./ui run build` shows
+//! without a recompile.
 
 use axum::http::{HeaderValue, StatusCode, Uri, header};
 use axum::response::{Html, IntoResponse, Response};
@@ -25,7 +26,8 @@ const PRODUCT_APP_POLICY: &str = "img-src 'self' data: blob:";
 /// produce one.
 const UNBUILT: &str = "<!doctype html><html><head><title>pagis</title></head>\
 <body><h1>pagis</h1><p>The UI bundle is not built. \
-Run <code>npm ci &amp;&amp; npm run build</code> in <code>ui/</code>, \
+Run <code>pnpm install --frozen-lockfile --filter ./ui &amp;&amp; \
+pnpm --filter ./ui run build</code> at the repository root, \
 then reload this page.</p></body></html>";
 
 /// True when this binary can serve the Product App entry point. Release

@@ -1,0 +1,15 @@
+packages:
+  - ui
+
+# A release that is less than one day old does not install. A compromised
+# release that is pulled soon after its publication does not reach an
+# install.
+minimumReleaseAge: 1440
+
+# The build scripts of the dependencies. A script runs only when its entry
+# is true, and each entry gives its reason.
+allowBuilds:
+  # fsevents ships its macOS binary prebuilt. Its script compiles the
+  # binary again with node-gyp, and the file watchers of Vite and Vitest
+  # work without that.
+  fsevents: false

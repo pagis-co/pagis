@@ -1051,10 +1051,13 @@ fn build_step_name(triple: &str) -> &'static str {
 /// `ui/dist` into the executable (rust-embed), so a stale or missing
 /// bundle would ship as the served UI.
 fn ui_build_action(root: &Path) -> Action {
-    let ui = root.join("ui");
     Action::Run(vec![
-        Cmd::new("npm", &["ci"]).in_dir(ui.clone()),
-        Cmd::new("npm", &["run", "build"]).in_dir(ui),
+        Cmd::new(
+            "pnpm",
+            &["install", "--frozen-lockfile", "--filter", "./ui"],
+        )
+        .in_dir(root),
+        Cmd::new("pnpm", &["--filter", "./ui", "run", "build"]).in_dir(root),
     ])
 }
 

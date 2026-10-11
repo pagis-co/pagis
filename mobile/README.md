@@ -178,7 +178,8 @@ takes `https://` only.
 1. Start a daemon from the repository root:
 
    ```bash
-   (cd ui && npm ci && npm run build)
+   pnpm install --frozen-lockfile --filter ./ui
+   pnpm --filter ./ui run build
    cargo run -p pagis -- --local
    ```
 

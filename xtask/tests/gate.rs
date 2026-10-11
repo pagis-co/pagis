@@ -18,7 +18,7 @@ use crate::support::workspace_root;
 /// The steps of the advisory checks.
 const ADVISORY_STEPS: [&str; 6] = [
     "cargo-deny",
-    "ui-npm-audit",
+    "ui-audit",
     "desktop-npm-audit",
     "docs-site-npm-audit",
     "mobile-npm-audit",
@@ -1027,24 +1027,30 @@ fn plan_runs_the_desktop_steps_whose_scripts_are_declared() {
     }
 }
 
+/// pnpm installs the Product App from the root of the workspace on each
+/// run. A frozen install that is up to date is quick, and a changed
+/// lockfile then always reaches `node_modules`.
 #[test]
-fn plan_installs_ui_deps_only_while_node_modules_is_missing() {
+fn plan_installs_the_ui_deps_with_pnpm_also_when_node_modules_exists() {
     let tmp = tempfile::tempdir().unwrap();
     write_ui_package_json(tmp.path(), &[]);
-    let steps = plan(tmp.path(), true);
-    let deps = steps.iter().find(|s| s.name == "ui-deps").unwrap();
-    match &deps.action {
-        Action::Run(cmds) => {
-            assert_eq!(cmds[0].program, "npm");
-            assert_eq!(cmds[0].args, ["ci"]);
+    for node_modules in [false, true] {
+        if node_modules {
+            std::fs::create_dir_all(tmp.path().join("ui/node_modules")).unwrap();
         }
-        other => panic!("ui-deps must run without node_modules, got {other:?}"),
+        let steps = plan(tmp.path(), true);
+        let deps = steps.iter().find(|s| s.name == "ui-deps").unwrap();
+        let Action::Run(cmds) = &deps.action else {
+            panic!("ui-deps must run, got {:?}", deps.action);
+        };
+        assert_eq!(cmds.len(), 1);
+        assert_eq!(cmds[0].program, "pnpm");
+        assert_eq!(
+            cmds[0].args,
+            ["install", "--frozen-lockfile", "--filter", "./ui"]
+        );
+        assert_eq!(cmds[0].cwd.as_deref(), Some(tmp.path()));
     }
-
-    std::fs::create_dir_all(tmp.path().join("ui/node_modules")).unwrap();
-    let steps = plan(tmp.path(), true);
-    let deps = steps.iter().find(|s| s.name == "ui-deps").unwrap();
-    assert!(matches!(deps.action, Action::Skip(_)));
 }
 
 #[test]
@@ -1061,12 +1067,9 @@ fn plan_runs_ui_steps_whose_scripts_are_declared() {
         match &step.action {
             Action::Run(cmds) => {
                 assert_eq!(cmds.len(), 1);
-                assert_eq!(cmds[0].program, "npm");
-                assert_eq!(cmds[0].args, ["run", script]);
-                assert_eq!(
-                    cmds[0].cwd.as_deref(),
-                    Some(tmp.path().join("ui")).as_deref()
-                );
+                assert_eq!(cmds[0].program, "pnpm");
+                assert_eq!(cmds[0].args, ["--filter", "./ui", "run", script]);
+                assert_eq!(cmds[0].cwd.as_deref(), Some(tmp.path()));
             }
             other => panic!("step {name} must run, got {other:?}"),
         }
