@@ -811,29 +811,6 @@ fn declares_script(root: &Path, package: &str, script: &str) -> Result<(), Strin
     }
 }
 
-/// Install a package's npm dependencies when they are missing, so the
-/// npm steps work on a fresh checkout.
-fn npm_deps_action(root: &Path, package: &str) -> Action {
-    let dir = root.join(package);
-    if !dir.join("package.json").exists() {
-        return Action::Skip(format!("{package}/ is not present yet"));
-    }
-    if dir.join("node_modules").exists() {
-        return Action::Skip("node_modules present".into());
-    }
-    Action::Run(vec![Cmd::new("npm", &["ci"]).in_dir(dir)])
-}
-
-/// Run an npm script in a package when its `package.json` declares it.
-fn npm_script_action(root: &Path, package: &str, script: &str) -> Action {
-    match declares_script(root, package, script) {
-        Ok(()) => Action::Run(vec![
-            Cmd::new("npm", &["run", script]).in_dir(root.join(package)),
-        ]),
-        Err(reason) => Action::Skip(reason),
-    }
-}
-
 /// The Docker label a test runtime puts on every container, volume and
 /// Tenant Network it creates. It is the same key as
 /// `pagis_computer::TEST_LABEL`. Its value is `<pid>-<nonce>`: the

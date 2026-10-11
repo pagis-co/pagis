@@ -21,7 +21,7 @@ const ADVISORY_STEPS: [&str; 6] = [
     "ui-audit",
     "desktop-audit",
     "docs-site-audit",
-    "mobile-npm-audit",
+    "mobile-audit",
     "image-scan",
 ];
 
@@ -266,26 +266,33 @@ fn the_mobile_steps_run_no_cargo() {
     }
 }
 
-/// The web checks of the Mobile App are its npm scripts, in `mobile/`.
+/// The web checks of the Mobile App are its scripts, which pnpm runs
+/// from the root of the workspace. The install runs on each run.
 #[test]
-fn plan_runs_the_mobile_web_checks_in_the_mobile_package() {
+fn plan_runs_the_mobile_web_checks_from_the_workspace_root() {
     let tmp = tempfile::tempdir().unwrap();
     write_package_json(tmp.path(), "mobile", &["build", "typecheck", "test"]);
+    std::fs::create_dir_all(tmp.path().join("mobile/node_modules")).unwrap();
     let steps = plan(tmp.path(), false);
-    let mobile = tmp.path().join("mobile");
     for (name, args) in [
-        ("mobile-deps", vec!["ci"]),
-        ("mobile-typecheck", vec!["run", "typecheck"]),
-        ("mobile-test", vec!["run", "test"]),
+        (
+            "mobile-deps",
+            vec!["install", "--frozen-lockfile", "--filter", "./mobile"],
+        ),
+        (
+            "mobile-typecheck",
+            vec!["--filter", "./mobile", "run", "typecheck"],
+        ),
+        ("mobile-test", vec!["--filter", "./mobile", "run", "test"]),
     ] {
         let step = steps.iter().find(|s| s.name == name).unwrap();
         let Action::Run(cmds) = &step.action else {
             panic!("{name} must run, got {:?}", step.action);
         };
         assert_eq!(cmds.len(), 1, "{name}");
-        assert_eq!(cmds[0].program, "npm", "{name}");
+        assert_eq!(cmds[0].program, "pnpm", "{name}");
         assert_eq!(cmds[0].args, args, "{name}");
-        assert_eq!(cmds[0].cwd.as_deref(), Some(mobile.as_path()), "{name}");
+        assert_eq!(cmds[0].cwd.as_deref(), Some(tmp.path()), "{name}");
     }
 }
 
@@ -300,6 +307,7 @@ fn a_native_step_syncs_the_native_project_before_its_tests() {
         .flat_map(|lane| lane.steps)
         .collect();
     let mobile = tmp.path().join("mobile");
+    let root = tmp.path();
     let commands = |name: &str| {
         let step = steps.iter().find(|s| s.name == name).unwrap();
         let Action::Run(cmds) = &step.action else {
@@ -310,16 +318,17 @@ fn a_native_step_syncs_the_native_project_before_its_tests() {
 
     let android = commands("mobile-android-test");
     assert_eq!(android.len(), 3, "{android:?}");
+    assert_eq!(android[0].program, "pnpm");
+    assert_eq!(android[0].args, ["--filter", "./mobile", "run", "build"]);
+    assert_eq!(android[1].program, "pnpm");
     assert_eq!(
-        (android[0].program.as_str(), &android[0].args[..]),
-        ("npm", &["run".to_string(), "build".into()][..])
+        android[1].args,
+        ["--filter", "./mobile", "exec", "cap", "sync", "android"]
     );
-    assert_eq!(android[1].program, "npx");
-    assert_eq!(android[1].args, ["cap", "sync", "android"]);
     assert_eq!(android[2].program, "./gradlew");
     assert_eq!(android[2].args, ["testDebugUnitTest"]);
-    assert_eq!(android[0].cwd.as_deref(), Some(mobile.as_path()));
-    assert_eq!(android[1].cwd.as_deref(), Some(mobile.as_path()));
+    assert_eq!(android[0].cwd.as_deref(), Some(root));
+    assert_eq!(android[1].cwd.as_deref(), Some(root));
     assert_eq!(
         android[2].cwd.as_deref(),
         Some(mobile.join("android").as_path())
@@ -327,8 +336,11 @@ fn a_native_step_syncs_the_native_project_before_its_tests() {
 
     let ios = commands("mobile-ios-test");
     assert_eq!(ios.len(), 3, "{ios:?}");
-    assert_eq!(ios[0].args, ["run", "build"]);
-    assert_eq!(ios[1].args, ["cap", "sync", "ios"]);
+    assert_eq!(ios[0].args, ["--filter", "./mobile", "run", "build"]);
+    assert_eq!(
+        ios[1].args,
+        ["--filter", "./mobile", "exec", "cap", "sync", "ios"]
+    );
     let test = ios[2].args.join(" ");
     assert!(
         test.contains("xcrun simctl list devices available --json"),
@@ -1591,11 +1603,11 @@ fn job_needs(block: &str) -> Vec<String> {
 }
 
 /// A `mobile-v*` tag releases the iOS app. The tagged commit passes the
-/// gate, and the lockfile of the Mobile App passes npm audit, before the
+/// gate, and the Mobile App passes pnpm audit, before the
 /// prepare job builds anything. The publication waits for a maintainer
 /// in the `release` environment.
 #[test]
-fn the_mobile_release_runs_the_gate_and_the_npm_audit_before_the_prepare_job() {
+fn the_mobile_release_runs_the_gate_and_the_audit_before_the_prepare_job() {
     let workflow =
         std::fs::read_to_string(workspace_root().join(".github/workflows/mobile-release.yml"))
             .expect("read .github/workflows/mobile-release.yml");
@@ -1607,12 +1619,7 @@ fn the_mobile_release_runs_the_gate_and_the_npm_audit_before_the_prepare_job() {
     let ids: Vec<&str> = jobs.iter().map(|(id, _)| id.as_str()).collect();
     assert_eq!(
         ids,
-        [
-            "gate",
-            "mobile-npm-audit",
-            "mobile-ios",
-            "publish-mobile-ios"
-        ]
+        ["gate", "mobile-audit", "mobile-ios", "publish-mobile-ios"]
     );
     let job = |id: &str| &jobs.iter().find(|(job, _)| job == id).unwrap().1;
 
@@ -1622,15 +1629,15 @@ fn the_mobile_release_runs_the_gate_and_the_npm_audit_before_the_prepare_job() {
         job("gate")
     );
 
-    let audit = job("mobile-npm-audit");
+    let audit = job("mobile-audit");
     assert_eq!(job_needs(audit), ["gate"]);
     assert!(
-        audit.contains("run: cargo xtask advisories mobile-npm-audit\n"),
+        audit.contains("run: cargo xtask advisories mobile-audit\n"),
         "{audit}"
     );
 
     let prepare = job("mobile-ios");
-    assert_eq!(job_needs(prepare), ["gate", "mobile-npm-audit"]);
+    assert_eq!(job_needs(prepare), ["gate", "mobile-audit"]);
     assert!(prepare.contains("    runs-on: macos-latest\n"), "{prepare}");
     assert!(
         prepare.contains("PUSH_RELAY_ORIGIN: https://push.pagis.co\n"),

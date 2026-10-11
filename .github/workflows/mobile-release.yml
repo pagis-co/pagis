@@ -3,8 +3,8 @@
 # each release job stops on a tag that names another version
 # (docs/RELEASING-MOBILE.md):
 #
-# 1. The gate: the CI workflow on the tagged commit, and npm audit of the
-#    lockfile of the Mobile App.
+# 1. The gate: the CI workflow on the tagged commit, and pnpm audit of the
+#    Mobile App.
 # 2. Prepare: the build, the signature and the checks of the exact .ipa,
 #    which the job attests and keeps as the artifact `mobile-ios`.
 # 3. Publish: the upload of that .ipa to App Store Connect. The `release`
@@ -38,8 +38,8 @@ jobs:
 
   # A newly published advisory in a package of the app stops the release
   # before the build.
-  mobile-npm-audit:
-    name: mobile-npm-audit
+  mobile-audit:
+    name: mobile-audit
     needs: gate
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -56,15 +56,17 @@ jobs:
         with:
           cache-on-failure: true
 
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .nvmrc
 
-      - run: cargo xtask advisories mobile-npm-audit
+      - run: cargo xtask advisories mobile-audit
 
   mobile-ios:
     name: prepare the iOS app
-    needs: [gate, mobile-npm-audit]
+    needs: [gate, mobile-audit]
     runs-on: macos-latest
     timeout-minutes: 60
     permissions:
@@ -101,11 +103,13 @@ jobs:
           sudo xcode-select --switch "$xcode"
           xcodebuild -version
 
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .nvmrc
-          cache: npm
-          cache-dependency-path: mobile/package-lock.json
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: write the API key
         run: .github/scripts/write-notary-key.sh

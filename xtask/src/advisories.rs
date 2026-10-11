@@ -1,6 +1,6 @@
 //! The advisory checks. cargo-deny checks the Cargo lockfiles, and pnpm
-//! audit and npm audit check the JavaScript lockfiles against the
-//! published advisories.
+//! audit checks the JavaScript lockfiles against the published
+//! advisories.
 //! Trivy scans the filesystem of each image and of each Server Package
 //! for known vulnerabilities before a publish pushes it. `deny.toml` and
 //! `.trivyignore` hold each reviewed exception with its reason.
@@ -68,7 +68,7 @@ pub fn advisory_lane(root: &Path, target_dir: &Path) -> Lane {
 pub fn published_advisory_lane(root: &Path, target_dir: &Path) -> Lane {
     let mut steps = advisory_lane(root, target_dir).steps;
     steps.push(pnpm_audit_step(root, "docs-site", "docs-site-audit"));
-    steps.push(npm_audit_step(root, "mobile", "mobile-npm-audit"));
+    steps.push(pnpm_audit_step(root, "mobile", "mobile-audit"));
     steps.push(release_image_scan_step(root, target_dir));
     Lane {
         name: "advisories",
@@ -79,7 +79,7 @@ pub fn published_advisory_lane(root: &Path, target_dir: &Path) -> Lane {
 /// The steps of [`published_advisory_lane`] that `names` names, in the
 /// order of the names. A release that ships one package runs the check of
 /// that package alone: the iOS release of the Mobile App runs
-/// `cargo xtask advisories mobile-npm-audit`.
+/// `cargo xtask advisories mobile-audit`.
 pub fn named_advisory_steps(
     root: &Path,
     target_dir: &Path,
@@ -153,25 +153,6 @@ fn pnpm_audit_step(root: &Path, package: &str, name: &'static str) -> Step {
             )
             .in_dir(root),
         ])
-    };
-    Step { name, action }
-}
-
-/// Check the advisories of the npm lockfile of `package` at the high
-/// level. The audit reads the lockfile only, so it needs no
-/// `node_modules`.
-fn npm_audit_step(root: &Path, package: &str, name: &'static str) -> Step {
-    let dir = root.join(package);
-    let action = if dir.join("package-lock.json").exists() {
-        Action::Run(vec![
-            Cmd::new(
-                "npm",
-                &["audit", "--audit-level=high", "--package-lock-only"],
-            )
-            .in_dir(dir),
-        ])
-    } else {
-        Action::Skip(format!("{package}/package-lock.json is not present"))
     };
     Step { name, action }
 }

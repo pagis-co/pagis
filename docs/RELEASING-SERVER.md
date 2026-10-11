@@ -201,8 +201,8 @@ advisories:
 - **pnpm audit** checks `ui/`, which the server bundles, and `desktop/`,
   the Client App, in the lockfile of the pnpm workspace. It checks at the
   high level and reads the lockfile only. No release artifact holds the
-  docs site, so only the daily check audits `docs-site/`, with pnpm audit
-  over the same lockfile.
+  docs site or the Mobile App, so only the daily check audits
+  `docs-site/` and `mobile/`, with pnpm audit over the same lockfile.
 - **Trivy** scans the filesystem of the Computer Image, of the Headless
   Server image and of each Server Package with its vulnerability scanner
   only, because gitleaks is the secret scan. The scan fails on a finding
@@ -220,8 +220,9 @@ not block an unrelated pull request. They run in these places:
   published. `cargo xtask image` and `cargo xtask server-image` scan each
   image in the same way.
 - `.github/workflows/advisories.yml` runs `cargo xtask advisories` each
-  day and on a manual request. It runs cargo-deny, pnpm audit and npm
-  audit over the lockfiles of main, the docs site included, and Trivy over the Computer Image and the Headless
+  day and on a manual request. It runs cargo-deny and pnpm audit
+  over the lockfiles of main, the docs site and the Mobile App included,
+  and Trivy over the Computer Image and the Headless
   Server image of the latest release, for both architectures. The Runtime
   Lock of the release names its Computer Image. When a check fails, the
   workflow opens an issue that names each advisory in the output of the

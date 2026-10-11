@@ -1,6 +1,7 @@
 packages:
   - ui
   - desktop
+  - mobile
   - docs-site
 
 # A release that is less than one day old does not install. A compromised

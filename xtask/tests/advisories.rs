@@ -111,7 +111,7 @@ fn the_published_advisory_lane_scans_the_images_of_the_latest_release() {
             "ui-audit",
             "desktop-audit",
             "docs-site-audit",
-            "mobile-npm-audit",
+            "mobile-audit",
             "release-image-scan"
         ]
     );
@@ -135,25 +135,26 @@ fn the_published_advisory_lane_scans_the_images_of_the_latest_release() {
 
 /// A release that ships one package checks the lockfile of that package
 /// alone: the iOS release of the Mobile App runs
-/// `cargo xtask advisories mobile-npm-audit`.
+/// `cargo xtask advisories mobile-audit`.
 #[test]
 fn a_named_advisory_step_runs_alone() {
     let tmp = tempfile::tempdir().unwrap();
-    write(tmp.path(), "mobile/package-lock.json", "{}");
-    let steps = named_advisory_steps(tmp.path(), target(), &["mobile-npm-audit".into()]).unwrap();
+    write(tmp.path(), "pnpm-lock.yaml", "lockfileVersion: '9.0'\n");
+    write(tmp.path(), "mobile/package.json", "{}");
+    let steps = named_advisory_steps(tmp.path(), target(), &["mobile-audit".into()]).unwrap();
     let names: Vec<&str> = steps.iter().map(|step| step.name).collect();
-    assert_eq!(names, ["mobile-npm-audit"]);
+    assert_eq!(names, ["mobile-audit"]);
     assert!(matches!(steps[0].action, Action::Run(_)));
 }
 
 #[test]
 fn a_name_that_is_not_an_advisory_step_is_refused_with_the_step_names() {
     let tmp = tempfile::tempdir().unwrap();
-    let error = named_advisory_steps(tmp.path(), target(), &["mobile-audit".into()])
+    let error = named_advisory_steps(tmp.path(), target(), &["mobile-npm-audit".into()])
         .unwrap_err()
         .to_string();
+    assert!(error.contains("`mobile-npm-audit`"), "{error}");
     assert!(error.contains("mobile-audit"), "{error}");
-    assert!(error.contains("mobile-npm-audit"), "{error}");
 }
 
 // --- cargo-deny ---
@@ -201,41 +202,6 @@ fn cargo_deny_checks_the_two_lockfiles_with_the_pinned_binary() {
     }
 }
 
-// --- npm audit ---
-
-#[test]
-fn npm_audit_reads_the_lockfile_of_the_mobile_app_at_the_high_level() {
-    let tmp = tempfile::tempdir().unwrap();
-    write(tmp.path(), "mobile/package.json", "{}");
-    write(tmp.path(), "mobile/package-lock.json", "{}");
-    let lane = published_advisory_lane(tmp.path(), target());
-
-    let Action::Run(cmds) = &step(&lane, "mobile-npm-audit").action else {
-        panic!("mobile-npm-audit must run");
-    };
-    assert_eq!(cmds.len(), 1);
-    assert_eq!(cmds[0].program, "npm");
-    // The audit reads the lockfile only, so it needs no node_modules.
-    assert_eq!(
-        cmds[0].args,
-        ["audit", "--audit-level=high", "--package-lock-only"]
-    );
-    assert_eq!(
-        cmds[0].cwd.as_deref(),
-        Some(tmp.path().join("mobile").as_path())
-    );
-}
-
-#[test]
-fn npm_audit_skips_the_mobile_app_without_a_lockfile() {
-    let tmp = tempfile::tempdir().unwrap();
-    let lane = published_advisory_lane(tmp.path(), target());
-    assert!(
-        matches!(step(&lane, "mobile-npm-audit").action, Action::Skip(_)),
-        "mobile-npm-audit must skip without a lockfile"
-    );
-}
-
 // --- pnpm audit ---
 
 /// pnpm audits a project of the workspace from the root, where the one
@@ -245,12 +211,16 @@ fn npm_audit_skips_the_mobile_app_without_a_lockfile() {
 fn pnpm_audit_reads_the_workspace_lockfile_at_the_high_level() {
     let tmp = tempfile::tempdir().unwrap();
     write(tmp.path(), "pnpm-lock.yaml", "lockfileVersion: '9.0'\n");
-    for package in ["ui", "desktop"] {
+    for package in ["ui", "desktop", "mobile"] {
         write(tmp.path(), &format!("{package}/package.json"), "{}");
     }
     let lane = published_advisory_lane(tmp.path(), target());
 
-    for (name, filter) in [("ui-audit", "./ui"), ("desktop-audit", "./desktop")] {
+    for (name, filter) in [
+        ("ui-audit", "./ui"),
+        ("desktop-audit", "./desktop"),
+        ("mobile-audit", "./mobile"),
+    ] {
         let Action::Run(cmds) = &step(&lane, name).action else {
             panic!("{name} must run");
         };
@@ -286,11 +256,11 @@ fn docs_site_audit_reads_the_workspace_lockfile_filtered_to_the_site() {
 #[test]
 fn pnpm_audit_skips_without_the_workspace_lockfile() {
     let tmp = tempfile::tempdir().unwrap();
-    for package in ["ui", "desktop"] {
+    for package in ["ui", "desktop", "mobile"] {
         write(tmp.path(), &format!("{package}/package.json"), "{}");
     }
     let lane = published_advisory_lane(tmp.path(), target());
-    for name in ["ui-audit", "desktop-audit"] {
+    for name in ["ui-audit", "desktop-audit", "mobile-audit"] {
         assert!(
             matches!(step(&lane, name).action, Action::Skip(_)),
             "{name}"

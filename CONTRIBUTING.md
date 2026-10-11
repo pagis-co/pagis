@@ -75,8 +75,8 @@ containers.
 `pnpm --filter ./ui run typecheck` and `pnpm --filter ./ui run test` check
 the TypeScript code of the Product App, and `pnpm --filter ./desktop run
 typecheck` and `pnpm --filter ./desktop run test` the code of the Client
-App. In `mobile/`, `npm run typecheck` and `npm test` check the TypeScript
-code. `pnpm --filter ./docs-site run typecheck` and
+App. `--filter ./mobile` does the same for the Mobile App.
+`pnpm --filter ./docs-site run typecheck` and
 `pnpm --filter ./docs-site run test` check the documentation site,
 `pnpm --filter ./docs-site run build` compiles and exports each page, and
 `pnpm --filter ./docs-site run test:export` serves the export as Cloudflare
@@ -147,7 +147,7 @@ Mobile App whose toolchain is absent, and `step` fails it. The gate steps are:
 | `desktop-deps`, `desktop-typecheck`, `desktop-test` | The Client App |
 | `docs-site-deps`, `docs-site-typecheck`, `docs-site-test`, `docs-site-build`, `docs-site-export` | The documentation site, and its export as Cloudflare serves it |
 | `mobile-deps`, `mobile-typecheck`, `mobile-test` | The web part of the Mobile App |
-| `mobile-android-test`, `mobile-ios-test` | The JUnit tests and the XCTest tests of the Mobile App, after `npx cap sync` |
+| `mobile-android-test`, `mobile-ios-test` | The JUnit tests and the XCTest tests of the Mobile App, after `cap sync` |
 | `secret-scan` | gitleaks over the tracked files |
 
 The checks download the pinned gitleaks, `gog`, cargo-deny and Trivy
@@ -155,8 +155,8 @@ into the Cargo target directory, and check the SHA-256 of each archive.
 `.gitleaks.toml` holds each secret scan exception with its reason.
 
 `advisories` runs cargo-deny over the Cargo lockfiles, pnpm audit over the
-pnpm lockfile, npm audit over the npm lockfiles (the Mobile App
-included), and Trivy over the images of the latest release. The gate
+pnpm lockfile (the Mobile App included), and Trivy over the images of
+the latest release. The gate
 does not run these checks, so a newly published advisory does not block
 an unrelated pull request. A daily workflow and each release run them.
 `deny.toml` and `.trivyignore` hold each reviewed exception with its

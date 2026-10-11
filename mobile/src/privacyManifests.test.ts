@@ -76,7 +76,7 @@ function categoriesIn(texts: string[]): string[] {
 }
 
 /** The local Swift packages of the Capacitor plugins, from the package
- *  that `npx cap sync ios` writes. */
+ *  that `cap sync ios` writes. */
 function pluginPackages(): string[] {
   const manifest = readFileSync(resolve(ios, 'CapApp-SPM/Package.swift'), 'utf8')
   return [...manifest.matchAll(/\.package\(name: "[^"]+", path: "([^"]+)"\)/g)].map((match) =>
