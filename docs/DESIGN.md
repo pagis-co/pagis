@@ -100,8 +100,11 @@ body, and maps a byte stream to a `StreamEvent` stream. The router owns the shar
   a request timeout for a non-streaming call, a first-event timeout that
   falls through, and an idle timeout that surfaces in band.
 - **Reasoning.** One `reasoning` parameter maps to `reasoning_effort` on
-  openai-chat and to a thinking budget on anthropic-messages. Reasoning
-  parts and stream events round-trip their thinking signatures.
+  openai-chat. On anthropic-messages it maps to adaptive thinking with
+  `output_config.effort` for a Claude model from 4.6 on, and to a
+  thinking-token budget for an earlier Claude model or a model that is
+  not Claude. Reasoning parts and stream events round-trip their
+  thinking signatures.
   `CachePolicy::Auto` hints at the system message, the last tool and the
   last message.
 - **Cost.** A model metadata registry (`models.json`, curated and

@@ -104,10 +104,17 @@ impl Protocol for AnthropicMessages {
         }
 
         let auto_cache = req.cache == CachePolicy::Auto;
-        let thinking_budget = req.reasoning.as_ref().map(thinking_budget);
+        let thinking = req.reasoning.as_ref().map(|reasoning| {
+            if adaptive_thinking(model) {
+                Thinking::Adaptive(crate::protocol::openai::effort_name(reasoning))
+            } else {
+                Thinking::Budget(thinking_budget(reasoning))
+            }
+        });
         // The API requires max_tokens greater than the thinking budget.
+        // Adaptive thinking shares max_tokens with the answer.
         let mut max_tokens = req.max_tokens.unwrap_or(DEFAULT_MAX_TOKENS);
-        if let Some(budget) = thinking_budget {
+        if let Some(Thinking::Budget(budget)) = thinking {
             max_tokens = max_tokens.max(budget + DEFAULT_MAX_TOKENS);
         }
 
@@ -136,11 +143,16 @@ impl Protocol for AnthropicMessages {
                 obj.insert("system".into(), json!(system));
             }
         }
-        if let Some(budget) = thinking_budget {
-            obj.insert(
-                "thinking".into(),
-                json!({"type": "enabled", "budget_tokens": budget}),
-            );
+        let mut output_config = Map::new();
+        if let Some(thinking) = thinking {
+            let wire = match thinking {
+                Thinking::Adaptive(effort) => {
+                    output_config.insert("effort".into(), json!(effort));
+                    json!({"type": "adaptive"})
+                }
+                Thinking::Budget(budget) => json!({"type": "enabled", "budget_tokens": budget}),
+            };
+            obj.insert("thinking".into(), wire);
         } else {
             // The API rejects sampling params when thinking is on.
             if let Some(t) = req.temperature {
@@ -197,15 +209,16 @@ impl Protocol for AnthropicMessages {
             obj.insert("tool_choice".into(), value);
         }
         if let Some(format) = &req.output_schema {
-            obj.insert(
-                "output_config".into(),
+            output_config.insert(
+                "format".into(),
                 json!({
-                    "format": {
-                        "type": "json_schema",
-                        "schema": format.schema,
-                    }
+                    "type": "json_schema",
+                    "schema": format.schema,
                 }),
             );
+        }
+        if !output_config.is_empty() {
+            obj.insert("output_config".into(), Value::Object(output_config));
         }
         if stream {
             obj.insert("stream".into(), json!(true));
@@ -555,6 +568,42 @@ impl Meter for MessagesMeter {
     fn finish(self: Box<Self>) -> (Option<String>, Option<Usage>) {
         (self.model, self.usage)
     }
+}
+
+/// How a request thinks on the wire.
+#[derive(Clone, Copy)]
+enum Thinking {
+    /// `thinking: {type: "adaptive"}` with `output_config.effort`.
+    Adaptive(&'static str),
+    /// `thinking: {type: "enabled", budget_tokens}`.
+    Budget(u32),
+}
+
+/// The Claude models before 4.6, by id prefix. They take a thinking-token
+/// budget and no adaptive thinking. Every later Claude model takes
+/// adaptive thinking, and the models from 4.7 on refuse a budget.
+const BUDGET_THINKING_MODELS: &[&str] = &[
+    "claude-2",
+    "claude-3",
+    "claude-instant",
+    "claude-opus-4-0",
+    "claude-opus-4-1",
+    "claude-opus-4-5",
+    "claude-opus-4-2025",
+    "claude-sonnet-4-0",
+    "claude-sonnet-4-5",
+    "claude-sonnet-4-2025",
+    "claude-haiku-4-5",
+];
+
+/// Whether `model` thinks adaptively: a Claude model from 4.6 on. A model
+/// that is not Claude, such as one behind a compatible server, keeps the
+/// budget form.
+fn adaptive_thinking(model: &str) -> bool {
+    model.starts_with("claude-")
+        && !BUDGET_THINKING_MODELS
+            .iter()
+            .any(|prefix| model.starts_with(prefix))
 }
 
 /// The thinking-token budget: an explicit budget wins; an effort level

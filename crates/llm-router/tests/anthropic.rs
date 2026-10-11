@@ -2,11 +2,12 @@
 
 use crate::common;
 
-use common::single_provider_router;
+use common::{model_router, single_provider_router};
 use futures::StreamExt;
 use llm_router::{
     CachePolicy, ChatRequest, ContentPart, Error, ErrorKind, FinishReason, JsonSchemaFormat,
-    Message, ProtocolKind, ReasoningConfig, StreamEvent, Tool, ToolCall, ToolChoice,
+    Message, ProtocolKind, ReasoningConfig, ReasoningEffort, StreamEvent, Tool, ToolCall,
+    ToolChoice,
 };
 use serde_json::{Value, json};
 use wiremock::matchers::{header, method, path};
@@ -368,6 +369,92 @@ async fn reasoning_maps_to_thinking_and_round_trips_signatures() {
     assert_eq!(sent["messages"][1]["content"][0]["signature"], "sig123");
     // Effort-only reasoning converts to a default budget.
     assert_eq!(sent["thinking"]["budget_tokens"], 4096);
+}
+
+/// The body that the alias `m` on `model` sends for `req`.
+async fn sent_for(model: &str, req: &ChatRequest) -> Value {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ok_response())
+        .mount(&server)
+        .await;
+    let router = model_router(ProtocolKind::AnthropicMessages, &server.uri(), model);
+    router.chat(req).await.unwrap();
+    server.received_requests().await.unwrap()[0]
+        .body_json()
+        .unwrap()
+}
+
+/// A Claude model from 4.6 on thinks adaptively at an effort level: the
+/// models from 4.7 on refuse a thinking-token budget with a 400.
+#[tokio::test]
+async fn reasoning_on_a_current_claude_model_thinks_adaptively() {
+    let mut req = ChatRequest::new("m", vec![Message::user("2+2?")]);
+    req.max_tokens = Some(16_000);
+    req.temperature = Some(0.2);
+    req.reasoning = Some(ReasoningConfig {
+        effort: Some(ReasoningEffort::High),
+        max_tokens: None,
+    });
+
+    for model in ["claude-sonnet-5-5", "claude-opus-4-6", "claude-haiku-5-5"] {
+        let sent = sent_for(model, &req).await;
+        assert_eq!(sent["thinking"], json!({"type": "adaptive"}), "{model}");
+        assert_eq!(sent["output_config"], json!({"effort": "high"}), "{model}");
+        // The thinking shares max_tokens, so it stays as the caller set it.
+        assert_eq!(sent["max_tokens"], 16_000, "{model}");
+        assert!(sent.get("temperature").is_none(), "{model}");
+    }
+}
+
+/// A token budget on a current Claude model converts to the effort level
+/// of its size, and the effort joins a structured-output format.
+#[tokio::test]
+async fn a_budget_on_a_current_claude_model_converts_to_an_effort() {
+    let mut req = ChatRequest::new("m", vec![Message::user("2+2?")]);
+    req.reasoning = Some(ReasoningConfig {
+        effort: None,
+        max_tokens: Some(1024),
+    });
+    req.output_schema = Some(JsonSchemaFormat {
+        name: "answer".into(),
+        description: None,
+        schema: json!({"type": "object"}),
+    });
+
+    let sent = sent_for("claude-opus-5-5", &req).await;
+
+    assert_eq!(sent["thinking"], json!({"type": "adaptive"}));
+    assert_eq!(sent["output_config"]["effort"], "low");
+    assert_eq!(sent["output_config"]["format"]["type"], "json_schema");
+    assert!(sent["thinking"].get("budget_tokens").is_none());
+}
+
+/// A Claude model before 4.6 takes no adaptive thinking: it keeps the
+/// thinking-token budget.
+#[tokio::test]
+async fn reasoning_on_an_earlier_claude_model_keeps_a_token_budget() {
+    let mut req = ChatRequest::new("m", vec![Message::user("2+2?")]);
+    req.reasoning = Some(ReasoningConfig {
+        effort: Some(ReasoningEffort::Low),
+        max_tokens: None,
+    });
+
+    for model in [
+        "claude-haiku-4-5",
+        "claude-sonnet-4-5-20250929",
+        "claude-opus-4-1",
+        "claude-sonnet-4-20250514",
+        "claude-3-7-sonnet-latest",
+    ] {
+        let sent = sent_for(model, &req).await;
+        assert_eq!(
+            sent["thinking"],
+            json!({"type": "enabled", "budget_tokens": 1024}),
+            "{model}"
+        );
+        assert!(sent.get("output_config").is_none(), "{model}");
+    }
 }
 
 #[tokio::test]

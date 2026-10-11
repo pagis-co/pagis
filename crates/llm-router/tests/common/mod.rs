@@ -6,9 +6,14 @@ use llm_router::{Candidate, ProtocolKind, ProviderConfig, RetryConfig, Router, R
 /// maps to `concrete-model` on that provider. Retries are off so error tests
 /// stay deterministic and fast.
 pub fn single_provider_router(kind: ProtocolKind, base_url: &str) -> Router {
+    model_router(kind, base_url, "concrete-model")
+}
+
+/// [`single_provider_router`] with the alias `m` mapped to `model`.
+pub fn model_router(kind: ProtocolKind, base_url: &str, model: &str) -> Router {
     let config = RouterConfig::new()
         .provider("p", ProviderConfig::new(kind, base_url, "test-key"))
-        .model("m", [Candidate::new("p", "concrete-model")])
+        .model("m", [Candidate::new("p", model)])
         .retry(RetryConfig {
             max_attempts: 1,
             initial_backoff: Duration::from_millis(1),
