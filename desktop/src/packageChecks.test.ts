@@ -24,13 +24,110 @@ function temporary(): string {
 }
 
 /** Run a check script, and answer its error output, or null when it passed. */
-function check(script: string, args: string[], scripts = SCRIPTS): string | null {
+function check(script: string, args: string[], scripts = SCRIPTS, env = process.env): string | null {
   try {
-    execFileSync(process.execPath, [path.join(scripts, script), ...args], { stdio: 'pipe' })
+    execFileSync(process.execPath, [path.join(scripts, script), ...args], { stdio: 'pipe', env })
     return null
   } catch (error) {
     return String((error as { stderr: Buffer }).stderr)
   }
+}
+
+/** A production dependency as `pnpm list --json` gives it, and the
+ *  optional peers that its package.json declares. */
+type Dependency = { version: string; optionalPeers?: string[]; dependencies?: Record<string, Dependency> }
+
+/**
+ * The production dependencies of the fixture app, as the real tree has
+ * them. electron-updater needs another semver than the app, so the packed
+ * app holds that semver below electron-updater. supports-color is an
+ * optional peer of debug: pnpm lists it because a development dependency
+ * resolves it, and electron-builder does not pack it.
+ */
+const PRODUCTION: Record<string, Dependency> = {
+  'electron-updater': {
+    version: '6.8.10',
+    dependencies: {
+      'builder-util-runtime': {
+        version: '9.7.0',
+        dependencies: {
+          debug: {
+            version: '4.4.3',
+            optionalPeers: ['supports-color'],
+            dependencies: {
+              ms: { version: '2.1.3' },
+              'supports-color': { version: '7.2.0', dependencies: { 'has-flag': { version: '4.0.0' } } },
+            },
+          },
+          sax: { version: '1.6.1' },
+        },
+      },
+      semver: { version: '7.7.4' },
+    },
+  },
+  semver: { version: '7.8.5' },
+}
+
+/** The `node_modules` of the fixture app archive, as electron-builder
+ *  writes it: the archive path of each package, and its version. */
+const PACKED: Record<string, string> = {
+  'node_modules/electron-updater': '6.8.10',
+  'node_modules/electron-updater/node_modules/semver': '7.7.4',
+  'node_modules/builder-util-runtime': '9.7.0',
+  'node_modules/debug': '4.4.3',
+  'node_modules/ms': '2.1.3',
+  'node_modules/sax': '1.6.1',
+  'node_modules/semver': '7.8.5',
+}
+
+function writePacked(source: string, packed: Record<string, string>) {
+  for (const [directory, version] of Object.entries(packed)) {
+    fs.mkdirSync(path.join(source, directory), { recursive: true })
+    fs.writeFileSync(
+      path.join(source, directory, 'package.json'),
+      JSON.stringify({ name: path.posix.basename(directory), version }),
+    )
+  }
+}
+
+/**
+ * An environment whose `pnpm` answers the production dependencies of the
+ * Client App with `PRODUCTION`. It answers only the exact command of the
+ * check, which runs at the repository root. Each package of the tree has
+ * the `path` of its package.json, as pnpm gives it.
+ */
+function pnpmEnvironment(): NodeJS.ProcessEnv {
+  const bin = temporary()
+  const listed = (name: string, { version, optionalPeers = [], dependencies = {} }: Dependency): object => {
+    const directory = path.join(bin, 'packages', `${name}@${version}`)
+    fs.mkdirSync(directory, { recursive: true })
+    fs.writeFileSync(path.join(directory, 'package.json'), JSON.stringify({
+      name,
+      version,
+      peerDependencies: Object.fromEntries(optionalPeers.map((peer) => [peer, '*'])),
+      peerDependenciesMeta: Object.fromEntries(optionalPeers.map((peer) => [peer, { optional: true }])),
+    }))
+    return { version, path: directory, dependencies: tree(dependencies) }
+  }
+  const tree = (dependencies: Record<string, Dependency>) =>
+    Object.fromEntries(Object.entries(dependencies).map(([name, dependency]) => [name, listed(name, dependency)]))
+  const project = listed('pagis-desktop', { version: '1.2.3', dependencies: PRODUCTION })
+  const treeFile = path.join(bin, 'tree.json')
+  fs.writeFileSync(treeFile, JSON.stringify([{ name: 'pagis-desktop', ...project }]))
+  fs.writeFileSync(
+    path.join(bin, 'pnpm'),
+    [
+      '#!/bin/sh',
+      'if [ "$*" = "list --prod --depth Infinity --json --filter ./desktop" ] && [ -f desktop/scripts/check-package.mjs ]; then',
+      `  exec cat '${treeFile}'`,
+      'fi',
+      'echo "unexpected pnpm $* in $(pwd)" >&2',
+      'exit 1',
+      '',
+    ].join('\n'),
+    { mode: 0o755 },
+  )
+  return { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}` }
 }
 
 /**
@@ -159,7 +256,7 @@ describe('the Update feed of a Linux architecture', () => {
 })
 
 describe('the inventory of the packaged app', () => {
-  async function packagedApp(updateConfig: string | null): Promise<string[]> {
+  async function packagedApp(updateConfig: string | null, packed = PACKED): Promise<string[]> {
     const root = temporary()
     const source = path.join(root, 'source')
     for (const name of ['static/trayTemplate.png', 'static/trayTemplate@2x.png', 'dist/design/tokens.css',
@@ -167,6 +264,7 @@ describe('the inventory of the packaged app', () => {
       fs.mkdirSync(path.dirname(path.join(source, name)), { recursive: true })
       fs.writeFileSync(path.join(source, name), name)
     }
+    writePacked(source, packed)
     const app = path.join(root, 'Pagis.app')
     const resources = path.join(app, 'Contents', 'Resources')
     fs.mkdirSync(resources, { recursive: true })
@@ -188,6 +286,7 @@ describe('the inventory of the packaged app', () => {
       fs.mkdirSync(path.dirname(path.join(source, name)), { recursive: true })
       fs.writeFileSync(path.join(source, name), name)
     }
+    writePacked(source, PACKED)
     const app = path.join(root, 'linux-unpacked')
     const resources = path.join(app, 'resources')
     fs.mkdirSync(resources, { recursive: true })
@@ -200,10 +299,10 @@ describe('the inventory of the packaged app', () => {
     return [app, ...packages]
   }
 
-  it('accepts an app with its app-update.yml', async () => {
-    const config = 'owner: pagis-co\nrepo: pagis\nprovider: github\nupdaterCacheDirName: pagis-desktop-updater\n'
+  const CONFIG = 'owner: pagis-co\nrepo: pagis\nprovider: github\nupdaterCacheDirName: pagis-desktop-updater\n'
 
-    expect(check('check-package.mjs', await packagedApp(config))).toBeNull()
+  it('accepts an app with its app-update.yml and its production dependencies', async () => {
+    expect(check('check-package.mjs', await packagedApp(CONFIG), SCRIPTS, pnpmEnvironment())).toBeNull()
   })
 
   /** The Linux package embeds the public Update Key, which checks the
@@ -211,14 +310,14 @@ describe('the inventory of the packaged app', () => {
   it('accepts a Linux app that holds the Update Key of the repository', async () => {
     const { publicPem } = updateKeyPair()
 
-    expect(check('check-package.mjs', await linuxApp(publicPem), repository(publicPem))).toBeNull()
+    expect(check('check-package.mjs', await linuxApp(publicPem), repository(publicPem), pnpmEnvironment())).toBeNull()
   })
 
   it('refuses a Linux app with no Update Key, or with another key', async () => {
     const scripts = repository(updateKeyPair().publicPem)
 
-    expect(check('check-package.mjs', await linuxApp(null), scripts)).toContain('update-key.pem')
-    expect(check('check-package.mjs', await linuxApp(updateKeyPair().publicPem), scripts)).toContain(
+    expect(check('check-package.mjs', await linuxApp(null), scripts, pnpmEnvironment())).toContain('update-key.pem')
+    expect(check('check-package.mjs', await linuxApp(updateKeyPair().publicPem), scripts, pnpmEnvironment())).toContain(
       'the update-key.pem of the client package is not docs/update-key.pem',
     )
   })
@@ -230,14 +329,36 @@ describe('the inventory of the packaged app', () => {
     const rsa = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 }).publicKey
       .export({ type: 'spki', format: 'pem' }) as string
     for (const key of [privatePem, rsa]) {
-      expect(check('check-package.mjs', await linuxApp(key), repository(key))).toContain(
+      expect(check('check-package.mjs', await linuxApp(key), repository(key), pnpmEnvironment())).toContain(
         'docs/update-key.pem is not an Ed25519 public key in SPKI PEM',
       )
     }
   })
 
+  /** A missing dependency of electron-updater breaks Updates only on the
+   *  machine of a person, so the packaging finds it. */
+  it('refuses an app archive that leaves out a production dependency', async () => {
+    const { 'node_modules/builder-util-runtime': _left, ...packed } = PACKED
+
+    expect(check('check-package.mjs', await packagedApp(CONFIG, packed), SCRIPTS, pnpmEnvironment())).toContain(
+      'the client app archive has no builder-util-runtime@9.7.0',
+    )
+  })
+
+  /** Each package must be in the archive at the version that pnpm
+   *  resolved for it, also when two packages need two versions of it. */
+  it('refuses an app archive that holds another version of a production dependency', async () => {
+    const { 'node_modules/electron-updater/node_modules/semver': _left, ...packed } = PACKED
+
+    expect(check('check-package.mjs', await packagedApp(CONFIG, packed), SCRIPTS, pnpmEnvironment())).toContain(
+      'the client app archive has no semver@7.7.4',
+    )
+  })
+
   /** electron-updater reads the name of its download cache from it. */
   it('refuses an app with no app-update.yml', async () => {
-    expect(check('check-package.mjs', await packagedApp(null))).toContain('the client package has no app-update.yml')
+    expect(check('check-package.mjs', await packagedApp(null), SCRIPTS, pnpmEnvironment())).toContain(
+      'the client package has no app-update.yml',
+    )
   })
 })

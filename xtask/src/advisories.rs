@@ -55,7 +55,7 @@ pub fn advisory_lane(root: &Path, target_dir: &Path) -> Lane {
         steps: vec![
             cargo_deny_step(root, target_dir),
             pnpm_audit_step(root, "ui", "ui-audit"),
-            npm_audit_step(root, "desktop", "desktop-npm-audit"),
+            pnpm_audit_step(root, "desktop", "desktop-audit"),
         ],
     }
 }
@@ -67,7 +67,7 @@ pub fn advisory_lane(root: &Path, target_dir: &Path) -> Lane {
 /// Mobile App, so [`advisory_lane`] does not check it.
 pub fn published_advisory_lane(root: &Path, target_dir: &Path) -> Lane {
     let mut steps = advisory_lane(root, target_dir).steps;
-    steps.push(npm_audit_step(root, "docs-site", "docs-site-npm-audit"));
+    steps.push(pnpm_audit_step(root, "docs-site", "docs-site-audit"));
     steps.push(pnpm_audit_step(root, "mobile", "mobile-audit"));
     steps.push(release_image_scan_step(root, target_dir));
     Lane {

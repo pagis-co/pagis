@@ -238,15 +238,15 @@ fn gate_lanes(
         },
         Step {
             name: "desktop-deps",
-            action: npm_deps_action(root, "desktop"),
+            action: pnpm_deps_action(root, "desktop"),
         },
         Step {
             name: "desktop-typecheck",
-            action: npm_script_action(root, "desktop", "typecheck"),
+            action: pnpm_script_action(root, "desktop", "typecheck"),
         },
         Step {
             name: "desktop-test",
-            action: npm_script_action(root, "desktop", "test"),
+            action: pnpm_script_action(root, "desktop", "test"),
         },
     ];
     node.extend(docs_site_steps(root));
@@ -587,15 +587,15 @@ pub fn dev_lanes(
         node_steps.extend([
             Step {
                 name: "desktop-deps",
-                action: npm_deps_action(root, "desktop"),
+                action: pnpm_deps_action(root, "desktop"),
             },
             Step {
                 name: "desktop-typecheck",
-                action: npm_script_action(root, "desktop", "typecheck"),
+                action: pnpm_script_action(root, "desktop", "typecheck"),
             },
             Step {
                 name: "desktop-test",
-                action: npm_script_action(root, "desktop", "test"),
+                action: pnpm_script_action(root, "desktop", "test"),
             },
         ]);
     }
@@ -645,23 +645,23 @@ fn docs_site_steps(root: &Path) -> [Step; 5] {
     [
         Step {
             name: "docs-site-deps",
-            action: npm_deps_action(root, "docs-site"),
+            action: pnpm_deps_action(root, "docs-site"),
         },
         Step {
             name: "docs-site-typecheck",
-            action: npm_script_action(root, "docs-site", "typecheck"),
+            action: pnpm_script_action(root, "docs-site", "typecheck"),
         },
         Step {
             name: "docs-site-test",
-            action: npm_script_action(root, "docs-site", "test"),
+            action: pnpm_script_action(root, "docs-site", "test"),
         },
         Step {
             name: "docs-site-build",
-            action: npm_script_action(root, "docs-site", "build"),
+            action: pnpm_script_action(root, "docs-site", "build"),
         },
         Step {
             name: "docs-site-export",
-            action: npm_script_action(root, "docs-site", "test:export"),
+            action: pnpm_script_action(root, "docs-site", "test:export"),
         },
     ]
 }

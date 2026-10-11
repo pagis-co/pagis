@@ -1,6 +1,6 @@
 # The daily advisory check. It runs `cargo xtask advisories`: cargo-deny
-# over the Cargo lockfiles, pnpm audit and npm audit over the JavaScript
-# lockfiles of main, and Trivy over the Computer Image and the Headless
+# over the Cargo lockfiles, pnpm audit over the JavaScript lockfiles of
+# main, and Trivy over the Computer Image and the Headless
 # Server image of the latest release. When a check fails, it opens an issue that names each
 # advisory in the output of the failed checks. When an open issue of this
 # workflow exists, it adds a comment to that issue instead.

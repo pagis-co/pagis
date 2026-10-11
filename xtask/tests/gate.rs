@@ -19,8 +19,8 @@ use crate::support::workspace_root;
 const ADVISORY_STEPS: [&str; 6] = [
     "cargo-deny",
     "ui-audit",
-    "desktop-npm-audit",
-    "docs-site-npm-audit",
+    "desktop-audit",
+    "docs-site-audit",
     "mobile-audit",
     "image-scan",
 ];
@@ -991,8 +991,10 @@ fn plan_skips_docs_site_steps_when_docs_site_is_absent() {
     }
 }
 
+/// pnpm installs and runs the documentation site from the root of the
+/// workspace, with a filter that selects the site.
 #[test]
-fn plan_runs_the_docs_site_steps_whose_scripts_are_declared() {
+fn plan_runs_each_docs_site_step_with_pnpm_filtered_to_the_site() {
     let tmp = tempfile::tempdir().unwrap();
     write_package_json(
         tmp.path(),
@@ -1000,22 +1002,54 @@ fn plan_runs_the_docs_site_steps_whose_scripts_are_declared() {
         &["typecheck", "test", "build", "test:export"],
     );
     let steps = plan(tmp.path(), true);
-    for (name, script) in [
-        ("docs-site-typecheck", "typecheck"),
-        ("docs-site-test", "test"),
-        ("docs-site-build", "build"),
-        ("docs-site-export", "test:export"),
+    for (name, args) in [
+        (
+            "docs-site-deps",
+            ["install", "--frozen-lockfile", "--filter", "./docs-site"],
+        ),
+        (
+            "docs-site-typecheck",
+            ["--filter", "./docs-site", "run", "typecheck"],
+        ),
+        ("docs-site-test", ["--filter", "./docs-site", "run", "test"]),
+        (
+            "docs-site-build",
+            ["--filter", "./docs-site", "run", "build"],
+        ),
+        (
+            "docs-site-export",
+            ["--filter", "./docs-site", "run", "test:export"],
+        ),
     ] {
         let step = steps.iter().find(|s| s.name == name).unwrap();
         let Action::Run(cmds) = &step.action else {
-            panic!("{name} must run");
+            panic!("{name} must run, got {:?}", step.action);
         };
-        assert_eq!(cmds[0].args, ["run", script]);
-        assert_eq!(
-            cmds[0].cwd.as_deref(),
-            Some(tmp.path().join("docs-site").as_path())
-        );
+        assert_eq!(cmds.len(), 1);
+        assert_eq!(cmds[0].program, "pnpm");
+        assert_eq!(cmds[0].args, args);
+        assert_eq!(cmds[0].cwd.as_deref(), Some(tmp.path()));
     }
+}
+
+/// pnpm installs the Client App from the root of the workspace on each
+/// run.
+#[test]
+fn plan_installs_the_desktop_deps_with_pnpm() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_package_json(tmp.path(), "desktop", &[]);
+    let steps = plan(tmp.path(), true);
+    let deps = steps.iter().find(|s| s.name == "desktop-deps").unwrap();
+    let Action::Run(cmds) = &deps.action else {
+        panic!("desktop-deps must run, got {:?}", deps.action);
+    };
+    assert_eq!(cmds.len(), 1);
+    assert_eq!(cmds[0].program, "pnpm");
+    assert_eq!(
+        cmds[0].args,
+        ["install", "--frozen-lockfile", "--filter", "./desktop"]
+    );
+    assert_eq!(cmds[0].cwd.as_deref(), Some(tmp.path()));
 }
 
 #[test]
@@ -1027,12 +1061,9 @@ fn plan_runs_the_desktop_steps_whose_scripts_are_declared() {
         let step = steps.iter().find(|s| s.name == name).unwrap();
         match &step.action {
             Action::Run(cmds) => {
-                assert_eq!(cmds[0].program, "npm");
-                assert_eq!(cmds[0].args, ["run", script]);
-                assert_eq!(
-                    cmds[0].cwd.as_deref(),
-                    Some(tmp.path().join("desktop")).as_deref()
-                );
+                assert_eq!(cmds[0].program, "pnpm");
+                assert_eq!(cmds[0].args, ["--filter", "./desktop", "run", script]);
+                assert_eq!(cmds[0].cwd.as_deref(), Some(tmp.path()));
             }
             other => panic!("step {name} must run, got {other:?}"),
         }

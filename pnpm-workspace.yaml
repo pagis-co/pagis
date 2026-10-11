@@ -1,11 +1,19 @@
 packages:
   - ui
+  - desktop
   - mobile
+  - docs-site
 
 # A release that is less than one day old does not install. A compromised
 # release that is pulled soon after its publication does not reach an
 # install.
 minimumReleaseAge: 1440
+
+# miniflare pins sharp 0.35.4 in each release, and 0.35.5 fixes
+# GHSA-wq5f-xc86-pv6w (CVE-2026-96889). The selector changes the sharp of
+# miniflare only.
+overrides:
+  miniflare>sharp: 0.35.5
 
 # The build scripts of the dependencies. A script runs only when its entry
 # is true, and each entry gives its reason.
@@ -14,3 +22,17 @@ allowBuilds:
   # binary again with node-gyp, and the file watchers of Vite and Vitest
   # work without that.
   fsevents: false
+  # electron-builder needs electron-winstaller only for a Windows package.
+  # Its script selects the 7-Zip binary of the machine, and the Client App
+  # ships no Windows package.
+  electron-winstaller: false
+  # esbuild installs its binary from the package of the platform, an
+  # optional dependency that pnpm installs. Its script checks that binary,
+  # downloads it when it is missing, and puts it in place of the
+  # JavaScript launcher, which is faster. The documentation site builds
+  # with the launcher.
+  esbuild: false
+  # workerd is the local Cloudflare runtime of the export test of the
+  # documentation site. It installs its binary as esbuild does, and its
+  # script does the same steps. The export test runs with the launcher.
+  workerd: false

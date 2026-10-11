@@ -93,7 +93,7 @@ fn the_advisory_lane_checks_the_lockfiles_that_a_release_ships() {
     let names: Vec<&str> = lane.steps.iter().map(|step| step.name).collect();
 
     assert_eq!(lane.name, "advisories");
-    assert_eq!(names, ["cargo-deny", "ui-audit", "desktop-npm-audit",]);
+    assert_eq!(names, ["cargo-deny", "ui-audit", "desktop-audit",]);
 }
 
 /// The daily workflow scans what people run: the images of the latest
@@ -109,8 +109,8 @@ fn the_published_advisory_lane_scans_the_images_of_the_latest_release() {
         [
             "cargo-deny",
             "ui-audit",
-            "desktop-npm-audit",
-            "docs-site-npm-audit",
+            "desktop-audit",
+            "docs-site-audit",
             "mobile-audit",
             "release-image-scan"
         ]
@@ -211,12 +211,16 @@ fn cargo_deny_checks_the_two_lockfiles_with_the_pinned_binary() {
 fn pnpm_audit_reads_the_workspace_lockfile_at_the_high_level() {
     let tmp = tempfile::tempdir().unwrap();
     write(tmp.path(), "pnpm-lock.yaml", "lockfileVersion: '9.0'\n");
-    for package in ["ui", "mobile"] {
+    for package in ["ui", "desktop", "mobile"] {
         write(tmp.path(), &format!("{package}/package.json"), "{}");
     }
     let lane = published_advisory_lane(tmp.path(), target());
 
-    for (name, filter) in [("ui-audit", "./ui"), ("mobile-audit", "./mobile")] {
+    for (name, filter) in [
+        ("ui-audit", "./ui"),
+        ("desktop-audit", "./desktop"),
+        ("mobile-audit", "./mobile"),
+    ] {
         let Action::Run(cmds) = &step(&lane, name).action else {
             panic!("{name} must run");
         };
@@ -231,12 +235,32 @@ fn pnpm_audit_reads_the_workspace_lockfile_at_the_high_level() {
 }
 
 #[test]
+fn docs_site_audit_reads_the_workspace_lockfile_filtered_to_the_site() {
+    let tmp = tempfile::tempdir().unwrap();
+    write(tmp.path(), "pnpm-lock.yaml", "lockfileVersion: '9.0'\n");
+    write(tmp.path(), "docs-site/package.json", "{}");
+    let lane = published_advisory_lane(tmp.path(), target());
+
+    let Action::Run(cmds) = &step(&lane, "docs-site-audit").action else {
+        panic!("docs-site-audit must run");
+    };
+    assert_eq!(cmds.len(), 1);
+    assert_eq!(cmds[0].program, "pnpm");
+    assert_eq!(
+        cmds[0].args,
+        ["audit", "--audit-level", "high", "--filter", "./docs-site"]
+    );
+    assert_eq!(cmds[0].cwd.as_deref(), Some(tmp.path()));
+}
+
+#[test]
 fn pnpm_audit_skips_without_the_workspace_lockfile() {
     let tmp = tempfile::tempdir().unwrap();
-    write(tmp.path(), "ui/package.json", "{}");
-    write(tmp.path(), "mobile/package.json", "{}");
+    for package in ["ui", "desktop", "mobile"] {
+        write(tmp.path(), &format!("{package}/package.json"), "{}");
+    }
     let lane = published_advisory_lane(tmp.path(), target());
-    for name in ["ui-audit", "mobile-audit"] {
+    for name in ["ui-audit", "desktop-audit", "mobile-audit"] {
         assert!(
             matches!(step(&lane, name).action, Action::Skip(_)),
             "{name}"

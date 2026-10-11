@@ -73,11 +73,13 @@ second container. The named volumes `pagis-screend-registry` and
 containers.
 
 `pnpm --filter ./ui run typecheck` and `pnpm --filter ./ui run test` check
-the TypeScript code of the Product App, and `--filter ./mobile` does the
-same for the Mobile App. In `desktop/` and
-`docs-site/`, `npm run typecheck` and `npm test` check the TypeScript
-code. In `docs-site/`, `npm run build` compiles and
-exports each page, and `npm run test:export` serves the export as Cloudflare
+the TypeScript code of the Product App, and `pnpm --filter ./desktop run
+typecheck` and `pnpm --filter ./desktop run test` the code of the Client
+App. `--filter ./mobile` does the same for the Mobile App.
+`pnpm --filter ./docs-site run typecheck` and
+`pnpm --filter ./docs-site run test` check the documentation site,
+`pnpm --filter ./docs-site run build` compiles and exports each page, and
+`pnpm --filter ./docs-site run test:export` serves the export as Cloudflare
 does. [docs-site/README.md](docs-site/README.md) tells how to write a page. After a change to the HTTP API of `pagis-server`, run
 `pnpm --filter ./ui run api:generate` to write `openapi.json` and the API
 types again.
@@ -153,8 +155,8 @@ into the Cargo target directory, and check the SHA-256 of each archive.
 `.gitleaks.toml` holds each secret scan exception with its reason.
 
 `advisories` runs cargo-deny over the Cargo lockfiles, pnpm audit over the
-pnpm lockfile (the Mobile App included), npm audit over the npm
-lockfiles, and Trivy over the images of the latest release. The gate
+pnpm lockfile (the Mobile App included), and Trivy over the images of
+the latest release. The gate
 does not run these checks, so a newly published advisory does not block
 an unrelated pull request. A daily workflow and each release run them.
 `deny.toml` and `.trivyignore` hold each reviewed exception with its

@@ -142,20 +142,46 @@ RUN set -eux; \
 
 # The Coding Harnesses that run in a Computer (ADR-0033), at the pins of
 # the Computer launches of the Harness Catalog
-# (crates/pagis-core/src/harness.rs). `npm ci` installs the lock exactly
-# and checks each package against its `integrity` sha512. It installs
-# the native optional packages of the build architecture only, because
-# each architecture builds on a runner of that architecture.
-# `--ignore-scripts` keeps third-party install scripts from running at
-# build time: the native programs come as optional packages, not from
-# scripts.
+# (crates/pagis-core/src/harness.rs). The pnpm of the repository installs
+# the lock exactly and checks each package against its `integrity` sha512.
+# It installs the native optional packages of the build architecture only,
+# because each architecture builds on a runner of that architecture. No
+# third-party build script runs at build time: `allowBuilds` in
+# pnpm-workspace.yaml names each one, and the native programs come as
+# optional packages, not from scripts. This pnpm is a native program from
+# the registry package of its architecture. It stays out of /opt/node, so
+# the pnpm of the agents does not change, and it stays in this stage, so
+# the final image does not hold it. pnpm copies each file from its store
+# instead of a hard link: Trivy does not read a package.json that a layer
+# holds as a hard link, and a package can hold the same file twice. pnpm
+# does not always give a directory that it makes the owner and the mode
+# of the tree, so the stage sets root as the owner of each path and
+# removes the write permission of the group and the others.
 FROM runtimes AS harnesses
 ARG TARGETARCH
+ARG HARNESS_PNPM_VERSION=12.11.2
+ARG HARNESS_PNPM_SHA512_amd64=14aed029edb8018829a49c0ede6a68a18a6d76ebaf206a8a24f8b969cecc7675a48d4cb8e8905f621096d20ae7916282f1839fd31faf1af8ae42a2448f74a941
+ARG HARNESS_PNPM_SHA512_arm64=e9ef190105301570161c71efe457ac5aa7ff9042b4e30ba2b41bf97ff831ce40b40e205f6a2c6bf9ffba25079d7bc485e098b92dc33054525bcc0b5f7e95b112
+RUN set -eux; \
+    case "${TARGETARCH:-$(dpkg --print-architecture)}" in \
+      amd64) arch=x64; sha="$HARNESS_PNPM_SHA512_amd64" ;; \
+      arm64) arch=arm64; sha="$HARNESS_PNPM_SHA512_arm64" ;; \
+      *) echo "unsupported architecture" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSLo /tmp/pnpm-exe.tgz \
+      "https://registry.npmjs.org/@pnpm/exe.linux-${arch}/-/exe.linux-${arch}-${HARNESS_PNPM_VERSION}.tgz"; \
+    echo "$sha  /tmp/pnpm-exe.tgz" | sha512sum -c -; \
+    mkdir /opt/harness-pnpm; \
+    tar -xzf /tmp/pnpm-exe.tgz -C /opt/harness-pnpm --strip-components=1 --no-same-owner package/pnpm; \
+    rm /tmp/pnpm-exe.tgz
 ENV PATH=/opt/node/bin:$PATH
-COPY harnesses/package.json harnesses/package-lock.json /opt/pagis/harnesses/
+COPY harnesses/package.json harnesses/pnpm-workspace.yaml harnesses/pnpm-lock.yaml /opt/pagis/harnesses/
 RUN cd /opt/pagis/harnesses \
-    && npm ci --omit=dev --ignore-scripts --no-audit --no-fund \
-    && rm -rf /root/.npm
+    && /opt/harness-pnpm/pnpm install --frozen-lockfile --prod \
+      --config.store-dir=/tmp/pnpm-store --config.package-import-method=copy \
+    && rm -rf /tmp/pnpm-store \
+    && chown -R root:root /opt/pagis/harnesses \
+    && chmod -R go-w /opt/pagis/harnesses
 
 # OpenCode is a native program, so it comes from the vendor's release
 # archive of its architecture, pinned by version and by the sha256 of the

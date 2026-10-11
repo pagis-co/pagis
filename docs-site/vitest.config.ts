@@ -4,7 +4,7 @@ import { defineConfig } from 'vitest/config';
 
 // The Fumadocs MDX plugin compiles the content, so a test reads the same
 // page tree as the site. The `unit` project checks the sources, and the
-// `export` project checks the export of `npm run build` as Cloudflare
+// `export` project checks the export of the `build` script as Cloudflare
 // serves it.
 export default defineConfig({
   plugins: [mdx()],
