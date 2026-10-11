@@ -26,9 +26,9 @@ The Android release is not built.
 
 To release:
 
-1. Change `version` in `mobile/package.json`, and let npm write it to
-   `mobile/package-lock.json` (`npm install --package-lock-only` in
-   `mobile/`).
+1. Change `version` in `mobile/package.json`. The lockfile of the pnpm
+   workspace does not record the version of a project, so no lockfile
+   step is necessary.
 2. Merge the change. Then push the tag on its commit:
 
    ```bash
@@ -44,9 +44,9 @@ so the bytes that App Store Connect gets are the bytes that were signed
 and checked:
 
 1. **The gate.** The CI workflow runs on the tagged commit. The job
-   `mobile-npm-audit` then runs `cargo xtask advisories mobile-npm-audit`,
-   which checks the npm lockfile of the app against the published
-   advisories. A red result stops the release.
+   `mobile-audit` then runs `cargo xtask advisories mobile-audit`, which
+   runs `pnpm audit --filter ./mobile` to check the packages of the app in
+   the lockfile of the workspace against the published advisories. A red result stops the release.
 2. **Prepare.** The job `mobile-ios` runs on `macos-latest` with Xcode 26
    or later, and runs:
 
@@ -55,7 +55,8 @@ and checked:
    ```
 
    The command checks its inputs, then:
-   1. builds the Connect screen and runs `npx cap sync ios`;
+   1. builds the Connect screen and runs
+      `pnpm --filter ./mobile exec cap sync ios`;
    2. archives the app and the Notification Service Extension with
       `xcodebuild archive`. The command line sets `MARKETING_VERSION` to
       the version, `CURRENT_PROJECT_VERSION` to the run number, and

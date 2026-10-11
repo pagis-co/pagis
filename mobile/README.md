@@ -24,21 +24,31 @@ run.
 
 ## Development
 
+The Mobile App is a project of the pnpm workspace at the repository root.
+Run these commands in the repository root:
+
 ```bash
-npm ci
-npm run typecheck
-npm test        # the vitest tests of src/
-npm run build   # the bundled screens, into dist/
+pnpm install --frozen-lockfile --filter ./mobile
+pnpm --filter ./mobile run typecheck
+pnpm --filter ./mobile run test    # the vitest tests of src/
+pnpm --filter ./mobile run build   # the bundled screens, into dist/
 ```
 
-`npx cap sync` copies `dist/` and the plugin list into the native projects.
+`cap sync` copies `dist/` and the plugin list into the native projects.
 Run it after each build, and after a change to the Capacitor plugins in
 `package.json`:
 
 ```bash
-npx cap sync android
-npx cap sync ios
+pnpm --filter ./mobile exec cap sync android
+pnpm --filter ./mobile exec cap sync ios
 ```
+
+`cap sync` writes the path of each plugin into
+`android/capacitor.settings.gradle` and `ios/App/CapApp-SPM/Package.swift`.
+The path is the real directory of the plugin in the pnpm store of the
+workspace, `node_modules/.pnpm/<name>@<version>…/`, so it holds the plugin
+version. An update of Capacitor or of a plugin changes these files. Commit
+them as `cap sync` writes them, and do not edit them.
 
 ## App icons
 
@@ -53,7 +63,7 @@ The launcher cuts the adaptive icon to its own shape.
 again:
 
 ```bash
-npm run icons
+pnpm --filter ./mobile run icons
 ```
 
 The native projects hold the generated files. `src/appIcons.test.ts`
@@ -75,10 +85,10 @@ The gate runs the same tests:
 
 | Step | What it does |
 | --- | --- |
-| `mobile-deps` | `npm ci` |
-| `mobile-typecheck`, `mobile-test` | The npm scripts |
-| `mobile-android-test` | `npm run build`, `npx cap sync android`, then `./gradlew testDebugUnitTest` |
-| `mobile-ios-test` | `npm run build`, `npx cap sync ios`, then `xcodebuild test` on the first available iPhone simulator |
+| `mobile-deps` | `pnpm install --frozen-lockfile --filter ./mobile` |
+| `mobile-typecheck`, `mobile-test` | The `typecheck` and `test` scripts |
+| `mobile-android-test` | The build, `cap sync android`, then `./gradlew testDebugUnitTest` |
+| `mobile-ios-test` | The build, `cap sync ios`, then `xcodebuild test` on the first available iPhone simulator |
 
 ## Push
 
@@ -189,13 +199,13 @@ takes `https://` only.
 2. Build the Connect screen and sync it:
 
    ```bash
-   npm run build
-   npx cap sync
+   pnpm --filter ./mobile run build
+   pnpm --filter ./mobile exec cap sync
    ```
 
 3. Open the app on a simulator or an emulator:
 
-   - iOS: `npx cap run ios`, or open `ios/App/App.xcodeproj` in Xcode and
+   - iOS: `pnpm --filter ./mobile exec cap run ios`, or open `ios/App/App.xcodeproj` in Xcode and
      run the `App` scheme on an iPhone simulator. The simulator shares the
      loopback of the Mac, so `127.0.0.1:4400` is the daemon.
    - Android: start an emulator, forward the port of the daemon to it, then
@@ -203,7 +213,7 @@ takes `https://` only.
 
      ```bash
      adb reverse tcp:4400 tcp:4400
-     npx cap run android
+     pnpm --filter ./mobile exec cap run android
      ```
 
 4. On the Connect screen, type `http://127.0.0.1:4400`, or paste the sign-in

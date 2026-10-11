@@ -135,17 +135,16 @@ fn the_ios_release_lists_each_step_in_order() {
 #[test]
 fn the_prepare_phase_builds_the_connect_screen_and_syncs_the_ios_project() {
     let (tmp, steps) = plan(IosPhase::Prepare, &release_env);
-    let mobile = tmp.path().join("mobile");
     for (name, command) in [
-        ("deps", "npm ci"),
-        ("build", "npm run build"),
-        ("sync", "npx cap sync ios"),
+        ("deps", "pnpm install --frozen-lockfile --filter ./mobile"),
+        ("build", "pnpm --filter ./mobile run build"),
+        ("sync", "pnpm --filter ./mobile exec cap sync ios"),
     ] {
         assert_eq!(joined(step(&steps, name)), command);
         assert_eq!(
             commands(step(&steps, name))[0].cwd.as_deref(),
-            Some(mobile.as_path()),
-            "step {name} runs in mobile/"
+            Some(tmp.path()),
+            "step {name} runs at the root of the workspace"
         );
     }
 }

@@ -1,5 +1,6 @@
 // Draw the Mobile App icons from the Pagis mark (assets/brand/README.md).
-// Run `npm run icons` in mobile/ to make the PNG files again.
+// Run `pnpm --filter ./mobile run icons` in the repository root to make
+// the PNG files again.
 
 import { writeFileSync } from 'node:fs'
 import { encode } from 'fast-png'

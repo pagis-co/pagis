@@ -1,9 +1,9 @@
 //! The gate steps of the Mobile App in `mobile/`.
 //!
 //! - `mobile-deps`, `mobile-typecheck` and `mobile-test` check the web
-//!   part with its npm scripts.
+//!   part with its scripts. pnpm runs them from the root of the workspace.
 //! - `mobile-android-test` and `mobile-ios-test` build the web part, sync
-//!   it into the native project with `npx cap sync`, and run the JUnit
+//!   it into the native project with `cap sync`, and run the JUnit
 //!   tests or the XCTest tests. The sync puts the current web assets and
 //!   the current plugin list in the native project, so no test runs
 //!   against stale generated files.
@@ -27,10 +27,13 @@ use std::process::Command;
 
 use anyhow::{Result, bail};
 
-use crate::{Action, Cmd, Lane, Step, npm_deps_action, npm_script_action};
+use crate::{Action, Cmd, Lane, Step, pnpm_deps_action, pnpm_script_action};
 
 /// The directory of the Mobile App.
 const PACKAGE: &str = "mobile";
+
+/// The filter that selects the Mobile App in the pnpm workspace.
+const FILTER: &str = "./mobile";
 
 const ANDROID_TEST: &str = "mobile-android-test";
 const IOS_TEST: &str = "mobile-ios-test";
@@ -42,7 +45,7 @@ const NO_ANDROID: &str = "no JDK 21 (java) and Android SDK (ANDROID_HOME)";
 const NO_IOS: &str = "no Xcode (xcodebuild) on a macOS host";
 
 /// Run the XCTest tests of the app on the first available iPhone
-/// simulator. Node reads the device list, because each npm step needs
+/// simulator. Node reads the device list, because the web steps need
 /// Node already.
 const XCODE_TEST: &str = r#"set -eu
 udid=$(xcrun simctl list devices available --json | node -e '
@@ -167,15 +170,15 @@ fn steps(root: &Path, toolchains: Toolchains, absent: Absent) -> Vec<Step> {
     vec![
         Step {
             name: "mobile-deps",
-            action: npm_deps_action(root, PACKAGE),
+            action: pnpm_deps_action(root, PACKAGE),
         },
         Step {
             name: "mobile-typecheck",
-            action: npm_script_action(root, PACKAGE, "typecheck"),
+            action: pnpm_script_action(root, PACKAGE, "typecheck"),
         },
         Step {
             name: "mobile-test",
-            action: npm_script_action(root, PACKAGE, "test"),
+            action: pnpm_script_action(root, PACKAGE, "test"),
         },
         native_step(
             root,
@@ -218,13 +221,25 @@ fn native_step(
             Absent::Refuse => Action::Run(vec![Cmd::refusal(&format!("{name}: {missing}"))]),
         }
     } else {
-        Action::Run(vec![
-            Cmd::new("npm", &["run", "build"]).in_dir(&mobile),
-            Cmd::new("npx", &["cap", "sync", platform]).in_dir(&mobile),
-            test,
-        ])
+        Action::Run(vec![web_build(root), cap_sync(root, platform), test])
     };
     Step { name, action }
+}
+
+/// Build the web part, from the root of the workspace.
+fn web_build(root: &Path) -> Cmd {
+    Cmd::new("pnpm", &["--filter", FILTER, "run", "build"]).in_dir(root)
+}
+
+/// Sync the web part and the plugins into the native project of
+/// `platform`. The Capacitor CLI writes the real paths of the plugins
+/// under `node_modules/.pnpm/` into the generated native files.
+fn cap_sync(root: &Path, platform: &str) -> Cmd {
+    Cmd::new(
+        "pnpm",
+        &["--filter", FILTER, "exec", "cap", "sync", platform],
+    )
+    .in_dir(root)
 }
 
 /// The phase of the iOS release.
@@ -306,8 +321,7 @@ pub fn ios_release_plan(
         // The prepared .ipa holds the build number and the relay origin.
         IosPhase::PublishExisting => None,
     };
-    let mobile = root.join(PACKAGE);
-    let ios = mobile.join("ios");
+    let ios = root.join(PACKAGE).join("ios");
     let prepared = |name: &'static str, run: &dyn Fn(&Build) -> Cmd| Step {
         name,
         action: match &build {
@@ -322,13 +336,15 @@ pub fn ios_release_plan(
         }
     };
     Ok(vec![
-        prepared("deps", &|_| Cmd::new("npm", &["ci"]).in_dir(&mobile)),
-        prepared("build", &|_| {
-            Cmd::new("npm", &["run", "build"]).in_dir(&mobile)
+        prepared("deps", &|_| {
+            Cmd::new(
+                "pnpm",
+                &["install", "--frozen-lockfile", "--filter", FILTER],
+            )
+            .in_dir(root)
         }),
-        prepared("sync", &|_| {
-            Cmd::new("npx", &["cap", "sync", "ios"]).in_dir(&mobile)
-        }),
+        prepared("build", &|_| web_build(root)),
+        prepared("sync", &|_| cap_sync(root, "ios")),
         prepared("archive", &|build| {
             Cmd::new("sh", &["-c", &archive_script(build)]).in_dir(&ios)
         }),

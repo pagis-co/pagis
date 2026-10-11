@@ -68,7 +68,7 @@ pub fn advisory_lane(root: &Path, target_dir: &Path) -> Lane {
 pub fn published_advisory_lane(root: &Path, target_dir: &Path) -> Lane {
     let mut steps = advisory_lane(root, target_dir).steps;
     steps.push(npm_audit_step(root, "docs-site", "docs-site-npm-audit"));
-    steps.push(npm_audit_step(root, "mobile", "mobile-npm-audit"));
+    steps.push(pnpm_audit_step(root, "mobile", "mobile-audit"));
     steps.push(release_image_scan_step(root, target_dir));
     Lane {
         name: "advisories",
@@ -79,7 +79,7 @@ pub fn published_advisory_lane(root: &Path, target_dir: &Path) -> Lane {
 /// The steps of [`published_advisory_lane`] that `names` names, in the
 /// order of the names. A release that ships one package runs the check of
 /// that package alone: the iOS release of the Mobile App runs
-/// `cargo xtask advisories mobile-npm-audit`.
+/// `cargo xtask advisories mobile-audit`.
 pub fn named_advisory_steps(
     root: &Path,
     target_dir: &Path,

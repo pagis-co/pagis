@@ -1,5 +1,6 @@
 packages:
   - ui
+  - mobile
 
 # A release that is less than one day old does not install. A compromised
 # release that is pulled soon after its publication does not reach an
