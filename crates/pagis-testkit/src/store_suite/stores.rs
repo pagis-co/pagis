@@ -278,6 +278,82 @@ pub async fn events_of_one_workspace_list_without_the_others(backend: &Backend) 
     assert_eq!(log.list_after(None, before, 100).await.unwrap().len(), 3);
 }
 
+/// A subscriber that reads past a `seq` never receives an event with a
+/// lower `seq` later. Two appends run at the same time, and the first
+/// one waits on a lock after it starts. The subscriber reads while the
+/// first append waits, and then it reads again from its cursor. It
+/// receives both events.
+pub async fn a_subscriber_cursor_skips_no_event_of_concurrent_appends(backend: &Backend) {
+    let slow = backend.seeded_workspace().await;
+    let fast = pagis_core::Workspace {
+        id: WorkspaceId::generate(),
+        ..slow.clone()
+    };
+    backend
+        .stores()
+        .workspaces
+        .create(&fast)
+        .await
+        .expect("write the second Workspace");
+    let log = &backend.stores().events;
+    let before = log.latest_seq().await.unwrap();
+    let append = |workspace_id: WorkspaceId| {
+        let log = std::sync::Arc::clone(log);
+        tokio::spawn(async move {
+            log.append(NewEvent {
+                workspace_id,
+                event_type: "agent.created".to_string(),
+                agent_id: None,
+                run_id: None,
+                channel_id: None,
+                payload: serde_json::json!({}),
+            })
+            .await
+            .unwrap()
+        })
+    };
+    let settle = || tokio::time::sleep(std::time::Duration::from_millis(300));
+
+    // A Postgres insert takes its `seq` from the identity column first,
+    // and then its foreign key check waits on the locked Workspace row.
+    // SQLite has one writer: a held write stops every append before the
+    // append takes its rowid, so the statement only needs to write.
+    let lock = if backend.is_postgres() {
+        "SELECT id FROM workspaces WHERE id = ? FOR UPDATE"
+    } else {
+        "UPDATE workspaces SET name = name WHERE id = ?"
+    };
+    let held = backend
+        .rows()
+        .hold(lock, &[slow.id.as_str().into()])
+        .await
+        .unwrap();
+    let slow_append = append(slow.id.clone());
+    settle().await;
+    let fast_append = append(fast.id.clone());
+    settle().await;
+
+    let first_read = log.list_after(None, before, 100).await.unwrap();
+    let cursor = first_read.last().map_or(before, |event| event.seq);
+    held.commit().await.unwrap();
+    let appended = [slow_append.await.unwrap(), fast_append.await.unwrap()];
+    let second_read = log.list_after(None, cursor, 100).await.unwrap();
+
+    let mut received: Vec<_> = first_read
+        .iter()
+        .chain(&second_read)
+        .map(|event| event.seq)
+        .collect();
+    received.sort();
+    let mut expected: Vec<_> = appended.iter().map(|event| event.seq).collect();
+    expected.sort();
+    assert_eq!(
+        received, expected,
+        "the subscriber receives every appended event: it read {first_read:?}, \
+         then {second_read:?} after seq {cursor}"
+    );
+}
+
 pub async fn channel_roundtrips_through_store(backend: &Backend) {
     let ws = backend.seeded_workspace().await;
 
@@ -2595,6 +2671,7 @@ macro_rules! store_suite_stores {
             agent_update_writes_the_mutable_fields,
             event_append_assigns_increasing_seq_and_lists_after,
             events_of_one_workspace_list_without_the_others,
+            a_subscriber_cursor_skips_no_event_of_concurrent_appends,
             channel_roundtrips_through_store,
             channel_list_scopes_to_workspace_newest_update_first,
             message_insert_roundtrips_and_gets,
