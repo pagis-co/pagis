@@ -91,14 +91,14 @@ change to saved Agent settings; the app does not silently substitute another mod
 export CARGO_TARGET_DIR="$(git worktree list | head -1 | awk '{print $1}')/target"
 cargo nextest run -p pagis --test main -E 'test(roster::) | test(ws::)'
 python3 -m unittest discover -s assets/avatars/pixie/tests -v
-npm --prefix ui test -- src/avatars src/components/sprites/sprites.test.tsx
+pnpm --filter ./ui run test src/avatars src/components/sprites/sprites.test.tsx
 ```
 
 For an isolated browser check, run `cargo run -p pagis --example avatar_preview`.
 It starts the real API and storage with fake external services in a temporary
 workspace. It prints the API URL and a local page URL. In another terminal, set
 `PAGIS_DEV_API_URL` to that API URL and run
-`npm --prefix ui run dev -- --host 127.0.0.1 --port 5188 --strictPort`.
+`pnpm --filter ./ui run dev --host 127.0.0.1 --port 5188 --strictPort`.
 Open the printed page URL. Stop the example to remove its test workspace.
 
 The renderer uses demand for still images and one animated view, following the

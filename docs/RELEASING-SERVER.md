@@ -261,9 +261,7 @@ each one by hand with the security advisories of its upstream project.
 `audit.ignore` in `pnpm-workspace.yaml` holds the reviewed exceptions of
 pnpm audit, each with a comment line above it that holds the reason. When
 a parent package does not accept the fixed version of a dependency, an
-`overrides` entry in `pnpm-workspace.yaml` selects it. npm audit has no
-list of exceptions, and an `overrides` entry in the `package.json` of an
-npm project selects a fixed version.
+`overrides` entry in `pnpm-workspace.yaml` selects it.
 
 ## The release workflow
 

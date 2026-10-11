@@ -94,6 +94,8 @@ function mount(api: ReturnType<typeof stubApi>) {
 beforeEach(() => {
   useCallInspector.setState({ callId: null })
   useCallTranscripts.setState({ byCall: {} })
+  URL.createObjectURL = vi.fn(() => 'blob:fake-url')
+  URL.revokeObjectURL = vi.fn()
 })
 
 describe('the strip', () => {

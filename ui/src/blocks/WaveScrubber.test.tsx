@@ -3,7 +3,7 @@
 // back to when nothing can decode the audio.
 
 import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { BARS, WaveScrubber, peaksFrom } from './WaveScrubber'
 
@@ -27,6 +27,11 @@ describe('peaksFrom', () => {
   it('has nothing to draw for an empty recording', () => {
     expect(peaksFrom(new Float32Array(0))).toEqual([])
   })
+})
+
+beforeEach(() => {
+  URL.createObjectURL = vi.fn(() => 'blob:fake-url')
+  URL.revokeObjectURL = vi.fn()
 })
 
 function mount(fallbackMs = 90_000) {

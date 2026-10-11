@@ -2,6 +2,7 @@
 //! is a module here, so the crate links once instead of once per file.
 
 mod advisories;
+mod catalog;
 mod desktop;
 mod desktop_linux;
 mod emergency;
