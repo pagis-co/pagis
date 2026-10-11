@@ -132,11 +132,19 @@ pub fn linux_plan(root: &Path, cx: &DesktopContext) -> Vec<Step> {
         },
         Step {
             name: "deps",
-            action: build(Cmd::new("npm", &["ci"]).in_dir(desktop.clone())),
+            action: build(
+                Cmd::new(
+                    "pnpm",
+                    &["install", "--frozen-lockfile", "--filter", "./desktop"],
+                )
+                .in_dir(root),
+            ),
         },
         Step {
             name: "pack",
-            action: build(Cmd::new("npm", &["run", "pack:linux"]).in_dir(desktop.clone())),
+            action: build(
+                Cmd::new("pnpm", &["--filter", "./desktop", "run", "pack:linux"]).in_dir(root),
+            ),
         },
         Step {
             name: "inventory",

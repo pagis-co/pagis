@@ -55,7 +55,7 @@ pub fn advisory_lane(root: &Path, target_dir: &Path) -> Lane {
         steps: vec![
             cargo_deny_step(root, target_dir),
             pnpm_audit_step(root, "ui", "ui-audit"),
-            npm_audit_step(root, "desktop", "desktop-npm-audit"),
+            pnpm_audit_step(root, "desktop", "desktop-audit"),
         ],
     }
 }

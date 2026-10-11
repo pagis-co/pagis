@@ -9,15 +9,20 @@ holds the decisions. This document tells how to build, test and package it.
 
 ## Development
 
+The Client App is a project of the pnpm workspace at the repository root
+([ADR-0035](../docs/adr/0035-the-javascript-projects-are-one-pnpm-workspace.md)).
+Run these commands in `desktop/`. pnpm installs from the one
+`pnpm-lock.yaml` at the root.
+
 ```bash
-npm ci
-npm run typecheck
-npm test        # the lifecycle tests, against test/fake-daemon.mjs
-npm run build   # the main process, and dist/design for the client's pages
+pnpm install --frozen-lockfile
+pnpm run typecheck
+pnpm test        # the lifecycle tests, against test/fake-daemon.mjs
+pnpm run build   # the main process, and dist/design for the client's pages
 ```
 
 The setup and status pages in `static/` read `static/pages.css` and the
-design system of the Product App: `npm run build` copies `ui/src/tokens.css`,
+design system of the Product App: `pnpm run build` copies `ui/src/tokens.css`,
 the Inter font and the Pagis mark into `dist/design`, which the package
 holds.
 
@@ -29,13 +34,13 @@ To run setup from source, place the generated lock of your platform in the
 `dist/` directory at the repository root, not in `desktop/dist/`:
 `<repository>/dist/runtime-lock-<platform>-<arch>.json` (for example
 `dist/runtime-lock-linux-x64.json`). `cargo xtask desktop` writes it there,
-and `npm run build` cleans `desktop/dist/`. Then start Electron:
+and `pnpm run build` cleans `desktop/dist/`. Then start Electron:
 
 ```bash
-npm start
+pnpm start
 ```
 
-`PAGIS_HOME` names another state directory. `npm start -- --smoke` opens the
+`PAGIS_HOME` names another state directory. `pnpm start --smoke` opens the
 packaged local setup page against isolated client and state directories,
 confirms that it loaded, and quits without starting a server. The
 directories are in a new directory under `TMPDIR`. Chromium writes there
@@ -47,8 +52,8 @@ not open a message box.
 ## Packaging
 
 ```bash
-npm run pack         # macOS arm64: the DMG, and the ZIP with latest-mac.yml
-npm run pack:linux   # Linux amd64 and arm64: the AppImage and the deb, with latest-linux.yml and latest-linux-arm64.yml
+pnpm run pack         # macOS arm64: the DMG, and the ZIP with latest-mac.yml
+pnpm run pack:linux   # Linux amd64 and arm64: the AppImage and the deb, with latest-linux.yml and latest-linux-arm64.yml
 ```
 
 The GitHub publish configuration of `electron-builder.yml` puts
@@ -102,6 +107,13 @@ Store Connect API key: `APPLE_API_KEY` (the path of its `.p8` file),
 complete route exists. The publication signs nothing, so it needs neither.
 
 `desktop/scripts/check-package.mjs` holds the package to a size ceiling.
+It also checks that `app.asar` holds each production dependency at the
+version that `pnpm list --prod --depth Infinity --filter ./desktop`
+gives. electron-builder copies these packages from the isolated pnpm
+`node_modules`, and a missing dependency of electron-updater breaks
+Updates only on the machine of a person. An optional peer that a
+development dependency resolves is not a production dependency.
+
 During setup, free disk space must cover the Client App, the locked server
 package, the installed entries listed in the Runtime Lock, and, during a
 repair, the damaged release that the repair replaces. The client cache can reuse a verified

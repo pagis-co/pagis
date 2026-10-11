@@ -65,7 +65,7 @@ fn each_stage_lists_its_steps_in_order() {
     let names = |stage| plan(stage).iter().map(|s| s.name).collect::<Vec<_>>();
     assert_eq!(
         names(ReleaseStage::Advisories),
-        ["cargo-deny", "ui-audit", "desktop-npm-audit"]
+        ["cargo-deny", "ui-audit", "desktop-audit"]
     );
     assert_eq!(
         names(ReleaseStage::ComputerImage),

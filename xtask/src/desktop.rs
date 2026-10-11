@@ -144,7 +144,7 @@ fn mac_plan(root: &Path, cx: &DesktopContext) -> Vec<Step> {
         )
         .in_dir(root),
     ]);
-    let mut pack = Cmd::new("npm", &["run", "pack"]).in_dir(desktop.clone());
+    let mut pack = Cmd::new("pnpm", &["--filter", "./desktop", "run", "pack"]).in_dir(root);
     if !cx.signs() {
         // Without a certificate electron-builder would search the
         // keychain and sign with whatever it finds there.
@@ -164,7 +164,13 @@ fn mac_plan(root: &Path, cx: &DesktopContext) -> Vec<Step> {
             action: if cx.publish_existing {
                 Action::Skip("publishing the exact package that was prepared".into())
             } else {
-                Action::Run(vec![Cmd::new("npm", &["ci"]).in_dir(desktop.clone())])
+                Action::Run(vec![
+                    Cmd::new(
+                        "pnpm",
+                        &["install", "--frozen-lockfile", "--filter", "./desktop"],
+                    )
+                    .in_dir(root),
+                ])
             },
         },
         Step {

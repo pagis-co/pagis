@@ -82,19 +82,27 @@ fn the_final_runtime_lock_is_required_before_the_client_app() {
     assert_eq!(commands(lock)[0].cwd.as_deref(), Some(Path::new("/repo")));
 }
 
+/// pnpm installs and packs the Client App from the root of the
+/// workspace, where the one lockfile is.
 #[test]
-fn the_app_packs_in_the_desktop_package() {
+fn the_app_packs_from_the_pnpm_workspace() {
     let steps = desktop_plan(Path::new("/repo"), &context(None, &[]));
     for name in ["deps", "pack"] {
         let cmds = commands(step(&steps, name));
         assert_eq!(
             cmds[0].cwd.as_deref(),
-            Some(Path::new("/repo/desktop")),
-            "step {name} runs in desktop/"
+            Some(Path::new("/repo")),
+            "step {name} runs at the root of the workspace"
         );
     }
-    assert_eq!(joined(step(&steps, "deps")), "npm ci");
-    assert_eq!(joined(step(&steps, "pack")), "npm run pack");
+    assert_eq!(
+        joined(step(&steps, "deps")),
+        "pnpm install --frozen-lockfile --filter ./desktop"
+    );
+    assert_eq!(
+        joined(step(&steps, "pack")),
+        "pnpm --filter ./desktop run pack"
+    );
 }
 
 #[test]
