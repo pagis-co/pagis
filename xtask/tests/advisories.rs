@@ -93,7 +93,7 @@ fn the_advisory_lane_checks_the_lockfiles_that_a_release_ships() {
     let names: Vec<&str> = lane.steps.iter().map(|step| step.name).collect();
 
     assert_eq!(lane.name, "advisories");
-    assert_eq!(names, ["cargo-deny", "ui-audit", "desktop-npm-audit",]);
+    assert_eq!(names, ["cargo-deny", "ui-audit", "desktop-audit",]);
 }
 
 /// The daily workflow scans what people run: the images of the latest
@@ -109,7 +109,7 @@ fn the_published_advisory_lane_scans_the_images_of_the_latest_release() {
         [
             "cargo-deny",
             "ui-audit",
-            "desktop-npm-audit",
+            "desktop-audit",
             "docs-site-audit",
             "mobile-npm-audit",
             "release-image-scan"
@@ -204,46 +204,36 @@ fn cargo_deny_checks_the_two_lockfiles_with_the_pinned_binary() {
 // --- npm audit ---
 
 #[test]
-fn npm_audit_reads_each_npm_lockfile_at_the_high_level() {
+fn npm_audit_reads_the_lockfile_of_the_mobile_app_at_the_high_level() {
     let tmp = tempfile::tempdir().unwrap();
-    for package in ["desktop", "mobile"] {
-        write(tmp.path(), &format!("{package}/package.json"), "{}");
-        write(tmp.path(), &format!("{package}/package-lock.json"), "{}");
-    }
+    write(tmp.path(), "mobile/package.json", "{}");
+    write(tmp.path(), "mobile/package-lock.json", "{}");
     let lane = published_advisory_lane(tmp.path(), target());
 
-    for (name, package) in [
-        ("desktop-npm-audit", "desktop"),
-        ("mobile-npm-audit", "mobile"),
-    ] {
-        let Action::Run(cmds) = &step(&lane, name).action else {
-            panic!("{name} must run");
-        };
-        assert_eq!(cmds.len(), 1);
-        assert_eq!(cmds[0].program, "npm");
-        // The audit reads the lockfile only, so it needs no
-        // node_modules.
-        assert_eq!(
-            cmds[0].args,
-            ["audit", "--audit-level=high", "--package-lock-only"]
-        );
-        assert_eq!(
-            cmds[0].cwd.as_deref(),
-            Some(tmp.path().join(package).as_path())
-        );
-    }
+    let Action::Run(cmds) = &step(&lane, "mobile-npm-audit").action else {
+        panic!("mobile-npm-audit must run");
+    };
+    assert_eq!(cmds.len(), 1);
+    assert_eq!(cmds[0].program, "npm");
+    // The audit reads the lockfile only, so it needs no node_modules.
+    assert_eq!(
+        cmds[0].args,
+        ["audit", "--audit-level=high", "--package-lock-only"]
+    );
+    assert_eq!(
+        cmds[0].cwd.as_deref(),
+        Some(tmp.path().join("mobile").as_path())
+    );
 }
 
 #[test]
-fn npm_audit_skips_a_package_without_a_lockfile() {
+fn npm_audit_skips_the_mobile_app_without_a_lockfile() {
     let tmp = tempfile::tempdir().unwrap();
     let lane = published_advisory_lane(tmp.path(), target());
-    for name in ["desktop-npm-audit", "mobile-npm-audit"] {
-        assert!(
-            matches!(step(&lane, name).action, Action::Skip(_)),
-            "{name} must skip without a lockfile"
-        );
-    }
+    assert!(
+        matches!(step(&lane, "mobile-npm-audit").action, Action::Skip(_)),
+        "mobile-npm-audit must skip without a lockfile"
+    );
 }
 
 // --- pnpm audit ---
@@ -255,19 +245,23 @@ fn npm_audit_skips_a_package_without_a_lockfile() {
 fn pnpm_audit_reads_the_workspace_lockfile_at_the_high_level() {
     let tmp = tempfile::tempdir().unwrap();
     write(tmp.path(), "pnpm-lock.yaml", "lockfileVersion: '9.0'\n");
-    write(tmp.path(), "ui/package.json", "{}");
+    for package in ["ui", "desktop"] {
+        write(tmp.path(), &format!("{package}/package.json"), "{}");
+    }
     let lane = published_advisory_lane(tmp.path(), target());
 
-    let Action::Run(cmds) = &step(&lane, "ui-audit").action else {
-        panic!("ui-audit must run");
-    };
-    assert_eq!(cmds.len(), 1);
-    assert_eq!(cmds[0].program, "pnpm");
-    assert_eq!(
-        cmds[0].args,
-        ["audit", "--audit-level", "high", "--filter", "./ui"]
-    );
-    assert_eq!(cmds[0].cwd.as_deref(), Some(tmp.path()));
+    for (name, filter) in [("ui-audit", "./ui"), ("desktop-audit", "./desktop")] {
+        let Action::Run(cmds) = &step(&lane, name).action else {
+            panic!("{name} must run");
+        };
+        assert_eq!(cmds.len(), 1);
+        assert_eq!(cmds[0].program, "pnpm");
+        assert_eq!(
+            cmds[0].args,
+            ["audit", "--audit-level", "high", "--filter", filter]
+        );
+        assert_eq!(cmds[0].cwd.as_deref(), Some(tmp.path()));
+    }
 }
 
 #[test]
@@ -292,9 +286,16 @@ fn docs_site_audit_reads_the_workspace_lockfile_filtered_to_the_site() {
 #[test]
 fn pnpm_audit_skips_without_the_workspace_lockfile() {
     let tmp = tempfile::tempdir().unwrap();
-    write(tmp.path(), "ui/package.json", "{}");
+    for package in ["ui", "desktop"] {
+        write(tmp.path(), &format!("{package}/package.json"), "{}");
+    }
     let lane = published_advisory_lane(tmp.path(), target());
-    assert!(matches!(step(&lane, "ui-audit").action, Action::Skip(_)));
+    for name in ["ui-audit", "desktop-audit"] {
+        assert!(
+            matches!(step(&lane, name).action, Action::Skip(_)),
+            "{name}"
+        );
+    }
 }
 
 // --- the components that Trivy does not identify ---

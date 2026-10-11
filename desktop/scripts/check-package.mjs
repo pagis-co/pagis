@@ -57,7 +57,8 @@ for (const file of walk(resources)) {
 }
 // The tray draws these files. macOS loads the @2x file beside the
 // template image for a Retina screen.
-const archived = new Set(asar.listPackage(path.join(resources, 'app.asar')))
+const archive = path.join(resources, 'app.asar')
+const archived = new Set(asar.listPackage(archive))
 const trayIcons = mac ? ['trayTemplate.png', 'trayTemplate@2x.png'] : ['tray.png']
 for (const name of trayIcons) {
   if (!archived.has(`/static/${name}`)) throw new Error(`the client app archive has no static/${name}`)
@@ -72,6 +73,34 @@ for (const entry of archived) {
   if (forbiddenNames.has(name) || forbiddenSuffixes.some((suffix) => name.endsWith(suffix))) {
     throw new Error(`the client app archive contains server or Workspace data: ${entry}`)
   }
+}
+// electron-builder copies the production dependencies from the pnpm
+// node_modules into the archive. A missing dependency of electron-updater
+// breaks Updates only on the machine of a person, so each package that
+// pnpm resolved must be in the archive at its version. Two packages can
+// need two versions of one package, and electron-builder then puts the
+// second version below the package that needs it. pnpm also lists an
+// optional peer that a development dependency resolves, such as the
+// supports-color of debug. The app runs without it, and electron-builder
+// does not pack it.
+const packedVersions = new Map()
+for (const entry of archived) {
+  const match = /^\/(?:.+\/)?node_modules\/((?:@[^/]+\/)?[^/@][^/]*)\/package\.json$/.exec(entry)
+  if (!match) continue
+  const { version } = JSON.parse(asar.extractFile(archive, entry.slice(1)).toString('utf8'))
+  packedVersions.set(match[1], new Set([...(packedVersions.get(match[1]) ?? []), version]))
+}
+const repositoryRoot = fileURLToPath(new URL('../..', import.meta.url))
+const [project] = JSON.parse(execFileSync('pnpm', ['list', '--prod', '--depth', 'Infinity', '--json', '--filter', './desktop'], {
+  cwd: repositoryRoot,
+  encoding: 'utf8',
+}))
+const missing = new Set()
+for (const [name, version] of productionDependencies(project)) {
+  if (!packedVersions.get(name)?.has(version)) missing.add(`${name}@${version}`)
+}
+if (missing.size > 0) {
+  throw new Error(`the client app archive has no ${[...missing].join(', ')}, which the Client App needs in production`)
 }
 
 // A package that holds a server binary is at or above these sizes, so a
@@ -91,6 +120,17 @@ if (appKiB >= appCeilingKiB) {
 }
 
 console.log(`pagis package inventory: client-only Resources verified; ${sizes.join('; ')}; app ${appKiB} KiB`)
+
+/** Each package of a `pnpm list --json` tree, as its name and version,
+ *  less the optional peers that its package.json declares. */
+function * productionDependencies(node) {
+  const { peerDependenciesMeta = {} } = JSON.parse(fs.readFileSync(path.join(node.path, 'package.json'), 'utf8'))
+  for (const [name, dependency] of Object.entries({ ...node.dependencies, ...node.optionalDependencies })) {
+    if (peerDependenciesMeta[name]?.optional) continue
+    yield [name, dependency.version]
+    yield * productionDependencies(dependency)
+  }
+}
 
 function * walk(root) {
   for (const entry of fs.readdirSync(root, { withFileTypes: true })) {

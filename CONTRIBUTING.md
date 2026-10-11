@@ -73,9 +73,10 @@ second container. The named volumes `pagis-screend-registry` and
 containers.
 
 `pnpm --filter ./ui run typecheck` and `pnpm --filter ./ui run test` check
-the TypeScript code of the Product App. In `desktop/` and `mobile/`,
-`npm run typecheck` and `npm test` check the TypeScript code.
-`pnpm --filter ./docs-site run typecheck` and
+the TypeScript code of the Product App, and `pnpm --filter ./desktop run
+typecheck` and `pnpm --filter ./desktop run test` the code of the Client
+App. In `mobile/`, `npm run typecheck` and `npm test` check the TypeScript
+code. `pnpm --filter ./docs-site run typecheck` and
 `pnpm --filter ./docs-site run test` check the documentation site,
 `pnpm --filter ./docs-site run build` compiles and exports each page, and
 `pnpm --filter ./docs-site run test:export` serves the export as Cloudflare

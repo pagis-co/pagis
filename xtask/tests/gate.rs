@@ -19,7 +19,7 @@ use crate::support::workspace_root;
 const ADVISORY_STEPS: [&str; 6] = [
     "cargo-deny",
     "ui-audit",
-    "desktop-npm-audit",
+    "desktop-audit",
     "docs-site-audit",
     "mobile-npm-audit",
     "image-scan",
@@ -1020,6 +1020,26 @@ fn plan_runs_each_docs_site_step_with_pnpm_filtered_to_the_site() {
     }
 }
 
+/// pnpm installs the Client App from the root of the workspace on each
+/// run.
+#[test]
+fn plan_installs_the_desktop_deps_with_pnpm() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_package_json(tmp.path(), "desktop", &[]);
+    let steps = plan(tmp.path(), true);
+    let deps = steps.iter().find(|s| s.name == "desktop-deps").unwrap();
+    let Action::Run(cmds) = &deps.action else {
+        panic!("desktop-deps must run, got {:?}", deps.action);
+    };
+    assert_eq!(cmds.len(), 1);
+    assert_eq!(cmds[0].program, "pnpm");
+    assert_eq!(
+        cmds[0].args,
+        ["install", "--frozen-lockfile", "--filter", "./desktop"]
+    );
+    assert_eq!(cmds[0].cwd.as_deref(), Some(tmp.path()));
+}
+
 #[test]
 fn plan_runs_the_desktop_steps_whose_scripts_are_declared() {
     let tmp = tempfile::tempdir().unwrap();
@@ -1029,12 +1049,9 @@ fn plan_runs_the_desktop_steps_whose_scripts_are_declared() {
         let step = steps.iter().find(|s| s.name == name).unwrap();
         match &step.action {
             Action::Run(cmds) => {
-                assert_eq!(cmds[0].program, "npm");
-                assert_eq!(cmds[0].args, ["run", script]);
-                assert_eq!(
-                    cmds[0].cwd.as_deref(),
-                    Some(tmp.path().join("desktop")).as_deref()
-                );
+                assert_eq!(cmds[0].program, "pnpm");
+                assert_eq!(cmds[0].args, ["--filter", "./desktop", "run", script]);
+                assert_eq!(cmds[0].cwd.as_deref(), Some(tmp.path()));
             }
             other => panic!("step {name} must run, got {other:?}"),
         }

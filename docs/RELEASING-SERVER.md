@@ -198,12 +198,11 @@ advisories:
 
 - **cargo-deny** checks the Cargo lockfiles of the workspace and
   `computer/screend` for the targets that a release ships. `deny.toml` holds the targets and the ignored advisories.
-- **pnpm audit** checks `ui/`, which the server bundles, in the lockfile
-  of the pnpm workspace, and **npm audit** checks the lockfile of
-  `desktop/`, the Client App. Both check at the high level and read the
-  lockfile only. No release artifact holds the docs site, so only the
-  daily check audits `docs-site/`, with pnpm audit over the lockfile of
-  the pnpm workspace.
+- **pnpm audit** checks `ui/`, which the server bundles, and `desktop/`,
+  the Client App, in the lockfile of the pnpm workspace. It checks at the
+  high level and reads the lockfile only. No release artifact holds the
+  docs site, so only the daily check audits `docs-site/`, with pnpm audit
+  over the same lockfile.
 - **Trivy** scans the filesystem of the Computer Image, of the Headless
   Server image and of each Server Package with its vulnerability scanner
   only, because gitleaks is the secret scan. The scan fails on a finding
@@ -214,8 +213,7 @@ advisories:
 The checks run apart from the gate, so a newly published advisory does
 not block an unrelated pull request. They run in these places:
 
-- The advisories stage of a release runs cargo-deny, pnpm audit and npm
-  audit after
+- The advisories stage of a release runs cargo-deny and pnpm audit after
   the gate and before any image build. Then Trivy scans each image for each architecture after its
   secret scan and before its push, and the
   package tree of each Server Package before it is signed, packed and
