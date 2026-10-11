@@ -151,7 +151,9 @@ RUN set -eux; \
 # optional packages, not from scripts. This pnpm is a native program from
 # the registry package of its architecture. It stays out of /opt/node, so
 # the pnpm of the agents does not change, and it stays in this stage, so
-# the final image does not hold it.
+# the final image does not hold it. pnpm copies each file from its store
+# instead of a hard link: Trivy does not read a package.json that a layer
+# holds as a hard link, and a package can hold the same file twice.
 FROM runtimes AS harnesses
 ARG TARGETARCH
 ARG HARNESS_PNPM_VERSION=12.11.2
@@ -172,7 +174,8 @@ RUN set -eux; \
 ENV PATH=/opt/node/bin:$PATH
 COPY harnesses/package.json harnesses/pnpm-workspace.yaml harnesses/pnpm-lock.yaml /opt/pagis/harnesses/
 RUN cd /opt/pagis/harnesses \
-    && /opt/harness-pnpm/pnpm install --frozen-lockfile --prod --config.store-dir=/tmp/pnpm-store \
+    && /opt/harness-pnpm/pnpm install --frozen-lockfile --prod \
+      --config.store-dir=/tmp/pnpm-store --config.package-import-method=copy \
     && rm -rf /tmp/pnpm-store
 
 # OpenCode is a native program, so it comes from the vendor's release
