@@ -1224,20 +1224,98 @@ mod tests {
         }
     }
 
-    /// `npm ci` checks each package against the `integrity` of the lock,
-    /// so a lock entry with no `integrity` is a download that nothing
-    /// pins.
+    /// The entries under `packages:` of a `pnpm-lock.yaml` whose
+    /// `resolution` has no sha512 `integrity`. The lock holds a document
+    /// for the pnpm of the project and a document for its dependencies.
+    fn lock_entries_without_sha512(lock: &str) -> Vec<String> {
+        #[derive(serde::Deserialize)]
+        struct Lock {
+            #[serde(default)]
+            packages: std::collections::BTreeMap<String, Package>,
+        }
+        #[derive(serde::Deserialize)]
+        struct Package {
+            resolution: Resolution,
+        }
+        #[derive(serde::Deserialize)]
+        struct Resolution {
+            integrity: Option<String>,
+        }
+        let documents: Vec<Lock> =
+            serde_saphyr::from_multiple(lock).expect("the lock is YAML with packages");
+        let packages: Vec<(String, Package)> = documents
+            .into_iter()
+            .flat_map(|document| document.packages)
+            .collect();
+        assert!(!packages.is_empty(), "the lock has packages");
+        packages
+            .into_iter()
+            .filter(|(_, package)| {
+                !package
+                    .resolution
+                    .integrity
+                    .as_deref()
+                    .is_some_and(|integrity| integrity.starts_with("sha512-"))
+            })
+            .map(|(key, _)| key)
+            .collect()
+    }
+
+    #[test]
+    fn a_lock_entry_with_no_integrity_is_found() {
+        let lock = "\
+---
+lockfileVersion: '9.0'
+packages:
+  pnpm@1.0.0:
+    resolution: {integrity: sha512-AAAA}
+  unpinned-pnpm@1.0.0:
+    resolution: {}
+---
+lockfileVersion: '9.0'
+packages:
+  pinned@1.0.0:
+    resolution: {integrity: sha512-AAAA}
+  sha1@1.0.0:
+    resolution: {integrity: sha1-AAAA}
+  tarball@1.0.0:
+    resolution: {tarball: https://example.com/tarball-1.0.0.tgz}
+";
+        assert_eq!(
+            lock_entries_without_sha512(lock),
+            ["unpinned-pnpm@1.0.0", "sha1@1.0.0", "tarball@1.0.0"]
+        );
+    }
+
+    /// pnpm checks each package against the `integrity` of the lock, so
+    /// a lock entry with no `integrity` is a download that nothing pins.
     #[test]
     fn the_harness_lock_pins_each_package_with_its_integrity() {
-        let lock: serde_json::Value =
-            serde_json::from_str(&repository_file("computer/harnesses/package-lock.json"))
-                .expect("package-lock.json is JSON");
-        let packages = lock["packages"].as_object().expect("the lock has packages");
-        assert!(packages.len() > 1);
-        for (path, package) in packages.iter().filter(|(path, _)| !path.is_empty()) {
-            let integrity = package["integrity"].as_str().unwrap_or_default();
-            assert!(integrity.starts_with("sha512-"), "{path} has no sha512");
-        }
+        let lock = repository_file("computer/harnesses/pnpm-lock.yaml");
+        assert_eq!(lock_entries_without_sha512(&lock), Vec::<String>::new());
+    }
+
+    /// The `packageManager` of a `package.json`, as `pnpm@<version>`.
+    fn package_manager(path: &str) -> String {
+        let manifest: serde_json::Value =
+            serde_json::from_str(&repository_file(path)).expect("package.json is JSON");
+        manifest["packageManager"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{path} has no packageManager"))
+            .to_owned()
+    }
+
+    /// The repository uses one pnpm version: the Computer Image installs
+    /// the harnesses with the pnpm of their project, and the harnesses
+    /// project uses the pnpm of the root workspace.
+    #[test]
+    fn the_computer_image_installs_the_harnesses_with_the_pnpm_of_the_repository() {
+        let dockerfile = repository_file("computer/Dockerfile");
+        let version = dockerfile_arg(&dockerfile, "HARNESS_PNPM_VERSION")
+            .expect("the Dockerfile pins HARNESS_PNPM_VERSION");
+        let harnesses = package_manager("computer/harnesses/package.json");
+        assert_eq!(harnesses, format!("pnpm@{version}"));
+        assert_eq!(harnesses, package_manager("package.json"));
     }
 
     /// The Computer Image downloads the OpenCode archive of the catalog

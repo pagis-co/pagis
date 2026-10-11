@@ -1,0 +1,23 @@
+# The Coding Harnesses of the Computer Image are a workspace root of their
+# own. The Docker build context is computer/, so the image cannot read the
+# lockfile of the root workspace.
+
+# The harnesses are third-party programs that run in production, and their
+# authors test them with the flat layout of npm. The layout holds
+# node_modules/.bin/<program>, which the image links into /usr/local/bin.
+nodeLinker: hoisted
+
+# A release must be one day old before an install takes it.
+minimumReleaseAge: 1440
+
+# No build script runs. A new build script stops the install, and a person
+# decides.
+allowBuilds:
+  # The preinstall script only prints a line.
+  '@google/genai': false
+  # The postinstall script only checks the native program of the optional
+  # package @esbuild/<platform>, which the install puts in place.
+  esbuild: false
+  # The postinstall script only warns about the version of an installed
+  # protobufjs command line tool.
+  protobufjs: false

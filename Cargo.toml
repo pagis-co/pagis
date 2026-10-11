@@ -172,6 +172,9 @@ http = "1"
 rust-embed = "8"
 reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
+# The YAML reader of the tests that read pnpm-lock.yaml. serde_yaml is
+# archived.
+serde-saphyr = { version = "1", default-features = false, features = ["deserialize"] }
 # The ACP client crates turn on `preserve_order`, and Cargo unifies
 # features across the workspace, so every crate gets it. A JSON object
 # keeps the order it was written in.

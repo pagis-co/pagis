@@ -288,9 +288,9 @@ the session is `interrupted` with the reason `computer_stopped`.
 The Computer Image ships the four harnesses that a Harness Model Endpoint
 can serve: Claude Code, Codex, OpenCode and pi. It ships no harness that
 needs a subscription sign-in or a Gemini API. The image installs the npm
-packages of `computer/harnesses/package-lock.json` with `npm ci`, which
-checks each package against its sha512, and the OpenCode release archive of
-its architecture, checked against its sha256. The versions are the pins of
+packages of `computer/harnesses/pnpm-lock.yaml` with pnpm, which checks
+each package against its sha512, and the OpenCode release archive of its
+architecture, checked against its sha256. The versions are the pins of
 the Harness Catalog. Root owns the harnesses, so the `agent` uid cannot
 change a harness, and a harness cannot update itself. A Computer launch runs
 the installed program and never `npx`, so a session downloads nothing.
