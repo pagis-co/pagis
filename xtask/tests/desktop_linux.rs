@@ -88,14 +88,26 @@ fn both_linux_locks_are_required_before_the_packages() {
     );
 }
 
+/// pnpm installs and packs the Client App from the root of the
+/// workspace, where the one lockfile is.
 #[test]
-fn the_packages_build_for_both_architectures_in_the_desktop_package() {
+fn the_packages_build_for_both_architectures_from_the_pnpm_workspace() {
     let steps = desktop_plan(Path::new("/repo"), &context(None));
-    assert_eq!(joined(step(&steps, "pack")), "npm run pack:linux");
     assert_eq!(
-        commands(step(&steps, "pack"))[0].cwd.as_deref(),
-        Some(Path::new("/repo/desktop"))
+        joined(step(&steps, "deps")),
+        "pnpm install --frozen-lockfile --filter ./desktop"
     );
+    assert_eq!(
+        joined(step(&steps, "pack")),
+        "pnpm --filter ./desktop run pack:linux"
+    );
+    for name in ["deps", "pack"] {
+        assert_eq!(
+            commands(step(&steps, name))[0].cwd.as_deref(),
+            Some(Path::new("/repo")),
+            "step {name} runs at the root of the workspace"
+        );
+    }
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
     let manifest: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(root.join("desktop/package.json")).unwrap())
