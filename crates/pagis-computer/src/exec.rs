@@ -227,11 +227,14 @@ fn required_keys(keys: Vec<String>) -> Result<Vec<String>, String> {
     Ok(keys)
 }
 
-/// Parse one Anthropic `computer_20251124` action object.
-pub fn parse_anthropic(action: &Value) -> Result<Action, String> {
-    let kind = action["action"]
+/// Parse one call to a member of the Anthropic computer toolset
+/// (`computer_toolset_20260801`): its `tool_use` block, whose `name` is
+/// the member and whose `input` holds the member's parameters.
+pub fn parse_anthropic(call: &Value) -> Result<Action, String> {
+    let kind = call["name"]
         .as_str()
-        .ok_or_else(|| format!("action object without `action`: {action}"))?;
+        .ok_or_else(|| format!("computer call without a member name: {call}"))?;
+    let action = &call["input"];
     let click = |button: &str, count: u32| -> Result<Action, String> {
         let (x, y) = coordinate(&action["coordinate"])?;
         let modifiers = action["text"].as_str().map(split_combo).unwrap_or_default();
@@ -244,9 +247,7 @@ pub fn parse_anthropic(action: &Value) -> Result<Action, String> {
         })
     };
     match kind {
-        // `zoom` asks for a region crop; the answer is the full
-        // screenshot, and the model can still read the area.
-        "screenshot" | "zoom" => Ok(Action::Screenshot),
+        "screenshot" => Ok(Action::Screenshot),
         "left_click" => click("left", 1),
         "right_click" => click("right", 1),
         "middle_click" => click("middle", 1),
@@ -494,7 +495,7 @@ mod tests {
     fn a_key_press_without_a_key_is_an_error() {
         assert!(parse_openai(&json!({"type": "keypress", "keys": []})).is_err());
         assert!(parse_openai(&json!({"type": "keypress"})).is_err());
-        assert!(parse_anthropic(&json!({"action": "key", "text": ""})).is_err());
+        assert!(parse_anthropic(&member("key", json!({"text": ""}))).is_err());
     }
 
     fn png_of(width: u32, height: u32) -> Vec<u8> {
@@ -537,11 +538,19 @@ mod tests {
         );
     }
 
+    fn member(name: &str, input: Value) -> Value {
+        json!({
+            "type": "tool_use", "id": "toolu_1", "name": name,
+            "toolset_name": "computer", "input": input
+        })
+    }
+
     #[test]
     fn anthropic_actions_normalize() {
-        let click = parse_anthropic(&json!({
-            "action": "double_click", "coordinate": [10, 20], "text": "ctrl"
-        }))
+        let click = parse_anthropic(&member(
+            "double_click",
+            json!({"coordinate": [10, 20], "text": "ctrl"}),
+        ))
         .unwrap();
         assert_eq!(
             click,
@@ -554,10 +563,10 @@ mod tests {
             }
         );
 
-        let scroll = parse_anthropic(&json!({
-            "action": "scroll", "coordinate": [5, 6],
-            "scroll_direction": "up", "scroll_amount": 2
-        }))
+        let scroll = parse_anthropic(&member(
+            "scroll",
+            json!({"coordinate": [5, 6], "scroll_direction": "up", "scroll_amount": 2}),
+        ))
         .unwrap();
         assert_eq!(
             scroll,
@@ -569,9 +578,10 @@ mod tests {
             }
         );
 
-        let key = parse_anthropic(&json!({
-            "action": "key", "text": "ctrl+shift+Return", "repeat": 3
-        }))
+        let key = parse_anthropic(&member(
+            "key",
+            json!({"text": "ctrl+shift+Return", "repeat": 3}),
+        ))
         .unwrap();
         assert_eq!(
             key,
@@ -583,11 +593,11 @@ mod tests {
         );
 
         assert_eq!(
-            parse_anthropic(&json!({"action": "zoom", "region": [0, 0, 10, 10]})).unwrap(),
+            parse_anthropic(&member("screenshot", json!({}))).unwrap(),
             Action::Screenshot
         );
-        assert!(parse_anthropic(&json!({"action": "cursor_position"})).is_err());
-        assert!(parse_anthropic(&json!({"action": "levitate"})).is_err());
+        assert!(parse_anthropic(&member("cursor_position", json!({}))).is_err());
+        assert!(parse_anthropic(&member("levitate", json!({}))).is_err());
     }
 
     #[test]

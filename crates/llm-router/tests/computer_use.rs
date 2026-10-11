@@ -26,8 +26,8 @@ async fn typed_tools_pass_through_on_anthropic_protocol() {
     Mock::given(method("POST"))
         .and(path("/messages"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "content": [{"type": "tool_use", "id": "toolu_1", "name": "computer",
-                         "input": {"action": "screenshot"}}],
+            "content": [{"type": "tool_use", "id": "toolu_1", "name": "bash",
+                         "input": {"command": "ls"}}],
             "stop_reason": "tool_use",
             "usage": {"input_tokens": 10, "output_tokens": 5}
         })))
@@ -38,23 +38,26 @@ async fn typed_tools_pass_through_on_anthropic_protocol() {
     let router = single_provider_router(ProtocolKind::AnthropicMessages, &server.uri());
     let mut req = ChatRequest::new("m", vec![Message::user("Open the browser")]);
     req.tools = vec![
-        computer_tool("computer_20251124"),
+        computer_toolset(),
         Tool::provider_defined("bash_20250124", "bash", Map::new()),
         Tool::function("get_weather", "Get the weather", json!({"type": "object"})),
     ];
     let response = router.chat(&req).await.unwrap();
-    assert_eq!(response.message.tool_calls[0].name, "computer");
+    assert_eq!(response.message.tool_calls[0].name, "bash");
+    assert_eq!(
+        response.message.tool_calls[0].arguments,
+        r#"{"command":"ls"}"#
+    );
 
     let sent: Value = server.received_requests().await.unwrap()[0]
         .body_json()
         .unwrap();
+    // A toolset entry has no name: its members carry the names.
     assert_eq!(
         sent["tools"][0],
         json!({
-            "type": "computer_20251124",
-            "name": "computer",
-            "display_width_px": 1024,
-            "display_height_px": 768,
+            "type": "computer_toolset_20260801",
+            "configs": {"zoom": {"enabled": false}},
         })
     );
     assert_eq!(
@@ -63,6 +66,146 @@ async fn typed_tools_pass_through_on_anthropic_protocol() {
     );
     // Function tools keep their schema form alongside typed tools.
     assert_eq!(sent["tools"][2]["input_schema"], json!({"type": "object"}));
+}
+
+fn computer_toolset() -> Tool {
+    let mut config = Map::new();
+    config.insert("configs".into(), json!({"zoom": {"enabled": false}}));
+    Tool::provider_toolset("computer_toolset_20260801", "computer", config)
+}
+
+/// The `tool_use` block of one toolset member call, as the API sends it.
+fn member_call(id: &str, member: &str, input: Value) -> Value {
+    json!({
+        "type": "tool_use",
+        "id": id,
+        "name": member,
+        "toolset_name": "computer",
+        "input": input,
+    })
+}
+
+/// A member call of a toolset comes back as one tool call named by the
+/// toolset whose arguments are the whole `tool_use` block. It replays
+/// verbatim, and its result echoes the toolset name.
+#[tokio::test]
+async fn toolset_calls_round_trip_on_anthropic_protocol() {
+    let click = member_call("toolu_1", "left_click", json!({"coordinate": [640, 60]}));
+    let shot = member_call("toolu_2", "screenshot", json!({}));
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "content": [click, shot],
+            "stop_reason": "tool_use",
+            "usage": {"input_tokens": 10, "output_tokens": 5}
+        })))
+        .expect(2)
+        .mount(&server)
+        .await;
+
+    let router = single_provider_router(ProtocolKind::AnthropicMessages, &server.uri());
+    let mut req = ChatRequest::new("m", vec![Message::user("Open the browser")]);
+    req.tools = vec![computer_toolset()];
+    let response = router.chat(&req).await.unwrap();
+
+    let calls = &response.message.tool_calls;
+    assert_eq!(calls.len(), 2);
+    assert_eq!(
+        (calls[0].id.as_str(), calls[0].name.as_str()),
+        ("toolu_1", "computer")
+    );
+    assert_eq!(
+        serde_json::from_str::<Value>(&calls[0].arguments).unwrap(),
+        click
+    );
+    assert_eq!(calls[1].computer_action(), shot);
+
+    req.messages.push(response.message.clone());
+    req.messages.push(Message::tool("toolu_1", "OK"));
+    req.messages.push(Message {
+        role: Role::Tool,
+        content: vec![ContentPart::ImageUrl {
+            url: "data:image/png;base64,iVBORw0KGgo=".into(),
+        }],
+        tool_calls: vec![],
+        tool_call_id: Some("toolu_2".into()),
+    });
+    router.chat(&req).await.unwrap();
+
+    let sent: Value = server.received_requests().await.unwrap()[1]
+        .body_json()
+        .unwrap();
+    assert_eq!(sent["messages"][1]["content"], json!([click, shot]));
+    let results = &sent["messages"][2]["content"];
+    assert_eq!(results[0]["tool_use_id"], "toolu_1");
+    assert_eq!(results[0]["toolset_name"], "computer");
+    assert_eq!(results[1]["tool_use_id"], "toolu_2");
+    assert_eq!(results[1]["toolset_name"], "computer");
+    assert_eq!(results[1]["content"][0]["type"], "image");
+}
+
+/// A streamed member call starts under the toolset name and arrives
+/// whole, as the `tool_use` block, when its content block stops.
+#[tokio::test]
+async fn a_streamed_toolset_call_arrives_as_its_tool_use_block() {
+    let sse = concat!(
+        "event: message_start\n",
+        "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":5}}}\n\n",
+        "event: content_block_start\n",
+        "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_1\",\"name\":\"scroll\",\"toolset_name\":\"computer\",\"input\":{}}}\n\n",
+        "event: content_block_delta\n",
+        "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"scroll_direction\\\":\"}}\n\n",
+        "event: content_block_delta\n",
+        "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\"down\\\"}\"}}\n\n",
+        "event: content_block_stop\n",
+        "data: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+        "event: content_block_start\n",
+        "data: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_2\",\"name\":\"screenshot\",\"toolset_name\":\"computer\",\"input\":{}}}\n\n",
+        "event: content_block_stop\n",
+        "data: {\"type\":\"content_block_stop\",\"index\":1}\n\n",
+        "event: message_delta\n",
+        "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\"},\"usage\":{\"output_tokens\":7}}\n\n",
+        "event: message_stop\n",
+        "data: {\"type\":\"message_stop\"}\n\n",
+    );
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(sse, "text/event-stream"))
+        .mount(&server)
+        .await;
+
+    let router = single_provider_router(ProtocolKind::AnthropicMessages, &server.uri());
+    let stream = router
+        .chat_stream(&ChatRequest::new("m", vec![Message::user("Scroll")]))
+        .await
+        .unwrap();
+    let events: Vec<StreamEvent> = stream.events.map(|e| e.unwrap()).collect::<Vec<_>>().await;
+
+    assert_eq!(
+        events[..4],
+        [
+            StreamEvent::ToolCallStart {
+                index: 0,
+                id: "toolu_1".into(),
+                name: "computer".into(),
+            },
+            StreamEvent::ToolCallDelta {
+                index: 0,
+                arguments: member_call("toolu_1", "scroll", json!({"scroll_direction": "down"}))
+                    .to_string(),
+            },
+            StreamEvent::ToolCallStart {
+                index: 1,
+                id: "toolu_2".into(),
+                name: "computer".into(),
+            },
+            StreamEvent::ToolCallDelta {
+                index: 1,
+                arguments: member_call("toolu_2", "screenshot", json!({})).to_string(),
+            },
+        ]
+    );
 }
 
 #[tokio::test]

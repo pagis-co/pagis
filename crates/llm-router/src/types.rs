@@ -298,16 +298,22 @@ pub struct Tool {
     #[serde(default)]
     pub parameters: Value,
     /// The provider's tool type for a provider-defined tool, passed through
-    /// as data: `computer_20251124`, `bash_20250124`, `text_editor_20250728`
-    /// (Anthropic; set the matching `anthropic-beta` header via
-    /// `ProviderConfig::headers`), or `computer` / `computer_use_preview`
-    /// (openai-responses). `None` means a plain function tool.
+    /// as data: `computer_toolset_20260801`, `bash_20250124`,
+    /// `text_editor_20250728` (Anthropic; set any `anthropic-beta` header
+    /// a type needs via `ProviderConfig::headers`), or `computer` /
+    /// `computer_use_preview` (openai-responses). `None` means a plain
+    /// function tool.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kind: Option<String>,
     /// Config fields of a provider-defined tool, merged into its wire
-    /// object (`display_width_px`, `display_height_px`, ...).
+    /// object (`display_width_px`, `configs`, ...).
     #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
     pub config: serde_json::Map<String, Value>,
+    /// Whether the provider-defined tool is a toolset: one wire entry,
+    /// without a name, that offers several member tools. `name` is the
+    /// toolset name that the provider's member calls carry.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub toolset: bool,
     /// The one candidate this tool belongs to, or `None` for a tool every
     /// candidate takes. A provider-defined tool is one provider's wire
     /// type, so the router sends it only to the candidate named here and
@@ -344,8 +350,8 @@ impl Tool {
         }
     }
 
-    /// A provider-defined tool such as Anthropic computer use
-    /// (`computer_20251124`) or the openai-responses computer tool.
+    /// A provider-defined tool such as Anthropic bash (`bash_20250124`)
+    /// or the openai-responses computer tool.
     ///
     /// On openai-responses, provider-defined computer calls come back named
     /// `computer` whatever `name` says because the wire item has no name.
@@ -361,6 +367,24 @@ impl Tool {
             kind: Some(kind.into()),
             config,
             ..Self::default()
+        }
+    }
+
+    /// A provider-defined toolset such as Anthropic computer use
+    /// (`computer_toolset_20260801`, toolset name `computer`).
+    ///
+    /// A call to a member of the toolset comes back as one [`ToolCall`]
+    /// named `name`. Its arguments are the whole wire call, which names
+    /// the member, so it replays verbatim. Read it with
+    /// [`ToolCall::computer_action`].
+    pub fn provider_toolset(
+        kind: impl Into<String>,
+        name: impl Into<String>,
+        config: serde_json::Map<String, Value>,
+    ) -> Self {
+        Self {
+            toolset: true,
+            ..Self::provider_defined(kind, name, config)
         }
     }
 }
@@ -385,10 +409,11 @@ pub struct ToolCall {
 
 impl ToolCall {
     /// The action payload of a computer-use call, with any wire wrapper
-    /// removed. On anthropic-messages the arguments already are the action
-    /// object; on openai-responses they are the whole `computer_call` item,
-    /// and this returns its `actions` (or `action`) field. The action
-    /// vocabulary stays the provider's own.
+    /// removed. On anthropic-messages the arguments are the toolset
+    /// member's `tool_use` block: the member is its `name` and the
+    /// parameters are its `input`. On openai-responses they are the whole
+    /// `computer_call` item, and this returns its `actions` (or `action`)
+    /// field. The action vocabulary stays the provider's own.
     ///
     /// Returns `Value::Null` when the arguments do not parse.
     pub fn computer_action(&self) -> Value {

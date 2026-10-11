@@ -383,15 +383,7 @@ pub(crate) fn provider_config(
     base_url: Option<&String>,
 ) -> ProviderConfig {
     let mut config = match provider {
-        Provider::Anthropic => {
-            // The beta header that serves `computer_20251124`.
-            let mut config = ProviderConfig::anthropic(key);
-            config.headers.insert(
-                "anthropic-beta".to_string(),
-                "computer-use-2025-11-24".to_string(),
-            );
-            config
-        }
+        Provider::Anthropic => ProviderConfig::anthropic(key),
         // Every turn offers the computer tool (`run.rs`), which is a
         // provider-defined tool the Chat Completions codec rejects
         // outright; the Responses API is the only OpenAI protocol that
@@ -510,26 +502,29 @@ fn portable_computer_tool() -> Tool {
     )
 }
 
-/// One candidate's own computer tool. Claude gets Anthropic's tool. An
-/// OpenAI model gets OpenAI's tool, directly or through OpenRouter,
-/// unless its API refused it: no provider's model list says which models
-/// take it, and the API does, with a 400 (see [`refused_computer_model`]).
-/// Every other model gets the portable function tool, which any model
-/// that takes tool calls and images drives. The display size matches the
-/// screenshots the executor sends.
+/// Anthropic's computer toolset. Its tool type is GA and needs no
+/// `anthropic-beta` header.
+const ANTHROPIC_COMPUTER_TOOLSET: &str = "computer_toolset_20260801";
+
+/// One candidate's own computer tool. Claude gets Anthropic's computer
+/// toolset, and an OpenAI model gets OpenAI's tool, directly or through
+/// OpenRouter, unless its API refused the native tool: no provider's
+/// model list says which models take it, and the API does, with a 400
+/// (see [`refused_computer_model`]). Every other model gets the portable
+/// function tool, which any model that takes tool calls and images
+/// drives.
 fn computer_tool(provider: Provider, native: bool) -> Tool {
     match provider {
-        Provider::Anthropic => {
+        // The toolset takes no display size: the model reads it from the
+        // screenshots. The executor answers `zoom` with no crop, so the
+        // toolset leaves it out.
+        Provider::Anthropic if native => {
             let mut config = serde_json::Map::new();
             config.insert(
-                "display_width_px".to_string(),
-                pagis_computer::exec::DISPLAY_WIDTH.into(),
+                "configs".to_string(),
+                serde_json::json!({ "zoom": { "enabled": false } }),
             );
-            config.insert(
-                "display_height_px".to_string(),
-                pagis_computer::exec::DISPLAY_HEIGHT.into(),
-            );
-            Tool::provider_defined("computer_20251124", "computer", config)
+            Tool::provider_toolset(ANTHROPIC_COMPUTER_TOOLSET, "computer", config)
         }
         // The GA `computer` tool takes no display or environment config
         // (unlike the deprecated `computer_use_preview` type) — just the
@@ -537,26 +532,31 @@ fn computer_tool(provider: Provider, native: bool) -> Tool {
         Provider::OpenAi | Provider::OpenRouter if native => {
             Tool::provider_defined("computer", "computer", serde_json::Map::new())
         }
-        Provider::OpenAi | Provider::OpenRouter | Provider::Deepgram | Provider::ElevenLabs => {
-            portable_computer_tool()
-        }
+        Provider::Anthropic
+        | Provider::OpenAi
+        | Provider::OpenRouter
+        | Provider::Deepgram
+        | Provider::ElevenLabs => portable_computer_tool(),
     }
 }
 
-/// Whether `model` may carry OpenAI's native computer tool: an OpenAI
-/// model, directly or as OpenRouter's `openai/...`.
-fn openai_model(provider: Provider, model: &str) -> bool {
+/// Whether `model` may carry its provider's native computer tool: a
+/// Claude model, or an OpenAI model, directly or as OpenRouter's
+/// `openai/...`.
+fn native_computer_model(provider: Provider, model: &str) -> bool {
     match provider {
-        Provider::OpenAi => true,
+        Provider::Anthropic | Provider::OpenAi => true,
         Provider::OpenRouter => model.starts_with("openai/"),
-        Provider::Anthropic | Provider::Deepgram | Provider::ElevenLabs => false,
+        Provider::Deepgram | Provider::ElevenLabs => false,
     }
 }
 
 /// The candidate whose API refused the native computer tool, when
-/// `error` is that refusal: a 400 on `tools` that names the `computer`
-/// tool and the model ("Tool 'computer' is not supported with gpt-4.1.").
-/// OpenAI sends no error code for it.
+/// `error` is that refusal: a 400 that names the tool and the model.
+/// OpenAI refuses on `tools` ("Tool 'computer' is not supported with
+/// gpt-4.1.") and sends no error code for it. Anthropic refuses a tool
+/// type ("'claude-opus-4-7' does not support tool types:
+/// computer_toolset_20260801. Did you mean one of ...").
 fn refused_computer_model<'a>(
     error: &llm_router::Error,
     candidates: &'a [(Provider, String)],
@@ -580,7 +580,13 @@ fn refused_computer_model<'a>(
         .and_then(|raw| raw.pointer("/error/param"))
         .and_then(serde_json::Value::as_str)
         == Some("tools");
-    if !on_tools || !message.contains("Tool 'computer'") {
+    let openai_refused = on_tools && message.contains("Tool 'computer'");
+    // The refused types end at the first period; the accepted ones follow.
+    let anthropic_refused = message
+        .split_once("does not support tool types:")
+        .and_then(|(_, rest)| rest.split('.').next())
+        .is_some_and(|refused| refused.contains(ANTHROPIC_COMPUTER_TOOLSET));
+    if !openai_refused && !anthropic_refused {
         return None;
     }
     candidates.iter().find(|(candidate, model)| {
@@ -754,7 +760,7 @@ impl Brain for RouterBrain {
             chat.tools = tools.clone();
             if request.computer {
                 for (provider, model) in &served {
-                    let native = openai_model(*provider, model)
+                    let native = native_computer_model(*provider, model)
                         && !self
                             .refused_native_computer
                             .lock()
@@ -1104,7 +1110,7 @@ mod tests {
                 .as_array()
                 .unwrap()
                 .iter()
-                .any(|tool| tool["type"] == "computer_20251124")
+                .any(|tool| tool["type"] == "computer_toolset_20260801")
         );
         let to_openai: Value = openai.received_requests().await.unwrap()[0]
             .body_json()
@@ -1112,7 +1118,9 @@ mod tests {
         let tools = to_openai["tools"].as_array().unwrap();
         assert!(tools.contains(&json!({"type": "computer"})), "{to_openai}");
         assert!(
-            !tools.iter().any(|tool| tool["type"] == "computer_20251124"),
+            !tools
+                .iter()
+                .any(|tool| tool["type"] == "computer_toolset_20260801"),
             "{to_openai}"
         );
     }
@@ -1543,5 +1551,143 @@ mod tests {
         request.computer = true;
 
         assert!(brain.turn(request).await.is_err());
+    }
+
+    fn anthropic_text_stream() -> ResponseTemplate {
+        let sse = concat!(
+            "event: message_start\n",
+            "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":3}}}\n\n",
+            "event: message_delta\n",
+            "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":1}}\n\n",
+            "event: message_stop\n",
+            "data: {\"type\":\"message_stop\"}\n\n",
+        );
+        ResponseTemplate::new(200)
+            .insert_header("content-type", "text/event-stream")
+            .set_body_raw(sse, "text/event-stream")
+    }
+
+    fn anthropic_computer_request(model: &str) -> TurnRequest {
+        let mut request = request();
+        request.model_candidates = vec![format!("anthropic/{model}")];
+        request.computer = true;
+        request
+    }
+
+    /// A Claude model gets the computer toolset, which needs no beta
+    /// header and leaves out `zoom`.
+    #[tokio::test]
+    async fn a_claude_model_gets_the_computer_toolset() {
+        let anthropic = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/messages"))
+            .respond_with(anthropic_text_stream())
+            .expect(1)
+            .mount(&anthropic)
+            .await;
+        let keys = keys();
+        keys.set(Provider::Anthropic, "sk-anthropic").unwrap();
+        let brain =
+            RouterBrain::new(keys, catalog()).with_base_url(Provider::Anthropic, anthropic.uri());
+
+        let deltas: Vec<_> = brain
+            .turn(anthropic_computer_request("claude-sonnet-5-5"))
+            .await
+            .unwrap()
+            .collect()
+            .await;
+
+        assert!(deltas.iter().all(Result::is_ok));
+        let sent = &anthropic.received_requests().await.unwrap()[0];
+        assert!(!sent.headers.contains_key("anthropic-beta"));
+        let body: Value = sent.body_json().unwrap();
+        assert_eq!(
+            body["tools"][0],
+            json!({
+                "type": "computer_toolset_20260801",
+                "configs": {"zoom": {"enabled": false}}
+            })
+        );
+    }
+
+    /// A Claude model that the API refuses the computer toolset for gets
+    /// the portable function tool: the turn repeats at once with it, and
+    /// the next turn sends it first.
+    #[tokio::test]
+    async fn a_claude_model_that_refuses_the_toolset_gets_the_portable_tool() {
+        let anthropic = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/messages"))
+            .respond_with(ResponseTemplate::new(400).set_body_json(json!({
+                "type": "error",
+                "error": {
+                    "type": "invalid_request_error",
+                    "message": "'claude-opus-4-7' does not support tool types: \
+                                computer_toolset_20260801. Did you mean one of \
+                                bash_20250124, computer_20251124?"
+                }
+            })))
+            .up_to_n_times(1)
+            .mount(&anthropic)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/messages"))
+            .respond_with(anthropic_text_stream())
+            .mount(&anthropic)
+            .await;
+        let keys = keys();
+        keys.set(Provider::Anthropic, "sk-anthropic").unwrap();
+        let brain =
+            RouterBrain::new(keys, catalog()).with_base_url(Provider::Anthropic, anthropic.uri());
+        let request = anthropic_computer_request("claude-opus-4-7");
+
+        let first: Vec<_> = brain.turn(request.clone()).await.unwrap().collect().await;
+        let second: Vec<_> = brain.turn(request).await.unwrap().collect().await;
+
+        assert!(first.iter().chain(&second).all(Result::is_ok));
+        let tools: Vec<Value> = anthropic
+            .received_requests()
+            .await
+            .unwrap()
+            .iter()
+            .map(|sent| sent.body_json::<Value>().unwrap()["tools"][0].clone())
+            .collect();
+        assert_eq!(tools.len(), 3, "one refusal, then one request per turn");
+        assert_eq!(tools[0]["type"], "computer_toolset_20260801");
+        assert_eq!(tools[1]["name"], "computer");
+        assert!(tools[1].get("input_schema").is_some(), "{}", tools[1]);
+        assert_eq!(tools[2], tools[1]);
+    }
+
+    /// A refusal of another tool type is not a refusal of the toolset,
+    /// even when the accepted types that follow name the toolset.
+    #[tokio::test]
+    async fn a_refusal_of_another_tool_type_fails_the_turn() {
+        let anthropic = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/messages"))
+            .respond_with(ResponseTemplate::new(400).set_body_json(json!({
+                "type": "error",
+                "error": {
+                    "type": "invalid_request_error",
+                    "message": "'claude-sonnet-5-5' does not support tool types: \
+                                computer_20251124. Did you mean one of \
+                                computer_toolset_20260801?"
+                }
+            })))
+            .expect(1)
+            .mount(&anthropic)
+            .await;
+        let keys = keys();
+        keys.set(Provider::Anthropic, "sk-anthropic").unwrap();
+        let brain =
+            RouterBrain::new(keys, catalog()).with_base_url(Provider::Anthropic, anthropic.uri());
+
+        assert!(
+            brain
+                .turn(anthropic_computer_request("claude-sonnet-5-5"))
+                .await
+                .is_err()
+        );
     }
 }

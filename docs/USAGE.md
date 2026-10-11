@@ -181,25 +181,34 @@ Rules:
 ## Computer use
 
 Declare the provider's computer tool with
-`Tool::provider_defined(kind, name, config)`. The kind strings are the
-provider's own and pass through as data — new tool revisions need no
-router change.
+`Tool::provider_defined(kind, name, config)`, or with
+`Tool::provider_toolset(kind, name, config)` when the provider offers it
+as a toolset. The kind strings are the provider's own and pass through
+as data — new tool revisions need no router change.
 
-Anthropic (`ProviderConfig::anthropic`); set the beta header on the
-provider:
+Anthropic (`ProviderConfig::anthropic`) offers computer use as a
+toolset. Declare it with `Tool::provider_toolset(kind, name, config)`;
+the entry has no name and no display size, and `configs` turns members
+off:
 
 ```rust
-let mut provider = ProviderConfig::anthropic(key);
-provider.headers.insert("anthropic-beta".into(), "computer-use-2025-11-24".into());
+let provider = ProviderConfig::anthropic(key);
 
 let mut config = serde_json::Map::new();
-config.insert("display_width_px".into(), json!(1280));
-config.insert("display_height_px".into(), json!(800));
+config.insert("configs".into(), json!({"zoom": {"enabled": false}}));
 request.tools = vec![
-    Tool::provider_defined("computer_20251124", "computer", config),
+    Tool::provider_toolset("computer_toolset_20260801", "computer", config),
     Tool::provider_defined("bash_20250124", "bash", Default::default()),
 ];
 ```
+
+A turn can call several members. Each call is one tool call named
+`computer` whose arguments are the whole `tool_use` block: the member is
+its `name` and the parameters are its `input`. Answer each call with its
+own tool result; the router adds `toolset_name` to the result. Claude models that do
+not take the toolset refuse it with a 400 ("'<model>' does not support
+tool types: computer_toolset_20260801."), and Pagis then gives them the
+portable `computer` function tool, as below.
 
 OpenAI (`ProviderConfig::openai_responses` — computer use lives on the
 Responses API, not Chat Completions):
@@ -243,10 +252,11 @@ for call in &response.message.tool_calls {
 }
 ```
 
-On openai-responses, both native and portable computer calls surface with
-the name `computer`. The native call arguments contain the provider's
-`computer_call` wrapper. The portable call arguments contain one action
-under `action`.
+Both native and portable computer calls surface with the name
+`computer`. On anthropic-messages the native call arguments contain the
+member's `tool_use` block. On openai-responses they contain the
+provider's `computer_call` wrapper. The portable call arguments contain
+one action under `action`.
 
 ## Reasoning and prompt caching
 

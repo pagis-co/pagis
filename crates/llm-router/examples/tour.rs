@@ -104,16 +104,12 @@ async fn agent_loop(router: &Router) -> Result<(), Error> {
 // ## Computer use
 
 fn computer_use_tools(key: String) -> (ProviderConfig, Vec<Tool>, Vec<Tool>) {
-    let mut provider = ProviderConfig::anthropic(key);
-    provider
-        .headers
-        .insert("anthropic-beta".into(), "computer-use-2025-11-24".into());
+    let provider = ProviderConfig::anthropic(key);
 
     let mut config = serde_json::Map::new();
-    config.insert("display_width_px".into(), json!(1280));
-    config.insert("display_height_px".into(), json!(800));
+    config.insert("configs".into(), json!({"zoom": {"enabled": false}}));
     let anthropic_tools = vec![
-        Tool::provider_defined("computer_20251124", "computer", config),
+        Tool::provider_toolset("computer_toolset_20260801", "computer", config),
         Tool::provider_defined("bash_20250124", "bash", Default::default()),
     ];
     let responses_tools = vec![Tool::provider_defined(
