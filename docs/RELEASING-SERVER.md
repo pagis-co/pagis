@@ -202,7 +202,8 @@ advisories:
   of the pnpm workspace, and **npm audit** checks the lockfile of
   `desktop/`, the Client App. Both check at the high level and read the
   lockfile only. No release artifact holds the docs site, so only the
-  daily check reads `docs-site/`.
+  daily check audits `docs-site/`, with pnpm audit over the lockfile of
+  the pnpm workspace.
 - **Trivy** scans the filesystem of the Computer Image, of the Headless
   Server image and of each Server Package with its vulnerability scanner
   only, because gitleaks is the secret scan. The scan fails on a finding

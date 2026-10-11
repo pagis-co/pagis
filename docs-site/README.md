@@ -11,18 +11,20 @@ architecture, the decisions and the release procedures. The pages in
 
 ## Run the site
 
+The site is a project of the pnpm workspace at the root of the repository.
+Run the commands from the root:
+
 ```bash
-cd docs-site
-npm ci
-npm run dev      # http://localhost:3000, with each change to a page live
+pnpm install --filter ./docs-site
+pnpm --filter ./docs-site run dev      # http://localhost:3000, with each change to a page live
 ```
 
 To see the export as Cloudflare serves it, build it and serve `out/` in the
 local runtime of Cloudflare:
 
 ```bash
-npm run build
-npm run preview  # http://localhost:8787
+pnpm --filter ./docs-site run build
+pnpm --filter ./docs-site run preview  # http://localhost:8787
 ```
 
 The navigation bar shows the release that the pages describe: the
@@ -118,21 +120,22 @@ A walkthrough with sound has controls and a poster image:
 ## Checks
 
 ```bash
-npm run typecheck
-npm test             # each page has a title and a description, and each link resolves
-npm run build        # compiles and exports each page to out/
-npm run test:export  # serves out/ as Cloudflare does, and reads each address
+pnpm --filter ./docs-site run typecheck
+pnpm --filter ./docs-site run test         # each page has a title and a description, and each link resolves
+pnpm --filter ./docs-site run build        # compiles and exports each page to out/
+pnpm --filter ./docs-site run test:export  # serves out/ as Cloudflare does, and reads each address
 ```
 
-`npm run build` fails when a part of the site needs a server, because the
-export has none. `npm run test:export` starts the Worker of `wrangler.jsonc`
+The build fails when a part of the site needs a server, because the
+export has none. The `test:export` script starts the Worker of `wrangler.jsonc`
 in the local runtime of Cloudflare. It reads each page, its Markdown copy,
 its Open Graph image, the search index and the 404 page.
 
 `cargo xtask dev` runs these checks for a change in `docs-site/`, and the
 **docs site** job of CI runs them for each pull request
 (`cargo xtask step docs-site-deps docs-site-typecheck docs-site-test docs-site-build docs-site-export`).
-`cargo xtask advisories` audits `package-lock.json`.
+`cargo xtask advisories` audits the site in `pnpm-lock.yaml` at the root
+(`docs-site-audit`).
 
 ## Agents
 

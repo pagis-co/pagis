@@ -110,7 +110,7 @@ fn the_published_advisory_lane_scans_the_images_of_the_latest_release() {
             "cargo-deny",
             "ui-audit",
             "desktop-npm-audit",
-            "docs-site-npm-audit",
+            "docs-site-audit",
             "mobile-npm-audit",
             "release-image-scan"
         ]
@@ -206,7 +206,7 @@ fn cargo_deny_checks_the_two_lockfiles_with_the_pinned_binary() {
 #[test]
 fn npm_audit_reads_each_npm_lockfile_at_the_high_level() {
     let tmp = tempfile::tempdir().unwrap();
-    for package in ["desktop", "docs-site", "mobile"] {
+    for package in ["desktop", "mobile"] {
         write(tmp.path(), &format!("{package}/package.json"), "{}");
         write(tmp.path(), &format!("{package}/package-lock.json"), "{}");
     }
@@ -214,7 +214,6 @@ fn npm_audit_reads_each_npm_lockfile_at_the_high_level() {
 
     for (name, package) in [
         ("desktop-npm-audit", "desktop"),
-        ("docs-site-npm-audit", "docs-site"),
         ("mobile-npm-audit", "mobile"),
     ] {
         let Action::Run(cmds) = &step(&lane, name).action else {
@@ -239,11 +238,7 @@ fn npm_audit_reads_each_npm_lockfile_at_the_high_level() {
 fn npm_audit_skips_a_package_without_a_lockfile() {
     let tmp = tempfile::tempdir().unwrap();
     let lane = published_advisory_lane(tmp.path(), target());
-    for name in [
-        "desktop-npm-audit",
-        "docs-site-npm-audit",
-        "mobile-npm-audit",
-    ] {
+    for name in ["desktop-npm-audit", "mobile-npm-audit"] {
         assert!(
             matches!(step(&lane, name).action, Action::Skip(_)),
             "{name} must skip without a lockfile"
@@ -271,6 +266,25 @@ fn pnpm_audit_reads_the_workspace_lockfile_at_the_high_level() {
     assert_eq!(
         cmds[0].args,
         ["audit", "--audit-level", "high", "--filter", "./ui"]
+    );
+    assert_eq!(cmds[0].cwd.as_deref(), Some(tmp.path()));
+}
+
+#[test]
+fn docs_site_audit_reads_the_workspace_lockfile_filtered_to_the_site() {
+    let tmp = tempfile::tempdir().unwrap();
+    write(tmp.path(), "pnpm-lock.yaml", "lockfileVersion: '9.0'\n");
+    write(tmp.path(), "docs-site/package.json", "{}");
+    let lane = published_advisory_lane(tmp.path(), target());
+
+    let Action::Run(cmds) = &step(&lane, "docs-site-audit").action else {
+        panic!("docs-site-audit must run");
+    };
+    assert_eq!(cmds.len(), 1);
+    assert_eq!(cmds[0].program, "pnpm");
+    assert_eq!(
+        cmds[0].args,
+        ["audit", "--audit-level", "high", "--filter", "./docs-site"]
     );
     assert_eq!(cmds[0].cwd.as_deref(), Some(tmp.path()));
 }

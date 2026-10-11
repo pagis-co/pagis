@@ -73,10 +73,12 @@ second container. The named volumes `pagis-screend-registry` and
 containers.
 
 `pnpm --filter ./ui run typecheck` and `pnpm --filter ./ui run test` check
-the TypeScript code of the Product App. In `desktop/`, `mobile/` and
-`docs-site/`, `npm run typecheck` and `npm test` check the TypeScript
-code. In `docs-site/`, `npm run build` compiles and
-exports each page, and `npm run test:export` serves the export as Cloudflare
+the TypeScript code of the Product App. In `desktop/` and `mobile/`,
+`npm run typecheck` and `npm test` check the TypeScript code.
+`pnpm --filter ./docs-site run typecheck` and
+`pnpm --filter ./docs-site run test` check the documentation site,
+`pnpm --filter ./docs-site run build` compiles and exports each page, and
+`pnpm --filter ./docs-site run test:export` serves the export as Cloudflare
 does. [docs-site/README.md](docs-site/README.md) tells how to write a page. After a change to the HTTP API of `pagis-server`, run
 `pnpm --filter ./ui run api:generate` to write `openapi.json` and the API
 types again.
