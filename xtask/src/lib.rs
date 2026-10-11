@@ -216,7 +216,7 @@ fn gate_lanes(
         pins_step(root),
         Step {
             name: "contract-drift",
-            action: npm_script_action(root, "ui", "api:check"),
+            action: pnpm_script_action(root, "ui", "api:check"),
         },
     ];
     let mut node = vec![
@@ -226,15 +226,15 @@ fn gate_lanes(
         },
         Step {
             name: "ui-deps",
-            action: npm_deps_action(root, "ui"),
+            action: pnpm_deps_action(root, "ui"),
         },
         Step {
             name: "ui-typecheck",
-            action: npm_script_action(root, "ui", "typecheck"),
+            action: pnpm_script_action(root, "ui", "typecheck"),
         },
         Step {
             name: "ui-test",
-            action: npm_script_action(root, "ui", "test"),
+            action: pnpm_script_action(root, "ui", "test"),
         },
         Step {
             name: "desktop-deps",
@@ -555,7 +555,7 @@ pub fn dev_lanes(
         if affected.iter().any(|package| package == "pagis-server") {
             cargo_steps.push(Step {
                 name: "contract-drift",
-                action: npm_script_action(root, "ui", "api:check"),
+                action: pnpm_script_action(root, "ui", "api:check"),
             });
         }
     }
@@ -571,15 +571,15 @@ pub fn dev_lanes(
         node_steps.extend([
             Step {
                 name: "ui-deps",
-                action: npm_deps_action(root, "ui"),
+                action: pnpm_deps_action(root, "ui"),
             },
             Step {
                 name: "ui-typecheck",
-                action: npm_script_action(root, "ui", "typecheck"),
+                action: pnpm_script_action(root, "ui", "typecheck"),
             },
             Step {
                 name: "ui-test",
-                action: npm_script_action(root, "ui", "test"),
+                action: pnpm_script_action(root, "ui", "test"),
             },
         ]);
     }
@@ -761,6 +761,56 @@ fn pagis_apt_action(root: &Path) -> Action {
     Action::Run(vec![Cmd::new("bash", &[SCRIPT]).in_dir(root)])
 }
 
+/// Install the dependencies of the pnpm workspace project `package`
+/// from the root of the workspace. The install runs on each run: a
+/// frozen install that is up to date is quick, and a changed lockfile
+/// then always reaches `node_modules`.
+fn pnpm_deps_action(root: &Path, package: &str) -> Action {
+    if !root.join(package).join("package.json").exists() {
+        return Action::Skip(format!("{package}/ is not present yet"));
+    }
+    let filter = format!("./{package}");
+    Action::Run(vec![
+        Cmd::new(
+            "pnpm",
+            &["install", "--frozen-lockfile", "--filter", &filter],
+        )
+        .in_dir(root),
+    ])
+}
+
+/// Run a script of the pnpm workspace project `package` when its
+/// `package.json` declares it.
+fn pnpm_script_action(root: &Path, package: &str, script: &str) -> Action {
+    match declares_script(root, package, script) {
+        Ok(()) => {
+            let filter = format!("./{package}");
+            Action::Run(vec![
+                Cmd::new("pnpm", &["--filter", &filter, "run", script]).in_dir(root),
+            ])
+        }
+        Err(reason) => Action::Skip(reason),
+    }
+}
+
+/// Whether the `package.json` of `package` declares `script`, or the
+/// reason to skip the step that runs it.
+fn declares_script(root: &Path, package: &str, script: &str) -> Result<(), String> {
+    let package_json = root.join(package).join("package.json");
+    if !package_json.exists() {
+        return Err(format!("{package}/ is not present yet"));
+    }
+    let declared = std::fs::read_to_string(&package_json)
+        .ok()
+        .and_then(|body| serde_json::from_str::<serde_json::Value>(&body).ok())
+        .is_some_and(|pkg| pkg["scripts"][script].is_string());
+    if declared {
+        Ok(())
+    } else {
+        Err(format!("{package}/package.json has no \"{script}\" script"))
+    }
+}
+
 /// Install a package's npm dependencies when they are missing, so the
 /// npm steps work on a fresh checkout.
 fn npm_deps_action(root: &Path, package: &str) -> Action {
@@ -776,19 +826,11 @@ fn npm_deps_action(root: &Path, package: &str) -> Action {
 
 /// Run an npm script in a package when its `package.json` declares it.
 fn npm_script_action(root: &Path, package: &str, script: &str) -> Action {
-    let dir = root.join(package);
-    let package_json = dir.join("package.json");
-    if !package_json.exists() {
-        return Action::Skip(format!("{package}/ is not present yet"));
-    }
-    let declared = std::fs::read_to_string(&package_json)
-        .ok()
-        .and_then(|body| serde_json::from_str::<serde_json::Value>(&body).ok())
-        .is_some_and(|pkg| pkg["scripts"][script].is_string());
-    if declared {
-        Action::Run(vec![Cmd::new("npm", &["run", script]).in_dir(dir)])
-    } else {
-        Action::Skip(format!("{package}/package.json has no \"{script}\" script"))
+    match declares_script(root, package, script) {
+        Ok(()) => Action::Run(vec![
+            Cmd::new("npm", &["run", script]).in_dir(root.join(package)),
+        ]),
+        Err(reason) => Action::Skip(reason),
     }
 }
 

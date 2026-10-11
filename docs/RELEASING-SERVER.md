@@ -198,8 +198,9 @@ advisories:
 
 - **cargo-deny** checks the Cargo lockfiles of the workspace and
   `computer/screend` for the targets that a release ships. `deny.toml` holds the targets and the ignored advisories.
-- **npm audit** checks the lockfiles of `ui/`, which the server bundles,
-  and `desktop/`, the Client App, at the high level. It reads the
+- **pnpm audit** checks `ui/`, which the server bundles, in the lockfile
+  of the pnpm workspace, and **npm audit** checks the lockfile of
+  `desktop/`, the Client App. Both check at the high level and read the
   lockfile only. No release artifact holds the docs site, so only the
   daily check reads `docs-site/`.
 - **Trivy** scans the filesystem of the Computer Image, of the Headless
@@ -212,15 +213,16 @@ advisories:
 The checks run apart from the gate, so a newly published advisory does
 not block an unrelated pull request. They run in these places:
 
-- The advisories stage of a release runs cargo-deny and npm audit after
+- The advisories stage of a release runs cargo-deny, pnpm audit and npm
+  audit after
   the gate and before any image build. Then Trivy scans each image for each architecture after its
   secret scan and before its push, and the
   package tree of each Server Package before it is signed, packed and
   published. `cargo xtask image` and `cargo xtask server-image` scan each
   image in the same way.
 - `.github/workflows/advisories.yml` runs `cargo xtask advisories` each
-  day and on a manual request. It runs cargo-deny and npm audit over the
-  lockfiles of main, the docs site included, and Trivy over the Computer Image and the Headless
+  day and on a manual request. It runs cargo-deny, pnpm audit and npm
+  audit over the lockfiles of main, the docs site included, and Trivy over the Computer Image and the Headless
   Server image of the latest release, for both architectures. The Runtime
   Lock of the release names its Computer Image. When a check fails, the
   workflow opens an issue that names each advisory in the output of the
@@ -256,9 +258,12 @@ each one by hand with the security advisories of its upstream project.
    advisory ID in `.trivyignore` with a comment line above it that holds
    the reason. An advisory that an update removes is not an exception.
 
-npm audit has no list of exceptions. When a parent package does not accept
-the fixed version of a dependency, an `overrides` entry in `package.json`
-selects it.
+`audit.ignore` in `pnpm-workspace.yaml` holds the reviewed exceptions of
+pnpm audit, each with a comment line above it that holds the reason. When
+a parent package does not accept the fixed version of a dependency, an
+`overrides` entry in `pnpm-workspace.yaml` selects it. npm audit has no
+list of exceptions, and an `overrides` entry in the `package.json` of an
+npm project selects a fixed version.
 
 ## The release workflow
 

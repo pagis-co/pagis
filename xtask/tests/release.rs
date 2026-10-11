@@ -65,7 +65,7 @@ fn each_stage_lists_its_steps_in_order() {
     let names = |stage| plan(stage).iter().map(|s| s.name).collect::<Vec<_>>();
     assert_eq!(
         names(ReleaseStage::Advisories),
-        ["cargo-deny", "ui-npm-audit", "desktop-npm-audit"]
+        ["cargo-deny", "ui-audit", "desktop-npm-audit"]
     );
     assert_eq!(
         names(ReleaseStage::ComputerImage),
@@ -621,9 +621,27 @@ fn the_ui_build_runs_before_the_binaries_so_the_spa_embeds() {
     let steps = plan(ReleaseStage::Macos);
     let ui = step(&steps, "ui-build");
     let cmds = commands(ui);
-    assert_eq!(cmds.last().unwrap().args, ["run", "build"]);
+    let runs: Vec<(&str, Vec<&str>)> = cmds
+        .iter()
+        .map(|cmd| {
+            (
+                cmd.program.as_str(),
+                cmd.args.iter().map(String::as_str).collect(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        runs,
+        [
+            (
+                "pnpm",
+                vec!["install", "--frozen-lockfile", "--filter", "./ui"]
+            ),
+            ("pnpm", vec!["--filter", "./ui", "run", "build"]),
+        ]
+    );
     for cmd in cmds {
-        assert_eq!(cmd.cwd.as_deref(), Some(Path::new("/repo/ui")));
+        assert_eq!(cmd.cwd.as_deref(), Some(Path::new("/repo")));
     }
 }
 

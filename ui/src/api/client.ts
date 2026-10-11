@@ -2,7 +2,7 @@
 // session is an HTTP-only cookie, which the browser sends with
 // every same-origin request, so no request carries a credential of its
 // own. The schema is generated from the daemon's OpenAPI spec
-// (`npm run api:generate`); CI fails on drift. Artifact bytes go
+// (`pnpm run api:generate`); CI fails on drift. Artifact bytes go
 // through plain fetch: multipart up, Blob down, always via the daemon.
 
 import createClient from 'openapi-fetch'

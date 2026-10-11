@@ -44,7 +44,7 @@ Use a named colorway export when the target viewer has no appearance controls.
 
 ## Preview
 
-From `ui`, run `npm run dev -- --host 127.0.0.1 --port 5187` and open
+From `ui`, run `pnpm run dev --host 127.0.0.1 --port 5187` and open
 `http://127.0.0.1:5187/pixie.html`. Drag the character to turn it. The controls
 select a preset, change colors, show accessories, play clips, and set expressions.
 The studio includes a side-by-side view of the illustration and the current
@@ -135,7 +135,7 @@ python3 -m unittest discover -s assets/avatars/pixie/tests -v
 Run the real Three.js browser-loader checks with:
 
 ```sh
-npm --prefix ui test -- src/avatars
+pnpm --filter ./ui run test src/avatars
 ```
 
 The loader tests use the real GLBs. They decode embedded PNGs with `fast-png`
