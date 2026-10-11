@@ -6,10 +6,21 @@ use sqlx::{PgPool, Row};
 
 use crate::db_err;
 
+/// The key of the transaction-level advisory lock that each append
+/// holds. Advisory locks are local to one database, and no other part
+/// of the daemon takes a lock with this key.
+const APPEND_LOCK: i64 = 0x6576_656e_7473; // "events" in ASCII
+
 /// The events table. `seq` is the identity column: strictly increasing
 /// for appends, never reused, and the catch-up cursor for the event
 /// bus. No row is deleted: a Forget clears the record fields of an
 /// entry in place (ADR-0008).
+///
+/// An append takes [`APPEND_LOCK`] before it takes its `seq` and keeps
+/// the lock until it commits. Thus appends commit in `seq` order, as
+/// on SQLite, which has one writer. Without the lock, an append can
+/// commit before an append with a lower `seq`, and a subscriber that
+/// reads past the higher `seq` never reads the lower one.
 #[derive(Clone)]
 pub struct PostgresEventLog {
     pool: PgPool,
@@ -46,6 +57,12 @@ impl EventLog for PostgresEventLog {
         let created_at = now_ms();
         let payload = serde_json::to_string(&event.payload)
             .map_err(|e| StoreError::Corrupt(format!("event payload: {e}")))?;
+        let mut transaction = self.pool.begin().await.map_err(db_err)?;
+        sqlx::query("SELECT pg_advisory_xact_lock($1)")
+            .bind(APPEND_LOCK)
+            .execute(&mut *transaction)
+            .await
+            .map_err(db_err)?;
         let row = sqlx::query(
             "INSERT INTO events (id, workspace_id, event_type, agent_id, run_id, channel_id, payload, created_at) \
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING seq",
@@ -58,9 +75,10 @@ impl EventLog for PostgresEventLog {
         .bind(event.channel_id.as_ref().map(|c| c.as_str().to_owned()))
         .bind(&payload)
         .bind(created_at)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *transaction)
         .await
         .map_err(db_err)?;
+        transaction.commit().await.map_err(db_err)?;
         Ok(Event {
             id,
             seq: row.get("seq"),
