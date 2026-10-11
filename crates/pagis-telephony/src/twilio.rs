@@ -19,6 +19,9 @@ use crate::catalog::{
 };
 
 const API_BASE: &str = "https://api.twilio.com";
+/// The largest page Twilio sends. One page holds every SIP Domain of
+/// an account.
+const SIP_DOMAIN_PAGE_SIZE: u32 = 1000;
 /// How long the client waits for one Twilio request.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 
@@ -101,6 +104,26 @@ struct HeldAnswer {
 struct PhoneNumberDto {
     sid: String,
     phone_number: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct SipDomainsAnswer {
+    #[serde(default)]
+    domains: Vec<SipDomainDto>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SipDomainDto {
+    sid: String,
+    domain_name: String,
+    #[serde(default)]
+    secure: bool,
+}
+
+/// The first label of a host name: the name of a SIP Domain, which is
+/// unique on Twilio.
+fn first_label(host: &str) -> &str {
+    host.split('.').next().unwrap_or(host)
 }
 
 impl From<AvailableNumberDto> for AvailableNumber {
@@ -231,16 +254,44 @@ impl NumberCatalog for TwilioNumberCatalog {
         Ok(())
     }
 
-    /// Twilio keys SRTP by the SIP Domain's secure-media setting, which
-    /// the user sets in the console; this client has no handle on it.
-    /// Nothing is prepared, and a cleartext answer ends the call with
-    /// `media_failed`, which names the setting.
+    /// Twilio keys TLS signaling and SRTP media by the `secure` setting
+    /// of the SIP Domain that the credential registers to. The registrar
+    /// domain names that SIP Domain by its first label, because an edge
+    /// or region address (`<name>.sip.<edge>.twilio.com`) names the same
+    /// SIP Domain as `<name>.sip.twilio.com`. The TwiML Bin sends the
+    /// dialed number, so there is no number format to set.
     async fn prepare_sip_connection(
         &self,
-        _key: &CarrierKey,
+        key: &CarrierKey,
         _username: &str,
+        domain: &str,
     ) -> Result<bool, CatalogError> {
-        Ok(false)
+        let found: SipDomainsAnswer = self
+            .get(
+                key,
+                "SIP/Domains.json",
+                &[("PageSize".to_string(), SIP_DOMAIN_PAGE_SIZE.to_string())],
+            )
+            .await?;
+        let name = first_label(domain);
+        let sip_domain = found
+            .domains
+            .into_iter()
+            .find(|sip_domain| first_label(&sip_domain.domain_name) == name)
+            .ok_or(CatalogError(CatalogErrorCode::NumberUnavailable))?;
+        if sip_domain.secure {
+            return Ok(false);
+        }
+        let response = self
+            .http
+            .post(self.account_path(key, &format!("SIP/Domains/{}.json", sip_domain.sid)))
+            .basic_auth(key.account(), Some(key.expose_secret()))
+            .form(&[("Secure", "true")])
+            .send()
+            .await
+            .map_err(transport_error)?;
+        let _: serde_json::Value = read(response).await?;
+        Ok(true)
     }
 }
 

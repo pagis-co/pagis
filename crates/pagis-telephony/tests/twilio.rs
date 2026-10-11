@@ -213,3 +213,109 @@ async fn a_number_the_carrier_does_not_hold_is_released_already() {
     let catalog = TwilioNumberCatalog::with_base_url(server.uri());
     catalog.release(&key(), "PN9").await.unwrap();
 }
+
+const SIP_DOMAINS: &str = "/2010-04-01/Accounts/AC123/SIP/Domains.json";
+
+/// Two SIP Domains of the account; the second is the one Pagis
+/// registers to, and `secure` is its state.
+fn domains(secure: bool) -> serde_json::Value {
+    json!({
+        "domains": [
+            { "sid": "SD1", "domain_name": "other.sip.twilio.com", "secure": false },
+            { "sid": "SD2", "domain_name": "pagis-robin.sip.twilio.com", "secure": secure },
+        ],
+    })
+}
+
+#[tokio::test]
+async fn a_sip_domain_without_secure_sip_is_made_secure() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(SIP_DOMAINS))
+        .and(header("authorization", basic_auth()))
+        .respond_with(ResponseTemplate::new(200).set_body_json(domains(false)))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/2010-04-01/Accounts/AC123/SIP/Domains/SD2.json"))
+        .and(header("authorization", basic_auth()))
+        .and(body_string_contains("Secure=true"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "sid": "SD2" })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let catalog = TwilioNumberCatalog::with_base_url(server.uri());
+    let changed = catalog
+        .prepare_sip_connection(&key(), "robin", "pagis-robin.sip.twilio.com")
+        .await
+        .unwrap();
+
+    assert!(changed, "the SIP Domain was changed");
+}
+
+#[tokio::test]
+async fn an_edge_address_names_the_same_sip_domain() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(SIP_DOMAINS))
+        .respond_with(ResponseTemplate::new(200).set_body_json(domains(false)))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/2010-04-01/Accounts/AC123/SIP/Domains/SD2.json"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "sid": "SD2" })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let catalog = TwilioNumberCatalog::with_base_url(server.uri());
+    let changed = catalog
+        .prepare_sip_connection(&key(), "robin", "pagis-robin.sip.ashburn.twilio.com")
+        .await
+        .unwrap();
+
+    assert!(changed, "the SIP Domain was changed");
+}
+
+#[tokio::test]
+async fn a_secure_sip_domain_is_left_alone() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(SIP_DOMAINS))
+        .respond_with(ResponseTemplate::new(200).set_body_json(domains(true)))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(0)
+        .mount(&server)
+        .await;
+
+    let catalog = TwilioNumberCatalog::with_base_url(server.uri());
+    let changed = catalog
+        .prepare_sip_connection(&key(), "robin", "pagis-robin.sip.twilio.com")
+        .await
+        .unwrap();
+
+    assert!(!changed);
+}
+
+#[tokio::test]
+async fn a_sip_domain_the_account_does_not_hold_is_unavailable() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(SIP_DOMAINS))
+        .respond_with(ResponseTemplate::new(200).set_body_json(domains(false)))
+        .mount(&server)
+        .await;
+
+    let catalog = TwilioNumberCatalog::with_base_url(server.uri());
+    let error = catalog
+        .prepare_sip_connection(&key(), "robin", "nobody.sip.twilio.com")
+        .await
+        .unwrap_err();
+
+    assert_eq!(error.0, CatalogErrorCode::NumberUnavailable);
+}

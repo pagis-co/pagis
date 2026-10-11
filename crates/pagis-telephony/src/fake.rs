@@ -45,6 +45,7 @@ pub enum CarrierCall {
     Release(String),
     PrepareSipConnection {
         username: String,
+        domain: String,
     },
 }
 
@@ -246,11 +247,13 @@ impl NumberCatalog for FakeNumberCatalog {
         &self,
         key: &CarrierKey,
         username: &str,
+        domain: &str,
     ) -> Result<bool, CatalogError> {
         self.record(
             key,
             CarrierCall::PrepareSipConnection {
                 username: username.to_string(),
+                domain: domain.to_string(),
             },
         );
         self.refuse()?;

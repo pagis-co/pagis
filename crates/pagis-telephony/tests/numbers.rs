@@ -884,6 +884,7 @@ async fn a_new_sip_credential_prepares_the_carrier_connection(pool: SqlitePool) 
             .calls()
             .contains(&CarrierCall::PrepareSipConnection {
                 username: "robin".to_string(),
+                domain: "sip.telnyx.com".to_string(),
             }),
         "{:?}",
         world.catalog.calls()
@@ -942,6 +943,7 @@ async fn the_daemon_prepares_the_carrier_connection_at_start(pool: SqlitePool) {
             .calls()
             .contains(&CarrierCall::PrepareSipConnection {
                 username: "robin".to_string(),
+                domain: "sip.telnyx.com".to_string(),
             }),
         "{:?}",
         restarted.catalog.calls()
