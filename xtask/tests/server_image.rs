@@ -210,6 +210,38 @@ fn the_image_builds_pagis_with_the_pinned_cargo_auditable() {
     assert!(!dockerfile.contains("cargo build"), "{dockerfile}");
 }
 
+/// The image installs the pnpm that the workspace names in the
+/// `packageManager` of the root `package.json`, so the image and a
+/// developer's checkout install the lockfile with the same pnpm.
+#[test]
+fn the_image_installs_the_pnpm_of_the_workspace() {
+    let package: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(workspace_root().join("package.json"))
+            .expect("read the root package.json"),
+    )
+    .expect("parse the root package.json");
+    let workspace = package["packageManager"]
+        .as_str()
+        .and_then(|manager| manager.strip_prefix("pnpm@"))
+        .expect("packageManager names pnpm");
+    let dockerfile = dockerfile();
+    let pinned = dockerfile
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("ARG PNPM_VERSION="));
+
+    assert_eq!(pinned, Some(workspace));
+    for arch in ["amd64", "arm64"] {
+        assert!(
+            dockerfile.contains(&format!("ARG PNPM_SHA512_{arch}=")),
+            "{dockerfile}"
+        );
+    }
+    assert!(
+        dockerfile.contains("pnpm install --frozen-lockfile --filter ./ui"),
+        "{dockerfile}"
+    );
+}
+
 /// A fix that Debian ships reaches the image at its next build, also
 /// before Docker publishes a base image that holds it, so the
 /// vulnerability scan of a release does not stop on a fixed package of

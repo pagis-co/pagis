@@ -16,6 +16,9 @@ glossary, and [docs/adr/](docs/adr) holds the architecture decisions.
 - [cargo-nextest](https://nexte.st), which runs the tests.
 - Node.js at the version in [`.nvmrc`](.nvmrc), for `ui/`, `desktop/`,
   `mobile/` and `docs-site/`.
+- pnpm 12, for the pnpm workspace at the repository root. Install it once
+  with `npm install -g pnpm@12`. pnpm then runs the version that the
+  `packageManager` field of the root `package.json` names.
 - Docker, for the Computer Image and the tests that start containers.
   Without Docker, the checks skip these tests.
 - A JDK 21 and the Android SDK 36, with `ANDROID_HOME` set, for the Android
@@ -25,7 +28,8 @@ glossary, and [docs/adr/](docs/adr) holds the architecture decisions.
 ## Build and run
 
 ```bash
-(cd ui && npm ci && npm run build)
+pnpm install --frozen-lockfile --filter ./ui
+pnpm --filter ./ui run build
 cargo run -p pagis -- --local
 ```
 
@@ -68,12 +72,14 @@ second container. The named volumes `pagis-screend-registry` and
 `pagis-screend-target` keep the Cargo downloads and builds of these
 containers.
 
-In `ui/`, `desktop/`, `mobile/` and `docs-site/`, `npm run typecheck` and
-`npm test` check the TypeScript code. In `docs-site/`, `npm run build` compiles and
+`pnpm --filter ./ui run typecheck` and `pnpm --filter ./ui run test` check
+the TypeScript code of the Product App. In `desktop/`, `mobile/` and
+`docs-site/`, `npm run typecheck` and `npm test` check the TypeScript
+code. In `docs-site/`, `npm run build` compiles and
 exports each page, and `npm run test:export` serves the export as Cloudflare
 does. [docs-site/README.md](docs-site/README.md) tells how to write a page. After a change to the HTTP API of `pagis-server`, run
-`npm run api:generate` in `ui/` to write `openapi.json` and the API types
-again.
+`pnpm --filter ./ui run api:generate` to write `openapi.json` and the API
+types again.
 
 ### Tests that need an account
 
@@ -145,8 +151,9 @@ The checks download the pinned gitleaks, `gog`, cargo-deny and Trivy
 into the Cargo target directory, and check the SHA-256 of each archive.
 `.gitleaks.toml` holds each secret scan exception with its reason.
 
-`advisories` runs cargo-deny over the Cargo lockfiles, npm audit over the
-npm lockfiles (the Mobile App included), and Trivy over the images of the latest release. The gate
+`advisories` runs cargo-deny over the Cargo lockfiles, pnpm audit over the
+pnpm lockfile, npm audit over the npm lockfiles (the Mobile App
+included), and Trivy over the images of the latest release. The gate
 does not run these checks, so a newly published advisory does not block
 an unrelated pull request. A daily workflow and each release run them.
 `deny.toml` and `.trivyignore` hold each reviewed exception with its

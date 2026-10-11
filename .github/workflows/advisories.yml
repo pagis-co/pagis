@@ -1,7 +1,7 @@
 # The daily advisory check. It runs `cargo xtask advisories`: cargo-deny
-# over the Cargo lockfiles and npm audit over the npm lockfiles of main,
-# and Trivy over the Computer Image and the Headless Server image of the
-# latest release. When a check fails, it opens an issue that names each
+# over the Cargo lockfiles, pnpm audit and npm audit over the JavaScript
+# lockfiles of main, and Trivy over the Computer Image and the Headless
+# Server image of the latest release. When a check fails, it opens an issue that names each
 # advisory in the output of the failed checks. When an open issue of this
 # workflow exists, it adds a comment to that issue instead.
 name: Advisories
@@ -43,6 +43,8 @@ jobs:
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .nvmrc
@@ -68,7 +70,7 @@ jobs:
           title='Dependency advisories need a review'
           # xtask starts the output of each step with "== <step>:" and ends
           # with a "FAIL <step>" line for each failed step. A passing step,
-          # such as npm audit below the high level, can name an advisory too.
+          # such as pnpm audit below the high level, can name an advisory too.
           failed=$(sed -n 's/^FAIL *\([^ ]*\).*/\1/p' advisories.log)
           ids=$(awk -v failed="$failed" '
             BEGIN { n = split(failed, f, "\n"); for (i = 1; i <= n; i++) bad[f[i]] = 1 }

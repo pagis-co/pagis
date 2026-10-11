@@ -1,5 +1,6 @@
-//! The advisory checks. cargo-deny checks the Cargo lockfiles and npm
-//! audit checks the npm lockfiles against the published advisories.
+//! The advisory checks. cargo-deny checks the Cargo lockfiles, and pnpm
+//! audit and npm audit check the JavaScript lockfiles against the
+//! published advisories.
 //! Trivy scans the filesystem of each image and of each Server Package
 //! for known vulnerabilities before a publish pushes it. `deny.toml` and
 //! `.trivyignore` hold each reviewed exception with its reason.
@@ -17,7 +18,7 @@
 //!
 //! Trivy runs its vulnerability scanner only, because gitleaks is the
 //! secret scan. It reports the findings of high and critical severity
-//! that have a fixed version, as npm audit checks at the high level. A
+//! that have a fixed version, as pnpm audit checks at the high level. A
 //! finding without a fixed version has no update to check, so it is not
 //! an exception to review.
 
@@ -53,7 +54,7 @@ pub fn advisory_lane(root: &Path, target_dir: &Path) -> Lane {
         name: "advisories",
         steps: vec![
             cargo_deny_step(root, target_dir),
-            npm_audit_step(root, "ui", "ui-npm-audit"),
+            pnpm_audit_step(root, "ui", "ui-audit"),
             npm_audit_step(root, "desktop", "desktop-npm-audit"),
         ],
     }
@@ -132,6 +133,28 @@ pub(crate) fn cargo_deny_step(root: &Path, target_dir: &Path) -> Step {
             &[],
         )]),
     }
+}
+
+/// Check the advisories of the pnpm workspace project `package` at the
+/// high level. pnpm runs from the root of the workspace, where the one
+/// lockfile is. The audit reads the lockfile only, so it needs no
+/// `node_modules`.
+fn pnpm_audit_step(root: &Path, package: &str, name: &'static str) -> Step {
+    let action = if !root.join("pnpm-lock.yaml").exists() {
+        Action::Skip("pnpm-lock.yaml is not present".into())
+    } else if !root.join(package).join("package.json").exists() {
+        Action::Skip(format!("{package}/ is not present"))
+    } else {
+        let filter = format!("./{package}");
+        Action::Run(vec![
+            Cmd::new(
+                "pnpm",
+                &["audit", "--audit-level", "high", "--filter", &filter],
+            )
+            .in_dir(root),
+        ])
+    };
+    Step { name, action }
 }
 
 /// Check the advisories of the npm lockfile of `package` at the high
