@@ -274,6 +274,7 @@ impl NumberCatalog for PlivoNumberCatalog {
         &self,
         _key: &CarrierKey,
         _username: &str,
+        _domain: &str,
     ) -> Result<bool, CatalogError> {
         Ok(false)
     }

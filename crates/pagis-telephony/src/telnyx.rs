@@ -271,6 +271,7 @@ impl NumberCatalog for TelnyxNumberCatalog {
         &self,
         key: &CarrierKey,
         username: &str,
+        _domain: &str,
     ) -> Result<bool, CatalogError> {
         let found: Envelope<Vec<CredentialConnectionDto>> = self
             .get(

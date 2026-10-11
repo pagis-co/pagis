@@ -202,7 +202,7 @@ impl NumberDesk {
     /// call then ends with `media_failed`, or is refused for a dialed
     /// number that is not E.164, and the log says what to fix.
     async fn prepare_sip_connection(&self, connection: &Connection) {
-        let Some((username, _domain)) = crate::endpoint::sip_identity(connection) else {
+        let Some((username, domain)) = crate::endpoint::sip_identity(connection) else {
             return;
         };
         let (catalog, key) = match self.carrier_client(connection) {
@@ -212,11 +212,14 @@ impl NumberDesk {
                 return;
             }
         };
-        match catalog.prepare_sip_connection(&key, &username).await {
+        match catalog
+            .prepare_sip_connection(&key, &username, &domain)
+            .await
+        {
             Ok(true) => {
                 tracing::info!(
                     username,
-                    "the carrier now sends SRTP media and E.164 dialed numbers"
+                    "the carrier's SIP Connection was prepared for Pagis's media and dialed numbers"
                 )
             }
             Ok(false) => {}

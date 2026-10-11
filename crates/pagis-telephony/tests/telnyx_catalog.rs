@@ -14,6 +14,7 @@ use wiremock::matchers::{body_json, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 const USERNAME: &str = "pagis9f9301ae";
+const DOMAIN: &str = "sip.telnyx.com";
 const CONNECTION_ID: &str = "3039768267410376183";
 
 fn catalog(server: &MockServer) -> TelnyxNumberCatalog {
@@ -71,7 +72,7 @@ async fn a_connection_without_srtp_is_switched_to_srtp_and_e164_dialed_numbers()
     expect_the_change(&server).await;
 
     let changed = catalog(&server)
-        .prepare_sip_connection(&CarrierKey::new("", "key"), USERNAME)
+        .prepare_sip_connection(&CarrierKey::new("", "key"), USERNAME, DOMAIN)
         .await
         .unwrap();
 
@@ -92,7 +93,7 @@ async fn a_connection_that_sends_the_sip_username_is_switched_to_e164_dialed_num
     expect_the_change(&server).await;
 
     let changed = catalog(&server)
-        .prepare_sip_connection(&CarrierKey::new("", "key"), USERNAME)
+        .prepare_sip_connection(&CarrierKey::new("", "key"), USERNAME, DOMAIN)
         .await
         .unwrap();
 
@@ -116,7 +117,7 @@ async fn a_connection_with_srtp_and_e164_dialed_numbers_is_left_alone() {
         .await;
 
     let changed = catalog(&server)
-        .prepare_sip_connection(&CarrierKey::new("", "key"), USERNAME)
+        .prepare_sip_connection(&CarrierKey::new("", "key"), USERNAME, DOMAIN)
         .await
         .unwrap();
 
@@ -133,7 +134,7 @@ async fn a_username_the_account_does_not_hold_is_unavailable() {
         .await;
 
     let error = catalog(&server)
-        .prepare_sip_connection(&CarrierKey::new("", "key"), "nobody")
+        .prepare_sip_connection(&CarrierKey::new("", "key"), "nobody", DOMAIN)
         .await
         .unwrap_err();
 
@@ -150,7 +151,7 @@ async fn a_refused_key_is_unauthorized() {
         .await;
 
     let error = catalog(&server)
-        .prepare_sip_connection(&CarrierKey::new("", "bad"), USERNAME)
+        .prepare_sip_connection(&CarrierKey::new("", "bad"), USERNAME, DOMAIN)
         .await
         .unwrap_err();
 

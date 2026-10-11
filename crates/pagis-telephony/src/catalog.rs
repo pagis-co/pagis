@@ -150,18 +150,19 @@ pub trait NumberCatalog: Send + Sync {
     async fn release(&self, key: &CarrierKey, provider_number_id: &str)
     -> Result<(), CatalogError>;
 
-    /// Make the credential SIP Connection with this username take the
-    /// media Pagis offers, SDES-SRTP and nothing else, and send the
-    /// dialed number of an inbound call in E.164 (ADR-0020). A carrier
-    /// that has encrypted media off answers cleartext, and no audio
-    /// flows; a carrier that sends another number format sends a
-    /// number the line cannot route. Returns whether the connection was
-    /// changed. A username the account does not hold is
-    /// `NumberUnavailable`.
+    /// Make the carrier's SIP Connection for the SIP credential with
+    /// this username and registrar domain take the media Pagis offers,
+    /// SDES-SRTP and nothing else, and send the dialed number of an
+    /// inbound call in E.164 (ADR-0020). A carrier that has encrypted
+    /// media off answers cleartext, and no audio flows; a carrier that
+    /// sends another number format sends a number the line cannot
+    /// route. Returns whether the connection was changed. A SIP
+    /// Connection the account does not hold is `NumberUnavailable`.
     async fn prepare_sip_connection(
         &self,
         key: &CarrierKey,
         username: &str,
+        domain: &str,
     ) -> Result<bool, CatalogError>;
 }
 
