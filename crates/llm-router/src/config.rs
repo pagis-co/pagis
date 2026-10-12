@@ -131,6 +131,9 @@ pub struct ProviderConfig {
     /// (`anthropic-beta`, OpenRouter attribution headers, proxy auth, ...).
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub headers: HashMap<String, String>,
+    /// Routing rules merged into the request's `provider` object.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub routing: Option<serde_json::Value>,
 }
 
 impl std::fmt::Debug for ProviderConfig {
@@ -140,6 +143,7 @@ impl std::fmt::Debug for ProviderConfig {
             .field("base_url", &self.base_url)
             .field("api_key", &"***")
             .field("compat", &self.compat)
+            .field("routing", &self.routing)
             // Header values can carry credentials; print names only.
             .field("headers", &self.headers.keys())
             .finish()
@@ -150,8 +154,8 @@ impl std::fmt::Debug for ProviderConfig {
 /// The defaults fit most compatible servers (Ollama, llama.cpp, vLLM, Groq,
 /// DeepSeek, Together); [`ProviderConfig::openai`] adjusts them for
 /// api.openai.com. The openai-responses protocol reads
-/// `model_list_path` alone, and the anthropic-messages protocol ignores
-/// these.
+/// `model_list_path` and `end_user_field`; the anthropic-messages protocol
+/// ignores these.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct CompatConfig {
@@ -172,6 +176,8 @@ pub struct CompatConfig {
     /// reads `/models/user`, which takes the key and lists the models it
     /// can use.
     pub model_list_path: String,
+    /// The wire field for an opaque end-user id. `None` sends no id.
+    pub end_user_field: Option<String>,
 }
 
 impl Default for CompatConfig {
@@ -181,6 +187,7 @@ impl Default for CompatConfig {
             max_tokens_field: MaxTokensField::MaxTokens,
             reasoning_effort: true,
             model_list_path: "/models".to_owned(),
+            end_user_field: None,
         }
     }
 }
@@ -214,7 +221,30 @@ impl ProviderConfig {
             api_key: api_key.into(),
             compat: CompatConfig::default(),
             headers: HashMap::new(),
+            routing: None,
         }
+    }
+
+    pub(crate) fn apply_routing(
+        &self,
+        body: &mut serde_json::Map<String, serde_json::Value>,
+    ) -> Result<(), crate::Error> {
+        if let Some(routing) = &self.routing {
+            let rules = routing.as_object().ok_or_else(|| {
+                crate::Error::InvalidConfig("provider routing rules must be an object".into())
+            })?;
+            let provider = body
+                .entry("provider")
+                .or_insert_with(|| serde_json::json!({}));
+            if !provider.is_object() {
+                *provider = serde_json::json!({});
+            }
+            provider
+                .as_object_mut()
+                .expect("provider is an object")
+                .extend(rules.clone());
+        }
+        Ok(())
     }
 
     pub fn openai(api_key: impl Into<String>) -> Self {
@@ -225,17 +255,20 @@ impl ProviderConfig {
         );
         // api.openai.com rejects `max_tokens` on reasoning models.
         config.compat.max_tokens_field = MaxTokensField::MaxCompletionTokens;
+        config.compat.end_user_field = Some("safety_identifier".into());
         config
     }
 
     /// api.openai.com over the Responses API — required for OpenAI computer
     /// use models.
     pub fn openai_responses(api_key: impl Into<String>) -> Self {
-        Self::new(
+        let mut config = Self::new(
             ProtocolKind::OpenAiResponses,
             "https://api.openai.com/v1",
             api_key,
-        )
+        );
+        config.compat.end_user_field = Some("safety_identifier".into());
+        config
     }
 
     /// OpenRouter over its Responses API. This protocol also gives
@@ -249,6 +282,8 @@ impl ProviderConfig {
             "https://openrouter.ai/api/v1",
             api_key,
         );
+        config.compat.end_user_field = Some("user".into());
+        config.routing = Some(serde_json::json!({"data_collection": "deny", "zdr": true}));
         config.compat.model_list_path =
             "/models/user?output_modalities=text,speech,transcription".to_owned();
         config

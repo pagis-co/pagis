@@ -226,6 +226,22 @@ impl Protocol for AnthropicMessages {
         for (key, value) in &req.extra {
             obj.insert(key.clone(), value.clone());
         }
+        if let Some(end_user) = &req.end_user {
+            let metadata = obj.entry("metadata").or_insert_with(|| json!({}));
+            if !metadata.is_object() {
+                *metadata = json!({});
+            }
+            metadata
+                .as_object_mut()
+                .expect("metadata is an object")
+                .insert("user_id".into(), json!(end_user));
+        }
+        if req.end_user.is_none()
+            && let Some(metadata) = obj.get_mut("metadata").and_then(Value::as_object_mut)
+        {
+            metadata.remove("user_id");
+        }
+        provider.apply_routing(obj)?;
 
         let mut request = http
             .post(format!("{}/messages", provider.base_url))

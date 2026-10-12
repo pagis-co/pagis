@@ -62,7 +62,14 @@ impl<'a> ModelCall<'a> {
         phase: &'a str,
         phase_request: usize,
         mut request: TurnRequest,
-    ) -> Self {
+    ) -> Result<Self, BrainError> {
+        let workspace = deps
+            .workspaces
+            .get(&run.workspace_id)
+            .await
+            .map_err(|error| BrainError::new(error.to_string()))?
+            .ok_or_else(|| BrainError::new("model request has no Person Workspace"))?;
+        request.person_id = Some(workspace.user_id);
         request.max_output_tokens =
             RequestBudget::for_candidates(&request.model_candidates, &deps.models)
                 .ok()
@@ -72,14 +79,14 @@ impl<'a> ModelCall<'a> {
         payload["phase"] = phase.into();
         payload["phase_request"] = phase_request.into();
         crate::run::publish(deps, run, "model.requested", payload).await;
-        Self {
+        Ok(Self {
             deps,
             run,
             phase,
             phase_request,
             request,
             started: Instant::now(),
-        }
+        })
     }
 
     /// The request as it goes to the model.
@@ -273,6 +280,7 @@ mod tests {
         let mut message = TurnMessage::user("look at this");
         message.images.push(PNG.to_string());
         let request = TurnRequest {
+            person_id: Some(pagis_core::UserId::from("person-one".to_string())),
             model_alias: "default".into(),
             model_candidates: vec!["openai/gpt-6-luna".into()],
             system: "Follow the user.".into(),

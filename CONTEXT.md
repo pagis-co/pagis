@@ -810,8 +810,10 @@ _Avoid_: shared connection, global connection, org connection
 
 ### Installation Key
 The one key that seals `secrets.enc` and wraps the Tenant Data Key of every
-Workspace. A Local Installation keeps it in the keychain on macOS or in the
-Secret Service on Linux, or in a Key File where that store does not answer.
+Workspace. It also derives the key for the opaque Person ids that model
+requests send to providers. A Local Installation keeps it in the keychain
+on macOS or in the Secret Service on Linux, or in a Key File where that
+store does not answer.
 A Server reads it from the keychain on macOS or from the Key File on Linux
 (ADR-0013).
 _Avoid_: safe-storage key, master key

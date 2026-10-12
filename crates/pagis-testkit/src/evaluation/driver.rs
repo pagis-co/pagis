@@ -919,6 +919,7 @@ impl Replay {
             "failure": &observation.failure,
         });
         let request = TurnRequest {
+            person_id: Some(pagis_core::UserId::from("person-one".to_string())),
             model_alias: "evaluation-pre-grader".into(),
             model_candidates: vec![route.to_string()],
             system: "Grade one evaluation probe. Return one compact JSON object only: {\"grade\":\"pass\",\"reason\":\"short evidence-based reason\"}. The grade must be pass or fail.".into(),

@@ -1482,8 +1482,12 @@ async fn a_listed_model_no_table_knows_runs_end_to_end() {
             .with_base_url(Provider::OpenRouter, provider.uri()),
     );
     let brain = Arc::new(
-        RouterBrain::new(Arc::clone(&keys), models)
-            .with_base_url(Provider::OpenRouter, provider.uri()),
+        RouterBrain::new(
+            Arc::clone(&keys),
+            models,
+            pagis_core::ModelEndUserKey::from_installation_key(&[7; 32]),
+        )
+        .with_base_url(Provider::OpenRouter, provider.uri()),
     );
     let daemon = TestDaemon::start_with(TestDaemonOptions {
         brain,

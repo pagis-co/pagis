@@ -227,6 +227,7 @@ mod release_evaluation {
             let brain = Arc::new(RouterBrain::new(
                 Arc::clone(&keys),
                 Arc::new(pagis_agent::ModelCatalog::new(Arc::clone(&keys))),
+                pagis_core::ModelEndUserKey::from_installation_key(&[7; 32]),
             ));
             let reply = mail_reply(brain, personality).await;
             println!("{route}; personality: {personality}; reply: {reply}");

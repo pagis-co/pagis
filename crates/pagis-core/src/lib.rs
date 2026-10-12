@@ -109,7 +109,7 @@ pub use pending_evidence::{
     PendingUrgency,
 };
 pub use push_subscription::{PushSubscription, PushSubscriptionStore};
-pub use seal::{DataKey, SealError, TenantKeys, data_key_name};
+pub use seal::{DataKey, ModelEndUserKey, SealError, TenantKeys, data_key_name};
 pub use secrets::{
     KeySource, MemorySecretStore, PROVIDERS, Provider, ProviderKeyStatus, ProviderKeys,
     ProviderUse, SecretError, SecretStore, workspace_secret_name,

@@ -234,6 +234,7 @@ mod tests {
 
     fn request(candidate: &str, images: usize) -> TurnRequest {
         TurnRequest {
+            person_id: Some(pagis_core::UserId::from("person-one".to_string())),
             model_alias: "default".into(),
             model_candidates: vec![candidate.into()],
             system: "Follow the user's request.".into(),

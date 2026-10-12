@@ -364,7 +364,7 @@ async fn boot_watching_writes<F>(pool: SqlitePool, config: AgentLoopConfig, wrap
 where
     F: FnOnce(Arc<SqliteMessageStore>) -> Arc<dyn MessageStore>,
 {
-    boot_as(pool, config, wrap, false).await
+    boot_as(pool, config, wrap, false, None).await
 }
 
 /// Boot the loop as a Server, whose Agent's Computer names the exit
@@ -376,11 +376,18 @@ async fn boot_on_server(pool: SqlitePool) -> Loop {
         AgentLoopConfig::default(),
         |messages| messages as Arc<dyn MessageStore>,
         true,
+        None,
     )
     .await
 }
 
-async fn boot_as<F>(pool: SqlitePool, config: AgentLoopConfig, wrap: F, server: bool) -> Loop
+async fn boot_as<F>(
+    pool: SqlitePool,
+    config: AgentLoopConfig,
+    wrap: F,
+    server: bool,
+    model: Option<Arc<dyn pagis_agent::Brain>>,
+) -> Loop
 where
     F: FnOnce(Arc<SqliteMessageStore>) -> Arc<dyn MessageStore>,
 {
@@ -553,7 +560,7 @@ where
         skills: Arc::clone(&skills) as _,
         computers: Arc::clone(&computers),
         bus: Arc::clone(&bus),
-        brain: Arc::clone(&brain) as _,
+        brain: model.unwrap_or_else(|| Arc::clone(&brain) as _),
         models: Arc::new(pagis_agent::ModelCatalog::new(
             pagis_testkit::test_provider_keys(Vec::new()),
         )),
@@ -705,6 +712,185 @@ where
 /// interval and hoping the work fit inside it.
 async fn settle(harness: &Loop) {
     harness.system.available_slots(&harness.agent.id).await;
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn two_runs_of_one_person_send_one_opaque_id_and_another_person_sends_another(
+    pool: SqlitePool,
+) {
+    use pagis_core::UserStore;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/responses"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(
+            "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\"}}\n\n",
+            "text/event-stream",
+        ))
+        .expect(3)
+        .mount(&server)
+        .await;
+    let keys = Arc::new(pagis_core::ProviderKeys::with_env(
+        |_| None,
+        Default::default(),
+        Arc::new(pagis_core::MemorySecretStore::default()),
+    ));
+    let models = Arc::new(pagis_agent::ModelCatalog::new(Arc::clone(&keys)));
+    keys.set(pagis_core::Provider::OpenRouter, "key").unwrap();
+    let brain = Arc::new(
+        pagis_agent::RouterBrain::new(
+            keys,
+            models,
+            pagis_core::ModelEndUserKey::from_installation_key(&[7; 32]),
+        )
+        .with_base_url(pagis_core::Provider::OpenRouter, server.uri()),
+    );
+    let harness = boot_as(
+        pool.clone(),
+        AgentLoopConfig {
+            computer: false,
+            ..Default::default()
+        },
+        |messages| messages as Arc<dyn MessageStore>,
+        false,
+        Some(brain),
+    )
+    .await;
+    let aliases = pagis_storage_sqlite::SqliteModelAliasStore::new(pool.clone());
+    let mut alias = aliases
+        .get_by_alias(&harness.workspace.id, "default")
+        .await
+        .unwrap()
+        .unwrap();
+    alias.candidates = vec!["openrouter/openai/gpt-6-astra".into()];
+    aliases
+        .update_candidates(
+            &harness.workspace.id,
+            "default",
+            &alias.candidates,
+            now_ms(),
+        )
+        .await
+        .unwrap();
+    let mut events = harness
+        .bus
+        .subscribe(EventScope::Installation, Some(0))
+        .await;
+    let mut run_ids = Vec::new();
+    for message in ["first Run", "second Run"] {
+        harness.send(message).await;
+        run_ids.push(next_state(&mut events, "completed").await.run_id.unwrap());
+    }
+    assert_ne!(run_ids[0], run_ids[1]);
+    let people = pagis_storage_sqlite::SqliteUserStore::new(pool.clone());
+    let owner = people
+        .get(&harness.workspace.user_id)
+        .await
+        .unwrap()
+        .unwrap();
+    let other = pagis_core::User::new(owner.org_id, pagis_core::UserRole::Member, now_ms());
+    people.create(&other).await.unwrap();
+    let workspace = Workspace {
+        user_id: other.id.clone(),
+        ..fixture::workspace()
+    };
+    harness.workspaces.create(&workspace).await.unwrap();
+    let agent = fixture::agent(&workspace.id);
+    harness.agents.create(&agent).await.unwrap();
+    alias.id = ModelAliasId::generate();
+    alias.workspace_id = workspace.id.clone();
+    aliases.create(&alias).await.unwrap();
+    let channel = fixture::channel(&workspace.id);
+    SqliteChannelStore::new(pool.clone())
+        .create(&channel)
+        .await
+        .unwrap();
+    SqliteParticipantStore::new(pool)
+        .create(&fixture::agent_participant(
+            &workspace.id,
+            &channel.id,
+            &agent.id,
+        ))
+        .await
+        .unwrap();
+    let message = fixture::user_message(&workspace.id, &channel.id, "other Person");
+    harness.messages.insert(&message).await.unwrap();
+    harness.bus.publish(NewEvent {
+        workspace_id: workspace.id.clone(), event_type: "message.completed".into(), agent_id: None, run_id: None,
+        channel_id: Some(channel.id), payload: serde_json::json!({"message_id": message.id.as_str(), "parent_message_id": null, "author_kind": AuthorKind::User}),
+    }).await.unwrap();
+    next_state(&mut events, "completed").await;
+    let bodies: Vec<serde_json::Value> = server
+        .received_requests()
+        .await
+        .unwrap()
+        .iter()
+        .map(|request| request.body_json().unwrap())
+        .collect();
+    assert_eq!(bodies[0]["user"], bodies[1]["user"]);
+    assert_ne!(bodies[0]["user"], bodies[2]["user"]);
+    let key = pagis_core::ModelEndUserKey::from_installation_key(&[7; 32]);
+    assert_eq!(
+        bodies[0]["user"],
+        key.for_person(&harness.workspace.user_id)
+    );
+    assert_eq!(bodies[2]["user"], key.for_person(&other.id));
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn each_run_model_request_names_its_person(pool: SqlitePool) {
+    let harness = boot(pool, AgentLoopConfig::default()).await;
+    let mut events = harness
+        .bus
+        .subscribe(EventScope::Installation, Some(0))
+        .await;
+    for text in ["first run", "second run"] {
+        harness.brain.push(Script::reply(&["answer"]));
+        harness.send(text).await;
+        next_state(&mut events, "completed").await;
+    }
+    let requests = harness.brain.requests();
+    assert!(requests.len() >= 2);
+    for request in requests {
+        assert_eq!(request.person_id.as_ref(), Some(&harness.workspace.user_id));
+    }
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn an_openrouter_privacy_refusal_is_a_model_failure_and_names_the_rule(pool: SqlitePool) {
+    let harness = boot(pool, AgentLoopConfig::default()).await;
+    harness.capture.set(true, 7);
+    let rule = "No endpoints found that match your data policy (Zero data retention).";
+    let body = serde_json::json!({"error": {"message": rule, "code": 404}});
+    harness
+        .brain
+        .push(Script::provider_error(404, body.clone(), rule));
+    let mut events = harness
+        .bus
+        .subscribe(EventScope::Installation, Some(0))
+        .await;
+    harness.send("hello").await;
+    let ended = next_state(&mut events, "failed").await;
+    let id = ended.run_id.unwrap();
+    let run = harness
+        .runs
+        .get(&harness.workspace.id, &id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(run.failure_kind, Some(pagis_core::FailureKind::ModelFailed));
+    assert_eq!(run.error.as_deref(), Some(rule));
+    let captures = pagis_core::ModelRequestCaptureStore::list_for_run(
+        harness.captures.as_ref(),
+        &harness.workspace.id,
+        &id,
+    )
+    .await
+    .unwrap();
+    assert_eq!(captures[0].answer["status"], 404);
+    assert_eq!(captures[0].answer["body"], body);
 }
 
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
@@ -919,6 +1105,11 @@ async fn a_request_above_the_target_that_fits_the_allowance_is_sent_after_compac
     next_state(&mut events, "completed").await;
     let requests = harness.brain.requests();
     assert_eq!(requests.len(), 2, "one compaction and one reply");
+    assert!(
+        requests
+            .iter()
+            .all(|request| request.person_id.as_ref() == Some(&harness.workspace.user_id))
+    );
     assert!(
         requests[1]
             .messages
@@ -1947,6 +2138,10 @@ async fn a_reflection_request_sends_the_output_reserve(pool: SqlitePool) {
     next_state(&mut events, "completed").await;
     let requests = harness.brain.requests();
     assert_eq!(requests.len(), 1);
+    assert_eq!(
+        requests[0].person_id.as_ref(),
+        Some(&harness.workspace.user_id)
+    );
     assert_eq!(requests[0].max_output_tokens, Some(HAIKU_OUTPUT_RESERVE));
 }
 

@@ -237,6 +237,15 @@ impl Protocol for OpenAiResponses {
         for (key, value) in &req.extra {
             obj.insert(key.clone(), value.clone());
         }
+        obj.remove("user");
+        obj.remove("safety_identifier");
+        if let Some(field) = &provider.compat.end_user_field {
+            obj.remove(field);
+            if let Some(end_user) = &req.end_user {
+                obj.insert(field.clone(), json!(end_user));
+            }
+        }
+        provider.apply_routing(obj)?;
         Ok(post(http, provider, "/responses").json(&body))
     }
 

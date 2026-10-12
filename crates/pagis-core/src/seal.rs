@@ -30,6 +30,29 @@ use sha2::Sha256;
 use crate::secrets::{SecretStore, workspace_secret_name};
 use crate::{ForgetKeys, SealedSecret, SuppressionKey, WorkspaceId};
 
+/// The key for opaque Person ids in model requests. It is separate from
+/// the Installation Key that seals secrets and never leaves the daemon.
+pub struct ModelEndUserKey([u8; 32]);
+
+impl ModelEndUserKey {
+    pub fn from_installation_key(installation_key: &[u8; 32]) -> Self {
+        let mut key = [0; 32];
+        Hkdf::<Sha256>::new(None, installation_key)
+            .expand(b"pagis/model-end-user/v1", &mut key)
+            .expect("32 bytes is a valid HKDF-SHA256 output length");
+        Self(key)
+    }
+
+    /// The stable hex HMAC-SHA256 of the Person id for this installation.
+    pub fn for_person(&self, person_id: &crate::UserId) -> String {
+        use hmac::{Hmac, Mac};
+        let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(&self.0)
+            .expect("HMAC-SHA256 accepts a 32-byte key");
+        mac.update(person_id.as_str().as_bytes());
+        hex_encode(&mac.finalize().into_bytes())
+    }
+}
+
 /// A Tenant Data Key that cannot be read, minted or used.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 #[error("tenant key error: {0}")]
@@ -190,6 +213,24 @@ mod tests {
     use super::*;
     use crate::SecretError;
     use crate::secrets::MemorySecretStore;
+
+    #[test]
+    fn model_end_user_ids_use_hkdf_and_hmac_with_a_fixed_label() {
+        let key = ModelEndUserKey::from_installation_key(&[7; 32]);
+        let person = crate::UserId::from("person-one".to_string());
+        assert_eq!(
+            key.for_person(&person),
+            "fd6cd0a5d13d50b151cfb0597d895b5ecd3429f502331fc4fa6c1d21a0dfd7a1"
+        );
+        assert_ne!(
+            key.for_person(&person),
+            key.for_person(&crate::UserId::from("person-two".to_string()))
+        );
+        assert_ne!(
+            key.for_person(&person),
+            ModelEndUserKey::from_installation_key(&[8; 32]).for_person(&person)
+        );
+    }
 
     #[test]
     fn a_secret_round_trips_and_never_appears_in_its_ciphertext() {

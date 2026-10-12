@@ -735,8 +735,12 @@ async fn a_server_with_only_an_openai_key_answers_the_first_message() {
             .with_base_url(pagis_core::Provider::OpenAi, provider.uri()),
     );
     let brain = Arc::new(
-        pagis_agent::RouterBrain::new(Arc::clone(&keys), models)
-            .with_base_url(pagis_core::Provider::OpenAi, provider.uri()),
+        pagis_agent::RouterBrain::new(
+            Arc::clone(&keys),
+            models,
+            pagis_core::ModelEndUserKey::from_installation_key(&[7; 32]),
+        )
+        .with_base_url(pagis_core::Provider::OpenAi, provider.uri()),
     );
     let Some(daemon) = TestDaemon::start_on_postgres_with(TestDaemonOptions {
         brain,

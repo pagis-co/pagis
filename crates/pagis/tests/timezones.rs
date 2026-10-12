@@ -218,8 +218,12 @@ async fn a_schedule_that_finds_no_model_key_waits_for_one() {
             .with_base_url(pagis_core::Provider::OpenAi, provider.uri()),
     );
     let brain = Arc::new(
-        pagis_agent::RouterBrain::new(Arc::clone(&keys), models)
-            .with_base_url(pagis_core::Provider::OpenAi, provider.uri()),
+        pagis_agent::RouterBrain::new(
+            Arc::clone(&keys),
+            models,
+            pagis_core::ModelEndUserKey::from_installation_key(&[7; 32]),
+        )
+        .with_base_url(pagis_core::Provider::OpenAi, provider.uri()),
     );
     let now = 1_789_041_600_000;
     let clock = pagis_testkit::evaluation::FixtureClock::at(now);

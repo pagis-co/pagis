@@ -153,6 +153,15 @@ impl Protocol for OpenAiChat {
         for (key, value) in &req.extra {
             obj.insert(key.clone(), value.clone());
         }
+        obj.remove("user");
+        obj.remove("safety_identifier");
+        if let Some(field) = &provider.compat.end_user_field {
+            obj.remove(field);
+            if let Some(end_user) = &req.end_user {
+                obj.insert(field.clone(), json!(end_user));
+            }
+        }
+        provider.apply_routing(obj)?;
 
         Ok(post(http, provider, "/chat/completions").json(&body))
     }
@@ -418,7 +427,9 @@ impl Protocol for OpenAiChat {
         model: &str,
         req: &EmbeddingsRequest,
     ) -> Result<reqwest::RequestBuilder, Error> {
-        Ok(post(http, provider, "/embeddings").json(&json!({"model": model, "input": req.input})))
+        let mut body = json!({"model": model, "input": req.input});
+        provider.apply_routing(body.as_object_mut().expect("body is an object"))?;
+        Ok(post(http, provider, "/embeddings").json(&body))
     }
 
     fn parse_embeddings_response(
@@ -480,6 +491,7 @@ impl Protocol for OpenAiChat {
             for (key, value) in &req.extra {
                 obj.insert(key.clone(), value.clone());
             }
+            provider.apply_routing(obj)?;
             return Ok(post(http, provider, "/images/generations").json(&body));
         }
 
@@ -521,12 +533,14 @@ impl Protocol for OpenAiChat {
                 form = form.text(name, value);
             }
         }
-        for (key, value) in &req.extra {
+        let mut extra = req.extra.clone();
+        provider.apply_routing(&mut extra)?;
+        for (key, value) in extra {
             let text = match value {
-                Value::String(s) => s.clone(),
+                Value::String(s) => s,
                 other => other.to_string(),
             };
-            form = form.text(key.clone(), text);
+            form = form.text(key, text);
         }
         Ok(post(http, provider, "/images/edits").multipart(form))
     }
@@ -602,6 +616,7 @@ impl Protocol for OpenAiChat {
         for (key, value) in &req.extra {
             obj.insert(key.clone(), value.clone());
         }
+        provider.apply_routing(obj)?;
         Ok(post(http, provider, "/audio/speech").json(&body))
     }
 
@@ -650,12 +665,14 @@ impl Protocol for OpenAiChat {
                 form = form.text("response_format", "json");
             }
         }
-        for (key, value) in &req.extra {
+        let mut extra = req.extra.clone();
+        provider.apply_routing(&mut extra)?;
+        for (key, value) in extra {
             let text = match value {
-                Value::String(s) => s.clone(),
+                Value::String(s) => s,
                 other => other.to_string(),
             };
-            form = form.text(key.clone(), text);
+            form = form.text(key, text);
         }
         Ok(post(http, provider, "/audio/transcriptions").multipart(form))
     }
@@ -756,6 +773,7 @@ impl Protocol for OpenAiChat {
         for (key, value) in &req.extra {
             obj.insert(key.clone(), value.clone());
         }
+        provider.apply_routing(obj)?;
         Ok(post(http, provider, "/videos").json(&body))
     }
 
