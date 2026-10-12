@@ -399,9 +399,7 @@ pub async fn speak_block(
             list.model
         ))
     })?;
-    let speech = state
-        .voice
-        .speak(&tenant.workspace_id, &text, voice)
+    let speech = crate::rt::on_thread(state.voice.speak(&tenant.workspace_id, &text, voice))
         .await
         .map_err(voice_error)?;
     if !crate::channels::message_is_readable(&state, &message).await? {

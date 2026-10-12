@@ -4931,6 +4931,7 @@ dependencies = [
  "pagis-voice",
  "qrcode",
  "rand 0.9.5",
+ "send_wrapper",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -4943,6 +4944,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "utoipa",
+ "wasm-bindgen-test",
 ]
 
 [[package]]

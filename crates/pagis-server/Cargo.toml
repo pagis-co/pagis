@@ -79,9 +79,18 @@ url.workspace = true
 utoipa.workspace = true
 
 [dev-dependencies]
-pagis-storage-sqlite.workspace = true
+tokio = { workspace = true, features = ["macros", "rt"] }
 tower = { version = "0.5", features = ["util"] }
 tracing-subscriber.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+pagis-storage-sqlite.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+send_wrapper = { version = "0.6", features = ["futures"] }
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "0.3"
 
 # The contract generator and its test read the utoipa contract of the
 # full build.

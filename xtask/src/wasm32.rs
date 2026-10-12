@@ -6,18 +6,66 @@ use anyhow::{Context, Result};
 
 use crate::{Action, Cmd, Step};
 
+/// One portable crate, its Cargo arguments and its Node test binaries.
+#[derive(Debug, PartialEq, Eq)]
+pub struct WasmCrate {
+    pub package: &'static str,
+    pub args: &'static [&'static str],
+    pub tests: &'static [&'static str],
+}
+
 /// Each crate in this list builds and runs on `wasm32-unknown-unknown`.
-/// Each entry names the crate and its wasm-bindgen-test binaries.
-pub const WASM_CRATES: &[(&str, &[&str])] = &[
-    ("pagis-core", &["memory_rules", "wasm"]),
-    ("llm-router", &["rt", "realtime_host"]),
-    ("pagis-broker", &["rules_wasm"]),
-    ("pagis-rt", &["rt"]),
-    ("pagis-agent", &["actor_host"]),
-    ("pagis-push", &["wasm"]),
-    ("pagis-needs-you", &["rules"]),
-    ("pagis-voice", &["router_host"]),
-    ("pagis-mail", &["rules"]),
+pub const WASM_CRATES: &[WasmCrate] = &[
+    WasmCrate {
+        package: "pagis-core",
+        args: &[],
+        tests: &["memory_rules", "wasm"],
+    },
+    WasmCrate {
+        package: "llm-router",
+        args: &[],
+        tests: &["rt", "realtime_host"],
+    },
+    WasmCrate {
+        package: "pagis-broker",
+        args: &[],
+        tests: &["rules_wasm"],
+    },
+    WasmCrate {
+        package: "pagis-rt",
+        args: &[],
+        tests: &["rt"],
+    },
+    WasmCrate {
+        package: "pagis-agent",
+        args: &[],
+        tests: &["actor_host"],
+    },
+    WasmCrate {
+        package: "pagis-push",
+        args: &[],
+        tests: &["wasm"],
+    },
+    WasmCrate {
+        package: "pagis-needs-you",
+        args: &[],
+        tests: &["rules"],
+    },
+    WasmCrate {
+        package: "pagis-voice",
+        args: &[],
+        tests: &["router_host"],
+    },
+    WasmCrate {
+        package: "pagis-mail",
+        args: &[],
+        tests: &["rules"],
+    },
+    WasmCrate {
+        package: "pagis-server",
+        args: &["--no-default-features"],
+        tests: &["agents_wasm"],
+    },
 ];
 
 pub fn step(root: &Path) -> Step {
@@ -54,22 +102,38 @@ fn commands(root: &Path) -> Result<Vec<Cmd>> {
         Cmd::new("sh", &wrapped).in_dir(root)
     };
     let mut clippy = vec!["clippy", "--target", "wasm32-unknown-unknown"];
-    for (package, _) in WASM_CRATES {
-        clippy.extend(["-p", package]);
+    for entry in WASM_CRATES.iter().filter(|entry| entry.args.is_empty()) {
+        clippy.extend(["-p", entry.package]);
     }
     clippy.extend(["--", "-D", "warnings"]);
     let mut commands = vec![wrap(&clippy)];
-    for (package, tests) in WASM_CRATES {
-        for test in *tests {
-            commands.push(wrap(&[
+    // A crate with feature arguments builds alone, so another crate
+    // cannot turn its default features on through feature unification.
+    for entry in WASM_CRATES.iter().filter(|entry| !entry.args.is_empty()) {
+        let mut args = vec![
+            "clippy",
+            "--target",
+            "wasm32-unknown-unknown",
+            "-p",
+            entry.package,
+        ];
+        args.extend(entry.args);
+        args.extend(["--", "-D", "warnings"]);
+        commands.push(wrap(&args));
+    }
+    for entry in WASM_CRATES {
+        for test in entry.tests {
+            let mut args = vec![
                 "test",
                 "-p",
-                package,
+                entry.package,
                 "--target",
                 "wasm32-unknown-unknown",
                 "--test",
                 test,
-            ]));
+            ];
+            args.extend(entry.args);
+            commands.push(wrap(&args));
         }
     }
     Ok(commands)

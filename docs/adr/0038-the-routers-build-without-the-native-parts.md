@@ -99,6 +99,7 @@ answer.
 - The daemon serves the full API. An Embedder can serve the portable
   parts and give the defined answer for an absent Native Part.
 
-## Not built
-
-The `wasm32-unknown-unknown` build of `pagis-server` is not built.
+`pagis-server` builds without `native` on `wasm32-unknown-unknown`.
+The Agent route tests build `AppState` over fake stores and services,
+then send requests through Tower with no listener. The same test binary
+runs under Node and on native targets.
