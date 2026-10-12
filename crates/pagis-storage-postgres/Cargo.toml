@@ -19,7 +19,7 @@ sqlx.workspace = true
 
 [dev-dependencies]
 pagis-testkit.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["rt"] }
 
 [[test]]
 name = "main"

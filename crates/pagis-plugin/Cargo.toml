@@ -17,7 +17,7 @@ serde_json.workspace = true
 tar.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["process", "rt"] }
 tracing.workspace = true
 url.workspace = true
 

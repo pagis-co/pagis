@@ -28,7 +28,7 @@ nix.workspace = true
 str0m = { workspace = true, features = ["sha1"] }
 tempfile.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["io-util", "net"] }
+tokio = { workspace = true, features = ["fs", "io-util", "net", "rt"] }
 # `compat` joins the futures I/O of yamux and the tokio I/O of the exit
 # listener.
 tokio-util = { workspace = true, features = ["compat"] }

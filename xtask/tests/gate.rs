@@ -112,6 +112,91 @@ fn write_computer_workspace(root: &Path) {
 // --- plan ---
 
 #[test]
+fn workspace_tokio_has_only_shared_features_and_broker_has_no_process() {
+    let root = workspace_root();
+    let read = |path: &str| {
+        toml::from_str::<toml::Value>(&std::fs::read_to_string(root.join(path)).unwrap()).unwrap()
+    };
+    let workspace = read("Cargo.toml");
+    assert_eq!(
+        workspace["workspace"]["dependencies"]["tokio"]["features"],
+        toml::Value::Array(["macros", "sync", "time"].map(|s| s.into()).into()),
+    );
+    let broker = read("crates/pagis-broker/Cargo.toml");
+    assert_eq!(
+        broker["dependencies"]["tokio"]["features"],
+        toml::Value::Array(["rt", "sync", "time"].map(|s| s.into()).into()),
+    );
+}
+
+#[test]
+fn members_alone_checks_each_workspace_member_with_all_targets() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_rust_workspace(tmp.path());
+    let steps = plan(tmp.path(), false);
+    let step = steps
+        .iter()
+        .find(|step| step.name == "members-alone")
+        .expect("the full gate checks members alone");
+    let Action::Run(cmds) = &step.action else {
+        panic!("members-alone must run");
+    };
+    let expected: Vec<_> = ["app", "base", "other"]
+        .map(|member| {
+            Cmd::new("cargo", &["check", "-p", member, "--all-targets"]).in_dir(tmp.path())
+        })
+        .into();
+    assert_eq!(*cmds, expected);
+    let named = named_steps(tmp.path(), &["members-alone".into()], false, NO_TOOLCHAINS)
+        .expect("members-alone is a named gate step");
+    assert_eq!(named.as_slice(), std::slice::from_ref(step));
+    assert_eq!(execute(&named)[0].outcome, Outcome::Passed);
+}
+
+#[test]
+fn members_alone_finds_a_feature_that_a_workspace_check_hides() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_rust_workspace(tmp.path());
+    let base = tmp.path().join("crates/base");
+    let manifest = base.join("Cargo.toml");
+    let mut text = std::fs::read_to_string(&manifest).unwrap();
+    text.push_str("\n[features]\nextra = []\n");
+    std::fs::write(manifest, text).unwrap();
+    std::fs::write(
+        base.join("src/lib.rs"),
+        "#[cfg(feature = \"extra\")]\npub fn extra() {}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        tmp.path().join("crates/app/src/lib.rs"),
+        "pub fn run() { base_alias::extra(); }\n",
+    )
+    .unwrap();
+    let manifest = tmp.path().join("crates/other/Cargo.toml");
+    let mut text = std::fs::read_to_string(&manifest).unwrap();
+    text.push_str("base = { path = \"../base\", features = [\"extra\"] }\n");
+    std::fs::write(manifest, text).unwrap();
+    assert_eq!(
+        xtask::run_cmds(
+            "workspace",
+            &[Cmd::new("cargo", &["check", "--workspace", "--all-targets"]).in_dir(tmp.path())],
+        ),
+        Outcome::Passed,
+    );
+    let named = named_steps(tmp.path(), &["members-alone".into()], false, NO_TOOLCHAINS)
+        .expect("members-alone is a named gate step");
+    assert_eq!(execute(&named)[0].outcome, Outcome::Failed);
+}
+
+#[test]
+fn members_alone_fails_when_workspace_metadata_cannot_be_read() {
+    let tmp = tempfile::tempdir().unwrap();
+    let named = named_steps(tmp.path(), &["members-alone".into()], false, NO_TOOLCHAINS)
+        .expect("members-alone is a named gate step");
+    assert_eq!(execute(&named)[0].outcome, Outcome::Failed);
+}
+
+#[test]
 fn dev_plan_tests_a_changed_crate_and_its_reverse_dependants() {
     let tmp = tempfile::tempdir().unwrap();
     write_rust_workspace(tmp.path());
@@ -693,6 +778,7 @@ fn plan_lists_every_gate_step_in_order() {
         [
             "fmt",
             "clippy",
+            "members-alone",
             "computer-image",
             "screend-test",
             "test",
@@ -758,6 +844,7 @@ fn plan_runs_cargo_steps_unconditionally() {
     for name in [
         "fmt",
         "clippy",
+        "members-alone",
         "computer-image",
         "test",
         "emergency-drift",
@@ -1312,6 +1399,7 @@ fn full_lanes_keep_every_cargo_consumer_in_one_lane() {
                 vec![
                     "fmt",
                     "clippy",
+                    "members-alone",
                     "computer-image",
                     "screend-test",
                     "test",
@@ -1453,7 +1541,7 @@ fn a_name_that_is_not_a_gate_step_is_refused_with_the_step_names() {
     .to_string();
     assert!(error.contains("no step `lint`"), "{error}");
     assert!(
-        error.contains("fmt, clippy, computer-image, screend-test, test"),
+        error.contains("fmt, clippy, members-alone, computer-image, screend-test, test"),
         "{error}"
     );
 }
