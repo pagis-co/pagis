@@ -540,6 +540,7 @@ where
     let system = AgentSystem::start(AgentDeps {
         forget: Arc::new(pagis_storage_sqlite::SqliteForgetStore::new(pool.clone())),
         workspaces: Arc::new(SqliteWorkspaceStore::new(pool.clone())),
+        users: Arc::new(pagis_storage_sqlite::SqliteUserStore::new(pool.clone())),
         agents: Arc::clone(&agents) as _,
         channels: Arc::clone(&channels) as _,
         messages: Arc::clone(&written),
