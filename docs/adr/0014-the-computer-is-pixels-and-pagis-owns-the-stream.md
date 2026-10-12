@@ -49,6 +49,25 @@ handback, against a commodity headless compositor in the container. Pagis owns
 the latency and the takeover end to end, and another compositor can replace the
 current one behind the same pipeline.
 
+### The domain reaches Computers through pagis-core
+
+`Computers` resolves the Computers of one Workspace. `Computer` exposes
+only the operations the domain calls: a screen lease, wake for an action,
+shell commands, archive transfers, frames, input, the daemon's held browser
+channel and the exit in use. The value types belong to `pagis-core` and
+contain no Docker client types. The screen lease is an opaque guard whose
+implementation releases the batch when the guard drops. `pagis-core`
+contains no Tokio or image processing. `pagis-agent` normalizes provider
+actions and fits PNG captures to the model's display space.
+`pagis-computer` compares frames to detect a settled screen.
+
+`pagis-agent`, `pagis-vault` and `pagis-software` hold this seam.
+`ComputerManagers` and `ComputerManager` implement it in `pagis-computer`.
+The daemon keeps the concrete managers for image preparation, container
+lifecycle and exit changes. Tests of domain rules use the in-memory
+`FakeComputers` of `pagis-testkit`, which records each Workspace lookup
+and each Agent operation. Tests of the runtime use the manager.
+
 ### The container is a boundary between Workspaces
 
 The container is the sandbox of one Agent and the boundary between

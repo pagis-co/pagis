@@ -14,8 +14,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use pagis_computer::{ComputerManagers, ShellCommand};
-use pagis_core::AgentId;
+use pagis_core::{AgentId, Computers, ShellCommand};
 
 use crate::manifest::PackageVersion;
 
@@ -86,7 +85,7 @@ pub struct Materializer {
     /// Every tenant's Computer manager. A materialization is one
     /// tenant's work, so the manager is resolved per call from the
     /// Workspace the caller names and never held for one of them.
-    computers: Arc<ComputerManagers>,
+    computers: Arc<dyn Computers>,
     source: Arc<dyn VersionSource>,
     locks: Mutex<HashMap<Key, Arc<tokio::sync::Mutex<()>>>>,
     ready: Mutex<HashSet<Key>>,
@@ -95,7 +94,7 @@ pub struct Materializer {
 }
 
 impl Materializer {
-    pub fn new(computers: Arc<ComputerManagers>, source: Arc<dyn VersionSource>) -> Self {
+    pub fn new(computers: Arc<dyn Computers>, source: Arc<dyn VersionSource>) -> Self {
         Self {
             computers,
             source,
@@ -187,6 +186,7 @@ impl Materializer {
     ) -> Result<(), String> {
         let computer = self.computers.get(workspace_id);
         computer
+            .clone()
             .upload_archive(agent_id, temp, tar)
             .await
             .map_err(|error| format!("cannot upload the package: {error}"))?;

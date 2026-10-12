@@ -4,8 +4,10 @@
 
 pub mod brain;
 pub mod browser;
+mod computers;
 pub mod connection;
 pub mod contribution;
+pub use computers::{ComputerCall, FakeComputers, RecordedComputerCall};
 pub mod evaluation;
 pub mod exit_client;
 pub mod fixture;

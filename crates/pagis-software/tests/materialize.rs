@@ -6,7 +6,7 @@ use crate::support;
 
 use std::sync::Arc;
 
-use pagis_computer::ExecOutcome;
+use pagis_core::ExecOutcome;
 use pagis_software::{Materializer, package_root};
 use support::{MemorySource, commands, harness};
 
@@ -37,7 +37,7 @@ schema = "schemas/forecast.json"
 
 /// The check for an existing tree answers "not there", so the
 /// materializer builds one.
-fn absent(runtime: &pagis_computer::fake::FakeComputerRuntime) {
+fn absent(runtime: &pagis_testkit::FakeComputers) {
     runtime.push_exec_outcome(ExecOutcome {
         exit_code: 1,
         ..ExecOutcome::default()

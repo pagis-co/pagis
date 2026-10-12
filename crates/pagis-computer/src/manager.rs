@@ -3,6 +3,7 @@
 //! already-running containers, screen previews (live frame awake,
 //! stored screenshot asleep), and the idle-stop sweep.
 
+use pagis_core::{ExitInUse, ShellCommand};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -14,8 +15,8 @@ use tokio_util::sync::CancellationToken;
 use crate::image::Preparation;
 use crate::{
     BindMount, CONTAINER_LANG, ComputerError, ComputerExit, ComputerImage, ComputerImageState,
-    ComputerRuntime, ComputerState, DEFAULT_TIMEZONE, ExecOutcome, ExecRequest, ExitInUse,
-    ExitMode, ExitStart, IMAGE_VERSION, InputHolder, OutputCap, StartedComputer, container_env,
+    ComputerRuntime, ComputerState, DEFAULT_TIMEZONE, ExecOutcome, ExecRequest, ExitMode,
+    ExitStart, IMAGE_VERSION, InputHolder, OutputCap, StartedComputer, container_env,
     mounts_fingerprint,
 };
 
@@ -45,25 +46,6 @@ const SHELL_OUTPUT_CAP: OutputCap = OutputCap {
     head: 12 * 1024,
     tail: 4 * 1024,
 };
-
-/// One shell command for an agent's own computer. The manager
-/// owns the wrapping, the environment and the caps; the caller brings
-/// the command, the deadline and the directory.
-#[derive(Debug, Clone)]
-pub struct ShellCommand {
-    pub command: String,
-    pub timeout: Duration,
-    /// The working directory. Absent takes `/data/agent`.
-    pub cwd: Option<String>,
-    /// Bytes for the command's stdin. The daemon shuts the write half
-    /// down after them, so the command sees the end of its input. A
-    /// software tool call takes its arguments this way.
-    pub stdin: Option<Vec<u8>>,
-    /// How much of each output stream to keep. Absent takes the
-    /// shell's own cap; a software tool call asks for more, because
-    /// its stdout is the result.
-    pub output_cap: Option<OutputCap>,
-}
 
 /// The takeover clock: after `idle` of user-input inactivity a
 /// `screen.handback_countdown` event runs for `countdown`, then the
@@ -444,7 +426,10 @@ impl ComputerManager {
             None => true,
             Some(_) => {
                 self.vacate(agent_id);
-                return Err(ComputerError::VersionMismatch { found: local });
+                return Err(ComputerError::VersionMismatch {
+                    found: local,
+                    expected: IMAGE_VERSION.into(),
+                });
             }
         };
 
@@ -1091,7 +1076,7 @@ impl ComputerManager {
     /// that shows a state that is gone. Anthropic's reference loop waits
     /// a fixed two seconds after each action; this waits at least
     /// [`SETTLE_MIN`], then until two frames [`SETTLE_POLL`] apart match
-    /// ([`crate::exec::frames_match`]), and at most [`SETTLE_MAX`] on a
+    /// ([`crate::frame::frames_match`]), and at most [`SETTLE_MAX`] on a
     /// screen that keeps moving. A loading page keeps moving: the tab
     /// spinner turns until the load ends.
     pub async fn settled_frame(&self, agent_id: &AgentId) -> Result<Vec<u8>, ComputerError> {
@@ -1103,7 +1088,7 @@ impl ComputerManager {
         while tokio::time::Instant::now() < deadline {
             tokio::time::sleep(SETTLE_POLL).await;
             let next = self.live_frame(agent_id).await?;
-            let matched = crate::exec::frames_match(&frame, &next);
+            let matched = crate::frame::frames_match(&frame, &next);
             frame = next;
             if matched {
                 settled = true;
@@ -1124,7 +1109,7 @@ impl ComputerManager {
     pub async fn input(
         &self,
         agent_id: &AgentId,
-        ops: &[crate::exec::InputOp],
+        ops: &[pagis_core::computer_action::InputOp],
     ) -> Result<(), ComputerError> {
         let Phase::Awake(computer) = self.phase(agent_id) else {
             return Err(ComputerError::Runtime(
@@ -1141,7 +1126,7 @@ impl ComputerManager {
 
     /// Take the input switch for the daemon (ADR-0013): the vault
     /// fills a secret the model never sees, through the browser channel
-    /// of the hold ([`DaemonHold::open`], [`DaemonHold::fill`]).
+    /// of the hold ([`BrowserHold::open`], [`BrowserHold::fill`]).
     /// Model-visible capture stops until the release, and the agent's
     /// screen lease is denied for as long as the hold lasts. Refused
     /// while the user holds.
@@ -1153,7 +1138,7 @@ impl ComputerManager {
     pub async fn daemon_hold(
         self: &Arc<Self>,
         agent_id: &AgentId,
-    ) -> Result<DaemonHold, ComputerError> {
+    ) -> Result<BrowserHold, ComputerError> {
         let Phase::Awake(computer) = self.phase(agent_id) else {
             return Err(ComputerError::Asleep);
         };
@@ -1200,7 +1185,7 @@ impl ComputerManager {
             serde_json::json!({}),
         )
         .await;
-        Ok(DaemonHold {
+        Ok(BrowserHold {
             manager: Arc::clone(self),
             agent_id: agent_id.clone(),
             live: true,
@@ -1864,13 +1849,13 @@ async fn spool(stream: crate::ArchiveStream, path: &str) -> Result<std::fs::File
 /// The daemon's hold on one computer's input switch. It releases
 /// the switch when the fill ends — on the normal path through
 /// `release`, and on an early return through `Drop`.
-pub struct DaemonHold {
+pub struct BrowserHold {
     manager: Arc<ComputerManager>,
     agent_id: AgentId,
     live: bool,
 }
 
-impl DaemonHold {
+impl BrowserHold {
     /// Open `url` in the daemon's own tab of the browser and wait for
     /// the load event of the page. The answer is the top-level address
     /// the tab shows after every redirect (ADR-0013).
@@ -1929,7 +1914,7 @@ impl DaemonHold {
     }
 }
 
-impl Drop for DaemonHold {
+impl Drop for BrowserHold {
     fn drop(&mut self) {
         if !self.live {
             return;

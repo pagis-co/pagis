@@ -11,11 +11,10 @@ use pagis_computer::fake::{FakeExitAnswer, FakeHomeExit, FakeWorkspaces, exit_so
 use pagis_computer::{
     AwakeCaps, AwakeCeiling, BollardRuntime, ComputerLimits, ComputerManager, ComputerManagerDeps,
     ComputerOwner, ComputerRuntime, ComputerState, DockerDiscovery, ExecRequest, ExitListener,
-    ExitMode, HomeExits, IMAGE, InputHolder, OutputCap, RuntimeOptions, SHELL_HOME, SHELL_USER,
-    ShellCommand,
+    ExitMode, HomeExits, IMAGE, RuntimeOptions, SHELL_HOME, SHELL_USER,
     test_docker::{TestDocker, marked_objects},
 };
-use pagis_core::{AgentId, WorkspaceId};
+use pagis_core::{AgentId, InputHolder, OutputCap, ShellCommand, WorkspaceId};
 
 /// The gate's `computer-image` step builds the pinned image from
 /// `computer/` before these tests run; a test builds nothing, so the
@@ -295,7 +294,7 @@ async fn wake_preview_idle_stop_and_rewake_preserve_home() {
         .send_input(
             &computer,
             InputHolder::Agent,
-            &[pagis_computer::exec::InputOp::Text {
+            &[pagis_core::computer_action::InputOp::Text {
                 text: "pagis".to_string(),
             }],
         )
@@ -309,7 +308,7 @@ async fn wake_preview_idle_stop_and_rewake_preserve_home() {
         .send_input(
             &computer,
             InputHolder::Agent,
-            &[pagis_computer::exec::InputOp::Text {
+            &[pagis_core::computer_action::InputOp::Text {
                 text: "pagis".to_string(),
             }],
         )
@@ -324,7 +323,7 @@ async fn wake_preview_idle_stop_and_rewake_preserve_home() {
         .send_input(
             &computer,
             InputHolder::Daemon,
-            &[pagis_computer::exec::InputOp::Text {
+            &[pagis_core::computer_action::InputOp::Text {
                 text: "secret".to_string(),
             }],
         )
@@ -1394,7 +1393,7 @@ PAGE
 /// as settled: each frame over one blink cycle matches the settled
 /// frame, so the caret does not hold the screenshot after typing until
 /// the limit. The comparison is the one `settled_frame` makes
-/// ([`pagis_computer::exec::frames_match`]), on the real caret of the
+/// ([`pagis_computer::frame::frames_match`]), on the real caret of the
 /// real browser.
 ///
 /// The field is on a page of the Computer and not in the address bar,
@@ -1403,7 +1402,8 @@ PAGE
 #[tokio::test]
 #[ignore = "needs Docker; run via cargo test -- --ignored"]
 async fn a_blinking_caret_does_not_hold_a_settled_frame() {
-    use pagis_computer::exec::{InputOp, frames_match};
+    use pagis_computer::frame::frames_match;
+    use pagis_core::computer_action::InputOp;
     let real = Real::new();
     let (manager, _screens) = real.manager(Duration::from_secs(600));
     let agent_id = AgentId::generate();
@@ -1471,7 +1471,7 @@ async fn a_blinking_caret_does_not_hold_a_settled_frame() {
 
 /// With no input, the screen of an awake Computer holds still: from the
 /// settled frame when the Computer turns awake to 25 s after, each frame
-/// matches it ([`pagis_computer::exec::frames_match`]). A change that
+/// matches it ([`pagis_computer::frame::frames_match`]). A change that
 /// nothing caused is noise in the screenshots the Agent reads.
 ///
 /// Chromium opens a "Sign in to Chromium?" promo on the avatar button
@@ -1482,7 +1482,7 @@ async fn a_blinking_caret_does_not_hold_a_settled_frame() {
 #[tokio::test]
 #[ignore = "needs Docker; run via cargo test -- --ignored"]
 async fn the_screen_of_an_awake_computer_holds_still_with_no_input() {
-    use pagis_computer::exec::frames_match;
+    use pagis_computer::frame::frames_match;
     let real = Real::new();
     let (manager, _screens) = real.manager(Duration::from_secs(600));
     let agent_id = AgentId::generate();

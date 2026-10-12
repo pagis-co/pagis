@@ -1,51 +1,13 @@
-//! The computer-use action executor: both provider action
-//! vocabularies normalize into one internal action list, coordinates
-//! rescale from the model's screenshot space into capture space, and
-//! a batch executes sequentially, stopping at the first failure. The
-//! router deliberately keeps the vocabularies provider-raw; this
-//! module is the one translation point.
+//! Computer-use actions: normalize provider input, scale coordinates
+//! and fit PNG captures to the model's display space.
 
-use serde::Serialize;
+use pagis_core::computer_action::{Action, DisplayFrame, InputOp};
 use serde_json::Value;
 
 /// The screen size the model is told about: the tool definition
 /// and every screenshot use this space. The capture rescales to it.
 pub const DISPLAY_WIDTH: u32 = 1280;
 pub const DISPLAY_HEIGHT: u32 = 720;
-
-/// One input operation, the wire shape screend executes.
-#[derive(Debug, Clone, PartialEq, Serialize)]
-#[serde(tag = "op", rename_all = "snake_case")]
-pub enum InputOp {
-    Move {
-        x: f64,
-        y: f64,
-    },
-    Button {
-        button: String,
-        down: bool,
-    },
-    Scroll {
-        dx: f64,
-        dy: f64,
-    },
-    Text {
-        text: String,
-    },
-    Key {
-        keys: Vec<String>,
-        hold_ms: Option<u64>,
-    },
-}
-
-/// A capture frame fitted to the model's display space: PNG at
-/// `DISPLAY_WIDTH`x`DISPLAY_HEIGHT`, plus the factors that map model
-/// coordinates back into capture space.
-pub struct DisplayFrame {
-    pub png: Vec<u8>,
-    pub scale_x: f64,
-    pub scale_y: f64,
-}
 
 /// Fit one captured PNG to the display space. A capture already at
 /// display size passes through untouched (the compositor's headless
@@ -76,81 +38,6 @@ pub fn fit_display(png: &[u8]) -> Result<DisplayFrame, String> {
         scale_x: width as f64 / DISPLAY_WIDTH as f64,
         scale_y: height as f64 / DISPLAY_HEIGHT as f64,
     })
-}
-
-/// The share of pixels two frames may differ by and still show one
-/// settled screen: 0.5%, about a 68px square. A blinking caret or a
-/// small animation stays below it, and a menu, a dialog or a new page
-/// goes above it.
-const SETTLED_CHANGE: f64 = 0.005;
-
-/// Whether two PNG frames show the same settled screen. Frames that do
-/// not decode, or differ in size, match only when their bytes are equal.
-pub fn frames_match(a: &[u8], b: &[u8]) -> bool {
-    if a == b {
-        return true;
-    }
-    let decode = |png: &[u8]| {
-        image::load_from_memory_with_format(png, image::ImageFormat::Png)
-            .ok()
-            .map(|image| image.to_rgb8())
-    };
-    let (Some(a), Some(b)) = (decode(a), decode(b)) else {
-        return false;
-    };
-    if a.dimensions() != b.dimensions() {
-        return false;
-    }
-    let changed = a
-        .pixels()
-        .zip(b.pixels())
-        .filter(|(left, right)| left != right)
-        .count();
-    (changed as f64) <= SETTLED_CHANGE * f64::from(a.width() * a.height())
-}
-
-/// One normalized computer action.
-#[derive(Debug, Clone, PartialEq)]
-pub enum Action {
-    Screenshot,
-    Click {
-        button: String,
-        x: f64,
-        y: f64,
-        /// Modifier keys held around the click.
-        modifiers: Vec<String>,
-        count: u32,
-    },
-    MouseDown {
-        button: String,
-    },
-    MouseUp {
-        button: String,
-    },
-    Move {
-        x: f64,
-        y: f64,
-    },
-    Drag {
-        path: Vec<(f64, f64)>,
-    },
-    Scroll {
-        x: f64,
-        y: f64,
-        dx: f64,
-        dy: f64,
-    },
-    Type {
-        text: String,
-    },
-    Key {
-        keys: Vec<String>,
-        hold_ms: Option<u64>,
-        repeat: u32,
-    },
-    Wait {
-        ms: u64,
-    },
 }
 
 /// Normalize one modifier or key name to the xkb keysym wtype expects.
@@ -455,39 +342,6 @@ pub fn input_ops(action: &Action, scale_x: f64, scale_y: f64) -> Vec<InputOp> {
 mod tests {
     use super::*;
     use serde_json::json;
-
-    fn png_with_box(width: u32, height: u32) -> Vec<u8> {
-        let mut image = image::RgbImage::new(DISPLAY_WIDTH, DISPLAY_HEIGHT);
-        for x in 0..width {
-            for y in 0..height {
-                image.put_pixel(x, y, image::Rgb([255, 255, 255]));
-            }
-        }
-        let mut out = std::io::Cursor::new(Vec::new());
-        image::DynamicImage::ImageRgb8(image)
-            .write_to(&mut out, image::ImageFormat::Png)
-            .unwrap();
-        out.into_inner()
-    }
-
-    /// A blinking caret is not a screen that still changes.
-    #[test]
-    fn frames_that_differ_by_a_caret_match() {
-        assert!(frames_match(&png_with_box(0, 0), &png_with_box(0, 0)));
-        assert!(frames_match(&png_with_box(0, 0), &png_with_box(2, 20)));
-    }
-
-    /// A menu that opens changes a large area.
-    #[test]
-    fn frames_that_differ_by_a_menu_do_not_match() {
-        assert!(!frames_match(&png_with_box(0, 0), &png_with_box(300, 200)));
-    }
-
-    #[test]
-    fn frames_that_are_not_images_match_only_when_equal() {
-        assert!(frames_match(b"frame", b"frame"));
-        assert!(!frames_match(b"frame", b"other"));
-    }
 
     /// A key press without a key does nothing on the screen. The model
     /// reads an error and can correct the call.

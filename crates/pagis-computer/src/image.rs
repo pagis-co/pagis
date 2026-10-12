@@ -193,7 +193,11 @@ impl ComputerImage {
         match self.runtime.image_version().await? {
             Some(version) if version == IMAGE_VERSION => return Ok(()),
             Some(found) => {
-                return Err(ComputerError::VersionMismatch { found: Some(found) }.to_string());
+                return Err(ComputerError::VersionMismatch {
+                    found: Some(found),
+                    expected: IMAGE_VERSION.into(),
+                }
+                .to_string());
             }
             None => {}
         }
@@ -214,7 +218,11 @@ impl ComputerImage {
         // The pulled image must carry the pinned version.
         let version = self.runtime.image_version().await?;
         if version.as_deref() != Some(IMAGE_VERSION) {
-            return Err(ComputerError::VersionMismatch { found: version }.to_string());
+            return Err(ComputerError::VersionMismatch {
+                found: version,
+                expected: IMAGE_VERSION.into(),
+            }
+            .to_string());
         }
         tracing::info!(image = IMAGE, "the Computer Image is present");
         Ok(())

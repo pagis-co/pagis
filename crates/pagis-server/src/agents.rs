@@ -21,7 +21,8 @@ use crate::AppState;
 use crate::auth::Tenant;
 use crate::error::ApiError;
 use crate::live_connections::LiveTenant;
-use pagis_computer::{ComputerError, ComputerImageState, ComputerState, InputHolder};
+use pagis_computer::{ComputerImageState, ComputerState};
+use pagis_core::{ComputerError, InputHolder};
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct AgentDto {

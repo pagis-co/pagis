@@ -5,8 +5,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
+use pagis_computer::ComputerState;
 use pagis_computer::fake::{FakeComputerRuntime, FakeWorkspaces};
-use pagis_computer::{ComputerManager, ComputerState};
 use pagis_core::{
     AgentId, Event, EventBus, EventId, EventScope, EventStream, NewEvent, StoreError, WorkspaceId,
     now_ms,
@@ -144,18 +144,34 @@ pub fn read_from_tar(tar: &[u8], path: &str) -> Result<Vec<u8>, String> {
 }
 
 pub struct Harness {
+    pub managers: Arc<dyn pagis_core::Computers>,
+    pub runtime: Arc<pagis_testkit::FakeComputers>,
+    pub agent_id: AgentId,
+    pub workspace_id: WorkspaceId,
+}
+
+pub async fn harness() -> Harness {
+    let runtime = Arc::new(pagis_testkit::FakeComputers::default());
+    Harness {
+        managers: runtime.clone(),
+        runtime,
+        agent_id: AgentId::generate(),
+        workspace_id: WorkspaceId::generate(),
+    }
+}
+
+pub struct RuntimeHarness {
     /// Every tenant's manager. The Software half resolves the
     /// manager from the Workspace of the caller, so the harness holds the
     /// registry and not one manager.
     pub managers: Arc<pagis_computer::ComputerManagers>,
-    pub manager: Arc<ComputerManager>,
     pub runtime: Arc<FakeComputerRuntime>,
     pub agent_id: AgentId,
     pub workspace_id: WorkspaceId,
     _screens: tempfile::TempDir,
 }
 
-pub async fn harness() -> Harness {
+pub async fn runtime_harness() -> RuntimeHarness {
     let runtime = Arc::new(FakeComputerRuntime::with_image());
     let screens = tempfile::tempdir().expect("screens dir");
     let workspace_id = WorkspaceId::generate();
@@ -181,28 +197,13 @@ pub async fn harness() -> Harness {
         }
         tokio::time::sleep(std::time::Duration::from_millis(5)).await;
     }
-    Harness {
+    RuntimeHarness {
         managers,
-        manager,
         runtime,
         agent_id,
         workspace_id,
         _screens: screens,
     }
-}
-
-/// Wake one more agent's Computer on the same manager, so a test can
-/// drive two agents.
-#[allow(dead_code)]
-pub async fn wake(manager: &Arc<ComputerManager>, agent_id: &AgentId) {
-    manager.wake(agent_id).await.expect("wake");
-    for _ in 0..200 {
-        if manager.state(agent_id).await == ComputerState::Awake {
-            return;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-    }
-    panic!("the computer never woke");
 }
 
 /// Every message the Contribution tools posted, as (from, to, text).
@@ -236,14 +237,13 @@ impl pagis_software::AgentMessenger for RecordingMessenger {
     }
 }
 
-/// The commands the fake runtime saw, in order, without the `timeout`
-/// wrapper the manager adds. Only the materialize tests read them.
+/// The shell commands that the domain sends, in order.
 #[allow(dead_code)]
-pub fn commands(runtime: &FakeComputerRuntime) -> Vec<String> {
+pub fn commands(runtime: &pagis_testkit::FakeComputers) -> Vec<String> {
     runtime
         .execs()
-        .iter()
-        .filter_map(|request| request.argv.last().cloned())
+        .into_iter()
+        .map(|request| request.command)
         .collect()
 }
 

@@ -4,7 +4,7 @@ use crate::support;
 
 use std::sync::Arc;
 
-use pagis_computer::ExecOutcome;
+use pagis_core::ExecOutcome;
 use pagis_software::{Materializer, SoftwareRunner, package_root};
 use support::{MemorySource, harness};
 
@@ -30,13 +30,13 @@ async fn fixture() -> Fixture {
     let harness = harness().await;
     let source = MemorySource::with_version("weather", "v1", MANIFEST, b"tar".to_vec());
     let materializer = Arc::new(Materializer::new(
-        Arc::clone(&harness.managers),
+        harness.managers.clone(),
         Arc::clone(&source) as _,
     ));
     // The tree is already there, so a call is one exec.
     harness.runtime.push_exec_outcome(ExecOutcome::default());
     let runner = SoftwareRunner::new(
-        Arc::clone(&harness.managers),
+        harness.managers.clone(),
         materializer,
         Arc::clone(&source) as _,
     );
@@ -74,7 +74,7 @@ async fn a_json_result_on_exit_zero_is_the_result() {
 }
 
 #[tokio::test]
-async fn a_call_is_one_process_with_the_package_root_the_arguments_and_two_variables() {
+async fn a_call_passes_the_package_root_the_arguments_and_the_deadline() {
     let f = fixture().await;
     f.harness.runtime.push_exec_outcome(ExecOutcome {
         stdout: "{}".to_string(),
@@ -94,23 +94,22 @@ async fn a_call_is_one_process_with_the_package_root_the_arguments_and_two_varia
 
     let request = f.harness.runtime.execs().pop().expect("the call");
     let root = package_root("weather", "v1");
-    assert_eq!(request.cwd, root);
-    assert_eq!(request.user, "agent");
-    let command = request.argv.last().expect("the command");
+    assert_eq!(request.cwd, Some(root.clone()));
+    let command = &request.command;
     assert!(command.contains("PAGIS_TOOL='forecast'"), "{command}");
     assert!(command.contains("PAGIS_PACKAGE_VERSION='v1'"), "{command}");
     assert!(
         command.contains(&format!("exec '{root}/bin/forecast.py'")),
         "{command}"
     );
-    // The deadline of the manifest, wrapped by the manager.
-    assert_eq!(request.argv[2], "60");
+    // The deadline comes from the manifest.
+    assert_eq!(request.timeout, std::time::Duration::from_secs(60));
     assert_eq!(
         request.stdin,
         Some(city().to_string().into_bytes()),
         "the arguments are one JSON document on stdin"
     );
-    assert_eq!(request.output_cap.head, 256 * 1024);
+    assert_eq!(request.output_cap.unwrap().head, 256 * 1024);
 }
 
 #[tokio::test]
@@ -355,7 +354,7 @@ async fn one_failed_call_is_never_retried() {
 /// A and not A's awake cap.
 #[tokio::test]
 async fn a_tool_runs_in_the_calling_tenants_computer_and_no_other() {
-    let f = fixture().await;
+    let f = runtime_fixture().await;
     // The harness woke A's Computer, so every start the runtime saw so far
     // is A's.
     let before = f.harness.runtime.started_owners().len();
@@ -439,7 +438,7 @@ async fn a_manager_refuses_an_agent_of_another_tenant() {
         .expect_err("A's manager wakes no Agent of B");
 
     assert!(
-        matches!(refused, pagis_computer::ComputerError::ForeignAgent),
+        matches!(refused, pagis_core::ComputerError::ForeignAgent),
         "{refused}"
     );
     assert!(
@@ -452,4 +451,58 @@ async fn a_manager_refuses_an_agent_of_another_tenant() {
         .wake(&agent_of_b)
         .await
         .expect("B's manager wakes B's Agent");
+}
+
+struct RuntimeFixture {
+    harness: support::RuntimeHarness,
+    runner: SoftwareRunner,
+}
+
+async fn runtime_fixture() -> RuntimeFixture {
+    let harness = support::runtime_harness().await;
+    let source = MemorySource::with_version("weather", "v1", MANIFEST, b"tar".to_vec());
+    let materializer = Arc::new(Materializer::new(harness.managers.clone(), source.clone()));
+    harness.runtime.push_exec_outcome(ExecOutcome::default());
+    let runner = SoftwareRunner::new(harness.managers.clone(), materializer, source);
+    RuntimeFixture { harness, runner }
+}
+
+#[tokio::test]
+async fn a_call_is_one_process_with_the_package_root_the_arguments_and_two_variables() {
+    let f = runtime_fixture().await;
+    f.harness.runtime.push_exec_outcome(ExecOutcome {
+        stdout: "{}".to_string(),
+        ..ExecOutcome::default()
+    });
+
+    f.runner
+        .run(
+            &f.harness.workspace_id,
+            &f.harness.agent_id,
+            "weather",
+            "v1",
+            "forecast",
+            &city(),
+        )
+        .await;
+
+    let request = f.harness.runtime.execs().pop().expect("the call");
+    let root = package_root("weather", "v1");
+    assert_eq!(request.cwd, root);
+    assert_eq!(request.user, "agent");
+    let command = request.argv.last().expect("the command");
+    assert!(command.contains("PAGIS_TOOL='forecast'"), "{command}");
+    assert!(command.contains("PAGIS_PACKAGE_VERSION='v1'"), "{command}");
+    assert!(
+        command.contains(&format!("exec '{root}/bin/forecast.py'")),
+        "{command}"
+    );
+    // The deadline of the manifest, wrapped by the manager.
+    assert_eq!(request.argv[2], "60");
+    assert_eq!(
+        request.stdin,
+        Some(city().to_string().into_bytes()),
+        "the arguments are one JSON document on stdin"
+    );
+    assert_eq!(request.output_cap.head, 256 * 1024);
 }

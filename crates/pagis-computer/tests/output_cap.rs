@@ -1,7 +1,8 @@
 //! The output cap: a head, a tail, and a count of the
 //! bytes between them.
 
-use pagis_computer::{CappedOutput, OutputCap};
+use pagis_computer::CappedOutput;
+use pagis_core::OutputCap;
 
 const CAP: OutputCap = OutputCap { head: 8, tail: 4 };
 

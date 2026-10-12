@@ -116,7 +116,7 @@ struct Fixture {
     manifests: Arc<RecordingManifests>,
     bus: Arc<RecordingBus>,
     notes: Arc<RecordingNotes>,
-    runtime: Arc<pagis_computer::fake::FakeComputerRuntime>,
+    runtime: Arc<pagis_testkit::FakeComputers>,
     author: AgentId,
     workspace_id: WorkspaceId,
     _home: tempfile::TempDir,
@@ -141,7 +141,7 @@ async fn fixture(others: &[(AgentId, &str)]) -> Fixture {
         packages: Arc::clone(&packages) as _,
         agents: MemoryAgents::holding(agents) as _,
         git: Arc::new(SoftwareGitStore::new(home.path())),
-        computers: Arc::clone(&harness.managers),
+        computers: harness.managers.clone(),
         manifests: Arc::clone(&manifests) as _,
         bus: Arc::clone(&bus) as _,
         notes: Arc::clone(&notes) as _,
@@ -831,11 +831,23 @@ async fn a_working_copy_tar_over_the_raw_limit_is_refused_before_its_end() {
     use futures::StreamExt;
     use std::sync::atomic::{AtomicU64, Ordering};
 
-    let fixture = fixture(&[]).await;
+    let mut fixture = fixture(&[]).await;
+    let harness = support::runtime_harness().await;
+    fixture.workspace_id = harness.workspace_id.clone();
+    fixture.author = harness.agent_id.clone();
+    fixture.list = Arc::new(SoftwareList::new(SoftwareListDeps {
+        packages: fixture.packages.clone(),
+        agents: MemoryAgents::holding(vec![agent(&fixture.workspace_id, &fixture.author, "Ada")]),
+        git: Arc::new(SoftwareGitStore::new(fixture._home.path())),
+        computers: harness.managers.clone(),
+        manifests: fixture.manifests.clone(),
+        bus: fixture.bus.clone(),
+        notes: fixture.notes.clone(),
+    }));
     let total = pagis_computer::MAX_ARCHIVE_BYTES + 8 * CHUNK as u64;
     let sent = Arc::new(AtomicU64::new(0));
     let counter = Arc::clone(&sent);
-    fixture
+    harness
         .runtime
         .set_download_stream("/data/agent/software/weather", move || {
             let counter = Arc::clone(&counter);
@@ -967,25 +979,25 @@ async fn at_most_two_publishes_run_at_once() {
     let peak = Arc::new(AtomicUsize::new(0));
     let names = ["weather", "climate", "tides"];
     for name in names {
-        let tar = bytes::Bytes::from(package_with_data(name, &[]));
+        let tar = package_with_data(name, &[]);
         let (gate, open, peak) = (Arc::clone(&gate), Arc::clone(&open), Arc::clone(&peak));
         fixture
             .runtime
-            .set_download_stream(format!("/data/agent/software/{name}"), move || {
+            .set_download_reply(&format!("/data/agent/software/{name}"), move || {
                 let (gate, open, peak, tar) = (
                     Arc::clone(&gate),
                     Arc::clone(&open),
                     Arc::clone(&peak),
                     tar.clone(),
                 );
-                Box::pin(futures::stream::once(async move {
+                Box::pin(async move {
                     let now = open.fetch_add(1, Ordering::SeqCst) + 1;
                     peak.fetch_max(now, Ordering::SeqCst);
                     let pass = gate.acquire().await.expect("the gate");
                     drop(pass);
                     open.fetch_sub(1, Ordering::SeqCst);
                     Ok(tar)
-                }))
+                })
             });
     }
 

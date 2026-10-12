@@ -6,9 +6,9 @@
 
 use std::sync::Arc;
 
-use pagis_computer::exec::{self, Action, DisplayFrame};
-use pagis_computer::{ComputerError, ComputerManager};
-use pagis_core::AgentId;
+use crate::computer_action as exec;
+use pagis_core::computer_action::{Action, DisplayFrame};
+use pagis_core::{AgentId, Computer, ComputerError, ComputerLease};
 use serde_json::Value;
 
 /// Which provider's loop the call belongs to; decides the tool-result
@@ -86,7 +86,7 @@ pub(crate) struct ComputerCtx {
     /// the same batch are skipped (stop at first failure).
     pub batch_failed: bool,
     /// The screen lease, held for the turn's batch.
-    pub lease: Option<tokio::sync::OwnedMutexGuard<()>>,
+    pub lease: Option<ComputerLease>,
     /// Set when the run resumed after a takeover: the next
     /// computer tool result carries the "screen may have changed" note.
     pub resumed_after_takeover: bool,
@@ -120,13 +120,13 @@ pub(crate) struct BatchOutcome {
 /// Execute the actions sequentially, stopping at the first failure.
 /// `ctx.scale_*` update from every screenshot taken.
 pub(crate) async fn execute_actions(
-    computer: &Arc<ComputerManager>,
+    computer: &Arc<dyn Computer>,
     agent_id: &AgentId,
     actions: &[Action],
     ctx: &mut ComputerCtx,
 ) -> BatchOutcome {
     let mut screenshots = Vec::new();
-    if let Err(error) = computer.ensure_awake(agent_id).await {
+    if let Err(error) = computer.clone().ensure_awake(agent_id).await {
         return BatchOutcome {
             result: Err(computer_error(error)),
             screenshots,
@@ -168,7 +168,7 @@ pub(crate) async fn execute_actions(
 /// an input it waits for the screen to settle, so the model sees the
 /// outcome of its action.
 pub(crate) async fn screenshot(
-    computer: &Arc<ComputerManager>,
+    computer: &Arc<dyn Computer>,
     agent_id: &AgentId,
     ctx: &mut ComputerCtx,
 ) -> Result<DisplayFrame, String> {

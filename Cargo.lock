@@ -5068,6 +5068,7 @@ dependencies = [
  "pagis-broker",
  "pagis-computer",
  "pagis-core",
+ "pagis-testkit",
  "psl",
  "rand 0.9.5",
  "reqwest 0.12.28",

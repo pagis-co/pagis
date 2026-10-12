@@ -121,7 +121,7 @@ pub struct AgentDeps {
     pub skills: Arc<dyn pagis_core::Skills>,
     /// The agent computer lifecycle + screen, one manager per
     /// tenant. A Run resolves the manager of its own Workspace.
-    pub computers: Arc<pagis_computer::ComputerManagers>,
+    pub computers: Arc<dyn pagis_core::Computers>,
     pub bus: Arc<dyn EventBus>,
     pub brain: Arc<dyn Brain>,
     /// The host's check before each model call.

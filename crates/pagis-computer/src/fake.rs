@@ -298,7 +298,7 @@ struct FakeState {
     pull_delay: Duration,
     /// Every pull waits here until a test releases it.
     pull_gate: std::sync::Arc<tokio::sync::Semaphore>,
-    inputs: Vec<(InputHolder, crate::exec::InputOp)>,
+    inputs: Vec<(InputHolder, pagis_core::computer_action::InputOp)>,
     fail_input: Option<String>,
     /// The error every live frame fetch answers with, when set.
     fail_frame: Option<String>,
@@ -573,7 +573,7 @@ impl FakeComputerRuntime {
     }
 
     /// Every input op sent so far, in order.
-    pub fn inputs(&self) -> Vec<crate::exec::InputOp> {
+    pub fn inputs(&self) -> Vec<pagis_core::computer_action::InputOp> {
         self.state
             .lock()
             .expect("fake state")
@@ -584,7 +584,7 @@ impl FakeComputerRuntime {
     }
 
     /// Every input op sent so far with the holder each batch declared.
-    pub fn inputs_with_holder(&self) -> Vec<(InputHolder, crate::exec::InputOp)> {
+    pub fn inputs_with_holder(&self) -> Vec<(InputHolder, pagis_core::computer_action::InputOp)> {
         self.state.lock().expect("fake state").inputs.clone()
     }
 
@@ -1111,7 +1111,7 @@ impl ComputerRuntime for FakeComputerRuntime {
         &self,
         computer: &StartedComputer,
         holder: InputHolder,
-        ops: &[crate::exec::InputOp],
+        ops: &[pagis_core::computer_action::InputOp],
     ) -> Result<(), String> {
         let agent = fake_agent(computer);
         let mut state = self.state.lock().expect("fake state");

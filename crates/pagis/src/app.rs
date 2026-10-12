@@ -652,7 +652,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         conversation_evidence: Arc::clone(&conversation_evidence) as _,
         grants: Arc::clone(&grants) as _,
         skills: Arc::clone(&skills) as _,
-        computers: Arc::clone(&computers),
+        computers: computers.clone(),
         bus: Arc::clone(&bus),
         clock: Arc::clone(&options.clock),
         context_messages: options.agents.context_messages,
@@ -897,7 +897,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     // Keys with the Google broker.
     let vault = Arc::new(pagis_vault::Vault::new(
         Arc::clone(&credentials) as _,
-        Arc::clone(&computers),
+        computers.clone(),
         Arc::clone(&tenant_keys),
     ));
     let subscription_tools = Arc::new(crate::tools::DeferredExecutor::default());
@@ -1069,7 +1069,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
             packages: Arc::clone(&software_packages) as _,
             agents: Arc::clone(&agent_store) as _,
             git: Arc::clone(&software_git),
-            computers: Arc::clone(&computers),
+            computers: computers.clone(),
             manifests: Arc::new(crate::software_tools::BrokerManifests(Arc::clone(&broker))),
             bus: Arc::clone(&bus),
             notes: Arc::clone(&software_notes) as _,
@@ -1172,13 +1172,13 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         options.cancel.clone(),
     );
     let materializer = Arc::new(pagis_software::Materializer::new(
-        Arc::clone(&computers),
+        computers.clone(),
         Arc::clone(&software) as _,
     ));
     software_tools.set(Arc::new(crate::software_tools::SoftwareToolRuntime::new(
         Arc::clone(&software),
         Arc::new(pagis_software::SoftwareRunner::new(
-            Arc::clone(&computers),
+            computers.clone(),
             materializer,
             Arc::clone(&software) as _,
         )),
@@ -1265,7 +1265,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         briefs: stores.briefs.clone(),
         schedules: Arc::clone(&schedule_store) as _,
         skills: Arc::clone(&skills) as _,
-        computers: Arc::clone(&computers),
+        computers: computers.clone(),
         bus: Arc::clone(&bus),
         brain: Arc::clone(&brain),
         gate: Arc::new(pagis_agent::SpendCapGate {

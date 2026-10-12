@@ -505,7 +505,7 @@ where
         conversation_evidence: Arc::clone(&conversation_evidence) as _,
         grants: Arc::clone(&grants) as _,
         skills: Arc::clone(&skills) as _,
-        computers: Arc::clone(&computers),
+        computers: computers.clone(),
         bus: Arc::clone(&bus),
         clock: Arc::new(pagis_core::SystemClock),
         context_messages: AgentLoopConfig::default().context_messages,
@@ -563,7 +563,7 @@ where
         briefs: Arc::new(SqliteBriefStore::new(pool.clone())),
         schedules: Arc::new(SqliteScheduleStore::new(pool.clone())),
         skills: Arc::clone(&skills) as _,
-        computers: Arc::clone(&computers),
+        computers: computers.clone(),
         bus: Arc::clone(&bus),
         brain: model.unwrap_or_else(|| Arc::clone(&brain) as _),
         gate: gate.unwrap_or_else(|| {
@@ -4086,7 +4086,7 @@ async fn computer_shell_runs_the_command_in_the_agents_own_computer(pool: Sqlite
     let harness = boot(pool, AgentLoopConfig::default()).await;
     harness
         .computer_runtime
-        .push_exec_outcome(pagis_computer::ExecOutcome {
+        .push_exec_outcome(pagis_core::ExecOutcome {
             exit_code: 0,
             stdout: "pagis\n".to_string(),
             stderr: String::new(),
@@ -4137,7 +4137,7 @@ async fn a_failed_command_is_a_plain_result_the_model_reads(pool: SqlitePool) {
     let harness = boot(pool, AgentLoopConfig::default()).await;
     harness
         .computer_runtime
-        .push_exec_outcome(pagis_computer::ExecOutcome {
+        .push_exec_outcome(pagis_core::ExecOutcome {
             exit_code: 2,
             stdout: String::new(),
             stderr: "ls: no such file\n".to_string(),
@@ -4174,7 +4174,7 @@ async fn a_command_past_its_deadline_reports_the_timeout(pool: SqlitePool) {
     let harness = boot(pool, AgentLoopConfig::default()).await;
     harness
         .computer_runtime
-        .push_exec_outcome(pagis_computer::ExecOutcome {
+        .push_exec_outcome(pagis_core::ExecOutcome {
             exit_code: 124,
             stdout: "half the log\n".to_string(),
             stderr: String::new(),
@@ -4206,9 +4206,9 @@ async fn a_computer_that_stops_mid_command_is_a_tool_error(pool: SqlitePool) {
     let harness = boot(pool, AgentLoopConfig::default()).await;
     harness
         .computer_runtime
-        .push_exec_outcome(pagis_computer::ExecOutcome {
+        .push_exec_outcome(pagis_core::ExecOutcome {
             exit_code: 137,
-            ..pagis_computer::ExecOutcome::default()
+            ..pagis_core::ExecOutcome::default()
         });
     harness.brain.push(Script::tool_call(
         &["Running."],
@@ -6178,8 +6178,8 @@ async fn memory_read_takes_a_link_as_a_path(pool: SqlitePool) {
 /// A display-sized PNG in one colour, so two frames differ.
 fn display_png_of(shade: u8) -> Vec<u8> {
     let image = image::RgbImage::from_pixel(
-        pagis_computer::exec::DISPLAY_WIDTH,
-        pagis_computer::exec::DISPLAY_HEIGHT,
+        pagis_agent::DISPLAY_WIDTH,
+        pagis_agent::DISPLAY_HEIGHT,
         image::Rgb([shade, shade, shade]),
     );
     let mut out = std::io::Cursor::new(Vec::new());
@@ -6225,10 +6225,8 @@ async fn the_screenshot_after_an_action_shows_the_settled_screen(pool: SqlitePoo
 }
 
 fn display_png() -> Vec<u8> {
-    let image = image::DynamicImage::new_rgb8(
-        pagis_computer::exec::DISPLAY_WIDTH,
-        pagis_computer::exec::DISPLAY_HEIGHT,
-    );
+    let image =
+        image::DynamicImage::new_rgb8(pagis_agent::DISPLAY_WIDTH, pagis_agent::DISPLAY_HEIGHT);
     let mut out = std::io::Cursor::new(Vec::new());
     image.write_to(&mut out, image::ImageFormat::Png).unwrap();
     out.into_inner()
@@ -6370,7 +6368,7 @@ async fn a_portable_computer_action_replies_with_the_current_screenshot(pool: Sq
     harness.send("click the button").await;
     next_state(&mut events, "completed").await;
 
-    use pagis_computer::exec::InputOp;
+    use pagis_core::computer_action::InputOp;
     assert_eq!(
         harness.computer_runtime.inputs(),
         vec![
@@ -6484,7 +6482,7 @@ async fn an_openai_batch_executes_in_order_and_replies_with_a_screenshot(pool: S
     harness.send("open example.com").await;
     next_state(&mut events, "completed").await;
 
-    use pagis_computer::exec::InputOp;
+    use pagis_core::computer_action::InputOp;
     let inputs = harness.computer_runtime.inputs();
     assert_eq!(
         inputs,

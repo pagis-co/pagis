@@ -4,11 +4,11 @@
 //! one named volume per agent; `/data` survives stops.
 
 mod bollard_runtime;
-pub mod browser;
 pub mod docker;
-pub mod exec;
+mod domain;
 pub mod exit_listener;
 pub mod fake;
+pub mod frame;
 pub mod home_exit;
 mod image;
 mod manager;
@@ -19,17 +19,16 @@ mod tenants;
 pub mod test_docker;
 
 pub use bollard_runtime::{BollardRuntime, RuntimeOptions};
-pub use browser::{FieldKind, FillField};
 pub use docker::{
     DockerCandidate, DockerCandidateResult, DockerDiscovery, DockerReport, DockerSearch,
     DockerSource,
 };
 pub use exit_listener::{ComputerTokens, ExitListener};
-pub use home_exit::{ExitBytes, ExitError, ExitInUse, ExitStream, HomeExits};
+pub use home_exit::{ExitBytes, ExitError, ExitStream, HomeExits};
 pub use image::{ComputerImage, ImagePullError};
 pub use manager::{
-    ComputerManager, ComputerManagerDeps, DaemonHold, ExecPin, ExitSwitchFailure, HarnessExec,
-    Preview, SHELL_HOME, SHELL_USER, ShellCommand, TakeoverTiming,
+    ComputerManager, ComputerManagerDeps, ExecPin, ExitSwitchFailure, HarnessExec, Preview,
+    SHELL_HOME, SHELL_USER, TakeoverTiming,
 };
 pub use relay::{
     DaemonRelay, IceCredentials, IceServer, MediaForwarder, MediaPath, MediaRelay, OpenPath,
@@ -38,6 +37,7 @@ pub use relay::{
 pub use remote_access_turn::{MediaRelayPeers, RemoteAccessTurn};
 pub use tenants::{AwakeCeiling, ComputerKind, ComputerManagers, ComputerManagersDeps};
 
+use pagis_core::{ComputerError, ExecOutcome, FillField, InputHolder, OutputCap};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -448,30 +448,6 @@ pub enum ComputerImageState {
     Unavailable { message: String },
 }
 
-/// Who drives the computer's input: the daemon-held
-/// switch. Exactly one source at a time; the default is the agent.
-/// `Daemon` is the vault's held switch (ADR-0013): the daemon fills a
-/// secret the model never sees through the browser channel, so
-/// model-visible capture is suppressed while it holds. The daemon sends
-/// no input batch of its own.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum InputHolder {
-    Agent,
-    User,
-    Daemon,
-}
-
-impl InputHolder {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            InputHolder::Agent => "agent",
-            InputHolder::User => "user",
-            InputHolder::Daemon => "daemon",
-        }
-    }
-}
-
 /// Where the Exit Proxy of a Computer opens each connection
 /// (ADR-0029).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
@@ -502,53 +478,6 @@ pub struct ExitStatus {
     pub mode: ExitMode,
     /// The client connections that the proxy holds now.
     pub connections: u64,
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum ComputerError {
-    /// The local image under the pinned tag carries the wrong version
-    /// label; the daemon refuses to boot it.
-    #[error(
-        "the local computer image reports version {found:?}; this daemon needs \
-         {IMAGE_VERSION} — remove the stale image and wake again"
-    )]
-    VersionMismatch { found: Option<String> },
-    /// No live frame and no stored screenshot.
-    #[error("no screen preview exists for this agent yet")]
-    NoPreview,
-    /// A live-view offer arrived while the computer is not awake.
-    #[error("the computer is not awake")]
-    Asleep,
-    /// Someone other than the agent holds the input switch:
-    /// the agent's screen-lease requests are denied until the
-    /// switch comes back.
-    #[error("{} has control of this computer", holder.as_str())]
-    SwitchHeld { holder: InputHolder },
-    /// A sleep asked for while a command runs in the container.
-    /// A stop would kill the command, so the user waits for it.
-    #[error("this computer is running a command; it stops when the command ends")]
-    Busy,
-    /// The awake cap is reached. The Run reads this sentence, so
-    /// it says what to do and not only what refused.
-    #[error(
-        "{scope} already has {cap} computers awake, which is the cap; \
-         a computer has to sleep before this one can wake"
-    )]
-    AwakeCapReached { scope: &'static str, cap: u32 },
-    /// The Agent is not of this manager's Workspace. A Computer is
-    /// the boundary between tenants, so a caller that resolved the wrong
-    /// tenant's manager gets nothing: no container starts, and nothing of
-    /// this tenant's is named, labelled or counted for a stranger.
-    #[error("that sprite is not in this workspace")]
-    ForeignAgent,
-    /// The Media Relay could not open a path for this viewer,
-    /// which on the `daemon` relay means every port of the range is
-    /// taken. The machine is full, not the request wrong, so the sentence
-    /// says what to do.
-    #[error("this screen has no media path now: {reason}")]
-    NoMediaPath { reason: String },
-    #[error("computer runtime error: {0}")]
-    Runtime(String),
 }
 
 /// An already-running container plus the image version it runs, so a
@@ -682,7 +611,7 @@ pub trait ComputerRuntime: Send + Sync {
         &self,
         computer: &StartedComputer,
         holder: InputHolder,
-        ops: &[crate::exec::InputOp],
+        ops: &[pagis_core::computer_action::InputOp],
     ) -> Result<(), String>;
 
     /// Relay one WebRTC SDP offer to the control endpoint, with
@@ -709,7 +638,7 @@ pub trait ComputerRuntime: Send + Sync {
     async fn browser_page(&self, computer: &StartedComputer) -> Result<String, String>;
 
     /// Write `fields` into the page of the daemon's own tab through the
-    /// browser channel ([`crate::browser`]). screend writes each value
+    /// browser channel ([`pagis_core::FillField`]). screend writes each value
     /// only while the top-level origin is `origin` and the field it
     /// verified has the focus, and it checks both in the same step as
     /// the write. A failed check writes nothing more and answers with
@@ -833,17 +762,6 @@ pub struct ExecStream {
     pub stderr: tokio::sync::mpsc::Receiver<Vec<u8>>,
 }
 
-/// How much of one command's output the daemon keeps.
-/// The first `head` bytes and the last `tail` bytes of a stream
-/// survive; what falls between is counted and dropped. The daemon
-/// always drains the whole stream, because a command whose output
-/// nobody reads blocks on its next write.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct OutputCap {
-    pub head: usize,
-    pub tail: usize,
-}
-
 /// One command to run inside an agent's computer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExecRequest {
@@ -859,17 +777,6 @@ pub struct ExecRequest {
     /// The cap on each of the two output streams. Separate caps keep a
     /// noisy stderr from crowding out the result.
     pub output_cap: OutputCap,
-}
-
-/// What one command left behind. The daemon reads `exit_code`
-/// only after the exec instance reports that it stopped.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct ExecOutcome {
-    pub exit_code: i64,
-    pub stdout: String,
-    pub stderr: String,
-    /// True when a cap dropped bytes from either stream.
-    pub truncated: bool,
 }
 
 /// A bounded capture of one output stream: the head, the tail,

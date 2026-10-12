@@ -152,7 +152,7 @@ impl pagis_plugins::ServerProcesses for ComputerServerProcesses {
             let outcome = manager
                 .shell(
                     &pagis_computer::plugin_agent(),
-                    pagis_computer::ShellCommand {
+                    pagis_core::ShellCommand {
                         command: format!("mkdir -p {}", shell_quote(data)),
                         timeout: std::time::Duration::from_secs(30),
                         cwd: None,
@@ -189,7 +189,7 @@ impl pagis_plugins::ServerProcesses for ComputerServerProcesses {
                     // A stream has no head and tail cap. The supervisor
                     // reads it to the end of the process, with a cap on
                     // each stdout message and a log of a fixed size.
-                    output_cap: pagis_computer::OutputCap { head: 0, tail: 0 },
+                    output_cap: pagis_core::OutputCap { head: 0, tail: 0 },
                 },
             )
             .await
