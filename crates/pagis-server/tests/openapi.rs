@@ -61,3 +61,55 @@ fn plugins_contract_holds_every_route_and_schema() {
         );
     }
 }
+
+#[test]
+fn connections_contract_keeps_the_settings_and_providers_tags() {
+    let document = serde_json::to_value(pagis_server::ApiDoc::openapi()).unwrap();
+    for (path, methods, tag) in [
+        (
+            "/api/v1/settings/connections/providers",
+            vec!["get"],
+            "settings",
+        ),
+        (
+            "/api/v1/settings/connections",
+            vec!["get", "post"],
+            "settings",
+        ),
+        (
+            "/api/v1/settings/connections/{connection_id}",
+            vec!["delete"],
+            "settings",
+        ),
+        (
+            "/api/v1/settings/connections/{connection_id}/authorize",
+            vec!["post"],
+            "settings",
+        ),
+        ("/api/v1/connections/google/start", vec!["get"], "settings"),
+        (
+            "/api/v1/connections/google/callback",
+            vec!["get"],
+            "settings",
+        ),
+        ("/api/v1/administration/providers", vec!["get"], "providers"),
+        (
+            "/api/v1/administration/providers/{provider}/{part}",
+            vec!["put", "delete"],
+            "providers",
+        ),
+        (
+            "/api/v1/administration/providers/{provider}/{part}/test",
+            vec!["post"],
+            "providers",
+        ),
+    ] {
+        for method in methods {
+            assert_eq!(
+                document["paths"][path][method]["tags"],
+                serde_json::json!([tag]),
+                "{method} {path}"
+            );
+        }
+    }
+}

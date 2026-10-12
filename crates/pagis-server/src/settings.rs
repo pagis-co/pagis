@@ -1,5 +1,5 @@
-//! A person's own settings: onboarding, the model aliases, the
-//! retention windows, their own Connections and their saved logins.
+//! A Person's own settings: Onboarding, Model Aliases,
+//! Retention Policies and saved Credentials.
 //!
 //! The onboarding wizard reads one status document, stores the
 //! installation's first provider key and Docker endpoint, and records
@@ -13,8 +13,8 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use axum::Json;
-use axum::extract::{FromRef, Path, Query, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::extract::{FromRef, Path, State};
+use axum::http::StatusCode;
 use pagis_core::{OnboardingModelVerification, Provider, ProviderKeys, now_ms};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -172,6 +172,7 @@ pub struct CreateModelAliasRequest {
     pub candidates: Vec<String>,
 }
 
+#[cfg(any(feature = "native", test))]
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ConnectionDto {
     pub id: String,
@@ -179,10 +180,12 @@ pub struct ConnectionDto {
     /// What this Connection gives an Agent, from the provider's catalog
     /// entry: `mail`, `calendar`, `mailboxes` or `telephony`.
     /// The card follows this, not the provider name.
+    #[cfg(feature = "native")]
     pub capabilities: Vec<String>,
     /// What this Connection's provider does not do, and a sibling
     /// provider does: a carrier that carries no text lists `texting`
     /// (ADR-0020). The card states each one.
+    #[cfg(feature = "native")]
     pub absent_capabilities: Vec<String>,
     /// The name a tool call uses to pick this account.
     pub alias: String,
@@ -205,6 +208,7 @@ pub struct ConnectionDto {
     /// True for an Installation Connection: the carrier account or the
     /// mail domain. The Administration Interface sets it up, and the
     /// product shows it without a way to change it.
+    #[cfg(feature = "native")]
     pub installation: bool,
     pub created_at: i64,
 }
@@ -212,6 +216,7 @@ pub struct ConnectionDto {
 /// What one Mailbox Provider holds and what it can do
 /// (ADR-0019). A capability that is absent is shown as absent, so the
 /// page says what the user must do by hand.
+#[cfg(any(feature = "native", test))]
 #[derive(Debug, Serialize, ToSchema)]
 pub struct MailboxProviderDto {
     /// The domain the mailboxes live on, e.g. `example.com`.
@@ -233,6 +238,7 @@ pub struct MailboxProviderDto {
     pub reset_password: bool,
 }
 
+#[cfg(any(feature = "native", test))]
 impl From<pagis_mail::MailboxProvider> for MailboxProviderDto {
     fn from(provider: pagis_mail::MailboxProvider) -> Self {
         Self {
@@ -249,6 +255,7 @@ impl From<pagis_mail::MailboxProvider> for MailboxProviderDto {
     }
 }
 
+#[cfg(any(feature = "native", test))]
 impl From<pagis_core::Connection> for ConnectionDto {
     fn from(connection: pagis_core::Connection) -> Self {
         #[cfg(feature = "native")]
@@ -258,8 +265,11 @@ impl From<pagis_core::Connection> for ConnectionDto {
         let mail = pagis_mail::mailbox_provider(&connection).map(MailboxProviderDto::from);
         Self {
             id: connection.id.to_string(),
+            #[cfg(feature = "native")]
             capabilities: pagis_connect::capabilities(&connection.provider),
+            #[cfg(feature = "native")]
             absent_capabilities: pagis_connect::absent_capabilities(&connection.provider),
+            #[cfg(feature = "native")]
             installation: pagis_connect::is_installation_provider(&connection.provider),
             provider: connection.provider,
             alias: connection.alias,
@@ -275,6 +285,7 @@ impl From<pagis_core::Connection> for ConnectionDto {
     }
 }
 
+#[cfg(feature = "native")]
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ConnectionPage {
     pub items: Vec<ConnectionDto>,
@@ -287,6 +298,7 @@ pub struct ConnectionPage {
 /// A secret field passes through to the provider or the secret store
 /// once and is never written to the database. The type carries no
 /// `Debug` so none of them reaches a log line.
+#[cfg(feature = "native")]
 #[derive(Deserialize, ToSchema)]
 pub struct CreateConnectionRequest {
     /// The `id` of a catalog entry.
@@ -320,6 +332,7 @@ pub struct ProviderFieldDto {
 
 /// One provider Pagis connects, as the picker draws it. The
 /// client holds no provider list of its own.
+#[cfg(feature = "native")]
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ProviderEntryDto {
     /// The `provider` a Connection records.
@@ -355,6 +368,7 @@ pub struct ProviderEntryDto {
     pub browser_sign_in: bool,
 }
 
+#[cfg(feature = "native")]
 impl From<&pagis_connect::ProviderField> for ProviderFieldDto {
     fn from(field: &pagis_connect::ProviderField) -> Self {
         Self {
@@ -368,11 +382,12 @@ impl From<&pagis_connect::ProviderField> for ProviderFieldDto {
     }
 }
 
+#[cfg(feature = "native")]
 impl ProviderEntryDto {
     /// One entry as this installation serves it. `browser_sign_in` says
     /// whether the browser step can ask for a sign-in here; only an
     /// `oauth` entry has a browser step.
-    fn new(provider: &pagis_connect::PersonProvider, browser_sign_in: bool) -> Self {
+    pub(crate) fn new(provider: &pagis_connect::PersonProvider, browser_sign_in: bool) -> Self {
         let entry = &provider.entry;
         Self {
             id: entry.id.to_string(),
@@ -402,6 +417,7 @@ impl ProviderEntryDto {
     }
 }
 
+#[cfg(feature = "native")]
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ProviderPage {
     pub items: Vec<ProviderEntryDto>,
@@ -409,6 +425,7 @@ pub struct ProviderPage {
 
 /// The capabilities the user grants this Connection. An empty
 /// list authorizes the read-only profile a new Connection starts at.
+#[cfg(feature = "native")]
 #[derive(Debug, Default, Deserialize, ToSchema)]
 pub struct AuthorizeConnectionRequest {
     #[serde(default)]
@@ -470,6 +487,7 @@ pub struct AddCredentialRequest {
 }
 
 /// What one authorization step answers.
+#[cfg(feature = "native")]
 #[derive(Debug, Serialize, ToSchema)]
 pub struct AuthorizeConnectionResponse {
     pub connection: ConnectionDto,
@@ -484,6 +502,7 @@ pub struct AuthorizeConnectionResponse {
 }
 
 /// The address of the start route.
+#[cfg(feature = "native")]
 #[derive(Debug, Deserialize)]
 pub struct GoogleStartQuery {
     /// The value the daemon minted for one authorization.
@@ -492,6 +511,7 @@ pub struct GoogleStartQuery {
 }
 
 /// What Google puts on the redirect it sends the browser.
+#[cfg(feature = "native")]
 #[derive(Debug, Deserialize)]
 pub struct GoogleCallbackQuery {
     /// The value the daemon minted, which names the Connection, and the
@@ -506,483 +526,6 @@ pub struct GoogleCallbackQuery {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct CredentialPage {
     pub items: Vec<CredentialDto>,
-}
-
-/// Refuse the product port a provider the installation sets up. The
-/// carrier account and the mail domain are Installation Connections:
-/// an Administrator sets up either in the Administration Interface,
-/// and no person creates one here.
-fn refuse_installation_provider(provider: &str) -> Result<(), ApiError> {
-    if !pagis_connect::is_installation_provider(provider) {
-        return Ok(());
-    }
-    let label = pagis_connect::entry(provider)
-        .map(|entry| entry.label)
-        .unwrap_or(provider);
-    Err(ApiError::forbidden(format!(
-        "{label} belongs to the installation; an administrator sets it up in the \
-         Administration Interface"
-    )))
-}
-
-/// Refuse the product port a change to an Installation Connection by
-/// id. Every person reads the Org's Connections, so each one hears
-/// that an administrator changes them. Any other Connection that is not
-/// this Workspace's is a `404` from the handler that follows, which
-/// says nothing about whose it is.
-async fn refuse_installation_connection(
-    state: &AppState,
-    id: &pagis_core::ConnectionId,
-) -> Result<(), ApiError> {
-    match state.connections.get(&state.org_workspace_id, id).await? {
-        Some(connection) => refuse_installation_provider(&connection.provider),
-        None => Ok(()),
-    }
-}
-
-#[utoipa::path(get, path = "/api/v1/settings/connections", responses(
-    (status = 200, body = ConnectionPage),
-    (status = 401, body = crate::error::ErrorBody),
-))]
-pub async fn list_connections(
-    State(state): State<Arc<AppState>>,
-    tenant: Tenant,
-) -> Result<Json<ConnectionPage>, ApiError> {
-    // The person's own Connections, then the Org's Installation
-    // Connections. Each of those says so: the page shows the carrier and
-    // the mail domain with the numbers and the mailboxes on them, and no
-    // way to change either.
-    let mut connections = state.connections.list(&tenant.workspace_id).await?;
-    connections.extend(state.connections.list(&state.org_workspace_id).await?);
-    let items = connections.into_iter().map(ConnectionDto::from).collect();
-    Ok(Json(ConnectionPage { items }))
-}
-
-/// The Provider Catalog (ADR-0012) a person picks from: every provider
-/// a person connects on their own, with the form each one needs. An
-/// Installation Connection is not in it.
-///
-/// The Google entry asks for nothing: the person signs in at Google.
-/// It says whether the Org holds the Installation OAuth Client that the
-/// sign-in needs, and whether the browser step can ask for a sign-in to
-/// Pagis, which a local installation with Remote Access off never does.
-#[utoipa::path(get, path = "/api/v1/settings/connections/providers", responses(
-    (status = 200, body = ProviderPage),
-    (status = 401, body = crate::error::ErrorBody),
-))]
-pub async fn list_connection_providers(
-    State(state): State<Arc<AppState>>,
-    _tenant: Tenant,
-) -> Result<Json<ProviderPage>, ApiError> {
-    let google_client = state
-        .connector
-        .google()
-        .web_client()
-        .await
-        .map_err(connect_error)?
-        .is_some();
-    let browser_sign_in = !crate::remote_access::serves_this_machine_only(&state);
-    Ok(Json(ProviderPage {
-        items: pagis_connect::person_catalog(google_client)
-            .iter()
-            .map(|provider| ProviderEntryDto::new(provider, browser_sign_in))
-            .collect(),
-    }))
-}
-
-/// Connect an account (ADR-0012). A Google record lands at
-/// `disconnected` with no account; `authorize_connection` is the step
-/// that sends the person to Google, where they pick the account.
-#[utoipa::path(post, path = "/api/v1/settings/connections",
-    request_body = CreateConnectionRequest, responses(
-        (status = 201, body = ConnectionDto),
-        (status = 401, body = crate::error::ErrorBody),
-        (status = 403, body = crate::error::ErrorBody),
-        (status = 409, body = crate::error::ErrorBody),
-        (status = 422, body = crate::error::ErrorBody),
-    )
-)]
-pub async fn create_connection(
-    State(state): State<Arc<AppState>>,
-    tenant: Tenant,
-    Json(request): Json<CreateConnectionRequest>,
-) -> Result<(StatusCode, Json<ConnectionDto>), ApiError> {
-    refuse_installation_provider(&request.provider)?;
-    let credentials =
-        pagis_connect::NewCredentials::from_fields(&request.provider, &request.fields)
-            .map_err(connect_error)?;
-    let connection = state
-        .connector
-        .create(pagis_connect::NewConnection {
-            workspace_id: tenant.workspace_id.clone(),
-            alias: request.alias,
-            display_name: request.display_name,
-            credentials,
-        })
-        .await
-        .map_err(connect_error)?;
-    publish_settings_event(
-        &state,
-        &tenant,
-        "connection.created",
-        serde_json::json!({
-            "connection_id": connection.id.as_str(),
-            "alias": connection.alias.as_str(),
-            "provider": connection.provider.as_str(),
-        }),
-    )
-    .await?;
-    Ok((StatusCode::CREATED, Json(ConnectionDto::from(connection))))
-}
-
-/// Authorize one Connection.
-///
-/// A Google Connection answers an `authorization_url` and returns at
-/// once. The URL is the start route on the Public Origin,
-/// which belongs to the Person who asks: the client opens it, the person
-/// consents at Google in that browser, and the public callback route is
-/// what makes the Connection `connected`. Every other Connection is
-/// finished when this returns, and `authorization_url` is absent.
-#[utoipa::path(post, path = "/api/v1/settings/connections/{connection_id}/authorize",
-    params(("connection_id" = String, Path)),
-    request_body = AuthorizeConnectionRequest, responses(
-        (status = 200, body = AuthorizeConnectionResponse),
-        (status = 401, body = crate::error::ErrorBody),
-        (status = 403, body = crate::error::ErrorBody),
-        (status = 404, body = crate::error::ErrorBody),
-        (status = 422, body = crate::error::ErrorBody),
-    )
-)]
-pub async fn authorize_connection(
-    State(state): State<Arc<AppState>>,
-    tenant: Tenant,
-    Path(connection_id): Path<String>,
-    body: Option<Json<AuthorizeConnectionRequest>>,
-) -> Result<Json<AuthorizeConnectionResponse>, ApiError> {
-    let request = body.map(|Json(request)| request).unwrap_or_default();
-    let id = pagis_core::ConnectionId::from(connection_id);
-    refuse_installation_connection(&state, &id).await?;
-    let answer = state
-        .connector
-        .authorize(
-            &tenant.workspace_id,
-            &id,
-            &request.capabilities,
-            request.api_key.as_deref(),
-            &initiator(&tenant),
-        )
-        .await
-        .map_err(connect_error)?;
-    let authorization_url = answer.url().map(str::to_string);
-    let connection = answer.into_connection();
-    publish_settings_event(
-        &state,
-        &tenant,
-        "connection.changed",
-        serde_json::json!({
-            "connection_id": connection.id.as_str(),
-            "status": connection.status.as_str(),
-        }),
-    )
-    .await?;
-    Ok(Json(AuthorizeConnectionResponse {
-        connection: ConnectionDto::from(connection),
-        authorization_url,
-    }))
-}
-
-/// The Person and the Session of a request, as an authorization names
-/// them.
-pub(crate) fn initiator(tenant: &Tenant) -> pagis_connect::Initiator {
-    pagis_connect::Initiator {
-        user_id: tenant.user_id.clone(),
-        session_id: tenant.session_id.clone(),
-    }
-}
-
-/// The cookie that binds a pending Google authorization to the browser
-/// that goes to Google (RFC 9700, section 2.1.1). It holds the hash of
-/// the `state`, not the `state`.
-///
-/// It is `SameSite=Lax`, not `Strict`: the redirect from Google is a
-/// cross-site top-level navigation, and a `Strict` cookie does not come
-/// with it. Its other attributes follow the scheme of the Public Origin,
-/// as the `Secure` attribute of the Session cookie follows TLS.
-struct TransactionCookie {
-    name: &'static str,
-    secure: bool,
-}
-
-impl TransactionCookie {
-    /// The transaction cookie of an installation at `public_origin`.
-    ///
-    /// Over `https:` it is `__Host-` and `Secure`: the prefix makes a
-    /// browser keep it for this host alone, with `Path=/` and no
-    /// `Domain`. A Server and a Local Installation in Remote Access are
-    /// there, because Google takes a plain `http:` redirect URI only
-    /// on loopback. A Local Installation on a loopback `http:` origin
-    /// gets neither: Safari refuses a `Secure` cookie from a plain `http:`
-    /// origin and Chrome refuses the prefix there, so the flow would
-    /// never finish. The cookie is still host-only, and on that origin
-    /// only programs of the same machine reach the host.
-    fn at(public_origin: &str) -> Self {
-        let tls = url::Url::parse(public_origin).is_ok_and(|url| url.scheme() == "https");
-        match tls {
-            true => Self {
-                name: "__Host-pagis_google_authorization",
-                secure: true,
-            },
-            false => Self {
-                name: "pagis_google_authorization",
-                secure: false,
-            },
-        }
-    }
-
-    /// The `Set-Cookie` value that binds `state` to the browser for as
-    /// long as the authorization waits.
-    fn set(&self, state: &str) -> String {
-        self.with_value(
-            &crate::auth::hash_secret(state),
-            pagis_connect::AUTHORIZE_WINDOW_MS / 1_000,
-        )
-    }
-
-    /// The `Set-Cookie` value that takes the cookie away again. It
-    /// carries the same attributes, so a browser replaces the cookie it
-    /// holds.
-    fn clear(&self) -> String {
-        self.with_value("", 0)
-    }
-
-    /// Whether the browser holds the cookie of `state`.
-    fn binds(&self, headers: &HeaderMap, state: &str) -> bool {
-        crate::auth::cookie(headers, self.name)
-            .is_some_and(|value| value == crate::auth::hash_secret(state))
-    }
-
-    fn with_value(&self, value: &str, max_age: i64) -> String {
-        format!(
-            "{}={value}; Path=/; HttpOnly{}; SameSite=Lax; Max-Age={max_age}",
-            self.name,
-            if self.secure { "; Secure" } else { "" }
-        )
-    }
-}
-
-/// The address of the Product App that a browser with no Session goes
-/// to from the start route. The Product App shows its sign-in page at
-/// every address it opens with no Session and keeps the address, and at
-/// this one it goes back to the start route.
-const SIGN_IN_AND_START: &str = "/connections/google/start";
-
-/// Send one browser to Google for an authorization.
-///
-/// The authorize request answers this address, and it belongs to the
-/// Person who asked. It sits outside the session middleware because a
-/// browser with no Session must sign in and come back, not get `401`: it
-/// goes to the same address in the Product App, which shows the sign-in
-/// page and then comes back here. A Session of another Person gets a
-/// refusal. For the initiating Person, the route sets the transaction
-/// cookie, which binds the `state` to this browser, and redirects to
-/// Google.
-///
-/// A local installation with Remote Access off has one Person and
-/// answers only programs of its own machine. There the route asks the
-/// browser for no Session: the Client App opens it in the system
-/// browser, and the owner does not sign in a second time. The callback
-/// keeps every check.
-#[utoipa::path(get, path = "/api/v1/connections/google/start",
-    params(("state" = String, Query)),
-    responses(
-        (status = 303, description = "To Google with the transaction cookie, or to the sign-in page of the Product App when the browser holds no Session"),
-        (status = 403, description = "A page that says the Session belongs to another Person"),
-        (status = 410, description = "A page that says no authorization waits under this state"),
-    ))]
-pub async fn google_start(
-    State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
-    Query(query): Query<GoogleStartQuery>,
-) -> Result<axum::response::Response, ApiError> {
-    use axum::http::header;
-    use axum::response::IntoResponse;
-
-    let tenant = match crate::remote_access::serves_this_machine_only(&state) {
-        true => None,
-        false => match crate::auth::resolve(&state, &headers).await? {
-            Some(tenant) => Some(tenant),
-            None => {
-                let back = url::form_urlencoded::Serializer::new(String::new())
-                    .append_pair("state", &query.state)
-                    .finish();
-                return Ok(
-                    axum::response::Redirect::to(&format!("{SIGN_IN_AND_START}?{back}"))
-                        .into_response(),
-                );
-            }
-        },
-    };
-    let opener = match &tenant {
-        Some(tenant) => pagis_connect::Opener::SignedIn(&tenant.user_id),
-        None => pagis_connect::Opener::ThisMachine,
-    };
-    let answer = match state.connector.google().start(&query.state, opener) {
-        Ok(google) => (
-            StatusCode::SEE_OTHER,
-            [
-                (
-                    header::SET_COOKIE,
-                    TransactionCookie::at(&state.public_origin).set(&query.state),
-                ),
-                (header::LOCATION, google),
-            ],
-        )
-            .into_response(),
-        Err(pagis_connect::StartRefusal::AnotherPerson) => (
-            StatusCode::FORBIDDEN,
-            google_page(
-                "This Google sign-in belongs to another person. Sign in to Pagis as the \
-                 person who started it.",
-            ),
-        )
-            .into_response(),
-        Err(pagis_connect::StartRefusal::NotWaiting) => (
-            StatusCode::GONE,
-            google_page(
-                "This Google sign-in is no longer waiting. Go back to Pagis and try again.",
-            ),
-        )
-            .into_response(),
-    };
-    Ok(answer)
-}
-
-/// Finish one Google authorization.
-///
-/// Google redirects the person's browser here on the installation's own
-/// public origin. The request carries no Session: the Session cookie is
-/// `SameSite=Strict`, so a browser sends none on a cross-site
-/// navigation. The route finishes only for the browser that holds the
-/// transaction cookie of the `state`, which the start route set. The
-/// `state` names the Connection, and the Person and the Session that
-/// started the authorization: that Session must still be live. The first
-/// consent records the Google account that consented, and a later
-/// consent must come from that account. A redirect without the cookie spends the `state` and connects
-/// nothing. Each answer clears the cookie.
-#[utoipa::path(get, path = "/api/v1/connections/google/callback",
-    params(
-        ("state" = String, Query),
-        ("code" = Option<String>, Query),
-        ("error" = Option<String>, Query),
-    ),
-    responses((status = 200, description = "A page that tells the person to go back to Pagis")))]
-pub async fn google_callback(
-    State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
-    Query(query): Query<GoogleCallbackQuery>,
-) -> axum::response::Response {
-    use axum::response::IntoResponse;
-
-    const REFUSED: &str = "Google did not complete this. Go back to Pagis and try again.";
-    let google = state.connector.google();
-    let cookie = TransactionCookie::at(&state.public_origin);
-    let bound = cookie.binds(&headers, &query.state);
-    let declined = query.error.as_deref().filter(|reason| !reason.is_empty());
-    let message = if !bound || declined.is_some() {
-        match declined {
-            // Google sends `error=access_denied` when the person declines.
-            Some(reason) if bound => tracing::info!(%reason, "a person declined at Google"),
-            _ => {
-                tracing::warn!("a Google callback came without the transaction cookie of its state")
-            }
-        }
-        if let Err(error) = google.abandon(&query.state).await {
-            tracing::error!(%error, "abandoning a Google authorization failed");
-        }
-        REFUSED
-    } else {
-        match google
-            .finish(&query.state, query.code.as_deref().unwrap_or_default())
-            .await
-        {
-            Ok(connection) => {
-                // The client is waiting on the connection list, so the
-                // event is what closes its loop.
-                publish_connection_changed(&state, &connection).await;
-                "Google is connected. You can close this tab and go back to Pagis."
-            }
-            Err(error) => {
-                tracing::warn!(%error, "a Google callback did not finish");
-                REFUSED
-            }
-        }
-    };
-    (
-        [(axum::http::header::SET_COOKIE, cookie.clear())],
-        google_page(message),
-    )
-        .into_response()
-}
-
-/// The one page the start route and the callback answer. It names no
-/// account and no Workspace: a browser that arrives with a `state`
-/// somebody else minted must learn nothing from it.
-fn google_page(message: &str) -> axum::response::Html<String> {
-    axum::response::Html(format!(
-        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">\
-         <title>Pagis</title></head><body style=\"font:16px system-ui;padding:3rem\">\
-         <p>{message}</p></body></html>"
-    ))
-}
-
-/// A connect failure the user can act on keeps its words; a provider
-/// refusal reports the stable code and nothing from upstream.
-pub(crate) fn connect_error(error: pagis_connect::ConnectError) -> ApiError {
-    use pagis_connect::ConnectError;
-    match error {
-        ConnectError::Store(error) => ApiError::from(error),
-        ConnectError::Validation(message) => ApiError::validation(message),
-        ConnectError::Conflict(message) => ApiError::conflict(message),
-        ConnectError::NotFound => ApiError::not_found("connection"),
-        ConnectError::Provider(code) => ApiError::validation(format!(
-            "the provider did not complete the connection ({})",
-            code.as_str()
-        )),
-    }
-}
-
-#[utoipa::path(delete, path = "/api/v1/settings/connections/{connection_id}",
-    params(("connection_id" = String, Path)), responses(
-        (status = 204),
-        (status = 401, body = crate::error::ErrorBody),
-        (status = 403, body = crate::error::ErrorBody),
-        (status = 404, body = crate::error::ErrorBody),
-    )
-)]
-pub async fn delete_connection(
-    State(state): State<Arc<AppState>>,
-    tenant: Tenant,
-    Path(connection_id): Path<String>,
-) -> Result<StatusCode, ApiError> {
-    let id = pagis_core::ConnectionId::from(connection_id);
-    refuse_installation_connection(&state, &id).await?;
-    if !state
-        .connections
-        .delete_and_revoke(&tenant.workspace_id, &id, now_ms())
-        .await?
-    {
-        return Err(ApiError::not_found("connection"));
-    }
-    publish_settings_event(
-        &state,
-        &tenant,
-        "connection.deleted",
-        serde_json::json!({
-            "connection_id": id.as_str()
-        }),
-    )
-    .await?;
-    Ok(StatusCode::NO_CONTENT)
 }
 
 #[utoipa::path(get, path = "/api/v1/settings/credentials", responses(
@@ -1085,30 +628,7 @@ pub async fn delete_credential(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// The connection event the callback publishes. There is no Session on
-/// that request, so the Workspace comes from the record the `state`
-/// named and from nothing the caller sent.
-async fn publish_connection_changed(state: &AppState, connection: &pagis_core::Connection) {
-    if let Err(error) = state
-        .bus
-        .publish(pagis_core::NewEvent {
-            workspace_id: connection.workspace_id.clone(),
-            event_type: "connection.changed".to_string(),
-            agent_id: None,
-            run_id: None,
-            channel_id: None,
-            payload: serde_json::json!({
-                "connection_id": connection.id.as_str(),
-                "status": connection.status.as_str(),
-            }),
-        })
-        .await
-    {
-        tracing::error!(%error, "publishing the Google callback event failed");
-    }
-}
-
-async fn publish_settings_event(
+pub(crate) async fn publish_settings_event(
     state: &AppState,
     tenant: &Tenant,
     event_type: &str,
@@ -1217,6 +737,22 @@ fn model_alias_settings(
     }
 }
 
+/// The portable stores and keys for the Model Alias read.
+#[derive(Clone)]
+pub(crate) struct ModelAliasState {
+    pub model_aliases: Arc<dyn pagis_core::ModelAliasStore>,
+    pub keys: Arc<ProviderKeys>,
+}
+
+impl axum::extract::FromRef<Arc<AppState>> for ModelAliasState {
+    fn from_ref(state: &Arc<AppState>) -> Self {
+        Self {
+            model_aliases: state.model_aliases.clone(),
+            keys: state.keys.clone(),
+        }
+    }
+}
+
 #[utoipa::path(
     get,
     path = "/api/v1/settings/model-aliases",
@@ -1226,7 +762,7 @@ fn model_alias_settings(
     )
 )]
 pub async fn list_model_aliases(
-    State(state): State<Arc<AppState>>,
+    State(state): State<ModelAliasState>,
     tenant: Tenant,
 ) -> Result<Json<ModelAliasPage>, ApiError> {
     let aliases = state.model_aliases.list(&tenant.workspace_id).await?;
