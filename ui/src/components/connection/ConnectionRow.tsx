@@ -10,6 +10,7 @@ import type { ApiClient, ConnectionDto } from '../../api/client'
 import { Badge, Button, Row } from '../../primitives'
 import { CONNECTION_STATE } from '../ConnectionStatus'
 import { SyncLine } from './SyncLine'
+import { GOOGLE_DATA_HELP } from '../../connections/googleDisclosure'
 
 import '../settings.css'
 
@@ -83,6 +84,11 @@ export function ConnectionRow({
           </Button>
         )}
       </div>
+      {connection.provider === 'google' && (
+        <a className="settings-hint" href={GOOGLE_DATA_HELP.url} target="_blank" rel="noopener noreferrer">
+          {GOOGLE_DATA_HELP.label}
+        </a>
+      )}
       {children}
     </Row>
   )

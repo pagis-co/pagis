@@ -3,22 +3,28 @@ import { Browser } from '@capacitor/browser'
 import { Info, Plus } from 'lucide-react'
 import { Capacitor } from '@capacitor/core'
 import type { ApiClient } from '../../api/client'
-import { Badge, Button, Frame, Row, Sheet } from '../../primitives'
+import { Badge, Button, Frame, Input, Row, Sheet } from '../../primitives'
 import {
   errorMessage,
   useAuthorizeConnection,
   useConnectionProviders,
   useConnections,
   useCreateConnection,
+  useDeleteConnection,
 } from '../../queries'
 import { CONNECTION_STATE } from '../ConnectionStatus'
 import { READ_ONLY_CONNECTION_CAPABILITIES } from '../ConnectionCapabilities'
+import { GOOGLE_DATA_HELP, GOOGLE_DISCLOSURE } from '../../connections/googleDisclosure'
 
 function AddConnection({ api, onClose }: { api: ApiClient; onClose: () => void }) {
   const providers = useConnectionProviders(api)
   const connections = useConnections(api)
   const create = useCreateConnection(api)
   const authorize = useAuthorizeConnection(api)
+  const remove = useDeleteConnection(api)
+  const [step, setStep] = useState<'names' | 'disclose' | 'google'>('names')
+  const [displayName, setDisplayName] = useState('Google')
+  const [alias, setAlias] = useState('')
   const [id, setId] = useState<string | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
   const entry = providers.data?.find((row) => row.id === 'google')
@@ -39,25 +45,34 @@ function AddConnection({ api, onClose }: { api: ApiClient; onClose: () => void }
   }, [connected, onClose])
   const start = async () => {
     setFailure(null)
+    let connection
     try {
-      const connection = id
-        ? { id }
-        : await create.mutateAsync({
-            provider: 'google',
-            alias: `google-${crypto.randomUUID()}`,
-            display_name: 'Google',
-            fields: {},
-          })
-      setId(connection.id)
+      connection = await create.mutateAsync({
+        provider: 'google',
+        alias: alias.trim(),
+        display_name: displayName.trim(),
+        fields: {},
+      })
+    } catch (error) {
+      setFailure(errorMessage(error, 'That account could not be recorded.'))
+      setStep('names')
+      return
+    }
+    setId(connection.id)
+    try {
       const answer = await authorize.mutateAsync({
         connectionId: connection.id,
         capabilities: READ_ONLY_CONNECTION_CAPABILITIES,
       })
+      setStep('google')
       if (answer.authorization_url) {
         if (Capacitor.isNativePlatform()) await Browser.open({ url: answer.authorization_url })
         else window.open(answer.authorization_url, '_blank', 'noopener')
       }
     } catch (error) {
+      await remove.mutateAsync(connection.id).catch(() => undefined)
+      setId(null)
+      setStep('names')
       setFailure(errorMessage(error, 'Google did not complete the connection.'))
     }
   }
@@ -82,36 +97,56 @@ function AddConnection({ api, onClose }: { api: ApiClient; onClose: () => void }
           </p>
         ) : ready ? (
           <>
-            <p className="phone-add-connection-lead">
-              Sign in at Google and allow Pagis. Then you choose which sprites may use the account.
-            </p>
-            <Frame>
-              {[
-                Capacitor.isNativePlatform()
-                  ? 'Google opens in a secure sign-in sheet.'
-                  : 'Google opens in your browser.',
-                'Choose the account and allow access.',
-                'You come back here, connected.',
-              ].map((line, index) => (
-                <Row key={line}>
-                  <span className="phone-step-number">{index + 1}</span>
-                  <span>{line}</span>
-                </Row>
+            {step === 'names' && <>
+              <p className="phone-add-connection-lead">
+                Name the Connection. Then read how Pagis uses your Google data.
+              </p>
+              <label className="phone-form-field">
+                <span>Connection name</span>
+                <Input aria-label="Connection name" placeholder="Connection name, e.g. Work Google"
+                  value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
+              </label>
+              <label className="phone-form-field">
+                <span>Short name</span>
+                <Input aria-label="Short name" placeholder="Short name sprites use, e.g. work"
+                  value={alias} onChange={(event) => setAlias(event.target.value)} />
+              </label>
+              <Button variant="primary" size="lg"
+                disabled={!alias.trim() || !displayName.trim()}
+                onClick={() => { setFailure(null); setStep('disclose') }}>Continue</Button>
+            </>}
+            {step === 'disclose' && <>
+              <h2 className="phone-disclosure-title">{GOOGLE_DISCLOSURE.title}</h2>
+              {GOOGLE_DISCLOSURE.paragraphs.map((line) => (
+                <p className="phone-hint" key={line}>{line}</p>
               ))}
-            </Frame>
-            <Button
-              variant="primary"
-              size="lg"
-              disabled={create.isPending || authorize.isPending}
-              onClick={() => void start()}
-            >
-              {authorize.isPending ? 'Opening Google…' : 'Continue at Google'}
-            </Button>
-            {id && (
+              <a className="phone-hint" href={GOOGLE_DATA_HELP.url} target="_blank" rel="noopener noreferrer">
+                {GOOGLE_DATA_HELP.label}
+              </a>
+              <Button variant="primary" size="lg" disabled={create.isPending || authorize.isPending}
+                onClick={() => void start()}>{GOOGLE_DISCLOSURE.continue}</Button>
+              <Button size="lg" disabled={create.isPending || authorize.isPending}
+                onClick={() => { setFailure(null); setStep('names') }}>{GOOGLE_DISCLOSURE.back}</Button>
+            </>}
+            {step === 'google' && <>
+              <Frame>
+                {[
+                  Capacitor.isNativePlatform()
+                    ? 'Google opens in a secure sign-in sheet.'
+                    : 'Google opens in your browser.',
+                  'Choose the account and allow access.',
+                  'You come back here, connected.',
+                ].map((line, index) => (
+                  <Row key={line}>
+                    <span className="phone-step-number">{index + 1}</span>
+                    <span>{line}</span>
+                  </Row>
+                ))}
+              </Frame>
               <p role="status" className="phone-hint">
                 Finish signing in at Google. This sheet closes when the account connects.
               </p>
-            )}
+            </>}
             <p className="phone-hint">
               Pagis keeps the sign-in for this account on your server, sealed with your key. Nobody
               else’s sprites can use it.
@@ -164,21 +199,29 @@ export function ConnectionsPhone({
         {(connections.data ?? []).map((row) => {
           const state = CONNECTION_STATE[row.status]
           return (
-            <Row key={row.id} chevron onClick={() => onOpen(row.id)}>
-              <span className="phone-initial-tile">
-                {row.provider === 'google' ? 'G' : row.display_name.charAt(0).toUpperCase()}
-              </span>
-              <span className="phone-row-copy">
-                <span className="phone-row-account phone-row-line">
-                  {row.account ?? row.display_name}
+            <Row key={row.id} className="phone-connection-row">
+              <Button variant="ghost" className="phone-connection-open" aria-label={`Open ${row.display_name}`}
+                onClick={() => onOpen(row.id)}>
+                <span className="phone-initial-tile">
+                  {row.provider === 'google' ? 'G' : row.display_name.charAt(0).toUpperCase()}
                 </span>
-                <span className="phone-hint">
-                  {providers.data?.find((entry) => entry.id === row.provider)?.label ??
-                    row.display_name}{' '}
-                  account
+                <span className="phone-row-copy">
+                  <span className="phone-row-account phone-row-line">
+                    {row.account ?? row.display_name}
+                  </span>
+                  <span className="phone-hint">
+                    {providers.data?.find((entry) => entry.id === row.provider)?.label ??
+                      row.display_name}{' '}
+                    account
+                  </span>
                 </span>
-              </span>
-              <Badge tone={state?.tone ?? 'neutral'}>{state?.label ?? row.status}</Badge>
+                <Badge tone={state?.tone ?? 'neutral'}>{state?.label ?? row.status}</Badge>
+              </Button>
+              {row.provider === 'google' && (
+                <a className="phone-hint" href={GOOGLE_DATA_HELP.url} target="_blank" rel="noopener noreferrer">
+                  {GOOGLE_DATA_HELP.label}
+                </a>
+              )}
             </Row>
           )
         })}

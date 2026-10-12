@@ -1,7 +1,7 @@
 // The Connection list and the connect flow (ADR-0022).
 //
-// The Google flow is four steps — provider, names, Google, done — and
-// the third step says plainly that Google opened in a new tab. The
+// The Google flow is provider, names, disclosure, Google and done.
+// The Google step says that Google opened in a new tab. The
 // person types no client and no account: the client is the
 // installation's (ADR-0012), and Google's account chooser picks the
 // account. A refused exchange returns to the second step with the names
@@ -25,6 +25,7 @@ import { useEffect, useState } from 'react'
 import { Plug } from 'lucide-react'
 import { ConnectionRow } from './connection/ConnectionRow'
 import { PageState } from './PageState'
+import { GOOGLE_DATA_HELP, GOOGLE_DISCLOSURE } from '../connections/googleDisclosure'
 
 import type { ApiClient, ConnectionDto, ProviderEntryDto } from '../api/client'
 import { Button, Frame, Input } from '../primitives'
@@ -480,7 +481,7 @@ function AccountDetail({
   )
 }
 
-type Step = 'names' | 'google' | 'done'
+type Step = 'names' | 'disclose' | 'google' | 'done'
 
 /** The connect flow of Google. `onDone` closes it; the caller decides
  *  whether that returns to the list or finishes an onboarding step.
@@ -543,6 +544,7 @@ export function ConnectGoogle({
       })
     } catch (error) {
       setFailure(errorMessage(error, 'That account could not be recorded.'))
+      setStep('names')
       return
     }
     setConnectionId(created.id)
@@ -556,7 +558,7 @@ export function ConnectGoogle({
       openAuthorization(answer.authorization_url)
     } catch (error) {
       // The record cannot be authorized and holds its alias, so the
-      // second step starts over from the names the user still sees.
+      // flow starts over from the names the user entered.
       await remove.mutateAsync(created.id).catch(() => undefined)
       setConnectionId(null)
       setFailure(errorMessage(error, 'Google did not complete the connection.'))
@@ -607,11 +609,32 @@ export function ConnectGoogle({
             <Button
               variant="primary"
               disabled={!ready || create.isPending}
-              onClick={() => void connect()}
+              onClick={() => setStep('disclose')}
             >
-              Continue at Google
+              Continue
             </Button>
             <Button onClick={onDone}>Cancel</Button>
+          </div>
+        </section>
+      )}
+
+      {step === 'disclose' && (
+        <section>
+          <h4>{GOOGLE_DISCLOSURE.title}</h4>
+          {GOOGLE_DISCLOSURE.paragraphs.map((line) => (
+            <p className="settings-hint" key={line}>{line}</p>
+          ))}
+          <p className="settings-hint">
+            <a href={GOOGLE_DATA_HELP.url} target="_blank" rel="noopener noreferrer">
+              {GOOGLE_DATA_HELP.label}
+            </a>
+          </p>
+          {failure !== null && <p className="settings-error" role="alert">{failure}</p>}
+          <div className="settings-row-actions">
+            <Button variant="primary" disabled={create.isPending || authorize.isPending}
+              onClick={() => void connect()}>{GOOGLE_DISCLOSURE.continue}</Button>
+            <Button disabled={create.isPending || authorize.isPending}
+              onClick={() => { setFailure(null); setStep('names') }}>{GOOGLE_DISCLOSURE.back}</Button>
           </div>
         </section>
       )}
