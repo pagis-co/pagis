@@ -3646,6 +3646,10 @@ export interface components {
             /** @enum {string} */
             type: "activity";
         };
+        /** @description Bind a client link to the verifier of the Mobile App. */
+        ClientLinkRequest: {
+            challenge?: string | null;
+        };
         /** @description A Coding Session as a client reads it. */
         CodingSessionDto: {
             /** @description The harness's own ACP session id. */
@@ -4826,6 +4830,8 @@ export interface components {
              *     becomes their timezone, as with a password.
              */
             timezone?: string | null;
+            /** @description The verifier of a link bound to a challenge. */
+            verifier?: string | null;
         };
         ListContactRequest: {
             /**
@@ -14544,7 +14550,11 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": null | components["schemas"]["ClientLinkRequest"];
+            };
+        };
         responses: {
             201: {
                 headers: {
@@ -14555,6 +14565,14 @@ export interface operations {
                 };
             };
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

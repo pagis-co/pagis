@@ -537,6 +537,8 @@ pub async fn sign_in_with_client_credential(
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct LinkSignInRequest {
+    /// The verifier of a link bound to a challenge.
+    pub verifier: Option<String>,
     /// The secret of a Sign-In Link of the Public Origin: the fragment of
     /// `<public origin>/sign-in#<secret>`.
     pub secret: String,
@@ -576,6 +578,9 @@ pub async fn sign_in_with_link(
         .sign_in_limits
         .reserve(keys, now)
         .ok_or_else(rate_limited)?;
+    if !crate::sign_in_links::permits_verifier(body.secret.trim(), body.verifier.as_deref()) {
+        return Err(link_refused());
+    }
     let spent = state
         .sign_in_links
         .consume(

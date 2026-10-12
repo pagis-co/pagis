@@ -142,3 +142,22 @@ final class FakeServerShell: ServerShell {
 
     func sessionEnded() {}
 }
+
+@MainActor
+final class SignInVerifierTests: XCTestCase {
+    func testTheVerifierGoesOnlyToItsOriginAndSecretAndOnlyOnce() {
+        let server = WebOrigin(scheme: "https", host: "pagis.example", port: 0)
+        let other = WebOrigin(scheme: "https", host: "other.example", port: 0)
+        SignInVerifier.keep(server: server, secret: "secret", verifier: "verifier")
+        XCTAssertNil(SignInVerifier.take(server: other, secret: "secret"))
+        XCTAssertNil(SignInVerifier.take(server: server, secret: "wrong"))
+        XCTAssertEqual(SignInVerifier.take(server: server, secret: "secret"), "verifier")
+        XCTAssertNil(SignInVerifier.take(server: server, secret: "secret"))
+    }
+
+    func testTheBrowserSessionIsEphemeral() {
+        let browser = SystemSignInBrowser()
+        let session = browser.makeSession(url: URL(string: "https://pagis.example/sign-in")!) { _, _ in }
+        XCTAssertTrue(session.prefersEphemeralWebBrowserSession)
+    }
+}

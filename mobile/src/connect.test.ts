@@ -142,18 +142,11 @@ describe('the Connect screen checks a server', () => {
     expect(paths(request).at(-1)).toBe(route)
   })
 
-  /** In Remote Access, the server takes no password from another machine
-   *  (ADR-0028). An address alone would open a sign-in page that the
-   *  Person cannot use. */
-  it('asks for a Sign-In Link when the server signs in this app with a link and the Person typed an address', async () => {
+  it('accepts an address when Remote Access takes a pasted link in the browser', async () => {
     const request = server({ '/api/v1/health': healthy('link'), '/api/v1/setup': setUp() })
-
-    await expect(connect('pagis-home.tail1234.ts.net', request)).rejects.toThrow(
-      'This Pagis server signs in this app with a sign-in link only. Paste a sign-in link of the ' +
-        'server. Make a new link in Settings → Sessions on a browser or app that is signed in. Or ask ' +
-        'an Administrator for a new invite, or run "pagis pair" on the machine of the server.',
-    )
-
+    await expect(connect('pagis-home.tail1234.ts.net', request)).resolves.toEqual({
+      origin: 'https://pagis-home.tail1234.ts.net/', opens: 'https://pagis-home.tail1234.ts.net/',
+    })
     expect(paths(request)).toEqual(['/api/v1/health', '/api/v1/setup'])
   })
 

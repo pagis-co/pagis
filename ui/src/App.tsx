@@ -7,6 +7,7 @@ import { reportSessionEnded } from './mobileShell'
 import { useSetupState, useSignInMethod, useUser } from './queries'
 import { createAppRouter } from './routes'
 import { SignIn } from './SignIn'
+import { BrowserSignInPage } from './BrowserSignInPage'
 import { SIGN_IN_LINK_PATH, SignInLinkPage } from './SignInLinkPage'
 
 /** The app is its router: every view has a URL. The session is
@@ -38,6 +39,7 @@ export function App({ history }: { history?: RouterHistory }) {
   // A Sign-In Link opens its own page, also in a browser that is signed
   // in already: the link signs it in as the person it was made for.
   if (router.history.location.pathname === SIGN_IN_LINK_PATH) {
+    if (new URLSearchParams(window.location.search).has('app')) return <BrowserSignInPage api={api} />
     return <SignInLinkPage api={api} />
   }
   if (user.isPending) return null

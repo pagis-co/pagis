@@ -25,13 +25,15 @@ use std::sync::Arc;
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use pagis_core::{
     CLIENT_LINK_LIFETIME_MS, INVITE_LINK_LIFETIME_MS, START_LINK_LIFETIME_MS, SignInLink,
     SignInLinkId, SignInLinkKind, SignInLinkStore, StoreError, UnixMillis, UserId,
 };
 use qrcode::QrCode;
 use qrcode::render::{svg, unicode};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use utoipa::ToSchema;
 
 use crate::AppState;
@@ -94,6 +96,7 @@ pub async fn mint_start_link(
         SignInLinkKind::Start,
         now + START_LINK_LIFETIME_MS,
         now,
+        None,
     )
     .await?;
     Ok(format!(
@@ -118,6 +121,7 @@ pub async fn mint_public_origin_link(
         SignInLinkKind::PublicOrigin,
         expires_at,
         now,
+        None,
     )
     .await?;
     Ok(MintedLink {
@@ -137,8 +141,14 @@ async fn write_link(
     kind: SignInLinkKind,
     expires_at: UnixMillis,
     now: UnixMillis,
+    challenge: Option<&str>,
 ) -> Result<String, StoreError> {
-    let secret = random_secret();
+    // The token hash binds the random secret and challenge together. A
+    // changed or removed challenge names no stored link.
+    let secret = match challenge {
+        Some(challenge) => format!("{}.{challenge}", random_secret()),
+        None => random_secret(),
+    };
     links
         .create(&SignInLink {
             id: SignInLinkId::generate(),
@@ -198,24 +208,73 @@ pub(crate) async fn invite(
 #[utoipa::path(
     post,
     path = "/api/v1/settings/sign-in-links",
+    request_body = Option<ClientLinkRequest>,
     responses(
         (status = 201, body = SignInLinkDto),
+        (status = 422, body = crate::error::ErrorBody),
         (status = 401, body = crate::error::ErrorBody),
     )
 )]
 pub async fn make_client_link(
     State(state): State<Arc<AppState>>,
     tenant: Tenant,
+    body: Option<Json<ClientLinkRequest>>,
 ) -> Result<(StatusCode, Json<SignInLinkDto>), ApiError> {
-    let link = mint_public_origin_link(
+    let challenge = body.as_ref().and_then(|body| body.challenge.as_deref());
+    if let Some(challenge) = challenge {
+        let valid = URL_SAFE_NO_PAD
+            .decode(challenge)
+            .is_ok_and(|bytes| bytes.len() == 32 && URL_SAFE_NO_PAD.encode(bytes) == challenge);
+        if !valid {
+            return Err(ApiError::validation(
+                "The challenge must be base64url of SHA-256, without padding.",
+            ));
+        }
+    }
+    let now = state.clock.now_ms();
+    let expires_at = now + CLIENT_LINK_LIFETIME_MS;
+    let secret = write_link(
         state.sign_in_links.as_ref(),
         &tenant.user_id,
-        &state.public_origin,
-        CLIENT_LINK_LIFETIME_MS,
-        state.clock.now_ms(),
+        SignInLinkKind::PublicOrigin,
+        expires_at,
+        now,
+        challenge,
     )
     .await?;
+    let link = MintedLink {
+        url: format!(
+            "{}{SIGN_IN_PAGE}#{secret}",
+            state.public_origin.trim_end_matches('/')
+        ),
+        expires_at,
+    };
     Ok((StatusCode::CREATED, Json(SignInLinkDto::new(link)?)))
+}
+
+/// Bind a client link to the verifier of the Mobile App.
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct ClientLinkRequest {
+    pub challenge: Option<String>,
+}
+
+/// A bound secret trades only with its verifier. The token hash also
+/// covers the challenge, so a caller cannot remove or replace it.
+pub(crate) fn permits_verifier(secret: &str, verifier: Option<&str>) -> bool {
+    let Some((_, challenge)) = secret.split_once('.') else {
+        return true;
+    };
+    let Some(verifier) = verifier else {
+        return false;
+    };
+    if !(43..=128).contains(&verifier.len())
+        || !verifier
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || b"-._~".contains(&c))
+    {
+        return false;
+    }
+    URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes())) == challenge
 }
 
 /// Make a new invite for a Person: a link for their next Session, good

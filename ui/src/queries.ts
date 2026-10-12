@@ -1162,9 +1162,9 @@ function signInMessage(status: number, error: unknown): string {
  *  answers with an HTTP-only cookie, as a password sign-in does. */
 export function useLinkSignIn(api: ApiClient) {
   return useMutation({
-    mutationFn: async (secret: string) => {
+    mutationFn: async ({ secret, verifier }: { secret: string; verifier?: string }) => {
       const { data, error, response } = await api.POST("/api/v1/sessions/link", {
-        body: { secret, timezone: deviceTimezone() },
+        body: { secret, ...(verifier === undefined ? {} : { verifier }), timezone: deviceTimezone() },
       });
       if (data === undefined) throw new Error(linkSignInMessage(response.status, error));
       return data;

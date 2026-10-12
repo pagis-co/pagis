@@ -642,3 +642,122 @@ async fn the_pair_command_prints_the_link_and_its_qr_code() {
     let traded = trade(&daemon, secret_of(url), SAFARI_ON_MACOS).await;
     assert_eq!(traded.status(), StatusCode::OK);
 }
+
+const VERIFIER: &str = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
+const CHALLENGE: &str = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
+
+async fn bound_client_link(daemon: &TestDaemon) -> serde_json::Value {
+    let response = client()
+        .post(format!("{}/api/v1/settings/sign-in-links", daemon.base_url))
+        .header("cookie", daemon.cookie())
+        .json(&serde_json::json!({ "challenge": CHALLENGE }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    response.json().await.unwrap()
+}
+
+async fn bound_trade(
+    daemon: &TestDaemon,
+    secret: &str,
+    verifier: Option<&str>,
+) -> reqwest::Response {
+    client()
+        .post(format!("{}/api/v1/sessions/link", daemon.base_url))
+        .header("user-agent", "Mozilla/5.0 (iPhone) Pagis/0.2.0")
+        .json(&serde_json::json!({ "secret": secret, "verifier": verifier }))
+        .send()
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn a_bound_link_requires_its_verifier_and_trades_once() {
+    let daemon = TestDaemon::start().await;
+    let link = bound_client_link(&daemon).await;
+    let secret = secret_of(link["url"].as_str().unwrap());
+    for verifier in [
+        None,
+        Some("wrong-verifier"),
+        Some("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
+    ] {
+        let refused = bound_trade(&daemon, secret, verifier).await;
+        assert_eq!(refused.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(session_cookie(&refused), None);
+    }
+    let accepted = bound_trade(&daemon, secret, Some(VERIFIER)).await;
+    assert_eq!(accepted.status(), StatusCode::OK);
+    let cookie = session_cookie(&accepted).unwrap();
+    assert_eq!(
+        user_of(&daemon, &cookie).await.unwrap()["id"],
+        daemon.user_id.to_string()
+    );
+    let second = bound_trade(&daemon, secret, Some(VERIFIER)).await;
+    assert_eq!(second.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(session_cookie(&second), None);
+}
+
+#[tokio::test]
+async fn a_bound_link_refuses_a_changed_challenge() {
+    let daemon = TestDaemon::start().await;
+    let link = bound_client_link(&daemon).await;
+    let secret = secret_of(link["url"].as_str().unwrap());
+    let changed = secret.replace(CHALLENGE, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+    let response = bound_trade(&daemon, &changed, Some(VERIFIER)).await;
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    let stripped = secret.split('.').next().unwrap();
+    assert_eq!(
+        bound_trade(&daemon, stripped, None).await.status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        bound_trade(&daemon, secret, Some(VERIFIER)).await.status(),
+        StatusCode::OK
+    );
+}
+
+#[tokio::test]
+async fn a_bound_link_expires_at_five_minutes() {
+    let start = now_ms();
+    let clock = pagis_testkit::evaluation::FixtureClock::at(start);
+    let daemon = TestDaemon::start_with(pagis_testkit::TestDaemonOptions {
+        clock: std::sync::Arc::new(clock.clone()),
+        ..Default::default()
+    })
+    .await;
+    let link = bound_client_link(&daemon).await;
+    assert_eq!(
+        link["expires_at"].as_i64(),
+        Some(start + CLIENT_LINK_LIFETIME_MS)
+    );
+    clock.advance_to(start + CLIENT_LINK_LIFETIME_MS);
+    let refused = bound_trade(
+        &daemon,
+        secret_of(link["url"].as_str().unwrap()),
+        Some(VERIFIER),
+    )
+    .await;
+    assert_eq!(refused.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(session_cookie(&refused), None);
+}
+
+#[tokio::test]
+async fn a_client_link_refuses_an_invalid_challenge() {
+    let daemon = TestDaemon::start().await;
+    for challenge in [
+        "",
+        "plain-text",
+        "!",
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    ] {
+        let response = client()
+            .post(format!("{}/api/v1/settings/sign-in-links", daemon.base_url))
+            .header("cookie", daemon.cookie())
+            .json(&serde_json::json!({ "challenge": challenge }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+}

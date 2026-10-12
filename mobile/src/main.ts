@@ -1,6 +1,6 @@
 /** The bundled Connect screen of the Mobile App. */
 
-import { CapacitorHttp } from '@capacitor/core'
+import { Capacitor, CapacitorHttp } from '@capacitor/core'
 import { Browser } from '@capacitor/browser'
 import '@fontsource-variable/inter'
 
@@ -8,6 +8,7 @@ import { connectToServer, connectWithScannedLink, type ConnectOptions } from './
 import { mountConnectScreen } from './connectScreen'
 import { scanQrCode } from './scan'
 import { PagisShell } from './shell'
+import { openConnectedServer } from './signIn'
 import './connect.css'
 
 const build = PagisShell.buildType()
@@ -22,7 +23,7 @@ mountConnectScreen(document, {
     const scanned = await scanQrCode()
     return scanned === null ? null : connectWithScannedLink(scanned, await options())
   },
-  open: (address) => PagisShell.open(address),
+  open: (address) => openConnectedServer(address, Capacitor.getPlatform(), PagisShell),
 })
 
 document.querySelectorAll<HTMLAnchorElement>('.connect-help a').forEach((link) => {

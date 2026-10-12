@@ -27,12 +27,6 @@ export type HttpRequest = (options: HttpOptions) => Promise<HttpResponse>
 /** How long a check waits for the server, in milliseconds. */
 const TIMEOUT_MS = 5000
 
-/** Where to get a Sign-In Link. The words of the sign-in page of the
- *  Product App (`WHERE_TO_GET_A_LINK` in `ui/src/queries.ts`). */
-const WHERE_TO_GET_A_LINK =
-  'Make a new link in Settings → Sessions on a browser or app that is signed in. Or ask ' +
-  'an Administrator for a new invite, or run "pagis pair" on the machine of the server.'
-
 /** What a check of a server needs. */
 export type ConnectOptions = BuildType & { request: HttpRequest }
 
@@ -65,22 +59,12 @@ async function checkServer(address: ServerAddress, options: ConnectOptions): Pro
       : `the administration page at ${setup.administrationOrigin}/ on the server itself`
     throw new Error(`This Pagis server has no administrator yet. Finish its setup on ${page}, then connect again.`)
   }
-  // In Remote Access the server takes no password from another machine
-  // (ADR-0028), so its sign-in page would ask this app for a link.
-  if (health.signIn === 'link' && address.opens === origin) {
-    throw new Error(
-      `This Pagis server signs in this app with a sign-in link only. Paste a sign-in link of the server. ${WHERE_TO_GET_A_LINK}`,
-    )
-  }
   return address
 }
 
 /** What `GET /api/v1/health` answers. The route needs no Session. */
 interface Health {
   version: string
-  /** How this app signs in: `link` from another machine in Remote
-   *  Access, else `password`. */
-  signIn: string
 }
 
 async function readHealth(origin: string, request: HttpRequest): Promise<Health> {
@@ -89,7 +73,7 @@ async function readHealth(origin: string, request: HttpRequest): Promise<Health>
   if (body === null || body.status !== 'ok' || typeof body.version !== 'string') {
     throw new Error(noServerAnswered(origin))
   }
-  return { version: body.version, signIn: typeof body.sign_in === 'string' ? body.sign_in : 'password' }
+  return { version: body.version }
 }
 
 /**
