@@ -84,34 +84,44 @@ does. [docs-site/README.md](docs-site/README.md) tells how to write a page. Afte
 `pnpm --filter ./ui run api:generate` to write `openapi.json` and the API
 types again.
 
-### Bash parser tests under Node
+### Portable crate checks under Node
 
-The Bash parser tests run on `wasm32-unknown-unknown` with
-`wasm-bindgen-test`. They use the production parser and the same expected
-simple commands as the native tests. The native test harness dependencies
-build only for native targets.
+`cargo xtask step wasm32` runs clippy for `wasm32-unknown-unknown` and
+runs the `wasm-bindgen-test` tests under Node. `WASM_CRATES` in
+`xtask/src/wasm32.rs` lists the crates and their test binaries:
+`pagis-core`, `llm-router` and `pagis-broker`. A crate joins the list when
+it builds and runs on the target. It does not leave the list.
 
-The C build needs a clang with the WebAssembly back end and `llvm-ar`.
-`clang --print-targets` lists `wasm32` when the compiler has this back end.
-The `llvm-tools` Rust component supplies `llvm-ar`. Set
-`AR_wasm32_unknown_unknown` to its full path. The macOS `ar` does not make
-an archive of WebAssembly objects that the wasm linker can use.
-
-Install `wasm-bindgen-cli` at the version of `wasm-bindgen` in
-`Cargo.lock`. It supplies `wasm-bindgen-test-runner`, which the Cargo
-configuration selects for this target. The runner uses Node by default.
+The step needs the rustup target, `wasm-bindgen-test-runner` at the
+version of `wasm-bindgen` in `Cargo.lock`, a clang with the WebAssembly
+back end, `llvm-ar` and Node at the version in `.nvmrc`. It checks these
+tools before each Cargo command and names a missing tool.
+`wasm-bindgen-cli` supplies the runner, which `.cargo/config.toml`
+selects for this target. The runner uses Node.
 
 ```bash
 rustup target add wasm32-unknown-unknown
 rustup component add llvm-tools
-export CC_wasm32_unknown_unknown=clang
-export AR_wasm32_unknown_unknown="$(rustc --print sysroot)/lib/rustlib/$(rustc -vV | sed -n 's/^host: //p')/bin/llvm-ar"
-cargo test -p pagis-broker --test rules_wasm --target wasm32-unknown-unknown
+version=$(cargo tree --locked -p wasm-bindgen --target wasm32-unknown-unknown --depth 0 --prefix none | sed -n 's/^wasm-bindgen v//p')
+cargo install wasm-bindgen-cli --version "$version" --locked
+cargo xtask step wasm32
 ```
 
-This target uses the wasm headers and allocator of tree-sitter. It needs
-no WASI SDK. `cargo nextest run -p pagis-broker --lib rules::tests::`
-runs the same rule tests natively.
+On Linux, install clang with the system package manager. On macOS,
+`/usr/bin/clang` (Apple clang) supports the target. `clang --print-targets`
+lists `wasm32` when the compiler has the WebAssembly back end. The step
+sets `CC_wasm32_unknown_unknown` to clang. It finds `llvm-ar` on `PATH`
+or in the `llvm-tools` component at
+`$(rustc --print sysroot)/lib/rustlib/<host>/bin/llvm-ar`, and sets
+`AR_wasm32_unknown_unknown` to that path. The macOS `ar` does not make
+an archive of WebAssembly objects that the wasm linker can use.
+
+The Bash parser tests use the production parser and the same expected
+simple commands as the native tests. This target uses the wasm headers
+and allocator of tree-sitter. It needs no WASI SDK.
+`cargo nextest run -p pagis-broker --lib rules::tests::` runs the same
+rule tests natively. The native test harness dependencies build only
+for native targets.
 
 ### Tests that need an account
 
@@ -150,8 +160,9 @@ cargo xtask advisories         # the dependency advisories
 
 `dev` compares the branch with `origin/main`. It runs fmt, clippy and the
 tests for each changed Rust package and each package that depends on it,
-and the UI, desktop, Mobile App, Computer and documentation site checks for
-a change in those parts. A change in `mobile/android/` or `mobile/ios/`
+and selects `wasm32` when a changed package is in `WASM_CRATES` or is a
+dependency of a crate in that list. It runs the UI, desktop, Mobile App,
+Computer and documentation site checks for a change in those parts. A change in `mobile/android/` or `mobile/ios/`
 runs the native tests of that platform alone. A
 change to shared build configuration, such as `Cargo.toml` or a workflow,
 or to an unknown path, selects every gate step. A change to documents
@@ -165,6 +176,7 @@ Mobile App whose toolchain is absent, and `step` fails it. The gate steps are:
 | --- | --- |
 | `fmt`, `clippy` | Formatting, and clippy with warnings as errors |
 | `members-alone` | `cargo check -p <member> --all-targets` for each workspace member, with a separate feature graph |
+| `wasm32` | Target clippy and Node tests of each crate in `WASM_CRATES` |
 | `computer-image` | Builds the Computer Image that the Docker tests run |
 | `screend-test` | The tests of `computer/screend`, in Docker |
 | `test` | Each test of the workspace. With Docker, also the Docker tests |

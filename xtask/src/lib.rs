@@ -34,6 +34,7 @@ pub mod screend;
 pub mod secrets;
 pub mod server_image;
 pub mod tools;
+pub mod wasm32;
 pub use desktop::{DesktopContext, DesktopPlatform, desktop_plan};
 pub use image::{
     ImagePlatform, VERSION_LABEL, anonymous_pull_step, builder_step, check_pin, image_plan,
@@ -44,6 +45,7 @@ pub use release::{ReleaseContext, ReleaseStage, gog_asset_name, release_plan};
 pub use server_image::{
     SERVER_IMAGE_REPOSITORY, server_image, server_image_plan, server_image_steps,
 };
+pub use wasm32::WASM_CRATES;
 
 /// One command a step runs.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -196,6 +198,7 @@ fn gate_lanes(
             ]),
         },
         members_alone_step(root),
+        wasm32::step(root),
         computer_image_step(root, docker_available),
         screend::test_step(root, docker_available),
         Step {
@@ -535,6 +538,12 @@ pub fn dev_lanes(
                 env: Vec::new(),
             }]),
         });
+        if affected
+            .iter()
+            .any(|name| WASM_CRATES.iter().any(|(package, _)| name == package))
+        {
+            cargo_steps.push(wasm32::step(root));
+        }
         let docker_tests = docker_available
             && (computer_changed
                 || affected.iter().any(|package| {
