@@ -13,6 +13,7 @@ llm-router.workspace = true
 object_store.workspace = true
 pagis-broker.workspace = true
 pagis-core.workspace = true
+pagis-rt.workspace = true
 serde.workspace = true
 sha2.workspace = true
 serde_json.workspace = true
@@ -22,12 +23,15 @@ tokio-util.workspace = true
 tracing.workspace = true
 utoipa.workspace = true
 
-[dev-dependencies]
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+send_wrapper = { version = "0.6", features = ["futures"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 pagis-computer.workspace = true
 pagis-knowledge.workspace = true
 git2.workspace = true
 pagis-audit.workspace = true
-pagis-memory.workspace = true
+pagis-memory-git.workspace = true
 pagis-storage-sqlite.workspace = true
 pagis-testkit.workspace = true
 sqlx.workspace = true
@@ -35,3 +39,7 @@ tempfile.workspace = true
 wiremock.workspace = true
 # `start_paused` lets deadline tests advance without a wall-clock wait.
 tokio = { workspace = true, features = ["test-util"] }
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen = "0.2"
+wasm-bindgen-test = "0.3"

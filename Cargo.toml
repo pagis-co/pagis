@@ -15,12 +15,14 @@ members = [
     "crates/pagis-google",
     "crates/pagis-mail",
     "crates/pagis-memory",
+    "crates/pagis-memory-git",
     "crates/pagis-knowledge",
     "crates/pagis-plugin",
     "crates/pagis-plugins",
     "crates/pagis-mcp-fixture",
     "crates/pagis-push",
     "crates/pagis-push-relay",
+    "crates/pagis-rt",
     "crates/pagis-storage-postgres",
     "crates/pagis-storage-sqlite",
     "crates/pagis-telephony",
@@ -53,10 +55,12 @@ pagis-evaluation = { path = "crates/pagis-evaluation" }
 pagis-google = { path = "crates/pagis-google" }
 pagis-mail = { path = "crates/pagis-mail" }
 pagis-memory = { path = "crates/pagis-memory" }
+pagis-memory-git = { path = "crates/pagis-memory-git" }
 pagis-knowledge = { path = "crates/pagis-knowledge" }
 pagis-plugin = { path = "crates/pagis-plugin" }
 pagis-plugins = { path = "crates/pagis-plugins" }
 pagis-push = { path = "crates/pagis-push" }
+pagis-rt = { path = "crates/pagis-rt" }
 pagis-mcp-fixture = { path = "crates/pagis-mcp-fixture" }
 pagis-storage-postgres = { path = "crates/pagis-storage-postgres" }
 pagis-storage-sqlite = { path = "crates/pagis-storage-sqlite" }

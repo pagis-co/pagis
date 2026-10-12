@@ -142,7 +142,7 @@ pub(crate) async fn execute_actions(
                 Err(error) => Err(error),
             },
             Action::Wait { ms } => {
-                tokio::time::sleep(std::time::Duration::from_millis((*ms).min(30_000))).await;
+                pagis_rt::sleep(std::time::Duration::from_millis((*ms).min(30_000))).await;
                 Ok(())
             }
             action => {

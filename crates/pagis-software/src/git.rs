@@ -8,7 +8,7 @@
 //! working tree.
 //!
 //! `git2` is a blocking C library, so every call runs inside
-//! `spawn_blocking`, as `pagis-memory` does.
+//! `spawn_blocking`, as `pagis-memory-git` does.
 
 use std::collections::BTreeMap;
 use std::io::Read;

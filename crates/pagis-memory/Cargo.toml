@@ -5,17 +5,8 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-async-trait.workspace = true
-git2.workspace = true
-hex.workspace = true
 pagis-core.workspace = true
 serde.workspace = true
-serde_json.workspace = true
-thiserror.workspace = true
-tokio = { workspace = true, features = ["rt"] }
-tracing.workspace = true
 
-[dev-dependencies]
-git2.workspace = true
-tempfile.workspace = true
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "0.3"

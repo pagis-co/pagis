@@ -186,7 +186,7 @@ impl AgentSystem {
             .subscribe(EventScope::Installation, None)
             .await;
         let dispatcher = Arc::clone(&system);
-        tokio::spawn(async move { dispatcher.dispatch(events).await });
+        pagis_rt::spawn(async move { dispatcher.dispatch(events).await });
         // The takeover audit block posts from its own subscriber.
         crate::takeover::spawn_notes(Arc::clone(&system.deps));
         system
@@ -547,11 +547,11 @@ fn spawn_actor(
         queue: VecDeque::new(),
         signals: HashMap::new(),
     };
-    tokio::spawn(async move {
+    pagis_rt::spawn(async move {
         loop {
             let idle = actor.admission.is_empty();
             let msg = if idle {
-                match tokio::time::timeout(actor.deps.config.idle_timeout, rx.recv()).await {
+                match pagis_rt::timeout(actor.deps.config.idle_timeout, rx.recv()).await {
                     Ok(msg) => msg,
                     Err(_) => {
                         // Idle timeout: despawn, unless a message
@@ -776,7 +776,7 @@ impl Actor {
             let deps = Arc::clone(&self.deps);
             let done = self.self_tx.clone();
             let run_id = run.id.clone();
-            tokio::spawn(async move {
+            pagis_rt::spawn(async move {
                 let _outcome: RunOutcome = execute(deps, agent, run, token, &mut inject_rx).await;
                 let _ = done.send(ActorMsg::Ended(run_id, inject_rx));
             });

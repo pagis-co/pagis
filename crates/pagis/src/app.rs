@@ -366,7 +366,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     let blobs: Arc<dyn ObjectStore> = Arc::new(LocalFileSystem::new_with_prefix(&blob_dir)?);
     // Memory repositories live under the data directory:
     // one git repo per workspace, daemon-side only.
-    let memory = pagis_memory::GitMemoryStore::new(
+    let memory = pagis_memory_git::GitMemoryStore::new(
         booted.home.join("memory"),
         stores.forget.clone(),
         stores.memory_pages.clone(),

@@ -12,7 +12,7 @@ struct Revision {
 }
 struct Archive {
     revisions: Vec<Revision>,
-    scopes: Vec<FileMetadata>,
+    scopes: Vec<FileStamp>,
     references: Vec<(String, Oid)>,
     head: Option<String>,
     revision: Option<String>,
@@ -68,7 +68,7 @@ impl Scopes {
         if let Some(index) = self.records.get(record) {
             return Some(*index);
         }
-        let metadata = serde_json::from_slice::<FileMetadata>(record).ok()?;
+        let metadata = serde_json::from_slice::<FileStamp>(record).ok()?;
         let index = archive.scopes.len();
         archive.scopes.push(metadata);
         self.records.insert(record.to_vec(), index);
@@ -232,7 +232,7 @@ fn scan(dir: &Path) -> GitResult<Archive> {
             .and_then(|record| serde_json::from_str::<Vec<MemoryExposure>>(record).ok());
         let message_scope = exposures
             .and_then(|exposures| {
-                serde_json::to_vec(&FileMetadata {
+                serde_json::to_vec(&FileStamp {
                     exposures,
                     kind: MemoryContentKind::DependentView,
                 })
@@ -256,6 +256,34 @@ fn scan(dir: &Path) -> GitResult<Archive> {
     Ok(archive)
 }
 
+impl Archive {
+    fn selection(&self, excluded: &HashSet<usize>) -> rules::ForgetSelection {
+        let revisions: Vec<_> = self
+            .revisions
+            .iter()
+            .map(|revision| revision.id.to_string())
+            .collect();
+        let history: Vec<_> = self
+            .revisions
+            .iter()
+            .zip(&revisions)
+            .map(|(revision, id)| rules::HistoryRevision {
+                revision: id,
+                scope: revision.message_scope,
+                files: revision
+                    .files
+                    .iter()
+                    .map(|(path, _, scope)| rules::HistoryFile {
+                        path,
+                        scope: *scope,
+                    })
+                    .collect(),
+            })
+            .collect();
+        rules::select_forget(&history, excluded)
+    }
+}
+
 impl GitMemoryStore {
     async fn forget_archive(&self, workspace: &WorkspaceId) -> Result<Archive, MemoryError> {
         let dir = self.repo_dir(workspace);
@@ -270,26 +298,7 @@ impl GitMemoryStore {
         archive: &Archive,
         target: Option<&pagis_core::ForgetTarget>,
     ) -> Result<HashSet<usize>, MemoryError> {
-        let mut excluded = HashSet::new();
-        for (index, metadata) in archive.scopes.iter().enumerate() {
-            let affected = match target {
-                Some(target) => {
-                    self.forget
-                        .preview_affects(workspace, target, &metadata.exposures)
-                        .await
-                }
-                None => self
-                    .forget
-                    .permits_provenance(workspace, &metadata.exposures)
-                    .await
-                    .map(|allowed| !allowed),
-            }
-            .map_err(|error| MemoryError::Storage(error.to_string()))?;
-            if affected {
-                excluded.insert(index);
-            }
-        }
-        Ok(excluded)
+        rules::excluded_scopes(self.forget.as_ref(), workspace, &archive.scopes, target).await
     }
     pub(crate) async fn forget_preview(
         &self,
@@ -305,23 +314,10 @@ impl GitMemoryStore {
         let excluded = self
             .excluded_scopes(workspace, &archive, Some(target))
             .await?;
-        let mut paths = HashSet::new();
-        for revision in &archive.revisions {
-            let mut changed = revision
-                .message_scope
-                .is_some_and(|scope| excluded.contains(&scope));
-            for (path, _, scope) in &revision.files {
-                if scope.is_some_and(|scope| excluded.contains(&scope)) {
-                    paths.insert(path);
-                    changed = true;
-                }
-            }
-            if changed {
-                preview.memory_revisions += 1;
-            }
-        }
+        let selection = archive.selection(&excluded);
+        preview.memory_revisions = selection.revisions.len() as u64;
         preview.memory_revision = archive.revision;
-        preview.memory_paths = paths.len() as u64;
+        preview.memory_paths = selection.paths.len() as u64;
         Ok(preview)
     }
     pub(crate) async fn purge_forgotten_locked(
@@ -402,6 +398,7 @@ fn recover_swap(dir: &Path, fresh: &Path, old: &Path) -> GitResult<()> {
 fn rebuild(dir: &Path, fresh: &Path, archive: Archive, excluded: &HashSet<usize>) -> GitResult<()> {
     let source = Repository::open(dir)?;
     let destination = Repository::init(fresh)?;
+    let selection = archive.selection(excluded);
     let mut rewritten = HashMap::new();
     let mut prior_paths = Vec::new();
     for revision in &archive.revisions {
@@ -413,8 +410,9 @@ fn rebuild(dir: &Path, fresh: &Path, archive: Archive, excluded: &HashSet<usize>
         }
         let mut index = destination.index()?;
         index.clear()?;
+        let selected = selection.revisions.get(&revision.id.to_string());
         for (path, oid, scope) in &revision.files {
-            if scope.is_some_and(|scope| excluded.contains(&scope)) {
+            if selected.is_some_and(|selected| selected.files.contains(path)) {
                 continue;
             }
             let blob = source.find_blob(*oid)?;
@@ -453,10 +451,7 @@ fn rebuild(dir: &Path, fresh: &Path, archive: Archive, excluded: &HashSet<usize>
             .collect::<Result<Vec<_>, _>>()?;
         let parents = parents.iter().collect::<Vec<_>>();
         let signature = Signature::new(&revision.author.0, &revision.author.1, &revision.author.2)?;
-        let message = if revision
-            .message_scope
-            .is_some_and(|scope| excluded.contains(&scope))
-        {
+        let message = if selected.is_some_and(|selected| selected.withhold_message) {
             "Forgotten dependent note history"
         } else {
             &revision.message
@@ -538,7 +533,7 @@ mod tests {
             if let Some(index) = scopes.get(bytes) {
                 return Some(*index);
             }
-            let metadata = serde_json::from_slice::<FileMetadata>(bytes).ok()?;
+            let metadata = serde_json::from_slice::<FileStamp>(bytes).ok()?;
             let index = archive.scopes.len();
             archive.scopes.push(metadata);
             scopes.insert(bytes.to_vec(), index);
@@ -575,7 +570,7 @@ mod tests {
                 .and_then(|record| serde_json::from_str::<Vec<MemoryExposure>>(record).ok());
             let message_scope = exposures
                 .and_then(|exposures| {
-                    serde_json::to_vec(&FileMetadata {
+                    serde_json::to_vec(&FileStamp {
                         exposures,
                         kind: MemoryContentKind::DependentView,
                     })
@@ -659,7 +654,7 @@ mod tests {
     /// A stamp record with one grant, so two stamps that name different
     /// revisions hold different scopes.
     fn stamp(revision: i64) -> String {
-        serde_json::to_string(&FileMetadata {
+        serde_json::to_string(&FileStamp {
             exposures: vec![MemoryExposure {
                 grant_id: GrantId::generate(),
                 revision,
