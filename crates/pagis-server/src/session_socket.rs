@@ -5,13 +5,14 @@
 //! The Client App opens it after its Host socket registered the
 //! machine, with the id that the registration answered and the same
 //! Session cookie. The Host must be of the Session's Workspace and must
-//! declare at least one `harness:<id>` capability. [`crate::byte_socket`]
+//! declare at least one `harness:<id>` capability. [`crate::native::byte_socket`]
 //! carries the bytes, and [`pagis_broker::HostSessions`] runs yamux over
 //! them: the daemon opens one stream for each Coding Session.
 //!
 //! At the end of the Session the socket closes with 1008, and every
 //! Coding Session that it carried loses its place.
 
+#[cfg(feature = "native")]
 use std::sync::Arc;
 
 #[cfg(feature = "native")]
@@ -22,13 +23,17 @@ use axum::extract::{Path, State};
 use axum::response::Response;
 use pagis_core::{Host, HostId};
 
+use crate::AppState;
+#[cfg(feature = "native")]
+use crate::MessageSocket;
 use crate::auth::Tenant;
 #[cfg(feature = "native")]
 use crate::axum_socket::AxumSocket;
-use crate::byte_socket;
 use crate::error::ApiError;
+#[cfg(feature = "native")]
 use crate::live_connections::LiveTenant;
-use crate::{AppState, MessageSocket};
+#[cfg(feature = "native")]
+use crate::native::byte_socket;
 
 /// Open the session socket of one Host of the signed-in Person.
 #[cfg(feature = "native")]
@@ -65,6 +70,7 @@ pub async fn check_host(
 }
 
 /// Serve the binary frames of the Host until its Session ends.
+#[cfg(feature = "native")]
 pub async fn serve_sessions(
     socket: impl MessageSocket,
     state: Arc<AppState>,

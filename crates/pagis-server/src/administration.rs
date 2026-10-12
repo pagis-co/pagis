@@ -47,7 +47,6 @@ use axum::middleware::Next;
 use axum::response::Response;
 use axum::routing::{delete, get, post, put};
 use axum::{Json, Router, middleware};
-use pagis_computer::ImagePullError;
 use pagis_core::{
     RunState, RunUsage, UsagePeriod, UsageTotal, User, UserId, UserRole, WorkspaceId,
     WorkspaceUsage,
@@ -303,7 +302,7 @@ impl From<RunUsage> for RunSpendDto {
     }
 }
 
-fn person_dto(person: &User, workspace_id: Option<&WorkspaceId>) -> PersonDto {
+pub(crate) fn person_dto(person: &User, workspace_id: Option<&WorkspaceId>) -> PersonDto {
     PersonDto {
         id: person.id.to_string(),
         email: person.email.clone(),
@@ -318,7 +317,7 @@ fn person_dto(person: &User, workspace_id: Option<&WorkspaceId>) -> PersonDto {
 }
 
 /// The one Org of the installation.
-async fn org(state: &AppState) -> Result<pagis_core::Org, ApiError> {
+pub(crate) async fn org(state: &AppState) -> Result<pagis_core::Org, ApiError> {
     state.orgs.list().await?.into_iter().next().ok_or_else(|| {
         tracing::error!("the installation has no Org");
         ApiError::internal()
@@ -543,8 +542,10 @@ async fn end_every_session(state: &AppState, person: &UserId) -> Result<u64, Api
     // connection that opens between the two finds no Session.
     let ended = state.sessions.delete_for_user(person).await?;
     state.live_connections.end_person(person);
+    #[cfg(feature = "native")]
     if let Some(workspace) = state.workspaces.for_user(person).await? {
         state
+            .native
             .computers
             .get(&workspace.id)
             .handback_all("sessions ended")
@@ -814,31 +815,6 @@ pub struct AdministrationHostsDto {
     pub items: Vec<AdministrationHostDto>,
 }
 
-/// What one Person's Computers take of the host.
-#[derive(Debug, Serialize, ToSchema)]
-pub struct PersonResourcesDto {
-    pub person: PersonDto,
-    /// The tenant's containers, awake or not.
-    pub containers: u32,
-    /// The named volumes of the tenant's Agents.
-    pub volumes: u32,
-    /// The bytes those volumes take, or `null` where Docker did not
-    /// answer: a missing figure is not a failed page.
-    pub volume_bytes: Option<u64>,
-    /// How many Computers of this Person are awake now.
-    pub awake_computers: u32,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct ResourcesDto {
-    pub items: Vec<PersonResourcesDto>,
-    /// How many Computers the whole server holds awake now, and how
-    /// many it may.
-    pub awake_on_server: u32,
-    pub awake_cap_per_server: u32,
-    pub awake_cap_per_tenant: u32,
-}
-
 /// The health of the daemon, as an Administrator reads it.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct InstallationHealthDto {
@@ -860,6 +836,7 @@ pub struct InstallationHealthDto {
     /// answer or the limits name no volume size. `unsupported` means
     /// that nothing bounds what `/data` holds, which
     /// https://docs.pagis.co/server/computers#bound-a-computers-disk says how to fix.
+    /// `unavailable` means this server has no Computers.
     pub volume_quota: String,
     /// Whether this machine holds the writable container layer of a
     /// Computer to its size: `supported`, `unsupported`, or `unknown`
@@ -867,6 +844,7 @@ pub struct InstallationHealthDto {
     /// name no layer size. `unsupported` means that nothing bounds what
     /// an Agent writes outside `/data` while its Computer is awake, which
     /// https://docs.pagis.co/server/computers#bound-a-computers-disk says how to fix.
+    /// `unavailable` means this server has no Computers.
     pub container_quota: String,
 }
 
@@ -1003,62 +981,6 @@ pub async fn list_hosts(
     Ok(Json(AdministrationHostsDto { items }))
 }
 
-/// What each Person's Computers take of the host.
-#[utoipa::path(
-    get,
-    path = "/api/v1/administration/resources",
-    responses(
-        (status = 200, body = ResourcesDto),
-        (status = 401, body = crate::error::ErrorBody),
-        (status = 403, body = crate::error::ErrorBody),
-    )
-)]
-pub async fn installation_resources(
-    State(state): State<Arc<AppState>>,
-    _administrator: Administrator,
-) -> Result<Json<ResourcesDto>, ApiError> {
-    let org = org(&state).await?;
-    let caps = state.computers.ceiling().caps();
-    let mut items = Vec::new();
-    for person in state.users.list_by_org(&org.id).await? {
-        let workspace = state.workspaces.for_user(&person.id).await?;
-        let person_dto = person_dto(&person, workspace.as_ref().map(|workspace| &workspace.id));
-        let Some(workspace) = workspace else {
-            // A Person with no Workspace holds no Docker object either.
-            items.push(PersonResourcesDto {
-                person: person_dto,
-                containers: 0,
-                volumes: 0,
-                volume_bytes: Some(0),
-                awake_computers: 0,
-            });
-            continue;
-        };
-        // Docker that cannot answer leaves the figures out and the page
-        // standing, as the Desk's disk read does.
-        let resources = match state.computers.get(&workspace.id).resources().await {
-            Ok(resources) => Some(resources),
-            Err(error) => {
-                tracing::warn!(%error, workspace = %workspace.id, "the resource read failed");
-                None
-            }
-        };
-        items.push(PersonResourcesDto {
-            person: person_dto,
-            containers: resources.map(|read| read.containers).unwrap_or(0),
-            volumes: resources.map(|read| read.volumes).unwrap_or(0),
-            volume_bytes: resources.map(|read| read.volume_bytes),
-            awake_computers: state.computers.ceiling().awake(&workspace.id),
-        });
-    }
-    Ok(Json(ResourcesDto {
-        items,
-        awake_on_server: state.computers.ceiling().awake_on_server(),
-        awake_cap_per_server: caps.per_server,
-        awake_cap_per_tenant: caps.per_tenant,
-    }))
-}
-
 /// The health of the daemon: what it runs, what it keeps its
 /// records in, where it reaches Docker, and how much work waits.
 #[utoipa::path(
@@ -1082,75 +1004,33 @@ pub async fn installation_health(
     Ok(Json(InstallationHealthDto {
         version: crate::VERSION.to_string(),
         database: state.database_backend.clone(),
-        docker_endpoint: state.docker_discovery.probe().await.endpoint,
+        #[cfg(feature = "native")]
+        docker_endpoint: state.native.docker_discovery.probe().await.endpoint,
+        #[cfg(not(feature = "native"))]
+        docker_endpoint: None,
         queued_runs: count(RunState::Queued),
         running_runs: count(RunState::Running),
         unfinished_runs: u32::try_from(unfinished.len()).unwrap_or(u32::MAX),
-        volume_quota: state.computers.volume_quota().await.as_str().to_string(),
-        container_quota: state.computers.container_quota().await.as_str().to_string(),
-    }))
-}
-
-/// The Computer Image that the Client App asks the daemon to pull.
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct ComputerImagePullRequest {
-    /// `<repository>@sha256:<64 lowercase hexadecimal characters>`. The
-    /// repository is the repository of the pinned Computer Image.
-    pub image: String,
-}
-
-/// The Computer Image that the daemon pulled.
-#[derive(Debug, Serialize, ToSchema)]
-pub struct ComputerImageDto {
-    pub image: String,
-}
-
-/// Pull a Computer Image, and answer when the pull ends.
-///
-/// Before a restart to an Update, the Client App of a Local Installation
-/// asks for the Computer Image that the next release pins, so the new
-/// daemon finds it present (ADR-0027). The daemon pulls only an image of
-/// the repository of its own pinned image, and only by its digest. A
-/// second request for the same image joins the pull that runs, and a
-/// request that goes away does not stop the pull. A failed pull answers
-/// `502`, and `503` where Docker does not answer.
-#[utoipa::path(
-    post,
-    path = "/api/v1/administration/computer-image/pull",
-    request_body = ComputerImagePullRequest,
-    responses(
-        (status = 200, body = ComputerImageDto),
-        (status = 401, body = crate::error::ErrorBody),
-        (status = 403, body = crate::error::ErrorBody),
-        (status = 422, body = crate::error::ErrorBody),
-        (status = 502, body = crate::error::ErrorBody),
-        (status = 503, body = crate::error::ErrorBody),
-    )
-)]
-pub async fn pull_computer_image(
-    State(state): State<Arc<AppState>>,
-    _administrator: Administrator,
-    Json(request): Json<ComputerImagePullRequest>,
-) -> Result<Json<ComputerImageDto>, ApiError> {
-    state
-        .computers
-        .pull_image(&request.image)
-        .await
-        .map_err(|error| match error {
-            ImagePullError::Refused(message) => ApiError::validation(message),
-            ImagePullError::NoDocker(_) => ApiError {
-                status: StatusCode::SERVICE_UNAVAILABLE,
-                code: "docker_unavailable",
-                message: error.to_string(),
-            },
-            ImagePullError::Failed(_) => ApiError {
-                status: StatusCode::BAD_GATEWAY,
-                code: "image_pull_failed",
-                message: error.to_string(),
-            },
-        })?;
-    Ok(Json(ComputerImageDto {
-        image: request.image,
+        #[cfg(feature = "native")]
+        volume_quota: state
+            .native
+            .computers
+            .volume_quota()
+            .await
+            .as_str()
+            .to_string(),
+        #[cfg(not(feature = "native"))]
+        volume_quota: "unavailable".to_string(),
+        #[cfg(feature = "native")]
+        container_quota: state
+            .native
+            .computers
+            .container_quota()
+            .await
+            .as_str()
+            .to_string(),
+        #[cfg(not(feature = "native"))]
+        container_quota: "unavailable".to_string(),
     }))
 }
 
@@ -1232,15 +1112,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/v1/administration/usage", get(installation_usage))
         .route("/api/v1/administration/sessions", get(list_sessions))
         .route("/api/v1/administration/hosts", get(list_hosts))
-        .route(
-            "/api/v1/administration/resources",
-            get(installation_resources),
-        )
         .route("/api/v1/administration/health", get(installation_health))
-        .route(
-            "/api/v1/administration/computer-image/pull",
-            post(pull_computer_image),
-        )
         // Who the page serves. A Member who reaches the port gets `403`
         // from the layer here too, so the page says what is wrong
         // instead of showing an empty administration.

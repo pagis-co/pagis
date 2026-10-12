@@ -8,11 +8,11 @@ import { cx } from '../../primitives'
 
 import { STEPS, type StepId, stepIndex } from './steps'
 
-export function Stepper({ current }: { current: StepId }) {
+export function Stepper({ current, hasComputers }: { current: StepId; hasComputers: boolean }) {
   const at = stepIndex(current)
   return (
     <ol className="onboarding-stepper" aria-label="Setup steps">
-      {STEPS.map((step, index) => {
+      {STEPS.filter((step) => hasComputers || step.id !== 'computer').map((step, index) => {
         const done = index < at
         return (
           <li

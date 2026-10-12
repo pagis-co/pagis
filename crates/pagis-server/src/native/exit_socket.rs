@@ -5,7 +5,7 @@
 //! The Client App opens it after its Host socket registered the
 //! machine, with the id that the registration answered and the same
 //! Session cookie. The Host must be of the Session's Workspace and must
-//! declare the `exit` capability. [`crate::byte_socket`] carries the
+//! declare the `exit` capability. [`crate::native::byte_socket`] carries the
 //! bytes, and [`pagis_computer::HomeExits`] runs yamux over them: the
 //! daemon opens one stream for each connection.
 //!
@@ -15,24 +15,19 @@
 
 use std::sync::Arc;
 
-#[cfg(feature = "native")]
 use axum::extract::ws::WebSocketUpgrade;
-#[cfg(feature = "native")]
 use axum::extract::{Path, State};
-#[cfg(feature = "native")]
 use axum::response::Response;
 use pagis_core::{EXIT_CAPABILITY, Host, HostId};
 
 use crate::auth::Tenant;
-#[cfg(feature = "native")]
 use crate::axum_socket::AxumSocket;
-use crate::byte_socket;
 use crate::error::ApiError;
 use crate::live_connections::LiveTenant;
+use crate::native::byte_socket;
 use crate::{AppState, MessageSocket};
 
 /// Open the exit socket of one Host of the signed-in Person.
-#[cfg(feature = "native")]
 pub async fn upgrade(
     State(state): State<Arc<AppState>>,
     live: LiveTenant,
@@ -75,6 +70,7 @@ pub async fn serve_exit(
     let workspace_id = live.tenant.workspace_id;
     byte_socket::carry(socket, live.session_ended, move |daemon_end| async move {
         state
+            .native
             .home_exits
             .serve(workspace_id, host.id, host.name, daemon_end)
             .await

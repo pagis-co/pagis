@@ -27,6 +27,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use axum::Json;
 use axum::extract::State;
+#[cfg(feature = "native")]
 use pagis_computer::DockerReport;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Notify;
@@ -160,6 +161,7 @@ pub struct DockerReportDto {
     pub candidates: Vec<DockerCandidateDto>,
 }
 
+#[cfg(feature = "native")]
 impl From<DockerReport> for DockerReportDto {
     fn from(report: DockerReport) -> Self {
         Self {
@@ -374,7 +376,7 @@ fn settings_dto(state: &AppState, config: SystemConfig, report: DockerReport) ->
         data_directory: state.native.system.data_directory().display().to_string(),
         version: crate::VERSION.to_string(),
         docker: report.into(),
-        screen: (&state.screen).into(),
+        screen: (&state.native.screen).into(),
         analytics: AnalyticsDto {
             enabled: config.analytics,
             blocked: state.native.analytics_blocked.map(Into::into),
@@ -413,7 +415,7 @@ pub async fn get_system_settings(
             tracing::error!(%error, "cannot read the config file");
             ApiError::internal()
         })?;
-        let report = state.docker_discovery.probe().await;
+        let report = state.native.docker_discovery.probe().await;
         Ok(Json(settings_dto(&state, config, report)))
     }
 }
@@ -474,10 +476,11 @@ pub async fn set_system_settings(
         // The endpoint takes effect on the runtime's next connect, with no
         // restart (ADR-0024).
         state
+            .native
             .docker_discovery
             .set_override(config.docker_endpoint.clone());
         let restart_required = config.port != current.port || config.log_level != current.log_level;
-        let report = state.docker_discovery.probe().await;
+        let report = state.native.docker_discovery.probe().await;
         Ok(Json(SavedSystemSettingsDto {
             settings: settings_dto(&state, config, report),
             restart_required,
@@ -501,6 +504,7 @@ pub(crate) async fn checked_docker_endpoint(
                 ApiError::validation(format!("that Docker endpoint is not usable: {error}"))
             })?;
             state
+                .native
                 .docker_discovery
                 .ping(&endpoint)
                 .await
@@ -529,7 +533,10 @@ pub(crate) fn save_docker_endpoint(
         tracing::error!(%error, "cannot write the config file");
         ApiError::internal()
     })?;
-    state.docker_discovery.set_override(config.docker_endpoint);
+    state
+        .native
+        .docker_discovery
+        .set_override(config.docker_endpoint);
     Ok(())
 }
 
@@ -586,7 +593,7 @@ pub async fn set_analytics(
             enabled = request.enabled,
             "the administrator switched the analytics"
         );
-        let report = state.docker_discovery.probe().await;
+        let report = state.native.docker_discovery.probe().await;
         Ok(Json(SavedSystemSettingsDto {
             settings: settings_dto(&state, config, report),
             restart_required: false,
@@ -650,7 +657,7 @@ pub async fn set_model_request_capture(
             tracing::error!(%error, "cannot read the config file");
             ApiError::internal()
         })?;
-        let report = state.docker_discovery.probe().await;
+        let report = state.native.docker_discovery.probe().await;
         Ok(Json(SavedSystemSettingsDto {
             settings: settings_dto(&state, config, report),
             restart_required: false,
@@ -698,13 +705,13 @@ pub async fn set_home_exit_setting(
             tracing::error!(%error, "cannot write the config file");
             ApiError::internal()
         })?;
-        state.home_exits.set_enabled(request.enabled);
+        state.native.home_exits.set_enabled(request.enabled);
         tracing::info!(
             enabled = request.enabled,
             "the administrator switched the Home Exit"
         );
-        let not_switched = state.computers.settle_exits().await.len();
-        let report = state.docker_discovery.probe().await;
+        let not_switched = state.native.computers.settle_exits().await.len();
+        let report = state.native.docker_discovery.probe().await;
         Ok(Json(SwitchedHomeExitSettingDto {
             settings: settings_dto(&state, config, report),
             not_switched: u32::try_from(not_switched).unwrap_or(u32::MAX),
@@ -732,7 +739,7 @@ pub async fn probe_docker(
     }
     #[cfg(feature = "native")]
     {
-        Ok(Json(state.docker_discovery.probe().await.into()))
+        Ok(Json(state.native.docker_discovery.probe().await.into()))
     }
 }
 

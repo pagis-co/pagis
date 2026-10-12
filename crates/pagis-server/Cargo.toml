@@ -12,6 +12,7 @@ native = [
     "axum/ws",
     "dep:pagis-analytics",
     "dep:pagis-coding",
+    "dep:pagis-computer",
     "dep:pagis-connect",
     "dep:pagis-google",
     "dep:pagis-plugin",
@@ -40,7 +41,7 @@ pagis-analytics = { workspace = true, optional = true }
 llm-router.workspace = true
 pagis-broker.workspace = true
 pagis-coding = { workspace = true, optional = true }
-pagis-computer.workspace = true
+pagis-computer = { workspace = true, optional = true }
 pagis-connect = { workspace = true, optional = true }
 pagis-google = { workspace = true, optional = true }
 pagis-core.workspace = true
@@ -55,6 +56,7 @@ pagis-mail.workspace = true
 pagis-telephony = { workspace = true, optional = true }
 pagis-trigger.workspace = true
 pagis-vault.workspace = true
+pagis-versions.workspace = true
 pagis-voice.workspace = true
 # The VAPID Key and the public key of each Push Subscription (ADR-0030).
 p256.workspace = true
@@ -77,6 +79,7 @@ url.workspace = true
 utoipa.workspace = true
 
 [dev-dependencies]
+pagis-storage-sqlite.workspace = true
 tower = { version = "0.5", features = ["util"] }
 tracing-subscriber.workspace = true
 

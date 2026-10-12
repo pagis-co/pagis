@@ -90,7 +90,7 @@ pub struct SetHomeExitRequest {
 
 fn host_dto(state: &AppState, host: Host) -> HomeExitHostDto {
     HomeExitHostDto {
-        present: state.home_exits.is_open(&host.id),
+        present: state.native.home_exits.is_open(&host.id),
         id: host.id.to_string(),
         name: host.name,
         platform: host.platform,
@@ -119,7 +119,7 @@ async fn read(state: &AppState, tenant: &Tenant) -> Result<HomeExitDto, ApiError
         .map(|host| host_dto(state, host));
     Ok(HomeExitDto {
         available: true,
-        administrator_turned_off: !state.home_exits.is_enabled(),
+        administrator_turned_off: !state.native.home_exits.is_enabled(),
         chosen,
         hosts: hosts
             .into_iter()
@@ -150,8 +150,8 @@ async fn change(
     );
     // While the System Setting is off the change is not in effect, and
     // every Computer stays in Direct mode with its connections.
-    let computers = state.computers.get(&tenant.workspace_id);
-    let failures = match state.home_exits.is_enabled() {
+    let computers = state.native.computers.get(&tenant.workspace_id);
+    let failures = match state.native.home_exits.is_enabled() {
         true => computers.switch_exit().await,
         false => computers.settle_exit().await,
     };
@@ -219,7 +219,7 @@ pub async fn set_home_exit(
     if is_local(&state) {
         return Err(ApiError::conflict(NO_HOME_EXIT_HERE));
     }
-    if !state.home_exits.is_enabled() {
+    if !state.native.home_exits.is_enabled() {
         return Err(ApiError::conflict(
             "the Administrator turned the Home Exit off for this installation, so no Host can \
              be your Home Exit until they turn it on",

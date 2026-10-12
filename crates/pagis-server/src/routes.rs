@@ -309,7 +309,7 @@ pub const ADMINISTRATION_ROUTES: &[Route] = &[
         path: "/api/v1/administration/resources",
         methods: &["get"],
         authenticated: true,
-        part: None,
+        part: Some("Computers"),
     },
     Route {
         path: "/api/v1/administration/health",
@@ -321,7 +321,7 @@ pub const ADMINISTRATION_ROUTES: &[Route] = &[
         path: "/api/v1/administration/computer-image/pull",
         methods: &["post"],
         authenticated: true,
-        part: None,
+        part: Some("Computers"),
     },
     Route {
         path: "/api/v1/user",
@@ -571,55 +571,55 @@ pub const ROUTES: &[Route] = &[
         path: "/api/v1/agents/{agent_id}/computer",
         methods: &["get"],
         authenticated: true,
-        part: None,
+        part: Some("Computers"),
     },
     Route {
         path: "/api/v1/agents/{agent_id}/computer/wake",
         methods: &["post"],
         authenticated: true,
-        part: None,
+        part: Some("Computers"),
     },
     Route {
         path: "/api/v1/agents/{agent_id}/computer/sleep",
         methods: &["post"],
         authenticated: true,
-        part: None,
+        part: Some("Computers"),
     },
     Route {
         path: "/api/v1/computers/disk",
         methods: &["get"],
         authenticated: true,
-        part: None,
+        part: Some("Computers"),
     },
     Route {
         path: "/api/v1/screen/ice",
         methods: &["get"],
         authenticated: true,
-        part: Some("Remote Access"),
+        part: Some("Computers"),
     },
     Route {
         path: "/api/v1/agents/{agent_id}/screen/preview.png",
         methods: &["get"],
         authenticated: true,
-        part: None,
+        part: Some("Computers"),
     },
     Route {
         path: "/api/v1/agents/{agent_id}/screen/offer",
         methods: &["post"],
         authenticated: true,
-        part: None,
+        part: Some("Computers"),
     },
     Route {
         path: "/api/v1/agents/{agent_id}/screen/takeover",
         methods: &["post"],
         authenticated: true,
-        part: None,
+        part: Some("Computers"),
     },
     Route {
         path: "/api/v1/agents/{agent_id}/screen/handback",
         methods: &["post"],
         authenticated: true,
-        part: None,
+        part: Some("Computers"),
     },
     Route {
         path: "/api/v1/channels",
@@ -937,7 +937,7 @@ pub const ROUTES: &[Route] = &[
         path: "/api/v1/settings/onboarding",
         methods: &["get"],
         authenticated: true,
-        part: Some("System Settings"),
+        part: None,
     },
     Route {
         path: "/api/v1/settings/onboarding/complete",
@@ -961,7 +961,7 @@ pub const ROUTES: &[Route] = &[
         path: "/api/v1/settings/onboarding/docker-endpoint",
         methods: &["put"],
         authenticated: true,
-        part: Some("System Settings"),
+        part: Some("Computers"),
     },
     Route {
         path: "/api/v1/settings/onboarding/default-model",
@@ -1273,7 +1273,7 @@ pub const ROUTES: &[Route] = &[
         path: "/api/v1/settings/home-exit",
         methods: &["get", "put", "delete"],
         authenticated: true,
-        part: None,
+        part: Some("Computers"),
     },
     Route {
         path: "/api/v1/ws",
@@ -1285,7 +1285,7 @@ pub const ROUTES: &[Route] = &[
         path: "/api/v1/hosts/{host_id}/exit",
         methods: &["get"],
         authenticated: true,
-        part: Some("Hosts and Coding Sessions"),
+        part: Some("Computers"),
     },
     Route {
         path: "/api/v1/hosts/{host_id}/sessions",
@@ -1757,6 +1757,78 @@ mod tests {
                 .filter(|route| route.part == Some("Hosts"))
                 .count(),
             paths.len()
+        );
+    }
+
+    #[cfg(not(feature = "native"))]
+    #[tokio::test]
+    async fn each_computers_route_answers_not_available() {
+        use axum::body::{Body, to_bytes};
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+
+        let product = crate::native_product_routes();
+        let administration =
+            crate::native_administration_routes(crate::AdministrationSections::default());
+        let routes = [
+            ("get", "/api/v1/agents/agent/computer"),
+            ("post", "/api/v1/agents/agent/computer/wake"),
+            ("post", "/api/v1/agents/agent/computer/sleep"),
+            ("get", "/api/v1/computers/disk"),
+            ("get", "/api/v1/screen/ice"),
+            ("get", "/api/v1/agents/agent/screen/preview.png"),
+            ("post", "/api/v1/agents/agent/screen/offer"),
+            ("post", "/api/v1/agents/agent/screen/takeover"),
+            ("post", "/api/v1/agents/agent/screen/handback"),
+            ("get", "/api/v1/settings/home-exit"),
+            ("put", "/api/v1/settings/home-exit"),
+            ("delete", "/api/v1/settings/home-exit"),
+            ("get", "/api/v1/hosts/host/exit"),
+            ("put", "/api/v1/settings/onboarding/docker-endpoint"),
+            ("get", "/api/v1/administration/resources"),
+            ("post", "/api/v1/administration/computer-image/pull"),
+        ];
+        for (method, path) in routes {
+            let router = if path.starts_with("/api/v1/administration/") {
+                &administration
+            } else {
+                &product
+            };
+            let response = router
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method(method.to_uppercase().as_str())
+                        .uri(path)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                response.status(),
+                StatusCode::NOT_IMPLEMENTED,
+                "{method} {path}"
+            );
+            let body: serde_json::Value =
+                serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                    .unwrap();
+            assert_eq!(body["error"]["code"], "not_available", "{method} {path}");
+            assert_eq!(
+                body["error"]["message"],
+                "This server does not offer Computers."
+            );
+        }
+    }
+
+    #[cfg(feature = "native")]
+    #[test]
+    fn onboarding_docker_report_accepts_null() {
+        let contract = serde_json::to_value(crate::ApiDoc::openapi()).unwrap();
+        assert_eq!(
+            contract["components"]["schemas"]["OnboardingDto"]["properties"]["docker"]["oneOf"][0]
+                ["type"],
+            "null",
         );
     }
 

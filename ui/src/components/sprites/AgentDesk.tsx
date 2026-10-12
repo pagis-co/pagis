@@ -11,7 +11,7 @@ import './sprites.css'
 
 export function AgentDesk({ api, agent }: { api: ApiClient; agent: AgentDto }) {
   const onboarding = useOnboarding(api)
-  const dockerMissing = onboarding.data !== undefined && onboarding.data.docker.endpoint == null
+  const dockerMissing = onboarding.data !== undefined && onboarding.data.docker !== null && onboarding.data.docker.endpoint == null
 
   return (
     <section className="agent-desk" aria-label={`${agent.name} desk`}>

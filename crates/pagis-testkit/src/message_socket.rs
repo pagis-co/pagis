@@ -180,7 +180,7 @@ impl crate::TestDaemon {
                 .await,
             ),
             "exit" => Some(
-                pagis_server::exit_socket::check_host(
+                pagis_server::native::exit_socket::check_host(
                     &self.state,
                     &live.tenant,
                     &pagis_core::HostId::from(id.to_string()),
@@ -214,8 +214,13 @@ impl crate::TestDaemon {
                         Ok(())
                     }
                     "exit" => {
-                        pagis_server::exit_socket::serve_exit(server, state, live, host.unwrap())
-                            .await;
+                        pagis_server::native::exit_socket::serve_exit(
+                            server,
+                            state,
+                            live,
+                            host.unwrap(),
+                        )
+                        .await;
                         Ok(())
                     }
                     _ => unreachable!(),
