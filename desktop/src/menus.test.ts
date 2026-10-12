@@ -43,7 +43,13 @@ function actions(
     update: () => update,
     checkForUpdates: vi.fn(),
     restartToUpdate: vi.fn(),
-    exitTraffic: () => traffic,
+    servers: () => traffic.connections ? [{ id: 'home', origin: 'https://home.example/', label: 'home.example' }] : [],
+    currentServer: (): string | null => traffic.connections ? 'home' : null,
+    canAddServer: () => true,
+    openServer: vi.fn(),
+    addServer: vi.fn(),
+    removeServer: vi.fn(),
+    exitTraffic: () => traffic.connections ? [{ id: 'home', label: 'home.example', traffic }] : [],
     turnOffHomeExit: vi.fn(),
   }
 }
@@ -187,8 +193,8 @@ describe('the menus', () => {
 
     const menu = trayMenu(menuActions)
 
-    expect(menu[0]).toMatchObject({ label: 'Home Exit: 3 connections, 12.4 MB carried', enabled: false })
-    expect(menu[1].label).toBe('Turn Off Home Exit')
+    expect(menu[0]).toMatchObject({ label: 'home.example — Home Exit: 3 connections, 12.4 MB carried', enabled: false })
+    expect(menu[1].label).toBe('Turn Off Home Exit — home.example')
     menu[1].click?.()
     expect(menuActions.turnOffHomeExit).toHaveBeenCalledTimes(1)
   })
@@ -197,10 +203,10 @@ describe('the menus', () => {
     const idle = actions(vi.fn(), null, { connections: 0, bytes: 12_400_000 })
     const flowing = actions(vi.fn(), null, { connections: 1, bytes: 100 })
 
-    expect(item(trayMenu(idle), 'Turn Off Home Exit')).toBeUndefined()
+    expect(item(trayMenu(idle), 'Turn Off Home Exit — home.example')).toBeUndefined()
     expect(trayMenu(idle)[0].label).toBe('Open Pagis')
     for (const menu of [applicationMenu(flowing, 'darwin'), applicationMenu(flowing, 'linux')]) {
-      expect(item(menu as unknown as Item[], 'Turn Off Home Exit')).toBeUndefined()
+      expect(item(menu as unknown as Item[], 'Turn Off Home Exit — home.example')).toBeUndefined()
     }
   })
 
@@ -280,3 +286,34 @@ function paeth(left: number, up: number, corner: number): number {
   if (toLeft <= toUp && toLeft <= toCorner) return left
   return toUp <= toCorner ? up : corner
 }
+
+it('lists servers in the app menus and tray, with shortcuts for the first nine', () => {
+  const base = actions(vi.fn())
+  const servers = Array.from({ length: 10 }, (_, index) => ({ id: String(index), origin: `https://s${index}.example/`, label: `s${index}.example` }))
+  const menuActions = { ...base, servers: () => servers, currentServer: () => '1' }
+  for (const platform of ['darwin', 'linux']) {
+    const menu = applicationMenu(menuActions, platform) as unknown as Item[]
+    for (const [index, server] of servers.entries()) {
+      const entry = item(menu, server.label)!
+      expect(entry.accelerator).toBe(index < 9 ? `${platform === 'darwin' ? 'Command' : 'Control'}+${index + 1}` : undefined)
+      entry.click?.()
+      expect(menuActions.openServer).toHaveBeenLastCalledWith(server.id)
+    }
+  }
+  const tray = trayMenu(menuActions)
+  for (const server of servers) expect(item(tray, server.label)).toBeDefined()
+  for (const menu of [tray, applicationMenu(menuActions) as unknown as Item[]]) {
+    item(menu, 'Add a Server…')!.click?.()
+    item(menu, 'Remove This Server')!.click?.()
+  }
+  expect(menuActions.addServer).toHaveBeenCalledTimes(2)
+  expect(menuActions.removeServer).toHaveBeenCalledTimes(2)
+})
+
+it('disables server changes for a Local Installation and removal without a selected server', () => {
+  const menuActions = { ...actions(vi.fn()), canAddServer: () => false }
+  for (const menu of [trayMenu(menuActions), applicationMenu(menuActions) as unknown as Item[]]) {
+    expect(item(menu, 'Add a Server…')!.enabled).toBe(false)
+    expect(item(menu, 'Remove This Server')!.enabled).toBe(false)
+  }
+})

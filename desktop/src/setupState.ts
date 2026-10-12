@@ -21,6 +21,8 @@ export interface DownloadProgress {
 /** What the setup page shows. */
 export type SetupState =
   | { kind: 'ready' }
+  | { kind: 'add-server' }
+  | { kind: 'browser-sign-in' }
   /** A short task with no steps: a check of a server address, or a start
    *  on another port. */
   | { kind: 'installing'; detail: string }

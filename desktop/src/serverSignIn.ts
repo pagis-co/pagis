@@ -1,11 +1,8 @@
 // The sign-in of a server this client did not start.
 //
-// The Person signs in on the server's own page, in the product window, as
-// Slack, Mattermost and Element do: the sign-in page with a password, or
-// the page of a Sign-In Link, which trades the secret of the link
-// (ADR-0028). The setup page asks for the address or the link alone, and
-// the client never holds the password or the secret. The server's answer
-// puts the Session cookie in the jar of the client's Electron session.
+// The Person signs in on the server's page, with a pasted Sign-In Link,
+// or through the system browser. The page trades a bound link with its
+// verifier. The Session stays in that server's partition.
 // This module opens the product window on that page and watches the jar.
 // It tells the caller when the jar first holds a Session of the server,
 // which is when the machine can register as a Host, and it holds the

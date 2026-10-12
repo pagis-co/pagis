@@ -56,11 +56,16 @@ The signed application a Person opens on their own computer: macOS arm64,
 and Linux amd64 and arm64 as an AppImage and a deb. At setup it asks
 whether to install on this computer ("just me" or "several people") or to
 connect to a server. On this computer it installs and supervises one Server
-Runtime. Connected to a server, it keeps the server's origin and opens the
-server's own sign-in page, or the page of a Sign-In Link that the Person
-pasted at setup. Either way it shows the Product App, stays in
-the tray (the menu bar on macOS), and registers its machine as a Host
-(ADR-0025).
+Runtime. Connected to servers, it keeps a list in `servers.json`, with an id,
+origin and host label for each. Each server has one window and one
+persistent Electron session partition. The Person signs in through the
+system browser with a bound, one-use Sign-In Link, with a pasted link, or
+on the server's page in its window. The application menu and tray list
+the servers, add a server and remove the selected server. Each signed-in
+server registers the machine as a Host. A Local Installation stays the
+one server of its Client App. Not built: a Client App with both a Local
+Installation and connected servers. Either setup shows the Product App
+and stays in the tray (the menu bar on macOS) (ADR-0025).
 _Avoid_: Desktop App, desktop client, the shell
 
 ### Client Credential
@@ -261,7 +266,8 @@ _Avoid_: upstream, front-end proxy, load balancer
 A newer Client App release that the Client App finds, downloads, checks
 and installs over itself. Installing an Update on the Client App of a
 Local Installation causes an Upgrade at the next start. A connected Client
-App takes only the Update to its server's release (ADR-0027).
+App takes only the Update to the oldest release of its stored servers
+(ADR-0027).
 _Avoid_: auto-update, patch, new version
 
 ### Update Key
@@ -358,6 +364,9 @@ through the system browser. That page makes a five-minute, one-use link
 bound to the SHA-256 challenge of the app's random verifier. The callback
 uses `pagis-app://signed-in` with the random state and the secret. The app
 checks the state and spends the link in its web view with the verifier.
+The Client App uses the same bound link through `pagis://auth`, with its
+random state. It accepts the state once within five minutes and trades
+the secret and verifier in that server's session partition (ADR-0025).
 A bound link trades only with its verifier. The browser keeps no Session
 of the server (ADR-0032).
 _Avoid_: pairing code, magic link, invite token

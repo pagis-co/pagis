@@ -4,7 +4,7 @@ import * as path from 'node:path'
 
 /**
  * How the client keeps its own small records: the active release, the
- * launch marker and the server it connects to.
+ * launch marker and the servers it connects to.
  *
  * Every one of them is written whole, read with its exact fields, and
  * refused when it is a link or anything but a regular file, so a state

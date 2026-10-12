@@ -65,7 +65,7 @@ function openPage<State>(file: string, bridge: string, methods: string[]): Page<
 }
 
 function openSetup(): Page<SetupState> {
-  return openPage('setup.html', 'pagisSetup', ['installHere', 'connectToServer', 'upgrade', 'cancel', 'usePort', 'retryServer', 'quit'])
+  return openPage('setup.html', 'pagisSetup', ['installHere', 'browserSignIn', 'connectToServer', 'upgrade', 'cancel', 'usePort', 'retryServer', 'quit'])
 }
 
 function openStatus(): Page<DaemonState> {
@@ -639,4 +639,27 @@ describe('the status page', () => {
 
     expect(page.visibleText()).toContain('Pagis is starting…')
   })
+})
+
+it('signs in through the browser with the checked address and trust statement', () => {
+  const page = openSetup()
+  choose(page, 'Connect to a Pagis server')
+  expect(page.visibleText()).toContain('Connect only to a server you trust.')
+  page.button('Sign in with the browser')!.click()
+  expect(page.calls).toEqual([])
+  const address = page.document.getElementById('server-url') as HTMLInputElement
+  address.value = 'work.example'
+  page.button('Sign in with the browser')!.click()
+  expect(page.calls).toEqual(['browserSignIn:work.example'])
+})
+
+it('opens Add a Server on the connect screen and permits another attempt after browser sign-in', () => {
+  const page = openSetup()
+  page.show({ kind: 'add-server' })
+  expect(page.visibleText()).toContain('Add a Server')
+  expect(page.visibleText()).not.toContain('Install on this computer')
+  expect(page.button('Sign in with the browser')).toBeDefined()
+  page.show({ kind: 'browser-sign-in' })
+  expect(page.visibleText()).toContain('Complete sign-in in your browser.')
+  expect(page.button('Sign in with the browser')!.disabled).toBe(false)
 })

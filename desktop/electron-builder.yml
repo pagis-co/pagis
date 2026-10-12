@@ -3,6 +3,11 @@ appId: co.pagis.desktop
 # also reads for `app.name`: the `userData` directory and the app menu.
 copyright: Pagis
 
+protocols:
+  - name: Pagis sign-in
+    schemes:
+      - pagis
+
 # electron-updater reads the Update feeds of the GitHub releases of this
 # repository (ADR-0027). With this configuration electron-builder puts
 # app-update.yml, which names the repository, in the app, and writes each

@@ -1,48 +1,52 @@
-import * as fs from 'node:fs'
+import { randomUUID } from 'node:crypto'
 import * as path from 'node:path'
 
 import { readExact, writeAtomic } from './clientFiles'
 import { serverOrigin } from './origin'
 
-/**
- * The server this client connects to, when it did not start one.
- *
- * It holds the origin, which is all a connect-only client needs to open
- * again: the Session lives in the product window's own cookie store and
- * the person's password is never kept. It is client state, like the
- * active release, and it is not a copy of any server-owned onboarding
- * answer (ADR-0025).
- */
+/** The client record of one server. Secrets stay in memory or its partition. */
 export interface ServerConnection {
+  id: string
   origin: string
+  label: string
 }
 
-const FILE = 'server.json'
-
 export class ServerConnections {
-  constructor(private readonly root: string) {}
+  private readonly file: string
 
-  /** The stored connection, or null for a client that starts its own
-   *  server. It throws on a file that is not one this client wrote. */
-  read(): ServerConnection | null {
-    const stored = readExact<ServerConnection>(path.join(this.root, FILE), ['origin'])
-    if (stored === null) return null
-    if (serverOrigin(stored.origin) !== stored.origin) {
-      throw new Error(`${path.join(this.root, FILE)} is invalid`)
-    }
-    return stored
+  constructor(root: string) { this.file = path.join(root, 'servers.json') }
+
+  /** Refuse each shape, origin, label or id that this client cannot write. */
+  list(): ServerConnection[] {
+    const stored = readExact<{ servers: unknown }>(this.file, ['servers'])
+    if (stored === null) return []
+    if (!Array.isArray(stored.servers)) throw new Error(`${this.file} is invalid`)
+    const ids = new Set<string>()
+    const origins = new Set<string>()
+    return stored.servers.map((value: unknown) => {
+      if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${this.file} is invalid`)
+      const record = value as Record<string, unknown>
+      if (Object.keys(record).sort().join(',') !== 'id,label,origin') throw new Error(`${this.file} has unexpected fields`)
+      const { id, origin, label } = record
+      if (typeof id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(id) ||
+        typeof origin !== 'string' || serverOrigin(origin) !== origin ||
+        typeof label !== 'string' || label !== new URL(origin).host || ids.has(id) || origins.has(origin)) throw new Error(`${this.file} is invalid`)
+      ids.add(id); origins.add(origin)
+      return { id, origin, label }
+    })
   }
 
-  /** Remember the server the person signed in to. */
-  write(origin: string): ServerConnection {
-    const connection: ServerConnection = { origin: serverOrigin(origin) }
-    writeAtomic(path.join(this.root, FILE), connection)
-    return connection
+  add(address: string): ServerConnection {
+    const origin = serverOrigin(address)
+    const servers = this.list()
+    const held = servers.find((server) => server.origin === origin)
+    if (held) return held
+    const server = { id: randomUUID(), origin, label: new URL(origin).host }
+    writeAtomic(this.file, { servers: [...servers, server] })
+    return server
   }
 
-  /** Forget it. A client that installs and supervises a server of its
-   *  own is not a client of another server. */
-  forget(): void {
-    fs.rmSync(path.join(this.root, FILE), { force: true })
+  remove(id: string): void {
+    writeAtomic(this.file, { servers: this.list().filter((server) => server.id !== id) })
   }
 }

@@ -31,8 +31,15 @@ interface PagisShellPlugin {
 
 export const PagisShell = registerPlugin<PagisShellPlugin>('PagisShell')
 
+declare global {
+  interface Window {
+    pagisDesktop?: { takeSignInVerifier(secret: string): Promise<string | undefined> }
+  }
+}
+
 /** Take the verifier once from native memory, on its server and for its secret. */
 export async function takeSignInVerifier(secret: string): Promise<string | undefined> {
+  if (window.pagisDesktop) return window.pagisDesktop.takeSignInVerifier(secret)
   if (!Capacitor.isNativePlatform()) return undefined
   return (await PagisShell.takeSignInVerifier({ secret })).verifier
 }

@@ -31,9 +31,8 @@ import {
   readClientCredential,
   readPort,
 } from './dataDirectory'
-import { EXIT_CAPABILITY, SHELL_CAPABILITY } from './host'
+import { SHELL_CAPABILITY } from './host'
 import { opensInSystemBrowser } from './origin'
-import { ExitTraffic } from './exit'
 import { type HostLinks, hostLinkFor, turnOffHomeExit } from './serverHost'
 import { AutostartEntry, type LoginItem } from './loginItem'
 import { applicationMenu, createTray, renderTray } from './menus'
@@ -56,14 +55,14 @@ import { type SetupState, type Upgrade, setupFailureState } from './setupState'
 import { isTrustedSetupRequest } from './setupTrust'
 import { isServerRequest } from './setupCoordinator'
 import { assertServerIsReady, connectToServer } from './serverOnboarding'
-import { openServerPage, watchServerSignIn } from './serverSignIn'
+import { ServerWindows } from './serverWindows'
 import { ServerConnections, type ServerConnection } from './serverConnection'
 import { reportUncaughtExceptions } from './uncaughtFailure'
 import { endFailedStart } from './startFailure'
 import { checkSignedChecksum } from './signedChecksums'
 import { checkAnswer, readyNotification, restartQuestion } from './updateMessages'
 import { type Installer, type UpdateSource, type UpdateState, Updates } from './updates'
-import { LATEST_RELEASE, serverSource } from './updateSource'
+import { LATEST_RELEASE, serversSource } from './updateSource'
 import { prepareUpdate, pullComputerImage, releaseLock } from './updatePreparation'
 import { unfinishedRuns } from './unfinishedRuns'
 import { BackupFailure, keepNewestBackup, takeUpgradeBackup } from './upgradeBackup'
@@ -88,12 +87,16 @@ class Shell {
   private readonly home = dataDirectory()
   private readonly runtimeRoot = path.join(app.getPath('userData'), 'runtime')
   private readonly runtimeState = new RuntimeState(this.runtimeRoot)
-  // The server this client connects to, when it did not start one.
-  // It is null for the install-and-supervise path.
+  // Connected servers have their own windows and partitions.
   private readonly connections = new ServerConnections(app.getPath('userData'))
-  private connection: ServerConnection | null = null
-  // The watch for the Person's sign-in on the page of that server.
-  private signInWatch: (() => void) | null = null
+  private readonly servers = new ServerWindows(this.connections, {
+    changed: () => this.renderMenus(),
+    openExternal: openInBrowser,
+    quitting: () => this.quitting,
+  })
+  private serverList: ServerConnection[] = []
+  private retryConnection: ServerConnection | null = null
+  private get connection(): ServerConnection | null { return this.serverList.find(({ id }) => id === this.servers.currentId) ?? null }
   private mainWindow: BrowserWindow | null = null
   private mainOrigin: string | null = null
   private administrationWindow: BrowserWindow | null = null
@@ -120,9 +123,6 @@ class Shell {
   // client, and never in the daemon. On a server, the same links make
   // the machine a Home Exit that its Person can choose.
   private hostLink: HostLinks | null = null
-  // The exit traffic that this machine carries as the Home Exit of its
-  // Person (ADR-0029). The tray shows it while it flows.
-  private readonly exitTraffic = new ExitTraffic(() => this.renderTray())
   private quitting = false
   private readonly controller = new ClientController({
     backUp: (signal) => this.backUpForUpgrade(signal),
@@ -148,7 +148,7 @@ class Shell {
   async start(): Promise<void> {
     // The handlers go on the session before the first window opens,
     // because Electron grants each permission that no handler decides.
-    // All windows use this one session.
+    // Local product, administration, setup and status use the default session.
     installPermissionHandlers(session.defaultSession, () => this.productWindow(), process.platform)
     this.handleRequests()
     // electron-builder gives the packaged app the icon in build/. A run
@@ -164,17 +164,19 @@ class Shell {
     if (this.updates && process.platform === 'linux') {
       autoUpdater.on('appimage-filename-updated', (file) => refreshAutostart(file))
     }
-    let connection: ServerConnection | null
+    let connections: ServerConnection[]
     try {
-      connection = this.connections.read()
+      connections = this.connections.list()
+      if (connections.length > 0 && this.installedHere()) throw new Error('A Local Installation keeps only its own server.')
+      this.serverList = connections
     } catch (error) {
       await this.openSetup()
       this.setSetupState(this.failureState(error))
-      this.followConnection()
+      this.renderMenus()
       return
     }
-    if (connection) {
-      await this.openConnected(connection)
+    if (connections.length > 0) {
+      for (const connection of connections) await this.openConnected(connection)
       this.followConnection()
       return
     }
@@ -216,8 +218,7 @@ class Shell {
     // The machine is absent the moment the client goes, so the socket
     // closes before anything else does. The stop resolves when the
     // processes of the Coding Sessions exited.
-    this.signInWatch?.()
-    this.signInWatch = null
+    await this.servers.stop()
     const hostLink = this.hostLink
     this.hostLink = null
     await hostLink?.stop()
@@ -231,7 +232,7 @@ class Shell {
    *  only while an installation or a start-up is in progress, or while
    *  Coding Sessions run on this computer. */
   async requestQuit(): Promise<void> {
-    const question = quitQuestion(this.controller.inProgress, this.hostLink?.codingSessions() ?? 0)
+    const question = quitQuestion(this.controller.inProgress, (this.hostLink?.codingSessions() ?? 0) + this.servers.codingSessions())
     if (question === null) {
       app.quit()
       return
@@ -241,7 +242,7 @@ class Shell {
     // runs a modal loop that holds every other quit, SIGTERM too, until
     // the Person answers it.
     const visible = (): BrowserWindow | null =>
-      [this.setupWindow, this.statusWindow, this.mainWindow].find((window) => window?.isVisible()) ?? null
+      [this.setupWindow, this.statusWindow, this.mainWindow, this.servers.visible()].find((window) => window?.isVisible()) ?? null
     if (visible() === null) this.show()
     const window = visible()
     const answer = window === null
@@ -267,13 +268,9 @@ class Shell {
     }
     // A connect-only client supervises no process, so the window is the
     // whole of what "open" means to it.
-    if (this.connection) {
-      if (this.mainWindow) {
-        this.mainWindow.show()
-        this.mainWindow.focus()
-      } else {
-        void this.openConnected(this.connection)
-      }
+    const connection = this.connection ?? this.serverList[0]
+    if (connection) {
+      if (!this.servers.show(connection.id)) void this.openConnected(connection)
       return
     }
     const state = this.controller.state
@@ -397,7 +394,9 @@ class Shell {
     this.setupWindow = null
     this.statusWindow?.destroy()
     this.statusWindow = null
-    await this.openMain(url)
+    const connection = this.connections.list().find((server) => new URL(server.origin).origin === new URL(url).origin)
+    if (connection) await this.servers.open(connection, url)
+    else await this.openMain(url)
   }
 
   /**
@@ -412,7 +411,9 @@ class Shell {
   private async connect(url: string, signal?: AbortSignal): Promise<string> {
     this.setSetupState({ kind: 'installing', detail: 'Connecting to the Pagis server…' })
     const address = await connectToServer(url, app.getVersion(), fetch, signal)
-    this.connection = this.connections.write(address.origin)
+    if (this.installedHere()) throw new Error('A Local Installation keeps only its own server.')
+    const connection = this.connections.add(address.origin)
+    this.servers.currentId = connection.id
     this.followConnection()
     return address.opens
   }
@@ -423,7 +424,8 @@ class Shell {
    * last start, so the compatibility range is checked on every one.
    */
   private async openConnected(connection: ServerConnection): Promise<void> {
-    this.connection = connection
+    this.servers.currentId = connection.id
+    this.retryConnection = connection
     try {
       await assertServerIsReady(connection.origin, app.getVersion())
       await this.finishHandoff(connection.origin)
@@ -435,16 +437,53 @@ class Shell {
     }
   }
 
+  private async signInWithBrowser(url: string): Promise<void> {
+    if (this.installedHere()) throw new Error('A Local Installation keeps only its own server.')
+    this.setSetupState({ kind: 'installing', detail: 'Connecting to the Pagis server…' })
+    const address = await connectToServer(url, app.getVersion())
+    const server = this.connections.add(address.origin)
+    this.followConnection()
+    await shell.openExternal(this.servers.beginSignIn(server))
+    this.setSetupState({ kind: 'browser-sign-in' })
+  }
+
+  async acceptLink(url: string): Promise<boolean> {
+    const accepted = await this.servers.acceptSignIn(url)
+    if (accepted) {
+      this.setupWindow?.destroy()
+      this.setupWindow = null
+      this.followConnection()
+    }
+    return accepted
+  }
+
+  private async addServer(): Promise<void> {
+    if (this.installedHere()) return
+    this.setSetupState({ kind: 'add-server' })
+    await this.openSetup()
+    this.setSetupState({ kind: 'add-server' })
+  }
+
+  private async removeServer(): Promise<void> {
+    const id = this.servers.currentId
+    if (id === null) return
+    await this.servers.remove(id)
+    if (this.retryConnection?.id === id) this.retryConnection = null
+    this.followConnection()
+    if (this.serverList.length === 0) {
+      this.setupWindow?.destroy()
+      this.setupWindow = null
+      this.setSetupState({ kind: 'ready' })
+    }
+    this.show()
+  }
+
   /** Record the release this client started, which makes it the client
    *  of its own server and of nobody else's. */
   private activateOwnRuntime(): void {
     this.runtimeState.activate(this.runtimeLock().release)
     this.upgrading = null
     void this.removeOldFiles()
-    this.connections.forget()
-    this.connection = null
-    this.signInWatch?.()
-    this.signInWatch = null
     this.followConnection()
   }
 
@@ -487,30 +526,9 @@ class Shell {
         return { action: 'deny' }
       })
     }
-    // The page authenticates with the session cookie. A server this
-    // client started answers the Client Credential, so the Session is in
-    // the cookie jar of this window before the window loads the URL, and
-    // the machine registers as its Host at once. A server this client did
-    // not start shows its own sign-in page when the jar holds no Session
-    // of it, or the page of the Sign-In Link that the person pasted, and
-    // the machine registers as its Host after that sign-in. The watch
-    // and the Host link get the origin, never the link.
-    if (this.connection) {
-      this.watchSignIn(this.connection.origin)
-      await openServerPage(this.mainWindow, url)
-      this.mainWindow?.show()
-    } else {
-      await openSignedIn(url, this.clientCredential(), session.defaultSession.cookies, this.mainWindow)
-      this.mainWindow?.show()
-      this.registerHost(url)
-    }
-  }
-
-  /** Register this machine as the Host of a server this client did not
-   *  start once the Person signed in on its page. */
-  private watchSignIn(url: string): void {
-    if (this.signInWatch) return
-    this.signInWatch = watchServerSignIn(url, session.defaultSession.cookies, () => this.registerHost(url))
+    await openSignedIn(url, this.clientCredential(), session.defaultSession.cookies, this.mainWindow)
+    this.mainWindow?.show()
+    this.registerHost(url)
   }
 
   /** The product window and the Product App origin it shows, while it is open. */
@@ -530,14 +548,11 @@ class Shell {
     this.hostLink = hostLinkFor({
       url,
       jar: session.defaultSession.cookies,
-      // A server this client did not start holds no Client Credential,
-      // so the person's own Session is the only one there is.
-      credential: () => (this.connection ? null : this.clientCredential()),
+      credential: () => this.clientCredential(),
       // The Computers of a server can reach the internet through this
       // machine. Those of a Local Installation run on this machine and
       // leave from it, so its client is no Home Exit.
-      capabilities: this.connection ? [SHELL_CAPABILITY, EXIT_CAPABILITY] : [SHELL_CAPABILITY],
-      traffic: this.exitTraffic,
+      capabilities: [SHELL_CAPABILITY],
     })
     this.hostLink.start()
   }
@@ -547,11 +562,13 @@ class Shell {
    * Person's choice and switches their Computers back at once, so the
    * exit traffic of this machine stops.
    */
-  private async turnOffHomeExit(): Promise<void> {
-    if (!this.connection) return
+  private async turnOffHomeExit(id: string): Promise<void> {
+    const connection = this.serverList.find((server) => server.id === id)
+    const jar = this.servers.jar(id)
+    if (!connection || !jar) return
     await turnOffHomeExit({
-      url: this.connection.origin,
-      jar: session.defaultSession.cookies,
+      url: connection.origin,
+      jar,
       credential: () => null,
     })
   }
@@ -571,7 +588,7 @@ class Shell {
   private async openAdministration(view = '/'): Promise<void> {
     // The administration listener binds loopback on the machine that
     // runs the server, so it is not this machine's to open.
-    if (this.connection) {
+    if (this.serverList.length > 0) {
       throw new Error(
         'The administration interface answers on the Administration Port of the Pagis server ' +
         'itself, which only that machine reaches. Open it there, or through an SSH tunnel to it.',
@@ -681,12 +698,19 @@ class Shell {
   }
 
   private handleRequests(): void {
+    ipcMain.handle('pagis:sign-in-verifier', (event, secret: unknown) => this.servers.takeVerifier(event, secret))
+    ipcMain.handle('pagis:browser-sign-in', async (event, url: unknown) => {
+      if (!this.trustedSetup(event) || typeof url !== 'string') throw new Error('untrusted setup request')
+      try { await this.signInWithBrowser(url) } catch (error) { throw this.serverCheckFailure(error) }
+    })
     ipcMain.handle('pagis:setup-state-please', (event) => {
       if (!this.trustedSetup(event)) throw new Error('untrusted setup request')
       this.setupWindow?.webContents.send('pagis:setup-state', this.setupState)
     })
     ipcMain.handle('pagis:install', (event, request: unknown) => {
       if (!this.trustedSetup(event)) throw new Error('untrusted setup request')
+      if (isServerRequest(request) && this.installedHere()) throw new Error('A Local Installation keeps only its own server.')
+      if (!isServerRequest(request) && this.connections.list().length > 0) throw new Error('Remove connected servers before you install on this computer.')
       return this.controller.run(request).catch((error: unknown) => {
         throw isServerRequest(request) ? this.serverCheckFailure(error) : this.setupFailure(error)
       })
@@ -708,9 +732,9 @@ class Shell {
       })
     })
     ipcMain.handle('pagis:retry-server', async (event) => {
-      if (!this.trustedSetup(event) || !this.connection) throw new Error('untrusted setup request')
+      if (!this.trustedSetup(event) || !this.retryConnection) throw new Error('untrusted setup request')
       this.setSetupState({ kind: 'installing', detail: 'Connecting to the Pagis server…' })
-      await this.openConnected(this.connection)
+      await this.openConnected(this.retryConnection)
     })
     ipcMain.handle('pagis:state-please', (event) => {
       if (!this.trustedStatus(event)) throw new Error('untrusted status request')
@@ -754,9 +778,9 @@ class Shell {
    * has at that time (`updateSource`).
    */
   private followConnection(): void {
-    if (!this.updates) return
-    if (this.connection || this.installedHere()) this.updates.start()
-    else this.updates.stop()
+    this.serverList = this.connections.list()
+    if (this.serverList.length > 0 || this.installedHere()) this.updates?.start()
+    else this.updates?.stop()
     this.renderMenus()
   }
 
@@ -768,7 +792,7 @@ class Shell {
   /** What a check reads: the latest release for a Local Installation, and
    *  the release of the server for a connected client. */
   private updateSource(): Promise<UpdateSource> {
-    if (this.connection) return serverSource(this.connection.origin, app.getVersion())
+    if (this.serverList.length > 0) return serversSource(this.serverList.map(({ origin }) => origin), app.getVersion())
     return Promise.resolve(LATEST_RELEASE)
   }
 
@@ -787,11 +811,6 @@ class Shell {
   private renderMenus(): void {
     if (SMOKE) return
     Menu.setApplicationMenu(applicationMenu(this.menuActions()))
-    this.renderTray()
-  }
-
-  /** The tray alone: the exit traffic changes it while it flows. */
-  private renderTray(): void {
     if (this.tray) renderTray(this.tray, this.menuActions())
   }
 
@@ -809,7 +828,7 @@ class Shell {
    */
   private async restartToUpdate(): Promise<void> {
     if (!this.updates) return
-    const question = restartQuestion(await this.unfinishedRuns(), this.hostLink?.codingSessions() ?? 0)
+    const question = restartQuestion(await this.unfinishedRuns(), (this.hostLink?.codingSessions() ?? 0) + this.servers.codingSessions())
     if (question !== null && (await this.messageBox(question)).response !== 0) return
     // The Update can fail while the question waits.
     if (this.updates.state.kind !== 'ready') throw new Error('the Update is not ready to install')
@@ -826,7 +845,7 @@ class Shell {
    * Computer Image. Only a Local Installation has a cache and a daemon.
    */
   private prepareUpdate(version: string): Promise<void> {
-    if (this.connection || !this.installedHere()) return Promise.resolve()
+    if (this.connections.list().length > 0 || !this.installedHere()) return Promise.resolve()
     return prepareUpdate(version, {
       readLock: (release) => releaseLock(release),
       download: (lock) => this.installer.download(lock),
@@ -855,7 +874,7 @@ class Shell {
   /** A message box on the visible window, or on its own when no window is
    *  visible. */
   private messageBox(options: MessageBoxOptions): Promise<MessageBoxReturnValue> {
-    const window = [this.setupWindow, this.statusWindow, this.mainWindow].find((each) => each?.isVisible()) ?? null
+    const window = [this.setupWindow, this.statusWindow, this.mainWindow, this.servers.visible()].find((each) => each?.isVisible()) ?? null
     return window === null ? dialog.showMessageBox(options) : dialog.showMessageBox(window, options)
   }
 
@@ -925,8 +944,17 @@ class Shell {
       restartToUpdate: () => void this.restartToUpdate().catch((error: unknown) => {
         dialog.showErrorBox('Pagis could not install the Update', this.failure(error))
       }),
-      exitTraffic: () => this.exitTraffic,
-      turnOffHomeExit: () => void this.turnOffHomeExit().catch((error: unknown) => {
+      servers: () => this.serverList,
+      currentServer: () => this.servers.currentId,
+      canAddServer: () => !this.installedHere(),
+      openServer: (id: string) => {
+        const connection = this.serverList.find((server) => server.id === id)
+        if (connection && !this.servers.show(id)) void this.openConnected(connection)
+      },
+      addServer: () => void this.addServer().catch((error: unknown) => this.reportHandoffFailure(error)),
+      removeServer: () => void this.removeServer().catch((error: unknown) => this.reportHandoffFailure(error)),
+      exitTraffic: () => this.servers.exitTraffic(),
+      turnOffHomeExit: (id: string) => void this.turnOffHomeExit(id).catch((error: unknown) => {
         dialog.showErrorBox('Pagis could not turn off the Home Exit', this.failure(error))
       }),
     }
@@ -1026,11 +1054,28 @@ function run(): void {
   }
   const shellApp = new Shell()
   reportUncaughtExceptions(process, (error) => shellApp.showUncaught(error))
-  app.on('second-instance', () => shellApp.show())
-  app.on('activate', () => shellApp.show())
+  if (!SMOKE) app.setAsDefaultProtocolClient('pagis')
+  const launchLinks = process.argv.filter((value) => /^pagis:/i.test(value))
+  let ready = false
+  const receive = (url: string): void => {
+    if (!ready) { launchLinks.push(url); return }
+    void shellApp.acceptLink(url).catch((error: unknown) => shellApp.showUncaught(new Error(redact(String(error)))))
+  }
+  app.on('open-url', (event, url) => { event.preventDefault(); receive(url) })
+  app.on('second-instance', (_event, argv) => {
+    const links = argv.filter((arg) => /^pagis:/i.test(arg))
+    if (links.length > 0) links.forEach(receive)
+    else shellApp.show()
+  })
+  app.on('activate', () => { if (ready) shellApp.show() })
   app.on('window-all-closed', () => {})
   endOnQuit(app, () => shellApp.stop())
-  app.whenReady().then(() => shellApp.start()).catch((error: unknown) => endFailedStart(error, SMOKE, app, dialog))
+  app.whenReady().then(async () => {
+    // A cold protocol start has no state in memory and opens no window.
+    if (launchLinks.length > 0) { app.exit(0); return }
+    ready = true
+    await shellApp.start()
+  }).catch((error: unknown) => endFailedStart(error, SMOKE, app, dialog))
   if (SMOKE) setTimeout(() => { console.error('pagis smoke: setup did not open in time'); app.exit(1) }, SMOKE_DEADLINE_MS).unref()
 }
 
