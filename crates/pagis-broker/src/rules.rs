@@ -309,7 +309,8 @@ mod tests {
         Some(list.iter().map(|command| rules(command)).collect())
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn a_list_parses_into_the_words_of_each_simple_command() {
         assert_eq!(
             simple_commands("git add . && git commit || echo fail; ls | wc -l\ntrue"),
@@ -324,7 +325,8 @@ mod tests {
         );
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn quote_removal_gives_the_words_the_program_receives() {
         assert_eq!(
             simple_commands(r#"echo "a && b" 'c; $d' "" head -n 5"#),
@@ -332,7 +334,8 @@ mod tests {
         );
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn derive_keeps_the_subcommand_for_known_clis() {
         assert_eq!(derive_rules("git status --short"), rules(&["git status"]));
         assert_eq!(derive_rules("npm run build"), rules(&["npm run"]));
@@ -343,7 +346,8 @@ mod tests {
         );
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn derive_dedupes_and_caps_at_five() {
         assert_eq!(
             derive_rules("git add . && git add -A && git commit -m x"),
@@ -355,12 +359,14 @@ mod tests {
         );
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn derive_of_an_empty_command_is_empty() {
         assert_eq!(derive_rules("  "), Vec::<String>::new());
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn derive_proposes_no_rule_that_hides_the_operation_or_runs_other_programs() {
         assert_eq!(derive_rules("git -C /repo status"), Vec::<String>::new());
         assert_eq!(derive_rules("env git status"), Vec::<String>::new());
@@ -370,7 +376,8 @@ mod tests {
 
     /// The bare program of a multi-word CLI covers every operation, and
     /// a path does not hide the program from the check.
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn derive_proposes_no_bare_multi_word_cli_and_reads_the_program_behind_a_path() {
         assert_eq!(derive_rules("git"), Vec::<String>::new());
         assert_eq!(derive_rules("git ''"), Vec::<String>::new());
@@ -387,7 +394,8 @@ mod tests {
 
     /// A rule that would not approve the same command again is not
     /// offered, so "Always allow" never promises what it cannot do.
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn derive_proposes_no_rule_for_a_command_that_no_rule_can_approve() {
         assert_eq!(
             derive_rules("RUST_LOG=debug cargo test"),
@@ -400,7 +408,8 @@ mod tests {
         );
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn a_rule_matches_its_command_class() {
         assert!(command_allowed(
             "git status --short",
@@ -421,7 +430,8 @@ mod tests {
     /// An environment assignment changes what the approved program
     /// does: `GIT_CONFIG_*` can name a program that git runs, and `PATH`
     /// can put another program in the place of git.
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn an_environment_assignment_never_auto_approves() {
         let allow = rules(&["git status"]);
 
@@ -433,7 +443,8 @@ mod tests {
         assert!(!command_allowed("PATH=/tmp:$PATH git status", &allow));
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn a_redirection_or_here_document_never_auto_approves() {
         assert!(!command_allowed("git status > f", &rules(&["git status"])));
         assert!(!command_allowed(
@@ -448,7 +459,8 @@ mod tests {
         assert!(!command_allowed("echo x 2>&1", &allow));
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn a_parameter_expansion_never_auto_approves() {
         let allow = rules(&["echo"]);
 
@@ -458,7 +470,8 @@ mod tests {
         assert!(!command_allowed(r#"echo "a$""#, &allow));
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn an_arithmetic_brace_tilde_or_glob_expansion_never_auto_approves() {
         let allow = rules(&["echo", "ls"]);
 
@@ -471,7 +484,8 @@ mod tests {
         assert!(!command_allowed("ls [ab]", &allow));
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn substitution_never_auto_approves() {
         let allow = rules(&["echo", "git status"]);
 
@@ -486,7 +500,8 @@ mod tests {
     /// An escape, an ANSI-C string, a backgrounded command, a comment and
     /// a negation are shell syntax outside the allowed shape. So is a
     /// command that does not parse.
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn other_shell_syntax_never_auto_approves() {
         let allow = rules(&["echo", "git status", "cat"]);
 
@@ -505,7 +520,8 @@ mod tests {
 
     /// A rule for a program that runs other programs approves every
     /// program. A rule that is already stored does not match either.
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn a_stored_rule_for_a_program_that_runs_other_programs_never_matches() {
         assert!(!command_allowed("env git status", &rules(&["env"])));
         assert!(!command_allowed("bash -c x", &rules(&["bash"])));
@@ -516,7 +532,8 @@ mod tests {
         ));
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn a_rule_that_names_a_program_runner_is_recognized() {
         for rule in ["env", "/usr/bin/env", "bash -c", "sudo", ".", "xargs rm"] {
             assert!(runs_other_programs(rule), "{rule}");
@@ -526,7 +543,8 @@ mod tests {
         }
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn a_plain_list_of_simple_commands_auto_approves() {
         assert!(command_allowed(
             "git status --short",
@@ -539,7 +557,8 @@ mod tests {
         assert!(command_allowed("ls -la /tmp", &rules(&["ls"])));
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn every_simple_command_must_match_for_the_command_to_be_allowed() {
         let allow = rules(&["git status", "echo"]);
 
@@ -552,5 +571,141 @@ mod tests {
         assert!(!command_allowed("git push", &allow));
         assert!(!command_allowed("", &allow));
         assert!(!command_allowed("echo hi", &[]));
+    }
+    /// Native and Node tests use the same expected words for every
+    /// command of the Allow Rule tests, plus numbers and Unicode.
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    fn simple_commands_match_the_native_cases() {
+        let cases: &[(&str, Option<&[&[&str]]>)] = &[
+            (
+                "git add . && git commit || echo fail; ls | wc -l\ntrue",
+                Some(&[
+                    &["git", "add", "."],
+                    &["git", "commit"],
+                    &["echo", "fail"],
+                    &["ls"],
+                    &["wc", "-l"],
+                    &["true"],
+                ]),
+            ),
+            (
+                r#"echo "a && b" 'c; $d' "" head -n 5"#,
+                Some(&[&["echo", "a && b", "c; $d", "", "head", "-n", "5"]]),
+            ),
+            ("git status --short", Some(&[&["git", "status", "--short"]])),
+            ("npm run build", Some(&[&["npm", "run", "build"]])),
+            ("ls -la /tmp", Some(&[&["ls", "-la", "/tmp"]])),
+            ("/usr/bin/git status", Some(&[&["/usr/bin/git", "status"]])),
+            (
+                "git add . && git add -A && git commit -m x",
+                Some(&[
+                    &["git", "add", "."],
+                    &["git", "add", "-A"],
+                    &["git", "commit", "-m", "x"],
+                ]),
+            ),
+            (
+                "a; b; c; d; e; f; g",
+                Some(&[&["a"], &["b"], &["c"], &["d"], &["e"], &["f"], &["g"]]),
+            ),
+            ("  ", Some(&[])),
+            (
+                "git -C /repo status",
+                Some(&[&["git", "-C", "/repo", "status"]]),
+            ),
+            ("env git status", Some(&[&["env", "git", "status"]])),
+            ("xargs rm", Some(&[&["xargs", "rm"]])),
+            ("find . -exec rm {} ;", None),
+            ("git", Some(&[&["git"]])),
+            ("git ''", Some(&[&["git", ""]])),
+            (
+                "/usr/bin/git -C . status",
+                Some(&[&["/usr/bin/git", "-C", ".", "status"]]),
+            ),
+            (
+                "/usr/bin/env git status",
+                Some(&[&["/usr/bin/env", "git", "status"]]),
+            ),
+            ("sudo git status", Some(&[&["sudo", "git", "status"]])),
+            ("RUST_LOG=debug cargo test", None),
+            ("echo x > f", None),
+            (
+                "git status && git -C . push",
+                Some(&[&["git", "status"], &["git", "-C", ".", "push"]]),
+            ),
+            ("echo hi there", Some(&[&["echo", "hi", "there"]])),
+            (r#"git "status""#, Some(&[&["git", "status"]])),
+            ("echo 'a > b'", Some(&[&["echo", "a > b"]])),
+            ("git push origin", Some(&[&["git", "push", "origin"]])),
+            ("echo hi", Some(&[&["echo", "hi"]])),
+            ("FOO=1 git status", None),
+            (
+                "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.fsmonitor GIT_CONFIG_VALUE_0=x git status",
+                None,
+            ),
+            ("PATH=/tmp:$PATH git status", None),
+            ("git status > f", None),
+            ("git status <<EOF", None),
+            ("echo x >> ~/.zshrc", None),
+            ("echo x <<< y", None),
+            ("echo x 2>&1", None),
+            ("echo $HOME", None),
+            ("echo ${IFS}", None),
+            (r#"echo "$HOME""#, None),
+            (r#"echo "a$""#, None),
+            ("echo $((1 + 2))", None),
+            ("echo {a,b}", None),
+            ("echo a{b,c}", None),
+            ("ls ~/x", None),
+            ("ls *.rs", None),
+            ("ls a?b", None),
+            ("ls [ab]", None),
+            ("echo $(rm -rf /)", None),
+            (r#"echo "$(id)""#, None),
+            ("echo `date`", None),
+            ("echo <(date)", None),
+            ("(git status)", None),
+            ("{ git status; }", None),
+            (r"echo a\ b", None),
+            (r#"echo "a\"b""#, None),
+            ("echo $'x'", None),
+            ("echo --a=\"b c\"", None),
+            ("git status &", None),
+            ("git status |& cat", None),
+            ("! git status", None),
+            ("echo x # y", None),
+            ("echo \"", None),
+            ("git status\r", None),
+            ("echo\u{a0}x", None),
+            ("bash -c x", Some(&[&["bash", "-c", "x"]])),
+            (
+                "git status && echo done",
+                Some(&[&["git", "status"], &["echo", "done"]]),
+            ),
+            (
+                "git status | echo done\necho again;",
+                Some(&[&["git", "status"], &["echo", "done"], &["echo", "again"]]),
+            ),
+            (
+                "git status && rm -rf /",
+                Some(&[&["git", "status"], &["rm", "-rf", "/"]]),
+            ),
+            ("git push", Some(&[&["git", "push"]])),
+            ("", Some(&[])),
+            ("echo 123", Some(&[&["echo", "123"]])),
+            ("echo {1..2}", None),
+            ("echo {12..34..2}", None),
+            ("echo {𱡠", None),
+            ("echo {1𱡠..2}", None),
+            ("echo café '你好'", Some(&[&["echo", "café", "你好"]])),
+        ];
+        for (command, expected) in cases {
+            assert_eq!(
+                simple_commands(command),
+                expected.and_then(words),
+                "{command:?}"
+            );
+        }
     }
 }
