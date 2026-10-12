@@ -1299,13 +1299,13 @@ pub fn router(state: Arc<AppState>) -> Router {
                 get(crate::providers::list_provider_setups),
             )
             .route(
-                "/api/v1/administration/providers/{provider}/{part}",
-                put(crate::providers::configure_provider_part)
-                    .delete(crate::providers::remove_provider_part),
+                "/api/v1/administration/providers/{provider}/key",
+                put(crate::providers::configure_provider_key)
+                    .delete(crate::providers::remove_provider_key),
             )
             .route(
-                "/api/v1/administration/providers/{provider}/{part}/test",
-                post(crate::providers::test_provider_part),
+                "/api/v1/administration/providers/{provider}/key/test",
+                post(crate::providers::test_provider_key),
             );
     }
     if state
@@ -1315,7 +1315,9 @@ pub fn router(state: Arc<AppState>) -> Router {
         guarded = guarded.route("/api/v1/system/restart", post(crate::system::restart));
     }
     let guarded = guarded
-        .merge(crate::native_administration_routes())
+        .merge(crate::native_administration_routes(
+            state.administration_sections.clone(),
+        ))
         .layer(middleware::from_fn(require_administrator))
         .layer(middleware::from_fn_with_state(
             Arc::clone(&state),

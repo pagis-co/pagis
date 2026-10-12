@@ -1446,6 +1446,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
 
     let state = AppState {
         native: pagis_server::NativeState {
+            connector,
             live_calls,
             text_transports,
             numbers,
@@ -1477,7 +1478,6 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         onboarding,
         retention_policies,
         connections,
-        connector,
         credentials,
         vault,
         requests,

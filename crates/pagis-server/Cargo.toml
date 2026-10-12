@@ -11,6 +11,8 @@ native = [
     "axum/tokio",
     "axum/ws",
     "dep:pagis-analytics",
+    "dep:pagis-connect",
+    "dep:pagis-google",
     "dep:pagis-plugin",
     "dep:pagis-plugins",
     "dep:pagis-software",
@@ -38,8 +40,8 @@ llm-router.workspace = true
 pagis-broker.workspace = true
 pagis-coding.workspace = true
 pagis-computer.workspace = true
-pagis-connect.workspace = true
-pagis-google.workspace = true
+pagis-connect = { workspace = true, optional = true }
+pagis-google = { workspace = true, optional = true }
 pagis-core.workspace = true
 pagis-needs-you.workspace = true
 pagis-plugin = { workspace = true, optional = true }

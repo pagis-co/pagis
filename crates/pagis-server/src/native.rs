@@ -2,17 +2,21 @@
 
 use crate::{AppState, RemoteAccessSwitch, RestartSwitch, SystemConfigFile};
 use crate::{
-    agents, calls, exit_socket, phone_numbers, plugins, session_socket, settings, software, voice,
-    widgets, ws,
+    agents, calls, connections, exit_socket, phone_numbers, plugins, session_socket, settings,
+    software, voice, widgets, ws,
 };
 use axum::{
     Router,
-    routing::{get, post, put},
+    routing::{delete, get, post, put},
 };
 use std::sync::Arc;
 
 /// The services that need the native feature.
 pub struct NativeState {
+    /// The connect flow: the one path that writes a Connection
+    /// row and takes it through the OAuth exchange.
+    pub connector: Arc<pagis_connect::Connector>,
+
     /// The calls that run right now. Listen-Live and hang up find the
     /// media hub of a live call here, under the Person's own Workspace.
     pub live_calls: Arc<pagis_telephony::LiveCalls>,
@@ -57,6 +61,22 @@ pub struct NativeState {
 
 pub(crate) fn product_routes() -> Router<Arc<AppState>> {
     Router::new()
+        .route(
+            "/api/v1/settings/connections/providers",
+            get(connections::list_connection_providers),
+        )
+        .route(
+            "/api/v1/settings/connections",
+            get(connections::list_connections).post(connections::create_connection),
+        )
+        .route(
+            "/api/v1/settings/connections/{connection_id}",
+            delete(connections::delete_connection),
+        )
+        .route(
+            "/api/v1/settings/connections/{connection_id}/authorize",
+            post(connections::authorize_connection),
+        )
         .route("/api/v1/calls/{call_id}/control", post(calls::control))
         .route("/api/v1/calls", get(calls::list_calls))
         .route("/api/v1/calls/{call_id}", get(calls::get_call))
@@ -131,9 +151,11 @@ pub(crate) fn product_routes() -> Router<Arc<AppState>> {
         .route("/api/v1/calls/{call_id}/listen", get(calls::listen))
 }
 
-/// The Plugin routes inside the Administration Port's guard layers.
-pub(crate) fn administration_routes() -> Router<Arc<AppState>> {
-    Router::new()
+/// The native routes inside the Administration Port's guard layers.
+pub(crate) fn administration_routes(
+    sections: crate::AdministrationSections,
+) -> Router<Arc<AppState>> {
+    let mut router = Router::new()
         // Which Plugins the Org holds, and what each one is bound to
         // (ADR-0017). A Person grants an installed Plugin to their own
         // Agent on the product port; installing one is the Org's.
@@ -156,12 +178,45 @@ pub(crate) fn administration_routes() -> Router<Arc<AppState>> {
         .route(
             "/api/v1/plugins/{plugin_id}/start",
             post(plugins::start_plugin),
-        )
+        );
+    if sections.contains(crate::AdministrationSection::Providers) {
+        router = router
+            .route(
+                "/api/v1/administration/providers/{provider}/{part}",
+                put(connections::configure_provider_part).delete(connections::remove_provider_part),
+            )
+            .route(
+                "/api/v1/administration/providers/{provider}/{part}/test",
+                post(connections::test_provider_part),
+            );
+    }
+    router
 }
 
-/// The public Sandbox Proxy holds no data of its own.
+/// The public routes of the Native Parts.
 pub(crate) fn public_routes() -> Router<Arc<AppState>> {
     Router::new()
+        // The start route of a Google authorization. It reads
+        // the Session itself: a browser with no Session goes to sign in
+        // and comes back, and only a Session of the Person who started
+        // the authorization gets the transaction cookie that binds the
+        // `state` to that browser, and the address at Google. A local
+        // installation with Remote Access off has one Person, and there
+        // any browser of the machine goes on with no Session.
+        .route(
+            "/api/v1/connections/google/start",
+            get(connections::google_start),
+        )
+        // Where Google redirects a person's browser after they consent.
+        // It holds no Session: the cookie is SameSite=Strict, so a
+        // browser sends none on a cross-site navigation. It finishes only
+        // for the browser that holds the transaction cookie of the
+        // `state`, while the Session that started the authorization is
+        // live, and only for the Google account of the Connection.
+        .route(
+            "/api/v1/connections/google/callback",
+            get(connections::google_callback),
+        )
         // The sandbox proxy: the proxy document holds no data of
         // its own.
         .route(
