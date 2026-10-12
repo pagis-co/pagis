@@ -1,6 +1,9 @@
 //! Typed ULID identifiers for durable records.
 
 use serde::{Deserialize, Serialize};
+use std::time::{Duration, UNIX_EPOCH};
+
+use crate::time::now_ms;
 
 /// Process-wide monotonic ULIDs: ids generated in the same millisecond
 /// still sort in generation order. Stores order and page by id, so
@@ -8,12 +11,13 @@ use serde::{Deserialize, Serialize};
 fn next_ulid() -> ulid::Ulid {
     static GENERATOR: std::sync::Mutex<Option<ulid::Generator>> = std::sync::Mutex::new(None);
     let mut guard = GENERATOR.lock().expect("ulid generator lock");
+    let now = UNIX_EPOCH + Duration::from_millis(now_ms() as u64);
     guard
         .get_or_insert_with(ulid::Generator::new)
-        .generate()
+        .generate_from_datetime(now)
         // The same-millisecond random part overflowed: a fresh random
         // ULID is still correct, just not ordered within this ms.
-        .unwrap_or_else(|_| ulid::Ulid::new())
+        .unwrap_or_else(|_| ulid::Ulid::from_datetime(now))
 }
 
 macro_rules! id_type {
