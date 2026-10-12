@@ -3,11 +3,10 @@
 //! the screen preview — a current frame while the computer is awake,
 //! the last screenshot while it sleeps.
 
-use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::Json;
-use axum::extract::{ConnectInfo, Path, State};
+use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use pagis_core::{
@@ -17,10 +16,10 @@ use pagis_core::{
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::AppState;
 use crate::auth::Tenant;
 use crate::error::ApiError;
 use crate::live_connections::LiveTenant;
+use crate::{AppState, Peer};
 use pagis_computer::{ComputerImageState, ComputerState};
 use pagis_core::{ComputerError, InputHolder};
 
@@ -910,7 +909,7 @@ pub struct ScreenIceBody {
 )]
 pub async fn screen_ice(
     State(state): State<Arc<AppState>>,
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    Peer(peer): Peer,
     headers: HeaderMap,
     _tenant: Tenant,
 ) -> Result<Json<ScreenIceBody>, ApiError> {

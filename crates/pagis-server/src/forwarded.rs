@@ -136,7 +136,7 @@ pub fn is_from_this_machine(peer: SocketAddr, headers: &HeaderMap) -> bool {
 /// until Remote Access is on again, whether the Funnel still runs or
 /// not.
 pub async fn refuse_other_machines(
-    axum::extract::ConnectInfo(peer): axum::extract::ConnectInfo<SocketAddr>,
+    crate::Peer(peer): crate::Peer,
     request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {

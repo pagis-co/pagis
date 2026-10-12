@@ -303,18 +303,11 @@ async fn run(flags: RunFlags) -> anyhow::Result<i32> {
     // The sign-in rate limiter counts attempts per source address, so
     // the connection's address reaches the handler.
     let stopping = CancellationToken::new();
-    let product = axum::serve(
-        listener,
-        interfaces
-            .product
-            .into_make_service_with_connect_info::<std::net::SocketAddr>(),
-    )
-    .with_graceful_shutdown(stopping.clone().cancelled_owned());
+    let product = axum::serve(listener, pagis::peer_service(interfaces.product))
+        .with_graceful_shutdown(stopping.clone().cancelled_owned());
     let administration = axum::serve(
         administration_listener,
-        interfaces
-            .administration
-            .into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        pagis::peer_service(interfaces.administration),
     )
     .with_graceful_shutdown(stopping.clone().cancelled_owned());
     // Both listeners belong to one process, so one of them stopping is

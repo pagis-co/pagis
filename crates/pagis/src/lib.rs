@@ -22,6 +22,7 @@ pub mod plugin_tools;
 pub mod retention;
 pub mod schedule_tools;
 mod secrets;
+mod serve;
 pub mod software_tools;
 mod spa;
 pub mod subscription_tools;
@@ -40,6 +41,7 @@ pub use config::{Administration, Config, Screen, Turn};
 pub use package::validate_server_package;
 pub use pair::{Pairing, pair};
 pub use secrets::{EncryptedFileSecretStore, platform_secret_store};
+pub use serve::peer_service;
 pub use spa::product_app_is_built;
 pub use system::{
     FileSystemConfig, taken_administration_port_message, taken_exit_port_message,
