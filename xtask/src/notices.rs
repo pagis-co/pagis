@@ -429,15 +429,15 @@ pub fn server_notices(root: &Path, crates_json: &str) -> Result<String> {
 }
 
 /// The notices of the Client App from `license_list`, the output of
-/// `pnpm licenses list --prod --json` for it. electron-builder puts the
-/// notices of Electron and of Chromium beside them, in
+/// `pnpm licenses list --prod --json` for it. electron-builder also puts
+/// the notices of Electron and of Chromium into the app, as
 /// `LICENSE.electron.txt` and `LICENSES.chromium.html`.
 pub fn client_notices(license_list: &str, accepted: &[String]) -> Result<String> {
     Ok(render(
         "the Pagis Client App",
         &[Part {
             title: "The npm packages of the Client App. LICENSE.electron.txt and \
-                    LICENSES.chromium.html beside this file hold the notices of \
+                    LICENSES.chromium.html in the app hold the notices of \
                     Electron and Chromium."
                 .into(),
             notices: package_notices(pnpm_packages(license_list)?, accepted)?,

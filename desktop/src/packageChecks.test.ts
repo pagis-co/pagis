@@ -295,7 +295,8 @@ describe('the inventory of the packaged app', () => {
     await createPackage(source, path.join(resources, 'app.asar'))
     fs.writeFileSync(path.join(resources, 'runtime-lock.json'), '{}')
     fs.writeFileSync(path.join(resources, 'app-update.yml'), 'owner: pagis-co\nrepo: pagis\nprovider: github\n')
-    writeNotices(resources)
+    fs.writeFileSync(path.join(resources, 'THIRD_PARTY_NOTICES'), 'THIRD_PARTY_NOTICES')
+    for (const name of ELECTRON_NOTICES) fs.writeFileSync(path.join(app, name), name)
     if (updateKey !== null) fs.writeFileSync(path.join(resources, 'update-key.pem'), updateKey)
     const packages = ['Pagis-1.2.3-x86_64.AppImage', 'Pagis-1.2.3-amd64.deb'].map((name) => path.join(root, name))
     for (const file of packages) fs.writeFileSync(file, 'package')
@@ -303,12 +304,15 @@ describe('the inventory of the packaged app', () => {
   }
 
   /** The notices of the npm packages, and the notices of Electron and
-   *  Chromium that electron-builder copies beside them. */
+   *  Chromium that electron-builder copies. On macOS they are all in
+   *  Resources. On Linux the notices of Electron and Chromium are beside
+   *  the executable. */
   function writeNotices(resources: string) {
     for (const name of NOTICES) fs.writeFileSync(path.join(resources, name), name)
   }
 
-  const NOTICES = ['THIRD_PARTY_NOTICES', 'LICENSE.electron.txt', 'LICENSES.chromium.html']
+  const ELECTRON_NOTICES = ['LICENSE.electron.txt', 'LICENSES.chromium.html']
+  const NOTICES = ['THIRD_PARTY_NOTICES', ...ELECTRON_NOTICES]
 
   const CONFIG = 'owner: pagis-co\nrepo: pagis\nprovider: github\nupdaterCacheDirName: pagis-desktop-updater\n'
 
@@ -331,6 +335,17 @@ describe('the inventory of the packaged app', () => {
     const { publicPem } = updateKeyPair()
 
     expect(check('check-package.mjs', await linuxApp(publicPem), repository(publicPem), pnpmEnvironment())).toBeNull()
+  })
+
+  it('refuses a Linux app with no notices of Electron and Chromium beside its executable', async () => {
+    const { publicPem } = updateKeyPair()
+    for (const name of ELECTRON_NOTICES) {
+      const [app, ...packages] = await linuxApp(publicPem)
+      fs.rmSync(path.join(app, name))
+
+      expect(check('check-package.mjs', [app, ...packages], repository(publicPem), pnpmEnvironment()), name)
+        .toContain(name)
+    }
   })
 
   it('refuses a Linux app with no Update Key, or with another key', async () => {
