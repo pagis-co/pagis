@@ -27,13 +27,14 @@ use pagis_core::{
 use tokio_util::sync::CancellationToken;
 
 use crate::brain::{
-    BrainError, ToolInvocation, TurnDelta, TurnEnd, TurnMessage, TurnRequest, TurnRole,
+    BrainError, ToolInvocation, TurnDelta, TurnEnd, TurnMessage, TurnRequest, TurnRole, TurnStream,
 };
 use crate::briefing::{Briefing, Colleague, Delegation, USER_DM, mail_tier_lines};
 use crate::computer_use::{self, ComputerCtx, Vocabulary};
 use crate::context_budget::{RequestBudget, RequestEstimate, estimate_message_tokens};
 use crate::memory::MemoryOverlay;
 use crate::model_call::{ModelCall, Outcome};
+use crate::model_call_gate::GateStop;
 use crate::model_catalog::ModelCatalog;
 use crate::progress;
 use crate::speaker::Speakers;
@@ -167,16 +168,21 @@ pub(crate) async fn fail(deps: &AgentDeps, run: &mut Run, kind: FailureKind, rea
     transition(deps, run, RunState::Failed, reason).await;
 }
 
+async fn gate_stopped(deps: &AgentDeps, run: &mut Run, stop: GateStop) -> RunOutcome {
+    post_notice(deps, run, &stop.note).await;
+    run.error = Some(stop.note.clone());
+    fail(deps, run, stop.failure_kind, &stop.note).await;
+    RunOutcome::Failed
+}
+
 /// What the conversation says when the model provider refused the
 /// installation's key.
 const REFUSED_KEY_NOTICE: &str = "The model provider refused this installation's API key, \
 so no reply came. An Administrator sets up the model providers in the Administration \
 Interface, under Providers.";
 
-/// Say in the conversation why the Run stopped, as a daemon notice: the
-/// Spend Cap, or a provider that refused the installation's key. An
-/// arrival Run has no Channel and writes nothing, as the restart note
-/// does.
+/// Say in the conversation why the Run stopped, as a system notice.
+/// An Arrival Run has no Channel and writes nothing.
 pub(crate) async fn post_notice(deps: &AgentDeps, run: &Run, text: &str) {
     let Some(channel_id) = run.channel_id.clone() else {
         return;
@@ -406,23 +412,6 @@ pub(crate) async fn execute(
             return RunOutcome::Failed;
         }
     };
-    // The Spend Cap is read before anything is asked of a model.
-    // A Run that would start over the cap, or on a model whose cost
-    // the cap cannot count, says so in the conversation and ends with
-    // a reason, rather than stopping in silence.
-    if let Some(stop) = crate::spend::cap_stop(
-        crate::spend::CapReads::of(&deps),
-        &run.workspace_id,
-        &model_candidates,
-    )
-    .await
-    {
-        let note = stop.note();
-        post_notice(&deps, &run, &note).await;
-        run.error = Some(note);
-        fail(&deps, &mut run, FailureKind::SpendCapReached, stop.reason()).await;
-        return RunOutcome::Failed;
-    }
     let snapshot = match deps
         .broker
         .prepare_run(&run.workspace_id, &agent.id, &run.id)
@@ -593,7 +582,10 @@ pub(crate) async fn execute(
         .await
         {
             Ok(request) => request,
-            Err(error) => {
+            Err(CompactionError::Gate(stop)) => {
+                return gate_stopped(&deps, &mut run, stop).await;
+            }
+            Err(CompactionError::Context(error)) => {
                 run.error = Some(error.clone());
                 fail(&deps, &mut run, FailureKind::ContextFailed, &error).await;
                 return RunOutcome::Failed;
@@ -838,6 +830,9 @@ pub(crate) async fn execute(
                     .await;
                     return RunOutcome::Failed;
                 }
+            }
+            Streamed::GateStopped(stop) => {
+                return gate_stopped(&deps, &mut run, stop).await;
             }
             Streamed::Canceled { text } => {
                 settle_reply(&deps, &run, &mut reply, MessageStatus::Failed, &text).await;
@@ -1137,6 +1132,19 @@ async fn execute_pending_review(
                 RunOutcome::Failed
             }
         },
+        Err(ReflectionEnd::GateStopped(stop)) => {
+            let _ = deps
+                .pending_evidence
+                .fail(
+                    &run.workspace_id,
+                    &run.id,
+                    pending.revision,
+                    &stop.note,
+                    deps.clock.now_ms(),
+                )
+                .await;
+            gate_stopped(deps, run, stop).await
+        }
         Err(ReflectionEnd::Canceled) => {
             let _ = deps
                 .pending_evidence
@@ -1803,6 +1811,7 @@ async fn execute_arrival(
         // The reflection is the whole work of an arrival run, so a
         // failed turn fails the run, and a backfill batch waits for a
         // Run again (ADR-0011).
+        Err(ReflectionEnd::GateStopped(stop)) => gate_stopped(deps, run, stop).await,
         Err(ReflectionEnd::ModelFailed(error)) => {
             run.error = Some(error.to_string());
             fail(
@@ -1959,6 +1968,7 @@ struct ReflectionState<'a> {
 enum ReflectionEnd {
     /// The run was canceled, and it commits nothing.
     Canceled,
+    GateStopped(GateStop),
     /// A model turn failed. The staged writes still commit, and the
     /// caller decides whether the run failed with it.
     ModelFailed(BrainError),
@@ -2026,6 +2036,7 @@ async fn reflect_and_commit(
             match collect_turn(deps, run, "reflection", phase_request, request, cancel).await {
                 Ok(finished) => finished,
                 Err(TurnError::Canceled) => return Err(ReflectionEnd::Canceled),
+                Err(TurnError::Gate(stop)) => return Err(ReflectionEnd::GateStopped(stop)),
                 Err(TurnError::Brain(err)) => {
                     tracing::warn!(error = %err, run_id = %run.id, "reflection turn failed");
                     model_failure = Some(err);
@@ -2661,6 +2672,7 @@ async fn rebase_subject_pages(
 
 enum TurnError {
     Canceled,
+    Gate(GateStop),
     Brain(BrainError),
 }
 
@@ -2679,23 +2691,26 @@ fn request_budget_error(request: &TurnRequest, models: &ModelCatalog) -> Option<
     }
 }
 
-/// One non-streaming-to-channel model turn: collect the text and tool
-/// calls without opening a reply message (reflection uses this).
-async fn collect_turn(
-    deps: &AgentDeps,
-    run: &Run,
-    phase: &str,
+/// Check the host's gate and the request budget, then start the model call.
+async fn call_model<'a>(
+    deps: &'a AgentDeps,
+    run: &'a Run,
+    phase: &'a str,
     phase_request: usize,
     request: TurnRequest,
     cancel: &CancellationToken,
-) -> Result<(String, Vec<ToolInvocation>), TurnError> {
+) -> Result<(ModelCall<'a>, TurnStream), TurnError> {
+    tokio::select! {
+        result = deps.gate.before_call(run, &request.model_candidates) => result.map_err(TurnError::Gate)?,
+        _ = cancel.cancelled() => return Err(TurnError::Canceled),
+    }
     let call = ModelCall::start(deps, run, phase, phase_request, request).await;
     if let Some(error) = request_budget_error(call.request(), &deps.models) {
         call.finish(Outcome::Rejected, Some(0), None, Some(&error))
             .await;
         return Err(TurnError::Brain(error));
     }
-    let mut stream = match tokio::select! {
+    let stream = match tokio::select! {
         started = deps.brain.turn(call.request().clone()) => started,
         _ = cancel.cancelled() => {
             call.finish(Outcome::Canceled, None, None, None).await;
@@ -2710,6 +2725,19 @@ async fn collect_turn(
             return Err(TurnError::Brain(error));
         }
     };
+    Ok((call, stream))
+}
+
+/// Collect the text and tool calls without opening a reply message.
+async fn collect_turn(
+    deps: &AgentDeps,
+    run: &Run,
+    phase: &str,
+    phase_request: usize,
+    request: TurnRequest,
+    cancel: &CancellationToken,
+) -> Result<(String, Vec<ToolInvocation>), TurnError> {
+    let (call, mut stream) = call_model(deps, run, phase, phase_request, request, cancel).await?;
 
     let mut text = String::new();
     let mut tool_calls = Vec::new();
@@ -3093,6 +3121,7 @@ fn request_message(
 }
 
 enum Streamed {
+    GateStopped(GateStop),
     Finished {
         text: String,
         tool_calls: Vec<ToolInvocation>,
@@ -3331,27 +3360,13 @@ async fn stream_turn(
 ) -> Streamed {
     let mut text = String::new();
     let mut tool_calls = Vec::new();
-    let call = ModelCall::start(deps, run, phase, phase_request, request).await;
-    if let Some(error) = request_budget_error(call.request(), &deps.models) {
-        call.finish(Outcome::Rejected, Some(0), None, Some(&error))
-            .await;
-        return Streamed::Errored { text, error };
-    }
-    let mut stream = match tokio::select! {
-        started = deps.brain.turn(call.request().clone()) => started,
-        _ = cancel.cancelled() => {
-            call.finish(Outcome::Canceled, None, None, None).await;
-            return Streamed::Canceled { text };
-        },
-    } {
-        Ok(stream) => stream,
-        Err(error) => {
-            let attempts = Some(error.model_attempts());
-            call.finish(Outcome::Failed, attempts, None, Some(&error))
-                .await;
-            return Streamed::Errored { text, error };
-        }
-    };
+    let (call, mut stream) =
+        match call_model(deps, run, phase, phase_request, request, cancel).await {
+            Ok(started) => started,
+            Err(TurnError::Gate(stop)) => return Streamed::GateStopped(stop),
+            Err(TurnError::Canceled) => return Streamed::Canceled { text },
+            Err(TurnError::Brain(error)) => return Streamed::Errored { text, error },
+        };
     let mut retries = None;
 
     loop {
@@ -3476,6 +3491,17 @@ struct CompactionMemorySettlement {
     revision: Option<String>,
 }
 
+enum CompactionError {
+    Context(String),
+    Gate(GateStop),
+}
+
+impl From<String> for CompactionError {
+    fn from(error: String) -> Self {
+        Self::Context(error)
+    }
+}
+
 async fn compact_for_request(
     deps: &AgentDeps,
     agent: &Agent,
@@ -3484,7 +3510,7 @@ async fn compact_for_request(
     transcript: &mut Vec<TurnMessage>,
     history: &mut HistoryState,
     cancel: &CancellationToken,
-) -> Result<TurnRequest, String> {
+) -> Result<TurnRequest, CompactionError> {
     request.model_candidates = deps
         .model_aliases
         .get_by_alias(&run.workspace_id, &agent.model_alias)
@@ -3566,10 +3592,10 @@ async fn compact_for_request(
     // alone exceeds the allowance stops the Run (ADR-0009).
     let after = RequestEstimate::of(&request, &deps.models).map_err(|error| error.to_string())?;
     if after.input_tokens > budget.input_allowance {
-        return Err(format!(
+        return Err(CompactionError::Context(format!(
             "active conversation context needs {} estimated input tokens after compaction, above the input allowance of {}; incomplete or unavailable tool evidence was kept",
             after.input_tokens, budget.input_allowance
-        ));
+        )));
     }
     Ok(request)
 }
@@ -3649,7 +3675,7 @@ async fn compact_durable_history(
     budget: &RequestBudget,
     before_tokens: u64,
     cancel: &CancellationToken,
-) -> Result<(), String> {
+) -> Result<(), CompactionError> {
     let mut kept_tokens = 0_u64;
     let mut keep = 0_usize;
     for turn in history.durable.iter().rev() {
@@ -3724,7 +3750,9 @@ async fn compact_durable_history(
         .await
         .map_err(|error| error.to_string())?;
     if !current_access.permits(&source_exposures) {
-        return Err("compaction source access changed before the model request".to_string());
+        return Err("compaction source access changed before the model request"
+            .to_string()
+            .into());
     }
     let memory_indexes = deps
         .memory
@@ -3754,19 +3782,26 @@ async fn compact_durable_history(
     let compaction_estimate = RequestEstimate::of(&compaction_request, &deps.models)
         .map_err(|error| error.to_string())?;
     if compaction_estimate.input_tokens > budget.input_allowance {
-        return Err(format!(
+        return Err(CompactionError::Context(format!(
             "compaction request needs {} estimated input tokens, above the safe limit of {}",
             compaction_estimate.input_tokens, budget.input_allowance
-        ));
+        )));
     }
     let (text, calls) = collect_turn(deps, run, "compaction", 0, compaction_request, cancel)
         .await
         .map_err(|error| match error {
-            TurnError::Canceled => "conversation compaction was canceled".to_string(),
-            TurnError::Brain(error) => format!("conversation compaction failed: {error}"),
+            TurnError::Gate(stop) => CompactionError::Gate(stop),
+            TurnError::Canceled => {
+                CompactionError::Context("conversation compaction was canceled".to_string())
+            }
+            TurnError::Brain(error) => {
+                CompactionError::Context(format!("conversation compaction failed: {error}"))
+            }
         })?;
     if !calls.is_empty() {
-        return Err("conversation compaction returned tool calls".into());
+        return Err("conversation compaction returned tool calls"
+            .to_string()
+            .into());
     }
     let output: CompactionOutput = serde_json::from_str(&text)
         .map_err(|error| format!("conversation compaction returned invalid output: {error}"))?;
@@ -3799,7 +3834,11 @@ async fn compact_durable_history(
         .await
         .map_err(|error| error.to_string())?;
     if !checkpoint_access.permits(&source_exposures) {
-        return Err("compaction source access changed before checkpoint settlement".to_string());
+        return Err(
+            "compaction source access changed before checkpoint settlement"
+                .to_string()
+                .into(),
+        );
     }
     for message_id in &source_message_ids {
         let source_is_live = match deps.messages.get(&run.workspace_id, message_id).await {
@@ -3813,7 +3852,9 @@ async fn compact_durable_history(
             _ => false,
         };
         if !source_is_live {
-            return Err("compaction source changed before checkpoint settlement".to_string());
+            return Err("compaction source changed before checkpoint settlement"
+                .to_string()
+                .into());
         }
     }
 

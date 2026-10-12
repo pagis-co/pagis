@@ -100,8 +100,18 @@ for each provider, and each Person chooses what to think with.
 
 A Spend Cap is what one Person may spend on model calls in a calendar month of
 their Workspace timezone, in US dollars. A Person with no cap is never
-stopped. A Run that would start over the cap stops before any model call, and
-the conversation says so in one sentence.
+stopped. A Run checks the Spend Cap before each model call, in its first
+Turn and in each later Turn. It stops before the call that would go over
+the cap, or use a model with no known price. It ends `failed` with
+`SpendCapReached`. Its earlier replies stay in the conversation, and a
+note says why it stopped. The Harness Model Endpoint makes the same check
+before each model request of a Coding Session.
+
+Each model call of a Run goes through one function that asks the host's
+`ModelCallGate` first. `AgentDeps` holds the gate. The daemon uses
+`SpendCapGate`, which reads the current Spend Cap and Usage Records with
+`cap_stop`. A test or another host supplies its own gate. A gate stop
+carries the conversation note and the Run's `FailureKind`.
 
 ### The Session is the only way in
 

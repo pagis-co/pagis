@@ -90,11 +90,7 @@ pub struct AgentDeps {
     pub messages: Arc<dyn MessageStore>,
     pub runs: Arc<dyn RunStore>,
     pub model_aliases: Arc<dyn ModelAliasStore>,
-    /// The people of the installation. The agent loop reads one
-    /// to find the Person's monthly Spend Cap.
-    pub users: Arc<dyn pagis_core::UserStore>,
-    /// What each model call spent. The loop writes one row per
-    /// call and reads the month's total back for the Spend Cap.
+    /// What each model call spent. The loop writes one Usage Record per call.
     pub usage: Arc<dyn pagis_core::UsageStore>,
     /// The live Model Request Capture setting (ADR-0031).
     pub capture: Arc<pagis_core::CaptureSetting>,
@@ -125,6 +121,8 @@ pub struct AgentDeps {
     pub computers: Arc<pagis_computer::ComputerManagers>,
     pub bus: Arc<dyn EventBus>,
     pub brain: Arc<dyn Brain>,
+    /// The host's check before each model call.
+    pub gate: Arc<dyn crate::ModelCallGate>,
     /// The Provider Model Lists, which give the context budget and the
     /// Spend Cap the metadata of a model the table does not know.
     pub models: Arc<crate::ModelCatalog>,
