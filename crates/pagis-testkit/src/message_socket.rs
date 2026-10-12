@@ -1,70 +1,12 @@
-//! A bounded pair of message sockets. No listener or byte encoding is used.
+//! Client transports for TCP sockets and in-memory MessageSockets.
 
 use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll};
 
-use futures::channel::mpsc;
 use futures::{Sink, SinkExt, Stream, StreamExt};
-use pagis_server::{CloseFrame, Message, MessageSocket};
+use pagis_server::fake::{MemorySocket, message_socket_pair};
+use pagis_server::{CloseFrame, Message};
 use tokio_tungstenite::tungstenite::{self, Message as ClientMessage};
-
-/// One end of an in-memory pair. Each direction holds at most 32 frames
-/// plus the sender's reserved frame. A full direction applies backpressure.
-pub struct MemorySocket {
-    incoming: mpsc::Receiver<Message>,
-    outgoing: mpsc::Sender<Message>,
-}
-
-/// Two message sockets that send each frame to the other end.
-pub fn message_socket_pair() -> (MemorySocket, MemorySocket) {
-    let (a_send, b_receive) = mpsc::channel(32);
-    let (b_send, a_receive) = mpsc::channel(32);
-    (
-        MemorySocket {
-            incoming: a_receive,
-            outgoing: a_send,
-        },
-        MemorySocket {
-            incoming: b_receive,
-            outgoing: b_send,
-        },
-    )
-}
-
-impl Stream for MemorySocket {
-    type Item = Result<Message, mpsc::SendError>;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        Pin::new(&mut self.incoming)
-            .poll_next(cx)
-            .map(|frame| frame.map(Ok))
-    }
-}
-
-impl Sink<Message> for MemorySocket {
-    type Error = mpsc::SendError;
-
-    fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Pin::new(&mut self.outgoing).poll_ready(cx)
-    }
-
-    fn start_send(mut self: Pin<&mut Self>, frame: Message) -> Result<(), Self::Error> {
-        Pin::new(&mut self.outgoing).start_send(frame)
-    }
-
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Pin::new(&mut self.outgoing).poll_flush(cx)
-    }
-
-    fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Pin::new(&mut self.outgoing).poll_close(cx)
-    }
-}
-
-impl MessageSocket for MemorySocket {
-    type SocketError = mpsc::SendError;
-}
 
 /// The client frame API shared by the TCP and in-memory test transports.
 pub trait ClientTransport:
@@ -94,7 +36,7 @@ pub(crate) fn client_socket(socket: MemorySocket) -> Socket {
     )
 }
 
-fn channel_error(error: mpsc::SendError) -> tungstenite::Error {
+fn channel_error(error: futures::channel::mpsc::SendError) -> tungstenite::Error {
     tungstenite::Error::Io(std::io::Error::new(std::io::ErrorKind::BrokenPipe, error))
 }
 

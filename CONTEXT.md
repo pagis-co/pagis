@@ -151,8 +151,10 @@ separated. The Home Exit and the exit socket belong to Computers.
 Without Computers, the Onboarding status holds `docker: null`, and the
 Product App skips its Computer step. The live events drop Host frames
 without `native` and keep Channel events. `pagis-server` builds on
-`wasm32-unknown-unknown`. Tests of the Agent routes give the routers
-requests with no listener on native targets and under Node (ADR-0038).
+`wasm32-unknown-unknown`. Tests of the Agent and conversation routes give
+the routers requests with no listener on native targets and under Node.
+Live event tests use the in-memory pair of `MessageSocket`s in
+`pagis-server::fake` (ADR-0038).
 
 ### Onboarding
 The first steps the Product App shows a new Local Installation: welcome,

@@ -26,6 +26,15 @@ pub struct Embedder {
 
 impl Embedder {
     pub async fn new() -> Self {
+        let services = Arc::new(UnusedServices);
+        Self::with_model(services.clone(), services.clone(), services).await
+    }
+
+    pub async fn with_model(
+        brain: Arc<dyn pagis_agent::Brain>,
+        executor: Arc<dyn ToolExecutor>,
+        gate: Arc<dyn pagis_agent::ModelCallGate>,
+    ) -> Self {
         let database = FakeDatabase::default();
         let stores = database.stores();
         let person = seed_org_and_administrator(
@@ -87,7 +96,10 @@ impl Embedder {
             runs: stores.runs.clone(),
             conversation_evidence: stores.conversation_evidence.clone(),
             bus: bus.clone(),
-            executor: services.clone(),
+            executor: Arc::new(RouteExecutor {
+                core: runtime.clone(),
+                external: executor,
+            }),
             phone_numbers: stores.phone_numbers.clone(),
             mailboxes: stores.agent_mailboxes.clone(),
             hosts: stores.hosts.clone(),
@@ -127,8 +139,8 @@ impl Embedder {
             skills,
             computers: services.clone(),
             bus: bus.clone(),
-            brain: services.clone(),
-            gate: services.clone(),
+            brain,
+            gate,
             models: Arc::new(pagis_agent::ModelCatalog::new(keys.clone())),
             broker: broker.clone(),
             tool_runtime: runtime,
@@ -381,5 +393,23 @@ impl pagis_needs_you::NotificationSender for UnusedServices {
         _: pagis_push::Options,
     ) -> pagis_push::Outcome {
         panic!("the route needs no Notification")
+    }
+}
+
+/// Core tools use the real runtime; outside calls use the test service.
+struct RouteExecutor {
+    core: Arc<CoreToolRuntime>,
+    external: Arc<dyn ToolExecutor>,
+}
+
+#[async_trait::async_trait]
+impl ToolExecutor for RouteExecutor {
+    async fn execute(&self, call: AuthorizedCall) -> ToolResult {
+        match call.route {
+            pagis_broker::ToolRoute::Core { .. } | pagis_broker::ToolRoute::Ui { .. } => {
+                self.core.execute(call).await
+            }
+            _ => self.external.execute(call).await,
+        }
     }
 }
