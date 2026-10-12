@@ -309,10 +309,14 @@ export function NewSprite({
             </p>
             <Textarea
               aria-label="Sprite personality"
+              aria-describedby="new-sprite-personality-hint"
               placeholder="Personality"
               value={draft.personality}
               onChange={(event) => patch({ personality: event.target.value })}
             />
+            <p id="new-sprite-personality-hint" className="settings-hint">
+              Your sprite always says that it is an AI when someone asks.
+            </p>
             <VoicePicker api={api} value={draft.voice} onChange={(voice) => patch({ voice })} />
           </>
         )}

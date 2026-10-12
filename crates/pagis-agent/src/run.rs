@@ -569,6 +569,20 @@ pub(crate) async fn execute(
                     &mut overlay,
                 )
                 .await;
+                let prompt = match prompt {
+                    Ok(prompt) => prompt,
+                    Err(error) => {
+                        run.error = Some(error.to_string());
+                        fail(
+                            &deps,
+                            &mut run,
+                            FailureKind::ContextFailed,
+                            &error.to_string(),
+                        )
+                        .await;
+                        return RunOutcome::Failed;
+                    }
+                };
                 format!(
                     "{prompt}\n\n{}",
                     turn_budget_note(turn, deps.config.max_turns)
@@ -2013,7 +2027,11 @@ async fn reflect_and_commit(
             model_candidates: model_candidates.to_vec(),
             system: {
                 let mut overlay = overlay.lock().await;
-                system_prompt(deps, ctx, &mut overlay).await
+                system_prompt(deps, ctx, &mut overlay)
+                    .await
+                    .map_err(|error| {
+                        ReflectionEnd::ModelFailed(BrainError::new(error.to_string()))
+                    })?
             },
             messages: transcript.clone(),
             tools: memory_tools.clone(),
@@ -5481,7 +5499,7 @@ async fn system_prompt(
     deps: &AgentDeps,
     ctx: &RunContext<'_>,
     overlay: &mut MemoryOverlay,
-) -> String {
+) -> Result<String, pagis_core::StoreError> {
     let RunContext {
         agent,
         run,
@@ -5490,9 +5508,16 @@ async fn system_prompt(
         software_packages,
         ..
     } = *ctx;
+    let person = pagis_core::honesty::person_name(
+        deps.workspaces.as_ref(),
+        deps.users.as_ref(),
+        &run.workspace_id,
+    )
+    .await?;
+    let honesty = pagis_core::honesty::render(&agent.name, &person);
     let identity = format!(
-        "You are {name}, one of the user's sprites. Your job: {job}. \
-         Your personality: {personality}. Reply in markdown.",
+        "You are {name}, one of the user's sprites. Your job: {job}.\n\n\
+         {honesty}\n\nYour personality: {personality}. Reply in markdown.",
         name = agent.name,
         job = agent.job,
         personality = agent.personality,
@@ -5502,7 +5527,9 @@ async fn system_prompt(
         &owner_timezone(deps, &run.workspace_id).await,
     );
     let Ok(access) = memory_access(deps, agent).await else {
-        return format!("{identity}\n\n[memory access is unavailable]\n\n{date}");
+        return Ok(format!(
+            "{identity}\n\n[memory access is unavailable]\n\n{date}"
+        ));
     };
     let (shared, private, revision) = match overlay
         .indexes(&deps.memory, &run.workspace_id, &access)
@@ -5524,7 +5551,7 @@ async fn system_prompt(
     } else {
         String::new()
     };
-    format!(
+    Ok(format!(
         "{identity}\n\n\
          {briefing}\n\n\
          {envelope}\n\n\
@@ -5574,7 +5601,7 @@ async fn system_prompt(
         } else {
             format!("\n\n{brief}")
         },
-    )
+    ))
 }
 
 async fn memory_brief(

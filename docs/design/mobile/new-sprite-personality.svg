@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="780" height="1688" viewBox="0 0 390 844">
+  <rect width="390" height="844" fill="#cfceca"/>
+  <path d="M12 57H378Q390 57 390 69V844H0V69Q0 57 12 57" fill="#fbfaf8"/>
+  <rect x="177" y="65" width="36" height="5" rx="2.5" fill="#cfcbc3"/>
+  <g font-family="Inter, Helvetica, Arial, sans-serif" font-size="15" fill="#272521">
+    <text x="16" y="101" fill="#5b49c0">Cancel</text>
+    <text x="195" y="101" text-anchor="middle" font-weight="600">Personality and voice</text>
+    <text x="374" y="101" text-anchor="end" fill="#5b49c0" font-weight="600">Done</text>
+    <path d="M24 137l-5 5 5 5" fill="none" stroke="#5b49c0" stroke-width="1.5"/>
+    <text x="31" y="147" fill="#5b49c0">New sprite</text>
+    <text x="16" y="185" font-weight="600" fill="#625d55">Personality</text>
+    <rect x="16" y="197" width="358" height="110" rx="6" fill="#fbfaf8" stroke="#8a857c"/>
+    <text x="28" y="224">Warm, plainspoken, and practical.</text>
+    <g font-size="13" fill="#625d55">
+      <text x="16" y="331">Your sprite always says that it is an AI when</text>
+      <text x="16" y="350">someone asks.</text>
+    </g>
+    <rect x="16" y="376" width="358" height="44" rx="6" fill="#fbfaf8" stroke="#8a857c"/>
+    <text x="28" y="404">Default voice (Alloy)</text>
+    <path d="M350 395l5 5 5-5" fill="none" stroke="#625d55" stroke-width="1.5"/>
+  </g>
+  <path d="M0 117H390" stroke="#dedbd5"/>
+</svg>

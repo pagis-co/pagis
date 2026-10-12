@@ -49,6 +49,8 @@ pub trait InboundRuns: Send + Sync {
 pub struct InboundCallsDeps {
     pub numbers: Arc<dyn PhoneNumberStore>,
     pub agents: Arc<dyn AgentStore>,
+    pub workspaces: Arc<dyn pagis_core::WorkspaceStore>,
+    pub users: Arc<dyn pagis_core::UserStore>,
     pub runs: Arc<dyn InboundRuns>,
     pub run_tools: Arc<dyn RunTools>,
     pub run_records: Arc<dyn RunStore>,
@@ -292,8 +294,16 @@ impl InboundCalls {
             .free_tools(&run.workspace_id, &run.id)
             .await
             .map_err(InboundError)?;
+        let person_name = pagis_core::honesty::person_name(
+            self.deps.workspaces.as_ref(),
+            self.deps.users.as_ref(),
+            &run.workspace_id,
+        )
+        .await
+        .map_err(|error| InboundError(error.to_string()))?;
         let brief = CallBrief::inbound(
             agent,
+            &person_name,
             number,
             &incoming.from_e164,
             TrustTier::Unknown,

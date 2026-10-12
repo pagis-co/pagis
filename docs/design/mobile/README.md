@@ -42,6 +42,7 @@ count of the Needs-You Queue.
 | A conversation with a choice card | [conversation.png](conversation.png) |
 | New group sheet | [new-group.png](new-group.png) |
 | New sprite sheet | [new-sprite.png](new-sprite.png) |
+| New sprite, personality and voice | [new-sprite-personality.png](new-sprite-personality.png) |
 | Sprite profile | [sprite-profile.png](sprite-profile.png) |
 | Sprite access | [sprite-access.png](sprite-access.png) |
 | Sprite access to one connection | [sprite-access-connection.png](sprite-access-connection.png) |

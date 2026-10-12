@@ -155,10 +155,14 @@ export function NewSpriteSheet({
               <label htmlFor="new-sprite-personality">Personality</label>
               <Textarea
                 id="new-sprite-personality"
+                aria-describedby="new-sprite-personality-hint"
                 rows={4}
                 value={draft.personality}
                 onChange={(event) => onChange({ personality: event.target.value })}
               />
+              <p id="new-sprite-personality-hint" className="settings-hint">
+                Your sprite always says that it is an AI when someone asks.
+              </p>
             </div>
             <VoicePicker api={api} value={draft.voice} onChange={(voice) => onChange({ voice })} />
           </>

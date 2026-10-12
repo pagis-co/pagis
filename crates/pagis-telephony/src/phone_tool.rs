@@ -54,6 +54,8 @@ pub trait RunTools: Send + Sync {
 pub struct PhoneToolDeps {
     pub desk: Arc<NumberDesk>,
     pub agents: Arc<dyn AgentStore>,
+    pub workspaces: Arc<dyn pagis_core::WorkspaceStore>,
+    pub users: Arc<dyn pagis_core::UserStore>,
     pub runs: Arc<dyn RunTools>,
     /// The Run record, for the Thread the call was sent from.
     pub run_records: Arc<dyn RunStore>,
@@ -168,7 +170,15 @@ impl PhoneToolRuntime {
         )
         .await
         .map_err(unavailable)?;
-        let brief = CallBrief::outbound(&agent, &number, &arguments, tier, free_tools);
+        let person_name = pagis_core::honesty::person_name(
+            self.deps.workspaces.as_ref(),
+            self.deps.users.as_ref(),
+            &call.workspace_id,
+        )
+        .await
+        .map_err(unavailable)?;
+        let brief =
+            CallBrief::outbound(&agent, &person_name, &number, &arguments, tier, free_tools);
         let tools = session_tools(&brief, self.deps.transport.capabilities(), None);
         let placed = PlacedCall {
             id: CallId::generate(),

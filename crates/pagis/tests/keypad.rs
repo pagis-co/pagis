@@ -76,6 +76,8 @@ fn call_log(daemon: &TestDaemon) -> CallLog {
             direction: CallDirection::Inbound,
             agent_id: AgentId::from(daemon.agent_id.clone()),
             agent_name: "Robin".to_string(),
+            person_name: "Sam".to_string(),
+            personality: "warm".to_string(),
             voice: None,
             phone_number_id: PhoneNumberId::generate(),
             own_e164: "+14155550123".to_string(),

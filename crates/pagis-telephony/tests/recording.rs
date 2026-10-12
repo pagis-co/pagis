@@ -385,6 +385,8 @@ impl World {
                 direction: CallDirection::Inbound,
                 agent_id: self.agent.id.clone(),
                 agent_name: self.agent.name.clone(),
+                person_name: "Sam".to_string(),
+                personality: "warm".to_string(),
                 voice: self.agent.voice.clone(),
                 phone_number_id: self.number_id.clone(),
                 own_e164: OWN.to_string(),

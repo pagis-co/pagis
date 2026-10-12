@@ -426,6 +426,8 @@ impl World {
         let inbound = Arc::new(InboundCalls::new(InboundCallsDeps {
             numbers: Arc::clone(&numbers) as _,
             agents: Arc::clone(&agents) as _,
+            workspaces: Arc::new(SqliteWorkspaceStore::new(pool.clone())),
+            users: Arc::new(pagis_storage_sqlite::SqliteUserStore::new(pool.clone())),
             runs: Arc::clone(&runs) as _,
             run_tools: Arc::new(NoTools),
             run_records: Arc::clone(&run_store) as _,
@@ -1035,6 +1037,8 @@ impl World {
                 direction: CallDirection::Outbound,
                 agent_id: person.agent_id.clone(),
                 agent_name: "Robin".to_string(),
+                person_name: "Sam".to_string(),
+                personality: "warm".to_string(),
                 voice: Some("marin".to_string()),
                 phone_number_id: number.id.clone(),
                 own_e164: number.e164.clone(),

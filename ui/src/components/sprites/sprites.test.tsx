@@ -221,6 +221,7 @@ async function walkToAccess(name = "Rex", job = "researcher", hue?: string) {
     target: { value: "Ask Rex to look things up." },
   });
   fireEvent.click(screen.getByText("Next"));
+  expect(screen.getByText("Your sprite always says that it is an AI when someone asks.")).toBeTruthy();
   fireEvent.change(await screen.findByLabelText("Sprite personality"), {
     target: { value: "curious" },
   });
