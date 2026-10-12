@@ -1,6 +1,6 @@
 //! The memory seam: scoped paths, the run changeset, and the
-//! `MemoryStore` trait. The git implementation lives in `pagis-memory`;
-//! a hosted backend implements the same trait later.
+//! `MemoryStore` trait. The git implementation lives in `pagis-memory-git`;
+//! `pagis-testkit` supplies an in-memory implementation of the same trait.
 
 use std::collections::{BTreeMap, BTreeSet};
 

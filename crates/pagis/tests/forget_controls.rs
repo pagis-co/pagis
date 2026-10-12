@@ -266,7 +266,7 @@ struct Change<'a> {
 /// publishes it. The answer is the commit.
 async fn commit_with_entry(
     daemon: &TestDaemon,
-    memory: &pagis_memory::GitMemoryStore,
+    memory: &pagis_memory_git::GitMemoryStore,
     access: &MemoryAccess,
     parent: Option<&str>,
     change: Change<'_>,
@@ -384,7 +384,7 @@ async fn the_learning_feed_lists_the_pages_that_stay_after_a_forget() {
         .create(&grant)
         .await
         .unwrap();
-    let memory = pagis_memory::GitMemoryStore::new(
+    let memory = pagis_memory_git::GitMemoryStore::new(
         daemon.booted.home.join("memory"),
         Arc::new(SqliteForgetStore::new(pool.clone())),
         Arc::new(SqliteMemoryPageIndex::new(pool.clone())),

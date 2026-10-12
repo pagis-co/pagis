@@ -131,6 +131,7 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
         xtask::WASM_CRATES,
         &[
             ("pagis-core", &["wasm"][..]),
+            ("pagis-memory", &["rules"][..]),
             ("llm-router", &["rt", "realtime_host"][..]),
             ("pagis-broker", &["rules_wasm"][..]),
             ("pagis-rt", &["rt"][..]),
@@ -139,7 +140,7 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
     );
     let root = workspace_root();
     let cmds = wasm32_commands(&root);
-    assert_eq!(cmds.len(), 7);
+    assert_eq!(cmds.len(), 8);
     assert_eq!(
         cargo_arguments(&cmds[0]),
         [
@@ -148,6 +149,8 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
             "wasm32-unknown-unknown",
             "-p",
             "pagis-core",
+            "-p",
+            "pagis-memory",
             "-p",
             "llm-router",
             "-p",
@@ -163,6 +166,7 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
     );
     let expected = [
         ("pagis-core", "wasm"),
+        ("pagis-memory", "rules"),
         ("llm-router", "rt"),
         ("llm-router", "realtime_host"),
         ("pagis-broker", "rules_wasm"),

@@ -9,7 +9,7 @@
 //! previous state, so the two states have a diff.
 //!
 //! `git2` is a blocking C library, so every call runs inside
-//! `spawn_blocking`, as `pagis-memory` and `pagis-software` do.
+//! `spawn_blocking`, as `pagis-memory-git` and `pagis-software` do.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

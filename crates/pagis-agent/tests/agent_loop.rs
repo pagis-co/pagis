@@ -359,6 +359,20 @@ async fn boot(pool: SqlitePool, config: AgentLoopConfig) -> Loop {
     boot_watching_writes(pool, config, |messages| messages as Arc<dyn MessageStore>).await
 }
 
+/// Boot the loop for tests that inspect git storage.
+async fn boot_with_git(pool: SqlitePool) -> Loop {
+    boot_as(
+        pool,
+        AgentLoopConfig::default(),
+        |messages| messages as Arc<dyn MessageStore>,
+        false,
+        None,
+        None,
+        true,
+    )
+    .await
+}
+
 /// Boot the loop with the message store the run writes through wrapped,
 /// so a test can watch the order of those writes. The harness keeps the
 /// SQLite store itself for reads.
@@ -366,7 +380,7 @@ async fn boot_watching_writes<F>(pool: SqlitePool, config: AgentLoopConfig, wrap
 where
     F: FnOnce(Arc<SqliteMessageStore>) -> Arc<dyn MessageStore>,
 {
-    boot_as(pool, config, wrap, false, None, None).await
+    boot_as(pool, config, wrap, false, None, None, false).await
 }
 
 /// Boot the loop as a Server, whose Agent's Computer names the exit
@@ -380,6 +394,7 @@ async fn boot_on_server(pool: SqlitePool) -> Loop {
         true,
         None,
         None,
+        false,
     )
     .await
 }
@@ -391,6 +406,7 @@ async fn boot_as<F>(
     server: bool,
     model: Option<Arc<dyn pagis_agent::Brain>>,
     gate: Option<Arc<dyn pagis_agent::ModelCallGate>>,
+    git_memory: bool,
 ) -> Loop
 where
     F: FnOnce(Arc<SqliteMessageStore>) -> Arc<dyn MessageStore>,
@@ -449,13 +465,18 @@ where
     let runs = Arc::new(SqliteRunStore::new(pool.clone()));
     let requests = Arc::new(SqliteRequestStore::new(pool.clone()));
     let memory_root = Arc::new(tempfile::tempdir().expect("memory root"));
-    let memory: Arc<dyn pagis_core::MemoryStore> = Arc::new(pagis_memory::GitMemoryStore::new(
-        memory_root.path(),
-        Arc::new(pagis_storage_sqlite::SqliteForgetStore::new(pool.clone())),
-        std::sync::Arc::new(pagis_storage_sqlite::SqliteMemoryPageIndex::new(
-            pool.clone(),
-        )),
-    ));
+    let forget = Arc::new(pagis_storage_sqlite::SqliteForgetStore::new(pool.clone()));
+    let memory: Arc<dyn pagis_core::MemoryStore> = if git_memory {
+        Arc::new(pagis_memory_git::GitMemoryStore::new(
+            memory_root.path(),
+            forget,
+            Arc::new(pagis_storage_sqlite::SqliteMemoryPageIndex::new(
+                pool.clone(),
+            )),
+        ))
+    } else {
+        Arc::new(pagis_testkit::FakeMemoryStore::new(forget))
+    };
     let computer_runtime = Arc::new(pagis_computer::fake::FakeComputerRuntime::with_image());
     let skills = Arc::new(ScriptedSkills::default());
     let screens = Arc::new(tempfile::tempdir().expect("screens dir"));
@@ -771,6 +792,7 @@ async fn two_runs_of_one_person_send_one_opaque_id_and_another_person_sends_anot
         false,
         Some(brain),
         None,
+        false,
     )
     .await;
     let aliases = pagis_storage_sqlite::SqliteModelAliasStore::new(pool.clone());
@@ -2018,6 +2040,7 @@ async fn a_host_model_call_gate_receives_the_run_and_route_and_keeps_its_failure
         false,
         None,
         Some(Arc::clone(&gate) as _),
+        false,
     )
     .await;
     harness.brain.push(Script::tool_call(
@@ -4740,7 +4763,7 @@ async fn a_reply_prompt_requires_a_memory_search_before_a_denial(pool: SqlitePoo
 
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
 async fn a_work_turn_memory_write_commits_at_run_end_and_a_fresh_run_recalls_it(pool: SqlitePool) {
-    let harness = boot(pool, AgentLoopConfig::default()).await;
+    let harness = boot_with_git(pool).await;
     harness.brain.push(Script::tool_call(
         &[],
         "memory_write",
@@ -5616,7 +5639,7 @@ async fn a_memory_commit_names_the_reply_its_run_settled(pool: SqlitePool) {
 
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
 async fn foreground_settles_memory_with_the_right_commit_identity(pool: SqlitePool) {
-    let harness = boot(pool, AgentLoopConfig::default()).await;
+    let harness = boot_with_git(pool).await;
     harness.brain.push(Script::tool_call(
         &[],
         "memory_write",
@@ -5988,7 +6011,7 @@ async fn a_foreground_write_settles_without_a_reflection_turn(pool: SqlitePool) 
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
 async fn a_foreground_commit_failure_is_visible_and_claims_no_success(pool: SqlitePool) {
     let log = SqliteEventLog::new(pool.clone());
-    let harness = boot(pool, AgentLoopConfig::default()).await;
+    let harness = boot_with_git(pool).await;
     harness.brain.push(Script::tool_call(
         &[],
         "memory_write",
@@ -6107,11 +6130,16 @@ async fn a_run_with_nothing_to_record_commits_nothing(pool: SqlitePool) {
     next_state(&mut events, "completed").await;
     assert_eq!(harness.brain.requests().len(), 1);
     assert!(
-        !harness
-            .memory_root
-            .path()
-            .join(harness.workspace.id.as_str())
-            .exists()
+        harness
+            .memory
+            .load_indexes(
+                &harness.workspace.id,
+                &pagis_core::MemoryAccess::agent(harness.agent.id.clone(), [])
+            )
+            .await
+            .unwrap()
+            .revision
+            .is_none()
     );
 }
 

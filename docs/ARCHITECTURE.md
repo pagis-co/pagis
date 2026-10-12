@@ -201,6 +201,11 @@ Agent and one shared directory for the Workspace. Subject Pages keep the
 arrivals of one matter, and fact files state one thing each. A Page Index
 and a full-text index are derived from the files (ADR-0008).
 
+`pagis-memory` holds the memory rules as values with no git dependency.
+`pagis-memory-git` implements `MemoryStore` and owns git storage, repacks,
+and the repository rebuild after a Forget. Both it and the in-memory
+`FakeMemoryStore` in `pagis-testkit` run `memory_suite!`.
+
 Memory changes on three paths (ADR-0010). A reply commits the memory change
 it staged, with no second model phase. A compaction proposes memory changes
 beside its Continuation Record (ADR-0009). Reflection reviews selected

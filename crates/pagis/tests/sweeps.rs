@@ -260,7 +260,7 @@ impl World {
             agents: stores.agents.clone(),
             google: google.clone(),
             trigger: trigger.clone(),
-            memory: Arc::new(pagis_memory::GitMemoryStore::new(
+            memory: Arc::new(pagis_memory_git::GitMemoryStore::new(
                 home.path().join("memory"),
                 stores.forget.clone(),
                 stores.memory_pages.clone(),

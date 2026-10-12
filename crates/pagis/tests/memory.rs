@@ -499,7 +499,7 @@ async fn memory_controls_hide_revoked_sources_and_reject_restore() {
         revoked_at: None,
     };
     grants.create(&grant).await.unwrap();
-    let memory = pagis_memory::GitMemoryStore::new(
+    let memory = pagis_memory_git::GitMemoryStore::new(
         daemon.booted.home.join("memory"),
         std::sync::Arc::new(pagis_storage_sqlite::SqliteForgetStore::new(
             daemon.pool().clone(),
@@ -1077,7 +1077,7 @@ async fn a_second_workspaces_memory_search_is_populated_after_a_boot() {
         .id;
     let agent_b = pagis_core::AgentId::generate();
     let revision = {
-        let memory = pagis_memory::GitMemoryStore::new(
+        let memory = pagis_memory_git::GitMemoryStore::new(
             daemon.booted.home.join("memory"),
             std::sync::Arc::new(pagis_storage_sqlite::SqliteForgetStore::new(
                 daemon.pool().clone(),

@@ -1696,6 +1696,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "abd57806937c9cc163efc8ea3910e00a62e2aeb0b8119f1793a978088f8f6b04"
 
 [[package]]
+name = "diffy"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3e3dc2f773b6aaa63b1a7684b8589f670a8a0146a510b74d23a401c882364b49"
+dependencies = [
+ "hashbrown 0.17.1",
+]
+
+[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4388,7 +4397,7 @@ dependencies = [
  "pagis-knowledge",
  "pagis-mail",
  "pagis-mcp-fixture",
- "pagis-memory",
+ "pagis-memory-git",
  "pagis-plugin",
  "pagis-plugins",
  "pagis-push",
@@ -4441,7 +4450,7 @@ dependencies = [
  "pagis-computer",
  "pagis-core",
  "pagis-knowledge",
- "pagis-memory",
+ "pagis-memory-git",
  "pagis-rt",
  "pagis-storage-sqlite",
  "pagis-testkit",
@@ -4746,14 +4755,23 @@ dependencies = [
 name = "pagis-memory"
 version = "0.3.0"
 dependencies = [
+ "pagis-core",
+ "serde",
+ "wasm-bindgen-test",
+]
+
+[[package]]
+name = "pagis-memory-git"
+version = "0.3.0"
+dependencies = [
  "async-trait",
  "git2",
  "hex",
  "pagis-core",
- "serde",
+ "pagis-memory",
+ "pagis-testkit",
  "serde_json",
  "tempfile",
- "thiserror 2.0.20",
  "tokio",
  "tracing",
 ]
@@ -5022,6 +5040,7 @@ dependencies = [
  "chromiumoxide",
  "chrono",
  "chrono-tz",
+ "diffy",
  "futures",
  "llm-router",
  "pagis",
@@ -5036,6 +5055,7 @@ dependencies = [
  "pagis-google",
  "pagis-mail",
  "pagis-memory",
+ "pagis-memory-git",
  "pagis-plugins",
  "pagis-push",
  "pagis-server",

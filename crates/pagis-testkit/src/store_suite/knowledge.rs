@@ -1347,7 +1347,7 @@ pub async fn a_forget_leaves_no_text_of_the_item_in_the_memory_search_index(back
         }],
     );
     let root = tempfile::tempdir().expect("a temp directory for the memory");
-    let memory = pagis_memory::GitMemoryStore::new(
+    let memory = pagis_memory_git::GitMemoryStore::new(
         root.path(),
         Arc::clone(&backend.stores().forget),
         Arc::clone(&backend.stores().memory_pages),
@@ -1691,7 +1691,7 @@ struct PageOfTheItem {
     /// The exposure of the Agent's grant of the Connection. The page of
     /// the item carries it.
     exposure: MemoryExposure,
-    memory: pagis_memory::GitMemoryStore,
+    memory: pagis_memory_git::GitMemoryStore,
     /// The commit that wrote the note that stays.
     kept_sha: String,
     /// The commit that wrote the page of the item.
@@ -1738,7 +1738,7 @@ async fn memory_with_the_page_of_the_item(backend: &Backend) -> PageOfTheItem {
         revision: grant.revision,
     };
     let root = tempfile::tempdir().expect("a temp directory for the memory");
-    let memory = pagis_memory::GitMemoryStore::new(
+    let memory = pagis_memory_git::GitMemoryStore::new(
         root.path(),
         Arc::clone(&backend.stores().forget),
         Arc::clone(&backend.stores().memory_pages),

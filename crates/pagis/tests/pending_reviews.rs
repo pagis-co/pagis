@@ -405,7 +405,7 @@ async fn restart_settles_a_committed_review_without_replaying_the_model() {
         .await
         .unwrap()
         .unwrap();
-    let memory = pagis_memory::GitMemoryStore::new(
+    let memory = pagis_memory_git::GitMemoryStore::new(
         daemon.booted.home.join("memory"),
         Arc::new(SqliteForgetStore::new(daemon.pool().clone())),
         Arc::new(SqliteMemoryPageIndex::new(daemon.pool().clone())),
