@@ -117,6 +117,19 @@ Agent with neither has no mail tools.
 - `mail__modify_message(mailbox, message_id, mark_read, archive, flag)`:
   reversible state. Deletion is not a tool.
 
+The Mail Tools call `Mailbox`, which has five operations: search, message,
+thread, modify and send. `Mailboxes` opens a `Mailbox` for an Agent Mailbox.
+`MailboxDesk` implements `Mailboxes` and keeps the credentials and Connection
+settings. A message id and a page token are opaque to the tools. Each Mailbox
+makes and reads them and decides when an id is stale.
+
+`ImapMailbox` implements `Mailbox` over `MailSession`. It reads the folder and
+UID from an IMAP id, selects the folder before each read or modification, and
+checks its UIDVALIDITY against the Agent Mailbox cursor. The product uses
+IMAP and SMTP Mailbox Providers. The collector uses the IMAP session directly
+and watches the INBOX with IDLE. `MemoryMailbox` implements `Mailbox` in
+memory for the Mail Tool tests.
+
 Reads and modification are `Free`, and send is `Outbound`. From the own
 mailbox, the card says it sends from that address, shows the subject, and
 offers a recipient-domain allow rule built from the registrable domains of all
@@ -186,7 +199,7 @@ the user, and creates a one-shot Schedule for later work.
 A daemon-made `mail` block renders for an inbound mail that woke the Agent and
 for a sent mail: one line with the direction, the counterpart, the subject and
 the tier chip. It opens an inspector that fetches the headers and text body
-live through the transport, so nothing is stored; it is the user's view, not
+live through the Mailbox, so nothing is stored; it is the user's view, not
 the model's. The mailbox field labels the line with the Agent's address or the
 user's alias.
 

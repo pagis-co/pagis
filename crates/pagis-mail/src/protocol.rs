@@ -12,6 +12,8 @@
 //! [`IdleOutcome::Deadline`] when it passes, and the caller re-issues
 //! IDLE. That is what RFC 2177 asks of a client.
 
+use crate::ImapMessageId;
+use crate::MessageId;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -38,8 +40,8 @@ use tokio_rustls::rustls::{ClientConfig, RootCertStore};
 use crate::mime::{build_mime, read_mime};
 use crate::transport::{
     ARCHIVE, Cursor, Endpoint, FlagChange, FolderState, IdleOutcome, MailQuery, MailSession,
-    MailTransport, MailboxCredential, Message, MessageId, MessageSummary, OutgoingMessage,
-    SentMessage, TransportCapabilities, TransportError, TransportErrorCode,
+    MailTransport, MailboxCredential, Message, MessageSummary, OutgoingMessage, SentMessage,
+    TransportCapabilities, TransportError, TransportErrorCode,
 };
 
 /// IMAP with implicit TLS (RFC 8314).
@@ -176,7 +178,7 @@ impl StandardSession {
             let body = fetch
                 .body()
                 .ok_or(TransportError(TransportErrorCode::Unreadable))?;
-            messages.push(read_mime(body, MessageId::new(folder, *uid))?);
+            messages.push(read_mime(body, ImapMessageId::new(folder, *uid).into())?);
         }
         Ok(messages)
     }
@@ -231,6 +233,7 @@ impl MailSession for StandardSession {
     }
 
     async fn fetch(&mut self, id: &MessageId) -> Result<Message, TransportError> {
+        let id = id.as_str().parse::<ImapMessageId>()?;
         self.ensure_selected(&id.folder).await?;
         self.read_messages(&id.folder, &[id.uid])
             .await?
@@ -329,6 +332,7 @@ impl MailSession for StandardSession {
     }
 
     async fn set_flags(&mut self, id: &MessageId, flags: FlagChange) -> Result<(), TransportError> {
+        let id = id.as_str().parse::<ImapMessageId>()?;
         self.ensure_selected(&id.folder).await?;
         for (wanted, flag) in [(flags.seen, "\\Seen"), (flags.flagged, "\\Flagged")] {
             let Some(wanted) = wanted else { continue };
@@ -346,6 +350,7 @@ impl MailSession for StandardSession {
     }
 
     async fn move_to_archive(&mut self, id: &MessageId) -> Result<(), TransportError> {
+        let id = id.as_str().parse::<ImapMessageId>()?;
         self.ensure_selected(&id.folder).await?;
         let session = self.imap()?;
         // A host that has no archive folder yet gets one. A host that

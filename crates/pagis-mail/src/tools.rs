@@ -9,24 +9,24 @@
 //! Text that is cut ends with a marker, so the model reads that it has
 //! only part of the words.
 //!
-//! An id is the folder and the IMAP UID (`INBOX:1234`). It holds while
-//! the host keeps its numbering; a host that renumbers a folder makes
-//! every id of it stale, and the answer is `stale_id`.
+//! A Mailbox makes and reads its own ids and page tokens.
 
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use pagis_broker::{AuthorizedCall, MailTool, ToolExecutor, ToolResult, ToolRoute};
 use pagis_core::{
-    AgentMailbox, RunStore, SentMail, SentMailStore, UnixMillis, WorkspaceId, now_ms,
+    AgentMailbox, AgentMailboxStore, RunStore, SentMail, SentMailStore, UnixMillis, WorkspaceId,
+    now_ms,
 };
 
 use crate::blocks::MailBlocks;
-use crate::desk::{MailboxDesk, MailboxError};
+use crate::desk::MailboxError;
 use crate::transport::{
-    ARCHIVE, FlagChange, INBOX, MailQuery, MailSession, Message, MessageId, MessageSummary,
-    OutgoingMessage, SentMessage, TransportError, TransportErrorCode,
+    FlagChange, MailQuery, Message, MessageSummary, OutgoingMessage, SentMessage, TransportError,
+    TransportErrorCode,
 };
+use crate::{Mailbox, Mailboxes, MessageChange, MessageId, PageRequest};
 
 /// The most summaries one search page answers with (ADR-0019).
 pub const MAX_SUMMARIES: u32 = 25;
@@ -40,8 +40,7 @@ pub const MAX_THREAD_MESSAGES: usize = 20;
 /// What the answer says where the text was cut.
 pub const TRUNCATION_MARKER: &str = "\n[the text is cut here: the rest stays at the mail host]";
 
-/// The stable code of a call that names a message or a folder the host
-/// has renumbered or does not hold.
+/// The stable code of a call whose Mailbox reports a stale id.
 pub const STALE_ID: &str = "stale_id";
 
 /// What became of one reserved send. The two cases are different
@@ -55,9 +54,10 @@ pub enum ReservedSendError {
 }
 
 pub struct MailToolDeps {
-    /// The one path to a mailbox: it owns the password and the
-    /// Connection settings, so nothing here reads a secret.
-    pub desk: Arc<MailboxDesk>,
+    /// The host opens mail without exposing its credentials.
+    pub mailboxes: Arc<dyn Mailboxes>,
+    /// Agent Mailbox identities and the Outgoing Cap tally.
+    pub records: Arc<dyn AgentMailboxStore>,
     /// The Run record, for the Thread a send is remembered in.
     pub runs: Arc<dyn RunStore>,
     pub sent: Arc<dyn SentMailStore>,
@@ -86,28 +86,26 @@ impl MailToolRuntime {
     ) -> Result<serde_json::Value, ToolResult> {
         let mailbox = self
             .deps
-            .desk
+            .records
             .for_agent(&call.workspace_id, &call.agent_id)
             .await
-            .map_err(desk_error)?
+            .map_err(|error| desk_error(error.into()))?
             .ok_or_else(|| {
                 ToolResult::error(pagis_broker::MAILBOX_UNAVAILABLE, "you hold no mailbox now")
             })?;
-        let mut session = self
+        let mut opened = self
             .deps
-            .desk
-            .open_session(&mailbox)
+            .mailboxes
+            .open(&mailbox)
             .await
             .map_err(desk_error)?;
         match tool {
-            MailTool::Search => search(session.as_mut(), &mailbox, &call.arguments).await,
-            MailTool::GetMessage => get_message(session.as_mut(), &mailbox, &call.arguments).await,
-            MailTool::GetThread => get_thread(session.as_mut(), &mailbox, &call.arguments).await,
-            MailTool::ModifyMessage => {
-                modify_message(session.as_mut(), &mailbox, &call.arguments).await
-            }
+            MailTool::Search => search(opened.as_mut(), &call.arguments).await,
+            MailTool::GetMessage => get_message(opened.as_mut(), &call.arguments).await,
+            MailTool::GetThread => get_thread(opened.as_mut(), &call.arguments).await,
+            MailTool::ModifyMessage => modify_message(opened.as_mut(), &call.arguments).await,
             MailTool::Send => {
-                self.send(session.as_mut(), &mailbox, call, &call.workspace_id)
+                self.send(opened.as_mut(), &mailbox, call, &call.workspace_id)
                     .await
             }
         }
@@ -118,7 +116,7 @@ impl MailToolRuntime {
     /// a reply lands where the send came from.
     async fn send(
         &self,
-        session: &mut dyn MailSession,
+        opened: &mut dyn Mailbox,
         mailbox: &AgentMailbox,
         call: &AuthorizedCall,
         workspace_id: &WorkspaceId,
@@ -136,16 +134,16 @@ impl MailToolRuntime {
                 .map(str::to_string),
             message_id: None,
         };
-        let sent = session.send(&message).await.map_err(transport_error)?;
+        let sent = opened.send(&message).await.map_err(transport_error)?;
         let at = now_ms();
         // The tally is counted after the host accepted the message:
         // a send that never left costs no allowance.
         let sends_today = self
             .deps
-            .desk
+            .records
             .note_send(workspace_id, &mailbox.id, at)
             .await
-            .map_err(desk_error)?;
+            .map_err(|error| desk_error(error.into()))?;
         self.remember(&message, &sent.message_id, mailbox, call, workspace_id, at)
             .await;
         Ok(serde_json::json!({
@@ -170,10 +168,10 @@ impl MailToolRuntime {
         let refused = |result: ToolResult| ReservedSendError::NotSent(result);
         let mailbox = self
             .deps
-            .desk
+            .records
             .for_agent(workspace_id, agent_id)
             .await
-            .map_err(|error| refused(desk_error(error)))?
+            .map_err(|error| refused(desk_error(error.into())))?
             .ok_or_else(|| {
                 refused(ToolResult::error(
                     pagis_broker::MAILBOX_UNAVAILABLE,
@@ -189,13 +187,13 @@ impl MailToolRuntime {
                 ),
             )));
         }
-        let mut session = self
+        let mut opened = self
             .deps
-            .desk
-            .open_session(&mailbox)
+            .mailboxes
+            .open(&mailbox)
             .await
             .map_err(|error| refused(desk_error(error)))?;
-        let sent = match session.send(message).await {
+        let sent = match opened.send(message).await {
             Ok(sent) => sent,
             Err(error) => {
                 // A host that stopped answering may have taken the message
@@ -212,7 +210,7 @@ impl MailToolRuntime {
         // make it unsent, so it is logged and not reported as a failure.
         if let Err(error) = self
             .deps
-            .desk
+            .records
             .note_send(workspace_id, &mailbox.id, now_ms())
             .await
         {
@@ -279,139 +277,82 @@ impl ToolExecutor for MailToolRuntime {
     }
 }
 
-/// Open one folder and refuse a stale id. A host that renumbers a
-/// folder gives it a new UIDVALIDITY, and every id and cursor of that
-/// folder then names another message (ADR-0019). The mailbox's own
-/// cursor is the numbering Pagis last saw, so a folder that has moved
-/// away from it answers `stale_id` before anything is read.
-async fn select_checked(
-    session: &mut dyn MailSession,
-    mailbox: &AgentMailbox,
-    folder: &str,
-) -> Result<(), ToolResult> {
-    let state = session.select(folder).await.map_err(transport_error)?;
-    let renumbered = mailbox
-        .cursor
-        .as_ref()
-        .is_some_and(|cursor| cursor.folder == folder && cursor.uid_validity != state.uid_validity);
-    match renumbered {
-        true => Err(transport_error(TransportError(TransportErrorCode::StaleId))),
-        false => Ok(()),
-    }
-}
-
 async fn search(
-    session: &mut dyn MailSession,
-    mailbox: &AgentMailbox,
+    opened: &mut dyn Mailbox,
     arguments: &serde_json::Value,
 ) -> Result<serde_json::Value, ToolResult> {
     let limit = arguments["max"]
         .as_u64()
-        .map(|max| (max as u32).clamp(1, MAX_SUMMARIES))
-        .unwrap_or(MAX_SUMMARIES);
-    let skip = page_offset(arguments)?;
-    select_checked(session, mailbox, INBOX).await?;
-    let mut query = parse_query(&text(arguments, "query"))?;
-    // One more than the page needs, so the answer knows whether a next
-    // page exists without a second search.
-    query.limit = skip.saturating_add(limit).saturating_add(1);
-    let found = session.search(&query).await.map_err(transport_error)?;
-    let more = found.len() as u32 > skip.saturating_add(limit);
-    let page: Vec<&MessageSummary> = found
-        .iter()
-        .skip(skip as usize)
-        .take(limit as usize)
-        .collect();
+        .unwrap_or(MAX_SUMMARIES as u64)
+        .clamp(1, MAX_SUMMARIES as u64) as usize;
+    let query = parse_query(&text(arguments, "query"))?;
+    let page = opened
+        .search(&query, &page_request(arguments, limit))
+        .await
+        .map_err(transport_error)?;
     Ok(serde_json::json!({
-        "messages": page.iter().map(|summary| summary_json(summary)).collect::<Vec<_>>(),
-        "page": more.then(|| (skip + limit).to_string())
+        "messages": page.items.iter().take(limit).map(summary_json).collect::<Vec<_>>(),
+        "page": page.next
     }))
 }
 
 async fn get_message(
-    session: &mut dyn MailSession,
-    mailbox: &AgentMailbox,
+    opened: &mut dyn Mailbox,
     arguments: &serde_json::Value,
 ) -> Result<serde_json::Value, ToolResult> {
-    let id = message_id(arguments)?;
-    select_checked(session, mailbox, &id.folder).await?;
-    let message = session.fetch(&id).await.map_err(transport_error)?;
+    let id = MessageId::new(arguments["message_id"].as_str().unwrap_or_default());
+    let message = opened.message(&id).await.map_err(transport_error)?;
     let (body, truncated) = cut(&message.text, MAX_TEXT_BYTES);
     Ok(serde_json::json!({"message": message_json(&message, &body, truncated)}))
 }
 
 async fn get_thread(
-    session: &mut dyn MailSession,
-    mailbox: &AgentMailbox,
+    opened: &mut dyn Mailbox,
     arguments: &serde_json::Value,
 ) -> Result<serde_json::Value, ToolResult> {
-    let thread_id = text(arguments, "thread_id");
-    let skip = page_offset(arguments)? as usize;
-    select_checked(session, mailbox, INBOX).await?;
-    let messages = session
-        .fetch_thread(&thread_id)
+    let thread_id = arguments["thread_id"].as_str().unwrap_or_default();
+    let page = opened
+        .thread(thread_id, &page_request(arguments, MAX_THREAD_MESSAGES))
         .await
         .map_err(transport_error)?;
-    // The newest messages are the ones the Agent needs, so a page
-    // starts at the end of the thread and walks back.
-    let end = messages.len().saturating_sub(skip);
-    let start = end.saturating_sub(MAX_THREAD_MESSAGES);
-    let window = &messages[start..end];
-
-    // The budget is spent on the newest messages first, and the answer
-    // still reads oldest first.
+    let start = page.items.len().saturating_sub(MAX_THREAD_MESSAGES);
+    let window = &page.items[start..];
+    // The newest messages consume the budget first. The answer is oldest first.
     let mut budget = MAX_TEXT_BYTES;
-    let mut bodies: Vec<(String, bool)> = Vec::with_capacity(window.len());
+    let mut bodies = Vec::with_capacity(window.len());
     for message in window.iter().rev() {
         let (body, truncated) = cut(&message.text, budget);
         budget -= body.len().min(budget);
         bodies.push((body, truncated));
     }
     bodies.reverse();
-
     Ok(serde_json::json!({
         "thread_id": thread_id,
-        "messages": window
-            .iter()
-            .zip(bodies.iter())
+        "messages": window.iter().zip(bodies.iter())
             .map(|(message, (body, truncated))| message_json(message, body, *truncated))
             .collect::<Vec<_>>(),
-        "page": (start > 0).then(|| (skip + window.len()).to_string())
+        "page": page.next
     }))
 }
 
 async fn modify_message(
-    session: &mut dyn MailSession,
-    mailbox: &AgentMailbox,
+    opened: &mut dyn Mailbox,
     arguments: &serde_json::Value,
 ) -> Result<serde_json::Value, ToolResult> {
-    let id = message_id(arguments)?;
-    let flags = FlagChange {
-        seen: arguments["mark_read"].as_bool(),
-        flagged: arguments["flag"].as_bool(),
+    let id = MessageId::new(arguments["message_id"].as_str().unwrap_or_default());
+    let change = MessageChange {
+        flags: FlagChange {
+            seen: arguments["mark_read"].as_bool(),
+            flagged: arguments["flag"].as_bool(),
+        },
+        archive: arguments["archive"].as_bool().unwrap_or(false),
     };
-    select_checked(session, mailbox, &id.folder).await?;
-    if flags.seen.is_some() || flags.flagged.is_some() {
-        session
-            .set_flags(&id, flags)
-            .await
-            .map_err(transport_error)?;
-    }
-    // The archive move is last: it changes the id, so the flags are set
-    // while the message is still where the caller named it.
-    let archived = arguments["archive"].as_bool().unwrap_or(false);
-    if archived {
-        session
-            .move_to_archive(&id)
-            .await
-            .map_err(transport_error)?;
-    }
+    opened.modify(&id, change).await.map_err(transport_error)?;
     Ok(serde_json::json!({
         "message_id": id.to_string(),
-        "mark_read": flags.seen,
-        "flag": flags.flagged,
-        "archived": archived,
-        "folder": if archived { ARCHIVE } else { id.folder.as_str() }
+        "mark_read": change.flags.seen,
+        "flag": change.flags.flagged,
+        "archived": change.archive
     }))
 }
 
@@ -477,23 +418,14 @@ fn cut(text: &str, budget: usize) -> (String, bool) {
     (text[..end].to_string(), true)
 }
 
-fn message_id(arguments: &serde_json::Value) -> Result<MessageId, ToolResult> {
-    text(arguments, "message_id")
-        .parse::<MessageId>()
-        .map_err(|error| ToolResult::error(STALE_ID, format!("{error}")))
-}
-
-/// The page token of an earlier answer: how many messages to step over.
-fn page_offset(arguments: &serde_json::Value) -> Result<u32, ToolResult> {
-    match arguments["page"].as_str().map(str::trim) {
-        None | Some("") => Ok(0),
-        Some(page) => page.parse::<u32>().map_err(|_| {
-            ToolResult::error(
-                "invalid_request",
-                "page takes the token of an earlier answer",
-            )
-        }),
-    }
+fn page_request(arguments: &serde_json::Value, limit: usize) -> PageRequest {
+    PageRequest::new(
+        arguments["page"]
+            .as_str()
+            .filter(|page| !page.is_empty())
+            .map(str::to_string),
+        limit,
+    )
 }
 
 fn text(arguments: &serde_json::Value, field: &str) -> String {
@@ -595,10 +527,11 @@ fn tokens(query: &str) -> Vec<String> {
 /// The stable code one transport failure answers with.
 fn transport_error(error: TransportError) -> ToolResult {
     let (code, message) = match error.0 {
-        TransportErrorCode::StaleId => (
-            STALE_ID,
-            "the mail host has renumbered that folder, so that id is gone. Search again.",
+        TransportErrorCode::InvalidRequest => (
+            "invalid_request",
+            "page takes the token of an earlier answer",
         ),
+        TransportErrorCode::StaleId => (STALE_ID, "that message id is stale. Search again."),
         TransportErrorCode::Unauthorized | TransportErrorCode::MailboxGone => (
             pagis_broker::MAILBOX_UNAVAILABLE,
             "the mail host refused the mailbox. Tell the user to reset its password.",

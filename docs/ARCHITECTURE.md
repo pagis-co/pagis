@@ -267,6 +267,12 @@ identity (ADR-0019). One set of mail tools serves the Agent's mailbox and
 the Person's own mail accounts. A Standing Mail Rule wakes the Agent on each
 inbound mail.
 
+The Mail Tools use the `Mailbox` operations. `Mailboxes` opens a mailbox from
+an Agent Mailbox record. `MailboxDesk` supplies `ImapMailbox`, which reads
+IMAP ids, selects folders and checks their numbering. The tools treat ids and
+page tokens as opaque strings and enforce the answer caps. The collector
+uses IMAP IDLE directly.
+
 ### Notifications
 
 A Notification is a Web Push from the daemon to each Push Subscription of

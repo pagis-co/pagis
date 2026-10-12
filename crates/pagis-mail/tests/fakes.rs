@@ -8,8 +8,8 @@ use std::time::Duration;
 use pagis_mail::fake::{ARCHIVE, FakeMailTransport, FakeMailboxHost, HostCall};
 use pagis_mail::{
     Deletion, Endpoint, FlagChange, HostAccount, HostCapabilities, HostErrorCode, INBOX,
-    IdleOutcome, MailQuery, MailTransport, MailboxCredential, MailboxHost, MailboxPassword,
-    MessageId, TransportCapabilities, TransportErrorCode,
+    IdleOutcome, ImapMessageId, MailQuery, MailTransport, MailboxCredential, MailboxHost,
+    MailboxPassword, TransportCapabilities, TransportErrorCode,
 };
 
 fn account() -> HostAccount {
@@ -148,7 +148,10 @@ async fn a_delivered_message_is_fetched_after_the_cursor() {
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].id, id);
     assert_eq!(found[0].subject, "Invoice");
-    assert_eq!(next.last_uid, id.uid);
+    assert_eq!(
+        next.last_uid,
+        id.as_str().parse::<ImapMessageId>().unwrap().uid
+    );
 
     let message = session.fetch(&id).await.unwrap();
     assert_eq!(message.text, "The invoice is ready.");
@@ -314,10 +317,10 @@ async fn a_refused_login_carries_the_scripted_code() {
 
 #[test]
 fn a_message_id_reads_as_the_folder_and_the_uid() {
-    let id: MessageId = "INBOX:1234".parse().unwrap();
+    let id: ImapMessageId = "INBOX:1234".parse().unwrap();
 
-    assert_eq!(id, MessageId::new(INBOX, 1234));
+    assert_eq!(id, ImapMessageId::new(INBOX, 1234));
     assert_eq!(id.to_string(), "INBOX:1234");
-    assert!("INBOX".parse::<MessageId>().is_err());
-    assert!(":12".parse::<MessageId>().is_err());
+    assert!("INBOX".parse::<ImapMessageId>().is_err());
+    assert!(":12".parse::<ImapMessageId>().is_err());
 }

@@ -1,4 +1,4 @@
-//! The `mail__*` executor (ADR-0019) against the fake transport:
+//! The `mail__*` executor (ADR-0019) against MemoryMailbox:
 //! each tool, the answer caps, the truncation marker, the stale id, the
 //! Outgoing Cap tally and the sent-mail record.
 //!
@@ -21,7 +21,7 @@ use pagis_core::{
     RunStore, SecretStore, SentMailStore, TriggerKind, Workspace, WorkspaceId, WorkspaceStore,
     now_ms,
 };
-use pagis_mail::fake::{FakeMailTransport, FakeMailboxHost, FakeStandingRule};
+use pagis_mail::fake::{FakeMailTransport, FakeMailboxHost, FakeStandingRule, MemoryMailbox};
 use pagis_mail::{
     Endpoint, MAIL_TRANSPORT, MAX_SUMMARIES, MAX_TEXT_BYTES, MAX_THREAD_MESSAGES, MIGADU_PROVIDER,
     MailBlockDeps, MailBlocks, MailToolDeps, MailToolRuntime, MailboxCapabilities, MailboxDesk,
@@ -42,7 +42,7 @@ struct World {
     mailboxes: Arc<SqliteAgentMailboxStore>,
     messages: Arc<SqliteMessageStore>,
     sent: Arc<SqliteSentMailStore>,
-    transport: Arc<FakeMailTransport>,
+    memory: Arc<MemoryMailbox>,
     workspace_id: WorkspaceId,
     agent_id: AgentId,
     run_id: RunId,
@@ -196,8 +196,10 @@ impl World {
             triggers: Arc::new(SqliteTriggerStore::new(pool.clone())),
             desk: Arc::clone(&desk),
         }));
+        let memory = Arc::new(MemoryMailbox::default());
         let runtime = MailToolRuntime::new(MailToolDeps {
-            desk,
+            mailboxes: Arc::clone(&memory) as _,
+            records: Arc::clone(&mailboxes) as _,
             runs: Arc::clone(&runs) as _,
             sent: Arc::clone(&sent) as _,
             blocks,
@@ -207,7 +209,7 @@ impl World {
             mailboxes,
             messages,
             sent,
-            transport,
+            memory,
             workspace_id: workspace.id,
             agent_id: agent.id,
             run_id: run.id,
@@ -292,10 +294,10 @@ async fn settled(
 async fn a_search_answers_summaries_with_a_snippet(pool: SqlitePool) {
     let world = World::new(pool).await;
     world
-        .transport
+        .memory
         .deliver("bob@other.test", "Invoice 42", "the invoice is late");
     world
-        .transport
+        .memory
         .deliver("eve@other.test", "Lunch", "are you free");
 
     let answer = world
@@ -317,7 +319,7 @@ async fn a_search_answers_one_page_of_summaries_and_a_page_token(pool: SqlitePoo
     let world = World::new(pool).await;
     for index in 0..(MAX_SUMMARIES + 5) {
         world
-            .transport
+            .memory
             .deliver("bob@other.test", format!("Note {index}"), "text");
     }
 
@@ -349,7 +351,7 @@ async fn a_search_answers_one_page_of_summaries_and_a_page_token(pool: SqlitePoo
 async fn a_message_over_the_text_cap_ends_with_the_truncation_marker(pool: SqlitePool) {
     let world = World::new(pool).await;
     let id = world
-        .transport
+        .memory
         .deliver("bob@other.test", "Long", "x".repeat(MAX_TEXT_BYTES + 100));
 
     let answer = world
@@ -370,19 +372,19 @@ async fn a_message_over_the_text_cap_ends_with_the_truncation_marker(pool: Sqlit
 async fn a_thread_answers_its_newest_messages_and_a_page_token(pool: SqlitePool) {
     let world = World::new(pool).await;
     let root = world
-        .transport
+        .memory
         .deliver("bob@other.test", "Invoice 42", "first");
-    let summaries = world.transport.summaries("INBOX");
+    let summaries = world.memory.summaries(false);
     let thread_id = summaries[0].thread_id.clone();
     for index in 0..MAX_THREAD_MESSAGES {
-        world.transport.deliver_reply(
+        world.memory.deliver_reply(
             &thread_id,
             "bob@other.test",
             "Re: Invoice 42",
             format!("reply {index}"),
         );
     }
-    assert_eq!(root.folder, "INBOX");
+    assert!(!root.to_string().contains(':'));
 
     let answer = world
         .answer(
@@ -396,12 +398,13 @@ async fn a_thread_answers_its_newest_messages_and_a_page_token(pool: SqlitePool)
     // Oldest first inside the page, and the oldest message of the
     // thread is on the next page.
     assert_eq!(messages[0]["text"], "reply 0");
-    assert_eq!(answer["page"].as_str(), Some("20"));
+    let page = answer["page"].as_str().expect("a page token");
+    assert!(page.parse::<u32>().is_err());
 
     let older = world
         .answer(
             MailTool::GetThread,
-            serde_json::json!({"mailbox": "own", "thread_id": thread_id, "page": "20"}),
+            serde_json::json!({"mailbox": "own", "thread_id": thread_id, "page": page}),
         )
         .await;
 
@@ -426,7 +429,7 @@ async fn a_send_leaves_the_mailbox_counts_against_the_cap_and_is_remembered(pool
         )
         .await;
 
-    let sent = world.transport.sent();
+    let sent = world.memory.sent();
     assert_eq!(sent.len(), 1);
     assert_eq!(sent[0].subject, "Invoice 42");
     assert_eq!(answer["sends_today"], 1);
@@ -509,7 +512,7 @@ async fn a_reply_is_a_send_that_names_the_message_it_answers(pool: SqlitePool) {
         .await;
 
     assert_eq!(
-        world.transport.sent()[0].in_reply_to.as_deref(),
+        world.memory.sent()[0].in_reply_to.as_deref(),
         Some("<first@other.test>")
     );
 }
@@ -517,7 +520,7 @@ async fn a_reply_is_a_send_that_names_the_message_it_answers(pool: SqlitePool) {
 #[sqlx::test(migrations = "./../pagis-storage-sqlite/migrations")]
 async fn a_modify_marks_read_flags_and_archives_one_message(pool: SqlitePool) {
     let world = World::new(pool).await;
-    let id = world.transport.deliver("bob@other.test", "Invoice", "text");
+    let id = world.memory.deliver("bob@other.test", "Invoice", "text");
 
     let answer = world
         .answer(
@@ -533,22 +536,22 @@ async fn a_modify_marks_read_flags_and_archives_one_message(pool: SqlitePool) {
         .await;
 
     assert_eq!(answer["archived"], true);
-    assert_eq!(answer["folder"], "Archive");
-    assert!(world.transport.summaries("INBOX").is_empty());
-    let archived = world.transport.summaries("Archive");
+    assert_eq!(answer["message_id"], id.to_string());
+    assert!(world.memory.summaries(false).is_empty());
+    let archived = world.memory.summaries(true);
     assert_eq!(archived.len(), 1);
     let flags = world
-        .transport
+        .memory
         .flags_of(&archived[0].id)
         .expect("the flags follow the message");
     assert!(flags.seen && flags.flagged);
 }
 
 #[sqlx::test(migrations = "./../pagis-storage-sqlite/migrations")]
-async fn a_renumbered_folder_answers_stale_id(pool: SqlitePool) {
+async fn a_mailbox_decides_when_an_id_is_stale(pool: SqlitePool) {
     let world = World::new(pool).await;
-    let id = world.transport.deliver("bob@other.test", "Invoice", "text");
-    world.transport.renumber("INBOX");
+    let id = world.memory.deliver("bob@other.test", "Invoice", "text");
+    world.memory.remove(&id);
 
     let result = world
         .call(
@@ -562,7 +565,7 @@ async fn a_renumbered_folder_answers_stale_id(pool: SqlitePool) {
 }
 
 #[sqlx::test(migrations = "./../pagis-storage-sqlite/migrations")]
-async fn an_id_that_is_not_a_folder_and_a_uid_answers_stale_id(pool: SqlitePool) {
+async fn an_unknown_opaque_id_answers_stale_id(pool: SqlitePool) {
     let world = World::new(pool).await;
 
     let result = world
@@ -576,11 +579,11 @@ async fn an_id_that_is_not_a_folder_and_a_uid_answers_stale_id(pool: SqlitePool)
 }
 
 #[sqlx::test(migrations = "./../pagis-storage-sqlite/migrations")]
-async fn a_mail_host_that_refuses_the_login_answers_mailbox_unavailable(pool: SqlitePool) {
+async fn a_mailbox_that_refuses_to_open_answers_mailbox_unavailable(pool: SqlitePool) {
     let world = World::new(pool).await;
     world
-        .transport
-        .refuse_login_with(Some(pagis_mail::TransportErrorCode::Unauthorized));
+        .memory
+        .fail_with(Some(pagis_mail::TransportErrorCode::Unauthorized));
 
     let result = world
         .call(
@@ -599,4 +602,176 @@ fn every_mail_tool_keeps_its_name() {
     assert_eq!(MailTool::GetThread.as_str(), MAIL_GET_THREAD);
     assert_eq!(MailTool::Send.as_str(), MAIL_SEND);
     assert_eq!(MailTool::ModifyMessage.as_str(), MAIL_MODIFY_MESSAGE);
+}
+
+#[sqlx::test(migrations = "./../pagis-storage-sqlite/migrations")]
+async fn a_message_reads_an_opaque_id_and_keeps_headers_and_attachments(pool: SqlitePool) {
+    let world = World::new(pool).await;
+    let id = world.memory.deliver("bob@other.test", "Invoice", "paid");
+    world.memory.attach(
+        &id,
+        pagis_mail::Attachment {
+            name: "invoice.pdf".into(),
+            bytes: 42,
+        },
+    );
+    let answer = world
+        .answer(
+            MailTool::GetMessage,
+            serde_json::json!({"message_id": id.to_string()}),
+        )
+        .await;
+    assert_eq!(answer["message"]["id"], id.to_string());
+    assert_eq!(answer["message"]["text"], "paid");
+    assert_eq!(answer["message"]["truncated"], false);
+    assert_eq!(answer["message"]["headers"][0]["name"], "Message-ID");
+    assert_eq!(answer["message"]["attachments"][0]["name"], "invoice.pdf");
+    assert_eq!(answer["message"]["attachments"][0]["bytes"], 42);
+}
+
+#[sqlx::test(migrations = "./../pagis-storage-sqlite/migrations")]
+async fn a_thread_spends_its_text_cap_on_the_newest_messages(pool: SqlitePool) {
+    let world = World::new(pool).await;
+    world
+        .memory
+        .deliver("bob@other.test", "Long", "é".repeat(MAX_TEXT_BYTES));
+    let thread = world.memory.summaries(false)[0].thread_id.clone();
+    world.memory.deliver_reply(
+        &thread,
+        "bob@other.test",
+        "Re: Long",
+        "z".repeat(MAX_TEXT_BYTES - 1),
+    );
+    let answer = world
+        .answer(
+            MailTool::GetThread,
+            serde_json::json!({"thread_id": thread}),
+        )
+        .await;
+    assert_eq!(answer["messages"][0]["text"], TRUNCATION_MARKER);
+    assert_eq!(answer["messages"][0]["truncated"], true);
+    assert_eq!(
+        answer["messages"][1]["text"].as_str().unwrap().len(),
+        MAX_TEXT_BYTES - 1
+    );
+    assert_eq!(answer["messages"][1]["truncated"], false);
+}
+
+#[sqlx::test(migrations = "./../pagis-storage-sqlite/migrations")]
+async fn a_search_clamps_an_explicit_max_and_accepts_an_opaque_page(pool: SqlitePool) {
+    let world = World::new(pool).await;
+    for index in 0..30 {
+        world
+            .memory
+            .deliver("bob@other.test", format!("Note {index}"), "text");
+    }
+    for max in [26_u64, u64::MAX, 4_294_967_297] {
+        let answer = world
+            .answer(MailTool::Search, serde_json::json!({"max": max}))
+            .await;
+        assert_eq!(
+            answer["messages"].as_array().unwrap().len(),
+            MAX_SUMMARIES as usize
+        );
+        assert!(answer["page"].as_str().unwrap().parse::<u32>().is_err());
+    }
+    let answer = world
+        .answer(MailTool::Search, serde_json::json!({"max": 0}))
+        .await;
+    assert_eq!(answer["messages"].as_array().unwrap().len(), 1);
+}
+
+#[sqlx::test(migrations = "./../pagis-storage-sqlite/migrations")]
+async fn a_modify_can_clear_flags_without_archiving(pool: SqlitePool) {
+    let world = World::new(pool).await;
+    let id = world.memory.deliver("bob@other.test", "Invoice", "text");
+    for value in [true, false] {
+        world.answer(MailTool::ModifyMessage, serde_json::json!({"message_id": id.to_string(), "mark_read": value, "flag": value})).await;
+        let flags = world.memory.flags_of(&id).unwrap();
+        assert_eq!(flags.seen, value);
+        assert_eq!(flags.flagged, value);
+        assert_eq!(world.memory.summaries(false).len(), 1);
+    }
+}
+
+#[sqlx::test(migrations = "./../pagis-storage-sqlite/migrations")]
+async fn a_reserved_send_keeps_its_identity_and_classifies_a_failed_send(pool: SqlitePool) {
+    let world = World::new(pool).await;
+    let message = pagis_mail::OutgoingMessage {
+        message_id: Some("reserved@pagis.test".into()),
+        ..Default::default()
+    };
+    let sent = world
+        .runtime
+        .send_reserved(&world.workspace_id, &world.agent_id, &message)
+        .await
+        .unwrap();
+    assert_eq!(sent.message_id, "<reserved@pagis.test>");
+    world
+        .memory
+        .fail_with(Some(pagis_mail::TransportErrorCode::Unreachable));
+    assert!(matches!(
+        world
+            .runtime
+            .send_reserved(&world.workspace_id, &world.agent_id, &message)
+            .await,
+        Err(pagis_mail::ReservedSendError::NotSent(_))
+    ));
+}
+
+#[sqlx::test(migrations = "./../pagis-storage-sqlite/migrations")]
+async fn message_and_thread_ids_pass_to_the_mailbox_without_changes(pool: SqlitePool) {
+    let world = World::new(pool).await;
+    let id = world.memory.deliver("bob@other.test", "Invoice", "text");
+    let mut memory = world.memory.as_ref().clone();
+    let mut message = pagis_mail::Mailbox::message(&mut memory, &id)
+        .await
+        .unwrap();
+    message.summary.id = pagis_mail::MessageId::new("  opaque://a:b:c  ");
+    message.summary.thread_id = "  opaque thread  ".into();
+    world.memory.insert(message.clone());
+    let answer = world
+        .answer(
+            MailTool::GetMessage,
+            serde_json::json!({"message_id": message.summary.id.as_str()}),
+        )
+        .await;
+    assert_eq!(answer["message"]["id"], message.summary.id.as_str());
+    let answer = world
+        .answer(
+            MailTool::GetThread,
+            serde_json::json!({"thread_id": message.summary.thread_id}),
+        )
+        .await;
+    assert_eq!(answer["messages"].as_array().unwrap().len(), 1);
+    world
+        .answer(
+            MailTool::ModifyMessage,
+            serde_json::json!({"message_id": message.summary.id.as_str(), "flag": true}),
+        )
+        .await;
+    assert!(world.memory.flags_of(&message.summary.id).unwrap().flagged);
+}
+
+#[sqlx::test(migrations = "./../pagis-storage-sqlite/migrations")]
+async fn a_thread_orders_messages_by_date_when_they_arrive_out_of_order(pool: SqlitePool) {
+    let world = World::new(pool).await;
+    let id = world.memory.deliver("bob@other.test", "Invoice", "newer");
+    let mut memory = world.memory.as_ref().clone();
+    let mut older = pagis_mail::Mailbox::message(&mut memory, &id)
+        .await
+        .unwrap();
+    older.summary.id = pagis_mail::MessageId::new("older");
+    older.summary.date -= 1;
+    older.text = "older".into();
+    let thread_id = older.summary.thread_id.clone();
+    world.memory.insert(older);
+    let answer = world
+        .answer(
+            MailTool::GetThread,
+            serde_json::json!({"thread_id": thread_id}),
+        )
+        .await;
+    assert_eq!(answer["messages"][0]["text"], "older");
+    assert_eq!(answer["messages"][1]["text"], "newer");
 }

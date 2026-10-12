@@ -347,7 +347,15 @@ async fn an_idle_turn_ends_at_its_deadline_and_a_send_wakes_the_next_one() {
         "the message threads on the id the send reported"
     );
     assert!(!summary.has_attachments);
-    assert_eq!(moved.last_uid, summary.id.uid);
+    assert_eq!(
+        moved.last_uid,
+        summary
+            .id
+            .as_str()
+            .parse::<pagis_mail::ImapMessageId>()
+            .unwrap()
+            .uid
+    );
     assert_eq!(moved.uid_validity, cursor.uid_validity);
 
     let message = ava.fetch(&summary.id).await.expect("the body reads");
@@ -469,7 +477,15 @@ async fn flags_and_the_archive_move_change_what_the_folder_holds() {
         .expect("the search runs");
     assert_eq!(archived.len(), 1, "{archived:?}");
     assert_eq!(archived[0].subject, "The roof");
-    assert_eq!(archived[0].id.folder, ARCHIVE);
+    assert_eq!(
+        archived[0]
+            .id
+            .as_str()
+            .parse::<pagis_mail::ImapMessageId>()
+            .unwrap()
+            .folder,
+        ARCHIVE
+    );
 }
 
 #[tokio::test]
