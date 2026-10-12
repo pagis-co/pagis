@@ -109,6 +109,319 @@ fn write_computer_workspace(root: &Path) {
     .unwrap();
 }
 
+// --- wasm32 ---
+
+fn wasm32_commands(root: &Path) -> Vec<Cmd> {
+    let steps =
+        named_steps(root, &["wasm32".into()], false, NO_TOOLCHAINS).expect("wasm32 is a gate step");
+    let Action::Run(cmds) = &steps[0].action else {
+        panic!("wasm32 must run");
+    };
+    cmds.clone()
+}
+
+fn cargo_arguments(cmd: &Cmd) -> &[String] {
+    let at = cmd.args.iter().position(|arg| arg == "cargo").unwrap();
+    &cmd.args[at + 1..]
+}
+
+#[test]
+fn wasm32_runs_target_clippy_and_each_node_test() {
+    assert_eq!(
+        xtask::WASM_CRATES,
+        &[
+            ("pagis-core", &["wasm"][..]),
+            ("llm-router", &["rt", "realtime_host"][..]),
+            ("pagis-broker", &["rules_wasm"][..]),
+        ]
+    );
+    let root = workspace_root();
+    let cmds = wasm32_commands(&root);
+    assert_eq!(cmds.len(), 5);
+    assert_eq!(
+        cargo_arguments(&cmds[0]),
+        [
+            "clippy",
+            "--target",
+            "wasm32-unknown-unknown",
+            "-p",
+            "pagis-core",
+            "-p",
+            "llm-router",
+            "-p",
+            "pagis-broker",
+            "--",
+            "-D",
+            "warnings",
+        ]
+    );
+    let expected = [
+        ("pagis-core", "wasm"),
+        ("llm-router", "rt"),
+        ("llm-router", "realtime_host"),
+        ("pagis-broker", "rules_wasm"),
+    ];
+    for (cmd, (package, binary)) in cmds[1..].iter().zip(expected) {
+        assert_eq!(
+            cargo_arguments(cmd),
+            [
+                "test",
+                "-p",
+                package,
+                "--target",
+                "wasm32-unknown-unknown",
+                "--test",
+                binary,
+            ]
+        );
+    }
+    for cmd in &cmds {
+        assert_eq!(cmd.cwd.as_deref(), Some(root.as_path()));
+        assert!(
+            !cmd.env
+                .iter()
+                .any(|(key, _)| key == "CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER")
+        );
+    }
+}
+
+#[test]
+fn dev_selects_wasm32_for_portable_crates_and_their_dependencies() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_rust_workspace(tmp.path());
+    let manifest = tmp.path().join("crates/app/Cargo.toml");
+    let text = std::fs::read_to_string(&manifest)
+        .unwrap()
+        .replace("name = \"app\"", "name = \"pagis-core\"");
+    std::fs::write(manifest, text).unwrap();
+    for path in ["crates/app/src/lib.rs", "crates/base/src/lib.rs"] {
+        let lanes = dev_lanes(tmp.path(), &[path.into()], false, NO_TOOLCHAINS).unwrap();
+        assert!(step_names(&lanes).contains(&"wasm32"), "{path}");
+    }
+    let lanes = dev_lanes(
+        tmp.path(),
+        &["crates/other/src/lib.rs".into()],
+        false,
+        NO_TOOLCHAINS,
+    )
+    .unwrap();
+    assert!(!step_names(&lanes).contains(&"wasm32"));
+    let lanes = dev_lanes(
+        &workspace_root(),
+        &["crates/pagis-core/src/lib.rs".into()],
+        false,
+        NO_TOOLCHAINS,
+    )
+    .unwrap();
+    assert!(step_names(&lanes).contains(&"wasm32"));
+}
+
+#[cfg(unix)]
+fn wasm32_tool_fixture(root: &Path) -> std::path::PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    let bin = root.join("bin");
+    std::fs::create_dir(&bin).unwrap();
+    let sysroot = root.join("rust sysroot");
+    std::fs::create_dir_all(sysroot.join("lib/rustlib/test-host/bin")).unwrap();
+    let lock: toml::Value =
+        toml::from_str(&std::fs::read_to_string(workspace_root().join("Cargo.lock")).unwrap())
+            .unwrap();
+    let version = lock["package"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["name"].as_str() == Some("wasm-bindgen"))
+        .unwrap()["version"]
+        .as_str()
+        .unwrap();
+    for (name, body) in [
+        ("rustup", "echo wasm32-unknown-unknown".to_string()),
+        (
+            "rustc",
+            format!(
+                "case \"$1\" in --print) echo '{}';; -vV) echo 'host: test-host';; esac",
+                sysroot.display()
+            ),
+        ),
+        (
+            "wasm-bindgen-test-runner",
+            format!("echo 'wasm-bindgen-test-runner {version}'"),
+        ),
+        ("clang", "echo 'wasm32 - WebAssembly 32-bit'".into()),
+        ("llvm-ar", "echo LLVM".into()),
+        ("node", "echo v26".into()),
+        (
+            "cargo",
+            format!(
+                "printf '%s\\n' \"$CC_wasm32_unknown_unknown\" \"$AR_wasm32_unknown_unknown\" > '{}'; test -z \"${{WASM_BINDGEN_TEST_ONLY_WEB+x}}\"",
+                root.join("cargo-ran").display()
+            ),
+        ),
+    ] {
+        let path = bin.join(name);
+        std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    for name in ["grep", "sed"] {
+        std::os::unix::fs::symlink(format!("/usr/bin/{name}"), bin.join(name)).unwrap();
+    }
+    bin
+}
+
+#[cfg(unix)]
+fn run_wasm32_fixture(cmd: &Cmd, bin: &Path) -> std::process::Output {
+    assert_eq!(cmd.program, "sh");
+    std::process::Command::new("/bin/sh")
+        .args(&cmd.args)
+        .current_dir(cmd.cwd.as_ref().unwrap())
+        .env("PATH", bin)
+        .env("CC_wasm32_unknown_unknown", "wrong-cc")
+        .env("AR_wasm32_unknown_unknown", "wrong-ar")
+        .env("WASM_BINDGEN_TEST_ONLY_WEB", "1")
+        .output()
+        .unwrap()
+}
+
+#[test]
+#[cfg(unix)]
+fn wasm32_checks_tools_before_cargo_and_names_each_missing_tool() {
+    let cmd = &wasm32_commands(&workspace_root())[0];
+    for (tool, diagnostic) in [
+        ("rustup", "wasm32-unknown-unknown"),
+        ("wasm-bindgen-test-runner", "wasm-bindgen-test-runner"),
+        ("clang", "clang"),
+        ("llvm-ar", "llvm-ar"),
+        ("node", "Node"),
+    ] {
+        let tmp = tempfile::tempdir().unwrap();
+        let bin = wasm32_tool_fixture(tmp.path());
+        std::fs::remove_file(bin.join(tool)).unwrap();
+        let out = run_wasm32_fixture(cmd, &bin);
+        assert!(!out.status.success(), "{tool}");
+        let error = String::from_utf8_lossy(&out.stderr);
+        assert!(error.contains(diagnostic), "{tool}: {error}");
+        assert!(!tmp.path().join("cargo-ran").exists(), "{tool}");
+    }
+}
+
+#[test]
+#[cfg(unix)]
+fn wasm32_rejects_missing_target_wrong_runner_version_and_clang_without_wasm() {
+    let cmd = &wasm32_commands(&workspace_root())[0];
+    for (tool, output, diagnostic) in [
+        ("rustup", "native-target", "wasm32-unknown-unknown"),
+        (
+            "wasm-bindgen-test-runner",
+            "wasm-bindgen-test-runner 0.0.0",
+            "Cargo.lock",
+        ),
+        ("clang", "x86-64 - X86", "WebAssembly"),
+    ] {
+        let tmp = tempfile::tempdir().unwrap();
+        let bin = wasm32_tool_fixture(tmp.path());
+        std::fs::write(bin.join(tool), format!("#!/bin/sh\necho '{output}'\n")).unwrap();
+        let out = run_wasm32_fixture(cmd, &bin);
+        assert!(!out.status.success());
+        let error = String::from_utf8_lossy(&out.stderr);
+        assert!(error.contains(diagnostic), "{error}");
+        assert!(!tmp.path().join("cargo-ran").exists());
+    }
+}
+
+#[test]
+#[cfg(unix)]
+fn wasm32_sets_c_tools_and_finds_llvm_ar_in_the_rust_sysroot() {
+    let cmd = &wasm32_commands(&workspace_root())[0];
+    for rust_tools in [false, true] {
+        let tmp = tempfile::tempdir().unwrap();
+        let bin = wasm32_tool_fixture(tmp.path());
+        let ar = if rust_tools {
+            let ar = tmp
+                .path()
+                .join("rust sysroot/lib/rustlib/test-host/bin/llvm-ar");
+            std::fs::rename(bin.join("llvm-ar"), &ar).unwrap();
+            ar
+        } else {
+            bin.join("llvm-ar")
+        };
+        let out = run_wasm32_fixture(cmd, &bin);
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let used = std::fs::read_to_string(tmp.path().join("cargo-ran")).unwrap();
+        assert_eq!(
+            used.lines().collect::<Vec<_>>(),
+            [bin.join("clang").to_str().unwrap(), ar.to_str().unwrap()]
+        );
+    }
+}
+
+#[test]
+fn ci_wasm32_installs_the_target_and_locked_runner_and_is_required() {
+    let workflow =
+        std::fs::read_to_string(workspace_root().join(".github/workflows/ci.yml")).unwrap();
+    let jobs = workflow_jobs(&workflow);
+    let job = &jobs
+        .iter()
+        .find(|(id, _)| id == "wasm32")
+        .expect("a wasm32 job")
+        .1;
+    for required in [
+        "dtolnay/rust-toolchain@",
+        "targets: wasm32-unknown-unknown",
+        "llvm-tools",
+        "clang",
+        "Cargo.lock",
+        "wasm-bindgen-cli",
+        "--version",
+        "--locked",
+        "run: cargo xtask step wasm32",
+    ] {
+        assert!(job.contains(required), "{required} is missing");
+    }
+    let success = &jobs.iter().find(|(id, _)| id == "ci-success").unwrap().1;
+    assert!(job_needs(success).contains(&"wasm32".into()));
+}
+
+#[test]
+fn ci_wasm32_runner_version_command_matches_cargo_lock() {
+    let root = workspace_root();
+    let workflow = std::fs::read_to_string(root.join(".github/workflows/ci.yml")).unwrap();
+    let jobs = workflow_jobs(&workflow);
+    let job = &jobs.iter().find(|(id, _)| id == "wasm32").unwrap().1;
+    let assignment = job
+        .lines()
+        .map(str::trim)
+        .find(|line| line.starts_with("version=$("))
+        .unwrap();
+    // Cargo supplies the locked version. The setup needs no Python TOML module.
+    assert!(assignment.contains("cargo tree --locked"), "{assignment}");
+    let script = format!("{assignment}\nprintf '%s\\n' \"$version\"");
+    let output = std::process::Command::new("sh")
+        .args(["-ec", &script])
+        .current_dir(&root)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let lock: toml::Value =
+        toml::from_str(&std::fs::read_to_string(root.join("Cargo.lock")).unwrap()).unwrap();
+    let version = lock["package"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|package| package["name"].as_str() == Some("wasm-bindgen"))
+        .unwrap()["version"]
+        .as_str()
+        .unwrap();
+    assert_eq!(String::from_utf8(output.stdout).unwrap().trim(), version);
+}
+
 // --- plan ---
 
 #[test]
@@ -779,6 +1092,7 @@ fn plan_lists_every_gate_step_in_order() {
             "fmt",
             "clippy",
             "members-alone",
+            "wasm32",
             "computer-image",
             "screend-test",
             "test",
@@ -845,6 +1159,7 @@ fn plan_runs_cargo_steps_unconditionally() {
         "fmt",
         "clippy",
         "members-alone",
+        "wasm32",
         "computer-image",
         "test",
         "emergency-drift",
@@ -1400,6 +1715,7 @@ fn full_lanes_keep_every_cargo_consumer_in_one_lane() {
                     "fmt",
                     "clippy",
                     "members-alone",
+                    "wasm32",
                     "computer-image",
                     "screend-test",
                     "test",
@@ -1541,7 +1857,7 @@ fn a_name_that_is_not_a_gate_step_is_refused_with_the_step_names() {
     .to_string();
     assert!(error.contains("no step `lint`"), "{error}");
     assert!(
-        error.contains("fmt, clippy, members-alone, computer-image, screend-test, test"),
+        error.contains("fmt, clippy, members-alone, wasm32, computer-image, screend-test, test"),
         "{error}"
     );
 }

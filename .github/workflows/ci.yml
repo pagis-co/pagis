@@ -69,6 +69,41 @@ jobs:
 
       - run: cargo xtask step fmt clippy members-alone
 
+  wasm32:
+    name: wasm32
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: stable
+          components: clippy, llvm-tools
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-on-failure: true
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Install clang
+        run: sudo apt-get update && sudo apt-get install -y clang
+
+      # Cargo reads the wasm-bindgen version from Cargo.lock.
+      - name: Install the locked wasm-bindgen test runner
+        run: |
+          version=$(cargo tree --locked -p wasm-bindgen --target wasm32-unknown-unknown --depth 0 --prefix none | sed -n 's/^wasm-bindgen v//p')
+          cargo install wasm-bindgen-cli --version "$version" --locked
+
+      - run: cargo xtask step wasm32
+
   test:
     name: tests
     runs-on: ubuntu-latest
@@ -434,6 +469,7 @@ jobs:
     if: always()
     needs:
       - lint
+      - wasm32
       - test
       - contract
       - ui
