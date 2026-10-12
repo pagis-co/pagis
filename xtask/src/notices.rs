@@ -27,6 +27,11 @@
 //! `computer/` alone, where xtask is not, so the file is stored beside
 //! screend and the image copies it. With `--check` the command writes
 //! nothing and fails when the stored file is not what it writes.
+//!
+//! `cargo xtask notices harnesses [--check]` writes [`HARNESS_NOTICES`],
+//! the notices of the npm packages of the Coding Harnesses that the
+//! Computer Image holds, in the same way. It installs the packages of the
+//! harness lockfile into the target directory and reads them with pnpm.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -56,6 +61,22 @@ pub const SCREEND_MANIFEST: &str = "computer/screend/Cargo.toml";
 
 /// The targets of the Computer Image: Linux amd64 and arm64.
 pub const SCREEND_TARGETS: [&str; 2] = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"];
+
+/// The stored notices of the npm packages of the Coding Harnesses, which
+/// the Computer Image holds.
+pub const HARNESS_NOTICES: &str = "computer/harnesses/THIRD_PARTY_NOTICES";
+
+/// The directory of the harness lockfile, and the files that an install of
+/// it reads.
+pub const HARNESS_DIR: &str = "computer/harnesses";
+const HARNESS_FILES: [&str; 3] = ["package.json", "pnpm-workspace.yaml", "pnpm-lock.yaml"];
+
+/// The npm packages of the Coding Harnesses that come under the terms of
+/// their vendor in their license file, and not under an SPDX license. A
+/// person reads the terms of a package before it goes into this list. A
+/// harness runs as a program of its own, so these terms do not reach the
+/// rest of Pagis.
+pub const VENDOR_TERMS: [&str; 1] = ["@anthropic-ai/claude-agent-sdk"];
 
 /// The manifest of the `pagis` program.
 pub const SERVER_MANIFEST: &str = "crates/pagis/Cargo.toml";
@@ -208,29 +229,38 @@ pub fn vite_packages(license_list: &str) -> Result<Vec<Package>> {
 
 /// The packages of `license_list`, the output of `pnpm licenses list
 /// --json`, with the text of the license file of each one. pnpm lists
-/// the packages by license, and each version of a package with its
-/// directory.
+/// the packages by license, and the directory of each copy of a package.
+/// With the hoisted layout one version can have more than one copy, so
+/// the version comes from the `package.json` of each directory, and the
+/// first copy of a version stands for the others.
 pub fn pnpm_packages(license_list: &str) -> Result<Vec<Package>> {
     #[derive(Deserialize)]
     struct Listed {
         name: String,
-        versions: Vec<String>,
         paths: Vec<std::path::PathBuf>,
         license: String,
     }
+    #[derive(Deserialize)]
+    struct Manifest {
+        version: String,
+    }
     let listed: BTreeMap<String, Vec<Listed>> =
         serde_json::from_str(license_list).context("read the license list of pnpm")?;
-    let mut packages = Vec::new();
+    let mut packages: Vec<Package> = Vec::new();
     for item in listed.into_values().flatten() {
-        if item.versions.len() != item.paths.len() {
-            bail!(
-                "pnpm lists {} versions and {} directories of the npm package {}",
-                item.versions.len(),
-                item.paths.len(),
-                item.name
-            );
-        }
-        for (version, path) in item.versions.into_iter().zip(item.paths) {
+        for path in item.paths {
+            let manifest = path.join("package.json");
+            let Manifest { version } = serde_json::from_str(
+                &std::fs::read_to_string(&manifest)
+                    .with_context(|| format!("read {}", manifest.display()))?,
+            )
+            .with_context(|| format!("read the version in {}", manifest.display()))?;
+            if packages
+                .iter()
+                .any(|package| package.name == item.name && package.version == version)
+            {
+                continue;
+            }
             packages.push(Package {
                 name: item.name.clone(),
                 version,
@@ -244,15 +274,18 @@ pub fn pnpm_packages(license_list: &str) -> Result<Vec<Package>> {
 
 /// The text of the license file in the package directory `dir`, as Vite
 /// finds it: the first file whose name starts with `license`, `licence`
-/// or `copying` in any case.
+/// or `copying` in any case. A directory, as `LICENSES/` of the REUSE
+/// layout, is not a license file.
 fn license_file(dir: &Path) -> Result<Option<String>> {
     let mut names = Vec::new();
     for entry in std::fs::read_dir(dir).with_context(|| format!("read {}", dir.display()))? {
-        let name = entry?.file_name().to_string_lossy().into_owned();
+        let entry = entry?;
+        let name = entry.file_name().to_string_lossy().into_owned();
         let lower = name.to_ascii_lowercase();
         if ["license", "licence", "copying"]
             .iter()
             .any(|prefix| lower.starts_with(prefix))
+            && entry.file_type()?.is_file()
         {
             names.push(name);
         }
@@ -424,6 +457,38 @@ pub fn screend_notices(crates_json: &str) -> Result<String> {
     ))
 }
 
+/// The notices of the Coding Harnesses from `license_list`, the output of
+/// `pnpm licenses list --prod --json` for the harness lockfile. A package
+/// of [`VENDOR_TERMS`] gives its license file, and each other package
+/// goes through [`package_notices`].
+pub fn harness_notices(license_list: &str, accepted: &[String]) -> Result<String> {
+    let (vendor, spdx): (Vec<Package>, Vec<Package>) = pnpm_packages(license_list)?
+        .into_iter()
+        .partition(|package| VENDOR_TERMS.contains(&package.name.as_str()));
+    let mut notices = package_notices(spdx, accepted)?;
+    for package in vendor {
+        let user = format!("{} {}", package.name, package.version);
+        let Some(text) = package.text.filter(|text| !text.trim().is_empty()) else {
+            bail!("the npm package {user} has no license file");
+        };
+        notices.push(Notice {
+            license: "the terms of its vendor".into(),
+            users: vec![user],
+            text: text.trim().to_string(),
+        });
+    }
+    Ok(render(
+        "the Coding Harnesses of the Pagis Computer Image",
+        &[Part {
+            title: "The npm packages of the Coding Harnesses. The native package of \
+                    an architecture, as @openai/codex-linux-x64, has the license of \
+                    its main package."
+                .into(),
+            notices,
+        }],
+    ))
+}
+
 /// A command that writes the JSON output of the pinned cargo-about for
 /// the crate of `manifest` and `targets` to `output`. It fetches the
 /// crates of the lockfile first, so cargo-about reads each license from
@@ -456,7 +521,8 @@ pub fn cargo_about_cmd(
 
 /// The gate step `notices`: build the Product App for its license list,
 /// write the notices of the Server Package and of the Client App into the
-/// target directory, and check the stored notices of screend.
+/// target directory, and check the stored notices of screend and of the
+/// Coding Harnesses.
 pub fn notices_step(root: &Path) -> Step {
     let output = target_dir(root).join("notices/THIRD_PARTY_NOTICES");
     let output = output.to_string_lossy();
@@ -474,6 +540,7 @@ pub fn notices_step(root: &Path) -> Step {
             xtask(&["server", &output]),
             xtask(&["client", &client]),
             xtask(&["screend", "--check"]),
+            xtask(&["harnesses", "--check"]),
         ]),
     }
 }
@@ -489,30 +556,71 @@ pub fn write_server(root: &Path, output: &Path) -> Result<()> {
 /// Client App to `output`, from the production packages that pnpm
 /// installed for it.
 pub fn write_client(root: &Path, output: &Path) -> Result<()> {
-    let listed = std::process::Command::new("pnpm")
-        .args([
+    let listed = pnpm(
+        root,
+        &[
             "licenses",
             "list",
             "--prod",
             "--json",
             "--filter",
             "./desktop",
-        ])
-        .current_dir(root)
+        ],
+    )?;
+    let text = client_notices(&listed, &read_accepted(root)?)?;
+    write(output, &text)
+}
+
+/// `cargo xtask notices harnesses [--check]`: install the packages of the
+/// harness lockfile into the target directory with no optional package
+/// and no script, and write [`HARNESS_NOTICES`], or fail when it is not
+/// what the command writes. pnpm does not list the optional native
+/// packages, so the install leaves them out.
+pub fn write_harnesses(root: &Path, check: bool) -> Result<()> {
+    let dir = target_dir(root).join("notices/harnesses");
+    std::fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
+    for file in HARNESS_FILES {
+        let from = root.join(HARNESS_DIR).join(file);
+        std::fs::copy(&from, dir.join(file)).with_context(|| format!("copy {}", from.display()))?;
+    }
+    pnpm(
+        &dir,
+        &[
+            "install",
+            "--frozen-lockfile",
+            "--prod",
+            "--no-optional",
+            "--ignore-scripts",
+        ],
+    )?;
+    let listed = pnpm(&dir, &["licenses", "list", "--prod", "--json"])?;
+    let text = harness_notices(&listed, &read_accepted(root)?)?;
+    store(root, HARNESS_NOTICES, &text, check, "harnesses")
+}
+
+/// Run pnpm with `args` in `dir`, and return its standard output.
+fn pnpm(dir: &Path, args: &[&str]) -> Result<String> {
+    let output = std::process::Command::new("pnpm")
+        .args(args)
+        .current_dir(dir)
         .output()
         .context("start pnpm")?;
-    if !listed.status.success() {
+    if !output.status.success() {
         bail!(
-            "pnpm licenses list failed: {}",
-            String::from_utf8_lossy(&listed.stderr)
+            "pnpm {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr)
         );
     }
-    let accepted = accepted_licenses(
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// The accepted licenses of [`ABOUT_CONFIG`] at `root`.
+fn read_accepted(root: &Path) -> Result<Vec<String>> {
+    accepted_licenses(
         &std::fs::read_to_string(root.join(ABOUT_CONFIG))
             .with_context(|| format!("read {ABOUT_CONFIG}"))?,
-    )?;
-    let text = client_notices(&String::from_utf8_lossy(&listed.stdout), &accepted)?;
-    write(output, &text)
+    )
 }
 
 /// Write `text` to `path`, and make its directory first.
@@ -527,19 +635,28 @@ fn write(path: &Path, text: &str) -> Result<()> {
 /// or fail when it is not what the command writes.
 pub fn write_screend(root: &Path, check: bool) -> Result<()> {
     let json = run_cargo_about(root, "pagis-screend", SCREEND_MANIFEST, &SCREEND_TARGETS)?;
-    let text = screend_notices(&json)?;
-    let path = root.join(SCREEND_NOTICES);
+    store(
+        root,
+        SCREEND_NOTICES,
+        &screend_notices(&json)?,
+        check,
+        "screend",
+    )
+}
+
+/// Write `text` to the stored notices `path` at `root`. With `check`,
+/// write nothing, and fail when the stored file is not `text`. `command`
+/// names the `cargo xtask notices` command that writes the file.
+fn store(root: &Path, path: &str, text: &str, check: bool, command: &str) -> Result<()> {
+    let full = root.join(path);
     if check {
-        let stored = std::fs::read_to_string(&path).unwrap_or_default();
+        let stored = std::fs::read_to_string(&full).unwrap_or_default();
         if stored != text {
-            bail!(
-                "{SCREEND_NOTICES} does not match the crates of pagis-screend; \
-                 run `cargo xtask notices screend`"
-            );
+            bail!("{path} does not match its lockfile; run `cargo xtask notices {command}`");
         }
         return Ok(());
     }
-    std::fs::write(&path, text).with_context(|| format!("write {}", path.display()))
+    std::fs::write(&full, text).with_context(|| format!("write {}", full.display()))
 }
 
 /// Run the pinned cargo-about for `manifest`, and return its JSON output.

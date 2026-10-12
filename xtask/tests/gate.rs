@@ -946,18 +946,23 @@ fn dev_plan_tests_screend_for_a_change_to_screend_or_its_dockerfile() {
     assert!(!names("crates/pagis-computer/src/lib.rs").contains(&"screend-test"));
 }
 
-/// The lockfile of screend is under `computer/screend/`, and the Computer
-/// Image copies the stored notices of screend, so a change to either
-/// checks the notices. Each other lockfile selects the full gate.
+/// The lockfiles of screend and of the Coding Harnesses are under
+/// `computer/`, and the Computer Image copies their stored notices, so a
+/// change to either or to the Dockerfile checks the notices. Each other
+/// lockfile selects the full gate.
 #[test]
-fn dev_plan_checks_the_notices_for_a_change_to_screend_or_its_dockerfile() {
+fn dev_plan_checks_the_notices_for_a_change_to_a_computer_lockfile_or_its_dockerfile() {
     let tmp = tempfile::tempdir().unwrap();
     write_computer_workspace(tmp.path());
     let names = |path: &str| {
         step_names(&dev_lanes(tmp.path(), &[path.into()], true, NO_TOOLCHAINS).unwrap())
     };
 
-    for path in ["computer/screend/Cargo.lock", "computer/Dockerfile"] {
+    for path in [
+        "computer/screend/Cargo.lock",
+        "computer/harnesses/pnpm-lock.yaml",
+        "computer/Dockerfile",
+    ] {
         assert!(names(path).contains(&"notices"), "{path}");
     }
     assert!(!names("computer/entrypoint.sh").contains(&"notices"));

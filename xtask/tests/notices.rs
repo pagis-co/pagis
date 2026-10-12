@@ -1,16 +1,17 @@
 //! Tests for the third-party notices: the licenses that the
 //! configuration accepts, the notices of the Rust crates from the output
 //! of cargo-about, the notices of the npm packages of the Product App from
-//! the license list of Vite, the text of the notices file, the gate step
-//! and the pin of cargo-about.
+//! the license list of Vite, the notices of the npm packages of the
+//! Coding Harnesses, the text of the notices file, the gate step and the
+//! pin of cargo-about.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use pagis_versions::{CARGO_ABOUT_SHA256, CARGO_ABOUT_VERSION};
 use xtask::notices::{
-    ABOUT_CONFIG, Notice, Part, SCREEND_NOTICES, accepted_licenses, cargo_about_cmd,
-    client_notices, crate_notices, notices_step, pnpm_packages, render, screend_notices,
-    vite_packages,
+    ABOUT_CONFIG, HARNESS_NOTICES, Notice, Part, SCREEND_NOTICES, accepted_licenses,
+    cargo_about_cmd, client_notices, crate_notices, harness_notices, notices_step, pnpm_packages,
+    render, screend_notices, vite_packages,
 };
 use xtask::{Action, tools};
 
@@ -310,16 +311,29 @@ fn an_empty_license_list_gives_no_notice() {
     assert_eq!(package_notices("[]", &accepted()).unwrap(), []);
 }
 
+/// An npm package directory: its `package.json` with `version`, and the
+/// named files.
+fn npm_package(root: &Path, dir: &str, version: &str, files: &[(&str, &str)]) -> PathBuf {
+    let dir = root.join(dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("package.json"),
+        serde_json::json!({ "version": version }).to_string(),
+    )
+    .unwrap();
+    for (file, body) in files {
+        std::fs::write(dir.join(file), body).unwrap();
+    }
+    dir
+}
+
 /// pnpm lists the production packages of the Client App by license,
 /// with the directory of each version, where the license file is.
 #[test]
 fn the_pnpm_license_list_gives_each_version_with_its_license_file() {
     let tmp = tempfile::tempdir().unwrap();
-    let semver = tmp.path().join("semver");
-    std::fs::create_dir_all(&semver).unwrap();
-    std::fs::write(semver.join("LICENSE"), "ISC text\n").unwrap();
-    let lazy = tmp.path().join("lazy-val");
-    std::fs::create_dir_all(&lazy).unwrap();
+    let semver = npm_package(tmp.path(), "semver", "7.7.2", &[("LICENSE", "ISC text\n")]);
+    let lazy = npm_package(tmp.path(), "lazy-val", "1.0.5", &[]);
     let list = serde_json::json!({
         "ISC": [{
             "name": "semver",
@@ -351,23 +365,61 @@ fn the_pnpm_license_list_gives_each_version_with_its_license_file() {
     );
 }
 
+/// With the hoisted layout, pnpm lists a directory for each copy of a
+/// package, and not one for each version. The version of each copy comes
+/// from its `package.json`, and two copies of one version are one package.
 #[test]
-fn a_pnpm_entry_whose_versions_and_paths_differ_is_an_error() {
+fn the_pnpm_license_list_reads_the_version_of_each_hoisted_copy() {
+    let tmp = tempfile::tempdir().unwrap();
+    let top = npm_package(tmp.path(), "zod", "4.6.5", &[("LICENSE", "zod 4")]);
+    let nested = npm_package(tmp.path(), "a/zod", "3.25.76", &[("LICENSE", "zod 3")]);
+    let again = npm_package(tmp.path(), "b/zod", "3.25.76", &[("LICENSE", "zod 3")]);
     let list = serde_json::json!({
-        "MIT": [{ "name": "odd", "versions": ["1.0.0", "2.0.0"], "paths": ["/x"], "license": "MIT" }],
+        "MIT": [{
+            "name": "zod",
+            "versions": ["3.25.76", "4.6.5"],
+            "paths": [top, nested, again],
+            "license": "MIT",
+        }],
     });
 
-    let error = pnpm_packages(&list.to_string()).unwrap_err();
+    let packages = pnpm_packages(&list.to_string()).unwrap();
 
-    assert!(format!("{error:#}").contains("odd"), "{error:#}");
+    let found: Vec<_> = packages
+        .iter()
+        .map(|package| (package.version.as_str(), package.text.as_deref()))
+        .collect();
+    assert_eq!(
+        found,
+        [("4.6.5", Some("zod 4")), ("3.25.76", Some("zod 3"))]
+    );
+}
+
+/// A `LICENSES` directory, as the REUSE layout keeps, is not the license
+/// file of the package.
+#[test]
+fn a_license_directory_is_not_a_license_file() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mcp = npm_package(tmp.path(), "pi-mcp", "1.1.0", &[]);
+    std::fs::create_dir_all(mcp.join("LICENSES")).unwrap();
+    let list = serde_json::json!({
+        "MIT": [{ "name": "pi-mcp", "versions": ["1.1.0"], "paths": [mcp], "license": "MIT" }],
+    });
+
+    let packages = pnpm_packages(&list.to_string()).unwrap();
+
+    assert_eq!(packages[0].text, None);
 }
 
 #[test]
 fn the_notices_of_the_client_app_name_its_npm_packages() {
     let tmp = tempfile::tempdir().unwrap();
-    let updater = tmp.path().join("electron-updater");
-    std::fs::create_dir_all(&updater).unwrap();
-    std::fs::write(updater.join("LICENSE"), "MIT text").unwrap();
+    let updater = npm_package(
+        tmp.path(),
+        "electron-updater",
+        "6.8.10",
+        &[("LICENSE", "MIT text")],
+    );
     let list = serde_json::json!({
         "MIT": [{
             "name": "electron-updater",
@@ -385,6 +437,110 @@ fn the_notices_of_the_client_app_name_its_npm_packages() {
     );
     assert!(text.contains("electron-updater 6.8.10"), "{text}");
     assert!(text.contains("LICENSE.electron.txt"), "{text}");
+}
+
+/// A Coding Harness runs as a program of its own, and some harness
+/// packages come under the terms of their vendor in a license file, with
+/// no SPDX license. The notices pass that file on.
+#[test]
+fn the_notices_of_the_coding_harnesses_pass_on_the_terms_of_a_vendor() {
+    let tmp = tempfile::tempdir().unwrap();
+    let sdk = npm_package(
+        tmp.path(),
+        "claude-agent-sdk",
+        "0.3.287",
+        &[("LICENSE.md", "© Anthropic PBC. All rights reserved.\n")],
+    );
+    let pi = npm_package(tmp.path(), "pi-acp", "0.0.34", &[]);
+    let list = serde_json::json!({
+        "Unknown": [{
+            "name": "@anthropic-ai/claude-agent-sdk",
+            "versions": ["0.3.287"],
+            "paths": [sdk],
+            "license": "Unknown",
+        }],
+        "MIT": [{
+            "name": "pi-acp",
+            "versions": ["0.0.34"],
+            "paths": [pi],
+            "license": "MIT",
+        }],
+    });
+
+    let text = harness_notices(&list.to_string(), &accepted()).unwrap();
+
+    assert!(
+        text.starts_with(
+            "Third-party notices of the Coding Harnesses of the Pagis Computer Image\n"
+        ),
+        "{text}"
+    );
+    assert!(
+        text.contains(
+            "License: the terms of its vendor\nUsed by:\n  @anthropic-ai/claude-agent-sdk 0.3.287\n\n© Anthropic PBC. All rights reserved.\n"
+        ),
+        "{text}"
+    );
+    assert!(text.contains("  pi-acp 0.0.34"), "{text}");
+    assert!(text.contains("Permission is hereby granted"), "{text}");
+}
+
+#[test]
+fn a_harness_package_with_vendor_terms_and_no_license_file_is_an_error() {
+    let tmp = tempfile::tempdir().unwrap();
+    let sdk = npm_package(
+        tmp.path(),
+        "claude-agent-sdk",
+        "0.3.287",
+        &[("README.md", "readme")],
+    );
+    let list = serde_json::json!({
+        "Unknown": [{
+            "name": "@anthropic-ai/claude-agent-sdk",
+            "versions": ["0.3.287"],
+            "paths": [sdk],
+            "license": "Unknown",
+        }],
+    });
+
+    let error = harness_notices(&list.to_string(), &accepted()).unwrap_err();
+
+    assert!(
+        format!("{error:#}").contains("@anthropic-ai/claude-agent-sdk 0.3.287 has no license file"),
+        "{error:#}"
+    );
+}
+
+/// A new package with no SPDX license stops the gate until a person reads
+/// its terms and adds it to the vendor terms.
+#[test]
+fn a_harness_package_with_an_unknown_license_and_no_vendor_terms_is_an_error() {
+    let tmp = tempfile::tempdir().unwrap();
+    let odd = npm_package(tmp.path(), "odd", "1.0.0", &[("LICENSE", "Some terms")]);
+    let list = serde_json::json!({
+        "Unknown": [{ "name": "odd", "versions": ["1.0.0"], "paths": [odd], "license": "Unknown" }],
+    });
+
+    let error = harness_notices(&list.to_string(), &accepted()).unwrap_err();
+
+    assert!(format!("{error:#}").contains("odd 1.0.0"), "{error:#}");
+}
+
+/// The Computer Image is built from `computer/` alone, so the notices of
+/// the Coding Harnesses are stored beside their lockfile and the image
+/// copies them.
+#[test]
+fn the_computer_image_holds_the_stored_notices_of_the_coding_harnesses() {
+    assert_eq!(HARNESS_NOTICES, "computer/harnesses/THIRD_PARTY_NOTICES");
+    let root = workspace_root();
+    assert!(root.join(HARNESS_NOTICES).is_file());
+    let dockerfile = std::fs::read_to_string(root.join("computer/Dockerfile")).unwrap();
+    assert!(
+        dockerfile.contains(
+            "COPY harnesses/THIRD_PARTY_NOTICES /usr/share/doc/coding-harnesses/THIRD_PARTY_NOTICES"
+        ),
+        "{dockerfile}"
+    );
 }
 
 // --- the notices file ---
@@ -584,10 +740,11 @@ fn the_cargo_about_pin_names_the_release_archive_of_the_host() {
 
 /// The gate builds the Product App for its license list, writes the
 /// notices of the Server Package and of the Client App, and checks the
-/// stored notices of screend. Each part fails on a license that the configuration does not
-/// accept, and on a package that has no notice.
+/// stored notices of screend and of the Coding Harnesses. Each part fails
+/// on a license that the configuration does not accept, and on a package
+/// that has no notice.
 #[test]
-fn the_gate_step_writes_the_server_notices_and_checks_the_screend_notices() {
+fn the_gate_step_writes_the_server_notices_and_checks_the_stored_notices() {
     let tmp = tempfile::tempdir().unwrap();
     let step = notices_step(tmp.path());
     assert_eq!(step.name, "notices");
@@ -613,6 +770,7 @@ fn the_gate_step_writes_the_server_notices_and_checks_the_screend_notices() {
                 client.display()
             ),
             "cargo run --package xtask -- notices screend --check".to_string(),
+            "cargo run --package xtask -- notices harnesses --check".to_string(),
         ]
     );
     for cmd in cmds {
