@@ -146,10 +146,10 @@ each route stays in the route table and answers `501 Not Implemented`
 with the code `not_available`. A part leaves `native` when it becomes
 portable and does not come back. Calls, Remote Access, the System tab
 with Analytics, Hosts and Coding Sessions, Plugins with the Software List
-and Widgets, and the HTTP socket upgrades are separated. The live events
-drop Host frames without `native` and keep Channel events. Not built: the
-separation of the other parts and the `wasm32-unknown-unknown` build of
-`pagis-server` (ADR-0038).
+and Widgets, Connections, and the HTTP socket upgrades are separated. The
+live events drop Host frames without `native` and keep Channel events.
+Not built: the separation of the other parts and the
+`wasm32-unknown-unknown` build of `pagis-server` (ADR-0038).
 
 ### Onboarding
 The first steps the Product App shows a new Local Installation: welcome,

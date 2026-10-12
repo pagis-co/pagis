@@ -378,16 +378,28 @@ pub const ADMINISTRATION_ROUTES: &[Route] = &[
         part: None,
     },
     Route {
-        path: "/api/v1/administration/providers/{provider}/{part}",
+        path: "/api/v1/administration/providers/{provider}/key",
         methods: &["put", "delete"],
         authenticated: true,
         part: None,
     },
     Route {
-        path: "/api/v1/administration/providers/{provider}/{part}/test",
+        path: "/api/v1/administration/providers/{provider}/key/test",
         methods: &["post"],
         authenticated: true,
         part: None,
+    },
+    Route {
+        path: "/api/v1/administration/providers/{provider}/{part}",
+        methods: &["put", "delete"],
+        authenticated: true,
+        part: Some("Connections"),
+    },
+    Route {
+        path: "/api/v1/administration/providers/{provider}/{part}/test",
+        methods: &["post"],
+        authenticated: true,
+        part: Some("Connections"),
     },
     Route {
         path: "/api/v1/system/restart",
@@ -997,25 +1009,25 @@ pub const ROUTES: &[Route] = &[
         path: "/api/v1/settings/connections/providers",
         methods: &["get"],
         authenticated: true,
-        part: None,
+        part: Some("Connections"),
     },
     Route {
         path: "/api/v1/settings/connections",
         methods: &["get", "post"],
         authenticated: true,
-        part: None,
+        part: Some("Connections"),
     },
     Route {
         path: "/api/v1/settings/connections/{connection_id}",
         methods: &["delete"],
         authenticated: true,
-        part: None,
+        part: Some("Connections"),
     },
     Route {
         path: "/api/v1/settings/connections/{connection_id}/authorize",
         methods: &["post"],
         authenticated: true,
-        part: None,
+        part: Some("Connections"),
     },
     Route {
         path: "/api/v1/settings/trust-list",
@@ -1303,13 +1315,13 @@ pub const ROUTES: &[Route] = &[
         path: "/api/v1/connections/google/start",
         methods: &["get"],
         authenticated: false,
-        part: None,
+        part: Some("Connections"),
     },
     Route {
         path: "/api/v1/connections/google/callback",
         methods: &["get"],
         authenticated: false,
-        part: None,
+        part: Some("Connections"),
     },
     Route {
         path: "/api/v1/health",
@@ -1424,6 +1436,120 @@ mod tests {
     }
 
     #[test]
+    fn connections_routes_name_one_native_part() {
+        for path in [
+            "/api/v1/settings/connections/providers",
+            "/api/v1/settings/connections",
+            "/api/v1/settings/connections/{connection_id}",
+            "/api/v1/settings/connections/{connection_id}/authorize",
+            "/api/v1/connections/google/start",
+            "/api/v1/connections/google/callback",
+        ] {
+            let route = ROUTES.iter().find(|route| route.path == path).unwrap();
+            assert_eq!(route.part, Some("Connections"), "{path}");
+        }
+        for path in [
+            "/api/v1/administration/providers/{provider}/{part}",
+            "/api/v1/administration/providers/{provider}/{part}/test",
+        ] {
+            let route = ADMINISTRATION_ROUTES
+                .iter()
+                .find(|route| route.path == path)
+                .unwrap();
+            assert_eq!(route.part, Some("Connections"), "{path}");
+        }
+        for route in ROUTES.iter().filter(|route| route.path.contains("/sync")) {
+            assert_eq!(route.part, None, "{}", route.path);
+        }
+        for path in [
+            "/api/v1/connections/google/start",
+            "/api/v1/connections/google/callback",
+        ] {
+            assert!(PUBLIC_ROUTES.iter().any(|(public, _)| *public == path));
+        }
+    }
+
+    #[cfg(not(feature = "native"))]
+    #[tokio::test]
+    async fn each_connections_route_answers_not_available() {
+        use axum::body::{Body, to_bytes};
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+
+        let product: axum::Router =
+            crate::native_product_routes().merge(crate::native_public_routes());
+        let administration: axum::Router =
+            crate::native_administration_routes(crate::AdministrationSections::default());
+        for (router, paths) in [
+            (
+                product,
+                vec![
+                    ("get", "/api/v1/settings/connections/providers"),
+                    ("get", "/api/v1/settings/connections"),
+                    ("post", "/api/v1/settings/connections"),
+                    ("delete", "/api/v1/settings/connections/record"),
+                    ("post", "/api/v1/settings/connections/record/authorize"),
+                    ("get", "/api/v1/connections/google/start"),
+                    ("get", "/api/v1/connections/google/callback"),
+                ],
+            ),
+            (
+                administration,
+                vec![
+                    (
+                        "put",
+                        "/api/v1/administration/providers/google/oauth-client",
+                    ),
+                    (
+                        "delete",
+                        "/api/v1/administration/providers/google/oauth-client",
+                    ),
+                    ("put", "/api/v1/administration/providers/telnyx/connection"),
+                    (
+                        "delete",
+                        "/api/v1/administration/providers/telnyx/connection",
+                    ),
+                    (
+                        "post",
+                        "/api/v1/administration/providers/telnyx/connection/test",
+                    ),
+                    ("put", "/api/v1/administration/providers/telnyx/sip"),
+                    ("delete", "/api/v1/administration/providers/telnyx/sip"),
+                ],
+            ),
+        ] {
+            for (method, path) in paths {
+                let response = router
+                    .clone()
+                    .oneshot(
+                        Request::builder()
+                            .method(method.to_uppercase().as_str())
+                            .uri(path)
+                            .body(Body::empty())
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    response.status(),
+                    StatusCode::NOT_IMPLEMENTED,
+                    "{method} {path}"
+                );
+                let body: serde_json::Value = serde_json::from_slice(
+                    &to_bytes(response.into_body(), usize::MAX).await.unwrap(),
+                )
+                .unwrap();
+                assert_eq!(
+                    body,
+                    serde_json::json!({"error": {
+                        "code": "not_available", "message": "This server does not offer Connections."
+                    }})
+                );
+            }
+        }
+    }
+
+    #[test]
     fn plugins_routes_name_one_native_part() {
         let belongs = |route: &&Route| {
             ["/api/v1/plugins", "/api/v1/software", "/api/v1/widgets"]
@@ -1449,7 +1575,8 @@ mod tests {
         // Test each port's methods, including the public Sandbox Proxy.
         let product: axum::Router =
             crate::native_product_routes().merge(crate::native_public_routes());
-        let administration: axum::Router = crate::native_administration_routes();
+        let administration: axum::Router =
+            crate::native_administration_routes(crate::AdministrationSections::default());
         for (router, table) in [(product, ROUTES), (administration, ADMINISTRATION_ROUTES)] {
             for route in table.iter().filter(|route| {
                 ["/api/v1/plugins", "/api/v1/software", "/api/v1/widgets"]
@@ -1509,7 +1636,7 @@ mod tests {
     ) -> Vec<(String, Vec<String>, bool)> {
         let source = include_str!("native.rs");
         let start = source
-            .find(&format!("fn {name}()"))
+            .find(&format!("fn {name}("))
             .expect("the native router exists");
         let source = &source[start..];
         let end = source.find("\n///").unwrap_or(source.len());

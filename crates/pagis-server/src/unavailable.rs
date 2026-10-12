@@ -17,8 +17,18 @@ pub(crate) fn public_routes<S: Clone + Send + Sync + 'static>() -> Router<S> {
     routes(ROUTES, false)
 }
 
-pub(crate) fn administration_routes<S: Clone + Send + Sync + 'static>() -> Router<S> {
-    routes(ADMINISTRATION_ROUTES, true)
+pub(crate) fn administration_routes<S: Clone + Send + Sync + 'static>(
+    sections: crate::AdministrationSections,
+) -> Router<S> {
+    let table: Vec<_> = ADMINISTRATION_ROUTES
+        .iter()
+        .copied()
+        .filter(|route| {
+            route.part != Some("Connections")
+                || sections.contains(crate::AdministrationSection::Providers)
+        })
+        .collect();
+    routes(&table, true)
 }
 
 fn routes<S: Clone + Send + Sync + 'static>(table: &[Route], authenticated: bool) -> Router<S> {

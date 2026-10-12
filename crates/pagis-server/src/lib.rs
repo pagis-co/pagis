@@ -15,6 +15,10 @@ mod channels;
 mod client_name;
 mod coding_session_feed;
 mod coding_sessions;
+#[cfg(feature = "native")]
+mod connections;
+#[cfg(all(test, not(feature = "native")))]
+mod connections_portable_tests;
 mod cors;
 mod cross_origin;
 pub mod error;
@@ -159,9 +163,6 @@ pub struct AppState {
     /// The Artifact retention windows the user set.
     pub retention_policies: Arc<dyn RetentionPolicyStore>,
     pub connections: Arc<dyn ConnectionStore>,
-    /// The connect flow: the one path that writes a Connection
-    /// row and takes it through the OAuth exchange.
-    pub connector: Arc<pagis_connect::Connector>,
     pub credentials: Arc<dyn CredentialStore>,
     /// The Workspace vault: the only holder of the data key.
     pub vault: Arc<pagis_vault::Vault>,
@@ -660,22 +661,6 @@ fn product_router(state: Arc<AppState>) -> Router {
             put(settings::set_retention_policy),
         )
         .route(
-            "/api/v1/settings/connections/providers",
-            get(settings::list_connection_providers),
-        )
-        .route(
-            "/api/v1/settings/connections",
-            get(settings::list_connections).post(settings::create_connection),
-        )
-        .route(
-            "/api/v1/settings/connections/{connection_id}",
-            delete(settings::delete_connection),
-        )
-        .route(
-            "/api/v1/settings/connections/{connection_id}/authorize",
-            post(settings::authorize_connection),
-        )
-        .route(
             "/api/v1/settings/trust-list",
             get(trust_list::list_trust_entries).post(trust_list::add_trust_entry),
         )
@@ -751,27 +736,6 @@ fn product_router(state: Arc<AppState>) -> Router {
         .merge(native_public_routes())
         .route("/api/v1/health", get(health))
         .route("/api/v1/runtime/identity", get(runtime_identity))
-        // The start route of a Google authorization. It reads
-        // the Session itself: a browser with no Session goes to sign in
-        // and comes back, and only a Session of the Person who started
-        // the authorization gets the transaction cookie that binds the
-        // `state` to that browser, and the address at Google. A local
-        // installation with Remote Access off has one Person, and there
-        // any browser of the machine goes on with no Session.
-        .route(
-            "/api/v1/connections/google/start",
-            get(settings::google_start),
-        )
-        // Where Google redirects a person's browser after they consent.
-        // It holds no Session: the cookie is SameSite=Strict, so a
-        // browser sends none on a cross-site navigation. It finishes only
-        // for the browser that holds the transaction cookie of the
-        // `state`, while the Session that started the authorization is
-        // live, and only for the Google account of the Connection.
-        .route(
-            "/api/v1/connections/google/callback",
-            get(settings::google_callback),
-        )
         // The read of the server's own first run, from which the
         // sign-in page names the Administration Port. It answers while
         // the installation holds no Client Credential and no

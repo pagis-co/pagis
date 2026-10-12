@@ -12,6 +12,7 @@ use crate::artifacts;
 use crate::calls;
 use crate::channels;
 use crate::coding_sessions;
+use crate::connections;
 use crate::error::{ErrorBody, ErrorDetail};
 use crate::forget;
 use crate::grants;
@@ -184,13 +185,13 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         settings::delete_model_alias,
         settings::list_retention_policies,
         settings::set_retention_policy,
-        settings::list_connection_providers,
-        settings::list_connections,
-        settings::create_connection,
-        settings::authorize_connection,
-        settings::google_start,
-        settings::google_callback,
-        settings::delete_connection,
+        connections::list_connection_providers,
+        connections::list_connections,
+        connections::create_connection,
+        connections::authorize_connection,
+        connections::google_start,
+        connections::google_callback,
+        connections::delete_connection,
         settings::list_credentials,
         settings::add_credential,
         settings::delete_credential,
@@ -219,9 +220,9 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         administration::installation_health,
         administration::pull_computer_image,
         providers::list_provider_setups,
-        providers::configure_provider_part,
-        providers::test_provider_part,
-        providers::remove_provider_part,
+        connections::configure_provider_part,
+        connections::test_provider_part,
+        connections::remove_provider_part,
         setup::get_setup,
         setup::complete_setup,
         user::get_user,
