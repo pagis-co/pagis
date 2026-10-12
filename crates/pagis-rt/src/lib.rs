@@ -41,21 +41,21 @@ pub fn timeout<F: Future>(
 /// Wait for the given duration on the host's one thread.
 #[cfg(target_arch = "wasm32")]
 pub fn sleep(duration: Duration) -> impl Future<Output = ()> + Send {
-    // The future stays on the isolate's one thread. Domain futures
-    // keep their Send contract.
-    send_wrapper::SendWrapper::new(gloo_timers::future::sleep(duration))
+    sleep_until(Instant::now() + duration)
 }
 
 /// Wait until the host clock reaches the deadline.
 #[cfg(target_arch = "wasm32")]
 pub async fn sleep_until(deadline: Instant) {
-    // Gloo timers use whole milliseconds. Check the deadline again
-    // when a fractional millisecond remains after the timer wakes.
+    // A host timer uses whole milliseconds and can fire before the
+    // clock reaches the deadline. Wait again for what remains.
     while let Some(duration) = deadline.checked_duration_since(Instant::now()) {
         if duration.is_zero() {
             return;
         }
-        sleep(duration).await;
+        // The timer stays on the isolate's one thread. Domain futures
+        // keep their Send contract.
+        send_wrapper::SendWrapper::new(gloo_timers::future::sleep(duration)).await;
     }
 }
 
