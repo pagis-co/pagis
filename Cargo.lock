@@ -4997,7 +4997,6 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.20",
  "tokio",
- "tokio-tungstenite 0.28.0",
  "tokio-util",
  "tracing",
  "webpki-roots 1.0.9",
@@ -5114,7 +5113,6 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.20",
  "tokio",
- "tokio-tungstenite 0.28.0",
  "tracing",
  "wiremock",
 ]

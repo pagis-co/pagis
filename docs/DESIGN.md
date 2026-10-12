@@ -76,7 +76,7 @@ crates/llm-router/
     rt.rs           # host tasks, timers and response bodies
     accumulator.rs  # MessageAccumulator: a stream back into a message
     registry.rs     # the model metadata table (models.json)
-    realtime.rs     # native realtime WebSocket routing
+    realtime.rs     # realtime routing through the host transport
     forward.rs      # Router::forward: a provider's own request, metered
     protocol/
       mod.rs        # Protocol trait (sync encode/decode; router owns async I/O)
@@ -96,14 +96,28 @@ On `wasm32-unknown-unknown`, timers use Gloo, tasks run on the host's one
 thread, and `SendWrapper` keeps the codecs' `Send` stream contract. Attempt
 timing uses `web-time`. The native HTTP client sets the connect timeout and
 HTTP/2 options. The wasm HTTP client uses the host's fetch defaults.
-Not built: realtime WebSocket routing on `wasm32-unknown-unknown`.
+Realtime routing uses one `RealtimeTransport` on every target. A
+`RealtimeSocket` is a boxed stream and sink of `RealtimeMessage` text,
+binary and close frames. On native targets, the socket and connection
+future are `Send`, and `Router::new` uses `TungsteniteTransport`. On
+`wasm32-unknown-unknown`, the host supplies a transport with
+`Router::with_realtime_transport`. Its socket and connection future can
+hold values that stay on the host's thread. A router with no transport
+returns a configuration error when a realtime session opens.
 
-The runtime test runs under Node with `wasm-bindgen-test`. With
+The router sends the provider key in headers. A transport must preserve
+these headers and apply the connection timeout. A browser WebSocket cannot
+send an Authorization header, so the host needs a runtime that can. The
+router does not put a credential in a URL. Dictation adapters and the
+Realtime Bridge use the same frame protocols with each transport. Their
+tests use frame channels; the native transport test opens a TCP server.
+
+The runtime and realtime host tests run under Node with `wasm-bindgen-test`. With
 `wasm-bindgen-test-runner` installed at the version of `wasm-bindgen` in
 `Cargo.lock`, run:
 
 ```sh
-cargo test -p llm-router --target wasm32-unknown-unknown --test rt
+cargo xtask step wasm32
 ```
 
 ## What the router carries

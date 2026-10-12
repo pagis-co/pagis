@@ -6,8 +6,7 @@ use rand::Rng;
 use crate::config::{Candidate, ProviderConfig, RouterConfig};
 use crate::error::Error;
 use crate::protocol::{EventStream, Protocol, codec};
-#[cfg(not(target_arch = "wasm32"))]
-use crate::realtime::RealtimeIntent;
+use crate::realtime::{RealtimeIntent, RealtimeTransport};
 use crate::registry::{self, ListedModel, ListedVoice, ModelInfo, ModelMetadata};
 use crate::stream_util::with_idle_timeout;
 use crate::types::{
@@ -20,6 +19,7 @@ pub struct Router {
     pub(crate) http: reqwest::Client,
     config: RouterConfig,
     on_attempt: Option<AttemptHook>,
+    realtime_transport: Option<std::sync::Arc<dyn RealtimeTransport>>,
 }
 
 /// A live chat stream and the candidate that serves it.
@@ -88,7 +88,20 @@ impl Router {
             http,
             config,
             on_attempt: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            realtime_transport: Some(std::sync::Arc::new(crate::realtime::TungsteniteTransport)),
+            #[cfg(target_arch = "wasm32")]
+            realtime_transport: None,
         })
+    }
+
+    /// Use the host's transport for realtime connections.
+    pub fn with_realtime_transport(
+        mut self,
+        transport: std::sync::Arc<dyn RealtimeTransport>,
+    ) -> Self {
+        self.realtime_transport = Some(transport);
+        self
     }
 
     /// Observe every attempt in the retry/fallback loop — including the
@@ -171,7 +184,6 @@ impl Router {
     /// The wire dialect is the provider's own — OpenAI Realtime events on
     /// openai-chat providers (OpenAI, Azure, Kyutai Unmute). Providers on
     /// other protocols report realtime as unsupported.
-    #[cfg(not(target_arch = "wasm32"))]
     pub async fn realtime_connect(
         &self,
         model: &str,
@@ -187,7 +199,6 @@ impl Router {
     /// `/listen`, with the model and the audio format in the query. The
     /// returned connection's `model` is the candidate that served the
     /// alias, and its `protocol` names the dialect.
-    #[cfg(not(target_arch = "wasm32"))]
     pub async fn realtime_transcription_connect(
         &self,
         model: &str,
@@ -197,12 +208,14 @@ impl Router {
             .await
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     async fn realtime(
         &self,
         model: &str,
         intent: RealtimeIntent,
     ) -> Result<crate::realtime::RealtimeConnection, Error> {
+        let transport = self.realtime_transport.as_deref().ok_or_else(|| {
+            Error::InvalidConfig("no realtime transport is configured; the host must supply one with Router::with_realtime_transport".to_string())
+        })?;
         self.run(model, |candidate| async move {
             let (provider, _) = self.provider(&candidate.provider)?;
             let served = match provider.protocol {
@@ -224,6 +237,7 @@ impl Router {
                 &candidate.model,
                 intent,
                 self.config.timeouts.connect,
+                transport,
             )
             .await
         })

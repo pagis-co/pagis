@@ -44,7 +44,7 @@ pub(crate) fn open_listen_session(connection: RealtimeConnection) -> DictationSe
                             Event::Closed => Ok(Transcript::Final(draft.clone())),
                             Event::Error(message) => Err(VoiceError::Provider(message)),
                         },
-                        Some(Ok(RealtimeMessage::Close(_))) | None => {
+                        Some(Ok(RealtimeMessage::Close)) | None => {
                             Ok(Transcript::Final(draft.clone()))
                         }
                         Some(Ok(_)) => continue,

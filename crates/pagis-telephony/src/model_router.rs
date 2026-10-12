@@ -11,8 +11,8 @@ use std::time::Duration;
 use async_trait::async_trait;
 use base64::Engine as _;
 use llm_router::{
-    Candidate, ProviderConfig, RealtimeConnection, RealtimeMessage, RealtimeProtocol, Router,
-    RouterConfig,
+    Candidate, ProviderConfig, RealtimeConnection, RealtimeMessage, RealtimeProtocol,
+    RealtimeTransport, Router, RouterConfig,
 };
 use pagis_core::{ModelAliasStore, Provider, ProviderKeys, ProviderUse, WorkspaceId};
 use serde_json::{Value, json};
@@ -66,6 +66,7 @@ pub struct KeyedModelSessions {
     aliases: Arc<dyn ModelAliasStore>,
     http: reqwest::Client,
     base_urls: HashMap<Provider, String>,
+    realtime_transport: Option<Arc<dyn RealtimeTransport>>,
 }
 
 impl KeyedModelSessions {
@@ -75,7 +76,14 @@ impl KeyedModelSessions {
             aliases,
             http: reqwest::Client::new(),
             base_urls: HashMap::new(),
+            realtime_transport: None,
         }
+    }
+
+    /// Use the host's transport for realtime connections.
+    pub fn with_realtime_transport(mut self, transport: Arc<dyn RealtimeTransport>) -> Self {
+        self.realtime_transport = Some(transport);
+        self
     }
 
     pub fn with_base_url(mut self, provider: Provider, base_url: impl Into<String>) -> Self {
@@ -159,6 +167,10 @@ impl KeyedModelSessions {
 
         let router = Router::with_client(self.http.clone(), config)
             .map_err(|error| ModelError(error.to_string()))?;
+        let router = match &self.realtime_transport {
+            Some(transport) => router.with_realtime_transport(Arc::clone(transport)),
+            None => router,
+        };
         Ok((router, backend_model))
     }
 }
@@ -321,7 +333,7 @@ impl RouterSession {
 
     async fn send_json(&mut self, event: Value) -> Result<(), ModelError> {
         self.connection
-            .send(RealtimeMessage::Text(event.to_string().into()))
+            .send(RealtimeMessage::Text(event.to_string()))
             .await
             .map_err(|error| ModelError(error.to_string()))
     }
@@ -336,7 +348,7 @@ impl RouterSession {
                         }),
                     );
                 }
-                Ok(RealtimeMessage::Close(_)) => return None,
+                Ok(RealtimeMessage::Close) => return None,
                 Ok(_) => continue,
                 Err(error) => return Some(Err(ModelError(error.to_string()))),
             }

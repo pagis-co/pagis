@@ -1277,3 +1277,91 @@ async fn the_agent_hang_up_waits_for_its_last_words_to_be_heard() {
         .count();
     assert_eq!(goodbye, 50, "the caller heard every frame of the goodbye");
 }
+
+/// The Realtime Bridge pumps a Call through the router's transport seam.
+#[tokio::test(start_paused = true)]
+async fn the_realtime_bridge_pumps_audio_and_transcripts_over_a_memory_transport() {
+    use base64::Engine as _;
+    use futures::{SinkExt, StreamExt};
+    use llm_router::{Candidate, ProviderConfig, RealtimeMessage, Router, RouterConfig};
+    use pagis_telephony::RouterModelSessions;
+
+    let (transport, mut peer) = crate::realtime_transport::MemoryTransport::pair();
+    let router = Router::new(
+        RouterConfig::new()
+            .provider("p", ProviderConfig::openai("secret"))
+            .model("phone", [Candidate::new("p", "gpt-realtime-2.1")]),
+    )
+    .unwrap()
+    .with_realtime_transport(transport);
+    let sessions = Arc::new(RouterModelSessions::new(Arc::new(router), "phone"));
+    let line = Line::open(Some(REMOTE)).await;
+    let call = placed(brief(CallDirection::Inbound, TrustTier::Trusted));
+    let bus = Arc::new(RecordingBus::default());
+    let log = CallLog::new(Arc::clone(&bus) as _, &call);
+    let session = CallSession::open(CallSessionDeps {
+        workspace_id: call.workspace_id.clone(),
+        brief: call.brief.clone(),
+        gate: None,
+        run_id: call.run_id.clone(),
+        capabilities: line.transport.capabilities(),
+        sessions,
+        tools: Arc::new(RecordingTools::default()),
+        cancel: CancellationToken::new(),
+    })
+    .await
+    .unwrap();
+    let hub = Arc::clone(&line.hub);
+    let report = tokio::spawn(async move { session.run(hub, &log).await });
+    let RealtimeMessage::Text(update) = peer.next().await.unwrap().unwrap() else {
+        panic!("a text frame")
+    };
+    assert_eq!(
+        bound_tools(&serde_json::from_str(&update).unwrap()),
+        vec![HANG_UP, SEND_DIGITS, "memory_read"]
+    );
+
+    line.party.speak(Frame::silence(Codec::Pcmu));
+    loop {
+        let RealtimeMessage::Text(event) = peer.next().await.unwrap().unwrap() else {
+            panic!("a text frame")
+        };
+        let event: Value = serde_json::from_str(&event).unwrap();
+        if event["type"] == "input_audio_buffer.append" {
+            assert_eq!(
+                base64::engine::general_purpose::STANDARD
+                    .decode(event["audio"].as_str().unwrap())
+                    .unwrap(),
+                vec![0xff; FRAME_BYTES]
+            );
+            break;
+        }
+    }
+    let audio = base64::engine::general_purpose::STANDARD.encode(vec![0xfe; FRAME_BYTES]);
+    for event in [
+        serde_json::json!({"type":"response.output_audio.delta", "item_id":"item", "delta":audio}),
+        serde_json::json!({"type":"conversation.item.input_audio_transcription.completed", "transcript":"Is that Robin?"}),
+        serde_json::json!({"type":"response.output_audio_transcript.done", "transcript":"It is."}),
+    ] {
+        peer.send(RealtimeMessage::text(event.to_string()))
+            .await
+            .unwrap();
+    }
+    eventually("the transcripts reach the Call", || {
+        bus.transcript_texts().contains(&"It is.".to_string())
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(60)).await;
+    eventually("the model audio reaches the Remote Party", || {
+        line.party
+            .heard()
+            .iter()
+            .any(|packet| packet.payload.as_ref() == [0xfe; FRAME_BYTES])
+    })
+    .await;
+    line.party.hangup();
+    let report = report.await.unwrap();
+    assert_eq!(report.ended_reason, "remote_hangup");
+    assert!(render_transcript(&report.transcript).contains("caller: Is that Robin?"));
+    assert!(render_transcript(&report.transcript).contains("agent: It is."));
+}

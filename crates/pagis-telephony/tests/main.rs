@@ -11,6 +11,9 @@ mod endpoint;
 mod hub;
 mod inbound;
 mod listen;
+#[path = "../../llm-router/tests/support/realtime.rs"]
+mod realtime_transport;
+
 mod model_router;
 mod numbers;
 mod plivo;

@@ -451,7 +451,9 @@ async fn realtime(router: &Router) -> Result<String, String> {
                     return Err("socket closed before the first event".into());
                 };
                 let frame = frame.map_err(err)?;
-                let text = frame.into_text().map_err(err)?;
+                let llm_router::RealtimeMessage::Text(text) = frame else {
+                    return Err("expected a text frame".into());
+                };
                 if !text.contains("session.created") {
                     return Err(format!(
                         "unexpected first event: {}",

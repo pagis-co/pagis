@@ -29,7 +29,6 @@ mod config;
 mod error;
 mod forward;
 pub mod protocol;
-#[cfg(not(target_arch = "wasm32"))]
 mod realtime;
 mod registry;
 mod router;
@@ -45,9 +44,9 @@ pub use config::{
 };
 pub use error::{Error, ErrorKind};
 pub use forward::{ForwardRequest, Forwarded, Metered};
-#[cfg(not(target_arch = "wasm32"))]
 pub use realtime::{
-    RealtimeConnection, RealtimeIntent, RealtimeMessage, RealtimeProtocol, RealtimeSocket,
+    RealtimeConnectFuture, RealtimeConnection, RealtimeError, RealtimeIntent, RealtimeIo,
+    RealtimeMessage, RealtimeProtocol, RealtimeSocket, RealtimeTransport,
 };
 pub use registry::{
     DEFAULT_CONTEXT_WINDOW, DEFAULT_MAX_OUTPUT_TOKENS, ListedModel, ListedVoice, ModelInfo,
@@ -63,3 +62,6 @@ pub use types::{
     VideoJob, VideoRequest, VideoStatus,
 };
 pub use voices::OPENAI_VOICES;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub use realtime::TungsteniteTransport;
