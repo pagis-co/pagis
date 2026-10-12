@@ -170,7 +170,7 @@ async fn reach(clock: &dyn Clock, at: UnixMillis) {
         }
         let left = Duration::from_millis(u64::try_from(at - now).unwrap_or(0));
         tokio::select! {
-            () = tokio::time::sleep(left) => {}
+            () = pagis_rt::sleep(left) => {}
             () = changed => {}
         }
     }
@@ -219,7 +219,7 @@ pub(crate) async fn close_for_ended_session(socket: &mut impl MessageSocket) -> 
     // The client answers with a Close of its own. The daemon reads it
     // before the connection ends, so the client reads the Close and not
     // a reset connection.
-    let _ = tokio::time::timeout(CLOSE_GRACE, async {
+    let _ = pagis_rt::timeout(CLOSE_GRACE, async {
         while let Some(Ok(_)) = socket.next().await {}
     })
     .await;

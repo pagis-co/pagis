@@ -6,8 +6,20 @@ use std::time::Duration;
 #[cfg(not(target_arch = "wasm32"))]
 pub use tokio::{
     spawn,
+    task::spawn_blocking,
     time::{Instant, Interval, error::Elapsed, sleep, sleep_until},
 };
+
+/// Run blocking work on the host's one thread and return its value.
+/// The call completes before this function returns. It needs no
+/// `Send` or `'static` bound because no value leaves this thread.
+/// On native targets, Tokio runs the call on its blocking pool.
+#[cfg(target_arch = "wasm32")]
+pub fn spawn_blocking<F: FnOnce() -> T, T>(
+    f: F,
+) -> std::future::Ready<Result<T, std::convert::Infallible>> {
+    std::future::ready(Ok(f()))
+}
 
 /// Tick at once, then once per period. A missed tick delays the next
 /// tick by one period, so a task does not send a burst to catch up.
