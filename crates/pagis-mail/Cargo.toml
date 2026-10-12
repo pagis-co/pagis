@@ -16,26 +16,36 @@ imap-codec.workspace = true
 nom.workspace = true
 chrono.workspace = true
 async-trait.workspace = true
-lettre.workspace = true
 mail-builder.workspace = true
 mail-parser.workspace = true
 deunicode.workspace = true
 pagis-broker.workspace = true
 pagis-core.workspace = true
+pagis-rt.workspace = true
 psl.workspace = true
 rand.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["net", "rt"] }
-tokio-rustls.workspace = true
+tokio = { workspace = true, features = ["io-util"] }
 tokio-util.workspace = true
 tracing.workspace = true
 ulid.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+lettre.workspace = true
+tokio = { workspace = true, features = ["net"] }
+tokio-rustls.workspace = true
 webpki-roots.workspace = true
 
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+send_wrapper = { version = "0.6", features = ["futures"] }
+
 [dev-dependencies]
+futures.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 # The tests assert the HTTP Basic header the host client sends.
 base64.workspace = true
 # The desk tests audit each act, as the number desk tests do.
@@ -51,3 +61,10 @@ wiremock.workspace = true
 [[test]]
 name = "main"
 path = "tests/main.rs"
+
+[[test]]
+name = "rules"
+path = "tests/rules.rs"
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "0.3"

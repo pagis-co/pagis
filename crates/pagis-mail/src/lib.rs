@@ -43,6 +43,8 @@ mod collector;
 mod desk;
 mod events;
 mod host;
+// The byte driver stays portable. Its socket transport is native.
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 mod imap;
 mod imap_mailbox;
 mod mailbox;
@@ -51,6 +53,7 @@ mod migadu;
 mod mime;
 mod no_transport;
 mod proof;
+#[cfg(not(target_arch = "wasm32"))]
 mod protocol;
 mod provider;
 mod sender;
@@ -87,6 +90,7 @@ pub use no_transport::NoMailTransport;
 pub use proof::{
     Backoff, LOGIN_PROOF_WINDOW, RECONNECT_BACKOFF_MAX, RECONNECT_BACKOFF_START, prove_login,
 };
+#[cfg(not(target_arch = "wasm32"))]
 pub use protocol::{
     IMAP_PORT, IMAPS_PORT, MAX_IDLE_TURN, SMTPS_PORT, SUBMISSION_PORT, StandardTransport,
 };
