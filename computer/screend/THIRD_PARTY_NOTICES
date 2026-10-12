@@ -1,10 +1,11 @@
-Third-party notices of pagis-screend
+Third-party notices of pagis-screend, the screen daemon of the Pagis Computer Image
 
-Pagis is distributed under the MIT License. pagis-screend also holds
-the third-party software below. Each notice gives a license, the
-software that uses it, and the license text. The name and the
-version of a crate find its source code on crates.io, and those of
-an npm package find its source code on the npm registry.
+This file gives the license of each piece of third-party software
+in the product above. Pagis itself is distributed under the MIT
+License. Each notice gives a license, the software that uses it,
+and the license text. The name and the version of a crate find its
+source code on crates.io, and those of an npm package find its
+source code on the npm registry.
 
 ======================================================================
 The Rust crates of the pagis-screend program

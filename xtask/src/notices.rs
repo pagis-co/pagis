@@ -8,14 +8,19 @@
 //! license text. [`ABOUT_CONFIG`] holds the accepted licenses and the
 //! targets. It fails on a license that it cannot satisfy or find. Vite
 //! writes the npm packages that the Product App bundles, with the license
-//! and the license text of each one, to [`PRODUCT_APP_LICENSES`], and
-//! [`package_notices`] checks each license against the same list.
+//! and the license text of each one, to [`PRODUCT_APP_LICENSES`]. pnpm
+//! lists the npm packages that the Client App ships. [`package_notices`]
+//! checks the license of each npm package against the same list.
 //!
 //! `cargo xtask notices server <output>` writes the notices of the Server
 //! Package and the Headless Server image: gog, the crates of `pagis`, and
 //! the npm packages of the Product App, which `pagis` embeds. The release
 //! and the image build write them, and the gate writes them into the
 //! target directory, so a release cannot ship without them.
+//!
+//! `cargo xtask notices client <output>` writes the notices of the npm
+//! packages of the Client App, which `cargo xtask desktop` puts into the
+//! app before the pack.
 //!
 //! `cargo xtask notices screend` writes [`SCREEND_NOTICES`], the notices
 //! of the crates of `pagis-screend`. The Computer Image is built from
@@ -330,11 +335,11 @@ pub fn render(product: &str, parts: &[Part]) -> String {
     let mut out = format!(
         "Third-party notices of {product}\n\n\
          This file gives the license of each piece of third-party software\n\
-         in {product}. Pagis itself is distributed under the MIT License.\n\
-         Each notice gives a license, the software that uses it, and the\n\
-         license text. The name and the version of a crate find its source\n\
-         code on crates.io, and those of an npm package find its source code\n\
-         on the npm registry.\n"
+         in the product above. Pagis itself is distributed under the MIT\n\
+         License. Each notice gives a license, the software that uses it,\n\
+         and the license text. The name and the version of a crate find its\n\
+         source code on crates.io, and those of an npm package find its\n\
+         source code on the npm registry.\n"
     );
     for part in parts {
         let _ = write!(out, "\n{DOUBLE_RULE}\n{}\n{DOUBLE_RULE}\n", part.title);
