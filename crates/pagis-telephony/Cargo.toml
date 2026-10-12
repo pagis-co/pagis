@@ -33,7 +33,7 @@ webpki-roots = "1"
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["fs", "io-util", "net", "rt"] }
 tokio-util.workspace = true
 tracing.workspace = true
 

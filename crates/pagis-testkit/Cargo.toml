@@ -41,10 +41,11 @@ bollard.workspace = true
 pagis-storage-postgres.workspace = true
 tar.workspace = true
 tempfile.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["io-util", "net", "rt"] }
 tokio-tungstenite.workspace = true
 # `compat` gives the yamux of the fake Home Exit its pipe.
 tokio-util = { workspace = true, features = ["compat"] }
 
 [dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread"] }
 llm-router.workspace = true

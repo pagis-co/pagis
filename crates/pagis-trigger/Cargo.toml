@@ -17,6 +17,7 @@ thiserror.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]
+tokio = { workspace = true, features = ["rt"] }
 async-trait.workspace = true
 pagis-audit.workspace = true
 pagis-storage-sqlite.workspace = true

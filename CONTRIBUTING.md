@@ -135,6 +135,7 @@ Mobile App whose toolchain is absent, and `step` fails it. The gate steps are:
 | Step | What it checks |
 | --- | --- |
 | `fmt`, `clippy` | Formatting, and clippy with warnings as errors |
+| `members-alone` | `cargo check -p <member> --all-targets` for each workspace member, with a separate feature graph |
 | `computer-image` | Builds the Computer Image that the Docker tests run |
 | `screend-test` | The tests of `computer/screend`, in Docker |
 | `test` | Each test of the workspace. With Docker, also the Docker tests |
@@ -174,7 +175,7 @@ gate steps with `cargo xtask step`:
 
 | Job | Steps |
 | --- | --- |
-| fmt and clippy | `fmt clippy` |
+| fmt and clippy | `fmt clippy members-alone` |
 | tests | `computer-image screend-test test` |
 | contract drift | `ui-deps contract-drift gog-contract` |
 | UI | `ui-deps ui-typecheck ui-test` |

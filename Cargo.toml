@@ -183,7 +183,7 @@ semver = "1"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls-ring", "sqlite", "postgres", "migrate", "macros", "json"] }
 tempfile = "3"
 thiserror = "2"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "fs", "signal"] }
+tokio = { version = "1", features = ["macros", "sync", "time"] }
 tokio-util = { version = "0.7", features = ["io"] }
 # The QR code of a Sign-In Link (ADR-0028): an SVG beside the URL for
 # the Product App and the Administration Interface, and text for the

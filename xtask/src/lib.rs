@@ -195,6 +195,7 @@ fn gate_lanes(
                 "warnings",
             ]),
         },
+        members_alone_step(root),
         computer_image_step(root, docker_available),
         screend::test_step(root, docker_available),
         Step {
@@ -262,6 +263,31 @@ fn gate_lanes(
         mobile::lane(root, toolchains, absent),
         secrets_lane(root),
     ]
+}
+
+/// Check each workspace member in a separate Cargo invocation. The
+/// command prints the member name before it runs, so a failure names
+/// the member whose features are incomplete.
+fn members_alone_step(root: &Path) -> Step {
+    let action = match workspace_packages(root) {
+        Ok(mut packages) => {
+            packages.sort_by(|a, b| a.name.cmp(&b.name));
+            Action::Run(
+                packages
+                    .iter()
+                    .map(|package| {
+                        Cmd::new("cargo", &["check", "-p", &package.name, "--all-targets"])
+                            .in_dir(root)
+                    })
+                    .collect(),
+            )
+        }
+        Err(error) => Action::Run(vec![Cmd::refusal(&format!("members-alone: {error}"))]),
+    };
+    Step {
+        name: "members-alone",
+        action,
+    }
 }
 
 /// The steps of the full gate named in `names`, in the order of `names`.

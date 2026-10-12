@@ -22,7 +22,7 @@ reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["net", "rt"] }
 tokio-rustls.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true
