@@ -4614,6 +4614,7 @@ export interface components {
              *     name no layer size. `unsupported` means that nothing bounds what
              *     an Agent writes outside `/data` while its Computer is awake, which
              *     https://docs.pagis.co/server/computers#bound-a-computers-disk says how to fix.
+             *     `unavailable` means this server has no Computers.
              */
             container_quota: string;
             /** @description `sqlite` or `postgres`. */
@@ -4646,6 +4647,7 @@ export interface components {
              *     answer or the limits name no volume size. `unsupported` means
              *     that nothing bounds what `/data` holds, which
              *     https://docs.pagis.co/server/computers#bound-a-computers-disk says how to fix.
+             *     `unavailable` means this server has no Computers.
              */
             volume_quota: string;
         };
@@ -5542,12 +5544,7 @@ export interface components {
              */
             checks: components["schemas"]["ModelCheckDto"][];
             completed: boolean;
-            /**
-             * @description Docker discovery. A Member reads the endpoint in use and no
-             *     candidate: the candidates name the sockets of the installation's
-             *     own host.
-             */
-            docker: components["schemas"]["DockerReportDto"];
+            docker: null | components["schemas"]["DockerReportDto"];
             /**
              * @description The Docker endpoint an Administrator typed, or `null` for
              *     discovery. It is `null` for a Member.

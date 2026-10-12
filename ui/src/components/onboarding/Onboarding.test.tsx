@@ -14,7 +14,7 @@ type Status = {
   completed: boolean
   providers: { provider: string; configured: boolean; source: string | null; uses: string[] }[]
   checks: { provider: string; available: number }[]
-  docker: DockerReport
+  docker: DockerReport | null
   docker_endpoint: string | null
 }
 
@@ -80,7 +80,7 @@ interface Options {
 
 function stubApi(options: Options = {}) {
   const status = options.status ?? freshStatus()
-  status.docker = dockerReport(options.dockerEndpoint ?? null)
+  if (status.docker !== null) status.docker = dockerReport(options.dockerEndpoint ?? null)
   const computer = options.computer ?? {
     state: 'off',
     image: 'absent',
@@ -231,6 +231,33 @@ function actions(footer: HTMLElement) {
 }
 
 describe('the first run page', () => {
+  it('finishes after providers when the server has no Computers', async () => {
+    const status = freshStatus()
+    status.docker = null
+    const api = stubApi({ status })
+    mount(api)
+    await reachModel()
+    expect(within(screen.getByRole('list', { name: 'Setup steps' })).queryByText('Computer')).toBeNull()
+    typeKey('Anthropic', 'sk-test')
+    fireEvent.click(within(frame().footer).getByText('Continue'))
+    await waitFor(() => expect(api.POST).toHaveBeenCalledWith('/api/v1/settings/onboarding/complete', { body: { user_name: null } }))
+    expect(api.GET).not.toHaveBeenCalledWith('/api/v1/agents/{agent_id}/computer', expect.anything())
+    expect(api.POST).not.toHaveBeenCalledWith('/api/v1/agents/{agent_id}/computer/wake', expect.anything())
+  })
+
+  it('shows a completion failure on the providers step without Computers', async () => {
+    const status = freshStatus()
+    status.docker = null
+    const api = stubApi({ status, completeFails: 'the verified model route changed' })
+    mount(api)
+    await reachModel()
+    typeKey('Anthropic', 'sk-test')
+    fireEvent.click(within(frame().footer).getByText('Continue'))
+    expect(await screen.findByText('the verified model route changed')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Connect your providers' })).toBeTruthy()
+    expect(screen.queryByText('Computer', { selector: '.onboarding-step-label' })).toBeNull()
+  })
+
   it('puts the title bar strip above the steps, on the ground of the window', async () => {
     const { container } = mount(stubApi())
 

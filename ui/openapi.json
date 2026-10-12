@@ -13,7 +13,7 @@
     "/api/v1/administration/computer-image/pull": {
       "post": {
         "tags": [
-          "administration"
+          "computers"
         ],
         "summary": "Pull a Computer Image, and answer when the pull ends.",
         "description": "Before a restart to an Update, the Client App of a Local Installation\nasks for the Computer Image that the next release pins, so the new\ndaemon finds it present (ADR-0027). The daemon pulls only an image of\nthe repository of its own pinned image, and only by its digest. A\nsecond request for the same image joins the pull that runs, and a\nrequest that goes away does not stop the pull. A failed pull answers\n`502`, and `503` where Docker does not answer.",
@@ -1051,7 +1051,7 @@
     "/api/v1/administration/resources": {
       "get": {
         "tags": [
-          "administration"
+          "computers"
         ],
         "summary": "What each Person's Computers take of the host.",
         "operationId": "installation_resources",
@@ -1509,7 +1509,7 @@
     "/api/v1/agents/{agent_id}/computer": {
       "get": {
         "tags": [
-          "agents"
+          "computers"
         ],
         "operationId": "computer_state",
         "parameters": [
@@ -1559,7 +1559,7 @@
     "/api/v1/agents/{agent_id}/computer/sleep": {
       "post": {
         "tags": [
-          "agents"
+          "computers"
         ],
         "summary": "Put the agent's computer to sleep now, ahead of the idle\nsweep. The disk survives, so the next wake finds the same data.",
         "operationId": "sleep_computer",
@@ -1630,7 +1630,7 @@
     "/api/v1/agents/{agent_id}/computer/wake": {
       "post": {
         "tags": [
-          "agents"
+          "computers"
         ],
         "operationId": "wake_computer",
         "parameters": [
@@ -2187,7 +2187,7 @@
     "/api/v1/agents/{agent_id}/screen/handback": {
       "post": {
         "tags": [
-          "agents"
+          "computers"
         ],
         "summary": "Hand the computer back to the agent: the parked run resumes\nwith the \"screen may have changed\" note. A handback without a\ntakeover is a no-op.",
         "operationId": "screen_handback",
@@ -2238,7 +2238,7 @@
     "/api/v1/agents/{agent_id}/screen/offer": {
       "post": {
         "tags": [
-          "agents"
+          "computers"
         ],
         "operationId": "screen_offer",
         "parameters": [
@@ -2308,7 +2308,7 @@
     "/api/v1/agents/{agent_id}/screen/preview.png": {
       "get": {
         "tags": [
-          "agents"
+          "computers"
         ],
         "operationId": "screen_preview",
         "parameters": [
@@ -2354,7 +2354,7 @@
     "/api/v1/agents/{agent_id}/screen/takeover": {
       "post": {
         "tags": [
-          "agents"
+          "computers"
         ],
         "summary": "Take over the agent's computer: the daemon flips the input\nswitch to the user and denies the agent's screen leases.",
         "operationId": "screen_takeover",
@@ -3609,7 +3609,7 @@
     "/api/v1/computers/disk": {
       "get": {
         "tags": [
-          "agents"
+          "computers"
         ],
         "operationId": "computer_disk",
         "responses": {
@@ -7390,7 +7390,7 @@
     "/api/v1/screen/ice": {
       "get": {
         "tags": [
-          "agents"
+          "computers"
         ],
         "summary": "The ICE servers of the installation's Media Relay (ADR-0014), and in\nRemote Access the TURN server that carries the live screen to a\nbrowser on another machine over the Funnel (ADR-0028).",
         "description": "A browser reads this before it makes its offer, because ICE servers\nare fixed when the peer connection is made. The `turn` relay and the\nTURN server of Remote Access mint credentials for each answer, so the\nanswer is never cached.",
@@ -8801,7 +8801,7 @@
     "/api/v1/settings/onboarding/docker-endpoint": {
       "put": {
         "tags": [
-          "settings"
+          "computers"
         ],
         "summary": "The computer step's Docker endpoint. It answers an Administrator\nwhile their Workspace has not finished onboarding, and `409`\nafterwards.",
         "operationId": "set_onboarding_docker_endpoint",
@@ -14804,7 +14804,7 @@
         "properties": {
           "container_quota": {
             "type": "string",
-            "description": "Whether this machine holds the writable container layer of a\nComputer to its size: `supported`, `unsupported`, or `unknown`\nuntil a Computer wakes after the daemon starts or when the limits\nname no layer size. `unsupported` means that nothing bounds what\nan Agent writes outside `/data` while its Computer is awake, which\nhttps://docs.pagis.co/server/computers#bound-a-computers-disk says how to fix."
+            "description": "Whether this machine holds the writable container layer of a\nComputer to its size: `supported`, `unsupported`, or `unknown`\nuntil a Computer wakes after the daemon starts or when the limits\nname no layer size. `unsupported` means that nothing bounds what\nan Agent writes outside `/data` while its Computer is awake, which\nhttps://docs.pagis.co/server/computers#bound-a-computers-disk says how to fix.\n`unavailable` means this server has no Computers."
           },
           "database": {
             "type": "string",
@@ -14840,7 +14840,7 @@
           },
           "volume_quota": {
             "type": "string",
-            "description": "Whether this machine holds a Computer volume to its size:\n`supported`, `unsupported`, or `unknown` while Docker does not\nanswer or the limits name no volume size. `unsupported` means\nthat nothing bounds what `/data` holds, which\nhttps://docs.pagis.co/server/computers#bound-a-computers-disk says how to fix."
+            "description": "Whether this machine holds a Computer volume to its size:\n`supported`, `unsupported`, or `unknown` while Docker does not\nanswer or the limits name no volume size. `unsupported` means\nthat nothing bounds what `/data` holds, which\nhttps://docs.pagis.co/server/computers#bound-a-computers-disk says how to fix.\n`unavailable` means this server has no Computers."
           }
         }
       },
@@ -17197,8 +17197,15 @@
             "type": "boolean"
           },
           "docker": {
-            "$ref": "#/components/schemas/DockerReportDto",
-            "description": "Docker discovery. A Member reads the endpoint in use and no\ncandidate: the candidates name the sockets of the installation's\nown host."
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DockerReportDto",
+                "description": "Docker discovery. A Member reads the endpoint in use and no\ncandidate: the candidates name the sockets of the installation's\nown host. Null when this server has no Computers."
+              }
+            ]
           },
           "docker_endpoint": {
             "type": [

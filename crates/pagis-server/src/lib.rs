@@ -8,7 +8,6 @@ mod artifacts;
 mod auth;
 #[cfg(feature = "native")]
 mod axum_socket;
-mod byte_socket;
 pub mod calls;
 mod channels;
 mod client_name;
@@ -17,13 +16,11 @@ mod coding_sessions;
 mod cors;
 mod cross_origin;
 pub mod error;
-pub mod exit_socket;
 pub mod forget;
 pub mod forwarded;
 mod grants;
 pub mod harness_model;
 mod harnesses;
-mod home_exit;
 mod hosts;
 mod knowledge;
 mod live_connections;
@@ -34,8 +31,12 @@ mod message_socket;
 pub mod model_lists;
 pub mod model_preference;
 #[cfg(feature = "native")]
-mod native;
+pub mod native;
 mod needs_you;
+#[cfg(feature = "native")]
+mod openapi;
+#[cfg(not(feature = "native"))]
+#[path = "openapi_portable.rs"]
 mod openapi;
 mod peer;
 mod phone_numbers;
@@ -50,9 +51,13 @@ mod unavailable;
 #[cfg(feature = "native")]
 pub use native::NativeState;
 #[cfg(feature = "native")]
-use native::product_routes as native_product_routes;
+use native::{
+    administration_routes as native_administration_routes, product_routes as native_product_routes,
+};
 #[cfg(not(feature = "native"))]
-use unavailable::product_routes as native_product_routes;
+use unavailable::{
+    administration_routes as native_administration_routes, product_routes as native_product_routes,
+};
 mod requests;
 mod ring;
 pub mod routes;
@@ -162,10 +167,6 @@ pub struct AppState {
     /// registers one while it holds the client's socket, and the reads
     /// that show presence ask it.
     pub host_presence: Arc<pagis_broker::HostPresence>,
-    /// The exit sockets of the Hosts, which carry the connections of
-    /// their Person's Computers as the Home Exit (ADR-0029). The exit
-    /// listener opens a stream on them.
-    pub home_exits: Arc<pagis_computer::HomeExits>,
     /// The session sockets of the Hosts, which carry one stream for each
     /// Coding Session (ADR-0033).
     pub host_sessions: Arc<pagis_broker::HostSessions>,
@@ -241,10 +242,6 @@ pub struct AppState {
     /// shared holder of the Tenant Data Keys. The database holds no
     /// Forget key (ADR-0008).
     pub forget_keys: Arc<dyn pagis_core::ForgetKeys>,
-    /// The agent computer lifecycle, one manager per tenant.
-    /// A handler resolves the manager of the signed-in person's
-    /// Workspace, so no handler reaches another tenant's containers.
-    pub computers: Arc<pagis_computer::ComputerManagers>,
     /// The Software List (ADR-0016). The desk reads it; only the
     /// Agent tools write it.
     pub software: Arc<dyn SoftwareStore>,
@@ -354,9 +351,6 @@ pub struct AppState {
     /// The one address whose `X-Forwarded-*` headers the daemon believes.
     /// A local installation trusts none.
     pub proxy: TrustedProxy,
-    /// The Media Relay the live screen goes through. The System Settings
-    /// name it, because it does not go through the proxy.
-    pub screen: ScreenRelay,
     pub ring: Arc<EventRing>,
     pub hub: Arc<StreamHub>,
     /// The derived run progress: the live line per run.
@@ -365,9 +359,6 @@ pub struct AppState {
     pub keys: Arc<ProviderKeys>,
     /// The Provider Model Lists of the installation's keys.
     pub models: Arc<pagis_agent::ModelCatalog>,
-    /// Docker discovery (ADR-0024). One instance serves the runtime
-    /// and the System tab, so they name the same endpoint.
-    pub docker_discovery: Arc<pagis_computer::DockerDiscovery>,
     /// Which backend holds the records: `sqlite` or `postgres`.
     /// The Administration Interface reports it; nothing branches
     /// on it.
@@ -498,35 +489,6 @@ fn product_router(state: Arc<AppState>) -> Router {
         .route(
             "/api/v1/mail/{mailbox}/{message_id}",
             get(mail::get_mail_message),
-        )
-        .route(
-            "/api/v1/agents/{agent_id}/computer",
-            get(agents::computer_state),
-        )
-        .route(
-            "/api/v1/agents/{agent_id}/computer/wake",
-            post(agents::wake_computer),
-        )
-        .route(
-            "/api/v1/agents/{agent_id}/computer/sleep",
-            post(agents::sleep_computer),
-        )
-        .route("/api/v1/computers/disk", get(agents::computer_disk))
-        .route(
-            "/api/v1/agents/{agent_id}/screen/preview.png",
-            get(agents::screen_preview),
-        )
-        .route(
-            "/api/v1/agents/{agent_id}/screen/offer",
-            post(agents::screen_offer),
-        )
-        .route(
-            "/api/v1/agents/{agent_id}/screen/takeover",
-            post(agents::screen_takeover),
-        )
-        .route(
-            "/api/v1/agents/{agent_id}/screen/handback",
-            post(agents::screen_handback),
         )
         .route(
             "/api/v1/channels",
@@ -662,6 +624,10 @@ fn product_router(state: Arc<AppState>) -> Router {
         )
         .route("/api/v1/workspace/timezone", put(workspace::put_timezone))
         .route("/api/v1/workspace/report", get(workspace::get_report))
+        .route(
+            "/api/v1/settings/onboarding",
+            get(settings::onboarding_status),
+        )
         .route(
             "/api/v1/settings/onboarding/complete",
             post(settings::complete_onboarding),
@@ -841,13 +807,6 @@ fn product_router(state: Arc<AppState>) -> Router {
             "/api/v1/push-subscriptions/{push_subscription_id}/test",
             post(push_subscriptions::send_test_notification),
         )
-        // The Person's own Home Exit (ADR-0029).
-        .route(
-            "/api/v1/settings/home-exit",
-            get(home_exit::get_home_exit)
-                .put(home_exit::set_home_exit)
-                .delete(home_exit::clear_home_exit),
-        )
         // The sockets read the same session cookie as every other
         // route, so they sit behind the same middleware. Their
         // first frame carries no credential. The origin check that
@@ -1012,7 +971,7 @@ async fn runtime_identity(
         .ok_or(axum::http::StatusCode::NOT_FOUND)?
         .id
         .to_string();
-    let computer_image = pagis_computer::IMAGE;
+    let computer_image = pagis_versions::COMPUTER_IMAGE;
     Ok(Json(RuntimeIdentityDto {
         status: "ok".to_string(),
         release: VERSION.to_string(),
@@ -1051,8 +1010,7 @@ fn runtime_identity_proof(
 }
 
 async fn openapi_json() -> Json<serde_json::Value> {
-    use utoipa::OpenApi;
-    Json(serde_json::to_value(ApiDoc::openapi()).expect("spec serializes"))
+    Json(ApiDoc::openapi())
 }
 
 #[cfg(test)]

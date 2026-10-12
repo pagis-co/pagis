@@ -45,6 +45,7 @@ function stubApi(
   items: unknown[],
   numbers: unknown[] = [],
   chief: string | null = "ag1",
+  hasComputers = true,
 ) {
   return {
     GET: vi.fn(async (path: string) => {
@@ -63,7 +64,7 @@ function stubApi(
         return { data: { items: numbers } };
       if (path === "/api/v1/settings/onboarding") {
         return {
-          data: { completed: true, docker: { endpoint: 'unix:///var/run/docker.sock' as string | null, candidates: [] }, docker_endpoint: null, providers: [] },
+          data: { completed: true, docker: hasComputers ? { endpoint: 'unix:///var/run/docker.sock' as string | null, candidates: [] } : null, docker_endpoint: null, providers: [] },
         };
       }
       if (path === "/api/v1/channels") {
@@ -562,6 +563,13 @@ describe("the agent profile", () => {
     await userEvent.click(await screen.findByRole("tab", { name: "Desk" }));
 
     expect(await screen.findByText(/found no Docker/)).toBeTruthy();
+  });
+
+  it("reads a null Docker report on Desk without a missing Docker hint", async () => {
+    profile(stubApi([sage], [], "ag1", false));
+    await userEvent.click(await screen.findByRole("tab", { name: "Desk" }));
+    expect(await screen.findByTestId("agent-desk-disk")).toBeTruthy();
+    expect(screen.queryByText(/found no Docker/)).toBeNull();
   });
 
   it("shows a Google hint on Access when no Google account is connected", async () => {

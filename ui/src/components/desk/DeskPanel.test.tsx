@@ -53,6 +53,7 @@ function stubApi(
   chief: string | null = 'ag-1',
   computerState = 'off',
   diskBytes: number | null = 3_100_000_000,
+  hasComputers = true,
 ) {
   return {
     GET: vi.fn(async (path: string) => {
@@ -68,7 +69,7 @@ function stubApi(
         }
       }
       if (path === '/api/v1/settings/onboarding') {
-        return { data: { completed: true, docker: { endpoint: 'unix:///var/run/docker.sock', candidates: [] }, docker_endpoint: null, providers: [] } }
+        return { data: { completed: true, docker: hasComputers ? { endpoint: 'unix:///var/run/docker.sock', candidates: [] } : null, docker_endpoint: null, providers: [] } }
       }
       if (path === '/api/v1/agents/{agent_id}/computer') {
         return { data: { state: computerState, percent: null, holder: 'agent' } }
@@ -140,6 +141,12 @@ afterEach(() => {
 })
 
 describe('the Desk Panel', () => {
+  it('reads a null Docker report without a missing Docker hint', async () => {
+    mount(stubApi('ag-1', 'off', null, false))
+    await screen.findByText('Sage')
+    expect(screen.queryByText(/found no Docker/)).toBeNull()
+  })
+
   it('names the Chief of Staff and gives it the first Desk', async () => {
     mount(stubApi())
 

@@ -1446,6 +1446,11 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
 
     let state = AppState {
         native: pagis_server::NativeState {
+            home_exits: Arc::clone(&home_exits),
+            computers: Arc::clone(&computers),
+            screen: options.screen,
+            docker_discovery: options.docker_discovery,
+
             analytics_blocked,
             remote_access_switch: pagis_server::RemoteAccessSwitch::new(
                 options.tailscale,
@@ -1477,7 +1482,6 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         grants,
         hosts: stores.hosts.clone(),
         host_presence,
-        home_exits: Arc::clone(&home_exits),
         host_sessions: Arc::clone(&host_sessions),
         coding_sessions: Arc::clone(&coding_sessions),
         sign_ins,
@@ -1506,7 +1510,6 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         catalogues,
         forget: stores.forget.clone(),
         forget_keys: Arc::clone(&tenant_keys) as _,
-        computers: Arc::clone(&computers),
         workspaces,
         software: Arc::clone(&software_packages) as _,
         versions: Arc::clone(&software) as _,
@@ -1546,14 +1549,12 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
             &booted.config.administration.hide,
         ),
         proxy: options.proxy,
-        screen: options.screen,
         ring,
         hub,
         progress,
         agents,
         keys,
         models,
-        docker_discovery: options.docker_discovery,
         // Which backend holds the records. The Administration
         // Interface reports it; nothing branches on it.
         database_backend: match booted.config.database.url() {

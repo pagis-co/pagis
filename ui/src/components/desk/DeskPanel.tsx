@@ -191,7 +191,7 @@ export function DeskPanel({
         )}
       </header>
 
-      {onboarding.data !== undefined && onboarding.data.docker.endpoint == null && <NoDocker />}
+      {onboarding.data !== undefined && onboarding.data.docker !== null && onboarding.data.docker.endpoint == null && <NoDocker />}
 
       {rows.chief === null ? (
         <p className="desk-panel-empty">

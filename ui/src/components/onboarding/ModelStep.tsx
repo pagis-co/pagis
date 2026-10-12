@@ -79,12 +79,16 @@ export function ModelStep({
   checks,
   onBack,
   onContinue,
+  finishing,
+  finishError,
 }: {
   api: ApiClient
   providers: ProviderStatus[]
   checks: KeyCheck[]
   onBack: () => void
   onContinue: () => void
+  finishing: boolean
+  finishError: string | null
 }) {
   const [drafts, setDrafts] = useState<Record<string, Draft>>({})
   const [picked, setPicked] = useState<string | null>(null)
@@ -111,7 +115,7 @@ export function ModelStep({
   const choices =
     lists.data?.providers.flatMap((entry) => entry.models.map((model) => model.candidate)) ?? []
   const model = picked ?? lists.data?.preselected ?? ''
-  const busy = storeKey.isPending || setDefaultModel.isPending
+  const busy = storeKey.isPending || setDefaultModel.isPending || finishing
 
   // Store each typed key, then name the picked model as the default
   // route. With no pick, the daemon takes its preselection.
@@ -214,10 +218,10 @@ export function ModelStep({
         </div>
       )}
 
-      {failure === null ? null : (
+      {failure === null && finishError === null ? null : (
         <p className="onboarding-result onboarding-result-failed" role="alert">
           <XCircle size={16} aria-hidden />
-          {failure}
+          {failure ?? finishError}
         </p>
       )}
 

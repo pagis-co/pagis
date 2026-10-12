@@ -31,12 +31,14 @@ export function Onboarding({ api }: { api: ApiClient }) {
 
   if (status.data === undefined) return null
   const sprite = (agents.data ?? [])[0]
+  const hasComputers = status.data.docker !== null
+  const finishError = complete.isError ? errorMessage(complete.error, 'Pagis could not finish setup.') : null
 
   return (
     <div className="onboarding">
       <div className="onboarding-titlebar" aria-hidden />
       <main className="onboarding-column" aria-label="Set up Pagis">
-        <Stepper current={current} />
+        <Stepper current={current} hasComputers={hasComputers} />
         {current === 'welcome' ? (
           <WelcomeStep
             sprite={sprite}
@@ -48,9 +50,11 @@ export function Onboarding({ api }: { api: ApiClient }) {
             providers={status.data.providers}
             checks={status.data.checks}
             onBack={() => setStep('welcome')}
-            onContinue={() => setStep('computer')}
+            onContinue={() => hasComputers ? setStep('computer') : complete.mutate({})}
+            finishing={complete.isPending}
+            finishError={finishError}
           />
-        ) : (
+        ) : status.data.docker !== null ? (
           <ComputerStep
             api={api}
             docker={status.data.docker}
@@ -58,11 +62,11 @@ export function Onboarding({ api }: { api: ApiClient }) {
             canSetEndpoint={isAdministrator}
             spriteId={sprite?.id}
             finishing={complete.isPending}
-            finishError={complete.isError ? errorMessage(complete.error, 'Pagis could not finish setup.') : null}
+            finishError={finishError}
             onBack={() => setStep('model')}
             onFinish={() => complete.mutate({})}
           />
-        )}
+        ) : null}
       </main>
     </div>
   )

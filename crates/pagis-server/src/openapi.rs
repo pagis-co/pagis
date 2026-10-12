@@ -16,13 +16,13 @@ use crate::error::{ErrorBody, ErrorDetail};
 use crate::forget;
 use crate::grants;
 use crate::harnesses;
-use crate::home_exit;
 use crate::hosts;
 use crate::knowledge;
 use crate::mail;
 use crate::mailboxes;
 use crate::memory;
 use crate::model_lists;
+use crate::native::{computers, home_exit};
 use crate::needs_you;
 use crate::phone_numbers;
 use crate::plugins;
@@ -69,15 +69,15 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         agents::update_agent,
         agents::update_appearance,
         agents::archive_agent,
-        agents::computer_state,
-        agents::wake_computer,
-        agents::sleep_computer,
-        agents::computer_disk,
-        agents::screen_ice,
-        agents::screen_preview,
-        agents::screen_offer,
-        agents::screen_takeover,
-        agents::screen_handback,
+        computers::computer_state,
+        computers::wake_computer,
+        computers::sleep_computer,
+        computers::computer_disk,
+        computers::screen_ice,
+        computers::screen_preview,
+        computers::screen_offer,
+        computers::screen_takeover,
+        computers::screen_handback,
         mailboxes::list_mailboxes,
         mailboxes::list_mailbox_offers,
         mailboxes::check_mailbox_name,
@@ -174,7 +174,7 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         settings::complete_onboarding,
         settings::set_onboarding_provider_key,
         settings::check_onboarding_provider_key,
-        settings::set_onboarding_docker_endpoint,
+        computers::set_onboarding_docker_endpoint,
         settings::check_provider_model,
         model_lists::list_models,
         model_lists::set_onboarding_default_model,
@@ -215,9 +215,9 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         administration::my_usage,
         administration::list_sessions,
         administration::list_hosts,
-        administration::installation_resources,
+        computers::installation_resources,
         administration::installation_health,
-        administration::pull_computer_image,
+        computers::pull_computer_image,
         providers::list_provider_setups,
         providers::configure_provider_part,
         providers::test_provider_part,
@@ -310,11 +310,11 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         home_exit::SetHomeExitRequest,
         home_exit::SwitchedHomeExitDto,
         home_exit::ExitSwitchFailureDto,
-        administration::PersonResourcesDto,
-        administration::ResourcesDto,
+        computers::PersonResourcesDto,
+        computers::ResourcesDto,
         administration::InstallationHealthDto,
-        administration::ComputerImagePullRequest,
-        administration::ComputerImageDto,
+        computers::ComputerImagePullRequest,
+        computers::ComputerImageDto,
         model_lists::ListedModelDto,
         model_lists::ProviderModelsDto,
         model_lists::ModelListsDto,
@@ -325,8 +325,8 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         agents::AgentPage,
         agents::CreateAgentRequest,
         agents::UpdateAgentRequest,
-        agents::ComputerDto,
-        agents::ComputerDiskDto,
+        computers::ComputerDto,
+        computers::ComputerDiskDto,
         mail::MailMessageDto,
         mail::MailHeaderDto,
         mail::MailAttachmentDto,
@@ -465,7 +465,7 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         grants::SetUnattendedModesRequest,
         settings::OnboardingDto,
         settings::ProviderKeyDto,
-        settings::SetOnboardingDockerEndpointRequest,
+        computers::SetOnboardingDockerEndpointRequest,
         settings::SetProviderKeyRequest,
         settings::UpdateModelAliasRequest,
         settings::ModelAliasSettingDto,
@@ -541,4 +541,19 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         ProgressFrame,
     ))
 )]
+struct NativeApiDoc;
+
+/// The full API contract as JSON.
 pub struct ApiDoc;
+
+impl ApiDoc {
+    pub fn openapi() -> serde_json::Value {
+        serde_json::to_value(NativeApiDoc::openapi()).expect("the API contract serializes")
+    }
+
+    pub fn to_pretty_json() -> String {
+        NativeApiDoc::openapi()
+            .to_pretty_json()
+            .expect("the API contract serializes")
+    }
+}
