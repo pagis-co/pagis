@@ -201,9 +201,9 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
 
       # The generated API types need the packages of the UI. The
-      # third-party notices read the licenses of the packages of the UI and
-      # of the Client App.
-      - run: cargo xtask step ui-deps desktop-deps contract-drift gog-contract notices
+      # third-party notices read the licenses of the packages of the UI, of
+      # the Client App and of the Mobile App.
+      - run: cargo xtask step ui-deps desktop-deps mobile-deps contract-drift gog-contract notices
 
   ui:
     name: UI

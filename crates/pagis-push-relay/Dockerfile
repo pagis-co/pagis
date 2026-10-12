@@ -22,11 +22,14 @@ RUN cargo install --locked --version "$CARGO_AUDITABLE_VERSION" cargo-auditable
 WORKDIR /src
 COPY . .
 ENV CARGO_INCREMENTAL=0
+# The build also writes the third-party notices: the license texts of the
+# crates that the relay links (`cargo xtask notices relay`).
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/src/target,sharing=locked \
     set -eux; \
     cargo auditable build --release -p pagis-push-relay; \
-    cp target/release/pagis-push-relay /usr/local/bin/pagis-push-relay
+    cp target/release/pagis-push-relay /usr/local/bin/pagis-push-relay; \
+    cargo run --locked -p xtask -- notices relay /usr/local/share/doc/pagis-push-relay/THIRD_PARTY_NOTICES
 
 FROM debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a
 # ca-certificates: the TLS connections to APNs, to FCM and to the token
@@ -54,6 +57,7 @@ RUN groupadd --system --gid 10001 pagis-push-relay \
 
 COPY --from=build --chown=root:root /usr/local/bin/pagis-push-relay /usr/local/bin/pagis-push-relay
 COPY LICENSE /usr/local/share/doc/pagis-push-relay/LICENSE
+COPY --from=build --chown=root:root /usr/local/share/doc/pagis-push-relay/THIRD_PARTY_NOTICES /usr/local/share/doc/pagis-push-relay/THIRD_PARTY_NOTICES
 
 # The state directory holds the SQLite file of the registrations. A
 # deployment keeps a volume here.

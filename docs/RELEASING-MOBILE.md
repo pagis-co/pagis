@@ -57,17 +57,21 @@ and checked:
    The command checks its inputs, then:
    1. builds the Connect screen and runs
       `pnpm --filter ./mobile exec cap sync ios`;
-   2. archives the app and the Notification Service Extension with
+   2. writes the acknowledgements of the third-party software into the
+      Settings bundle of the app with `cargo xtask notices mobile`
+      ([ADR-0037](adr/0037-each-release-ships-the-notices-of-its-third-party-software.md));
+   3. archives the app and the Notification Service Extension with
       `xcodebuild archive`. The command line sets `MARKETING_VERSION` to
       the version, `CURRENT_PROJECT_VERSION` to the run number, and
       `PUSH_RELAY_ORIGIN` to the environment variable of the same name. A
       setting on the command line comes before each xcconfig file, so the
       placeholder of `mobile/ios/app.xcconfig` does not apply;
-   3. exports `mobile/release/Pagis.ipa` with
+   4. exports `mobile/release/Pagis.ipa` with
       `mobile/ios/ExportOptions.plist`: the method `app-store-connect`,
       automatic signing, and the versions of the archive;
-   4. checks the exact `.ipa`: the signature of the app and of the
-      extension, their versions and privacy manifests, the bundle id
+   5. checks the exact `.ipa`: the signature of the app and of the
+      extension, their versions and privacy manifests, the
+      acknowledgements, the bundle id
       `co.pagis.mobile`, the relay origin, the declaration of exempt
       encryption, and the APNs environment `production`.
 

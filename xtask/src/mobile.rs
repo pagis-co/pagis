@@ -345,6 +345,22 @@ pub fn ios_release_plan(
         }),
         prepared("build", &|_| web_build(root)),
         prepared("sync", &|_| cap_sync(root, "ios")),
+        prepared("notices", &|_| {
+            Cmd::new(
+                "cargo",
+                &[
+                    "run",
+                    "--locked",
+                    "--package",
+                    "xtask",
+                    "--",
+                    "notices",
+                    "mobile",
+                    crate::notices::IOS_ACKNOWLEDGEMENTS,
+                ],
+            )
+            .in_dir(root)
+        }),
         prepared("archive", &|build| {
             Cmd::new("sh", &["-c", &archive_script(build)]).in_dir(&ios)
         }),
@@ -464,7 +480,8 @@ fn export_script() -> String {
 }
 
 /// Check the exact `.ipa`: the signatures of the app and the extension,
-/// their versions and privacy manifests, the bundle id, the relay origin,
+/// their versions and privacy manifests, the acknowledgements of the
+/// third-party software, the bundle id, the relay origin,
 /// the declaration of exempt encryption, and the production APNs
 /// environment of a distribution signature.
 fn check_script(build: &Build) -> String {
@@ -484,6 +501,7 @@ for bundle in "$app" "$appex"; do
   expect "CFBundleVersion of $bundle" "$(value "$bundle/Info.plist" CFBundleVersion)" '{run_number}'
   [ -f "$bundle/PrivacyInfo.xcprivacy" ] || {{ echo "$bundle has no PrivacyInfo.xcprivacy" >&2; exit 1; }}
 done
+[ -f "$app/Settings.bundle/Acknowledgements.plist" ] || {{ echo "$app has no Settings.bundle/Acknowledgements.plist" >&2; exit 1; }}
 expect CFBundleIdentifier "$(value "$app/Info.plist" CFBundleIdentifier)" '{BUNDLE_ID}'
 expect PagisPushRelayOrigin "$(value "$app/Info.plist" PagisPushRelayOrigin)" '{origin}'
 expect ITSAppUsesNonExemptEncryption "$(value "$app/Info.plist" ITSAppUsesNonExemptEncryption)" false

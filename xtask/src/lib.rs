@@ -473,6 +473,16 @@ pub fn dev_lanes(
     let screend_changed = changed_paths
         .iter()
         .any(|path| path.starts_with("computer/screend/") || path == "computer/Dockerfile");
+    // The inputs of the notices that the full gate does not select: the
+    // lockfiles of screend and of the Coding Harnesses and the image that
+    // copies their stored notices, the image that writes the notices of
+    // the Push Relay, and the Swift packages of the iOS app.
+    let notices_changed = screend_changed
+        || changed_paths.iter().any(|path| {
+            path.starts_with(&format!("{}/", notices::HARNESS_DIR))
+                || path == "crates/pagis-push-relay/Dockerfile"
+                || path == notices::SWIFT_PACKAGES
+        });
     let docs_site_changed = changed_paths
         .iter()
         .any(|path| path.starts_with("docs-site/"));
@@ -595,15 +605,9 @@ pub fn dev_lanes(
                 action: pnpm_script_action(root, "ui", "api:check"),
             });
         }
-        // The lockfiles of screend and of the Coding Harnesses are under
-        // `computer/`. Each other lockfile selects the full gate.
-        if screend_changed
-            || changed_paths
-                .iter()
-                .any(|path| path.starts_with(&format!("{}/", notices::HARNESS_DIR)))
-        {
-            cargo_steps.push(notices::notices_step(root));
-        }
+    }
+    if notices_changed {
+        cargo_steps.push(notices::notices_step(root));
     }
 
     let mut node_steps = Vec::new();
