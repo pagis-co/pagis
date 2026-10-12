@@ -6,7 +6,7 @@ use pagis_core::knowledge::*;
 use pagis_core::reflection_filter::{Catalogue, FilterPreview, PageSignals, Selection, Verdict};
 use pagis_core::{
     AgentStatus, AgentStore, Clock, Connection, ConnectionStore, Grant, GrantStore, MemoryAccess,
-    MemoryAuthor, MemoryExposure, MemoryStore, ScopedPath, WorkspaceId, WorkspaceStore,
+    MemoryAuthor, MemoryExposure, MemoryStore, ScopedPath, WorkspaceId,
 };
 use pagis_google::{GogRunner, GoogleProvider, ProviderError, ProviderErrorCode};
 use pagis_knowledge::{Error, Knowledge, Source, SourcePage};
@@ -22,9 +22,6 @@ const BACKFILL_DECISIONS_PER_PASS: u32 = 100;
 
 pub struct Worker {
     pub bus: Arc<dyn pagis_core::EventBus>,
-    /// Every Workspace on this installation. A pass reads the tenant off
-    /// the rows it processes, so one pass serves every person.
-    pub workspaces: Arc<dyn WorkspaceStore>,
     pub store: Arc<dyn KnowledgeStore>,
     /// The source of the suppression key that blocks a forgotten item.
     pub forget_keys: Arc<dyn pagis_core::ForgetKeys>,
@@ -43,14 +40,7 @@ pub struct Worker {
 }
 
 impl Worker {
-    pub async fn publish_changes(&self) -> Result<(), pagis_core::StoreError> {
-        for workspace in self.workspaces.list().await? {
-            self.publish_workspace_changes(&workspace.id).await?;
-        }
-        Ok(())
-    }
-
-    async fn publish_workspace_changes(
+    pub async fn publish_workspace_changes(
         &self,
         workspace_id: &WorkspaceId,
     ) -> Result<(), pagis_core::StoreError> {
@@ -118,6 +108,7 @@ impl Worker {
             grant.as_ref(),
         ) {
             tracing::warn!(
+                workspace_id = %config.workspace_id,
                 connection_id = %config.connection_id,
                 resource = %config.resource,
                 reason,
@@ -128,31 +119,13 @@ impl Worker {
         Ok(connection.expect("a refusal names a missing connection"))
     }
 
-    /// Acquires source versions, appends arrivals, and ingests triggers.
-    pub async fn collect_pass(
-        self: &Arc<Self>,
-    ) -> std::collections::HashSet<pagis_core::ConnectionId> {
-        let mut shared = std::collections::HashSet::new();
-        let Ok(workspaces) = self.workspaces.list().await else {
-            return shared;
-        };
-        for workspace in workspaces {
-            self.collect_workspace_pass(&workspace.id, &mut shared)
-                .await;
-        }
-        shared
-    }
-
-    /// One Workspace's pass. The tenant comes off the Workspace row, so
-    /// the loop serves every person in one pass.
-    async fn collect_workspace_pass(
+    /// Acquire source versions and append arrivals for one Workspace.
+    pub async fn collect_workspace_pass(
         self: &Arc<Self>,
         workspace_id: &WorkspaceId,
         shared: &mut std::collections::HashSet<pagis_core::ConnectionId>,
-    ) {
-        let Ok(connections) = self.connections.list(workspace_id).await else {
-            return;
-        };
+    ) -> Result<(), pagis_core::StoreError> {
+        let connections = self.connections.list(workspace_id).await?;
         for connection in connections.into_iter().filter(|c| c.provider == "google") {
             let key = SourceKey {
                 workspace_id: workspace_id.clone(),
@@ -163,7 +136,7 @@ impl Worker {
                 Ok(Some(status)) => status,
                 Ok(None) => continue,
                 Err(error) => {
-                    tracing::error!(%error, connection_id = %connection.id, "loading shared acquisition status failed");
+                    tracing::error!(%error, %workspace_id, connection_id = %connection.id, "loading shared acquisition status failed");
                     continue;
                 }
             };
@@ -205,9 +178,10 @@ impl Worker {
             // reflects at most one batch, so live work always goes
             // first (ADR-0011).
             if let Err(error) = self.backfill(&key, &source).await {
-                tracing::warn!(connection_id = %key.connection_id, %error, "backfill reflection failed");
+                tracing::warn!(%workspace_id, connection_id = %key.connection_id, %error, "backfill reflection failed");
             }
         }
+        Ok(())
     }
 
     /// The pinned Google client of one configured resource.

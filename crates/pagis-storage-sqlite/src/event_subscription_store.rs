@@ -18,7 +18,7 @@ const SUBSCRIPTION_COLUMNS: &str = "id, workspace_id, agent_id, connection_id, \
     coding_session_id, event_kind, \
     source_version, name, instruction, channel_id, root_message_id, filter, creator, state, \
     revision, approved_revision, watermark_at, blocked_reason, created_at, updated_at, \
-    archived_at";
+    archived_at, failures, next_attempt_at";
 
 #[derive(Clone)]
 pub struct SqliteEventSubscriptionStore {
@@ -64,6 +64,8 @@ fn row_to_subscription(row: &sqlx::sqlite::SqliteRow) -> Result<EventSubscriptio
             })
             .transpose()?,
         watermark_at: row.get("watermark_at"),
+        failures: revision(row, "failures")?,
+        next_attempt_at: row.get("next_attempt_at"),
         blocked_reason: row
             .get::<Option<String>, _>("blocked_reason")
             .map(|value| value.parse().map_err(StoreError::Corrupt))
@@ -117,8 +119,8 @@ impl EventSubscriptionStore for SqliteEventSubscriptionStore {
             "INSERT INTO event_subscriptions (id, workspace_id, agent_id, connection_id, \
              coding_session_id, event_kind, source_version, name, instruction, channel_id, \
              root_message_id, filter, creator, state, revision, approved_revision, watermark_at, \
-             blocked_reason, created_at, updated_at, archived_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             blocked_reason, created_at, updated_at, archived_at, failures, next_attempt_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(subscription.id.as_str())
         .bind(subscription.workspace_id.as_str())
@@ -151,6 +153,8 @@ impl EventSubscriptionStore for SqliteEventSubscriptionStore {
         .bind(subscription.created_at)
         .bind(subscription.updated_at)
         .bind(subscription.archived_at)
+        .bind(i64::from(subscription.failures))
+        .bind(subscription.next_attempt_at)
         .execute(&self.pool)
         .await
         .map_err(db_err)?;
@@ -225,23 +229,53 @@ impl EventSubscriptionStore for SqliteEventSubscriptionStore {
         rows.iter().map(row_to_wakeup).collect()
     }
 
-    async fn collector_targets(&self) -> Result<Vec<CollectorTarget>, StoreError> {
+    async fn collector_targets(
+        &self,
+        workspace_id: &WorkspaceId,
+    ) -> Result<Vec<CollectorTarget>, StoreError> {
         let rows = sqlx::query(
-            "SELECT DISTINCT workspace_id, connection_id, event_kind FROM event_subscriptions \
-             WHERE connection_id IS NOT NULL AND state = 'active' \
-             AND approved_revision = revision ORDER BY connection_id, event_kind",
+            "SELECT workspace_id, connection_id, event_kind, MAX(failures) AS failures, \
+             MAX(next_attempt_at) AS next_attempt_at FROM event_subscriptions \
+             WHERE workspace_id = ? AND connection_id IS NOT NULL AND state = 'active' \
+             AND approved_revision = revision GROUP BY workspace_id, connection_id, event_kind \
+             ORDER BY connection_id, event_kind",
         )
+        .bind(workspace_id.as_str())
         .fetch_all(&self.pool)
         .await
         .map_err(db_err)?;
-        Ok(rows
-            .into_iter()
-            .map(|row| CollectorTarget {
-                workspace_id: WorkspaceId::from(row.get::<String, _>("workspace_id")),
-                connection_id: ConnectionId::from(row.get::<String, _>("connection_id")),
-                event_kind: row.get("event_kind"),
+        rows.into_iter()
+            .map(|row| {
+                Ok(CollectorTarget {
+                    workspace_id: WorkspaceId::from(row.get::<String, _>("workspace_id")),
+                    connection_id: ConnectionId::from(row.get::<String, _>("connection_id")),
+                    event_kind: row.get("event_kind"),
+                    failures: revision(&row, "failures")?,
+                    next_attempt_at: row.get("next_attempt_at"),
+                })
             })
-            .collect())
+            .collect()
+    }
+
+    async fn set_collector_backoff(
+        &self,
+        target: &CollectorTarget,
+        failures: u32,
+        next_attempt_at: i64,
+    ) -> Result<(), StoreError> {
+        sqlx::query(
+            "UPDATE event_subscriptions SET failures = ?, next_attempt_at = ? \
+            WHERE workspace_id = ? AND connection_id = ? AND event_kind = ?",
+        )
+        .bind(i64::from(failures))
+        .bind(next_attempt_at)
+        .bind(target.workspace_id.as_str())
+        .bind(target.connection_id.as_str())
+        .bind(&target.event_kind)
+        .execute(&self.pool)
+        .await
+        .map_err(db_err)?;
+        Ok(())
     }
 
     async fn live_for_source(

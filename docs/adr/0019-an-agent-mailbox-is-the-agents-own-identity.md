@@ -161,7 +161,10 @@ with the daemon's own deadline, a full resync from the cursor at each
 reconnect, and a five-minute poll where the transport has no idle. The cursor
 is the folder's UID high-water mark and validity. Reconnect backoff runs from
 one second to five minutes; a refused login makes the mailbox unavailable and
-stops the task.
+stops the task. The public `sweep_workspace` function matches the tasks of
+one Workspace to its active Agent Mailboxes. The daemon calls it every
+30 seconds and at once when an Event Bus event changes a mailbox's state.
+A sweep of one Workspace does not stop another Workspace's tasks.
 
 Provisioning creates one Standing Mail Rule for the Agent: the mail kind, a
 filter of the own mailbox, an instruction to read the mail and act on its job,

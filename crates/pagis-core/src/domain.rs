@@ -555,6 +555,10 @@ pub struct EventSubscription {
     /// equals `revision`.
     pub approved_revision: Option<u32>,
     pub watermark_at: Option<UnixMillis>,
+    /// Consecutive collection failures for this source and event kind.
+    pub failures: u32,
+    /// The next collection attempt, in Unix milliseconds.
+    pub next_attempt_at: UnixMillis,
     /// Why a `blocked` rule is blocked, and therefore what happens when
     /// it comes back.
     pub blocked_reason: Option<BlockReason>,

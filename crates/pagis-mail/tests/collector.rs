@@ -194,7 +194,6 @@ impl World {
 
         let ingest = Arc::new(FakeMailIngest::default());
         let collector = Arc::new(MailCollector::new(MailCollectorDeps {
-            workspaces: Arc::new(SqliteWorkspaceStore::new(pool.clone())) as _,
             desk: Arc::clone(&desk),
             sent: Arc::clone(&sent) as _,
             trust: Arc::new(ListedSenders::new(
@@ -443,7 +442,11 @@ fn mail_connection(
 async fn a_delivered_message_becomes_one_incoming_event(pool: SqlitePool) {
     let world = World::new(pool).await;
     world.provision(&world.agent_id, "ada").await;
-    world.collector.sweep().await;
+    world
+        .collector
+        .sweep_workspace(&world.workspace_id)
+        .await
+        .unwrap();
 
     let id = world
         .transport
@@ -485,7 +488,11 @@ async fn mail_that_arrived_before_the_mailbox_wakes_nobody(pool: SqlitePool) {
     world.transport.deliver("old@example.net", "Before", "");
 
     world.provision(&world.agent_id, "ada").await;
-    world.collector.sweep().await;
+    world
+        .collector
+        .sweep_workspace(&world.workspace_id)
+        .await
+        .unwrap();
     world.transport.deliver("new@example.net", "After", "");
 
     let events = world.ingest.wait_for(1, PATIENCE).await;
@@ -527,7 +534,11 @@ fn stamped(events: &[pagis_core::NormalizedEvent], subject: &str) -> serde_json:
 async fn a_forged_connection_account_with_no_authentication_result_is_unknown(pool: SqlitePool) {
     let world = World::new(pool).await;
     world.provision(&world.agent_id, "ada").await;
-    world.collector.sweep().await;
+    world
+        .collector
+        .sweep_workspace(&world.workspace_id)
+        .await
+        .unwrap();
 
     // The account of the user's mail Connection. Anyone can write it in
     // a `From` header.
@@ -552,7 +563,11 @@ async fn forged_listed_senders_are_unknown_when_authentication_is_absent_or_fail
     world.list("care@clinic.test", TrustTier::Trusted).await;
     world.list("bank.test", TrustTier::Trusted).await;
     world.provision(&world.agent_id, "ada").await;
-    world.collector.sweep().await;
+    world
+        .collector
+        .sweep_workspace(&world.workspace_id)
+        .await
+        .unwrap();
 
     let senders = [
         ("boss@home.test", "home.test"),
@@ -590,7 +605,11 @@ async fn a_dmarc_pass_under_a_foreign_authserv_id_is_unknown(pool: SqlitePool) {
     let world = World::new(pool).await;
     world.list("boss@home.test", TrustTier::Owner).await;
     world.provision(&world.agent_id, "ada").await;
-    world.collector.sweep().await;
+    world
+        .collector
+        .sweep_workspace(&world.workspace_id)
+        .await
+        .unwrap();
 
     // Any host on the way, or the sender itself, can write this header.
     world.transport.deliver_raw(&raw_message(
@@ -611,7 +630,11 @@ async fn a_pass_below_a_failed_result_of_the_mailbox_provider_is_unknown(pool: S
     let world = World::new(pool).await;
     world.list("boss@home.test", TrustTier::Owner).await;
     world.provision(&world.agent_id, "ada").await;
-    world.collector.sweep().await;
+    world
+        .collector
+        .sweep_workspace(&world.workspace_id)
+        .await
+        .unwrap();
 
     world.transport.deliver_raw(&raw_message(
         "boss@home.test",
@@ -639,7 +662,11 @@ async fn a_forged_provider_result_above_the_providers_own_is_unknown(pool: Sqlit
     let world = World::new(pool).await;
     world.list("boss@home.test", TrustTier::Owner).await;
     world.provision(&world.agent_id, "ada").await;
-    world.collector.sweep().await;
+    world
+        .collector
+        .sweep_workspace(&world.workspace_id)
+        .await
+        .unwrap();
 
     // A host that writes its own result below the headers of the
     // message, and keeps the copy the sender wrote above them, leaves
@@ -677,7 +704,11 @@ async fn a_message_with_several_authors_is_unknown(pool: SqlitePool) {
     let world = World::new(pool).await;
     world.list("boss@home.test", TrustTier::Owner).await;
     world.provision(&world.agent_id, "ada").await;
-    world.collector.sweep().await;
+    world
+        .collector
+        .sweep_workspace(&world.workspace_id)
+        .await
+        .unwrap();
 
     // The DMARC check reads one author and the tier another, so a
     // message with several authors has no one sender (RFC 7489 6.6.1).
@@ -722,7 +753,11 @@ async fn a_forwarded_message_whose_dmarc_pass_does_not_align_is_unknown(pool: Sq
     let world = World::new(pool).await;
     world.list("boss@home.test", TrustTier::Owner).await;
     world.provision(&world.agent_id, "ada").await;
-    world.collector.sweep().await;
+    world
+        .collector
+        .sweep_workspace(&world.workspace_id)
+        .await
+        .unwrap();
 
     // The forwarder passes DMARC for its own domain, which is not the
     // domain in the `From` header.
@@ -750,7 +785,11 @@ async fn an_aligned_dmarc_pass_confirms_the_listed_tier_and_no_more(pool: Sqlite
     // say the account is only trusted.
     world.list("owner@example.com", TrustTier::Trusted).await;
     world.provision(&world.agent_id, "ada").await;
-    world.collector.sweep().await;
+    world
+        .collector
+        .sweep_workspace(&world.workspace_id)
+        .await
+        .unwrap();
 
     world.transport.deliver_raw(&raw_message(
         "Clinic <care@clinic.test>",
@@ -786,7 +825,11 @@ async fn an_aligned_dmarc_pass_confirms_the_listed_tier_and_no_more(pool: Sqlite
 async fn an_aligned_dmarc_pass_from_a_connection_account_is_owner(pool: SqlitePool) {
     let world = World::new(pool).await;
     world.provision(&world.agent_id, "ada").await;
-    world.collector.sweep().await;
+    world
+        .collector
+        .sweep_workspace(&world.workspace_id)
+        .await
+        .unwrap();
 
     world.transport.deliver_raw(&raw_message(
         "owner@example.com",
@@ -808,7 +851,11 @@ async fn the_exact_address_is_read_before_the_domain(pool: SqlitePool) {
     world.list("clinic.test", TrustTier::Trusted).await;
     world.list("care@clinic.test", TrustTier::Owner).await;
     world.provision(&world.agent_id, "ada").await;
-    world.collector.sweep().await;
+    world
+        .collector
+        .sweep_workspace(&world.workspace_id)
+        .await
+        .unwrap();
 
     world.transport.deliver_raw(&raw_message(
         "CARE@Clinic.test",
@@ -835,7 +882,11 @@ async fn another_agents_entry_does_not_lift_this_agents_mail(pool: SqlitePool) {
         )
         .await;
     world.provision(&world.agent_id, "ada").await;
-    world.collector.sweep().await;
+    world
+        .collector
+        .sweep_workspace(&world.workspace_id)
+        .await
+        .unwrap();
 
     world.transport.deliver_raw(&raw_message(
         "care@clinic.test",
@@ -856,7 +907,11 @@ async fn every_sender_on_a_manual_host_is_unknown(pool: SqlitePool) {
     let world = World::on_manual_host(pool).await;
     world.list("boss@home.test", TrustTier::Owner).await;
     world.provision(&world.agent_id, "ada").await;
-    world.collector.sweep().await;
+    world
+        .collector
+        .sweep_workspace(&world.workspace_id)
+        .await
+        .unwrap();
 
     // Pagis knows no authserv-id for a manual host, so no result on
     // the message can be told from one the sender wrote.
@@ -890,7 +945,11 @@ async fn a_forged_owner_message_does_not_pass_a_min_trust_filter_of_trusted(pool
     let world = World::new(pool).await;
     world.list("boss@home.test", TrustTier::Owner).await;
     world.provision(&world.agent_id, "ada").await;
-    world.collector.sweep().await;
+    world
+        .collector
+        .sweep_workspace(&world.workspace_id)
+        .await
+        .unwrap();
 
     world
         .transport
@@ -920,7 +979,11 @@ async fn a_forged_owner_message_does_not_pass_a_min_trust_filter_of_trusted(pool
 async fn a_resync_after_a_reconnect_hands_no_message_over_twice(pool: SqlitePool) {
     let world = World::new(pool).await;
     let mailbox = world.provision(&world.agent_id, "ada").await;
-    world.collector.sweep().await;
+    world
+        .collector
+        .sweep_workspace(&world.workspace_id)
+        .await
+        .unwrap();
     world.transport.deliver("care@clinic.test", "First", "");
     let first = world.ingest.wait_for(1, PATIENCE).await;
     world.wait_for_cursor(&mailbox, 1).await;
@@ -952,7 +1015,11 @@ async fn the_cursor_stays_where_it_was_when_a_pass_is_refused(pool: SqlitePool) 
     let mailbox = world.provision(&world.agent_id, "ada").await;
     let head = world.read(&mailbox).await.cursor.unwrap();
     world.ingest.refuse_with(Some("the store is busy"));
-    world.collector.sweep().await;
+    world
+        .collector
+        .sweep_workspace(&world.workspace_id)
+        .await
+        .unwrap();
     world.transport.deliver("care@clinic.test", "First", "");
     tokio::time::sleep(TURN * 3).await;
 
@@ -989,7 +1056,11 @@ async fn a_reply_lands_in_the_thread_that_sent_the_message_it_answers(pool: Sqli
         })
         .await
         .unwrap();
-    world.collector.sweep().await;
+    world
+        .collector
+        .sweep_workspace(&world.workspace_id)
+        .await
+        .unwrap();
 
     world
         .transport
@@ -1027,7 +1098,11 @@ async fn a_reply_to_another_mailboxs_message_lands_where_the_rule_says(pool: Sql
         })
         .await
         .unwrap();
-    world.collector.sweep().await;
+    world
+        .collector
+        .sweep_workspace(&world.workspace_id)
+        .await
+        .unwrap();
 
     world
         .transport
@@ -1048,7 +1123,11 @@ async fn a_reply_to_another_mailboxs_message_lands_where_the_rule_says(pool: Sql
 async fn the_task_stops_when_the_mailbox_leaves_active(pool: SqlitePool) {
     let world = World::new(pool).await;
     world.provision(&world.agent_id, "ada").await;
-    world.collector.sweep().await;
+    world
+        .collector
+        .sweep_workspace(&world.workspace_id)
+        .await
+        .unwrap();
     assert_eq!(world.collector.watched(), 1);
 
     world
@@ -1056,7 +1135,11 @@ async fn the_task_stops_when_the_mailbox_leaves_active(pool: SqlitePool) {
         .make_dormant_for_agent(&world.workspace_id, &world.agent_id)
         .await
         .unwrap();
-    world.collector.sweep().await;
+    world
+        .collector
+        .sweep_workspace(&world.workspace_id)
+        .await
+        .unwrap();
 
     assert_eq!(
         world.collector.watched(),
@@ -1077,7 +1160,11 @@ async fn a_refused_login_makes_the_mailbox_unavailable_and_stops_the_task(pool: 
     world
         .transport
         .refuse_login_with(Some(TransportErrorCode::Unauthorized));
-    world.collector.sweep().await;
+    world
+        .collector
+        .sweep_workspace(&world.workspace_id)
+        .await
+        .unwrap();
 
     world
         .wait_for_state(&mailbox, AgentMailboxState::Unavailable)
@@ -1090,7 +1177,11 @@ async fn a_refused_login_makes_the_mailbox_unavailable_and_stops_the_task(pool: 
         "the desk says why the mailbox needs the user"
     );
     // The finished task leaves the set on the next sweep.
-    world.collector.sweep().await;
+    world
+        .collector
+        .sweep_workspace(&world.workspace_id)
+        .await
+        .unwrap();
     assert_eq!(world.collector.watched(), 0);
 }
 
@@ -1102,7 +1193,11 @@ async fn a_transport_without_idle_polls_the_folder(pool: SqlitePool) {
     )
     .await;
     world.provision(&world.agent_id, "ada").await;
-    world.collector.sweep().await;
+    world
+        .collector
+        .sweep_workspace(&world.workspace_id)
+        .await
+        .unwrap();
 
     world.transport.deliver("care@clinic.test", "Polled", "");
 
@@ -1252,17 +1347,54 @@ fn the_fields_of_a_filter_combine_with_and() {
 }
 
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
-async fn one_sweep_watches_the_mailboxes_of_two_people(pool: SqlitePool) {
+async fn two_workspace_sweeps_watch_the_mailboxes_of_two_people(pool: SqlitePool) {
     let world = World::new(pool).await;
     world.provision(&world.agent_id, "ada").await;
-    let (_workspace, _agent) = world.second_person().await;
+    let (workspace, _agent) = world.second_person().await;
 
-    world.collector.sweep().await;
+    world
+        .collector
+        .sweep_workspace(&world.workspace_id)
+        .await
+        .unwrap();
+
+    world.collector.sweep_workspace(&workspace).await.unwrap();
 
     assert_eq!(
         world.collector.watched(),
         2,
-        "one pass reads the tenant off each mailbox row"
+        "each pass reads one Workspace"
+    );
+    world.collector.stop();
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_workspace_sweep_leaves_another_workspaces_watcher_alone(pool: SqlitePool) {
+    let world = World::new(pool).await;
+    world.provision(&world.agent_id, "ada").await;
+    let (other, _) = world.second_person().await;
+    world.collector.sweep_workspace(&other).await.unwrap();
+    assert_eq!(world.collector.watched(), 1);
+    world
+        .collector
+        .sweep_workspace(&world.workspace_id)
+        .await
+        .unwrap();
+    assert_eq!(world.collector.watched(), 2);
+    world
+        .desk
+        .make_dormant_for_agent(&world.workspace_id, &world.agent_id)
+        .await
+        .unwrap();
+    world
+        .collector
+        .sweep_workspace(&world.workspace_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        world.collector.watched(),
+        1,
+        "the other watcher stays active"
     );
     world.collector.stop();
 }

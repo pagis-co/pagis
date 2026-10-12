@@ -388,6 +388,8 @@ pub trait EventCatalog: Send + Sync {
 /// Event Subscription of this kind.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CollectorTarget {
+    pub failures: u32,
+    pub next_attempt_at: UnixMillis,
     pub workspace_id: WorkspaceId,
     pub connection_id: ConnectionId,
     pub event_kind: String,
@@ -501,7 +503,17 @@ pub trait EventSubscriptionStore: Send + Sync {
     ) -> Result<Vec<Wakeup>, StoreError>;
     /// Every Connection with at least one live subscription: the
     /// collector work list. A Connection with none stops collecting.
-    async fn collector_targets(&self) -> Result<Vec<CollectorTarget>, StoreError>;
+    async fn collector_targets(
+        &self,
+        workspace_id: &WorkspaceId,
+    ) -> Result<Vec<CollectorTarget>, StoreError>;
+    /// Set retry state on the subscriptions of one target. Rule edits do not change it.
+    async fn set_collector_backoff(
+        &self,
+        target: &CollectorTarget,
+        failures: u32,
+        next_attempt_at: UnixMillis,
+    ) -> Result<(), StoreError>;
     /// The live subscriptions of one source and event kind, oldest
     /// first.
     async fn live_for_source(

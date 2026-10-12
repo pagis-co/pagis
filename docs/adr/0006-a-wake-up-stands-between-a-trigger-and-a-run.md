@@ -182,6 +182,32 @@ subscription never holds a pending Wake-up. A Connection that needs reauthorizat
 its subscriptions, posts one notice and keeps the cursor; after
 reauthorization they reactivate and one catch-up collection runs.
 
+### Each sweep serves one Workspace
+
+Mail task reconciliation, knowledge change publication, knowledge acquisition,
+provider collection and Connection catch-up each have a public function that
+serves one Workspace. The function takes its dependencies and runs one pass.
+Another host and a test call the same function as the daemon.
+
+One daemon loop lists the Workspaces and starts their due work independently.
+Mail task reconciliation runs every 30 seconds. Knowledge and provider work
+use the configured collector interval. A failure names its Workspace in the
+log and does not stop the other Workspaces. Knowledge change publication does
+not wait for source acquisition or a model.
+
+An Event Bus change starts the affected Workspace's work at once. Mailbox
+state changes reconcile its tasks. A new or changed Event Subscription, a
+connected Connection, a Grant change or a Sync change starts collection.
+Changes that arrive during a pass join one pending pass of that Workspace.
+
+The Event Subscription record holds `failures` and `next_attempt_at` for
+provider collection. All rules of one Connection and event kind share this
+retry state. A temporary failure increases the wait from the collector
+interval, with exponential backoff and jitter, up to 15 minutes before jitter.
+A successful collection clears it. A rule edit does not change it. A restart
+reads it from the store and does not retry a failing target before it is due.
+Connection reauthorization clears the wait and starts catch-up collection.
+
 ### A proactive Run uses the normal Run lifecycle
 
 A rule names a Channel and an optional Thread. The Run context is built at

@@ -1038,6 +1038,8 @@ impl Trigger {
             // creation instant keeps mail from before it out even when
             // another rule already primed the cursor.
             watermark_at: Some(input.now),
+            failures: 0,
+            next_attempt_at: 0,
             blocked_reason: None,
             created_at: input.now,
             updated_at: input.now,
@@ -1176,8 +1178,24 @@ impl Trigger {
     }
 
     /// Every Connection a collector must poll this minute.
-    pub async fn collector_targets(&self) -> Result<Vec<CollectorTarget>, TriggerError> {
-        Ok(self.subscriptions.collector_targets().await?)
+    pub async fn collector_targets(
+        &self,
+        workspace_id: &WorkspaceId,
+    ) -> Result<Vec<CollectorTarget>, TriggerError> {
+        Ok(self.subscriptions.collector_targets(workspace_id).await?)
+    }
+
+    /// Persist the retry state of this Workspace's collector target.
+    pub async fn set_collector_backoff(
+        &self,
+        target: &CollectorTarget,
+        failures: u32,
+        next_attempt_at: i64,
+    ) -> Result<(), TriggerError> {
+        Ok(self
+            .subscriptions
+            .set_collector_backoff(target, failures, next_attempt_at)
+            .await?)
     }
 
     /// The opaque cursor a collector left. Nothing outside the
@@ -1388,9 +1406,23 @@ impl Trigger {
                 } else {
                     subscription.watermark_at
                 },
+                failures: 0,
+                next_attempt_at: 0,
                 updated_at: now,
                 ..subscription
             };
+            self.set_collector_backoff(
+                &CollectorTarget {
+                    workspace_id: workspace_id.clone(),
+                    connection_id: connection_id.clone(),
+                    event_kind: next.event_kind.clone(),
+                    failures: 0,
+                    next_attempt_at: 0,
+                },
+                0,
+                0,
+            )
+            .await?;
             self.subscriptions.update(&next).await?;
             self.publish_subscription("event_subscription.state_changed", &next)
                 .await?;

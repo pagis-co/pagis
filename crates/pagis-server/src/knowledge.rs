@@ -222,6 +222,14 @@ pub async fn configure_sync(
         )
         .await
         .map_err(map_error)?;
+    state.bus.publish(pagis_core::NewEvent {
+        workspace_id: key.workspace_id.clone(),
+        event_type: "sync.changed".into(),
+        agent_id: None,
+        run_id: None,
+        channel_id: None,
+        payload: serde_json::json!({"connection_id": key.connection_id, "resource": key.resource}),
+    }).await?;
     Ok(Json(view(&state, &key).await?))
 }
 

@@ -85,6 +85,7 @@ mod shutdown;
 mod sign_in_links;
 mod software;
 mod spend;
+mod sweeps;
 mod system_settings;
 mod tenancy;
 mod threads;
