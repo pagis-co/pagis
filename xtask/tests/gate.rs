@@ -130,19 +130,19 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
     assert_eq!(
         xtask::WASM_CRATES,
         &[
-            ("pagis-core", &["wasm"][..]),
-            ("pagis-memory", &["rules"][..]),
+            ("pagis-core", &["memory_rules", "wasm"][..]),
             ("llm-router", &["rt", "realtime_host"][..]),
             ("pagis-broker", &["rules_wasm"][..]),
             ("pagis-rt", &["rt"][..]),
             ("pagis-agent", &["actor_host"][..]),
             ("pagis-push", &["wasm"][..]),
             ("pagis-needs-you", &["rules"][..]),
+            ("pagis-voice", &["router_host"][..]),
         ]
     );
     let root = workspace_root();
     let cmds = wasm32_commands(&root);
-    assert_eq!(cmds.len(), 10);
+    assert_eq!(cmds.len(), 11);
     assert_eq!(
         cargo_arguments(&cmds[0]),
         [
@@ -151,8 +151,6 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
             "wasm32-unknown-unknown",
             "-p",
             "pagis-core",
-            "-p",
-            "pagis-memory",
             "-p",
             "llm-router",
             "-p",
@@ -165,14 +163,16 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
             "pagis-push",
             "-p",
             "pagis-needs-you",
+            "-p",
+            "pagis-voice",
             "--",
             "-D",
             "warnings",
         ]
     );
     let expected = [
+        ("pagis-core", "memory_rules"),
         ("pagis-core", "wasm"),
-        ("pagis-memory", "rules"),
         ("llm-router", "rt"),
         ("llm-router", "realtime_host"),
         ("pagis-broker", "rules_wasm"),
@@ -180,6 +180,7 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
         ("pagis-agent", "actor_host"),
         ("pagis-push", "wasm"),
         ("pagis-needs-you", "rules"),
+        ("pagis-voice", "router_host"),
     ];
     for (cmd, (package, binary)) in cmds[1..].iter().zip(expected) {
         assert_eq!(
@@ -229,6 +230,7 @@ fn dev_selects_wasm32_for_portable_crates_and_their_dependencies() {
     for path in [
         "crates/pagis-core/src/lib.rs",
         "crates/pagis-push/src/lib.rs",
+        "crates/pagis-voice/src/lib.rs",
     ] {
         let lanes = dev_lanes(&workspace_root(), &[path.into()], false, NO_TOOLCHAINS).unwrap();
         assert!(step_names(&lanes).contains(&"wasm32"), "{path}");

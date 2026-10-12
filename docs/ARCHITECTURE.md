@@ -211,10 +211,17 @@ Agent and one shared directory for the Workspace. Subject Pages keep the
 arrivals of one matter, and fact files state one thing each. A Page Index
 and a full-text index are derived from the files (ADR-0008).
 
-`pagis-memory` holds the memory rules as values with no git dependency.
+`pagis-core::memory::rules` holds the memory rules as values with no git dependency.
 `pagis-memory-git` implements `MemoryStore` and owns git storage, repacks,
 and the repository rebuild after a Forget. Both it and the in-memory
-`FakeMemoryStore` in `pagis-testkit` run `memory_suite!`.
+`FakeMemoryStore` in `pagis-core::fake` run `memory_suite!`.
+
+`pagis-core::fake` also gives one in-memory implementation of each core
+store trait and an EventBus. `FakeDatabase::stores()` builds related stores
+over shared state, and `FakeDatabase::bus()` publishes to their EventLog.
+Each read names the Workspace beside the record. Installation-wide records
+use their Person, Org, Session or Run key. The resident actor tests use this
+store set on native targets and under WebAssembly.
 
 Memory changes on three paths (ADR-0010). A reply commits the memory change
 it staged, with no second model phase. A compaction proposes memory changes

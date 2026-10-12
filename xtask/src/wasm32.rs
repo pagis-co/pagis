@@ -6,18 +6,17 @@ use anyhow::{Context, Result};
 
 use crate::{Action, Cmd, Step};
 
-/// A crate joins this list when it builds and runs on
-/// `wasm32-unknown-unknown`. It does not leave the list.
+/// Each crate in this list builds and runs on `wasm32-unknown-unknown`.
 /// Each entry names the crate and its wasm-bindgen-test binaries.
 pub const WASM_CRATES: &[(&str, &[&str])] = &[
-    ("pagis-core", &["wasm"]),
-    ("pagis-memory", &["rules"]),
+    ("pagis-core", &["memory_rules", "wasm"]),
     ("llm-router", &["rt", "realtime_host"]),
     ("pagis-broker", &["rules_wasm"]),
     ("pagis-rt", &["rt"]),
     ("pagis-agent", &["actor_host"]),
     ("pagis-push", &["wasm"]),
     ("pagis-needs-you", &["rules"]),
+    ("pagis-voice", &["router_host"]),
 ];
 
 pub fn step(root: &Path) -> Step {

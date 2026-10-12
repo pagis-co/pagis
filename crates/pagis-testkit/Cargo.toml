@@ -7,8 +7,6 @@ publish.workspace = true
 
 [dependencies]
 async-trait.workspace = true
-# The fake uses line diffs and three-way merges, as git does.
-diffy = "0.5"
 axum = { workspace = true, features = ["tokio", "http1", "ws"] }
 base64.workspace = true
 chrono.workspace = true
@@ -31,7 +29,6 @@ pagis-vault.workspace = true
 pagis-server.workspace = true
 pagis-storage-sqlite.workspace = true
 pagis-mail.workspace = true
-pagis-memory.workspace = true
 pagis-memory-git.workspace = true
 pagis-telephony.workspace = true
 pagis-voice.workspace = true

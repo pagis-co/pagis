@@ -20,7 +20,7 @@ type Socket = llm_router::RealtimeSocket;
 pub(crate) fn open_listen_session(connection: RealtimeConnection) -> DictationSession {
     let provider = connection.provider.clone();
     let (sink, stream) = connection.socket.split();
-    let transcripts = futures::stream::unfold(
+    let transcripts = Box::pin(futures::stream::unfold(
         (stream, String::new(), false),
         move |(mut stream, mut draft, done)| {
             let provider = provider.clone();
@@ -57,8 +57,7 @@ pub(crate) fn open_listen_session(connection: RealtimeConnection) -> DictationSe
                 }
             }
         },
-    )
-    .boxed();
+    ));
     DictationSession {
         input: Box::new(ListenInput { sink }),
         transcripts,
@@ -105,7 +104,8 @@ struct ListenInput {
     sink: SplitSink<Socket, RealtimeMessage>,
 }
 
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl DictationInput for ListenInput {
     async fn append(&mut self, pcm16: &[u8]) -> Result<(), VoiceError> {
         self.sink
