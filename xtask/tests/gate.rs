@@ -946,12 +946,12 @@ fn dev_plan_tests_screend_for_a_change_to_screend_or_its_dockerfile() {
     assert!(!names("crates/pagis-computer/src/lib.rs").contains(&"screend-test"));
 }
 
-/// The lockfile of screend is under `computer/screend/`, and the Computer
-/// Image copies the stored notices of screend, so a change to either
-/// checks the notices. The Push Relay image writes its notices, and the
-/// iOS app pins its Swift packages in `Package.resolved`, so a change to
-/// either also checks the notices. Each other lockfile selects the full
-/// gate.
+/// The lockfiles of screend and of the Coding Harnesses are under
+/// `computer/`, and the Computer Image copies their stored notices, so a
+/// change to either or to the Dockerfile checks the notices. The Push Relay
+/// image writes its notices, and the iOS app pins its Swift packages in
+/// `Package.resolved`, so a change to either also checks the notices. Each
+/// other lockfile selects the full gate.
 #[test]
 fn dev_plan_checks_the_notices_for_a_change_to_their_inputs() {
     let tmp = tempfile::tempdir().unwrap();
@@ -962,6 +962,7 @@ fn dev_plan_checks_the_notices_for_a_change_to_their_inputs() {
 
     for path in [
         "computer/screend/Cargo.lock",
+        "computer/harnesses/pnpm-lock.yaml",
         "computer/Dockerfile",
         "crates/pagis-push-relay/Dockerfile",
         xtask::notices::SWIFT_PACKAGES,

@@ -184,7 +184,7 @@ Mobile App whose toolchain is absent, and `step` fails it. The gate steps are:
 | `emergency-drift` | The emergency number table against its generator |
 | `pins` | Each action, base image and Compose image is pinned (`cargo xtask pins --check`) |
 | `contract-drift` | `openapi.json` and the API types of `ui/` match the server |
-| `notices` | Each shipped crate, npm package and Swift package has an accepted license and a notice, and the stored notices of screend are current (`cargo xtask notices`) |
+| `notices` | Each shipped crate, npm package and Swift package has an accepted license and a notice, and the stored notices of screend and of the Coding Harnesses are current (`cargo xtask notices`) |
 | `pagis-apt` | The shell tests of `computer/pagis-apt` |
 | `ui-deps`, `ui-typecheck`, `ui-test` | The UI |
 | `desktop-deps`, `desktop-typecheck`, `desktop-test` | The Client App |

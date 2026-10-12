@@ -2,9 +2,9 @@
 # third-party notices of the Server Package, the Headless Server image,
 # the Computer Image and the Push Relay image with it, and the gate step
 # `notices` checks them (xtask/src/notices.rs, ADR-0037). The licenses of
-# the npm packages of the Product App, of the Client App and of the Mobile
-# App, and of the Swift packages of the iOS app, are checked against the
-# same `accepted` list.
+# the npm packages of the Product App, of the Client App, of the Mobile
+# App and of the Coding Harnesses, and of the Swift packages of the iOS
+# app, are checked against the same `accepted` list.
 
 # The licenses that a shipped dependency can have, in the order of
 # preference: cargo-about uses the first one that a crate offers. Each one
@@ -14,6 +14,7 @@
 # source is on crates.io under the name and the version that its notice
 # gives. OFL-1.1 covers the Inter font of the Product App.
 # BlueOak-1.0.0 and Python-2.0 cover npm packages of the Client App.
+# Unlicense covers an npm package of a Coding Harness.
 accepted = [
     "MIT",
     "Apache-2.0",
@@ -29,6 +30,7 @@ accepted = [
     "OFL-1.1",
     "BlueOak-1.0.0",
     "Python-2.0",
+    "Unlicense",
 ]
 
 # The targets that a release ships, which `[graph] targets` of deny.toml

@@ -474,12 +474,14 @@ pub fn dev_lanes(
         .iter()
         .any(|path| path.starts_with("computer/screend/") || path == "computer/Dockerfile");
     // The inputs of the notices that the full gate does not select: the
-    // lockfile of screend and the image that copies its stored notices,
-    // the image that writes the notices of the Push Relay, and the Swift
-    // packages of the iOS app.
+    // lockfiles of screend and of the Coding Harnesses and the image that
+    // copies their stored notices, the image that writes the notices of
+    // the Push Relay, and the Swift packages of the iOS app.
     let notices_changed = screend_changed
         || changed_paths.iter().any(|path| {
-            path == "crates/pagis-push-relay/Dockerfile" || path == notices::SWIFT_PACKAGES
+            path.starts_with(&format!("{}/", notices::HARNESS_DIR))
+                || path == "crates/pagis-push-relay/Dockerfile"
+                || path == notices::SWIFT_PACKAGES
         });
     let docs_site_changed = changed_paths
         .iter()

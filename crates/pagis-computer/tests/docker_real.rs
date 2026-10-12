@@ -1135,6 +1135,43 @@ fn the_agent_cannot_write_the_harnesses_of_the_image() {
     );
 }
 
+/// The image holds the license of each third-party program that does not
+/// come from a Debian package, under `/usr/share/doc/<program>/`, as a
+/// Debian package holds its `copyright` file. labwc is under GPL-2.0 and
+/// links wlroots, so the image also holds the source of both and the
+/// Dockerfile that builds them.
+#[test]
+#[ignore = "needs Docker; run via cargo test -- --ignored"]
+fn the_image_holds_the_license_of_each_program_that_debian_does_not_ship() {
+    require_image();
+    let script = r#"
+        for file in \
+            labwc/LICENSE wlroots/LICENSE pagis-computer/Dockerfile \
+            node/LICENSE npm/LICENSE pnpm/LICENSE \
+            uv/LICENSE-MIT uv/LICENSE-APACHE opencode/LICENSE \
+            pagis-screend/THIRD_PARTY_NOTICES coding-harnesses/THIRD_PARTY_NOTICES
+        do
+            test -s "/usr/share/doc/$file" || echo "no license file: /usr/share/doc/$file"
+        done
+        for project in labwc wlroots; do
+            tar -tzf /usr/share/doc/$project/$project-*.tar.gz | grep -q '/meson.build$' \
+                || echo "no source of $project"
+        done
+    "#;
+    let output = Command::new("docker")
+        .args(["run", "--rm", "--network", "none", "--user", "agent"])
+        .args(["--entrypoint", "sh", IMAGE, "-c", script])
+        .output()
+        .expect("docker run runs");
+    assert!(
+        output.status.success(),
+        "sh failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let missing = String::from_utf8_lossy(&output.stdout);
+    assert!(missing.trim().is_empty(), "{missing}");
+}
+
 /// Open one URL in the browser the supervisor runs. A second Chromium
 /// hands the URL to the session that already holds the profile, and
 /// exits. The page therefore renders under the supervisor's flags, not
