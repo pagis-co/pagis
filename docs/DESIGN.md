@@ -112,6 +112,16 @@ router does not put a credential in a URL. Dictation adapters and the
 Realtime Bridge use the same frame protocols with each transport. Their
 tests use frame channels; the native transport test opens a TCP server.
 
+`pagis-voice` exposes `VoiceProvider` for Dictation and Speaking. An Embedder
+supplies its own provider or uses `pagis_voice::fake`. `RouterVoice` uses
+the Model Aliases and accepts the transport of an Embedder with
+`RouterVoice::with_realtime_transport`. On native targets, `VoiceProvider`
+is `Send + Sync`, and a Dictation input, transcript stream and their futures
+are `Send`. On WebAssembly, these values and futures can stay on one
+thread. The voice router tests use the fake provider and frame channels on
+both targets. The `wasm32` gate builds the crate and runs these tests under
+Node.
+
 The runtime and realtime host tests run under Node with `wasm-bindgen-test`. With
 `wasm-bindgen-test-runner` installed at the version of `wasm-bindgen` in
 `Cargo.lock`, run:

@@ -18,6 +18,7 @@ pub const WASM_CRATES: &[(&str, &[&str])] = &[
     ("pagis-agent", &["actor_host"]),
     ("pagis-push", &["wasm"]),
     ("pagis-needs-you", &["rules"]),
+    ("pagis-voice", &["router_host"]),
 ];
 
 pub fn step(root: &Path) -> Step {

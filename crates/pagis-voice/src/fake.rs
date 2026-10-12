@@ -4,7 +4,6 @@
 use std::sync::Mutex;
 
 use bytes::Bytes;
-use futures::StreamExt;
 use futures::channel::mpsc;
 
 use crate::{
@@ -87,7 +86,8 @@ impl FakeVoice {
     }
 }
 
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl VoiceProvider for FakeVoice {
     async fn transcribe(
         &self,
@@ -119,7 +119,7 @@ impl VoiceProvider for FakeVoice {
                 transcript,
                 sender,
             }),
-            transcripts: receiver.boxed(),
+            transcripts: Box::pin(receiver),
         }))
     }
 
@@ -150,7 +150,8 @@ struct FakeInput {
     sender: mpsc::UnboundedSender<Result<Transcript, VoiceError>>,
 }
 
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl DictationInput for FakeInput {
     async fn append(&mut self, pcm16: &[u8]) -> Result<(), VoiceError> {
         // A frame that is not whole samples is a caller bug worth
