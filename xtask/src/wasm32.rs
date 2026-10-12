@@ -11,6 +11,7 @@ use crate::{Action, Cmd, Step};
 /// Each entry names the crate and its wasm-bindgen-test binaries.
 pub const WASM_CRATES: &[(&str, &[&str])] = &[
     ("pagis-core", &["wasm"]),
+    ("pagis-memory", &["rules"]),
     ("llm-router", &["rt", "realtime_host"]),
     ("pagis-broker", &["rules_wasm"]),
 ];

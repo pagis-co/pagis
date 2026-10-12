@@ -1,35 +1,32 @@
-//! Trait-seam tests of the git memory store on real
-//! temp-directory repositories.
+//! MemoryStore conformance tests for each backend.
 
 use pagis_core::{
     AgentId, GrantId, MemoryAccess, MemoryAuthor, MemoryChangeset, MemoryError, MemoryExposure,
     MemoryStore, RunId, ScopedPath, WorkspaceId,
 };
-use pagis_memory::GitMemoryStore;
-use tempfile::TempDir;
+use std::sync::Arc;
 
-struct Harness {
-    store: GitMemoryStore,
-    workspace_id: WorkspaceId,
-    agent_id: AgentId,
-    /// The Page Index outlives a store, as the database does.
-    pages: std::sync::Arc<pagis_core::VolatilePageIndex>,
-    _root: TempDir,
+/// One implementation and a second handle to its memory.
+pub struct Harness {
+    pub store: Arc<dyn MemoryStore>,
+    pub reopened: Arc<dyn MemoryStore>,
+    pub workspace_id: WorkspaceId,
+    pub agent_id: AgentId,
+    resource: Option<Box<dyn Send + Sync>>,
 }
-
-fn harness() -> Harness {
-    harness_with(std::sync::Arc::new(NoSuppression::default()))
-}
-
-fn harness_with(forget: std::sync::Arc<NoSuppression>) -> Harness {
-    let root = tempfile::tempdir().expect("temp root");
-    let pages = std::sync::Arc::new(pagis_core::VolatilePageIndex::default());
-    Harness {
-        store: GitMemoryStore::new(root.path(), forget, pages.clone()),
-        pages,
-        workspace_id: WorkspaceId::generate(),
-        agent_id: AgentId::generate(),
-        _root: root,
+impl Harness {
+    pub fn with_resource(mut self, resource: impl Send + Sync + 'static) -> Self {
+        self.resource = Some(Box::new(resource));
+        self
+    }
+    pub fn new(store: Arc<dyn MemoryStore>, reopened: Arc<dyn MemoryStore>) -> Self {
+        Self {
+            store,
+            reopened,
+            workspace_id: WorkspaceId::generate(),
+            agent_id: AgentId::generate(),
+            resource: None,
+        }
     }
 }
 
@@ -69,18 +66,8 @@ impl Harness {
             .revision
     }
 
-    fn repo_dir(&self) -> std::path::PathBuf {
-        self._root.path().join(self.workspace_id.as_str())
-    }
-
-    /// A second store over the same repositories. It stands for a
-    /// restart of the daemon, which counts commits from zero again.
-    fn reboot(&self) -> GitMemoryStore {
-        GitMemoryStore::new(
-            self._root.path(),
-            std::sync::Arc::new(NoSuppression::default()),
-            self.pages.clone(),
-        )
+    fn reboot(&self) -> Arc<dyn MemoryStore> {
+        self.reopened.clone()
     }
 
     async fn commit(&self, changeset: &MemoryChangeset, message: &str) -> String {
@@ -89,7 +76,7 @@ impl Harness {
 
     async fn commit_on(
         &self,
-        store: &GitMemoryStore,
+        store: &Arc<dyn MemoryStore>,
         changeset: &MemoryChangeset,
         message: &str,
     ) -> String {
@@ -110,7 +97,7 @@ impl Harness {
     }
 
     /// The shared page list as path, author, and change time.
-    async fn shared_changes(&self, store: &GitMemoryStore) -> Vec<(String, String, i64)> {
+    async fn shared_changes(&self, store: &Arc<dyn MemoryStore>) -> Vec<(String, String, i64)> {
         store
             .list_pages(
                 &self.workspace_id,
@@ -151,9 +138,168 @@ impl Harness {
     }
 }
 
-#[tokio::test]
-async fn search_returns_a_fact_file_for_a_word_in_its_body() {
-    let h = harness();
+fn subject(truth: &str) -> String {
+    pagis_core::subject_page::SubjectPage {
+        truth: truth.into(),
+        ..Default::default()
+    }
+    .render()
+}
+
+#[derive(Default)]
+pub struct NoSuppression {
+    pub selected: std::sync::Mutex<Option<GrantId>>,
+    pub forgotten: std::sync::Mutex<Option<GrantId>>,
+}
+#[async_trait::async_trait]
+impl pagis_core::ForgetStore for NoSuppression {
+    async fn preview_affects(
+        &self,
+        _: &WorkspaceId,
+        _: &pagis_core::ForgetTarget,
+        exposures: &[MemoryExposure],
+    ) -> Result<bool, pagis_core::StoreError> {
+        let selected = self.selected.lock().expect("selected grant");
+        Ok(exposures
+            .iter()
+            .any(|exposure| Some(&exposure.grant_id) == selected.as_ref()))
+    }
+    async fn run_allowed(
+        &self,
+        _: &WorkspaceId,
+        _: &pagis_core::RunId,
+    ) -> Result<bool, pagis_core::StoreError> {
+        Ok(true)
+    }
+    async fn operation(
+        &self,
+        _: &WorkspaceId,
+        id: &str,
+    ) -> Result<Option<pagis_core::ForgetOperation>, pagis_core::StoreError> {
+        Ok(Some(pagis_core::ForgetOperation {
+            id: id.to_string(),
+            connection_id: pagis_core::ConnectionId::generate(),
+            phase: pagis_core::ForgetPhase::StructuredPurged,
+            created_at: 0,
+            error: None,
+            reopted_at: None,
+        }))
+    }
+    async fn operations(
+        &self,
+        _: &WorkspaceId,
+    ) -> Result<Vec<pagis_core::ForgetOperation>, pagis_core::StoreError> {
+        Ok(vec![])
+    }
+    async fn unfinished(
+        &self,
+        _: &WorkspaceId,
+    ) -> Result<Vec<pagis_core::ForgetOperation>, pagis_core::StoreError> {
+        Ok(vec![])
+    }
+    async fn purge_structured(
+        &self,
+        _: &WorkspaceId,
+        _: &str,
+    ) -> Result<(), pagis_core::StoreError> {
+        unreachable!()
+    }
+    async fn memory_purged(&self, _: &WorkspaceId, _: &str) -> Result<(), pagis_core::StoreError> {
+        unreachable!()
+    }
+    async fn complete(&self, _: &WorkspaceId, _: &str) -> Result<(), pagis_core::StoreError> {
+        unreachable!()
+    }
+    async fn record_failure(
+        &self,
+        _: &WorkspaceId,
+        _: &str,
+        _: &str,
+    ) -> Result<(), pagis_core::StoreError> {
+        unreachable!()
+    }
+    async fn retry(&self, _: &WorkspaceId, _: &str) -> Result<(), pagis_core::StoreError> {
+        unreachable!()
+    }
+    async fn reopt_in(
+        &self,
+        _: &WorkspaceId,
+        _: &str,
+        _: i64,
+    ) -> Result<(), pagis_core::StoreError> {
+        unreachable!()
+    }
+    async fn preview(
+        &self,
+        _: &WorkspaceId,
+        _: &pagis_core::ForgetTarget,
+    ) -> Result<pagis_core::ForgetPreview, pagis_core::StoreError> {
+        Ok(pagis_core::ForgetPreview {
+            revision: "source-revision".to_string(),
+            source_items: 0,
+            memory_revision: None,
+            memory_paths: 0,
+            memory_revisions: 0,
+            raw_account_retrieval_blocked: false,
+        })
+    }
+    async fn begin(
+        &self,
+        _: &WorkspaceId,
+        target: &pagis_core::ForgetTarget,
+        revision: &str,
+        now: i64,
+        _: &dyn pagis_core::ForgetKeys,
+    ) -> Result<pagis_core::ForgetOperation, pagis_core::StoreError> {
+        if revision != "source-revision" {
+            return Err(pagis_core::StoreError::Conflict(
+                "source revision changed".to_string(),
+            ));
+        }
+        let connection_id = match target {
+            pagis_core::ForgetTarget::Account { connection_id } => connection_id.clone(),
+            pagis_core::ForgetTarget::Source { source, .. } => source.connection_id.clone(),
+        };
+        Ok(pagis_core::ForgetOperation {
+            id: "forget-1".to_string(),
+            connection_id,
+            phase: pagis_core::ForgetPhase::StructuredPurged,
+            created_at: now,
+            error: None,
+            reopted_at: None,
+        })
+    }
+    async fn is_suppressed(
+        &self,
+        _: &pagis_core::knowledge::SourceKey,
+        _: &str,
+        _: &dyn pagis_core::ForgetKeys,
+    ) -> Result<bool, pagis_core::StoreError> {
+        Ok(false)
+    }
+    async fn raw_connection_allowed(
+        &self,
+        _: &WorkspaceId,
+        _: &pagis_core::ConnectionId,
+    ) -> Result<bool, pagis_core::StoreError> {
+        Ok(true)
+    }
+    async fn permits_provenance(
+        &self,
+        _: &WorkspaceId,
+        exposures: &[MemoryExposure],
+    ) -> Result<bool, pagis_core::StoreError> {
+        let forgotten = self.forgotten.lock().expect("forgotten grant");
+        Ok(!exposures
+            .iter()
+            .any(|exposure| Some(&exposure.grant_id) == forgotten.as_ref()))
+    }
+}
+
+pub async fn search_returns_a_fact_file_for_a_word_in_its_body(
+    make: &dyn Fn(Arc<NoSuppression>) -> Harness,
+) {
+    let h = make(Arc::new(NoSuppression::default()));
     h.commit(
         &write(
             "shared/vignesh-contact.md",
@@ -171,12 +317,10 @@ async fn search_returns_a_fact_file_for_a_word_in_its_body() {
     assert!(hits[0].snippet.contains("heliotrope"));
 }
 
-/// Memory Search reads the whole body of a file, and the front matter
-/// block is part of it. An alias is therefore searchable as soon as it
-/// is written, and the search index needs no column for it.
-#[tokio::test]
-async fn search_finds_a_page_by_an_alias_in_its_front_matter() {
-    let h = harness();
+pub async fn search_finds_a_page_by_an_alias_in_its_front_matter(
+    make: &dyn Fn(Arc<NoSuppression>) -> Harness,
+) {
+    let h = make(Arc::new(NoSuppression::default()));
     h.commit(
         &write(
             "shared/seating.md",
@@ -192,9 +336,8 @@ async fn search_finds_a_page_by_an_alias_in_its_front_matter() {
     assert_eq!(hits[0].path, "shared/seating.md");
 }
 
-#[tokio::test]
-async fn unwritten_scopes_serve_the_seed_indexes() {
-    let h = harness();
+pub async fn unwritten_scopes_serve_the_seed_indexes(make: &dyn Fn(Arc<NoSuppression>) -> Harness) {
+    let h = make(Arc::new(NoSuppression::default()));
 
     let indexes = h
         .store
@@ -210,9 +353,10 @@ async fn unwritten_scopes_serve_the_seed_indexes() {
     assert!(indexes.private.contains("Private memory"));
 }
 
-#[tokio::test]
-async fn a_commit_persists_writes_and_reads_serve_them() {
-    let h = harness();
+pub async fn a_commit_persists_writes_and_reads_serve_them(
+    make: &dyn Fn(Arc<NoSuppression>) -> Harness,
+) {
+    let h = make(Arc::new(NoSuppression::default()));
     let mut changeset = write("shared/MEMORY.md", "- [User](user.md) — likes tea\n");
     changeset.writes.insert(
         ScopedPath::parse("private/craft.md").unwrap(),
@@ -235,17 +379,10 @@ async fn a_commit_persists_writes_and_reads_serve_them() {
     assert_eq!(indexes.shared, "- [User](user.md) — likes tea\n");
 }
 
-fn subject(truth: &str) -> String {
-    pagis_core::subject_page::SubjectPage {
-        truth: truth.into(),
-        ..Default::default()
-    }
-    .render()
-}
-
-#[tokio::test]
-async fn brief_entries_rank_the_newest_change_first_with_the_score_and_the_words() {
-    let h = harness();
+pub async fn brief_entries_rank_the_newest_change_first_with_the_score_and_the_words(
+    make: &dyn Fn(Arc<NoSuppression>) -> Harness,
+) {
+    let h = make(Arc::new(NoSuppression::default()));
     h.commit(
         &write("private/subjects/gmail/priya.md", &subject("Priya v1.")),
         "first",
@@ -313,9 +450,10 @@ async fn brief_entries_rank_the_newest_change_first_with_the_score_and_the_words
     assert_eq!(words, vec!["leads", "pilot", "priya", "the"]);
 }
 
-#[tokio::test]
-async fn brief_entries_mark_the_pages_changed_after_the_cursor() {
-    let h = harness();
+pub async fn brief_entries_mark_the_pages_changed_after_the_cursor(
+    make: &dyn Fn(Arc<NoSuppression>) -> Harness,
+) {
+    let h = make(Arc::new(NoSuppression::default()));
     h.commit(
         &write(
             "private/subjects/gmail/older.md",
@@ -372,9 +510,10 @@ async fn brief_entries_mark_the_pages_changed_after_the_cursor() {
     );
 }
 
-#[tokio::test]
-async fn brief_entries_hide_a_source_page_from_an_access_without_its_grant() {
-    let h = harness();
+pub async fn brief_entries_hide_a_source_page_from_an_access_without_its_grant(
+    make: &dyn Fn(Arc<NoSuppression>) -> Harness,
+) {
+    let h = make(Arc::new(NoSuppression::default()));
     let exposure = MemoryExposure {
         grant_id: GrantId::generate(),
         revision: 1,
@@ -411,9 +550,10 @@ async fn brief_entries_hide_a_source_page_from_an_access_without_its_grant() {
     assert!(without.entries.is_empty());
 }
 
-#[tokio::test]
-async fn brief_entries_of_an_unwritten_workspace_are_empty() {
-    let h = harness();
+pub async fn brief_entries_of_an_unwritten_workspace_are_empty(
+    make: &dyn Fn(Arc<NoSuppression>) -> Harness,
+) {
+    let h = make(Arc::new(NoSuppression::default()));
     let brief = h
         .store
         .brief_entries(&h.workspace_id, &access(&h.agent_id), "missing")
@@ -423,9 +563,10 @@ async fn brief_entries_of_an_unwritten_workspace_are_empty() {
     assert!(brief.entries.is_empty());
 }
 
-#[tokio::test]
-async fn private_scopes_are_disjoint_between_agents() {
-    let h = harness();
+pub async fn private_scopes_are_disjoint_between_agents(
+    make: &dyn Fn(Arc<NoSuppression>) -> Harness,
+) {
+    let h = make(Arc::new(NoSuppression::default()));
     let other = AgentId::generate();
     h.commit(&write("private/MEMORY.md", "mine\n"), "note")
         .await;
@@ -448,9 +589,10 @@ async fn private_scopes_are_disjoint_between_agents() {
     assert!(their_indexes.private.contains("Private memory"), "seed");
 }
 
-#[tokio::test]
-async fn the_commit_carries_author_message_and_run_trailer() {
-    let h = harness();
+pub async fn the_commit_carries_author_message_and_run_trailer(
+    make: &dyn Fn(Arc<NoSuppression>) -> Harness,
+) {
+    let h = make(Arc::new(NoSuppression::default()));
     let run_id = RunId::generate();
 
     let sha = h
@@ -468,20 +610,26 @@ async fn the_commit_carries_author_message_and_run_trailer() {
         .await
         .unwrap();
 
-    let repo = git2::Repository::open(h._root.path().join(h.workspace_id.as_str())).unwrap();
-    let commit = repo
-        .find_commit(git2::Oid::from_str(&sha).unwrap())
+    let diff = h
+        .store
+        .commit_diff(&h.workspace_id, &sha, &access(&h.agent_id))
+        .await
         .unwrap();
-    assert_eq!(commit.author().name().unwrap(), "Sage");
-    assert_eq!(commit.author().email().unwrap(), "sage@agents.pagis.local");
-    let message = commit.message().unwrap();
-    assert!(message.starts_with("Remembered a fact"), "{message}");
-    assert!(message.contains(&format!("Run-Id: {run_id}")), "{message}");
+    assert_eq!(diff.author, author());
+    assert_eq!(diff.message, "Remembered a fact");
+    assert_eq!(
+        h.store
+            .find_commit_with_trailers(&h.workspace_id, &[("Run-Id", run_id.as_str())])
+            .await
+            .unwrap(),
+        Some(sha)
+    );
 }
 
-#[tokio::test]
-async fn recovery_finds_only_the_exact_pending_review_commit() {
-    let h = harness();
+pub async fn recovery_finds_only_the_exact_pending_review_commit(
+    make: &dyn Fn(Arc<NoSuppression>) -> Harness,
+) {
+    let h = make(Arc::new(NoSuppression::default()));
     let run_id = RunId::generate();
     let message = "Reviewed evidence\n\nPagis-Memory-Phase: reflection\nPending-Review-Id: pe_1\nPending-Review-Revision: 7\nSource-After-Exclusive: m1\nSource-Through-Inclusive: m9";
     let sha = h
@@ -530,9 +678,8 @@ async fn recovery_finds_only_the_exact_pending_review_commit() {
     );
 }
 
-#[tokio::test]
-async fn a_delete_removes_the_file() {
-    let h = harness();
+pub async fn a_delete_removes_the_file(make: &dyn Fn(Arc<NoSuppression>) -> Harness) {
+    let h = make(Arc::new(NoSuppression::default()));
     h.commit(&write("shared/old.md", "stale\n"), "add").await;
 
     let mut changeset = MemoryChangeset::default();
@@ -547,9 +694,8 @@ async fn a_delete_removes_the_file() {
     ));
 }
 
-#[tokio::test]
-async fn an_empty_changeset_refuses_to_commit() {
-    let h = harness();
+pub async fn an_empty_changeset_refuses_to_commit(make: &dyn Fn(Arc<NoSuppression>) -> Harness) {
+    let h = make(Arc::new(NoSuppression::default()));
 
     let result = h
         .store
@@ -568,9 +714,8 @@ async fn an_empty_changeset_refuses_to_commit() {
     assert!(matches!(result, Err(MemoryError::Invalid(_))));
 }
 
-#[tokio::test]
-async fn later_commits_win_whole_file() {
-    let h = harness();
+pub async fn later_commits_win_whole_file(make: &dyn Fn(Arc<NoSuppression>) -> Harness) {
+    let h = make(Arc::new(NoSuppression::default()));
     h.commit(&write("shared/fact.md", "first\n"), "first").await;
     h.commit(&write("shared/fact.md", "second\n"), "second")
         .await;
@@ -578,9 +723,10 @@ async fn later_commits_win_whole_file() {
     assert_eq!(h.read("shared/fact.md").await.unwrap(), "second\n");
 }
 
-#[tokio::test]
-async fn concurrent_whole_file_commits_reject_the_stale_base() {
-    let h = harness();
+pub async fn concurrent_whole_file_commits_reject_the_stale_base(
+    make: &dyn Fn(Arc<NoSuppression>) -> Harness,
+) {
+    let h = make(Arc::new(NoSuppression::default()));
     let by = author();
     let current = h.revision().await;
     let run_a = RunId::generate();
@@ -616,9 +762,11 @@ async fn concurrent_whole_file_commits_reject_the_stale_base() {
         Some(MemoryError::Conflict)
     ));
 }
-#[tokio::test]
-async fn revert_makes_an_inverse_commit_by_the_user() {
-    let h = harness();
+
+pub async fn revert_makes_an_inverse_commit_by_the_user(
+    make: &dyn Fn(Arc<NoSuppression>) -> Harness,
+) {
+    let h = make(Arc::new(NoSuppression::default()));
     h.commit(&write("shared/fact.md", "keep\n"), "keep").await;
     let sha = h.commit(&write("shared/fact.md", "wrong\n"), "wrong").await;
 
@@ -641,20 +789,23 @@ async fn revert_makes_an_inverse_commit_by_the_user() {
         .expect("revert");
 
     assert_eq!(h.read("shared/fact.md").await.unwrap(), "keep\n");
-    let repo = git2::Repository::open(h._root.path().join(h.workspace_id.as_str())).unwrap();
-    let commit = repo
-        .find_commit(git2::Oid::from_str(&revert_sha).unwrap())
+    let diff = h
+        .store
+        .commit_diff(&h.workspace_id, &revert_sha, &access(&h.agent_id))
+        .await
         .unwrap();
-    assert_eq!(commit.author().name().unwrap(), "User");
-    assert!(commit.message().unwrap().starts_with("Revert"));
+    assert_eq!(diff.author, user);
+    assert!(diff.message.starts_with("Revert"));
 }
 
-#[tokio::test]
-async fn revert_aborts_cleanly_when_later_commits_conflict() {
-    let h = harness();
+pub async fn revert_aborts_cleanly_when_later_commits_conflict(
+    make: &dyn Fn(Arc<NoSuppression>) -> Harness,
+) {
+    let h = make(Arc::new(NoSuppression::default()));
     let sha = h.commit(&write("shared/fact.md", "v1\n"), "v1").await;
     h.commit(&write("shared/fact.md", "v2\n"), "v2").await;
 
+    let before = h.revision().await;
     let result = h
         .store
         .revert(
@@ -669,15 +820,15 @@ async fn revert_aborts_cleanly_when_later_commits_conflict() {
     assert!(matches!(result, Err(MemoryError::RevertConflict)));
     // The abort left the working tree at v2 and made no commit.
     assert_eq!(h.read("shared/fact.md").await.unwrap(), "v2\n");
-    let repo = git2::Repository::open(h._root.path().join(h.workspace_id.as_str())).unwrap();
-    let mut walk = repo.revwalk().unwrap();
-    walk.push_head().unwrap();
-    assert_eq!(walk.count(), 2);
+    assert_eq!(
+        h.revision().await,
+        before,
+        "a failed revert makes no commit"
+    );
 }
 
-#[tokio::test]
-async fn workspaces_get_disjoint_repositories() {
-    let h = harness();
+pub async fn workspaces_get_disjoint_repositories(make: &dyn Fn(Arc<NoSuppression>) -> Harness) {
+    let h = make(Arc::new(NoSuppression::default()));
     let other_workspace = WorkspaceId::generate();
     h.commit(&write("shared/fact.md", "here\n"), "here").await;
 
@@ -693,9 +844,10 @@ async fn workspaces_get_disjoint_repositories() {
     assert!(matches!(elsewhere, Err(MemoryError::NotFound(_))));
 }
 
-#[tokio::test]
-async fn a_commit_without_a_run_has_no_run_trailer() {
-    let h = harness();
+pub async fn a_commit_without_a_run_has_no_run_trailer(
+    make: &dyn Fn(Arc<NoSuppression>) -> Harness,
+) {
+    let h = make(Arc::new(NoSuppression::default()));
 
     let sha = h
         .store
@@ -712,18 +864,25 @@ async fn a_commit_without_a_run_has_no_run_trailer() {
         .await
         .unwrap();
 
-    let repo = git2::Repository::open(h._root.path().join(h.workspace_id.as_str())).unwrap();
-    let commit = repo
-        .find_commit(git2::Oid::from_str(&sha).unwrap())
+    let diff = h
+        .store
+        .commit_diff(&h.workspace_id, &sha, &access(&h.agent_id))
+        .await
         .unwrap();
-    let message = commit.message().unwrap();
-    assert!(message.starts_with("Onboarding: the user's name\n"));
-    assert!(!message.contains("Run-Id:"));
+    assert_eq!(diff.message, "Onboarding: the user's name");
+    assert!(
+        h.store
+            .find_commit_with_trailers(&h.workspace_id, &[("Run-Id", "")])
+            .await
+            .unwrap()
+            .is_none()
+    );
 }
 
-#[tokio::test]
-async fn source_exposed_files_and_indexes_are_invisible_without_current_access() {
-    let h = harness();
+pub async fn source_exposed_files_and_indexes_are_invisible_without_current_access(
+    make: &dyn Fn(Arc<NoSuppression>) -> Harness,
+) {
+    let h = make(Arc::new(NoSuppression::default()));
     let exposure = MemoryExposure {
         grant_id: GrantId::generate(),
         revision: 3,
@@ -840,9 +999,10 @@ async fn source_exposed_files_and_indexes_are_invisible_without_current_access()
     ));
 }
 
-#[tokio::test]
-async fn owner_edits_preserve_the_existing_source_scope() {
-    let h = harness();
+pub async fn owner_edits_preserve_the_existing_source_scope(
+    make: &dyn Fn(Arc<NoSuppression>) -> Harness,
+) {
+    let h = make(Arc::new(NoSuppression::default()));
     let exposure = MemoryExposure {
         grant_id: GrantId::generate(),
         revision: 1,
@@ -893,9 +1053,10 @@ async fn owner_edits_preserve_the_existing_source_scope() {
     assert_eq!(file.exposures, vec![exposure]);
 }
 
-#[tokio::test]
-async fn reverting_a_revert_cannot_restore_a_revoked_source() {
-    let h = harness();
+pub async fn reverting_a_revert_cannot_restore_a_revoked_source(
+    make: &dyn Fn(Arc<NoSuppression>) -> Harness,
+) {
+    let h = make(Arc::new(NoSuppression::default()));
     h.commit(
         &write("shared/procedure.md", "source-free procedure\n"),
         "procedure",
@@ -939,9 +1100,10 @@ async fn reverting_a_revert_cannot_restore_a_revoked_source() {
     assert_eq!(h.revision().await.as_deref(), Some(inverse.as_str()));
 }
 
-#[tokio::test]
-async fn concurrent_index_loads_return_one_revision_for_both_scopes() {
-    let h = harness();
+pub async fn concurrent_index_loads_return_one_revision_for_both_scopes(
+    make: &dyn Fn(Arc<NoSuppression>) -> Harness,
+) {
+    let h = make(Arc::new(NoSuppression::default()));
     let changes = |value: &str| {
         let mut changes = write("shared/MEMORY.md", value);
         changes.writes.insert(
@@ -973,384 +1135,10 @@ async fn concurrent_index_loads_return_one_revision_for_both_scopes() {
     tokio::join!(writer, reader);
 }
 
-/// The repack is git's own `gc --auto`, so these tests need the git
-/// binary. A machine without it skips them with a clear message.
-fn git_present() -> bool {
-    match std::process::Command::new("git").arg("--version").output() {
-        Ok(output) => output.status.success(),
-        Err(_) => false,
-    }
-}
-
-/// Write `count` loose objects into `objects/17`. git estimates the
-/// loose-object count of a repository from that one directory and
-/// multiplies what it finds by 256, so a fixture that fills it makes
-/// the estimate certain. A fixture of blobs in any directory would
-/// leave the test to chance.
-fn fill_the_sampled_object_directory(dir: &std::path::Path, count: usize) {
-    let repo = git2::Repository::open(dir).expect("repository");
-    let mut written = 0;
-    let mut index = 0;
-    while written < count {
-        let content = format!("loose object {index}\n");
-        index += 1;
-        let oid = git2::Oid::hash_object(git2::ObjectType::Blob, content.as_bytes()).expect("hash");
-        if oid.to_string().starts_with("17") {
-            repo.blob(content.as_bytes()).expect("blob");
-            written += 1;
-        }
-    }
-}
-
-/// A changeset of `count` files. A commit makes each file and its
-/// metadata reachable, so a repack can pack them. git keeps an
-/// unreachable object loose, so free blobs alone would prove nothing.
-fn many_files(count: usize) -> MemoryChangeset {
-    let mut changeset = MemoryChangeset::default();
-    for index in 0..count {
-        changeset.writes.insert(
-            ScopedPath::parse(&format!("shared/facts/fact-{index}.md")).unwrap(),
-            format!("# Fact {index}\n"),
-        );
-    }
-    changeset
-}
-
-/// Lower git's own repack threshold, so a few hundred loose objects
-/// are already too many for this repository.
-fn lower_the_repack_threshold(dir: &std::path::Path) {
-    let repo = git2::Repository::open(dir).expect("repository");
-    let mut config = repo.config().expect("config");
-    config.set_i32("gc.auto", 50).expect("gc.auto");
-}
-
-fn pack_count(dir: &std::path::Path) -> usize {
-    std::fs::read_dir(dir.join(".git/objects/pack"))
-        .map(|entries| {
-            entries
-                .filter_map(Result::ok)
-                .filter(|entry| entry.path().extension().is_some_and(|kind| kind == "pack"))
-                .count()
-        })
-        .unwrap_or(0)
-}
-
-fn loose_object_count(dir: &std::path::Path) -> usize {
-    let Ok(entries) = std::fs::read_dir(dir.join(".git/objects")) else {
-        return 0;
-    };
-    let mut count = 0;
-    for entry in entries.filter_map(Result::ok) {
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
-        if name.len() == 2 && name.chars().all(|letter| letter.is_ascii_hexdigit()) {
-            count += std::fs::read_dir(entry.path())
-                .map(|files| files.filter_map(Result::ok).count())
-                .unwrap_or(0);
-        }
-    }
-    count
-}
-
-#[tokio::test]
-async fn a_repository_with_loose_objects_gets_a_pack() {
-    if !git_present() {
-        eprintln!("skipped: `git --version` failed, so the repack cannot run");
-        return;
-    }
-    let h = harness();
-    h.commit(&many_files(50), "many facts").await;
-    let dir = h.repo_dir();
-    fill_the_sampled_object_directory(&dir, 8);
-    lower_the_repack_threshold(&dir);
-    assert_eq!(pack_count(&dir), 0, "the repository starts without a pack");
-    let loose = loose_object_count(&dir);
-
-    // A new store counts from zero, and the first commit after boot
-    // repacks.
-    let rebooted = h.reboot();
-    h.commit_on(&rebooted, &write("shared/fact.md", "two\n"), "two")
-        .await;
-
-    assert!(
-        pack_count(&dir) > 0,
-        "the repack packs the loose objects: {loose} loose objects before the commit"
-    );
-    assert!(
-        loose_object_count(&dir) < loose,
-        "the packed objects are no longer loose"
-    );
-}
-
-#[tokio::test]
-async fn a_repository_with_nothing_to_pack_is_untouched() {
-    if !git_present() {
-        eprintln!("skipped: `git --version` failed, so the repack cannot run");
-        return;
-    }
-    let h = harness();
-    h.commit(&write("shared/fact.md", "one\n"), "one").await;
-    let dir = h.repo_dir();
-    let loose = loose_object_count(&dir);
-
-    // git's own thresholds hold here: a small repository has nothing
-    // to pack, so the repack of the first commit after boot leaves it
-    // as it is.
-    let rebooted = h.reboot();
-    h.commit_on(&rebooted, &write("shared/fact.md", "two\n"), "two")
-        .await;
-
-    assert_eq!(pack_count(&dir), 0, "an idle repository gets no pack");
-    assert!(
-        loose_object_count(&dir) > loose,
-        "the second commit only added its own objects"
-    );
-}
-
-#[tokio::test]
-async fn the_commit_count_resets_after_a_repack() {
-    if !git_present() {
-        eprintln!("skipped: `git --version` failed, so the repack cannot run");
-        return;
-    }
-    let h = harness();
-    h.commit(&many_files(50), "many facts").await;
-    let dir = h.repo_dir();
-    fill_the_sampled_object_directory(&dir, 8);
-    lower_the_repack_threshold(&dir);
-    let rebooted = h.reboot();
-    h.commit_on(&rebooted, &write("shared/fact.md", "two\n"), "two")
-        .await;
-    let packs = pack_count(&dir);
-    assert!(packs > 0, "the first commit after boot repacked");
-
-    // The count restarted at that repack, so the next commit is far
-    // from the next repack: the objects it writes stay loose.
-    fill_the_sampled_object_directory(&dir, 8);
-    let loose = loose_object_count(&dir);
-    h.commit_on(&rebooted, &many_files(50), "many facts again")
-        .await;
-
-    assert_eq!(pack_count(&dir), packs, "the next commit does not repack");
-    assert!(
-        loose_object_count(&dir) > loose,
-        "the objects of the next commit stay loose"
-    );
-}
-// This isolated Git-store fixture stands in for the durable SQLite
-// authority. It suppresses nothing until a test forgets a grant.
-#[derive(Default)]
-struct NoSuppression {
-    forgotten: std::sync::Mutex<Option<GrantId>>,
-}
-#[async_trait::async_trait]
-impl pagis_core::ForgetStore for NoSuppression {
-    async fn preview_affects(
-        &self,
-        _: &WorkspaceId,
-        _: &pagis_core::ForgetTarget,
-        _: &[MemoryExposure],
-    ) -> Result<bool, pagis_core::StoreError> {
-        Ok(false)
-    }
-    async fn run_allowed(
-        &self,
-        _: &WorkspaceId,
-        _: &pagis_core::RunId,
-    ) -> Result<bool, pagis_core::StoreError> {
-        Ok(true)
-    }
-    async fn operation(
-        &self,
-        _: &WorkspaceId,
-        id: &str,
-    ) -> Result<Option<pagis_core::ForgetOperation>, pagis_core::StoreError> {
-        Ok(Some(pagis_core::ForgetOperation {
-            id: id.to_string(),
-            connection_id: pagis_core::ConnectionId::generate(),
-            phase: pagis_core::ForgetPhase::StructuredPurged,
-            created_at: 0,
-            error: None,
-            reopted_at: None,
-        }))
-    }
-    async fn operations(
-        &self,
-        _: &WorkspaceId,
-    ) -> Result<Vec<pagis_core::ForgetOperation>, pagis_core::StoreError> {
-        Ok(vec![])
-    }
-    async fn unfinished(
-        &self,
-        _: &WorkspaceId,
-    ) -> Result<Vec<pagis_core::ForgetOperation>, pagis_core::StoreError> {
-        Ok(vec![])
-    }
-    async fn purge_structured(
-        &self,
-        _: &WorkspaceId,
-        _: &str,
-    ) -> Result<(), pagis_core::StoreError> {
-        unreachable!()
-    }
-    async fn memory_purged(&self, _: &WorkspaceId, _: &str) -> Result<(), pagis_core::StoreError> {
-        unreachable!()
-    }
-    async fn complete(&self, _: &WorkspaceId, _: &str) -> Result<(), pagis_core::StoreError> {
-        unreachable!()
-    }
-    async fn record_failure(
-        &self,
-        _: &WorkspaceId,
-        _: &str,
-        _: &str,
-    ) -> Result<(), pagis_core::StoreError> {
-        unreachable!()
-    }
-    async fn retry(&self, _: &WorkspaceId, _: &str) -> Result<(), pagis_core::StoreError> {
-        unreachable!()
-    }
-    async fn reopt_in(
-        &self,
-        _: &WorkspaceId,
-        _: &str,
-        _: i64,
-    ) -> Result<(), pagis_core::StoreError> {
-        unreachable!()
-    }
-    async fn preview(
-        &self,
-        _: &WorkspaceId,
-        _: &pagis_core::ForgetTarget,
-    ) -> Result<pagis_core::ForgetPreview, pagis_core::StoreError> {
-        unreachable!()
-    }
-    async fn begin(
-        &self,
-        _: &WorkspaceId,
-        _: &pagis_core::ForgetTarget,
-        _: &str,
-        _: i64,
-        _: &dyn pagis_core::ForgetKeys,
-    ) -> Result<pagis_core::ForgetOperation, pagis_core::StoreError> {
-        unreachable!()
-    }
-    async fn is_suppressed(
-        &self,
-        _: &pagis_core::knowledge::SourceKey,
-        _: &str,
-        _: &dyn pagis_core::ForgetKeys,
-    ) -> Result<bool, pagis_core::StoreError> {
-        Ok(false)
-    }
-    async fn raw_connection_allowed(
-        &self,
-        _: &WorkspaceId,
-        _: &pagis_core::ConnectionId,
-    ) -> Result<bool, pagis_core::StoreError> {
-        Ok(true)
-    }
-    async fn permits_provenance(
-        &self,
-        _: &WorkspaceId,
-        exposures: &[MemoryExposure],
-    ) -> Result<bool, pagis_core::StoreError> {
-        let forgotten = self.forgotten.lock().expect("forgotten grant");
-        Ok(!exposures
-            .iter()
-            .any(|exposure| Some(&exposure.grant_id) == forgotten.as_ref()))
-    }
-}
-
-/// Remove the source stamp of `rel` and commit that removal, which
-/// leaves a note without a daemon stamp.
-fn unstamp(dir: &std::path::Path, rel: &str) {
-    let repo = git2::Repository::open(dir).expect("repository");
-    let metadata = format!(".pagis/exposure/{}.json", hex::encode(rel.as_bytes()));
-    std::fs::remove_file(dir.join(&metadata)).expect("stamp file");
-    let mut index = repo.index().expect("index");
-    index
-        .remove_path(std::path::Path::new(&metadata))
-        .expect("drop stamp");
-    index.write().expect("write index");
-    let tree = repo
-        .find_tree(index.write_tree().expect("tree id"))
-        .expect("tree");
-    let head = repo
-        .head()
-        .and_then(|head| head.peel_to_commit())
-        .expect("head");
-    let signature = git2::Signature::now("Owner", "owner@pagis.local").expect("signature");
-    repo.commit(
-        Some("HEAD"),
-        &signature,
-        &signature,
-        "Drop the source stamp",
-        &tree,
-        &[&head],
-    )
-    .expect("commit");
-}
-
-/// Add an empty exposure stamp without changing the memory file.
-fn restamp(dir: &std::path::Path, rel: &str) {
-    let repo = git2::Repository::open(dir).expect("repository");
-    let metadata = format!(".pagis/exposure/{}.json", hex::encode(rel.as_bytes()));
-    std::fs::write(
-        dir.join(&metadata),
-        r#"{"exposures":[],"kind":"procedure"}"#,
-    )
-    .expect("stamp file");
-    let mut index = repo.index().expect("index");
-    index
-        .add_path(std::path::Path::new(&metadata))
-        .expect("add stamp");
-    index.write().expect("write index");
-    let tree = repo
-        .find_tree(index.write_tree().expect("tree id"))
-        .expect("tree");
-    let head = repo
-        .head()
-        .and_then(|head| head.peel_to_commit())
-        .expect("head");
-    let signature = git2::Signature::now("Owner", "owner@pagis.local").expect("signature");
-    repo.commit(
-        Some("HEAD"),
-        &signature,
-        &signature,
-        "Restore the source stamp",
-        &tree,
-        &[&head],
-    )
-    .expect("stamp commit");
-}
-
-#[tokio::test]
-async fn a_file_without_its_stamp_is_unavailable() {
-    let h = harness();
-    h.commit(
-        &write("shared/MEMORY.md", "- [Habits](habits.md) — notes\n"),
-        "Record a current index",
-    )
-    .await;
-    let dir = h._root.path().join(h.workspace_id.as_str());
-    unstamp(&dir, "shared/MEMORY.md");
-
-    assert!(matches!(
-        h.store
-            .read(
-                &h.workspace_id,
-                &access(&h.agent_id),
-                &ScopedPath::parse("shared/MEMORY.md").unwrap(),
-            )
-            .await,
-        Err(MemoryError::Unavailable)
-    ));
-}
-
-#[tokio::test]
-async fn list_pages_serves_one_scope_newest_change_first_with_its_author() {
-    let h = harness();
+pub async fn list_pages_serves_one_scope_newest_change_first_with_its_author(
+    make: &dyn Fn(Arc<NoSuppression>) -> Harness,
+) {
+    let h = make(Arc::new(NoSuppression::default()));
     let mut first = write("shared/older.md", "---\ntitle: Older\n---\n");
     first.writes.insert(
         ScopedPath::parse("shared/newer.md").unwrap(),
@@ -1417,9 +1205,10 @@ async fn list_pages_serves_one_scope_newest_change_first_with_its_author() {
     assert!(other.is_empty(), "a private scope is one agent's alone");
 }
 
-#[tokio::test]
-async fn list_pages_follows_new_commits_after_its_first_answer() {
-    let h = harness();
+pub async fn list_pages_follows_new_commits_after_its_first_answer(
+    make: &dyn Fn(Arc<NoSuppression>) -> Harness,
+) {
+    let h = make(Arc::new(NoSuppression::default()));
     let mut first = write("shared/alpha.md", "# Alpha\n");
     first.writes.insert(
         ScopedPath::parse("shared/beta.md").unwrap(),
@@ -1477,175 +1266,10 @@ async fn list_pages_follows_new_commits_after_its_first_answer() {
     );
 }
 
-#[tokio::test]
-async fn list_pages_reads_a_replaced_history_from_its_start() {
-    let h = harness();
-    h.commit(&write("shared/old.md", "# Old\n"), "first").await;
-    let listed = h
-        .store
-        .list_pages(
-            &h.workspace_id,
-            &access(&h.agent_id),
-            pagis_core::MemoryScope::Shared,
-            &every_page(),
-        )
-        .await
-        .expect("shared pages")
-        .pages;
-    assert_eq!(listed.len(), 1);
-
-    // A forget rebuild replaces the repository, so the earlier HEAD is
-    // not in the new history.
-    std::fs::remove_dir_all(h.repo_dir()).expect("remove the repository");
-    h.commit(&write("shared/new.md", "# New\n"), "rebuilt")
-        .await;
-
-    let listed = h
-        .store
-        .list_pages(
-            &h.workspace_id,
-            &access(&h.agent_id),
-            pagis_core::MemoryScope::Shared,
-            &every_page(),
-        )
-        .await
-        .expect("shared pages")
-        .pages;
-    let paths: Vec<String> = listed.iter().map(|page| page.path.display()).collect();
-    assert_eq!(paths, vec!["shared/new.md"]);
-}
-
-#[tokio::test]
-async fn a_commit_brings_the_page_index_to_its_revision() {
-    use pagis_core::MemoryPageIndex;
-    let h = harness();
-    let first = h.commit(&write("shared/a.md", "# A\n"), "first").await;
-    let second = h
-        .commit(&write("shared/b.md", "---\ntitle: B\n---\n"), "second")
-        .await;
-    assert_ne!(first, second);
-
-    // The sync after a commit runs in the background.
-    let mut head = None;
-    for _ in 0..200 {
-        head = h.pages.head(&h.workspace_id).await.unwrap();
-        if head.as_ref().is_some_and(|head| head.revision == second) {
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-    }
-    assert_eq!(
-        head,
-        Some(pagis_core::PageIndexHead {
-            revision: second,
-            next_position: 2,
-        })
-    );
-    let paths: Vec<_> = h
-        .pages
-        .pages(&h.workspace_id, "shared/")
-        .await
-        .unwrap()
-        .into_iter()
-        .map(|change| (change.path, change.position))
-        .collect();
-    assert_eq!(
-        paths,
-        vec![
-            ("shared/b.md".to_string(), 1),
-            ("shared/a.md".to_string(), 0)
-        ]
-    );
-}
-
-#[tokio::test]
-async fn the_page_index_holds_memory_files_only_and_drops_a_deleted_file() {
-    use pagis_core::MemoryPageIndex;
-    let h = harness();
-    let mut first = write("shared/kept.md", "# Kept\n");
-    first.writes.insert(
-        ScopedPath::parse("shared/dropped.md").unwrap(),
-        "# Dropped\n".to_string(),
-    );
-    h.commit(&first, "first").await;
-    let mut removal = MemoryChangeset::default();
-    removal
-        .deletes
-        .insert(ScopedPath::parse("shared/dropped.md").unwrap());
-    h.commit(&removal, "second").await;
-
-    h.shared_changes(&h.store).await;
-
-    let paths: Vec<_> = h
-        .pages
-        .pages(&h.workspace_id, "")
-        .await
-        .unwrap()
-        .into_iter()
-        .map(|change| change.path)
-        .collect();
-    assert_eq!(
-        paths,
-        vec!["shared/kept.md"],
-        "no exposure stamp and no deleted file"
-    );
-}
-
-#[tokio::test]
-async fn a_forget_purge_takes_the_forgotten_path_out_of_the_page_index() {
-    use pagis_core::MemoryPageIndex;
-    let forget = std::sync::Arc::new(NoSuppression::default());
-    let h = harness_with(forget.clone());
-    h.commit(&write("shared/kept.md", "# Kept\n"), "first")
-        .await;
-    let exposure = MemoryExposure {
-        grant_id: GrantId::generate(),
-        revision: 1,
-    };
-    let permitted = MemoryAccess::agent(h.agent_id.clone(), [exposure.clone()]);
-    let revision = h.revision().await;
-    h.store
-        .commit(
-            &h.workspace_id,
-            &h.agent_id,
-            &permitted,
-            &author(),
-            &write(
-                "shared/from-a-source.md",
-                "---\ntitle: From a source\n---\n",
-            ),
-            revision.as_deref(),
-            "Reflected on a source",
-            Some(&RunId::generate()),
-        )
-        .await
-        .expect("commit");
-    h.shared_changes(&h.store).await;
-    let before = h.pages.pages(&h.workspace_id, "shared/").await.unwrap();
-    assert_eq!(before.len(), 2);
-
-    *forget.forgotten.lock().unwrap() = Some(exposure.grant_id.clone());
-    h.store
-        .purge_forgotten(&h.workspace_id, "forget-1")
-        .await
-        .expect("purge");
-
-    let paths: Vec<_> = h
-        .pages
-        .pages(&h.workspace_id, "shared/")
-        .await
-        .unwrap()
-        .into_iter()
-        .map(|change| change.path)
-        .collect();
-    assert_eq!(paths, vec!["shared/kept.md"]);
-    let head = h.pages.head(&h.workspace_id).await.unwrap();
-    assert_eq!(head.map(|head| head.revision), h.revision().await);
-}
-
-#[tokio::test]
-async fn list_pages_gives_the_summary_of_each_page_from_the_index() {
-    let h = harness();
+pub async fn list_pages_gives_the_summary_of_each_page_from_the_index(
+    make: &dyn Fn(Arc<NoSuppression>) -> Harness,
+) {
+    let h = make(Arc::new(NoSuppression::default()));
     let subject = pagis_core::subject_page::SubjectPage {
         truth: "Priya leads the pilot.".into(),
         timeline: vec![pagis_core::subject_page::TimelineEntry {
@@ -1708,9 +1332,10 @@ async fn list_pages_gives_the_summary_of_each_page_from_the_index() {
     );
 }
 
-#[tokio::test]
-async fn list_pages_hides_a_source_page_from_an_access_without_its_grant() {
-    let h = harness();
+pub async fn list_pages_hides_a_source_page_from_an_access_without_its_grant(
+    make: &dyn Fn(Arc<NoSuppression>) -> Harness,
+) {
+    let h = make(Arc::new(NoSuppression::default()));
     h.commit(&write("shared/open.md", "---\ntitle: Open\n---\n"), "first")
         .await;
     let exposure = MemoryExposure {
@@ -1766,10 +1391,11 @@ async fn list_pages_hides_a_source_page_from_an_access_without_its_grant() {
     assert_eq!(titles(without), vec!["Open"]);
 }
 
-#[tokio::test]
-async fn search_hides_pages_that_access_and_forget_rules_refuse() {
+pub async fn search_hides_pages_that_access_and_forget_rules_refuse(
+    make: &dyn Fn(Arc<NoSuppression>) -> Harness,
+) {
     let forget = std::sync::Arc::new(NoSuppression::default());
-    let h = harness_with(forget.clone());
+    let h = make(forget.clone());
     let unreadable = MemoryExposure {
         grant_id: GrantId::generate(),
         revision: 1,
@@ -1803,69 +1429,10 @@ async fn search_hides_pages_that_access_and_forget_rules_refuse() {
     assert!(hits.is_empty());
 }
 
-#[tokio::test]
-async fn a_stamp_change_alone_reaches_the_index_and_keeps_the_last_change() {
-    use pagis_core::MemoryPageIndex;
-    let h = harness();
-    h.commit(&write("shared/note.md", "# Note\n"), "first")
-        .await;
-    let before = h.shared_changes(&h.store).await;
-    assert_eq!(before.len(), 1);
-
-    // The commit removes the stamp and does not change the file.
-    unstamp(&h.repo_dir(), "shared/note.md");
-
-    assert!(
-        h.shared_changes(&h.store).await.is_empty(),
-        "a file with no stamp is not in a list"
-    );
-    let rows = h.pages.pages(&h.workspace_id, "shared/").await.unwrap();
-    assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0].exposures, None);
-    assert_eq!(
-        rows[0].position, 0,
-        "the stamp commit is not a change of the file"
-    );
-    assert_eq!(rows[0].changed_by.name, "Sage");
-}
-
-#[tokio::test]
-async fn search_follows_a_commit_a_delete_and_a_restamp() {
-    let h = harness();
-    h.commit(&write("shared/note.md", "# Note\n\nfirstword\n"), "first")
-        .await;
-    assert_eq!(h.search(&access(&h.agent_id), "firstword").await.len(), 1);
-
-    h.commit(&write("shared/note.md", "# Note\n\nsecondword\n"), "change")
-        .await;
-    assert!(h.search(&access(&h.agent_id), "firstword").await.is_empty());
-    assert_eq!(h.search(&access(&h.agent_id), "secondword").await.len(), 1);
-
-    let mut removal = MemoryChangeset::default();
-    removal
-        .deletes
-        .insert(ScopedPath::parse("shared/note.md").unwrap());
-    h.commit(&removal, "delete").await;
-    assert!(
-        h.search(&access(&h.agent_id), "secondword")
-            .await
-            .is_empty()
-    );
-
-    h.commit(
-        &write("shared/restamped.md", "# Restamped\n\nstampword\n"),
-        "add",
-    )
-    .await;
-    unstamp(&h.repo_dir(), "shared/restamped.md");
-    assert!(h.search(&access(&h.agent_id), "stampword").await.is_empty());
-    restamp(&h.repo_dir(), "shared/restamped.md");
-    assert_eq!(h.search(&access(&h.agent_id), "stampword").await.len(), 1);
-}
-
-#[tokio::test]
-async fn list_pages_gives_one_part_at_a_time_with_the_total() {
-    let h = harness();
+pub async fn list_pages_gives_one_part_at_a_time_with_the_total(
+    make: &dyn Fn(Arc<NoSuppression>) -> Harness,
+) {
+    let h = make(Arc::new(NoSuppression::default()));
     for name in ["a", "b", "c", "d", "e"] {
         h.commit(
             &write(
@@ -1916,9 +1483,10 @@ async fn list_pages_gives_one_part_at_a_time_with_the_total() {
     );
 }
 
-#[tokio::test]
-async fn list_pages_narrows_by_kind_and_by_search_text() {
-    let h = harness();
+pub async fn list_pages_narrows_by_kind_and_by_search_text(
+    make: &dyn Fn(Arc<NoSuppression>) -> Harness,
+) {
+    let h = make(Arc::new(NoSuppression::default()));
     let mut first = write(
         "shared/claims.md",
         "---\ntitle: File a claim\nkind: Procedure\n---\n",
@@ -1981,9 +1549,10 @@ async fn list_pages_narrows_by_kind_and_by_search_text() {
     assert_eq!(by_path, (vec!["Priya Raman".to_string()], 1));
 }
 
-#[tokio::test]
-async fn list_pages_finds_a_subject_page_by_a_word_of_its_truth() {
-    let h = harness();
+pub async fn list_pages_finds_a_subject_page_by_a_word_of_its_truth(
+    make: &dyn Fn(Arc<NoSuppression>) -> Harness,
+) {
+    let h = make(Arc::new(NoSuppression::default()));
     h.commit(
         &write(
             "shared/subjects/gmail/priya.md",
@@ -2014,9 +1583,10 @@ async fn list_pages_finds_a_subject_page_by_a_word_of_its_truth() {
     );
 }
 
-#[tokio::test]
-async fn list_pages_searches_title_and_path_when_entity_words_are_null() {
-    let h = harness();
+pub async fn list_pages_searches_title_and_path_when_entity_words_are_null(
+    make: &dyn Fn(Arc<NoSuppression>) -> Harness,
+) {
+    let h = make(Arc::new(NoSuppression::default()));
     let mut changes = write("shared/by-title.md", "---\ntitle: Needle title\n---\n");
     changes.writes.insert(
         ScopedPath::parse("shared/needle-path.md").unwrap(),
@@ -2042,9 +1612,10 @@ async fn list_pages_searches_title_and_path_when_entity_words_are_null() {
     assert_eq!(list.pages.len(), 2);
 }
 
-#[tokio::test]
-async fn count_pages_counts_the_scope_its_procedures_and_its_authors() {
-    let h = harness();
+pub async fn count_pages_counts_the_scope_its_procedures_and_its_authors(
+    make: &dyn Fn(Arc<NoSuppression>) -> Harness,
+) {
+    let h = make(Arc::new(NoSuppression::default()));
     let mut first = write(
         "shared/claims.md",
         "---\ntitle: File a claim\nkind: Procedure\n---\n",
@@ -2092,9 +1663,10 @@ async fn count_pages_counts_the_scope_its_procedures_and_its_authors() {
     assert_eq!(counts.authors, vec![(author(), 2), (clown, 1)]);
 }
 
-#[tokio::test]
-async fn list_pages_of_an_unwritten_workspace_is_empty() {
-    let h = harness();
+pub async fn list_pages_of_an_unwritten_workspace_is_empty(
+    make: &dyn Fn(Arc<NoSuppression>) -> Harness,
+) {
+    let h = make(Arc::new(NoSuppression::default()));
     let pages = h
         .store
         .list_pages(
@@ -2109,9 +1681,10 @@ async fn list_pages_of_an_unwritten_workspace_is_empty() {
     assert!(pages.is_empty());
 }
 
-#[tokio::test]
-async fn commit_diff_reports_before_and_after_lines_per_file() {
-    let h = harness();
+pub async fn commit_diff_reports_before_and_after_lines_per_file(
+    make: &dyn Fn(Arc<NoSuppression>) -> Harness,
+) {
+    let h = make(Arc::new(NoSuppression::default()));
     h.commit(&write("shared/fact.md", "a\nb\nc\n"), "v1").await;
     let mut second = write("shared/fact.md", "a\nB\nc\n");
     second.writes.insert(
@@ -2153,9 +1726,10 @@ async fn commit_diff_reports_before_and_after_lines_per_file() {
     assert_eq!(shared.hunks[0].new_lines, vec!["B".to_string()]);
 }
 
-#[tokio::test]
-async fn commit_diff_of_an_unknown_commit_is_not_found() {
-    let h = harness();
+pub async fn commit_diff_of_an_unknown_commit_is_not_found(
+    make: &dyn Fn(Arc<NoSuppression>) -> Harness,
+) {
+    let h = make(Arc::new(NoSuppression::default()));
     h.commit(&write("shared/fact.md", "a\n"), "v1").await;
     let result = h
         .store
@@ -2171,12 +1745,10 @@ async fn commit_diff_of_an_unknown_commit_is_not_found() {
     );
 }
 
-/// A page write puts one edge in the Page Index for each link of the
-/// page, with no model call. The selection speaks scope-relative
-/// paths, so the links of an entry do too.
-#[tokio::test]
-async fn a_page_write_puts_its_links_in_the_page_index() {
-    let h = harness();
+pub async fn a_page_write_puts_its_links_in_the_page_index(
+    make: &dyn Fn(Arc<NoSuppression>) -> Harness,
+) {
+    let h = make(Arc::new(NoSuppression::default()));
     h.commit(
         &write(
             "private/subjects/gmail/priya.md",
@@ -2227,4 +1799,452 @@ async fn a_page_write_puts_its_links_in_the_page_index() {
         ],
         "a [[...]] that is no scope-relative path is prose, not an edge"
     );
+}
+
+pub async fn forget_preview_counts_history_and_begin_rejects_a_changed_revision(
+    make: &dyn Fn(Arc<NoSuppression>) -> Harness,
+) {
+    let forget = Arc::new(NoSuppression::default());
+    let h = make(forget.clone());
+    h.commit(&write("shared/kept.md", "kept\n"), "keep").await;
+    let exposure = MemoryExposure {
+        grant_id: GrantId::generate(),
+        revision: 1,
+    };
+    let allowed = MemoryAccess::agent(h.agent_id.clone(), [exposure.clone()]);
+    let first = h
+        .store
+        .commit(
+            &h.workspace_id,
+            &h.agent_id,
+            &allowed,
+            &author(),
+            &write("shared/source.md", "first\n"),
+            h.revision().await.as_deref(),
+            "source",
+            None,
+        )
+        .await
+        .unwrap();
+    let second = h
+        .store
+        .commit(
+            &h.workspace_id,
+            &h.agent_id,
+            &allowed,
+            &author(),
+            &write("shared/source.md", "second\n"),
+            Some(&first),
+            "source again",
+            None,
+        )
+        .await
+        .unwrap();
+    *forget.selected.lock().unwrap() = Some(exposure.grant_id);
+    let target = pagis_core::ForgetTarget::Account {
+        connection_id: pagis_core::ConnectionId::generate(),
+    };
+    let preview = h
+        .store
+        .preview_forget(&h.workspace_id, &target)
+        .await
+        .unwrap();
+    assert_eq!(preview.memory_revision.as_deref(), Some(second.as_str()));
+    assert_eq!(preview.memory_paths, 1);
+    assert_eq!(preview.memory_revisions, 2);
+    assert_eq!(h.read("shared/kept.md").await.unwrap(), "kept\n");
+    let keys = pagis_core::TenantKeys::new(Arc::new(pagis_core::MemorySecretStore::default()));
+    let operation = h
+        .store
+        .begin_forget(&h.workspace_id, &target, &preview, 17, &keys)
+        .await
+        .unwrap();
+    assert_eq!(operation.created_at, 17);
+    h.commit(&write("shared/other.md", "other\n"), "new memory")
+        .await;
+    assert!(matches!(
+        h.store
+            .begin_forget(&h.workspace_id, &target, &preview, 18, &keys)
+            .await,
+        Err(MemoryError::Conflict)
+    ));
+}
+
+pub async fn forget_purge_removes_each_copy_and_invalidates_the_old_history(
+    make: &dyn Fn(Arc<NoSuppression>) -> Harness,
+) {
+    let forget = Arc::new(NoSuppression::default());
+    let h = make(forget.clone());
+    h.commit(&write("shared/kept.md", "kept\n"), "keep").await;
+    let exposure = MemoryExposure {
+        grant_id: GrantId::generate(),
+        revision: 1,
+    };
+    let allowed = MemoryAccess::agent(h.agent_id.clone(), [exposure.clone()]);
+    let old = h
+        .store
+        .commit(
+            &h.workspace_id,
+            &h.agent_id,
+            &allowed,
+            &author(),
+            &write("shared/source.md", "secretword\n"),
+            h.revision().await.as_deref(),
+            "source sentence",
+            None,
+        )
+        .await
+        .unwrap();
+    *forget.forgotten.lock().unwrap() = Some(exposure.grant_id);
+    h.store
+        .purge_forgotten(&h.workspace_id, "forget-1")
+        .await
+        .unwrap();
+    assert!(matches!(
+        h.store
+            .read(
+                &h.workspace_id,
+                &allowed,
+                &ScopedPath::parse("shared/source.md").unwrap()
+            )
+            .await,
+        Err(MemoryError::NotFound(_))
+    ));
+    assert_eq!(h.read("shared/kept.md").await.unwrap(), "kept\n");
+    assert!(h.search(&allowed, "secretword").await.is_empty());
+    assert_eq!(
+        h.store
+            .count_pages(&h.workspace_id, &allowed, pagis_core::MemoryScope::Shared)
+            .await
+            .unwrap()
+            .pages,
+        1
+    );
+    assert!(matches!(
+        h.store.commit_diff(&h.workspace_id, &old, &allowed).await,
+        Err(MemoryError::NotFound(_))
+    ));
+    let head = h.revision().await.unwrap();
+    assert_ne!(head, old);
+    assert_eq!(
+        h.store
+            .commit_diff(&h.workspace_id, &head, &allowed)
+            .await
+            .unwrap()
+            .message,
+        "Forgotten dependent note history"
+    );
+    assert!(
+        h.store
+            .brief_entries(&h.workspace_id, &allowed, &old)
+            .await
+            .unwrap()
+            .entries
+            .iter()
+            .all(|entry| entry.changed)
+    );
+}
+
+pub async fn reverting_a_forgotten_revision_is_unavailable(
+    make: &dyn Fn(Arc<NoSuppression>) -> Harness,
+) {
+    let forget = Arc::new(NoSuppression::default());
+    let h = make(forget.clone());
+    h.commit(&write("shared/kept.md", "kept\n"), "keep").await;
+    let exposure = MemoryExposure {
+        grant_id: GrantId::generate(),
+        revision: 1,
+    };
+    let allowed = MemoryAccess::agent(h.agent_id.clone(), [exposure.clone()]);
+    let sha = h
+        .store
+        .commit(
+            &h.workspace_id,
+            &h.agent_id,
+            &allowed,
+            &author(),
+            &write("shared/source.md", "source\n"),
+            h.revision().await.as_deref(),
+            "source",
+            None,
+        )
+        .await
+        .unwrap();
+    *forget.forgotten.lock().unwrap() = Some(exposure.grant_id);
+    assert!(matches!(
+        h.store
+            .revert(&h.workspace_id, &sha, &allowed, &sha, &author())
+            .await,
+        Err(MemoryError::Unavailable)
+    ));
+    assert_eq!(h.revision().await.as_deref(), Some(sha.as_str()));
+}
+
+pub async fn revert_keeps_later_changes_to_other_lines(
+    make: &dyn Fn(Arc<NoSuppression>) -> Harness,
+) {
+    let h = make(Arc::new(NoSuppression::default()));
+    h.commit(&write("shared/fact.md", "a\nb\nc\nd\ne\n"), "first")
+        .await;
+    let changed = h
+        .commit(
+            &write("shared/fact.md", "A\nb\nc\nd\ne\n"),
+            "change first line",
+        )
+        .await;
+    let latest = h
+        .commit(
+            &write("shared/fact.md", "A\nb\nc\nd\nE\n"),
+            "change last line",
+        )
+        .await;
+    h.store
+        .revert(
+            &h.workspace_id,
+            &changed,
+            &access(&h.agent_id),
+            &latest,
+            &author(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(h.read("shared/fact.md").await.unwrap(), "a\nb\nc\nd\nE\n");
+}
+
+pub async fn a_failed_write_keeps_all_files_and_the_revision(
+    make: &dyn Fn(Arc<NoSuppression>) -> Harness,
+) {
+    let h = make(Arc::new(NoSuppression::default()));
+    let before = h.commit(&write("shared/kept.md", "kept\n"), "keep").await;
+    let mut invalid = write("shared/a.md", "must not appear\n");
+    invalid.writes.insert(
+        ScopedPath::parse("shared/z.md").unwrap(),
+        "x".repeat(pagis_core::MAX_MEMORY_FILE_BYTES + 1),
+    );
+    assert!(matches!(
+        h.store
+            .commit(
+                &h.workspace_id,
+                &h.agent_id,
+                &access(&h.agent_id),
+                &author(),
+                &invalid,
+                Some(&before),
+                "invalid",
+                None
+            )
+            .await,
+        Err(MemoryError::Invalid(_))
+    ));
+    assert_eq!(h.revision().await.as_deref(), Some(before.as_str()));
+    assert!(matches!(
+        h.read("shared/a.md").await,
+        Err(MemoryError::NotFound(_))
+    ));
+    h.commit(&write("shared/b.md", "valid\n"), "valid").await;
+    assert!(matches!(
+        h.read("shared/a.md").await,
+        Err(MemoryError::NotFound(_))
+    ));
+}
+
+pub async fn owner_cannot_change_a_forgotten_file(make: &dyn Fn(Arc<NoSuppression>) -> Harness) {
+    let forget = Arc::new(NoSuppression::default());
+    let h = make(forget.clone());
+    let exposure = MemoryExposure {
+        grant_id: GrantId::generate(),
+        revision: 1,
+    };
+    let allowed = MemoryAccess::agent(h.agent_id.clone(), [exposure.clone()]);
+    let sha = h
+        .store
+        .commit(
+            &h.workspace_id,
+            &h.agent_id,
+            &allowed,
+            &author(),
+            &write("shared/source.md", "source\n"),
+            None,
+            "source",
+            None,
+        )
+        .await
+        .unwrap();
+    *forget.forgotten.lock().unwrap() = Some(exposure.grant_id);
+    let owner = MemoryAccess::Owner {
+        agent_id: h.agent_id.clone(),
+    };
+    assert!(matches!(
+        h.store
+            .commit(
+                &h.workspace_id,
+                &h.agent_id,
+                &owner,
+                &author(),
+                &write("shared/source.md", "edit\n"),
+                Some(&sha),
+                "edit",
+                None
+            )
+            .await,
+        Err(MemoryError::Unavailable)
+    ));
+    assert_eq!(h.revision().await.as_deref(), Some(sha.as_str()));
+}
+
+pub async fn writing_the_same_content_keeps_the_file_change_and_has_no_content_diff(
+    make: &dyn Fn(Arc<NoSuppression>) -> Harness,
+) {
+    let h = make(Arc::new(NoSuppression::default()));
+    let first = h.commit(&write("shared/note.md", "note\n"), "first").await;
+    let before = h.shared_changes(&h.store).await;
+    let other = MemoryAuthor {
+        name: "Clown".to_string(),
+        email: "clown@agents.pagis.local".to_string(),
+    };
+    let second = h
+        .store
+        .commit(
+            &h.workspace_id,
+            &h.agent_id,
+            &access(&h.agent_id),
+            &other,
+            &write("shared/note.md", "note\n"),
+            Some(&first),
+            "same content",
+            None,
+        )
+        .await
+        .unwrap();
+    assert_ne!(first, second);
+    assert_eq!(h.shared_changes(&h.store).await, before);
+    assert!(
+        h.store
+            .commit_diff(&h.workspace_id, &second, &access(&h.agent_id))
+            .await
+            .unwrap()
+            .files
+            .is_empty()
+    );
+}
+
+/// Run all MemoryStore tests with a factory that supplies independent memory.
+#[macro_export]
+macro_rules! memory_suite {
+    ($factory:path) => {
+        #[tokio::test]
+        async fn writing_the_same_content_keeps_the_file_change_and_has_no_content_diff() { $crate::memory_suite::writing_the_same_content_keeps_the_file_change_and_has_no_content_diff(&$factory).await; }
+
+        #[tokio::test]
+        async fn owner_cannot_change_a_forgotten_file() { $crate::memory_suite::owner_cannot_change_a_forgotten_file(&$factory).await; }
+
+        #[tokio::test]
+        async fn search_returns_a_fact_file_for_a_word_in_its_body() { $crate::memory_suite::search_returns_a_fact_file_for_a_word_in_its_body(&$factory).await; }
+        #[tokio::test]
+        async fn search_finds_a_page_by_an_alias_in_its_front_matter() { $crate::memory_suite::search_finds_a_page_by_an_alias_in_its_front_matter(&$factory).await; }
+        #[tokio::test]
+        async fn unwritten_scopes_serve_the_seed_indexes() { $crate::memory_suite::unwritten_scopes_serve_the_seed_indexes(&$factory).await; }
+        #[tokio::test]
+        async fn a_commit_persists_writes_and_reads_serve_them() { $crate::memory_suite::a_commit_persists_writes_and_reads_serve_them(&$factory).await; }
+        #[tokio::test]
+        async fn brief_entries_rank_the_newest_change_first_with_the_score_and_the_words() { $crate::memory_suite::brief_entries_rank_the_newest_change_first_with_the_score_and_the_words(&$factory).await; }
+        #[tokio::test]
+        async fn brief_entries_mark_the_pages_changed_after_the_cursor() { $crate::memory_suite::brief_entries_mark_the_pages_changed_after_the_cursor(&$factory).await; }
+        #[tokio::test]
+        async fn brief_entries_hide_a_source_page_from_an_access_without_its_grant() { $crate::memory_suite::brief_entries_hide_a_source_page_from_an_access_without_its_grant(&$factory).await; }
+        #[tokio::test]
+        async fn brief_entries_of_an_unwritten_workspace_are_empty() { $crate::memory_suite::brief_entries_of_an_unwritten_workspace_are_empty(&$factory).await; }
+        #[tokio::test]
+        async fn private_scopes_are_disjoint_between_agents() { $crate::memory_suite::private_scopes_are_disjoint_between_agents(&$factory).await; }
+        #[tokio::test]
+        async fn the_commit_carries_author_message_and_run_trailer() { $crate::memory_suite::the_commit_carries_author_message_and_run_trailer(&$factory).await; }
+        #[tokio::test]
+        async fn recovery_finds_only_the_exact_pending_review_commit() { $crate::memory_suite::recovery_finds_only_the_exact_pending_review_commit(&$factory).await; }
+        #[tokio::test]
+        async fn a_delete_removes_the_file() { $crate::memory_suite::a_delete_removes_the_file(&$factory).await; }
+        #[tokio::test]
+        async fn an_empty_changeset_refuses_to_commit() { $crate::memory_suite::an_empty_changeset_refuses_to_commit(&$factory).await; }
+        #[tokio::test]
+        async fn later_commits_win_whole_file() { $crate::memory_suite::later_commits_win_whole_file(&$factory).await; }
+        #[tokio::test]
+        async fn concurrent_whole_file_commits_reject_the_stale_base() { $crate::memory_suite::concurrent_whole_file_commits_reject_the_stale_base(&$factory).await; }
+        #[tokio::test]
+        async fn revert_makes_an_inverse_commit_by_the_user() { $crate::memory_suite::revert_makes_an_inverse_commit_by_the_user(&$factory).await; }
+        #[tokio::test]
+        async fn revert_aborts_cleanly_when_later_commits_conflict() { $crate::memory_suite::revert_aborts_cleanly_when_later_commits_conflict(&$factory).await; }
+        #[tokio::test]
+        async fn workspaces_get_disjoint_repositories() { $crate::memory_suite::workspaces_get_disjoint_repositories(&$factory).await; }
+        #[tokio::test]
+        async fn a_commit_without_a_run_has_no_run_trailer() { $crate::memory_suite::a_commit_without_a_run_has_no_run_trailer(&$factory).await; }
+        #[tokio::test]
+        async fn source_exposed_files_and_indexes_are_invisible_without_current_access() { $crate::memory_suite::source_exposed_files_and_indexes_are_invisible_without_current_access(&$factory).await; }
+        #[tokio::test]
+        async fn owner_edits_preserve_the_existing_source_scope() { $crate::memory_suite::owner_edits_preserve_the_existing_source_scope(&$factory).await; }
+        #[tokio::test]
+        async fn reverting_a_revert_cannot_restore_a_revoked_source() { $crate::memory_suite::reverting_a_revert_cannot_restore_a_revoked_source(&$factory).await; }
+        #[tokio::test]
+        async fn concurrent_index_loads_return_one_revision_for_both_scopes() { $crate::memory_suite::concurrent_index_loads_return_one_revision_for_both_scopes(&$factory).await; }
+        #[tokio::test]
+        async fn list_pages_serves_one_scope_newest_change_first_with_its_author() { $crate::memory_suite::list_pages_serves_one_scope_newest_change_first_with_its_author(&$factory).await; }
+        #[tokio::test]
+        async fn list_pages_follows_new_commits_after_its_first_answer() { $crate::memory_suite::list_pages_follows_new_commits_after_its_first_answer(&$factory).await; }
+        #[tokio::test]
+        async fn list_pages_gives_the_summary_of_each_page_from_the_index() { $crate::memory_suite::list_pages_gives_the_summary_of_each_page_from_the_index(&$factory).await; }
+        #[tokio::test]
+        async fn list_pages_hides_a_source_page_from_an_access_without_its_grant() { $crate::memory_suite::list_pages_hides_a_source_page_from_an_access_without_its_grant(&$factory).await; }
+        #[tokio::test]
+        async fn search_hides_pages_that_access_and_forget_rules_refuse() { $crate::memory_suite::search_hides_pages_that_access_and_forget_rules_refuse(&$factory).await; }
+        #[tokio::test]
+        async fn list_pages_gives_one_part_at_a_time_with_the_total() { $crate::memory_suite::list_pages_gives_one_part_at_a_time_with_the_total(&$factory).await; }
+        #[tokio::test]
+        async fn list_pages_narrows_by_kind_and_by_search_text() { $crate::memory_suite::list_pages_narrows_by_kind_and_by_search_text(&$factory).await; }
+        #[tokio::test]
+        async fn list_pages_finds_a_subject_page_by_a_word_of_its_truth() { $crate::memory_suite::list_pages_finds_a_subject_page_by_a_word_of_its_truth(&$factory).await; }
+        #[tokio::test]
+        async fn list_pages_searches_title_and_path_when_entity_words_are_null() { $crate::memory_suite::list_pages_searches_title_and_path_when_entity_words_are_null(&$factory).await; }
+        #[tokio::test]
+        async fn count_pages_counts_the_scope_its_procedures_and_its_authors() { $crate::memory_suite::count_pages_counts_the_scope_its_procedures_and_its_authors(&$factory).await; }
+        #[tokio::test]
+        async fn list_pages_of_an_unwritten_workspace_is_empty() { $crate::memory_suite::list_pages_of_an_unwritten_workspace_is_empty(&$factory).await; }
+        #[tokio::test]
+        async fn commit_diff_reports_before_and_after_lines_per_file() { $crate::memory_suite::commit_diff_reports_before_and_after_lines_per_file(&$factory).await; }
+        #[tokio::test]
+        async fn commit_diff_of_an_unknown_commit_is_not_found() { $crate::memory_suite::commit_diff_of_an_unknown_commit_is_not_found(&$factory).await; }
+        #[tokio::test]
+        async fn a_page_write_puts_its_links_in_the_page_index() { $crate::memory_suite::a_page_write_puts_its_links_in_the_page_index(&$factory).await; }
+        #[tokio::test]
+        async fn forget_preview_counts_history_and_begin_rejects_a_changed_revision() { $crate::memory_suite::forget_preview_counts_history_and_begin_rejects_a_changed_revision(&$factory).await; }
+        #[tokio::test]
+        async fn forget_purge_removes_each_copy_and_invalidates_the_old_history() { $crate::memory_suite::forget_purge_removes_each_copy_and_invalidates_the_old_history(&$factory).await; }
+        #[tokio::test]
+        async fn reverting_a_forgotten_revision_is_unavailable() { $crate::memory_suite::reverting_a_forgotten_revision_is_unavailable(&$factory).await; }
+        #[tokio::test]
+        async fn revert_keeps_later_changes_to_other_lines() { $crate::memory_suite::revert_keeps_later_changes_to_other_lines(&$factory).await; }
+        #[tokio::test]
+        async fn a_failed_write_keeps_all_files_and_the_revision() { $crate::memory_suite::a_failed_write_keeps_all_files_and_the_revision(&$factory).await; }
+    };
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_macro_names_each_suite_body() {
+        let source = include_str!("memory_suite.rs");
+        let (bodies, emitted) = source.split_once("macro_rules! memory_suite").unwrap();
+        for line in bodies
+            .lines()
+            .filter(|line| line.starts_with("pub async fn "))
+        {
+            let name = line
+                .strip_prefix("pub async fn ")
+                .unwrap()
+                .split('(')
+                .next()
+                .unwrap();
+            assert!(
+                emitted.contains(&format!("memory_suite::{name}(&")),
+                "{name} is missing from the macro"
+            );
+        }
+    }
 }

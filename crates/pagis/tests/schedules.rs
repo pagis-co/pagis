@@ -86,7 +86,7 @@ async fn seed_subject_page(daemon: &TestDaemon, path: &str, content: String) {
         .unwrap();
     let agent_id = pagis_core::AgentId::from(daemon.agent_id.clone());
     let access = pagis_core::MemoryAccess::agent(agent_id.clone(), []);
-    let memory = pagis_memory::GitMemoryStore::new(
+    let memory = pagis_memory_git::GitMemoryStore::new(
         daemon.booted.home.join("memory"),
         Arc::new(pagis_storage_sqlite::SqliteForgetStore::new(
             daemon.pool().clone(),
@@ -126,7 +126,7 @@ async fn read_subject_page(daemon: &TestDaemon, path: &str) -> String {
         .next()
         .unwrap();
     let agent_id = pagis_core::AgentId::from(daemon.agent_id.clone());
-    let memory = pagis_memory::GitMemoryStore::new(
+    let memory = pagis_memory_git::GitMemoryStore::new(
         daemon.booted.home.join("memory"),
         Arc::new(pagis_storage_sqlite::SqliteForgetStore::new(
             daemon.pool().clone(),
