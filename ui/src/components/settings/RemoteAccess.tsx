@@ -7,8 +7,8 @@
 // port 443 and for the TURN server of the live screen on port 8443,
 // because Tailscale can wait while the owner turns on HTTPS and Funnel
 // for the tailnet on a page that it names; the switch shows that page
-// until the turn-on ends. Either change takes effect on a restart, which
-// the switch asks for. A server shows Remote Access and no switch: its
+// until the turn-on ends. Either change takes effect on a restart. The
+// switch asks for one where the server offers it. A server shows Remote Access and no switch: its
 // deployment sets PAGIS_REMOTE_ACCESS.
 
 import { useEffect, useState } from 'react'
@@ -200,10 +200,12 @@ export function RemoteAccess({
   api,
   screen,
   daemon,
+  restartAvailable,
 }: {
   api: ApiClient
   screen: ScreenDto
   daemon: RunningDaemon
+  restartAvailable: boolean
 }) {
   const read = useRemoteAccess(api)
   const turnOn = useTurnOnRemoteAccess(api)
@@ -212,7 +214,7 @@ export function RemoteAccess({
   // The switch holds what the Administrator asks for until they confirm
   // or cancel; the saved state is what the daemon answered.
   const [asking, setAsking] = useState<boolean | null>(null)
-  // A turn-on that this page started, so its end asks for the restart.
+  // A turn-on that this page started, so its end can ask for a restart.
   const [started, setStarted] = useState(false)
   const remote = read.data
 
@@ -226,14 +228,14 @@ export function RemoteAccess({
     }
   }, [drawn])
 
-  // The turn-on runs in the daemon. When it ends with Remote Access on,
-  // the restart puts it in effect, as "Turn on and restart" said.
+  // The turn-on runs in the daemon. Where a restart is offered, it puts
+  // Remote Access in effect when the turn-on ends.
   const turnedOn = started && remote !== undefined && !remote.turning_on
   useEffect(() => {
     if (!turnedOn) return
     setStarted(false)
-    if (remote.enabled && remote.restart_required) restart.ask()
-  }, [turnedOn, remote, restart])
+    if (restartAvailable && remote.enabled && remote.restart_required) restart.ask()
+  }, [turnedOn, remote, restart, restartAvailable])
 
   if (remote === undefined) {
     return (
@@ -261,7 +263,7 @@ export function RemoteAccess({
       onSuccess: (saved) => {
         setAsking(null)
         setStarted(false)
-        if (saved.restart_required) restart.ask()
+        if (restartAvailable && saved.restart_required) restart.ask()
       },
     })
 
@@ -270,7 +272,8 @@ export function RemoteAccess({
   const switchable =
     !busy && waiting === null && (remote.enabled || asking !== null || canTurnOn(remote.tailscale))
   const failed = turnOn.isError ? turnOn.error : turnOff.isError ? turnOff.error : null
-  const status = restartMessage(restart.phase, daemon.supervised)
+  const status = restartMessage(restart.phase, daemon.supervised) ??
+    (!restartAvailable && remote.restart_required ? 'The change applies at the next start of the server.' : null)
   const ports = funnelPorts(remote.tailscale)
   const servesPagis = ports.length > 0 && ports.every((port) => port.served.serves === 'pagis')
   // The ports of the Funnel that still serve Pagis after a turn-off.
@@ -342,7 +345,7 @@ export function RemoteAccess({
         </>
       )}
 
-      {remote.enabled && remote.restart_required && asking === null && waiting === null && (
+      {restartAvailable && remote.enabled && remote.restart_required && asking === null && waiting === null && (
         <Row>
           <span className="system-row-note">Remote Access takes effect when Pagis restarts.</span>
           <Button disabled={busy} onClick={() => restart.ask()}>
@@ -367,7 +370,7 @@ export function RemoteAccess({
               <>Anyone on the internet then reaches the sign-in page at the name of this computer.</>
             )}{' '}
             Another machine signs in with a sign-in link, never with a password. Then Pagis
-            restarts.{' '}
+            {restartAvailable ? 'restarts.' : 'applies the change at the next start of the server.'}{' '}
             <a href={REMOTE_ACCESS_GUIDE} target="_blank" rel="noreferrer">
               Remote Access
             </a>
@@ -396,7 +399,8 @@ export function RemoteAccess({
       {asking === false && (
         <Row>
           <span className="system-row-note">
-            Other machines no longer reach Pagis. Pagis removes the Funnel and restarts. People who
+            Other machines no longer reach Pagis. Pagis removes the Funnel.{' '}
+            {restartAvailable ? 'Pagis restarts.' : 'The change applies at the next start of the server.'} People who
             signed in from other machines keep their accounts and Sessions, and reach Pagis again
             when Remote Access is on.
           </span>
@@ -407,12 +411,12 @@ export function RemoteAccess({
         <Row>
           {asking === true && (
             <Button variant="primary" disabled={busy} onClick={askOn}>
-              Turn on and restart
+              {restartAvailable ? 'Turn on and restart' : 'Turn on'}
             </Button>
           )}
           {asking === false && (
             <Button variant="primary" disabled={busy} onClick={askOff}>
-              Turn off and restart
+              {restartAvailable ? 'Turn off and restart' : 'Turn off'}
             </Button>
           )}
           {asking !== null && (

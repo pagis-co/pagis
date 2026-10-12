@@ -1514,6 +1514,9 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         ),
         remote_access_turn,
         administration: options.administration,
+        administration_sections: pagis_server::AdministrationSections::without(
+            &booted.config.administration.hide,
+        ),
         proxy: options.proxy,
         screen: options.screen,
         ring,

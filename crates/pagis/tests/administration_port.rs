@@ -17,6 +17,139 @@ use reqwest::StatusCode;
 
 const PASSWORD: &str = "correct horse battery";
 
+const SECTIONS: &[&str] = &[
+    "spend",
+    "people",
+    "sessions",
+    "resources",
+    "providers",
+    "settings",
+    "plugins",
+    "health",
+    "restart",
+];
+
+#[tokio::test]
+async fn the_sections_read_names_all_sections_in_navigation_order() {
+    let daemon = TestDaemon::start().await;
+    let response = client()
+        .get(format!(
+            "{}/api/v1/administration/sections",
+            daemon.administration_base_url
+        ))
+        .header("cookie", daemon.cookie())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.json::<serde_json::Value>().await.unwrap(),
+        serde_json::json!({ "sections": SECTIONS })
+    );
+}
+
+async fn hidden_sections_have_no_routes(hidden: &[&str]) {
+    let daemon = TestDaemon::start().await;
+    let path = daemon.booted.home.join("config.toml");
+    let mut config = pagis::Config::read_file(&path).unwrap();
+    config.administration.hide = serde_json::from_value(serde_json::json!(hidden)).unwrap();
+    config.save(&path).unwrap();
+    let daemon = daemon.restart(Default::default()).await;
+
+    for route in ADMINISTRATION_ROUTES {
+        let section = if route.path.starts_with("/api/v1/administration/providers") {
+            "providers"
+        } else if route.path.starts_with("/api/v1/settings/system") {
+            "settings"
+        } else if route.path == "/api/v1/system/restart" {
+            "restart"
+        } else {
+            continue;
+        };
+        if !hidden.contains(&section) {
+            continue;
+        }
+        for method in route.methods {
+            let response = request(
+                method,
+                &format!(
+                    "{}{}",
+                    daemon.administration_base_url,
+                    path_of(route, daemon.user_id.as_str())
+                ),
+            )
+            .header("cookie", daemon.cookie())
+            .json(&serde_json::json!({}))
+            .send()
+            .await
+            .unwrap();
+            assert_eq!(
+                response.status(),
+                StatusCode::NOT_FOUND,
+                "{method} {}",
+                route.path
+            );
+            assert_eq!(
+                response.json::<serde_json::Value>().await.unwrap()["error"]["code"],
+                "not_found"
+            );
+        }
+    }
+    let response = client()
+        .get(format!(
+            "{}/api/v1/administration/sections",
+            daemon.administration_base_url
+        ))
+        .header("cookie", daemon.cookie())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let offered: Vec<_> = SECTIONS
+        .iter()
+        .filter(|section| !hidden.contains(section))
+        .collect();
+    assert_eq!(
+        response.json::<serde_json::Value>().await.unwrap(),
+        serde_json::json!({ "sections": offered })
+    );
+}
+
+#[tokio::test]
+async fn hidden_providers_have_no_routes() {
+    hidden_sections_have_no_routes(&["providers"]).await;
+}
+
+#[tokio::test]
+async fn hidden_settings_have_no_routes() {
+    hidden_sections_have_no_routes(&["settings"]).await;
+}
+
+#[tokio::test]
+async fn hidden_restart_has_no_route() {
+    hidden_sections_have_no_routes(&["restart"]).await;
+}
+
+#[tokio::test]
+async fn all_hidden_sections_have_no_routes() {
+    hidden_sections_have_no_routes(&["providers", "settings", "restart"]).await;
+}
+
+#[tokio::test]
+async fn an_unknown_hidden_section_stops_the_start_and_names_it() {
+    let home = tempfile::tempdir().unwrap();
+    std::fs::write(
+        home.path().join("config.toml"),
+        "[administration]\nhide = [\"unknown-section\"]\n",
+    )
+    .unwrap();
+    let error = match pagis::boot(home.path(), pagis::Installation::Local).await {
+        Ok(_) => panic!("the daemon starts with an unknown hidden section"),
+        Err(error) => format!("{error:#}"),
+    };
+    assert!(error.contains("unknown-section"), "{error}");
+}
+
 fn client() -> reqwest::Client {
     reqwest::Client::new()
 }

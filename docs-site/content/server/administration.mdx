@@ -36,6 +36,35 @@ it puts a proxy in front of it.
 A daemon whose Administration Port is taken names the port and the setting
 that moves it. `pagis --port` moves the product port alone.
 
+## The offered sections
+
+The Administration Interface reads `GET /api/v1/administration/sections`
+before it draws the navigation. The route needs a signed-in Administrator.
+It names the offered sections in navigation order:
+
+```json
+{"sections":["spend","people","sessions","resources","providers","settings","plugins","health","restart"]}
+```
+
+All sections are offered by default. A deployment can hide `providers`,
+`settings` and `restart` in `config.toml`:
+
+```toml
+[administration]
+hide = ["providers", "settings", "restart"]
+```
+
+Hide `providers` when the deployment owns provider setup, `settings` when
+the deployment owns the System Settings, and `restart` when the deployment
+owns server restarts. Each name is optional. An unknown name stops the
+start, and the error names it. Spend, People, Sessions, Resources, Plugins
+and Health are always offered.
+
+A hidden section has no routes. An API request to it answers `404`, also
+for an Administrator. An address of a hidden view opens the first offered
+view. With `restart` hidden, Settings shows **Save** and no **Restart now**.
+A saved change that needs a restart applies at the next start of the server.
+
 ## The first Administrator
 
 A server boots with an Org and a seeded Workspace and nobody who can sign

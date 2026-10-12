@@ -17,6 +17,7 @@ for the run and is never written back into the file.
 | `[remote_access] enabled` | `PAGIS_REMOTE_ACCESS` | Off | **Remote Access**: another machine signs in with a Sign-In Link alone, and the TURN server of the live screen runs. The compose deployment turns it on with the `tailscale` profile ([Remote Access at home](/server/remote-access)). |
 | `[administration] port` | `PAGIS_ADMINISTRATION_PORT` | `4401` | The Administration Port. |
 | `[administration] bind` | `PAGIS_ADMINISTRATION_BIND` | `127.0.0.1` | Its Bind Address, loopback whatever the product port binds. |
+| `[administration] hide` | None | `[]` | The sections the Administration Port does not offer: `providers`, `settings` and `restart`. Each name is optional. An unknown name stops the start and appears in the error. A hidden section has no routes and answers `404`. |
 | `[database] url` | `PAGIS_DATABASE_URL` | None | The `postgres://` URL of the database that holds the records. A server does not start without it. |
 | `[secrets] key_file` | None | `/run/secrets/pagis-secrets-key` | The **Key File** (Linux). |
 | `[screen] advertise_ip` | `PAGIS_SCREEN_ADVERTISE_IP` | `127.0.0.1` | The address browsers reach the Media Relay at. |
@@ -62,6 +63,14 @@ the Settings view says to run `pagis` again. A supervisor of your own, such as
 a systemd unit with `Restart=on-failure`, sets `PAGIS_SUPERVISED=1` too.
 `--port` and `PAGIS_PORT` override the port of `config.toml` for one run, and
 the Settings view shows both ports while they differ.
+
+When the deployment owns these controls, set `[administration] hide` to
+the sections it owns. With `settings` hidden, the Administration Interface
+shows no Settings view, and the System Settings routes answer `404`.
+With `restart` hidden, the restart route answers `404`. Settings shows
+**Save** in place of **Save and restart**, and no **Restart now**. A saved
+change that needs a restart says that it applies at the next start of the
+server. Remote Access also saves without a restart request.
 
 The log level applies to the daemon's own lines. The libraries it uses log
 warnings and errors alone. `PAGIS_LOG` replaces the whole filter with a

@@ -152,8 +152,8 @@ pub struct RemoteAccess {
 /// The Administration Interface's own listener.
 ///
 /// The product port can face the team while this one stays private, so
-/// the two are configured apart: this section names the port and the
-/// interface of the administration listener alone. The default binds
+/// the two are configured apart: this section names the port, the Bind
+/// Address and the hidden sections of the Administration Port. The default binds
 /// loopback on a server as on a local installation, which is the
 /// setting that makes the surface private by default.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -164,6 +164,8 @@ pub struct Administration {
     /// address of this machine to reach it from an administrator's own
     /// network.
     pub bind: String,
+    /// The sections the Administration Port does not offer.
+    pub hide: Vec<pagis_server::AdministrationSection>,
 }
 
 impl Default for Administration {
@@ -171,6 +173,7 @@ impl Default for Administration {
         Self {
             port: DEFAULT_ADMINISTRATION_PORT,
             bind: DEFAULT_ADMINISTRATION_BIND.to_string(),
+            hide: Vec::new(),
         }
     }
 }
@@ -850,6 +853,17 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_unknown_hidden_administration_section_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        for name in ["unknown-section", "people", "Restart"] {
+            std::fs::write(&path, format!("[administration]\nhide = [\"{name}\"]\n")).unwrap();
+            let error = Config::load_or_init(&path).unwrap_err().to_string();
+            assert!(error.contains(name), "{error}");
+        }
+    }
 
     /// Analytics are on until an Administrator turns them off, in a new
     /// file and in a file that does not name the setting.
