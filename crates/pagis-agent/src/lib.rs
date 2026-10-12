@@ -3,6 +3,7 @@
 //! dispatch through the capability broker with request parking, and
 //! the live delta hub the WebSocket serves.
 
+pub mod admission;
 mod agent_dm;
 mod brain;
 mod briefing;
@@ -17,6 +18,8 @@ mod model_catalog;
 mod progress;
 mod recover;
 mod run;
+mod run_queue;
+mod run_signals;
 mod skills;
 mod speaker;
 mod spend;
@@ -35,6 +38,8 @@ pub use mention::is_mentioned;
 pub use model_catalog::{MODEL_LIST_REFRESH, ModelCatalog, ModelListError};
 pub use progress::{ProgressFrame, ProgressHub};
 pub use recover::{RESTART_ERROR, fail_unfinished_runs};
+pub use run_queue::RunQueue;
+pub use run_signals::RunSignals;
 pub use spend::{CapReads, CapStop, cap_stop};
 pub use system::{AgentDeps, AgentLoopConfig, AgentSystem, CancelOutcome};
 pub use tool_runtime::{CoreToolRuntime, ToolRuntimeDeps};
