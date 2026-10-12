@@ -1,6 +1,6 @@
 //! Tasks, timers and response bodies for the host.
 
-pub(crate) use pagis_rt::{Elapsed, sleep, spawn, timeout};
+pub(crate) use pagis_rt::{sleep, spawn, timeout};
 
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn body<S>(stream: S) -> S {
