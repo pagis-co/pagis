@@ -9,8 +9,7 @@
 use async_trait::async_trait;
 use futures::future::BoxFuture;
 use pagis_broker::Decider;
-use pagis_core::{CodingSession, RunId};
-use serde::{Deserialize, Serialize};
+use pagis_core::{CodingSession, RunId, WaitsFor};
 
 use crate::{PermissionAnswer, PermissionAsk, QuestionAnswer, QuestionAsk};
 
@@ -53,7 +52,10 @@ impl<T: Send + 'static> Pending<T> {
             waits_for,
             answer: Box::pin(std::future::ready(Waited::answered(
                 answer,
-                Some(waits_for.decider()),
+                Some(match waits_for {
+                    WaitsFor::Person => Decider::Person,
+                    WaitsFor::Agent => Decider::Agent,
+                }),
             ))),
         }
     }
@@ -96,26 +98,6 @@ pub struct DecidedBy {
     pub note: Option<String>,
     /// The Run of the Agent that decided.
     pub run_id: Option<RunId>,
-}
-
-/// Who answers an ask.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum WaitsFor {
-    /// The Person.
-    Person,
-    /// The supervising Agent.
-    Agent,
-}
-
-impl WaitsFor {
-    /// The decider of an answer that this party gives.
-    pub fn decider(self) -> Decider {
-        match self {
-            WaitsFor::Person => Decider::Person,
-            WaitsFor::Agent => Decider::Agent,
-        }
-    }
 }
 
 /// Refuses each ask: it rejects each permission once and cancels each

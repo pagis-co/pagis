@@ -8,17 +8,27 @@
 //! never stale. The transcript is foreign text: the routes answer it as
 //! data.
 
+// Without native, these types and paths describe the full OpenAPI contract.
+#![cfg_attr(not(feature = "native"), allow(dead_code))]
+
+#[cfg(feature = "native")]
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use pagis_coding::{CloseReason, SessionError, WaitsFor};
+#[cfg(feature = "native")]
+use pagis_coding::{CloseReason, SessionError};
+use pagis_core::CodingSessionEvent;
+#[cfg(any(feature = "native", test))]
+use pagis_core::HarnessSetting;
+use pagis_core::WaitsFor;
+#[cfg(feature = "native")]
+use pagis_core::{AgentId, CodingSession, CodingSessionId, HostId, WorkspaceId, harness};
 use pagis_core::{
-    AgentId, CodingSession, CodingSessionEvent, CodingSessionEventKind as Kind, CodingSessionId,
-    CodingSessionPlace, CodingSessionState, CodingSessionUsage, HarnessModeInfo, HarnessSetting,
-    HostId, SessionApprovalMode, WorkspaceId, harness,
+    CodingSessionEventKind as Kind, CodingSessionPlace, CodingSessionState, CodingSessionUsage,
+    HarnessModeInfo, SessionApprovalMode,
 };
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -29,9 +39,11 @@ use crate::error::ApiError;
 
 /// The longest `last_activity` from the text of a message, in
 /// characters.
+#[cfg(any(feature = "native", test))]
 const ACTIVITY_CHARS: usize = 120;
 
 /// The rows that can give the last activity: every kind but `usage`.
+#[cfg(feature = "native")]
 const ACTIVITY_KINDS: [Kind; 11] = [
     Kind::Prompt,
     Kind::AgentMessage,
@@ -47,6 +59,7 @@ const ACTIVITY_KINDS: [Kind; 11] = [
 ];
 
 /// The rows of an ask and of its answer.
+#[cfg(feature = "native")]
 const DECISION_KINDS: [Kind; 4] = [
     Kind::Permission,
     Kind::Question,
@@ -217,36 +230,44 @@ pub struct TranscriptQuery {
         (status = 422, body = crate::error::ErrorBody),
     )
 )]
+#[cfg_attr(not(feature = "native"), allow(unused_variables))]
 pub async fn list_coding_sessions(
     State(state): State<Arc<AppState>>,
     tenant: Tenant,
     Query(query): Query<CodingSessionListQuery>,
 ) -> Result<Json<CodingSessionPage>, ApiError> {
-    let session_state = query
-        .state
-        .as_deref()
-        .map(str::parse::<CodingSessionState>)
-        .transpose()
-        .map_err(ApiError::validation)?;
-    let agent_id = query.agent_id.map(AgentId::from);
-    let before = query.before.map(CodingSessionId::from);
-    let limit = query.limit.unwrap_or(50).clamp(1, 100);
-    let sessions = state
-        .coding_session_store
-        .list(
-            &tenant.workspace_id,
-            agent_id.as_ref(),
-            session_state,
-            before.as_ref(),
-            limit,
-        )
-        .await?;
-    let machines = machine_names(&state, &tenant.workspace_id).await?;
-    let mut items = Vec::with_capacity(sessions.len());
-    for session in sessions {
-        items.push(session_dto(&state, session, &machines).await?);
+    #[cfg(not(feature = "native"))]
+    {
+        Err(ApiError::not_available("Hosts"))
     }
-    Ok(Json(CodingSessionPage { items }))
+    #[cfg(feature = "native")]
+    {
+        let session_state = query
+            .state
+            .as_deref()
+            .map(str::parse::<CodingSessionState>)
+            .transpose()
+            .map_err(ApiError::validation)?;
+        let agent_id = query.agent_id.map(AgentId::from);
+        let before = query.before.map(CodingSessionId::from);
+        let limit = query.limit.unwrap_or(50).clamp(1, 100);
+        let sessions = state
+            .coding_session_store
+            .list(
+                &tenant.workspace_id,
+                agent_id.as_ref(),
+                session_state,
+                before.as_ref(),
+                limit,
+            )
+            .await?;
+        let machines = machine_names(&state, &tenant.workspace_id).await?;
+        let mut items = Vec::with_capacity(sessions.len());
+        for session in sessions {
+            items.push(session_dto(&state, session, &machines).await?);
+        }
+        Ok(Json(CodingSessionPage { items }))
+    }
 }
 
 /// Read one Coding Session.
@@ -260,14 +281,22 @@ pub async fn list_coding_sessions(
         (status = 404, body = crate::error::ErrorBody),
     )
 )]
+#[cfg_attr(not(feature = "native"), allow(unused_variables))]
 pub async fn get_coding_session(
     State(state): State<Arc<AppState>>,
     tenant: Tenant,
     Path(coding_session_id): Path<String>,
 ) -> Result<Json<CodingSessionDto>, ApiError> {
-    let session = read_session(&state, &tenant, coding_session_id).await?;
-    let machines = machine_names(&state, &tenant.workspace_id).await?;
-    Ok(Json(session_dto(&state, session, &machines).await?))
+    #[cfg(not(feature = "native"))]
+    {
+        Err(ApiError::not_available("Hosts"))
+    }
+    #[cfg(feature = "native")]
+    {
+        let session = read_session(&state, &tenant, coding_session_id).await?;
+        let machines = machine_names(&state, &tenant.workspace_id).await?;
+        Ok(Json(session_dto(&state, session, &machines).await?))
+    }
 }
 
 /// Read one page of the transcript of a Coding Session, oldest row
@@ -287,26 +316,34 @@ pub async fn get_coding_session(
         (status = 404, body = crate::error::ErrorBody),
     )
 )]
+#[cfg_attr(not(feature = "native"), allow(unused_variables))]
 pub async fn coding_session_transcript(
     State(state): State<Arc<AppState>>,
     tenant: Tenant,
     Path(coding_session_id): Path<String>,
     Query(query): Query<TranscriptQuery>,
 ) -> Result<Json<CodingSessionTranscript>, ApiError> {
-    let session = read_session(&state, &tenant, coding_session_id).await?;
-    let limit = query.limit.unwrap_or(200).clamp(1, 500);
-    // One row past the page says whether another page follows.
-    let mut rows = state
-        .coding_session_store
-        .list_events(&tenant.workspace_id, &session.id, query.after, limit + 1)
-        .await?;
-    let more = rows.len() > limit as usize;
-    rows.truncate(limit as usize);
-    let next_after = more.then(|| rows.last().map(|row| row.seq)).flatten();
-    Ok(Json(CodingSessionTranscript {
-        items: rows.into_iter().map(CodingSessionEventDto::from).collect(),
-        next_after,
-    }))
+    #[cfg(not(feature = "native"))]
+    {
+        Err(ApiError::not_available("Hosts"))
+    }
+    #[cfg(feature = "native")]
+    {
+        let session = read_session(&state, &tenant, coding_session_id).await?;
+        let limit = query.limit.unwrap_or(200).clamp(1, 500);
+        // One row past the page says whether another page follows.
+        let mut rows = state
+            .coding_session_store
+            .list_events(&tenant.workspace_id, &session.id, query.after, limit + 1)
+            .await?;
+        let more = rows.len() > limit as usize;
+        rows.truncate(limit as usize);
+        let next_after = more.then(|| rows.last().map(|row| row.seq)).flatten();
+        Ok(Json(CodingSessionTranscript {
+            items: rows.into_iter().map(CodingSessionEventDto::from).collect(),
+            next_after,
+        }))
+    }
 }
 
 /// The Person stops a Coding Session: the daemon cancels the turn that
@@ -322,34 +359,44 @@ pub async fn coding_session_transcript(
         (status = 409, body = crate::error::ErrorBody, description = "The session is not open"),
     )
 )]
+#[cfg_attr(not(feature = "native"), allow(unused_variables))]
 pub async fn stop_coding_session(
     State(state): State<Arc<AppState>>,
     tenant: Tenant,
     Path(coding_session_id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
-    let stopped = state
-        .coding_sessions
-        .close(
-            &tenant.workspace_id,
-            &CodingSessionId::from(coding_session_id),
-            CloseReason::Stopped,
-        )
-        .await;
-    match stopped {
-        Ok(()) => Ok(StatusCode::NO_CONTENT),
-        Err(SessionError::NotFound) => Err(ApiError::not_found("that coding session")),
-        Err(SessionError::NotOpen(session_state)) => Err(ApiError::conflict(format!(
-            "the coding session is {}",
-            session_state.as_str()
-        ))),
-        Err(SessionError::Store(error)) => Err(error.into()),
-        Err(SessionError::Harness(message)) => {
-            tracing::warn!(message, "a Coding Session did not stop");
-            Err(ApiError::internal())
+    #[cfg(not(feature = "native"))]
+    {
+        Err(ApiError::not_available("Hosts"))
+    }
+    #[cfg(feature = "native")]
+    {
+        let stopped = state
+            .native
+            .coding_sessions
+            .close(
+                &tenant.workspace_id,
+                &CodingSessionId::from(coding_session_id),
+                CloseReason::Stopped,
+            )
+            .await;
+        match stopped {
+            Ok(()) => Ok(StatusCode::NO_CONTENT),
+            Err(SessionError::NotFound) => Err(ApiError::not_found("that coding session")),
+            Err(SessionError::NotOpen(session_state)) => Err(ApiError::conflict(format!(
+                "the coding session is {}",
+                session_state.as_str()
+            ))),
+            Err(SessionError::Store(error)) => Err(error.into()),
+            Err(SessionError::Harness(message)) => {
+                tracing::warn!(message, "a Coding Session did not stop");
+                Err(ApiError::internal())
+            }
         }
     }
 }
 
+#[cfg(feature = "native")]
 async fn read_session(
     state: &AppState,
     tenant: &Tenant,
@@ -366,6 +413,7 @@ async fn read_session(
 }
 
 /// The name of each Host of the Workspace.
+#[cfg(feature = "native")]
 async fn machine_names(
     state: &AppState,
     workspace_id: &WorkspaceId,
@@ -379,6 +427,7 @@ async fn machine_names(
         .collect())
 }
 
+#[cfg(feature = "native")]
 async fn session_dto(
     state: &AppState,
     session: CodingSession,
@@ -456,6 +505,7 @@ async fn session_dto(
 }
 
 /// The id and the name of the current choice of a Harness Setting.
+#[cfg(any(feature = "native", test))]
 fn current_choice(setting: Option<&HarnessSetting>) -> (Option<String>, Option<String>) {
     match setting {
         Some(setting) => (
@@ -467,6 +517,7 @@ fn current_choice(setting: Option<&HarnessSetting>) -> (Option<String>, Option<S
 }
 
 /// One line about the last row of a transcript that is not `usage`.
+#[cfg(any(feature = "native", test))]
 fn last_activity(row: &CodingSessionEvent) -> Option<String> {
     match row.kind {
         Kind::ToolCall => row.payload.get("title")?.as_str().map(str::to_string),
@@ -490,6 +541,7 @@ fn last_activity(row: &CodingSessionEvent) -> Option<String> {
 
 /// The ask that waits, from the last row of an ask or of its answer. An
 /// answer row means that no ask waits.
+#[cfg(any(feature = "native", test))]
 fn pending(row: &CodingSessionEvent) -> Option<PendingDecisionDto> {
     let kind = match row.kind {
         Kind::Permission => PendingDecisionKind::Permission,
@@ -506,6 +558,7 @@ fn pending(row: &CodingSessionEvent) -> Option<PendingDecisionDto> {
 
 #[cfg(test)]
 mod tests {
+    use pagis_core::{CodingSessionId, WorkspaceId};
     use serde_json::{Value, json};
 
     use super::*;

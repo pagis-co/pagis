@@ -1446,6 +1446,9 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
 
     let state = AppState {
         native: pagis_server::NativeState {
+            coding_sessions: Arc::clone(&coding_sessions),
+            sign_ins,
+            sign_in_reports,
             live_calls,
             text_transports,
             numbers,
@@ -1486,9 +1489,6 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         host_presence,
         home_exits: Arc::clone(&home_exits),
         host_sessions: Arc::clone(&host_sessions),
-        coding_sessions: Arc::clone(&coding_sessions),
-        sign_ins,
-        sign_in_reports,
         coding_session_store: stores.coding_sessions.clone(),
         broker,
         agent_store,
