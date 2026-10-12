@@ -19,18 +19,18 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::Json;
-use axum::extract::ws::{Message as WsMessage, WebSocket, WebSocketUpgrade};
+use axum::extract::ws::{Message as WsMessage, WebSocketUpgrade};
 use axum::extract::{Path, Query, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use futures::StreamExt;
+use futures::{SinkExt, StreamExt};
 use pagis_core::{AgentId, AuthorKind, Block, ChannelId, KnownBlock, MessageId};
 use pagis_voice::{Clip, DictationSession, SAMPLE_RATE, Transcript, VoiceError};
 use serde::{Deserialize, Serialize};
-use tokio_util::sync::CancellationToken;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::AppState;
+use crate::MessageSocket;
 use crate::auth::Tenant;
 use crate::error::ApiError;
 use crate::live_connections::{LiveTenant, close_for_ended_session};
@@ -91,21 +91,24 @@ pub async fn dictate(
     ws: WebSocketUpgrade,
 ) -> Response {
     ws.on_upgrade(move |socket| async move {
-        let dictated =
-            handle_dictation(state, live.tenant, live.session_ended, channel_id, socket).await;
+        let dictated = serve_dictation(socket, state, live, channel_id).await;
         if let Err(err) = dictated {
             tracing::debug!(error = %err, "dictation socket closed");
         }
     })
 }
 
-async fn handle_dictation(
+/// Serve the frames of one authenticated Session.
+pub async fn serve_dictation(
+    mut socket: impl MessageSocket,
     state: Arc<AppState>,
-    tenant: Tenant,
-    session_ended: CancellationToken,
+    live: LiveTenant,
     channel_id: String,
-    mut socket: WebSocket,
 ) -> anyhow::Result<()> {
+    let LiveTenant {
+        tenant,
+        session_ended,
+    } = live;
     if state
         .channels
         .get(&tenant.workspace_id, &ChannelId::from(channel_id))
@@ -144,7 +147,7 @@ async fn handle_dictation(
 async fn dictate_once(
     state: &AppState,
     tenant: &Tenant,
-    socket: &mut WebSocket,
+    socket: &mut impl MessageSocket,
 ) -> anyhow::Result<()> {
     match state.voice.dictate(&tenant.workspace_id).await {
         Ok(Some(session)) => {
@@ -175,9 +178,9 @@ enum Held {
     Gone,
 }
 
-async fn next_held(socket: &mut WebSocket) -> anyhow::Result<Held> {
+async fn next_held(socket: &mut impl MessageSocket) -> anyhow::Result<Held> {
     loop {
-        let Some(frame) = socket.recv().await else {
+        let Some(frame) = socket.next().await else {
             return Ok(Held::Gone);
         };
         match frame? {
@@ -199,7 +202,7 @@ async fn next_held(socket: &mut WebSocket) -> anyhow::Result<Held> {
 async fn dictate_buffered(
     state: &AppState,
     tenant: &Tenant,
-    socket: &mut WebSocket,
+    socket: &mut impl MessageSocket,
 ) -> anyhow::Result<()> {
     let mut clip: Vec<u8> = Vec::new();
     loop {
@@ -242,7 +245,10 @@ async fn dictate_buffered(
     Ok(())
 }
 
-async fn dictate_live(socket: &mut WebSocket, session: DictationSession) -> anyhow::Result<()> {
+async fn dictate_live(
+    socket: &mut impl MessageSocket,
+    session: DictationSession,
+) -> anyhow::Result<()> {
     let DictationSession {
         mut input,
         mut transcripts,

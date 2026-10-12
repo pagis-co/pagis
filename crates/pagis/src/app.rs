@@ -274,6 +274,8 @@ impl AppOptions {
 /// own listener: the product, and the Administration Interface. They are
 /// built over one state, because one process serves both.
 pub struct Interfaces {
+    /// The state of the HTTP routes and the message protocols.
+    pub state: Arc<AppState>,
     pub product: axum::Router,
     pub administration: axum::Router,
     /// The Computers of every tenant, which a daemon that stops for good
@@ -1564,6 +1566,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         .map_err(|error| anyhow::anyhow!("routing the voice aliases failed: {}", error.message))?;
     let routers = pagis_server::routers(state);
     let mut interfaces = Interfaces {
+        state: routers.state,
         product: routers.product.fallback(crate::spa::serve),
         // The administration page is the other entry of the same UI
         // build, served at every address of this port.

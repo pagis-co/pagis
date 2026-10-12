@@ -2,8 +2,8 @@
 //!
 //! A Client App that declares a `harness:<id>` capability opens the
 //! session socket of its Host, and the daemon opens one stream on it for
-//! each Coding Session. These tests drive the whole path over real
-//! sockets: the socket route, its Person rule, the end of the Session, the
+//! each Coding Session. These tests drive the frame protocol in memory and the
+//! upgrade over TCP: the socket route, its Person rule, the end of the Session, the
 //! open request and its answer, the bytes of the process both ways, and
 //! the `session_exit` frame of the Host socket. The Client App's end of
 //! the socket is the fake Client App of `pagis_broker`, which speaks the
@@ -75,7 +75,7 @@ async fn host_with_session_socket(
 /// of its Host with its Session, and the socket is open while it lives.
 #[tokio::test]
 async fn a_host_that_declares_a_harness_opens_its_session_socket() {
-    let daemon = TestDaemon::start().await;
+    let daemon = TestDaemon::start_in_memory().await;
     let (_host, sessions, host_id) =
         host_with_session_socket(&daemon, daemon.cookie(), FakeClientApp::opening("/work")).await;
 
@@ -92,7 +92,7 @@ async fn a_host_that_declares_a_harness_opens_its_session_socket() {
 /// that declared no harness starts no Coding Session.
 #[tokio::test]
 async fn the_session_socket_of_another_persons_host_or_of_a_host_without_a_harness_is_refused() {
-    let tenants = TwoTenants::start().await;
+    let tenants = TwoTenants::on(TestDaemon::start().await).await;
     let daemon = &tenants.daemon;
     let a_host = HostClient::connect_as(
         daemon,
@@ -142,7 +142,7 @@ async fn the_session_socket_of_another_persons_host_or_of_a_host_without_a_harne
 /// closes it with 1008, and the socket is no longer open.
 #[tokio::test]
 async fn the_session_socket_closes_with_1008_when_the_session_ends() {
-    let daemon = TestDaemon::start().await;
+    let daemon = TestDaemon::start_in_memory().await;
     let cookie = daemon.cookie_for(&daemon.user_id).await;
     let (_host, mut sessions, host_id) =
         host_with_session_socket(&daemon, &cookie, FakeClientApp::opening("/work")).await;
@@ -161,7 +161,7 @@ async fn the_session_socket_closes_with_1008_when_the_session_ends() {
 /// reaches the session's `exit`.
 #[tokio::test]
 async fn a_session_carries_its_request_its_bytes_and_its_exit() {
-    let daemon = TestDaemon::start().await;
+    let daemon = TestDaemon::start_in_memory().await;
     let client_app = FakeClientApp::opening("/Users/bo/.pagis-worktrees/app/pagis/fix");
     let (host, _sessions, host_id) =
         host_with_session_socket(&daemon, daemon.cookie(), std::sync::Arc::clone(&client_app))
@@ -206,7 +206,7 @@ async fn a_session_carries_its_request_its_bytes_and_its_exit() {
 /// and message.
 #[tokio::test]
 async fn a_not_found_answer_is_refused() {
-    let daemon = TestDaemon::start().await;
+    let daemon = TestDaemon::start_in_memory().await;
     let client_app = FakeClientApp::answering(FakeAnswer::Refuse {
         code: OpenFailure::NotFound,
         message: "npx is not on PATH".to_string(),
@@ -236,7 +236,7 @@ async fn a_not_found_answer_is_refused() {
 /// once, and does not wait for a socket to come.
 #[tokio::test]
 async fn open_for_a_host_with_no_session_socket_is_not_connected_at_once() {
-    let daemon = TestDaemon::start().await;
+    let daemon = TestDaemon::start_in_memory().await;
     let host = HostClient::connect(
         &daemon,
         "Air",
@@ -265,7 +265,7 @@ async fn open_for_a_host_with_no_session_socket_is_not_connected_at_once() {
 /// person A's session.
 #[tokio::test]
 async fn person_b_neither_opens_a_session_on_person_as_host_nor_ends_one() {
-    let tenants = TwoTenants::start().await;
+    let tenants = TwoTenants::on(TestDaemon::start_in_memory().await).await;
     let daemon = &tenants.daemon;
     let (a_host, _a_sessions, a_host_id) =
         host_with_session_socket(daemon, &tenants.a.cookie, FakeClientApp::opening("/work")).await;

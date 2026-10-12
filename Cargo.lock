@@ -4912,6 +4912,7 @@ dependencies = [
  "pagis-plugin",
  "pagis-plugins",
  "pagis-push",
+ "pagis-rt",
  "pagis-software",
  "pagis-telephony",
  "pagis-trigger",
@@ -5079,6 +5080,7 @@ dependencies = [
  "tokio",
  "tokio-tungstenite 0.28.0",
  "tokio-util",
+ "tower",
 ]
 
 [[package]]

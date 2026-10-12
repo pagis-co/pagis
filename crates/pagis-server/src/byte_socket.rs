@@ -9,13 +9,14 @@
 
 use std::future::Future;
 
-use axum::extract::ws::{Message as WsMessage, WebSocket};
+use axum::extract::ws::Message as WsMessage;
 use futures::stream::{SplitSink, SplitStream};
 use futures::{SinkExt, StreamExt};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream, ReadHalf, WriteHalf};
 use tokio_util::compat::{Compat, TokioAsyncReadCompatExt};
 use tokio_util::sync::CancellationToken;
 
+use crate::MessageSocket;
 use crate::live_connections::close_for_ended_session;
 
 /// How many bytes wait between the socket and the yamux of the daemon,
@@ -29,8 +30,9 @@ const PIPE_BYTES: usize = 64 * 1024;
 /// while it holds the answer to a Ping and the pipe does not take it, so
 /// one loop that waits to write into the pipe and only then reads from
 /// it would wait for ever.
-pub async fn carry<Serve, Served>(socket: WebSocket, session_ended: CancellationToken, serve: Serve)
+pub async fn carry<S, Serve, Served>(socket: S, session_ended: CancellationToken, serve: Serve)
 where
+    S: MessageSocket,
     Serve: FnOnce(Compat<DuplexStream>) -> Served,
     Served: Future<Output = ()>,
 {
@@ -53,7 +55,10 @@ where
 
 /// Copy the bytes of each binary frame into the pipe, until the client
 /// closes the socket or sends a frame that is not binary.
-async fn into_pipe(stream: &mut SplitStream<WebSocket>, mut pipe: WriteHalf<DuplexStream>) {
+async fn into_pipe<S: MessageSocket>(
+    stream: &mut SplitStream<S>,
+    mut pipe: WriteHalf<DuplexStream>,
+) {
     while let Some(frame) = stream.next().await {
         match frame {
             Ok(WsMessage::Binary(bytes)) => {
@@ -69,7 +74,10 @@ async fn into_pipe(stream: &mut SplitStream<WebSocket>, mut pipe: WriteHalf<Dupl
 }
 
 /// Send the bytes of the pipe in binary frames, until the pipe ends.
-async fn out_of_pipe(sink: &mut SplitSink<WebSocket, WsMessage>, mut pipe: ReadHalf<DuplexStream>) {
+async fn out_of_pipe<S: MessageSocket>(
+    sink: &mut SplitSink<S, WsMessage>,
+    mut pipe: ReadHalf<DuplexStream>,
+) {
     let mut buffer = vec![0; PIPE_BYTES];
     loop {
         match pipe.read(&mut buffer).await {

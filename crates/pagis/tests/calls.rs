@@ -7,18 +7,17 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use futures::StreamExt;
+use futures::{SinkExt, StreamExt};
 use pagis_core::CallId;
 use pagis_telephony::audio::{Codec, FRAME_BYTES, Frame};
 use pagis_telephony::fake::{FakeCallTransport, RemoteParty, TokioClock};
 use pagis_telephony::hub::MediaHub;
 use pagis_telephony::{CallTransport, SipCredential};
 use pagis_testkit::{TestDaemon, TestDaemonOptions};
-use tokio::net::TcpStream;
+use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
 
-type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
+type Socket = pagis_testkit::Socket;
 
 /// The Call record of a live call, in the seeded person's Workspace.
 async fn seed_call_record(daemon: &TestDaemon, call_id: &CallId) {
@@ -76,7 +75,10 @@ struct Desk {
 
 impl Desk {
     async fn start() -> Self {
-        let daemon = TestDaemon::start().await;
+        Self::on(TestDaemon::start_in_memory().await).await
+    }
+
+    async fn on(daemon: TestDaemon) -> Self {
         let transport = FakeCallTransport::new(Arc::new(TokioClock));
         let credential = SipCredential::new("user", "secret", "sip.example.test");
         let mut opened = transport.open(&credential).await.expect("open the line");
@@ -117,10 +119,11 @@ impl Desk {
 
     /// The same, for the Session of `cookie`.
     async fn listen_as(&self, call_id: &str, cookie: &str) -> (Socket, serde_json::Value) {
-        let url = self.listen_url(call_id);
-        let (mut socket, _) = connect_async(self.daemon.ws_request_as(&url, cookie))
+        let mut socket = self
+            .daemon
+            .open_socket(&format!("/api/v1/calls/{call_id}/listen"), cookie)
             .await
-            .expect("ws connect");
+            .expect("message socket opens");
         let first = next_text(&mut socket).await;
         (socket, first)
     }
@@ -213,8 +216,21 @@ async fn a_call_that_is_not_live_is_not_listenable() {
 }
 
 #[tokio::test]
-async fn a_listen_socket_without_a_session_is_refused() {
+async fn a_close_frame_ends_listen_live_while_the_call_is_silent() {
     let desk = Desk::start().await;
+    let (mut socket, ready) = desk.listen(desk.call_id.as_str()).await;
+    assert_eq!(ready["type"], "ready");
+    socket.send(Message::Close(None)).await.unwrap();
+    let ended = tokio::time::timeout(Duration::from_millis(200), async {
+        while socket.next().await.is_some() {}
+    })
+    .await;
+    assert!(ended.is_ok(), "Listen-Live stays open after Close");
+}
+
+#[tokio::test]
+async fn a_listen_socket_without_a_session_is_refused() {
+    let desk = Desk::on(TestDaemon::start().await).await;
 
     let error = connect_async(desk.listen_url(desk.call_id.as_str()))
         .await
@@ -234,7 +250,7 @@ async fn a_listen_socket_without_a_session_is_refused() {
 #[tokio::test]
 async fn the_user_hangs_up_a_live_call() {
     let desk = Desk::start().await;
-    let client = reqwest::Client::new();
+    let client = desk.daemon.client();
 
     let response = client
         .post(format!(
@@ -267,7 +283,9 @@ async fn the_user_hangs_up_a_live_call() {
 async fn a_call_with_no_record_is_not_found() {
     let desk = Desk::start().await;
 
-    let response = reqwest::Client::new()
+    let response = desk
+        .daemon
+        .client()
         .get(format!(
             "{}/api/v1/calls/{}",
             desk.daemon.base_url,
@@ -285,7 +303,9 @@ async fn a_call_with_no_record_is_not_found() {
 async fn control_is_reserved() {
     let desk = Desk::start().await;
 
-    let response = reqwest::Client::new()
+    let response = desk
+        .daemon
+        .client()
         .post(format!(
             "{}/api/v1/calls/{}/control",
             desk.daemon.base_url,
@@ -385,7 +405,8 @@ async fn a_call_left_live_by_a_stopped_daemon_settles_at_boot() {
         })
         .await;
 
-    let call = reqwest::Client::new()
+    let call = daemon
+        .client()
         .get(format!(
             "{}/api/v1/calls/{}",
             daemon.base_url,
@@ -486,7 +507,7 @@ async fn the_calls_list_filters_by_direction_and_pages() {
             .expect("the call");
     }
 
-    let client = reqwest::Client::new();
+    let client = daemon.client();
     let page = |query: String| {
         let client = client.clone();
         let url = format!("{}/api/v1/calls?{query}", daemon.base_url);

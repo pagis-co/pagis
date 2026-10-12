@@ -224,7 +224,7 @@ impl RemoteAccessSwitch {
         }
         slot.generation += 1;
         let generation = slot.generation;
-        let task = tokio::spawn(turn_on(
+        let task = pagis_rt::spawn(turn_on(
             Arc::clone(&self.tailscale),
             system,
             targets,

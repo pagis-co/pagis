@@ -627,7 +627,7 @@ pub async fn spawn_needs_you(
         let queue = needs_you.derive(&workspace.id, clock.now_ms()).await?;
         known.insert(workspace.id, item_ids(&queue));
     }
-    tokio::spawn(async move {
+    pagis_rt::spawn(async move {
         loop {
             let event = tokio::select! {
                 () = cancel.cancelled() => return,

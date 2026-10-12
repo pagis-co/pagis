@@ -10,7 +10,8 @@
 use pagis_testkit::{HostAnswer, HostClient, TestDaemon, TwoTenants};
 
 async fn hosts_of(daemon: &TestDaemon, cookie: &str) -> Vec<serde_json::Value> {
-    let response = reqwest::Client::new()
+    let response = daemon
+        .client()
         .get(format!("{}/api/v1/hosts", daemon.base_url))
         .header("cookie", cookie)
         .send()
@@ -28,7 +29,7 @@ async fn hosts_of(daemon: &TestDaemon, cookie: &str) -> Vec<serde_json::Value> {
 /// client is the authority for all of it.
 #[tokio::test]
 async fn a_client_registers_and_the_person_sees_it_as_present() {
-    let daemon = TestDaemon::start().await;
+    let daemon = TestDaemon::start_in_memory().await;
 
     let client = HostClient::connect(&daemon, "Air", "macos", &["shell"], HostAnswer::ok()).await;
 
@@ -50,7 +51,7 @@ async fn the_registration_answer_names_the_catalog_and_a_second_registration_dec
     use futures::SinkExt;
     use tokio_tungstenite::tungstenite::Message;
 
-    let daemon = TestDaemon::start().await;
+    let daemon = TestDaemon::start_in_memory().await;
     let mut socket = daemon.event_socket(daemon.cookie()).await;
     let register = |capabilities: &[&str]| {
         Message::text(
@@ -131,7 +132,7 @@ async fn the_registration_answer_names_the_catalog_and_a_second_registration_dec
 /// same Host, so a Grant that names it still reaches it.
 #[tokio::test]
 async fn a_closed_client_is_absent_and_keeps_its_identity() {
-    let daemon = TestDaemon::start().await;
+    let daemon = TestDaemon::start_in_memory().await;
     let client = HostClient::connect(&daemon, "Air", "macos", &["shell"], HostAnswer::ok()).await;
     let host_id = client.host_id().to_string();
 
@@ -161,7 +162,7 @@ async fn a_closed_client_is_absent_and_keeps_its_identity() {
 /// it decides which machines a shell command may reach.
 #[tokio::test]
 async fn a_phone_registers_without_a_shell() {
-    let daemon = TestDaemon::start().await;
+    let daemon = TestDaemon::start_in_memory().await;
 
     let _phone = HostClient::connect(&daemon, "Phone", "ios", &[], HostAnswer::ok()).await;
 
@@ -174,7 +175,7 @@ async fn a_phone_registers_without_a_shell() {
 /// Workspace of the Session that made it.
 #[tokio::test]
 async fn one_person_never_sees_another_persons_host() {
-    let tenants = TwoTenants::start().await;
+    let tenants = TwoTenants::on(TestDaemon::start_in_memory().await).await;
 
     let mine_client = HostClient::connect_as(
         &tenants.daemon,
@@ -204,10 +205,11 @@ async fn one_person_never_sees_another_persons_host() {
 /// action could run on it now.
 #[tokio::test]
 async fn the_administration_port_shows_host_presence() {
-    let daemon = TestDaemon::start().await;
+    let daemon = TestDaemon::start_in_memory().await;
     let client = HostClient::connect(&daemon, "Air", "macos", &["shell"], HostAnswer::ok()).await;
 
-    let response = reqwest::Client::new()
+    let response = daemon
+        .client()
         .get(format!(
             "{}/api/v1/administration/hosts",
             daemon.administration_base_url
@@ -236,7 +238,6 @@ async fn the_administration_port_shows_host_presence() {
 async fn a_person_with_two_machines_is_asked_which_one_and_the_command_runs_there() {
     use futures::{SinkExt, StreamExt};
     use pagis_testkit::{Script, ScriptedBrain, TestDaemonOptions};
-    use tokio_tungstenite::connect_async;
     use tokio_tungstenite::tungstenite::Message;
 
     let brain = std::sync::Arc::new(ScriptedBrain::default());
@@ -246,7 +247,7 @@ async fn a_person_with_two_machines_is_asked_which_one_and_the_command_runs_ther
         serde_json::json!({ "command": "git status" }),
     ));
     brain.push(Script::reply(&["Done."]));
-    let daemon = TestDaemon::start_with(TestDaemonOptions {
+    let daemon = TestDaemon::start_in_memory_with(TestDaemonOptions {
         brain: std::sync::Arc::clone(&brain) as _,
         ..TestDaemonOptions::default()
     })
@@ -255,7 +256,8 @@ async fn a_person_with_two_machines_is_asked_which_one_and_the_command_runs_ther
     let studio =
         HostClient::connect(&daemon, "Studio", "linux", &["shell"], HostAnswer::Echo).await;
 
-    let (mut socket, _) = connect_async(daemon.ws_request(&daemon.ws_url()))
+    let mut socket = daemon
+        .open_socket("/api/v1/ws", daemon.cookie())
         .await
         .expect("the firehose connects");
     socket
@@ -264,7 +266,7 @@ async fn a_person_with_two_machines_is_asked_which_one_and_the_command_runs_ther
         ))
         .await
         .unwrap();
-    let client = reqwest::Client::new();
+    let client = daemon.client();
     client
         .post(format!(
             "{}/api/v1/channels/{}/messages",
@@ -278,9 +280,7 @@ async fn a_person_with_two_machines_is_asked_which_one_and_the_command_runs_ther
 
     /// The next `request.created` of the firehose, with its Request row.
     async fn next_request(
-        socket: &mut tokio_tungstenite::WebSocketStream<
-            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
-        >,
+        socket: &mut pagis_testkit::Socket,
         daemon: &TestDaemon,
     ) -> serde_json::Value {
         loop {
@@ -295,7 +295,8 @@ async fn a_person_with_two_machines_is_asked_which_one_and_the_command_runs_ther
                 continue;
             }
             let id = frame["payload"]["payload"]["request_id"].as_str().unwrap();
-            return reqwest::Client::new()
+            return daemon
+                .client()
                 .get(format!("{}/api/v1/requests/{id}", daemon.base_url))
                 .header("cookie", daemon.cookie())
                 .send()
@@ -434,7 +435,7 @@ async fn a_host_on_a_revoked_socket_is_absent_and_a_host_action_answers_so() {
         serde_json::json!({ "command": "git status" }),
     ));
     brain.push(Script::reply(&["Noted."]));
-    let daemon = TestDaemon::start_with(TestDaemonOptions {
+    let daemon = TestDaemon::start_in_memory_with(TestDaemonOptions {
         brain: std::sync::Arc::clone(&brain) as _,
         ..TestDaemonOptions::default()
     })
@@ -478,7 +479,8 @@ async fn a_host_on_a_revoked_socket_is_absent_and_a_host_action_answers_so() {
 
     // A host action for the machine, from the Person's other Session.
     let mut firehose = daemon.event_socket(daemon.cookie()).await;
-    let sent = reqwest::Client::new()
+    let sent = daemon
+        .client()
         .post(format!(
             "{}/api/v1/channels/{}/messages",
             daemon.base_url, daemon.dm_channel_id
@@ -563,7 +565,7 @@ async fn a_daemon_with_one_host_action()
         serde_json::json!({ "command": "git status" }),
     ));
     brain.push(Script::reply(&["Done."]));
-    let daemon = TestDaemon::start_with(TestDaemonOptions {
+    let daemon = TestDaemon::start_in_memory_with(TestDaemonOptions {
         brain: std::sync::Arc::clone(&brain) as _,
         ..TestDaemonOptions::default()
     })
@@ -599,7 +601,7 @@ async fn a_waiting_host_action(
     firehose: &mut pagis_testkit::Socket,
     host: &HostClient,
 ) -> String {
-    let client = reqwest::Client::new();
+    let client = daemon.client();
     let sent = client
         .post(format!(
             "{}/api/v1/channels/{}/messages",

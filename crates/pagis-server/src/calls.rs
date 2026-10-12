@@ -20,19 +20,20 @@
 use std::sync::Arc;
 
 use axum::Json;
-use axum::extract::ws::{Message as WsMessage, WebSocket, WebSocketUpgrade};
+use axum::extract::ws::{Message as WsMessage, WebSocketUpgrade};
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use futures::{SinkExt, StreamExt};
 use pagis_core::{AgentId, Call, CallDirection, CallId, CallState, TrustTier};
 use pagis_telephony::hub::MediaHub;
 use pagis_telephony::listen::Mixer;
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
-use tokio_util::sync::CancellationToken;
 use utoipa::ToSchema;
 
 use crate::AppState;
+use crate::MessageSocket;
 use crate::auth::Tenant;
 use crate::error::ApiError;
 use crate::live_connections::{LiveTenant, close_for_ended_session};
@@ -77,20 +78,24 @@ pub async fn listen(
     ws: WebSocketUpgrade,
 ) -> Response {
     ws.on_upgrade(move |socket| async move {
-        let listened = handle_listen(state, live.tenant, live.session_ended, call_id, socket).await;
+        let listened = serve_listen(socket, state, live, call_id).await;
         if let Err(err) = listened {
             tracing::debug!(error = %err, "listen socket closed");
         }
     })
 }
 
-async fn handle_listen(
+/// Serve the frames of one authenticated Session.
+pub async fn serve_listen(
+    mut socket: impl MessageSocket,
     state: Arc<AppState>,
-    tenant: Tenant,
-    session_ended: CancellationToken,
+    live: LiveTenant,
     call_id: String,
-    mut socket: WebSocket,
 ) -> anyhow::Result<()> {
+    let LiveTenant {
+        tenant,
+        session_ended,
+    } = live;
     let call_id = CallId::from(call_id);
     // The live hubs are keyed by the Workspace and the Call, so a Call
     // of another Workspace is a Call that is not live for this listener.
@@ -116,7 +121,7 @@ async fn handle_listen(
 }
 
 /// The mix, frame by frame, until the call ends or the listener goes.
-async fn carry(hub: &MediaHub, socket: &mut WebSocket) -> anyhow::Result<()> {
+async fn carry(hub: &MediaHub, socket: &mut impl MessageSocket) -> anyhow::Result<()> {
     let mut frames = hub.listen();
     let mut ended = hub.watch_ended();
     let mut mixer = Mixer::default();
@@ -124,6 +129,16 @@ async fn carry(hub: &MediaHub, socket: &mut WebSocket) -> anyhow::Result<()> {
         let recorded = tokio::select! {
             recorded = frames.recv() => recorded,
             _ = ended.changed() => break,
+            incoming = socket.next() => {
+                match incoming {
+                    None | Some(Ok(WsMessage::Close(_))) => {
+                        MessageSocket::close(socket).await?;
+                        return Ok(());
+                    }
+                    Some(Err(error)) => return Err(error.into()),
+                    Some(Ok(_)) => continue,
+                }
+            }
         };
         match recorded {
             Ok(recorded) => {

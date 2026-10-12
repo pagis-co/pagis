@@ -1,6 +1,6 @@
 //! A Pagis client that acts as the Home Exit of its Host (ADR-0029).
 //!
-//! It opens the exit socket of a registered Host over a real WebSocket,
+//! It opens the exit socket of a registered Host over its message socket,
 //! with the Session cookie, and serves the streams of the daemon with
 //! [`FakeHomeExit`], which speaks the protocol of the Client App: yamux,
 //! the preamble and the status line. A test reaches no site on the
@@ -13,8 +13,7 @@ use std::sync::{Arc, Mutex};
 use futures::{SinkExt, StreamExt};
 use pagis_computer::fake::FakeHomeExit;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio_tungstenite::connect_async;
-use tokio_tungstenite::tungstenite::{Error, Message};
+use tokio_tungstenite::tungstenite::Message;
 use tokio_util::compat::TokioAsyncReadCompatExt;
 
 use crate::TestDaemon;
@@ -86,12 +85,9 @@ impl ExitClient {
         exit: Arc<FakeHomeExit>,
         relay: Relay,
     ) -> Result<Self, u16> {
-        let url = format!("ws://{}/api/v1/hosts/{host_id}/exit", daemon.addr);
-        let socket = match connect_async(daemon.ws_request_as(&url, cookie)).await {
-            Ok((socket, _)) => socket,
-            Err(Error::Http(response)) => return Err(response.status().as_u16()),
-            Err(error) => panic!("the exit socket did not open: {error}"),
-        };
+        let socket = daemon
+            .open_socket(&format!("/api/v1/hosts/{host_id}/exit"), cookie)
+            .await?;
         let (pipe, client_app_end) = tokio::io::duplex(64 * 1024);
         let serve = tokio::spawn(exit.serve(client_app_end.compat()));
         let close = Arc::new(Mutex::new(None));

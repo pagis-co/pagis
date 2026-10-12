@@ -15,9 +15,12 @@ pub mod fixture;
 pub mod google;
 pub mod grant;
 pub mod host_client;
+pub mod http;
 pub mod memory_suite;
+mod message_socket;
 pub mod migration;
 pub use fake_memory::FakeMemoryStore;
+pub use message_socket::{MemorySocket, Socket, message_socket_pair};
 pub mod plugin;
 pub mod postgres;
 pub mod session_client;
@@ -300,6 +303,10 @@ impl Default for TestDaemonOptions {
 /// ephemeral port. Dropping it stops the server and deletes the
 /// directory.
 pub struct TestDaemon {
+    /// The state shared by HTTP and the frame protocols.
+    pub state: Arc<pagis_server::AppState>,
+    product: axum::Router,
+    administration: axum::Router,
     pub booted: pagis::Booted,
     pub addr: SocketAddr,
     pub base_url: String,
@@ -368,17 +375,28 @@ pub struct TestDaemon {
 }
 
 impl TestDaemon {
-    pub async fn start() -> Self {
-        Self::start_with(TestDaemonOptions::default()).await
+    /// An HTTP client that calls the product and administration routers.
+    pub fn client(&self) -> http::Client {
+        http::Client {
+            product: self.product.clone(),
+            administration: self.administration.clone(),
+            administration_origin: self.administration_base_url.clone(),
+        }
     }
 
-    /// Start with a custom resume ring, for buffer-overflow scenarios.
-    pub async fn start_with_ring(ring: RingConfig) -> Self {
-        Self::start_with(TestDaemonOptions {
-            ring,
-            ..TestDaemonOptions::default()
-        })
-        .await
+    /// Boot without any listener. HTTP requests use tower and the five
+    /// frame protocols use a bounded in-memory pair.
+    pub async fn start_in_memory() -> Self {
+        Self::start_in_memory_with(TestDaemonOptions::default()).await
+    }
+
+    pub async fn start_in_memory_with(options: TestDaemonOptions) -> Self {
+        let home = tempfile::tempdir().expect("create temp home");
+        Self::boot_with_transport(home, options, false).await
+    }
+
+    pub async fn start() -> Self {
+        Self::start_with(TestDaemonOptions::default()).await
     }
 
     /// Start with a scripted brain and loop config.
@@ -439,6 +457,7 @@ impl TestDaemon {
     /// Stop this daemon and boot a fresh one on the same home
     /// directory, for restart-recovery scenarios.
     pub async fn restart(mut self, options: TestDaemonOptions) -> Self {
+        let tcp = self.server.is_some();
         if let Some(server) = self.server.take() {
             server.abort();
         }
@@ -452,10 +471,14 @@ impl TestDaemon {
         self.cancel.cancel();
         let home = self.home.take().expect("home present");
         drop(self);
-        Self::boot_on(home, options).await
+        Self::boot_with_transport(home, options, tcp).await
     }
 
     async fn boot_on(home: TempDir, options: TestDaemonOptions) -> Self {
+        Self::boot_with_transport(home, options, true).await
+    }
+
+    async fn boot_with_transport(home: TempDir, options: TestDaemonOptions, tcp: bool) -> Self {
         let secrets = Arc::clone(&options.secrets);
         // The backend, the bind address, the Public Origin, the Trusted
         // Proxy and Remote Access are settings, so the harness writes them
@@ -488,55 +511,25 @@ impl TestDaemon {
             .expect("boot daemon");
         let restart = Arc::new(pagis_server::RestartSwitch::default());
         let cancel = CancellationToken::new();
-        let listener = tokio::net::TcpListener::bind(SocketAddr::new(options.bind, 0))
-            .await
-            .unwrap_or_else(|error| panic!("bind an ephemeral port on {}: {error}", options.bind));
-        let addr = listener.local_addr().expect("local addr");
+        let (listener, addr) = test_listener(tcp, options.bind, 3000).await;
         let public_origin = if options.public_origin.is_empty() {
             format!("http://{addr}")
         } else {
             options.public_origin.clone()
         };
-        // The Administration Interface answers on its own listener,
-        // on an ephemeral port of the same interface, so a test
-        // drives both ports of one daemon.
-        let administration_listener =
-            tokio::net::TcpListener::bind(SocketAddr::new(options.bind, 0))
-                .await
-                .unwrap_or_else(|error| {
-                    panic!(
-                        "bind an ephemeral administration port on {}: {error}",
-                        options.bind
-                    )
-                });
-        let administration_addr = administration_listener.local_addr().expect("local addr");
-        // The TURN server of Remote Access binds loopback whatever the
-        // daemon binds, as the production one does.
-        let remote_access_turn_listener =
-            tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
-                .await
-                .expect("bind an ephemeral TURN port");
-        let remote_access_turn_addr = remote_access_turn_listener
-            .local_addr()
-            .expect("local addr");
-        // The exit listener of a Server (ADR-0029), on loopback. A Local
-        // Installation opens none.
-        let exit_listener = match options.installation {
-            pagis::Installation::Server => Some(
-                tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
-                    .await
-                    .expect("bind an ephemeral exit port"),
-            ),
-            pagis::Installation::Local => None,
-        };
-        let exit_addr = exit_listener
-            .as_ref()
-            .map(|listener| listener.local_addr().expect("local addr"));
-        // The Harness Model Endpoint, on loopback.
-        let model_listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
-            .await
-            .expect("bind an ephemeral model port");
-        let model_addr = model_listener.local_addr().expect("local addr");
+        let (administration_listener, administration_addr) =
+            test_listener(tcp, options.bind, 3001).await;
+        let (remote_access_turn_listener, remote_access_turn_addr) =
+            test_listener(tcp, std::net::Ipv4Addr::LOCALHOST.into(), 3002).await;
+        let (exit_listener, exit_address) = test_listener(
+            tcp && options.installation == pagis::Installation::Server,
+            std::net::Ipv4Addr::LOCALHOST.into(),
+            3004,
+        )
+        .await;
+        let exit_addr = exit_listener.as_ref().map(|_| exit_address);
+        let (model_listener, model_addr) =
+            test_listener(tcp, std::net::Ipv4Addr::LOCALHOST.into(), 3003).await;
         let live_calls = Arc::new(pagis_telephony::LiveCalls::default());
         let live_tiers = Arc::new(pagis_telephony::LiveTiers::default());
         let interfaces = pagis::app(
@@ -554,11 +547,10 @@ impl TestDaemon {
                 remote_access: options.remote_access,
                 tailscale: options.tailscale,
                 remote_access_turn_port: remote_access_turn_addr.port(),
-                remote_access_turn_listener: options
-                    .remote_access
-                    .then_some(remote_access_turn_listener),
+                remote_access_turn_listener: remote_access_turn_listener
+                    .filter(|_| options.remote_access),
                 exit_listener,
-                model_listener: Some(model_listener),
+                model_listener,
                 ring: options.ring,
                 brain: Some(options.brain),
                 agents: options.agents,
@@ -593,7 +585,11 @@ impl TestDaemon {
                 // the daemon refreshes against a fake on loopback.
                 google_oauth: Some(match options.google_oauth {
                     Some(oauth) => oauth,
-                    None => crate::google::FakeTokenEndpoint::start().await.oauth,
+                    None if tcp => crate::google::FakeTokenEndpoint::start().await.oauth,
+                    None => Arc::new(pagis_google::GoogleOAuth::with_endpoints(
+                        "https://accounts.example.test/authorize",
+                        "http://127.0.0.1:1/token",
+                    )),
                 }),
                 gog: options.gog,
                 collector_interval: options.collector_interval,
@@ -658,25 +654,29 @@ impl TestDaemon {
         let home_exits = Arc::clone(&interfaces.home_exits);
         let host_sessions = Arc::clone(&interfaces.host_sessions);
         let coding_sessions = Arc::clone(&interfaces.coding_sessions);
-        let server = tokio::spawn(async move {
-            axum::serve(
-                listener,
-                interfaces
-                    .product
-                    .into_make_service_with_connect_info::<SocketAddr>(),
-            )
-            .await
-            .expect("serve");
+        let product = interfaces.product;
+        let administration = interfaces.administration;
+        let server = listener.map(|listener| {
+            let router = product.clone();
+            tokio::spawn(async move {
+                axum::serve(
+                    listener,
+                    router.into_make_service_with_connect_info::<SocketAddr>(),
+                )
+                .await
+                .expect("serve");
+            })
         });
-        let administration_server = tokio::spawn(async move {
-            axum::serve(
-                administration_listener,
-                interfaces
-                    .administration
-                    .into_make_service_with_connect_info::<SocketAddr>(),
-            )
-            .await
-            .expect("serve the administration interface");
+        let administration_server = administration_listener.map(|listener| {
+            let router = administration.clone();
+            tokio::spawn(async move {
+                axum::serve(
+                    listener,
+                    router.into_make_service_with_connect_info::<SocketAddr>(),
+                )
+                .await
+                .expect("serve the administration interface");
+            })
         });
 
         let session_cookie = open_session(&booted.stores, &workspace.user_id).await;
@@ -702,6 +702,9 @@ impl TestDaemon {
         };
 
         Self {
+            state: interfaces.state,
+            product,
+            administration,
             booted,
             addr,
             base_url: format!("http://{addr}"),
@@ -725,8 +728,8 @@ impl TestDaemon {
             rows,
             sqlite,
             home: Some(home),
-            server: Some(server),
-            administration_server: Some(administration_server),
+            server,
+            administration_server,
             cancel,
             secrets,
         }
@@ -789,7 +792,8 @@ impl TestDaemon {
         part: &str,
         fields: serde_json::Value,
     ) -> (u16, serde_json::Value) {
-        let response = reqwest::Client::new()
+        let response = self
+            .client()
             .put(format!(
                 "{}/api/v1/administration/providers/{provider}/{part}",
                 self.administration_base_url
@@ -828,7 +832,8 @@ impl TestDaemon {
     /// Sign the Session of `cookie` out, as the Product App does. The
     /// test fails when the daemon refuses.
     pub async fn sign_out(&self, cookie: &str) {
-        let response = reqwest::Client::new()
+        let response = self
+            .client()
             .delete(format!("{}/api/v1/sessions/current", self.base_url))
             .header("cookie", cookie)
             .send()
@@ -843,10 +848,10 @@ impl TestDaemon {
         use futures::{SinkExt, StreamExt};
         use tokio_tungstenite::tungstenite::Message;
 
-        let (mut socket, _) =
-            tokio_tungstenite::connect_async(self.ws_request_as(&self.ws_url(), cookie))
-                .await
-                .expect("the event socket opens");
+        let mut socket = self
+            .open_socket("/api/v1/ws", cookie)
+            .await
+            .expect("the event socket opens");
         socket
             .send(Message::text(
                 serde_json::json!({ "type": "auth" }).to_string(),
@@ -918,10 +923,6 @@ impl Drop for TestDaemon {
     }
 }
 
-/// A WebSocket of the test daemon, as a client holds it.
-pub type Socket =
-    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
-
 /// How the daemon ended one socket.
 #[derive(Debug)]
 pub struct Closed {
@@ -935,7 +936,15 @@ pub struct Closed {
 /// the text frames that came before it. Binary frames, which carry
 /// audio, are not kept. The test fails when the socket stays open for
 /// five seconds, or when the connection ends with no Close frame.
-pub async fn read_until_closed(socket: &mut Socket) -> Closed {
+pub async fn read_until_closed<S>(socket: &mut S) -> Closed
+where
+    S: futures::Stream<
+            Item = Result<
+                tokio_tungstenite::tungstenite::Message,
+                tokio_tungstenite::tungstenite::Error,
+            >,
+        > + Unpin,
+{
     use futures::StreamExt;
     use tokio_tungstenite::tungstenite::Message;
 
@@ -983,4 +992,22 @@ async fn open_session(stores: &pagis_core::Stores, user_id: &UserId) -> String {
         .await
         .expect("open a test session");
     format!("{}={secret}", pagis_server::SESSION_COOKIE)
+}
+
+/// A fixed address names an in-memory interface. A TCP interface binds an
+/// ephemeral port. The in-memory branch creates no listener.
+async fn test_listener(
+    tcp: bool,
+    bind: std::net::IpAddr,
+    port: u16,
+) -> (Option<tokio::net::TcpListener>, SocketAddr) {
+    if tcp {
+        let listener = tokio::net::TcpListener::bind(SocketAddr::new(bind, 0))
+            .await
+            .expect("bind a test listener");
+        let address = listener.local_addr().expect("local address");
+        (Some(listener), address)
+    } else {
+        (None, SocketAddr::new(bind, port))
+    }
 }

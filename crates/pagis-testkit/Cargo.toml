@@ -46,6 +46,7 @@ tar.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["io-util", "net", "rt"] }
 tokio-tungstenite.workspace = true
+tower = { version = "0.5", features = ["util"] }
 # `compat` gives the yamux of the fake Home Exit its pipe.
 tokio-util = { workspace = true, features = ["compat"] }
 
