@@ -91,6 +91,8 @@ services:
     environment:
       PAGIS_MEDIA_PORT_FIRST: ${PAGIS_MEDIA_PORT_FIRST}
       PAGIS_MEDIA_PORT_LAST: ${PAGIS_MEDIA_PORT_LAST}
+      PAGIS_TURN_IP: ${PAGIS_TURN_IP:-}
+      PAGIS_TURN_PORT: ${PAGIS_TURN_PORT:-}
       # The daemon's exit port, as PAGIS_COMPUTER_EXIT_PORT below.
       PAGIS_EXIT_PORT: "4403"
       # The daemon's Harness Model Endpoint, as PAGIS_COMPUTER_MODEL_PORT

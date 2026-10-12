@@ -12,12 +12,12 @@
 //! owns one advertised address and one UDP port range, and forwards the
 //! packets itself, which is what a local installation and a small
 //! server need and costs no second service. [`TurnRelay`] puts an
-//! external TURN server (coturn) in front of the browser leg with
-//! credentials the daemon mints for each session, which is the path for
+//! external TURN server (coturn) between the browser and the Computer,
+//! with credentials the daemon mints for each session. It is the path for
 //! a deployment whose firewall or scale makes a daemon-owned public
-//! port range wrong.
+//! port range wrong. It opens no daemon forwarder.
 //!
-//! Both are built on [`MediaForwarder`]. The forwarder is a TURN
+//! The daemon relay uses [`MediaForwarder`]. The forwarder is a TURN
 //! allocation without the protocol: one UDP socket for each viewer
 //! session, the Computer's address learned from its registration,
 //! the browser's addresses learned from the ICE checks it signs with the
@@ -62,7 +62,7 @@ const DATAGRAM_MAX: usize = 2048;
 /// One ICE server a browser configures before it makes its offer.
 /// The `daemon` relay needs none; the `turn` relay names the
 /// TURN server and the credentials it minted for this session.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct IceServer {
     /// The TURN or STUN URLs of one server, such as
     /// `turn:relay.example.net:3478?transport=udp`.
@@ -80,16 +80,15 @@ pub const REGISTRATION_PREFIX: &[u8] = b"pagis-register:";
 /// The media path of one viewer session.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MediaPath {
-    /// The `ip:port` the pipeline advertises as its ICE candidate, and
-    /// the address the browser sends media to.
+    /// The daemon path's advertised `ip:port`. Empty for a TURN allocation.
     pub candidate: String,
-    /// The relay port the Computer's pipeline registers with.
-    /// The daemon names the host the container reaches it at.
+    /// The daemon registration port. Zero for TURN, which binds no daemon port.
     pub port: u16,
-    /// The secret of this path. The pipeline sends it in its
-    /// registration, and the relay takes the container leg from nobody
-    /// who does not hold it.
+    /// The session token. It authenticates daemon registration and identifies
+    /// the session on the authenticated control port.
     pub token: String,
+    /// The ICE servers and session credentials for the pipeline.
+    pub ice_servers: Vec<IceServer>,
 }
 
 impl MediaPath {
@@ -136,6 +135,7 @@ pub struct OpenPath {
     credentials: Arc<OnceLock<IceCredentials>>,
     closed: DropGuard,
     task: JoinHandle<()>,
+    cleanup: Option<JoinHandle<()>>,
 }
 
 impl OpenPath {
@@ -146,12 +146,36 @@ impl OpenPath {
         let _ = self.credentials.set(credentials);
     }
 
+    /// Session cancellation and path replacement also close the pipeline.
+    pub(crate) fn close_pipeline(
+        &mut self,
+        runtime: Arc<dyn crate::ComputerRuntime>,
+        computer: crate::StartedComputer,
+    ) {
+        let closed = self.closed.token().clone();
+        let token = self.path.token.clone();
+        self.cleanup = Some(tokio::spawn(async move {
+            closed.cancelled().await;
+            if let Err(error) = runtime.close_media(&computer, &token).await {
+                tracing::warn!(%error, "the pipeline media session did not close");
+            }
+        }));
+    }
+
     /// Close the path now. Its port is free when this returns.
     pub async fn close(self) {
-        let Self { closed, task, .. } = self;
+        let Self {
+            closed,
+            task,
+            cleanup,
+            ..
+        } = self;
         drop(closed);
         if let Err(error) = task.await {
             tracing::error!(%error, "the media path ended with an error");
+        }
+        if let Some(cleanup) = cleanup {
+            let _ = cleanup.await;
         }
     }
 }
@@ -168,13 +192,10 @@ impl Deref for OpenPath {
 /// one of these and knows nothing else about the media path.
 #[async_trait]
 pub trait MediaRelay: Send + Sync {
-    /// Open a media path between one browser and one Computer. The
-    /// Computer's pipeline registers with the path from inside its
-    /// Tenant Network, so the relay learns its address from the
-    /// container and no host port is published for media. The path
-    /// closes when `closed` is cancelled, when its handle closes it or
-    /// drops, and when it falls silent. The daemon cancels `closed`
-    /// when the Session that asked for the path ends.
+    /// Open one viewer path. The daemon relay starts its forwarder; TURN
+    /// supplies credentials for the pipeline's allocation. Session
+    /// cancellation, explicit close and drop close the path. A silent
+    /// daemon forwarder also frees its port.
     async fn open(&self, closed: CancellationToken) -> Result<OpenPath, String>;
 
     /// The ICE servers a browser configures before it offers. The
@@ -183,14 +204,13 @@ pub trait MediaRelay: Send + Sync {
     fn ice_servers(&self) -> Vec<IceServer>;
 }
 
-/// The UDP forwarder both relays put between a browser and a Computer:
+/// The UDP forwarder of the daemon relay:
 /// one advertised address, one port range, and one socket for
 /// each viewer session.
 pub struct MediaForwarder {
     /// The address browsers reach this daemon at. A local installation
     /// leaves it at loopback; a server names the address its viewers
-    /// resolve, and a `turn` deployment names the address its TURN
-    /// server reaches the daemon at.
+    /// resolve. TURN paths do not use this forwarder.
     advertise: String,
     first: u16,
     last: u16,
@@ -223,7 +243,7 @@ impl MediaForwarder {
 
     /// Open one path and start copying packets on it until it closes
     /// or falls silent.
-    async fn open(&self, closed: CancellationToken) -> Result<OpenPath, String> {
+    pub async fn open(&self, closed: CancellationToken) -> Result<OpenPath, String> {
         let socket = self.bind_in_range().await?;
         let port = socket
             .local_addr()
@@ -233,6 +253,7 @@ impl MediaForwarder {
             candidate: format!("{}:{port}", self.advertise),
             port,
             token: new_token(),
+            ice_servers: Vec::new(),
         };
         // The handle closes this path alone, and never the Session
         // whose end also closes it.
@@ -250,6 +271,7 @@ impl MediaForwarder {
             credentials,
             closed: closed.drop_guard(),
             task,
+            cleanup: None,
         })
     }
 
@@ -761,29 +783,37 @@ pub struct TurnServer {
 }
 
 /// The Media Relay for a deployment with a TURN server.
-///
-/// The browser reaches the daemon's forwarder through the TURN server,
-/// so the public UDP address and the ports belong to that server and
-/// the daemon needs no public port range of its own. The pipeline's own
-/// leg stays with the forwarder: it is ice-lite and answers one
-/// advertised candidate, so only a full ICE agent inside the container
-/// could take the daemon out of the media path, and ADR-0014 records
-/// that.
+/// The pipeline is a full ICE agent and allocates its own TURN candidate.
+/// The TURN server carries media between the browser and the Computer.
+/// The daemon supplies credentials and runs no forwarder on either leg.
 pub struct TurnRelay {
-    forwarder: MediaForwarder,
     turn: TurnServer,
 }
 
 impl TurnRelay {
-    pub fn new(forwarder: MediaForwarder, turn: TurnServer) -> Self {
-        Self { forwarder, turn }
+    pub fn new(turn: TurnServer) -> Self {
+        Self { turn }
     }
 }
 
 #[async_trait]
 impl MediaRelay for TurnRelay {
     async fn open(&self, closed: CancellationToken) -> Result<OpenPath, String> {
-        self.forwarder.open(closed).await
+        let closed = closed.child_token();
+        let waiting = closed.clone();
+        let task = tokio::spawn(async move { waiting.cancelled().await });
+        Ok(OpenPath {
+            path: MediaPath {
+                candidate: String::new(),
+                port: 0,
+                token: new_token(),
+                ice_servers: self.ice_servers(),
+            },
+            credentials: Arc::new(OnceLock::new()),
+            closed: closed.drop_guard(),
+            task,
+            cleanup: None,
+        })
     }
 
     fn ice_servers(&self) -> Vec<IceServer> {

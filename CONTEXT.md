@@ -1046,9 +1046,10 @@ _Avoid_: device, the user's computer
 
 ### Media Relay
 How the pixels of a screen reach a browser. A Computer publishes no media
-port; a browser sends media to the relay's one advertised address and UDP
-port range, and the relay forwards it. The `daemon` relay forwards in the
-daemon; the `turn` relay puts an external TURN server in front
+port. The `daemon` relay forwards through one advertised address and UDP
+port range in the daemon. The `turn` relay gives session credentials to
+the browser and to the full ICE agent in the Computer. The TURN server
+carries the media between them, and the daemon carries no media packet
 (ADR-0014). In Remote Access, the TURN server of the daemon carries the
 browser leg of another machine over the Funnel, and it relays to the
 Media Relay and to nothing else (ADR-0028).

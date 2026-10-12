@@ -97,7 +97,8 @@ Workspaces. Five things make it one.
   every Workspace (ADR-0017). An HTTP or SSE server is a request of the daemon,
   and the egress policy does not apply to it.
 - **An egress policy on the Docker host.** A Computer reaches the public
-  internet, the Media Relay's UDP range on the Docker host and, on a
+  internet, the Media Relay's UDP range on the Docker host, the configured
+  TURN server on its port, and, on a
   Server, the TCP port of the daemon's exit listener (ADR-0029) and the
   TCP port of the Harness Model Endpoint (ADR-0033), and no other host
   address, link-local address or private address except those an
@@ -126,18 +127,29 @@ the browser sends media to and the ICE servers it configures. The screen
 handler and the signalling code call that seam alone. No Computer publishes a
 media port on the host.
 
-Two implementations pass one test suite. The `daemon` relay is the default:
-the daemon holds one advertised address and one UDP port range, opens one
-socket for each viewer session, and copies packets between the browser and the
-Computer. One socket for each session is required, because the pipeline tells
-DTLS and RTP sessions apart by source address. The `turn` relay puts coturn in
-front of the browser leg, with a credential for each session under the TURN
-REST API scheme, so no account exists on that server and a leaked credential
-expires. It suits a deployment whose firewall or scale rules out a daemon port
-range. It keeps the daemon's forwarder on the container leg, because the
-pipeline is ice-lite and answers one advertised candidate.
+The pipeline runs a full ICE agent in str0m. It starts connectivity checks,
+selects candidate pairs and takes either the controlling or controlled role.
+It answers a browser offer or makes an offer for a viewer that answers. It
+gathers a host candidate, a server-reflexive candidate with a STUN Binding
+request, and a relay candidate with a TURN allocation when the control request
+names a TURN server. The maintained TURN client handles allocations,
+permissions and refreshes; str0m remains the only WebRTC stack.
 
-The browser leg uses ICE short-term credentials (RFC 8445 section 7.2.2). The
+The `daemon` relay is the default. The daemon holds one advertised address
+and one UDP port range, opens one socket for each viewer session, and copies
+packets between the browser and the Computer. It needs no other service.
+The pipeline registers outbound and sends its checks through that socket.
+
+The `turn` relay supplies a TURN REST API credential for each session to the
+browser and the pipeline. The browser and the Computer reach the TURN server
+outbound. The TURN server carries their media; the daemon opens no forwarder
+and carries no media packet. No account exists on the TURN server, and a
+credential that leaks expires. The egress policy opens only the configured
+TURN server address and port, including a server on a private network. It
+opens no other private address or port. The authenticated control request
+still starts each media session with the Computer's session token (ADR-0013).
+
+Under the `daemon` relay, the browser leg uses ICE short-term credentials (RFC 8445 section 7.2.2). The
 daemon gives each path the `a=ice-ufrag` and `a=ice-pwd` of the pipeline's SDP
 answer. Media goes only to an address that sent a check with valid
 MESSAGE-INTEGRITY, verified with the STUN code of str0m, and media from any
@@ -157,7 +169,7 @@ a browser on the same machine checks the loopback candidate from an interface
 address. Without the source address, the reply comes from an address the
 browser never checked, and the browser discards it.
 
-The pipeline registers outbound: for each session the relay opens one port and
+Under the `daemon` relay, the pipeline registers outbound: for each session the relay opens one port and
 makes one token, the daemon gives both to the pipeline with the offer over the
 control port, and the pipeline sends the token from its media socket and
 repeats it while the session lives. The relay takes the datagram's source as

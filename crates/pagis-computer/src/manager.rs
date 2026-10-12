@@ -166,8 +166,8 @@ pub struct ComputerManager {
     screens_dir: PathBuf,
     idle_stop: Duration,
     /// How media reaches a browser (ADR-0014). The screen path
-    /// calls this seam and nothing else: the relay owns the advertised
-    /// address, the ports and the forwarding.
+    /// calls this seam alone. The relay owns the daemon forwarder
+    /// or the TURN session credentials.
     relay: Arc<dyn crate::MediaRelay>,
     entries: Mutex<HashMap<AgentId, Entry>>,
     /// The screen lease: one action batch at a time per agent.
@@ -1224,14 +1224,11 @@ impl ComputerManager {
             .await;
     }
 
-    /// Relay one live-view SDP offer to the awake computer and
-    /// return the answer. The Media Relay opens the path first and says
-    /// which address the browser sends media to; the container
-    /// publishes no media port, so that address is the relay's and never
-    /// the container's, and the pipeline registers with the path from
-    /// inside its Tenant Network. The path then takes the ICE
-    /// credentials of the answer, so it accepts the checks of the
-    /// browser that holds the answer and of nobody else.
+    /// Send one live-view SDP offer to the awake Computer and return the
+    /// answer. The daemon relay opens a UDP path and authenticates the
+    /// browser's checks with the answer's ICE credentials. The TURN relay
+    /// gives the pipeline its session credentials and forwards no packet.
+    /// No Computer publishes a media port.
     ///
     /// An awake Computer has one path. The offer closes the path of the
     /// last offer before it opens its own, so a tab that reloads frees
@@ -1252,12 +1249,14 @@ impl ComputerManager {
         if let Some(replaced) = self.take_path(agent_id) {
             replaced.close().await;
         }
-        let path = self
+        let mut path = self
             .relay
             .open(closed)
             .await
             .map_err(|reason| ComputerError::NoMediaPath { reason })?;
-        let answer = match self.runtime.relay_offer(&computer, sdp, &path).await {
+        let result = self.runtime.relay_offer(&computer, sdp, &path).await;
+        path.close_pipeline(Arc::clone(&self.runtime), computer.clone());
+        let answer = match result {
             Ok(answer) => answer,
             Err(error) => {
                 path.close().await;

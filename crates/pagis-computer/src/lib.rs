@@ -615,9 +615,9 @@ pub trait ComputerRuntime: Send + Sync {
     ) -> Result<(), String>;
 
     /// Relay one WebRTC SDP offer to the control endpoint, with
-    /// the Media Relay path of this session. screend puts the path's
-    /// candidate in its ICE host candidate, never the container's
-    /// own address, and registers with the path's port and token.
+    /// the Media Relay path of this session. With the daemon relay,
+    /// screend advertises the path and registers with its port and token.
+    /// With TURN, screend gathers candidates with the session credentials.
     /// Returns the SDP answer.
     async fn relay_offer(
         &self,
@@ -625,6 +625,9 @@ pub trait ComputerRuntime: Send + Sync {
         offer: &str,
         path: &crate::MediaPath,
     ) -> Result<String, String>;
+
+    /// Close the media session with this path token through control.
+    async fn close_media(&self, computer: &StartedComputer, token: &str) -> Result<(), String>;
 
     /// Open `url` in the daemon's own tab of the browser and wait for
     /// the load event of the page. The answer is the top-level address

@@ -855,6 +855,20 @@ impl ComputerRuntime for BollardRuntime {
         Ok(())
     }
 
+    async fn close_media(&self, computer: &StartedComputer, token: &str) -> Result<(), String> {
+        let response = reqwest::Client::new()
+            .post(format!("http://{}/close", computer.control_addr))
+            .bearer_auth(&computer.token)
+            .json(&serde_json::json!({ "token": token }))
+            .send()
+            .await
+            .map_err(|e| format!("media close failed: {e}"))?;
+        if !response.status().is_success() {
+            return Err(refusal(response).await);
+        }
+        Ok(())
+    }
+
     async fn relay_offer(
         &self,
         computer: &StartedComputer,
@@ -1290,8 +1304,9 @@ fn offer_body(offer: &str, path: &crate::MediaPath) -> serde_json::Value {
     serde_json::json!({
         "sdp": offer,
         "candidate": path.candidate,
-        "relay": format!("{RELAY_HOST}:{}", path.port),
+        "relay": if path.port == 0 { String::new() } else { format!("{RELAY_HOST}:{}", path.port) },
         "token": path.token,
+        "ice_servers": path.ice_servers,
     })
 }
 
@@ -1636,6 +1651,7 @@ mod tests {
             candidate: "203.0.113.10:50007".to_string(),
             port: 50007,
             token: "path-token".to_string(),
+            ice_servers: Vec::new(),
         };
 
         let body = offer_body("v=0 offer", &path);
@@ -1647,6 +1663,7 @@ mod tests {
                 "candidate": "203.0.113.10:50007",
                 "relay": "host.docker.internal:50007",
                 "token": "path-token",
+                "ice_servers": [],
             })
         );
     }

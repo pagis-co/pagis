@@ -1,32 +1,22 @@
-//! The in-container WebRTC pipeline: per-viewer str0m sessions
-//! (ice-lite, one advertised host candidate each) sharing one
-//! damage-gated openh264 encoder over the capture session's frames.
-//! The encoder exists only while a viewer is connected; a joining
-//! viewer forces an intra frame; a gone viewer's session is dropped.
-//!
-//! No host port reaches the media socket (ADR-0014). Each viewer
-//! session registers outbound with the daemon's Media Relay instead:
-//! the pipeline sends the session's registration from its media socket
-//! to the relay port the offer names, and repeats it while the session
-//! lives. The relay learns the pipeline's address from the source of
-//! that datagram, and the Docker NAT carries the relay's packets back
-//! to this socket, on Linux and on a macOS Docker host alike.
+//! Full ICE sessions share the screen encoder. The daemon relay uses
+//! outbound registration. TURN sessions allocate their own media path.
 
 use std::net::{SocketAddr, ToSocketAddrs, UdpSocket};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
+pub use crate::ice::IceServer;
 use openh264::OpenH264API;
 use openh264::encoder::{Encoder, EncoderConfig};
 use openh264::formats::{RgbSliceU8, YUVBuffer};
-use str0m::change::SdpOffer;
+use str0m::change::{SdpAnswer, SdpOffer, SdpPendingOffer};
 use str0m::format::Codec;
 use str0m::media::{MediaKind, MediaTime, Mid};
 use str0m::net::{Protocol, Receive};
 use str0m::{Candidate, Event, IceConnectionState, Input, Output, Rtc};
 
 /// The in-container media UDP port. No host port is published for it:
-/// every viewer session registers outbound with the relay.
+/// daemon sessions register outbound; TURN sessions use an allocation.
 pub const MEDIA_PORT: u16 = 7901;
 
 /// The start of a registration datagram, which is the daemon's
@@ -40,11 +30,11 @@ const REGISTRATION_PREFIX: &[u8] = b"pagis-register:";
 /// Docker host open while the session lives.
 const REGISTRATION_INTERVAL: Duration = Duration::from_secs(1);
 
-/// One offer handed over from the control endpoint. `candidate`
-/// is the externally advertised `ip:port` for the ICE host candidate;
-/// `relay` is the `host:port` of the relay path this session registers
-/// with, and `token` is the path's secret.
+/// One negotiation from the control endpoint. Empty SDP makes an offer.
+/// `candidate` and `relay` name the daemon path; both are empty for TURN.
+/// `token` identifies the session, and `ice_servers` supplies its credentials.
 pub struct OfferRequest {
+    pub ice_servers: Vec<IceServer>,
     pub sdp: String,
     pub candidate: String,
     pub relay: String,
@@ -52,18 +42,38 @@ pub struct OfferRequest {
     pub reply: mpsc::Sender<Result<String, String>>,
 }
 
+/// Commands from the authenticated control port.
+pub enum SignalingRequest {
+    Offer(OfferRequest),
+    Answer {
+        token: String,
+        sdp: String,
+        reply: mpsc::Sender<Result<String, String>>,
+    },
+    Close {
+        token: String,
+        reply: mpsc::Sender<Result<String, String>>,
+    },
+}
+
 struct Viewer {
+    token: String,
+    pending: Option<SdpPendingOffer>,
+    transports: Vec<crate::ice::Transport>,
     rtc: Rtc,
     mid: Option<Mid>,
     advertised: SocketAddr,
     connected: bool,
     /// Where this session registers, and what it sends there.
-    relay: SocketAddr,
+    relay: Option<SocketAddr>,
     registration: Vec<u8>,
     registered_at: Option<Instant>,
 }
 
 pub struct Pipeline {
+    runtime: tokio::runtime::Runtime,
+    incoming: mpsc::Receiver<crate::ice::Packet>,
+    received: mpsc::Sender<crate::ice::Packet>,
     socket: UdpSocket,
     viewers: Vec<Viewer>,
     encoder: Option<Encoder>,
@@ -76,10 +86,23 @@ pub struct Pipeline {
 
 impl Pipeline {
     pub fn new() -> Self {
-        let socket =
-            UdpSocket::bind(("0.0.0.0", MEDIA_PORT)).expect("bind media port");
-        socket.set_nonblocking(true).expect("nonblocking media socket");
+        let socket = UdpSocket::bind(("0.0.0.0", MEDIA_PORT)).expect("bind media port");
+        Self::with_socket(socket)
+    }
+
+    pub fn with_socket(socket: UdpSocket) -> Self {
+        socket
+            .set_nonblocking(true)
+            .expect("nonblocking media socket");
+        let (received, incoming) = mpsc::channel();
         Pipeline {
+            runtime: tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(2)
+                .enable_all()
+                .build()
+                .expect("ICE runtime"),
+            incoming,
+            received,
             socket,
             viewers: Vec::new(),
             encoder: None,
@@ -93,44 +116,162 @@ impl Pipeline {
         &self.socket
     }
 
-    /// Answer one browser offer with a fresh ice-lite session.
-    pub fn accept_offer(&mut self, request: &OfferRequest) -> Result<String, String> {
-        let advertised: SocketAddr = request
-            .candidate
-            .parse()
-            .map_err(|err| format!("bad candidate {:?}: {err}", request.candidate))?;
-        let relay = request
-            .relay
-            .to_socket_addrs()
-            .map_err(|err| format!("bad relay {:?}: {err}", request.relay))?
-            .find(SocketAddr::is_ipv4)
-            .ok_or_else(|| format!("the relay {:?} has no IPv4 address", request.relay))?;
+    /// Build a full ICE session and gather its candidates before signaling.
+    fn viewer(&self, request: &OfferRequest) -> Result<Viewer, String> {
+        let relay = if request.relay.is_empty() {
+            None
+        } else {
+            Some(
+                request
+                    .relay
+                    .to_socket_addrs()
+                    .map_err(|e| e.to_string())?
+                    .find(SocketAddr::is_ipv4)
+                    .ok_or("the relay has no IPv4 address")?,
+            )
+        };
+        let mut advertised = if relay.is_some() {
+            request
+                .candidate
+                .parse()
+                .map_err(|e| format!("bad candidate: {e}"))?
+        } else {
+            self.socket.local_addr().map_err(|e| e.to_string())?
+        };
         let mut rtc = Rtc::builder()
             .clear_codecs()
             .enable_h264(true)
-            .set_ice_lite(true)
+            .set_ice_lite(false)
             .build();
-        rtc.add_local_candidate(
-            Candidate::host(advertised, Protocol::Udp)
-                .map_err(|err| format!("bad host candidate: {err}"))?,
-        );
-        let offer = SdpOffer::from_sdp_string(&request.sdp)
-            .map_err(|err| format!("bad offer: {err}"))?;
-        let answer = rtc
-            .sdp_api()
-            .accept_offer(offer)
-            .map_err(|err| format!("offer refused: {err}"))?;
-        self.viewers.push(Viewer {
+        if !advertised.ip().is_unspecified() {
+            rtc.add_local_candidate(
+                Candidate::host(advertised, Protocol::Udp).map_err(|e| e.to_string())?,
+            );
+        }
+        let (candidates, transports) = self.runtime.block_on(crate::ice::gather(
+            &request.ice_servers,
+            self.received.clone(),
+        ))?;
+        if advertised.ip().is_unspecified() {
+            let transport = transports
+                .first()
+                .ok_or("the session has no network address")?;
+            advertised.set_ip(transport.base.ip());
+            rtc.add_local_candidate(
+                Candidate::host(advertised, Protocol::Udp).map_err(|e| e.to_string())?,
+            );
+        }
+        for candidate in candidates {
+            rtc.add_local_candidate(candidate);
+        }
+        Ok(Viewer {
             rtc,
             mid: None,
             advertised,
             connected: false,
             relay,
+            token: request.token.clone(),
+            pending: None,
+            transports,
             registration: [REGISTRATION_PREFIX, request.token.as_bytes()].concat(),
             registered_at: None,
-        });
-        eprintln!("[screend] viewer joined ({} total)", self.viewers.len());
-        Ok(answer.to_sdp_string())
+        })
+    }
+
+    /// Answer a viewer offer with a full, controlled ICE agent.
+    pub fn accept_offer(&mut self, request: &OfferRequest) -> Result<String, String> {
+        let mut viewer = self.viewer(request)?;
+        let offer =
+            SdpOffer::from_sdp_string(&request.sdp).map_err(|e| format!("bad offer: {e}"))?;
+        let answer = viewer
+            .rtc
+            .sdp_api()
+            .accept_offer(offer)
+            .map_err(|e| format!("offer refused: {e}"))?;
+        let sdp = answer.to_sdp_string();
+        self.viewers.push(viewer);
+        Ok(sdp)
+    }
+
+    /// Make an offer and keep its pending negotiation until the viewer answers.
+    pub fn make_offer(&mut self, request: &OfferRequest) -> Result<String, String> {
+        let mut viewer = self.viewer(request)?;
+        let mut api = viewer.rtc.sdp_api();
+        let mid = api.add_media(
+            MediaKind::Video,
+            str0m::media::Direction::SendOnly,
+            None,
+            None,
+            None,
+        );
+        api.add_channel("input".into());
+        let (offer, pending) = api.apply().ok_or("the offer has no media")?;
+        viewer.pending = Some(pending);
+        viewer.mid = Some(mid);
+        let sdp = offer.to_sdp_string();
+        self.viewers.push(viewer);
+        Ok(sdp)
+    }
+
+    pub fn accept_answer(&mut self, token: &str, sdp: &str) -> Result<(), String> {
+        let answer = SdpAnswer::from_sdp_string(sdp).map_err(|e| e.to_string())?;
+        let viewer = self
+            .viewers
+            .iter_mut()
+            .find(|v| v.token == token)
+            .ok_or("unknown media session")?;
+        let pending = viewer
+            .pending
+            .take()
+            .ok_or("the session has no pending offer")?;
+        viewer
+            .rtc
+            .sdp_api()
+            .accept_answer(pending, answer)
+            .map_err(|e| e.to_string())
+    }
+
+    pub fn close(&mut self, token: &str) {
+        let mut index = 0;
+        while index < self.viewers.len() {
+            if self.viewers[index].token == token {
+                let viewer = self.viewers.remove(index);
+                for transport in viewer.transports {
+                    self.runtime.block_on(transport.close());
+                }
+            } else {
+                index += 1;
+            }
+        }
+    }
+
+    fn receive(
+        viewers: &mut [Viewer],
+        datagram: &[u8],
+        source: SocketAddr,
+        destination: Option<SocketAddr>,
+    ) {
+        if stun::is_message(datagram) && !stun::well_formed(datagram) {
+            return;
+        }
+        for viewer in viewers {
+            let Ok(contents) = datagram.try_into() else {
+                break;
+            };
+            let input = Input::Receive(
+                Instant::now(),
+                Receive {
+                    proto: Protocol::Udp,
+                    source,
+                    destination: destination.unwrap_or(viewer.advertised),
+                    contents,
+                },
+            );
+            if viewer.rtc.accepts(&input) {
+                let _ = viewer.rtc.handle_input(input);
+                break;
+            }
+        }
     }
 
     /// Feed received UDP and timers to every session, transmit what
@@ -140,41 +281,16 @@ impl Pipeline {
     pub fn drive(&mut self) -> Vec<crate::UserInput> {
         let mut inputs = Vec::new();
         let mut buf = [0u8; 2000];
-        loop {
-            let (n, source) = match self.socket.recv_from(&mut buf) {
-                Ok(received) => received,
-                Err(_) => break,
-            };
-            let datagram = &buf[..n];
-            // str0m 0.9 parses STUN here, and its parser reads a fixed
-            // number of bytes for a FINGERPRINT, an ERROR-CODE or an XOR
-            // address attribute whatever the attribute length says, so a
-            // short one at the end of a message panics it and ends
-            // screend. The daemon's Media Relay drops datagrams from
-            // strangers, but a viewer's own accepted address can still
-            // send such a datagram. Drop a STUN message that is not well
-            // formed before str0m reads it.
-            if stun::is_message(datagram) && !stun::well_formed(datagram) {
-                continue;
-            }
-            for viewer in &mut self.viewers {
-                let Ok(contents) = datagram.try_into() else {
-                    break;
-                };
-                let input = Input::Receive(
-                    Instant::now(),
-                    Receive {
-                        proto: Protocol::Udp,
-                        source,
-                        destination: viewer.advertised,
-                        contents,
-                    },
-                );
-                if viewer.rtc.accepts(&input) {
-                    let _ = viewer.rtc.handle_input(input);
-                    break;
-                }
-            }
+        while let Ok((n, source)) = self.socket.recv_from(&mut buf) {
+            Self::receive(&mut self.viewers, &buf[..n], source, None);
+        }
+        while let Ok(packet) = self.incoming.try_recv() {
+            Self::receive(
+                &mut self.viewers,
+                &packet.data,
+                packet.source,
+                Some(packet.destination),
+            );
         }
 
         let socket = &self.socket;
@@ -183,8 +299,8 @@ impl Pipeline {
             let due = viewer
                 .registered_at
                 .is_none_or(|at| now.duration_since(at) >= REGISTRATION_INTERVAL);
-            if due {
-                let _ = socket.send_to(&viewer.registration, viewer.relay);
+            if let Some(relay) = viewer.relay.filter(|_| due) {
+                let _ = socket.send_to(&viewer.registration, relay);
                 viewer.registered_at = Some(now);
             }
             let _ = viewer.rtc.handle_input(Input::Timeout(now));
@@ -193,7 +309,18 @@ impl Pipeline {
                     Err(_) => break,
                     Ok(Output::Timeout(_)) => break,
                     Ok(Output::Transmit(transmit)) => {
-                        let _ = socket.send_to(&transmit.contents, transmit.destination);
+                        if let Some(transport) = viewer.transports.iter().find(|t| {
+                            t.base == transmit.source || t.relayed == Some(transmit.source)
+                        }) {
+                            transport.send(
+                                transmit.source,
+                                transmit.destination,
+                                &transmit.contents,
+                            );
+                        } else {
+                            let destination = viewer.relay.unwrap_or(transmit.destination);
+                            let _ = socket.send_to(&transmit.contents, destination);
+                        }
                     }
                     Ok(Output::Event(event)) => match event {
                         Event::Connected => {
@@ -270,13 +397,11 @@ impl Pipeline {
         }
         let encoder = self.encoder.as_mut().expect("encoder exists");
         if self.force_intra {
-            let _ = encoder.force_intra_frame();
+            encoder.force_intra_frame();
             self.force_intra = false;
         }
-        let yuv = YUVBuffer::from_rgb_source(RgbSliceU8::new(
-            rgb,
-            (width as usize, height as usize),
-        ));
+        let yuv =
+            YUVBuffer::from_rgb_source(RgbSliceU8::new(rgb, (width as usize, height as usize)));
         let payload = match encoder.encode(&yuv) {
             Ok(bitstream) => bitstream.to_vec(),
             Err(err) => {
@@ -294,7 +419,9 @@ impl Pipeline {
                 continue;
             }
             let Some(mid) = viewer.mid else { continue };
-            let Some(writer) = viewer.rtc.writer(mid) else { continue };
+            let Some(writer) = viewer.rtc.writer(mid) else {
+                continue;
+            };
             let Some(pt) = writer
                 .payload_params()
                 .find(|params| params.spec().codec == Codec::H264)
@@ -425,7 +552,10 @@ mod stun_tests {
         let mut message = [&RFC_5769_REQUEST[..100], &[0x80, 0x28, 0x00, 0x00][..]].concat();
         message[2..4].copy_from_slice(&84u16.to_be_bytes());
 
-        assert!(str0m_panics_on(&message), "str0m reads this message without a panic");
+        assert!(
+            str0m_panics_on(&message),
+            "str0m reads this message without a panic"
+        );
         assert!(stun::is_message(&message));
         assert!(!stun::well_formed(&message));
     }
@@ -436,7 +566,10 @@ mod stun_tests {
     fn a_short_error_code_is_dropped_before_str0m_reads_it() {
         let message = check_ending_with(&[0x00, 0x09, 0x00, 0x00]);
 
-        assert!(str0m_panics_on(&message), "str0m reads this message without a panic");
+        assert!(
+            str0m_panics_on(&message),
+            "str0m reads this message without a panic"
+        );
         assert!(!stun::well_formed(&message));
     }
 
@@ -452,7 +585,10 @@ mod stun_tests {
                 0x00, 0x20, 0x00, 0x08, 0x00, 0x02, 0x12, 0x34, 0x01, 0x02, 0x03, 0x04,
             ]),
         ] {
-            assert!(str0m_panics_on(&message), "str0m reads this message without a panic");
+            assert!(
+                str0m_panics_on(&message),
+                "str0m reads this message without a panic"
+            );
             assert!(!stun::well_formed(&message));
         }
     }
@@ -484,5 +620,25 @@ mod stun_tests {
     fn a_media_or_registration_datagram_is_not_a_stun_message() {
         assert!(!stun::is_message(b"\x80\x60a video frame"));
         assert!(!stun::is_message(b"pagis-register:sometoken"));
+    }
+}
+
+#[cfg(test)]
+#[path = "webrtc_tests.rs"]
+mod session_tests;
+
+impl Default for Pipeline {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Drop for Pipeline {
+    fn drop(&mut self) {
+        for viewer in self.viewers.drain(..) {
+            for transport in viewer.transports {
+                self.runtime.block_on(transport.close());
+            }
+        }
     }
 }

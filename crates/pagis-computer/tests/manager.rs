@@ -2849,3 +2849,35 @@ async fn an_opaque_domain_lease_holds_the_batch_until_it_drops() {
     let next: ComputerLease = waiting.await.unwrap();
     drop(next);
 }
+
+/// Session cancellation closes the Computer's TURN allocation through control.
+#[tokio::test]
+async fn a_closed_turn_session_closes_the_pipeline() {
+    let relay = Arc::new(pagis_computer::TurnRelay::new(pagis_computer::TurnServer {
+        urls: vec!["turn:relay.example.net:3478".into()],
+        secret: "shared".into(),
+        ttl: Duration::from_secs(600),
+    }));
+    let h = harness_with_relay(
+        FakeComputerRuntime::with_image(),
+        Duration::from_secs(600),
+        AwakeCaps::default(),
+        relay,
+    );
+    h.manager.wake(&h.agent_id).await.unwrap();
+    wait_awake(&h).await;
+    let closed = CancellationToken::new();
+    h.manager
+        .offer(&h.agent_id, "v=0 offer", closed.clone())
+        .await
+        .unwrap();
+    let path = h.runtime.offers()[0].1.clone();
+    assert_eq!(path.port, 0);
+    assert_eq!(path.ice_servers.len(), 1);
+    closed.cancel();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+    while h.runtime.closed_media().is_empty() && tokio::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(h.runtime.closed_media(), vec![path.token]);
+}

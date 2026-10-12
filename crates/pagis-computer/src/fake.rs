@@ -306,6 +306,7 @@ struct FakeState {
     /// Relayed offers: the offer sdp and the Media Relay path it came
     /// with.
     offers: Vec<(String, crate::MediaPath)>,
+    closed_media: Vec<String>,
     /// What every offer answers: an SDP answer, or the reason the
     /// pipeline refuses it.
     answer: Result<String, String>,
@@ -395,6 +396,7 @@ impl Default for FakeComputerRuntime {
                 fail_frame: None,
                 frames_served: 0,
                 offers: Vec::new(),
+                closed_media: Vec::new(),
                 answer: Ok(ANSWER.to_string()),
                 holders: HashMap::new(),
                 user_idle_ms: 0,
@@ -609,6 +611,10 @@ impl FakeComputerRuntime {
     /// Every relayed offer so far: the offer sdp and the Media Relay
     /// path the pipeline registers with. A test that plays the pipeline
     /// registers with the path's token.
+    pub fn closed_media(&self) -> Vec<String> {
+        self.state.lock().expect("fake state").closed_media.clone()
+    }
+
     pub fn offers(&self) -> Vec<(String, crate::MediaPath)> {
         self.state.lock().expect("fake state").offers.clone()
     }
@@ -1184,6 +1190,15 @@ impl ComputerRuntime for FakeComputerRuntime {
             .browser
             .fills
             .push((origin.to_string(), fields.to_vec()));
+        Ok(())
+    }
+
+    async fn close_media(&self, _computer: &StartedComputer, token: &str) -> Result<(), String> {
+        self.state
+            .lock()
+            .expect("fake state")
+            .closed_media
+            .push(token.to_string());
         Ok(())
     }
 

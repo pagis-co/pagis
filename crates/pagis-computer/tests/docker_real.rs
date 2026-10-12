@@ -191,7 +191,7 @@ async fn wake_preview_idle_stop_and_rewake_preserve_home() {
     assert_eq!(&live.png[..8], b"\x89PNG\r\n\x1a\n", "screend serves PNG");
 
     // The live view path: a real browser-shaped offer through
-    // the daemon relay comes back as an ice-lite answer carrying the
+    // the daemon relay comes back as a full ICE answer carrying the
     // advertised host candidate and the ICE credentials the path takes;
     // a second offer replaces the path of the first.
     for _ in 0..2 {
@@ -203,7 +203,7 @@ async fn wake_preview_idle_stop_and_rewake_preserve_home() {
             )
             .await
             .expect("offer answered");
-        assert!(answer.contains("a=ice-lite"), "{answer}");
+        assert!(!answer.contains("a=ice-lite"), "{answer}");
         assert!(answer.contains("a=candidate"), "{answer}");
         assert!(answer.contains("127.0.0.1"), "{answer}");
         assert!(answer.to_lowercase().contains("h264"), "{answer}");
