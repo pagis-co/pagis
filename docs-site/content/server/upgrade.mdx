@@ -6,21 +6,24 @@ icon: RefreshCw
 
 ## A restart is the whole server's
 
-Boot recovery fails every unfinished Run of the installation. One daemon
-owns every Run and holds each one's mid-turn state in its own memory, so a
-process that ends takes every Run with it. Recovery for one Person alone
-would leave another Person's Run marked `running` with no process behind
-it.
+Boot recovery reads the Run journal of each unfinished Run. A queued Run
+stays in its queue. A running Run with a checkpoint resumes, and its
+Progress says "Resumed after a restart". A Run that waits for approval
+keeps its Request, and the Person's decision continues it.
 
-- Restart at a quiet hour, or tell the team first. The restart in the
-  Administration Interface is everybody's restart.
-- Each failed Run gives its reason: the daemon restarted, which ends every
-  Run on the server. A Run that waits on a Request also gets a note in its
-  conversation, and its Request expires.
-- A Person asks again. Nothing is lost but the turn that was in progress.
+The journal keeps the transcript and the state of each completed Turn.
+A tool call with an outside effect does not run again. The model reads its
+recorded result, or an unknown outcome if the call started but did not
+record a result. A `free` call runs again, except a call to a Computer or a
+Host.
 
-A server that must not interrupt one Person for another needs a second
-daemon and a second installation, which this design does not offer.
+A Run with no checkpoint fails. A second restart in the same resumed Turn
+also fails the Run. If that Run waits for a Request, recovery expires the
+Request and posts a note in its conversation. The Person asks again when
+the action is still needed.
+
+The restart in the Administration Interface covers every Person. One
+daemon owns one State Directory and one database.
 
 ## Upgrade
 

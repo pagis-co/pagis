@@ -79,6 +79,7 @@ pub(crate) fn parse_call(arguments: &str) -> Result<ComputerCall, String> {
 
 /// The run's computer context: the coordinate scale of the last
 /// screenshot the model saw, and the current turn's batch failure.
+#[derive(serde::Serialize, serde::Deserialize)]
 pub(crate) struct ComputerCtx {
     pub scale_x: f64,
     pub scale_y: f64,
@@ -86,6 +87,7 @@ pub(crate) struct ComputerCtx {
     /// the same batch are skipped (stop at first failure).
     pub batch_failed: bool,
     /// The screen lease, held for the turn's batch.
+    #[serde(skip)]
     pub lease: Option<ComputerLease>,
     /// Set when the run resumed after a takeover: the next
     /// computer tool result carries the "screen may have changed" note.

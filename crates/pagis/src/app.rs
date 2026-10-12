@@ -924,6 +924,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         blocks: Arc::clone(&mail_blocks),
     }));
     let broker = Arc::new(pagis_broker::Broker::new(pagis_broker::BrokerDeps {
+        run_journal: stores.run_journal.clone(),
         forget: stores.forget.clone(),
         grants: Arc::clone(&grants) as _,
         connections: Arc::clone(&connections) as _,
@@ -1244,6 +1245,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         )),
     )));
     let agents = AgentSystem::start(AgentDeps {
+        run_journal: stores.run_journal.clone(),
         forget: stores.forget.clone(),
         workspaces: Arc::clone(&workspaces) as _,
         users: stores.users.clone(),

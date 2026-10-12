@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::{AgentId, ChannelId, MemoryExposure, MessageId, StoreError, UnixMillis, WorkspaceId};
 
 /// The Agent-owned conversation that one checkpoint continues.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ContinuationKey {
     pub workspace_id: WorkspaceId,
     pub agent_id: AgentId,
@@ -31,7 +31,7 @@ pub struct ContinuationState {
 }
 
 /// One committed replacement for the older source range.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ContinuationCheckpoint {
     pub key: ContinuationKey,
     pub revision: u32,

@@ -139,6 +139,7 @@ fn the_route_names_the_plugin_the_server_and_the_bare_tool() {
     assert_eq!(
         manifest.tools[0].route,
         ToolRoute::Plugin {
+            on_computer: false,
             plugin: "plugin-1".to_string(),
             server: "today".to_string(),
             tool: "forecast".to_string(),
@@ -173,4 +174,25 @@ fn a_declared_deadline_stands_inside_its_bounds() {
             Some(pagis_plugin::DEFAULT_CALL_TIMEOUT),
         ]
     );
+}
+
+#[test]
+fn the_route_records_whether_the_plugin_runs_in_a_computer() {
+    let mut package = package(serde_json::json!({"tools": {"forecast": {"effect": "free"}}}));
+    package.mcp = Some(
+        serde_json::from_value(serde_json::json!({"mcpServers": {
+            "local": {"type": "stdio", "command": "server"},
+            "remote": {"type": "streamable-http", "url": "https://example.com/mcp"}
+        }}))
+        .unwrap(),
+    );
+    for (server, expected) in [("local", true), ("remote", false)] {
+        let mut frozen = frozen(vec![tool("forecast")]);
+        frozen.tools[0].server = server.into();
+        let manifest = capability_manifest("plugin", "weather", &package, &frozen);
+        let ToolRoute::Plugin { on_computer, .. } = manifest.tools[0].route else {
+            panic!("plugin route");
+        };
+        assert_eq!(on_computer, expected);
+    }
 }

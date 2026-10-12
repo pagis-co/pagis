@@ -234,6 +234,7 @@ async fn harness_with(
     let behind = behind.unwrap_or_else(|| Arc::clone(&executor) as _);
     let starts = Arc::new(ScriptedStarts::default());
     let broker = Broker::new(BrokerDeps {
+        run_journal: Arc::new(pagis_storage_sqlite::SqliteRunJournal::new(pool.clone())),
         forget: Arc::new(pagis_storage_sqlite::SqliteForgetStore::new(pool.clone())),
         grants: Arc::new(SqliteGrantStore::new(pool.clone())),
         credentials: Arc::new(pagis_broker::NoCredentialDirectory),
@@ -1310,6 +1311,7 @@ fn plugin_manifest(plugin_id: &str) -> CapabilityManifest {
                 allow_rule_builder: Some(pagis_broker::AllowRuleBuilder::PluginTool),
             }),
             route: ToolRoute::Plugin {
+                on_computer: false,
                 plugin: plugin_id.to_string(),
                 server: "today".to_string(),
                 tool: "forecast".to_string(),
@@ -1446,6 +1448,7 @@ async fn an_allow_rule_that_names_the_tool_runs_it_without_a_card(pool: SqlitePo
     assert_eq!(
         calls[0].route,
         ToolRoute::Plugin {
+            on_computer: false,
             plugin: "plugin-1".to_string(),
             server: "today".to_string(),
             tool: "forecast".to_string(),

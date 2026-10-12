@@ -40,6 +40,24 @@ use crate::progress;
 use crate::speaker::Speakers;
 use crate::system::AgentDeps;
 
+/// A started outside effect has no known result after a restart.
+pub const UNKNOWN_OUTCOME: &str = "unknown outcome: the daemon restarted while this call ran. Check the result before you do it again.";
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct JournalState {
+    transcript: Vec<TurnMessage>,
+    loaded: pagis_broker::LoadedSet,
+    seen: HashSet<MessageId>,
+    speakers: Speakers,
+    history: HistoryState,
+    source_after: Option<MessageId>,
+    rescheduled: bool,
+    last_reply: Option<MessageId>,
+    overlay: serde_json::Value,
+    computer: ComputerCtx,
+    schedule_baseline: Option<(ScheduleId, u32)>,
+}
+
 /// The model-facing name of the provider computer tool.
 const COMPUTER_TOOL: &str = "computer";
 
@@ -246,6 +264,12 @@ pub(crate) async fn transition(deps: &AgentDeps, run: &mut Run, to: RunState, re
     }
     if let Err(err) = deps.runs.update(run).await {
         tracing::error!(error = %err, run_id = %run.id, "run update failed");
+        return;
+    }
+    if to.is_terminal()
+        && let Err(error) = deps.run_journal.delete(&run.id).await
+    {
+        tracing::error!(%error, run_id = %run.id, "Run journal delete failed");
     }
     // The derived progress line follows the run state: a live
     // frame while the run works, the terminal text in the block once
@@ -277,11 +301,15 @@ pub(crate) async fn transition(deps: &AgentDeps, run: &mut Run, to: RunState, re
 /// Open the run's progress row: one daemon-minted message whose
 /// `progress` block holds the derived line. The ticks ride ephemeral
 /// frames; this row keeps only the terminal text.
-async fn begin_progress(deps: &AgentDeps, agent: &Agent, run: &Run) {
+async fn begin_progress(deps: &AgentDeps, agent: &Agent, run: &Run, resumed: bool) {
     let Some(channel_id) = run.channel_id.clone() else {
         return;
     };
-    let text = progress::compose(run.state, None);
+    let text = if resumed {
+        "Resumed after a restart".into()
+    } else {
+        progress::compose(run.state, None)
+    };
     let blocks = vec![Block::progress(run.id.as_str(), &text)];
     // A message timestamp.
     let now = deps.clock.now_ms();
@@ -365,10 +393,58 @@ pub(crate) async fn execute(
     cancel: CancellationToken,
     inject: &mut tokio::sync::mpsc::UnboundedReceiver<Message>,
 ) -> RunOutcome {
+    let journal = match deps.run_journal.last(&run.id).await {
+        Ok(journal) => journal,
+        Err(error) => {
+            run.error = Some(error.to_string());
+            fail(
+                &deps,
+                &mut run,
+                FailureKind::ContextFailed,
+                "Run journal read failed",
+            )
+            .await;
+            return RunOutcome::Failed;
+        }
+    };
+    let resumed = journal.as_ref().is_some_and(|journal| journal.resumed);
+    let mut pending_turn = journal
+        .as_ref()
+        .and_then(|journal| journal.pending_turn.clone());
+    let first_turn = journal
+        .as_ref()
+        .and_then(|journal| journal.checkpoint.as_ref())
+        .map_or(0, |checkpoint| checkpoint.turn);
     let mut inbox = Inbox::new(inject);
     // A conversation Run opens its progress row before anything can fail.
     // An arrival Run has no Channel and writes no message.
-    begin_progress(&deps, &agent, &run).await;
+    begin_progress(&deps, &agent, &run, resumed).await;
+    if resumed {
+        deps.progress.resumed(&run.id);
+    }
+    if let Some(checkpoint) = journal.as_ref().and_then(|entry| entry.checkpoint.as_ref()) {
+        match checkpoint.state["terminal"].as_str() {
+            Some("completed") => {
+                transition(&deps, &mut run, RunState::Completed, "Turn finished").await;
+                return RunOutcome::Completed;
+            }
+            Some("turn_limit") => {
+                run.error = Some(format!(
+                    "run stopped after {} turns without finishing",
+                    deps.config.max_turns
+                ));
+                fail(
+                    &deps,
+                    &mut run,
+                    FailureKind::TurnLimit,
+                    "turn budget exhausted",
+                )
+                .await;
+                return RunOutcome::Failed;
+            }
+            _ => {}
+        }
+    }
     if !matches!(
         deps.forget.run_allowed(&run.workspace_id, &run.id).await,
         Ok(true)
@@ -463,22 +539,43 @@ pub(crate) async fn execute(
     let briefing = channel_briefing(&deps, &agent, &run).await;
     let target = reply_target(&run);
     let mut speakers = Speakers::default();
-    let (mut transcript, mut history_state, mut seen, mut source_after) =
-        match build_transcript(&deps, &agent, &run, &mut speakers).await {
-            Ok(built) => built,
-            Err(err) => {
-                run.error = Some(err.to_string());
-                fail(
-                    &deps,
-                    &mut run,
-                    FailureKind::ContextFailed,
-                    "context rebuild failed",
-                )
-                .await;
-                return RunOutcome::Failed;
+    let restored = journal
+        .as_ref()
+        .and_then(|journal| journal.checkpoint.as_ref());
+    let built = if let Some(checkpoint) = restored {
+        let state = pending_turn.as_ref().unwrap_or(&checkpoint.state).clone();
+        match serde_json::from_value::<JournalState>(state) {
+            Ok(state) => {
+                speakers = state.speakers;
+                Ok((
+                    state.transcript,
+                    state.history,
+                    state.seen,
+                    state.source_after,
+                ))
             }
-        };
-    if let Some(trigger) = schedule_trigger_message(&deps, &run).await {
+            Err(error) => Err(pagis_core::StoreError::Corrupt(error.to_string())),
+        }
+    } else {
+        build_transcript(&deps, &agent, &run, &mut speakers).await
+    };
+    let (mut transcript, mut history_state, mut seen, mut source_after) = match built {
+        Ok(state) => state,
+        Err(error) => {
+            run.error = Some(error.to_string());
+            fail(
+                &deps,
+                &mut run,
+                FailureKind::ContextFailed,
+                "Run context load failed",
+            )
+            .await;
+            return RunOutcome::Failed;
+        }
+    };
+    if restored.is_none()
+        && let Some(trigger) = schedule_trigger_message(&deps, &run).await
+    {
         transcript.insert(0, TurnMessage::user(trigger));
         history_state.prefix_len = 1;
     }
@@ -503,27 +600,107 @@ pub(crate) async fn execute(
     // The revision the fired Schedule started this run on, and whether
     // the reply turns moved it. The reply turns decide the outcome, so
     // the flag settles before reflection.
-    let schedule_baseline = fired
+    let mut schedule_baseline = fired
         .as_ref()
         .map(|schedule| (schedule.id.clone(), schedule.revision));
     let mut rescheduled = false;
     // The last reply the run wrote: the message its memory commit names.
     let mut last_reply: Option<MessageId> = None;
+    if let Some(checkpoint) = restored {
+        let state: JournalState =
+            serde_json::from_value(pending_turn.as_ref().unwrap_or(&checkpoint.state).clone())
+                .expect("validated journal state");
+        computer_ctx = state.computer;
+        schedule_baseline = state.schedule_baseline;
+        loaded = state.loaded;
+        rescheduled = state.rescheduled;
+        last_reply = state.last_reply;
+        match MemoryOverlay::from_journal(state.overlay) {
+            Ok(saved) => *overlay.lock().await = saved,
+            Err(error) => {
+                run.error = Some(error);
+                fail(
+                    &deps,
+                    &mut run,
+                    FailureKind::ContextFailed,
+                    "Run memory load failed",
+                )
+                .await;
+                return RunOutcome::Failed;
+            }
+        }
+    }
+    if resumed {
+        for id in &seen {
+            let allowed = match deps.messages.get(&run.workspace_id, id).await {
+                Ok(Some(message)) => pagis_core::message_source_is_live(
+                    deps.messages.as_ref(),
+                    deps.grants.as_ref(),
+                    &message,
+                )
+                .await
+                .unwrap_or(false),
+                _ => false,
+            };
+            if !allowed {
+                run.error = Some("Run context contains an unavailable message".into());
+                fail(
+                    &deps,
+                    &mut run,
+                    FailureKind::AccessChanged,
+                    "Run source access changed",
+                )
+                .await;
+                return RunOutcome::Failed;
+            }
+        }
+        let history = if let Some(root) = &run.root_message_id {
+            deps.messages.list_thread(&run.workspace_id, root).await
+        } else if let Some(channel) = &run.channel_id {
+            list_top_level_history(&deps, &run.workspace_id, channel).await
+        } else {
+            Ok(Vec::new())
+        };
+        match history {
+            Ok(messages) => {
+                for message in messages.into_iter().filter(|message| {
+                    message.author_kind == AuthorKind::User
+                        && !seen.contains(&message.id)
+                        && message.created_at >= run.started_at.unwrap_or(run.created_at)
+                }) {
+                    inbox.hold(message);
+                }
+            }
+            Err(error) => {
+                run.error = Some(error.to_string());
+                fail(
+                    &deps,
+                    &mut run,
+                    FailureKind::ContextFailed,
+                    "Run messages load failed",
+                )
+                .await;
+                return RunOutcome::Failed;
+            }
+        }
+    }
     // Turns 0 to `max_turns - 1` may call tools. Turn `max_turns` is the
     // answer turn: the model may not call a tool, so it answers with
     // what the run found, and the run then stops at the limit.
-    for turn in 0..=deps.config.max_turns {
+    for turn in first_turn..=deps.config.max_turns {
         let answer_turn = turn == deps.config.max_turns;
-        absorb_injected(
-            &deps,
-            &agent,
-            &run,
-            &mut inbox,
-            &mut transcript,
-            &mut seen,
-            &mut speakers,
-        )
-        .await;
+        if pending_turn.is_none() {
+            absorb_injected(
+                &deps,
+                &agent,
+                &run,
+                &mut inbox,
+                &mut transcript,
+                &mut seen,
+                &mut speakers,
+            )
+            .await;
+        }
         publish(
             &deps,
             &run,
@@ -610,7 +787,28 @@ pub(crate) async fn execute(
             source_after = Some(checkpoint.through_inclusive.clone());
         }
         let mut reply = Reply::new(&deps, &agent, &run, &target);
-        let streamed = stream_turn(&deps, &run, "reply", turn, request, &mut reply, &cancel).await;
+        let streamed = if let Some(pending) = pending_turn.take() {
+            match serde_json::from_value::<Vec<ToolInvocation>>(pending["calls"].clone()) {
+                Ok(calls) => Streamed::Finished {
+                    text: pending["text"].as_str().unwrap_or_default().to_string(),
+                    tool_calls: calls,
+                    end: TurnEnd::default(),
+                },
+                Err(error) => {
+                    run.error = Some(error.to_string());
+                    fail(
+                        &deps,
+                        &mut run,
+                        FailureKind::ContextFailed,
+                        "Run calls load failed",
+                    )
+                    .await;
+                    return RunOutcome::Failed;
+                }
+            }
+        } else {
+            stream_turn(&deps, &run, "reply", turn, request, &mut reply, &cancel).await
+        };
 
         match streamed {
             Streamed::Finished {
@@ -657,6 +855,28 @@ pub(crate) async fn execute(
                     }),
                 )
                 .await;
+                if !tool_calls.is_empty() {
+                    let mut state = serde_json::json!({
+                        "transcript": transcript, "loaded": loaded, "seen": seen,
+                        "speakers": speakers, "history": history_state, "source_after": source_after,
+                        "rescheduled": rescheduled, "last_reply": last_reply,
+                        "overlay": overlay.lock().await.journal_state(),
+                        "computer": computer_ctx, "schedule_baseline": schedule_baseline,
+                    });
+                    state["text"] = serde_json::json!(text);
+                    state["calls"] = serde_json::json!(tool_calls);
+                    if let Err(error) = deps.run_journal.turn_started(&run.id, &state).await {
+                        run.error = Some(error.to_string());
+                        fail(
+                            &deps,
+                            &mut run,
+                            FailureKind::ContextFailed,
+                            "Run Turn write failed",
+                        )
+                        .await;
+                        return RunOutcome::Failed;
+                    }
+                }
                 transcript.push(TurnMessage::assistant_with_calls(
                     text.clone(),
                     tool_calls.clone(),
@@ -711,6 +931,30 @@ pub(crate) async fn execute(
                             return RunOutcome::Failed;
                         }
                     }
+                    let mut state = serde_json::json!({
+                        "transcript": transcript, "loaded": loaded, "seen": seen,
+                        "speakers": speakers, "history": history_state, "source_after": source_after,
+                        "rescheduled": rescheduled, "last_reply": last_reply,
+                        "overlay": overlay.lock().await.journal_state(),
+                        "computer": computer_ctx, "schedule_baseline": schedule_baseline,
+                    });
+                    state["terminal"] = serde_json::json!(if answer_turn {
+                        "turn_limit"
+                    } else {
+                        "completed"
+                    });
+                    if let Err(error) = deps.run_journal.checkpoint(&run.id, turn + 1, &state).await
+                    {
+                        run.error = Some(error.to_string());
+                        fail(
+                            &deps,
+                            &mut run,
+                            FailureKind::ContextFailed,
+                            "Run checkpoint write failed",
+                        )
+                        .await;
+                        return RunOutcome::Failed;
+                    }
                     if answer_turn {
                         break;
                     }
@@ -762,6 +1006,7 @@ pub(crate) async fn execute(
                         continue;
                     }
                     let mut ctx = TurnCtx {
+                        turn,
                         deps: &deps,
                         agent: &agent,
                         cancel: &cancel,
@@ -775,7 +1020,59 @@ pub(crate) async fn execute(
                         &run.id,
                         Some(progress::tool_label(&call.name, &call.arguments)),
                     );
-                    let flow = run_tool(&mut ctx, &mut run, &call).await;
+                    let flow = if let Some(record) = journal
+                        .as_ref()
+                        .filter(|_| turn == first_turn)
+                        .and_then(|journal| {
+                            journal
+                                .calls
+                                .iter()
+                                .find(|record| record.call_id == call.id)
+                        }) {
+                        match &record.result {
+                            Some(result) if result.get("role").is_some() => {
+                                match serde_json::from_value::<TurnMessage>(result.clone()) {
+                                    Ok(message) => match serde_json::from_value::<ComputerCtx>(
+                                        result["computer"].clone(),
+                                    ) {
+                                        Ok(mut saved) => {
+                                            saved.lease = ctx.computer.lease.take();
+                                            *ctx.computer = saved;
+                                            ToolFlow::ResultWithImages(message.text, message.images)
+                                        }
+                                        Err(error) => ToolFlow::Fatal(error.to_string()),
+                                    },
+                                    Err(error) => ToolFlow::Fatal(error.to_string()),
+                                }
+                            }
+                            Some(result) => {
+                                match serde_json::from_value::<pagis_broker::ToolResult>(
+                                    result.clone(),
+                                ) {
+                                    Ok(result) => {
+                                        load_packages(ctx.loaded, &result);
+                                        ctx.deps
+                                            .tool_runtime
+                                            .overlay(&run.id)
+                                            .lock()
+                                            .await
+                                            .observe_tool_result(&result);
+                                        ToolFlow::BrokerResult(
+                                            result.content,
+                                            result.metadata.get("conversation_evidence").cloned(),
+                                        )
+                                    }
+                                    Err(error) => ToolFlow::Fatal(error.to_string()),
+                                }
+                            }
+                            None if call.name == COMPUTER_TOOL => {
+                                resumed_computer_result(&mut ctx, &run).await
+                            }
+                            None => ToolFlow::Result(UNKNOWN_OUTCOME.to_string()),
+                        }
+                    } else {
+                        run_tool(&mut ctx, &mut run, &call, resumed && turn == first_turn).await
+                    };
                     deps.progress.tool_changed(&run.id, None);
                     match flow {
                         ToolFlow::Redirected(content) => {
@@ -841,6 +1138,24 @@ pub(crate) async fn execute(
                         &mut run,
                         FailureKind::PublicationRejected,
                         "output publication was rejected",
+                    )
+                    .await;
+                    return RunOutcome::Failed;
+                }
+                let state = serde_json::json!({
+                    "transcript": transcript, "loaded": loaded, "seen": seen,
+                    "speakers": speakers, "history": history_state, "source_after": source_after,
+                    "rescheduled": rescheduled, "last_reply": last_reply,
+                    "overlay": overlay.lock().await.journal_state(),
+                    "computer": computer_ctx, "schedule_baseline": schedule_baseline,
+                });
+                if let Err(error) = deps.run_journal.checkpoint(&run.id, turn + 1, &state).await {
+                    run.error = Some(error.to_string());
+                    fail(
+                        &deps,
+                        &mut run,
+                        FailureKind::ContextFailed,
+                        "Run checkpoint write failed",
                     )
                     .await;
                     return RunOutcome::Failed;
@@ -1285,6 +1600,32 @@ async fn acquire_lease(
     Ok(guard)
 }
 
+/// Read the current screen after an interrupted action. Never repeat its input.
+async fn resumed_computer_result(ctx: &mut TurnCtx<'_, '_>, run: &Run) -> ToolFlow {
+    let computer = ctx.deps.computers.get(&run.workspace_id);
+    let outcome = tokio::select! {
+        outcome = computer_use::execute_actions(&computer, &ctx.agent.id, &[pagis_core::computer_action::Action::Screenshot], ctx.computer) => outcome,
+        _ = ctx.cancel.cancelled() => return ToolFlow::Canceled,
+    };
+    if let Err(error) = outcome.result {
+        return ToolFlow::Fatal(error);
+    }
+    let Some(frame) = outcome.screenshots.into_iter().next() else {
+        return ToolFlow::Fatal("the Computer has no screen".into());
+    };
+    if let Err(error) = store_screenshot(ctx.deps, ctx.agent, run, &frame.png).await {
+        return ToolFlow::Fatal(error);
+    }
+    use base64::Engine as _;
+    ToolFlow::ResultWithImages(
+        UNKNOWN_OUTCOME.to_string(),
+        vec![format!(
+            "data:image/png;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(&frame.png)
+        )],
+    )
+}
+
 /// What one tool call produced.
 enum ToolFlow {
     /// The tool result text for the model (success, error, or denial).
@@ -1310,7 +1651,12 @@ const MAX_PARKS_PER_CALL: usize = 2;
 
 /// Dispatch one model tool call through the broker. Tool errors
 /// never fail the run: they return to the model as the result text.
-async fn run_tool(ctx: &mut TurnCtx<'_, '_>, run: &mut Run, call: &ToolInvocation) -> ToolFlow {
+async fn run_tool(
+    ctx: &mut TurnCtx<'_, '_>,
+    run: &mut Run,
+    call: &ToolInvocation,
+    restore: bool,
+) -> ToolFlow {
     // Elapsed real time, which a tool call's duration measures, so this
     // pair of reads stays on the wall clock.
     let started = now_ms();
@@ -1327,18 +1673,62 @@ async fn run_tool(ctx: &mut TurnCtx<'_, '_>, run: &mut Run, call: &ToolInvocatio
     )
     .await;
     if call.name == COMPUTER_TOOL {
-        return run_computer(ctx, run, call, started).await;
+        let flow = run_computer(ctx, run, call, started, restore).await;
+        let message = match &flow {
+            ToolFlow::Result(text) => Some(TurnMessage::tool_result(call.id.clone(), text.clone())),
+            ToolFlow::ResultWithImages(text, images) => Some(TurnMessage::tool_result_with_images(
+                call.id.clone(),
+                text.clone(),
+                images.clone(),
+            )),
+            _ => None,
+        };
+        if let Some(message) = message {
+            match ctx.deps.run_journal.last(&run.id).await {
+                Ok(Some(entry)) if entry.calls.iter().any(|record| record.call_id == call.id) => {
+                    let mut result =
+                        serde_json::to_value(message).expect("tool message serialization");
+                    result["computer"] =
+                        serde_json::to_value(&*ctx.computer).expect("Computer state serialization");
+                    if let Err(error) = ctx
+                        .deps
+                        .run_journal
+                        .tool_ended(&run.id, &call.id, &result)
+                        .await
+                    {
+                        return ToolFlow::Fatal(error.to_string());
+                    }
+                }
+                Err(error) => return ToolFlow::Fatal(error.to_string()),
+                _ => {}
+            }
+        }
+        return flow;
     }
-    let invoked = tokio::select! {
-        invoked = ctx.deps.broker.invoke(
-            &run.workspace_id,
-            &run.id,
-            ctx.snapshot_id,
-            ToolCall::new(&call.name, &call.arguments)
-                .with_loaded(ctx.loaded)
-                .with_tool_call_id(&call.id),
-        ) => invoked,
-        _ = ctx.cancel.cancelled() => return ToolFlow::Canceled,
+    let restored_request = if restore {
+        match ctx
+            .deps
+            .broker
+            .request_for_call(&run.workspace_id, &run.id, &call.id)
+            .await
+        {
+            Ok(request) => request,
+            Err(error) => return ToolFlow::Fatal(error.to_string()),
+        }
+    } else {
+        None
+    };
+    let mut restored = restored_request.is_some();
+    let invoked = if let Some(request) = restored_request {
+        Ok(InvokeOutcome::Waiting(Box::new(request)))
+    } else {
+        tokio::select! {
+            invoked = ctx.deps.broker.invoke(
+                &run.workspace_id, &run.id, ctx.snapshot_id,
+                ToolCall::new(&call.name, &call.arguments).with_loaded(ctx.loaded).with_tool_call_id(&call.id),
+            ) => invoked,
+            _ = ctx.cancel.cancelled() => return ToolFlow::Canceled,
+        }
     };
     let outcome = match invoked {
         Ok(outcome) => outcome,
@@ -1379,6 +1769,7 @@ async fn run_tool(ctx: &mut TurnCtx<'_, '_>, run: &mut Run, call: &ToolInvocatio
                     pending.request,
                     &pending.title,
                     &pending.body,
+                    !restored,
                 )
                 .await
                 {
@@ -1402,6 +1793,7 @@ async fn run_tool(ctx: &mut TurnCtx<'_, '_>, run: &mut Run, call: &ToolInvocatio
                         }
                         Ok(InvokeOutcome::Waiting(next)) => {
                             pending = next;
+                            restored = false;
                             continue;
                         }
                         Err(error) => ToolFlow::Fatal(error.to_string()),
@@ -1546,35 +1938,38 @@ async fn park_for_decision(
     request: Request,
     card_title: &str,
     card_body: &str,
+    announce: bool,
 ) -> Result<Decision, ToolFlow> {
     // Subscribe before the row exists, so no decision can slip past.
     let mut events = ctx.deps.bus.subscribe(EventScope::Installation, None).await;
 
-    let mut requested = serde_json::json!({
-        "request_id": request.id.as_str(),
-        "kind": request.kind,
-        "body": card_body,
-    });
-    if request.payload["tool_name"] == pagis_broker::HOST_SHELL {
-        requested["command"] = serde_json::Value::String(card_body.to_string());
-    }
-    publish(ctx.deps, run, "request.created", requested).await;
+    if announce {
+        let mut requested = serde_json::json!({
+            "request_id": request.id.as_str(),
+            "kind": request.kind,
+            "body": card_body,
+        });
+        if request.payload["tool_name"] == pagis_broker::HOST_SHELL {
+            requested["command"] = serde_json::Value::String(card_body.to_string());
+        }
+        publish(ctx.deps, run, "request.created", requested).await;
 
-    // The card: display fields denormalized, state read from the row.
-    let card = request_message(ctx.deps, ctx.agent, run, &request, card_title, card_body);
-    let exposures = ctx
-        .deps
-        .tool_runtime
-        .overlay(&run.id)
-        .lock()
-        .await
-        .access(ctx.agent.id.clone())
-        .exposures()
-        .to_vec();
-    if let Err(err) = ctx.deps.messages.insert_stamped(&card, &exposures).await {
-        return Err(ToolFlow::Fatal(err.to_string()));
+        // The card: display fields denormalized, state read from the row.
+        let card = request_message(ctx.deps, ctx.agent, run, &request, card_title, card_body);
+        let exposures = ctx
+            .deps
+            .tool_runtime
+            .overlay(&run.id)
+            .lock()
+            .await
+            .access(ctx.agent.id.clone())
+            .exposures()
+            .to_vec();
+        if let Err(err) = ctx.deps.messages.insert_stamped(&card, &exposures).await {
+            return Err(ToolFlow::Fatal(err.to_string()));
+        }
+        publish_message_event(ctx.deps, run, &card, "message.completed").await;
     }
-    publish_message_event(ctx.deps, run, &card, "message.completed").await;
 
     transition(
         ctx.deps,
@@ -1586,7 +1981,21 @@ async fn park_for_decision(
 
     // Park in memory: the decision event wakes the run, and so
     // does a message the user sends in place of a decision.
+    let mut check_stored_decision = true;
     let decision = loop {
+        if std::mem::take(&mut check_stored_decision) {
+            match ctx.deps.requests.get(&run.workspace_id, &request.id).await {
+                Ok(Some(current)) if current.state != RequestState::Pending => {
+                    break match current.state {
+                        RequestState::Approved => Decision::Approved,
+                        RequestState::Superseded => Decision::Superseded,
+                        _ => Decision::Denied,
+                    };
+                }
+                Err(error) => return Err(ToolFlow::Fatal(error.to_string())),
+                _ => {}
+            }
+        }
         tokio::select! {
             event = events.next() => match event {
                 Some(event)
@@ -1663,19 +2072,6 @@ async fn park_for_decision(
     };
     transition(ctx.deps, run, RunState::Running, reason).await;
     Ok(decision)
-}
-
-async fn open_request(
-    ctx: &mut TurnCtx<'_, '_>,
-    run: &mut Run,
-    request: Request,
-    card_title: &str,
-    card_body: &str,
-) -> Result<Decision, ToolFlow> {
-    if let Err(error) = ctx.deps.requests.create(&request).await {
-        return Err(ToolFlow::Fatal(error.to_string()));
-    }
-    park_for_decision(ctx, run, request, card_title, card_body).await
 }
 
 /// The reflection tools of a capability snapshot.
@@ -2042,19 +2438,37 @@ async fn reflect_and_commit(
         model_candidates,
         ..
     } = *ctx;
-    // Reflection offers memory tools only (`computer: false` below), so
-    // any `computer` calls and their results left over from the main
-    // phase must go too — OpenAI 400s if a transcript references a tool
-    // that isn't enabled for the request.
-    strip_computer_calls(transcript);
-    transcript.push(TurnMessage::user(
-        reflection_prompt(deps, &run.workspace_id).await,
-    ));
+    let saved = deps
+        .run_journal
+        .last(&run.id)
+        .await
+        .map_err(|_| ReflectionEnd::CommitFailed)?;
+    let saved = saved.as_ref().and_then(|entry| entry.checkpoint.as_ref());
+    let first_turn = saved.map_or(0, |checkpoint| checkpoint.turn);
+    let mut summary = String::new();
+    let mut finished = false;
+    if let Some(checkpoint) = saved {
+        *transcript = serde_json::from_value(checkpoint.state["transcript"].clone())
+            .map_err(|_| ReflectionEnd::CommitFailed)?;
+        *overlay.lock().await = MemoryOverlay::from_journal(checkpoint.state["overlay"].clone())
+            .map_err(|_| ReflectionEnd::CommitFailed)?;
+        if let Some(text) = checkpoint.state["summary"].as_str() {
+            summary = text.into();
+            finished = true;
+        }
+    } else {
+        strip_computer_calls(transcript);
+        transcript.push(TurnMessage::user(
+            reflection_prompt(deps, &run.workspace_id).await,
+        ));
+    }
     let memory_tools = memory_tools(&snapshot.tools);
 
-    let mut summary = String::new();
     let mut model_failure = None;
-    for phase_request in 0..REFLECTION_MAX_TURNS {
+    for phase_request in first_turn..REFLECTION_MAX_TURNS {
+        if finished {
+            break;
+        }
         let request = TurnRequest {
             person_id: None,
             model_alias: agent.model_alias.clone(),
@@ -2091,6 +2505,17 @@ async fn reflect_and_commit(
         ));
         if tool_calls.is_empty() {
             summary = text;
+            deps.run_journal
+                .checkpoint(
+                    &run.id,
+                    phase_request + 1,
+                    &serde_json::json!({
+                        "phase": "reflection", "transcript": transcript,
+                        "overlay": overlay.lock().await.journal_state(), "summary": summary,
+                    }),
+                )
+                .await
+                .map_err(|_| ReflectionEnd::CommitFailed)?;
             break;
         }
         for call in tool_calls {
@@ -2100,7 +2525,7 @@ async fn reflect_and_commit(
                     &run.workspace_id,
                     &run.id,
                     &snapshot.id,
-                    ToolCall::new(&call.name, &call.arguments),
+                    ToolCall::new(&call.name, &call.arguments).with_tool_call_id(&call.id),
                 )
                 .await
             {
@@ -2115,6 +2540,17 @@ async fn reflect_and_commit(
             };
             transcript.push(TurnMessage::tool_result(call.id, result));
         }
+        deps.run_journal
+            .checkpoint(
+                &run.id,
+                phase_request + 1,
+                &serde_json::json!({
+                    "phase": "reflection", "transcript": transcript,
+                    "overlay": overlay.lock().await.journal_state(), "summary": null,
+                }),
+            )
+            .await
+            .map_err(|_| ReflectionEnd::CommitFailed)?;
     }
 
     let (combined, reflection_changes) = {
@@ -2843,6 +3279,7 @@ async fn run_computer(
     run: &mut Run,
     call: &ToolInvocation,
     started: i64,
+    restore: bool,
 ) -> ToolFlow {
     let done = |ok: bool, artifact_ids: &[String], error: Option<&str>| {
         serde_json::json!({
@@ -2898,14 +3335,47 @@ async fn run_computer(
             agent_id: run.agent_id.clone(),
             run_id: Some(run.id.clone()),
             kind: COMPUTER_SAFETY_KIND.to_string(),
-            payload: serde_json::json!({ "checks": parsed.safety_checks }),
+            payload: serde_json::json!({ "checks": parsed.safety_checks, "tool_call_id": call.id, "turn": ctx.turn }),
             state: RequestState::Pending,
             values: None,
             decided_at: None,
             // A Request's own lifecycle, as above.
             created_at: now_ms(),
         };
-        match open_request(ctx, run, request, COMPUTER_SAFETY_TITLE, &body).await {
+        let mut existing = None;
+        if restore {
+            for state in [
+                RequestState::Pending,
+                RequestState::Approved,
+                RequestState::Denied,
+                RequestState::Superseded,
+            ] {
+                match ctx
+                    .deps
+                    .requests
+                    .list_by_state(&run.workspace_id, state, Some(COMPUTER_SAFETY_KIND))
+                    .await
+                {
+                    Ok(requests) => {
+                        if let Some(request) = requests.into_iter().find(|request| {
+                            request.run_id.as_ref() == Some(&run.id)
+                                && request.payload["turn"].as_u64() == Some(ctx.turn as u64)
+                                && request.payload["tool_call_id"].as_str() == Some(&call.id)
+                        }) {
+                            existing = Some(request);
+                            break;
+                        }
+                    }
+                    Err(error) => return ToolFlow::Fatal(error.to_string()),
+                }
+            }
+        }
+        let announce = existing.is_none();
+        let request = existing.unwrap_or(request);
+        if announce && let Err(error) = ctx.deps.requests.create(&request).await {
+            return ToolFlow::Fatal(error.to_string());
+        }
+        match park_for_decision(ctx, run, request, COMPUTER_SAFETY_TITLE, &body, announce).await {
             Ok(Decision::Approved) => {}
             Ok(Decision::Superseded) => {
                 publish(
@@ -2931,6 +3401,14 @@ async fn run_computer(
         }
     }
 
+    if let Err(error) = ctx
+        .deps
+        .run_journal
+        .tool_started(&run.id, &call.id, "free")
+        .await
+    {
+        return ToolFlow::Fatal(error.to_string());
+    }
     let computer = ctx.deps.computers.get(&run.workspace_id);
     // A batch can wait minutes on a computer that wakes, so Stop does
     // not wait for it.
@@ -4734,13 +5212,13 @@ mod retained_tool_compaction_tests {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct DurableTurn {
     id: MessageId,
     message: TurnMessage,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 struct HistoryState {
     /// Synthetic messages that must stay before the durable history.
     prefix_len: usize,
@@ -4922,6 +5400,7 @@ fn checkpoint_message(checkpoint: &ContinuationCheckpoint) -> TurnMessage {
 /// What a tool call works with beyond the run itself: the
 /// run's dependencies and the state one call can change.
 struct TurnCtx<'a, 'i> {
+    turn: usize,
     deps: &'a AgentDeps,
     agent: &'a Agent,
     cancel: &'a CancellationToken,

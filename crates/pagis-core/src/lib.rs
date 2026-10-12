@@ -145,3 +145,6 @@ pub use computer::{
     InputHolder, OutputCap, ShellCommand,
 };
 pub use computer_fill::{FieldKind, FillField};
+
+pub mod run_journal;
+pub use run_journal::{JournalCall, RunCheckpoint, RunJournal, RunJournalEntry};

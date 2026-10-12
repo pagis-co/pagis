@@ -255,6 +255,8 @@ async fn forget_run_output(
             .map_err(db_err)?;
         // A Model Request Capture of the Run holds what the Run read
         // (ADR-0031).
+        sqlx::query("DELETE FROM run_journal WHERE run_id IN (SELECT id FROM runs WHERE workspace_id=$1 AND id=$2)")
+            .bind(workspace.as_str()).bind(run).execute(&mut *tx).await.map_err(db_err)?;
         sqlx::query("DELETE FROM model_request_captures WHERE workspace_id=$1 AND run_id=$2")
             .bind(workspace.as_str())
             .bind(run)
@@ -450,7 +452,7 @@ const PURGED_TABLES: &str = "source_items, source_versions, incoming_events, wak
                              page_reflections, schedules, schedule_revisions, \
                              schedule_subject_pages, wakeups, forget_operations, pending_evidence, \
                              pending_evidence_messages, pending_evidence_exposures, messages, \
-                             conversation_message_search, conversation_tool_evidence, \
+                             conversation_message_search, conversation_tool_evidence, run_journal, run_journal_calls, \
                              conversation_tool_search, continuation_checkpoints, run_source_reads";
 
 async fn compact(pool: &PgPool, workspace: &WorkspaceId, id: &str) -> Result<(), StoreError> {

@@ -70,6 +70,7 @@ pub struct Stores {
     pub requests: Arc<dyn RequestStore>,
     pub retention_policies: Arc<dyn RetentionPolicyStore>,
     pub runs: Arc<dyn RunStore>,
+    pub run_journal: Arc<dyn crate::RunJournal>,
     pub schedules: Arc<dyn ScheduleStore>,
     pub sent_mail: Arc<dyn SentMailStore>,
     pub sessions: Arc<dyn SessionStore>,

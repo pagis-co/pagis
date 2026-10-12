@@ -62,6 +62,8 @@ const TABLES: &[&str] = &[
     "push_subscriptions",
     "requests",
     "run_capability_snapshots",
+    "run_journal",
+    "run_journal_calls",
     "run_source_reads",
     "runs",
     "schedule_occurrences",

@@ -26,6 +26,7 @@ use tokio::sync::Notify;
 struct ActorHost {
     agent: Agent,
     states: Mutex<Vec<(RunId, RunState)>>,
+    journal: Mutex<HashMap<RunId, RunJournalEntry>>,
     messages: Mutex<Vec<Message>>,
     events: Mutex<Vec<Event>>,
     entered: [Notify; 2],
@@ -40,6 +41,7 @@ impl ActorHost {
                 "id": "agent", "workspace_id": "workspace", "name": "Agent", "job": "", "description": "", "personality": "", "model_alias": "default", "avatar": AvatarAppearance::default(), "status": "active", "created_at": 0, "updated_at": 0,
             })).unwrap(),
             states: Mutex::new(Vec::new()),
+            journal: Mutex::new(HashMap::new()),
             messages: Mutex::new(Vec::new()),
             events: Mutex::new(Vec::new()),
             entered: [Notify::new(), Notify::new()],
@@ -70,6 +72,7 @@ impl ActorHost {
             presence: presence.clone(),
         }));
         let broker = Arc::new(Broker::new(BrokerDeps {
+            run_journal: self.clone(),
             forget: self.clone(),
             grants: self.clone(),
             credentials: Arc::new(NoCredentialDirectory),
@@ -93,6 +96,7 @@ impl ActorHost {
             Arc::new(MemorySecretStore::default()),
         ));
         AgentDeps {
+            run_journal: self.clone(),
             forget: self.clone(),
             workspaces: self.clone(),
             users: self.clone(),

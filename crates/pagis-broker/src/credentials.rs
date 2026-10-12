@@ -49,7 +49,7 @@ impl CredentialActionKind {
 
 /// One vault action awaiting a decision. Every field is read off the
 /// Credential record, so the card states what will actually happen.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CredentialAction {
     pub action: CredentialActionKind,
     /// The record's registrable domain; this is also the rule.

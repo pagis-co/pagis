@@ -243,6 +243,8 @@ async fn forget_run_output(
             .execute(&mut *tx)
             .await
             .map_err(db_err)?;
+        sqlx::query("DELETE FROM run_journal WHERE run_id IN (SELECT id FROM runs WHERE workspace_id=? AND id=?)")
+            .bind(workspace.as_str()).bind(run).execute(&mut *tx).await.map_err(db_err)?;
         // A Model Request Capture of the Run holds what the Run read
         // (ADR-0031).
         sqlx::query("DELETE FROM model_request_captures WHERE workspace_id=? AND run_id=?")

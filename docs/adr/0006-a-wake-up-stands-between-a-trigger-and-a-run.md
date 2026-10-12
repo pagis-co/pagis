@@ -224,7 +224,7 @@ A user message in the same Thread enters the active proactive Run at its next
 turn. Another Wake-up never injects its instruction; it stays pending.
 Pending Wake-ups survive a restart. A Run that a Wake-up starts resumes as
 [ADR-0036](0036-the-daemon-resumes-unfinished-runs-from-their-journal.md)
-records. Durable resume is not built.
+records.
 
 A future Schedule keeps no actor alive. A pending Wake-up starts an actor only
 when capacity can claim it, and an Event Subscription keeps only its

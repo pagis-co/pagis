@@ -444,6 +444,8 @@ pub enum ToolRoute {
     /// record; `server` is its `mcp.json` name, and `tool` is the bare
     /// name the server offers.
     Plugin {
+        /// A stdio server runs in the Workspace's Plugin Computer.
+        on_computer: bool,
         plugin: String,
         server: String,
         tool: String,
@@ -654,7 +656,7 @@ pub struct DeferredTool {
 /// The packages one run has loaded, in load order. It is run
 /// state: the snapshot never changes, and the audited `tool_search`
 /// calls rebuild the set.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LoadedSet {
     packages: Vec<String>,
 }
@@ -909,7 +911,7 @@ pub trait SessionStarts: Send + Sync {
 }
 
 /// One Coding Session start that its checks allow: what the card shows.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionStartAction {
     /// The id of the harness in the Harness Catalog.
     pub harness_id: String,
@@ -956,6 +958,7 @@ impl SessionStarts for NoSessionStarts {
 }
 
 pub struct BrokerDeps {
+    pub run_journal: Arc<dyn pagis_core::RunJournal>,
     pub forget: Arc<dyn pagis_core::ForgetStore>,
     pub grants: Arc<dyn GrantStore>,
     pub credentials: Arc<dyn CredentialDirectory>,
@@ -1040,7 +1043,7 @@ pub struct ToolCall {
 }
 
 /// Who made one tool call (ADR-0016).
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CallOrigin {
     /// The model of the Run.
     #[default]
@@ -1081,7 +1084,7 @@ impl ToolCall {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolResult {
     pub content: String,
     pub is_error: bool,
@@ -1275,7 +1278,7 @@ pub struct WidgetView {
 /// What one mail call acts in (ADR-0019). The name in the `mailbox`
 /// argument decides it, and the target decides the route, the card and
 /// whether an allow rule can relax the send.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 enum MailTarget {
     /// The Agent's own Agent Mailbox, held with no Grant.
     Own,
@@ -1284,8 +1287,9 @@ enum MailTarget {
     Connection { alias: String },
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 struct CallContext {
+    turn: usize,
     workspace_id: WorkspaceId,
     agent_id: AgentId,
     run_id: RunId,
@@ -1466,6 +1470,32 @@ impl Broker {
             return Err(BrokerError::AgentMismatch {
                 run_id: run_id.clone(),
                 agent_id: agent_id.clone(),
+            });
+        }
+        if let Some(stored) = self.deps.snapshots.for_run(workspace_id, run_id).await? {
+            let content: SnapshotContent = serde_json::from_value(stored.content)
+                .map_err(|error| BrokerError::CorruptSnapshot(error.to_string()))?;
+            let mut tools = Vec::new();
+            let mut deferred = Vec::new();
+            for entry in content
+                .entries
+                .into_iter()
+                .filter(|entry| entry.manifest.visibility.model)
+            {
+                if entry.deferred {
+                    deferred.push(DeferredTool {
+                        package: entry.namespace,
+                        definition: entry.manifest.definition,
+                    });
+                } else {
+                    tools.push(entry.manifest.definition);
+                }
+            }
+            return Ok(CapabilitySnapshot {
+                id: stored.id,
+                hash: stored.hash,
+                tools,
+                deferred,
             });
         }
         let grants = self
@@ -1875,7 +1905,15 @@ impl Broker {
         } else {
             entry.grants.first().cloned()
         };
+        let turn = self
+            .deps
+            .run_journal
+            .last(run_id)
+            .await?
+            .and_then(|entry| entry.checkpoint)
+            .map_or(0, |checkpoint| checkpoint.turn);
         let mut context = CallContext {
+            turn,
             workspace_id: run.workspace_id,
             agent_id: run.agent_id,
             run_id: run_id.clone(),
@@ -1926,7 +1964,7 @@ impl Broker {
                 tool: UiTool::AskUser
             }
         ) {
-            let question = match question_request(&context) {
+            let mut question = match question_request(&context) {
                 Ok(question) => question,
                 Err(result) => {
                     self.audit(&context, "rejected", "rejected", &result)
@@ -1934,6 +1972,8 @@ impl Broker {
                     return Ok(InvokeOutcome::Rejected(result));
                 }
             };
+            question.request.payload["call_context"] = serde_json::to_value(&context)
+                .map_err(|error| BrokerError::CorruptSnapshot(error.to_string()))?;
             self.deps.requests.create(&question.request).await?;
             self.pending
                 .lock()
@@ -2031,6 +2071,70 @@ impl Broker {
             .expect("pending call lock")
             .insert(request.request.id.clone(), PendingCall { context });
         Ok(InvokeOutcome::Waiting(Box::new(request)))
+    }
+
+    /// Find the durable Request of an unfinished model call.
+    pub async fn request_for_call(
+        &self,
+        workspace: &WorkspaceId,
+        run: &RunId,
+        call_id: &str,
+    ) -> Result<Option<PendingRequest>, BrokerError> {
+        let turn = self
+            .deps
+            .run_journal
+            .last(run)
+            .await?
+            .and_then(|entry| entry.checkpoint)
+            .map_or(0, |checkpoint| checkpoint.turn);
+        let mut found = Vec::new();
+        for state in [
+            RequestState::Pending,
+            RequestState::Approved,
+            RequestState::Denied,
+            RequestState::Superseded,
+        ] {
+            found.extend(
+                self.deps
+                    .requests
+                    .list_by_state(workspace, state, None)
+                    .await?
+                    .into_iter()
+                    .filter(|request| {
+                        request.run_id.as_ref() == Some(run)
+                            && request.payload["call_context"]["turn"].as_u64() == Some(turn as u64)
+                            && request.payload["call_context"]["tool_call_id"].as_str()
+                                == Some(call_id)
+                    }),
+            );
+        }
+        found.sort_by(|left, right| right.id.as_str().cmp(left.id.as_str()));
+        found
+            .first()
+            .map(|request| self.restore_request(request))
+            .transpose()
+    }
+
+    /// Bind a durable Request to its original call after a restart.
+    fn restore_request(&self, request: &Request) -> Result<PendingRequest, BrokerError> {
+        let context: CallContext = serde_json::from_value(request.payload["call_context"].clone())
+            .map_err(|error| BrokerError::CorruptSnapshot(error.to_string()))?;
+        self.pending
+            .lock()
+            .expect("pending call lock")
+            .insert(request.id.clone(), PendingCall { context });
+        Ok(PendingRequest {
+            request: request.clone(),
+            title: request.payload["action_title"]
+                .as_str()
+                .or(request.payload["title"].as_str())
+                .unwrap_or("Continue this action")
+                .to_string(),
+            body: request.payload["body"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string(),
+        })
     }
 
     pub async fn resolve(
@@ -2295,7 +2399,7 @@ impl Broker {
                 })
             })
             .collect();
-        let request = Request {
+        let mut request = Request {
             id: RequestId::generate(),
             workspace_id: context.workspace_id.clone(),
             agent_id: context.agent_id.clone(),
@@ -2311,6 +2415,8 @@ impl Broker {
             decided_at: None,
             created_at: now_ms(),
         };
+        request.payload["call_context"] = serde_json::to_value(context)
+            .map_err(|error| BrokerError::CorruptSnapshot(error.to_string()))?;
         self.deps.requests.create(&request).await?;
         Ok(PendingRequest {
             request,
@@ -2705,7 +2811,7 @@ impl Broker {
         if let (Some(AllowRuleBuilder::CredentialDomain), Some(action)) =
             (&presentation.allow_rule_builder, &context.credential)
         {
-            let request = Request {
+            let mut request = Request {
                 id: RequestId::generate(),
                 workspace_id: context.workspace_id.clone(),
                 agent_id: context.agent_id.clone(),
@@ -2717,6 +2823,8 @@ impl Broker {
                 decided_at: None,
                 created_at: now_ms(),
             };
+            request.payload["call_context"] = serde_json::to_value(context)
+                .map_err(|error| BrokerError::CorruptSnapshot(error.to_string()))?;
             self.deps.requests.create(&request).await?;
             return Ok(PendingRequest {
                 request,
@@ -2790,7 +2898,7 @@ impl Broker {
                 .unwrap_or(&context.entry.manifest.definition.name)
                 .to_string()
         };
-        let request = Request {
+        let mut request = Request {
             id: RequestId::generate(),
             workspace_id: context.workspace_id.clone(),
             agent_id: context.agent_id.clone(),
@@ -2827,6 +2935,8 @@ impl Broker {
             decided_at: None,
             created_at: now_ms(),
         };
+        request.payload["call_context"] = serde_json::to_value(context)
+            .map_err(|error| BrokerError::CorruptSnapshot(error.to_string()))?;
         self.deps.requests.create(&request).await?;
         Ok(PendingRequest {
             request,
@@ -2879,6 +2989,36 @@ impl Broker {
             host: context.host.clone(),
             approved_by_rule: authorization == "allow_rule",
         };
+        let journaled = context.entry.manifest.effect != EffectClass::Free
+            || matches!(
+                context.entry.manifest.route,
+                ToolRoute::Core {
+                    tool: CoreTool::ComputerShell
+                        | CoreTool::HostShell
+                        | CoreTool::SoftwarePublish
+                        | CoreTool::SoftwareFork
+                        | CoreTool::ComputerCodingSessionStart
+                        | CoreTool::CodingSessionStart
+                        | CoreTool::CodingSessionSend
+                        | CoreTool::CodingSessionCancel
+                        | CoreTool::CodingSessionClose
+                        | CoreTool::CodingSessionResume
+                        | CoreTool::CodingSessionDecide
+                        | CoreTool::CodingSessionAnswer
+                        | CoreTool::CodingSessionSetMode
+                        | CoreTool::CodingSessionSetModel
+                } | ToolRoute::Software { .. }
+                    | ToolRoute::Plugin {
+                        on_computer: true,
+                        ..
+                    }
+            );
+        if journaled && let Some(id) = &context.tool_call_id {
+            self.deps
+                .run_journal
+                .tool_started(&context.run_id, id, context.entry.manifest.effect.as_str())
+                .await?;
+        }
         let evidence_call = call.clone();
         let mut result = self.deps.executor.execute(call).await;
         // The record of what the Run read comes before the model reads
@@ -2938,6 +3078,17 @@ impl Broker {
             context.entry.manifest.route,
             ToolRoute::Connection { ref provider } if provider == "google"
         ));
+        if journaled && let Some(id) = &context.tool_call_id {
+            self.deps
+                .run_journal
+                .tool_ended(
+                    &context.run_id,
+                    id,
+                    &serde_json::to_value(&result)
+                        .map_err(|error| BrokerError::CorruptSnapshot(error.to_string()))?,
+                )
+                .await?;
+        }
         if result.is_error {
             return Ok(InvokeOutcome::Rejected(result));
         }
@@ -3101,7 +3252,7 @@ impl Broker {
             result.metadata[WIDGET_BLOCK] = block;
             return Ok(InvokeOutcome::Completed(result));
         }
-        let request = Request {
+        let mut request = Request {
             id: RequestId::generate(),
             workspace_id: context.workspace_id.clone(),
             agent_id: context.agent_id.clone(),
@@ -3122,6 +3273,8 @@ impl Broker {
         block["request_id"] = serde_json::Value::String(request.id.to_string());
         view.request_id = Some(request.id.clone());
         self.mount(view);
+        request.payload["call_context"] = serde_json::to_value(&context)
+            .map_err(|error| BrokerError::CorruptSnapshot(error.to_string()))?;
         self.deps.requests.create(&request).await?;
         let title = format!("{package}/{}", spec.name);
         self.pending

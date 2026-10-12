@@ -11,7 +11,7 @@ use std::time::Duration;
 use futures::StreamExt;
 use pagis_agent::{
     AgentDeps, AgentLoopConfig, AgentSystem, CancelOutcome, CoreToolRuntime, ProgressHub,
-    StreamHub, ToolRuntimeDeps, fail_unfinished_runs,
+    StreamHub, ToolRuntimeDeps, resume_unfinished_runs,
 };
 use pagis_audit::AuditEventBus;
 use pagis_core::{
@@ -267,6 +267,7 @@ impl MessageStore for RecordingMessages {
 }
 
 struct Loop {
+    deps: AgentDeps,
     system: Arc<AgentSystem>,
     /// The live Model Request Capture setting, off as on a new
     /// installation.
@@ -287,6 +288,7 @@ struct Loop {
     memory: Arc<dyn pagis_core::MemoryStore>,
     tool_runtime: Arc<CoreToolRuntime>,
     source_executor: Arc<SourceExecutor>,
+    broker: Arc<pagis_broker::Broker>,
     /// The memory repositories' root; tests open the git repo directly.
     memory_root: Arc<tempfile::TempDir>,
     computer_runtime: Arc<pagis_computer::fake::FakeComputerRuntime>,
@@ -538,6 +540,7 @@ where
         calls: std::sync::Mutex::new(Vec::new()),
     });
     let broker = Arc::new(pagis_broker::Broker::new(pagis_broker::BrokerDeps {
+        run_journal: Arc::new(pagis_storage_sqlite::SqliteRunJournal::new(pool.clone())),
         forget: Arc::new(pagis_storage_sqlite::SqliteForgetStore::new(pool.clone())),
         grants: Arc::clone(&grants) as _,
         credentials: Arc::new(pagis_broker::NoCredentialDirectory),
@@ -562,7 +565,8 @@ where
     let models = Arc::new(pagis_agent::ModelCatalog::new(
         pagis_testkit::test_provider_keys(Vec::new()),
     ));
-    let system = AgentSystem::start(AgentDeps {
+    let deps = AgentDeps {
+        run_journal: Arc::new(pagis_storage_sqlite::SqliteRunJournal::new(pool.clone())),
         forget: Arc::new(pagis_storage_sqlite::SqliteForgetStore::new(pool.clone())),
         workspaces: Arc::new(SqliteWorkspaceStore::new(pool.clone())),
         users: Arc::new(pagis_storage_sqlite::SqliteUserStore::new(pool.clone())),
@@ -599,15 +603,15 @@ where
             })
         }),
         models,
-        broker,
+        broker: Arc::clone(&broker),
         tool_runtime: Arc::clone(&tool_runtime),
         hub: Arc::clone(&hub),
         progress: Arc::clone(&progress),
         triggers: Arc::new(SqliteTriggerStore::new(pool.clone())),
         clock: Arc::new(pagis_core::SystemClock),
         config,
-    })
-    .await;
+    };
+    let system = AgentSystem::start(deps.clone()).await;
 
     // A local installation with the client running: one machine, present
     // and answering.
@@ -623,6 +627,7 @@ where
     .unwrap();
     let _host_client = FakeHostClient::answering(Arc::clone(&host_presence), host.id.clone());
     Loop {
+        deps,
         capture,
         captures,
         host,
@@ -645,6 +650,7 @@ where
         memory,
         tool_runtime,
         source_executor,
+        broker,
         memory_root,
         computer_runtime,
         computer,
@@ -3589,9 +3595,15 @@ async fn restart_recovery_fails_unfinished_runs_and_streams(pool: SqlitePool) {
 
     let log = SqliteEventLog::new(pool.clone());
     let requests = SqliteRequestStore::new(pool.clone());
-    let swept = fail_unfinished_runs(&runs, &messages, &requests, &log)
-        .await
-        .unwrap();
+    let swept = resume_unfinished_runs(
+        &runs,
+        &messages,
+        &requests,
+        &log,
+        &pagis_storage_sqlite::SqliteRunJournal::new(pool.clone()),
+    )
+    .await
+    .unwrap();
     assert_eq!(swept, 1);
 
     let failed = runs.get(&workspace.id, &run.id).await.unwrap().unwrap();
@@ -3647,9 +3659,15 @@ async fn restart_recovery_fails_a_reflecting_run(pool: SqlitePool) {
     let requests = SqliteRequestStore::new(pool.clone());
     let log = SqliteEventLog::new(pool.clone());
     assert_eq!(
-        fail_unfinished_runs(&runs, &messages, &requests, &log)
-            .await
-            .unwrap(),
+        resume_unfinished_runs(
+            &runs,
+            &messages,
+            &requests,
+            &log,
+            &pagis_storage_sqlite::SqliteRunJournal::new(pool.clone())
+        )
+        .await
+        .unwrap(),
         1
     );
 
@@ -4281,9 +4299,15 @@ async fn restart_recovery_expires_parked_requests_and_posts_a_note(pool: SqliteP
 
     let messages = SqliteMessageStore::new(pool.clone());
     let log = SqliteEventLog::new(pool.clone());
-    let swept = fail_unfinished_runs(&runs, &messages, &requests, &log)
-        .await
-        .unwrap();
+    let swept = resume_unfinished_runs(
+        &runs,
+        &messages,
+        &requests,
+        &log,
+        &pagis_storage_sqlite::SqliteRunJournal::new(pool.clone()),
+    )
+    .await
+    .unwrap();
     assert_eq!(swept, 1);
 
     assert_eq!(
@@ -8165,4 +8189,793 @@ async fn the_reply_prompt_names_the_owners_local_date_at_its_end(pool: SqlitePoo
         "{system}"
     );
     assert_eq!(requests[0].system, requests[1].system);
+}
+
+// The database represents the process that stopped. There is no live Run task.
+async fn planted_resume(pool: &SqlitePool, harness: &Loop, call: Option<&str>) -> pagis_core::Run {
+    use pagis_core::RunJournal;
+    let mut run = fixture::queued_run(&harness.workspace.id, &harness.agent.id, &harness.dm.id);
+    run.state = RunState::Running;
+    run.started_at = Some(1);
+    harness.runs.create(&run).await.unwrap();
+    let journal = pagis_storage_sqlite::SqliteRunJournal::new(pool.clone());
+    let messages = vec![
+        pagis_agent::TurnMessage::user("original request"),
+        pagis_agent::TurnMessage::assistant("first turn"),
+        pagis_agent::TurnMessage::assistant("second turn"),
+    ];
+    let state = serde_json::json!({"transcript": messages, "loaded": {"packages": []}, "seen": [], "speakers": {"names": {}}, "history": {"prefix_len": 0, "checkpoint": null, "durable": []}, "source_after": null, "rescheduled": false, "last_reply": null, "computer": {"scale_x": 1.0, "scale_y": 1.0, "batch_failed": false, "resumed_after_takeover": false, "input_since_screenshot": false}, "schedule_baseline": null, "overlay": {"writes": [], "deletes": [], "base_revision": null, "base_loaded": false, "exposures": [], "read_exposures": [], "holds_google_data": false}});
+    journal.checkpoint(&run.id, 2, &state).await.unwrap();
+    if let Some(name) = call {
+        let mut pending = state.clone();
+        pending["text"] = serde_json::json!("third turn calls a tool");
+        pending["calls"] =
+            serde_json::json!([{"id": "interrupted-call", "name": name, "arguments": "{}"}]);
+        journal.turn_started(&run.id, &pending).await.unwrap();
+    }
+    run
+}
+
+async fn recover_planted(pool: &SqlitePool, harness: &Loop) {
+    pagis_agent::resume_unfinished_runs(
+        harness.runs.as_ref(),
+        harness.messages.as_ref(),
+        harness.requests.as_ref(),
+        &SqliteEventLog::new(pool.clone()),
+        &pagis_storage_sqlite::SqliteRunJournal::new(pool.clone()),
+    )
+    .await
+    .unwrap();
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn restart_resumes_third_turn_with_two_turns_of_transcript(pool: SqlitePool) {
+    let harness = boot(pool.clone(), AgentLoopConfig::default()).await;
+    let run = planted_resume(&pool, &harness, None).await;
+    recover_planted(&pool, &harness).await;
+    let queued = harness
+        .runs
+        .get(&run.workspace_id, &run.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(queued.state, RunState::Queued);
+    harness.brain.push(Script::reply(&["finished"]));
+    let mut events = harness
+        .bus
+        .subscribe(EventScope::Installation, Some(0))
+        .await;
+    harness.system.enqueue_proactive(queued);
+    next_state(&mut events, "completed").await;
+    let requests = harness.brain.requests();
+    assert!(requests[0].messages.iter().any(|m| m.text == "first turn"));
+    assert!(requests[0].messages.iter().any(|m| m.text == "second turn"));
+    let turns = SqliteEventLog::new(pool.clone())
+        .list_after(None, 0, 100)
+        .await
+        .unwrap();
+    assert_eq!(
+        turns
+            .iter()
+            .find(|e| e.event_type == "turn.started")
+            .unwrap()
+            .payload["turn"],
+        2
+    );
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn restart_during_mail_send_does_not_send_again(pool: SqlitePool) {
+    use pagis_core::RunJournal;
+    let harness = boot(pool.clone(), AgentLoopConfig::default()).await;
+    let run = planted_resume(&pool, &harness, Some("mail__send")).await;
+    pagis_storage_sqlite::SqliteRunJournal::new(pool.clone())
+        .tool_started(&run.id, "interrupted-call", "outbound")
+        .await
+        .unwrap();
+    recover_planted(&pool, &harness).await;
+    harness.brain.push(Script::reply(&["check sent mail"]));
+    let mut events = harness
+        .bus
+        .subscribe(EventScope::Installation, Some(0))
+        .await;
+    harness.system.enqueue_proactive(
+        harness
+            .runs
+            .get(&run.workspace_id, &run.id)
+            .await
+            .unwrap()
+            .unwrap(),
+    );
+    next_state(&mut events, "completed").await;
+    assert!(
+        harness.brain.requests()[0]
+            .messages
+            .iter()
+            .any(|m| m.text == pagis_agent::UNKNOWN_OUTCOME)
+    );
+    assert!(
+        !SqliteEventLog::new(pool)
+            .list_after(None, 0, 100)
+            .await
+            .unwrap()
+            .iter()
+            .any(|e| e.event_type == "tool.called")
+    );
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn restart_during_free_call_runs_it_again(pool: SqlitePool) {
+    let harness = boot(pool.clone(), AgentLoopConfig::default()).await;
+    let run = planted_resume(&pool, &harness, Some("memory_search")).await;
+    recover_planted(&pool, &harness).await;
+    harness.brain.push(Script::reply(&["finished"]));
+    let mut events = harness
+        .bus
+        .subscribe(EventScope::Installation, Some(0))
+        .await;
+    harness.system.enqueue_proactive(
+        harness
+            .runs
+            .get(&run.workspace_id, &run.id)
+            .await
+            .unwrap()
+            .unwrap(),
+    );
+    next_state(&mut events, "completed").await;
+    assert!(
+        SqliteEventLog::new(pool)
+            .list_after(None, 0, 100)
+            .await
+            .unwrap()
+            .iter()
+            .any(|e| e.event_type == "tool.called" && e.payload["name"] == "memory_search")
+    );
+    assert!(
+        !harness.brain.requests()[0]
+            .messages
+            .iter()
+            .any(|m| m.text == pagis_agent::UNKNOWN_OUTCOME)
+    );
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn restart_twice_in_same_turn_fails(pool: SqlitePool) {
+    let harness = boot(pool.clone(), AgentLoopConfig::default()).await;
+    let run = planted_resume(&pool, &harness, None).await;
+    recover_planted(&pool, &harness).await;
+    let mut running = harness
+        .runs
+        .get(&run.workspace_id, &run.id)
+        .await
+        .unwrap()
+        .unwrap();
+    running.state = RunState::Running;
+    harness.runs.update(&running).await.unwrap();
+    recover_planted(&pool, &harness).await;
+    let failed = harness
+        .runs
+        .get(&run.workspace_id, &run.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        failed.failure_kind,
+        Some(pagis_core::FailureKind::DaemonRestarted)
+    );
+    assert_eq!(failed.state, RunState::Failed);
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn restart_keeps_approval_request_open(pool: SqlitePool) {
+    let harness = boot(pool.clone(), AgentLoopConfig::default()).await;
+    let mut run = planted_resume(&pool, &harness, Some("host_shell")).await;
+    run.state = RunState::WaitingForApproval;
+    harness.runs.update(&run).await.unwrap();
+    let request = fixture::pending_request(&run.workspace_id, &run.agent_id, &run.id, "pwd");
+    harness.requests.create(&request).await.unwrap();
+    recover_planted(&pool, &harness).await;
+    assert_eq!(
+        harness
+            .requests
+            .get(&run.workspace_id, &request.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .state,
+        RequestState::Pending
+    );
+    assert_eq!(
+        harness
+            .runs
+            .get(&run.workspace_id, &run.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .state,
+        RunState::Queued
+    );
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn restart_approval_decision_continues_same_run(pool: SqlitePool) {
+    use pagis_core::RunJournal;
+    let harness = boot(pool.clone(), AgentLoopConfig::default()).await;
+    let mut run = planted_resume(&pool, &harness, Some("host_shell")).await;
+    let journal = pagis_storage_sqlite::SqliteRunJournal::new(pool.clone());
+    let mut pending = journal
+        .last(&run.id)
+        .await
+        .unwrap()
+        .unwrap()
+        .pending_turn
+        .unwrap();
+    pending["calls"][0]["arguments"] = serde_json::json!(r#"{"command":"pwd"}"#);
+    journal.turn_started(&run.id, &pending).await.unwrap();
+    let snapshot = harness
+        .broker
+        .prepare_run(&run.workspace_id, &run.agent_id, &run.id)
+        .await
+        .unwrap();
+    let pagis_broker::InvokeOutcome::Waiting(request) = harness
+        .broker
+        .invoke(
+            &run.workspace_id,
+            &run.id,
+            &snapshot.id,
+            pagis_broker::ToolCall::new("host_shell", r#"{"command":"pwd"}"#)
+                .with_tool_call_id("interrupted-call"),
+        )
+        .await
+        .unwrap()
+    else {
+        panic!("approval expected");
+    };
+    let request_id = request.request.id.clone();
+    run.state = RunState::WaitingForApproval;
+    harness.runs.update(&run).await.unwrap();
+    assert!(
+        journal
+            .last(&run.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .calls
+            .is_empty()
+    );
+    recover_planted(&pool, &harness).await;
+    harness.brain.push(Script::reply(&["finished"]));
+    let mut events = harness.bus.subscribe(EventScope::Installation, None).await;
+    harness.system.enqueue_proactive(
+        harness
+            .runs
+            .get(&run.workspace_id, &run.id)
+            .await
+            .unwrap()
+            .unwrap(),
+    );
+    next_state(&mut events, "waiting_for_approval").await;
+    let requests = harness
+        .requests
+        .list_by_state(&run.workspace_id, RequestState::Pending, None)
+        .await
+        .unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].id, request_id);
+    harness
+        .requests
+        .decide(
+            &run.workspace_id,
+            &request_id,
+            RequestState::Approved,
+            None,
+            now_ms(),
+        )
+        .await
+        .unwrap();
+    harness
+        .bus
+        .publish(NewEvent {
+            workspace_id: run.workspace_id.clone(),
+            event_type: "request.decided".into(),
+            agent_id: Some(run.agent_id.clone()),
+            run_id: Some(run.id.clone()),
+            channel_id: run.channel_id.clone(),
+            payload: serde_json::json!({"request_id": request_id, "decision": "approved"}),
+        })
+        .await
+        .unwrap();
+    let completed = next_state(&mut events, "completed").await;
+    assert_eq!(completed.run_id, Some(run.id.clone()));
+    assert!(
+        harness.brain.requests()[0]
+            .messages
+            .iter()
+            .any(|message| message.text.contains("pwd"))
+    );
+    assert!(journal.last(&run.id).await.unwrap().is_none());
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn each_completed_turn_writes_the_next_turn_state(pool: SqlitePool) {
+    use pagis_core::RunJournal;
+    let harness = boot(pool.clone(), AgentLoopConfig::default()).await;
+    harness.brain.push(Script::tool_call(
+        &["first turn"],
+        "memory_search",
+        serde_json::json!({"query": "one"}),
+    ));
+    harness.brain.push(Script::tool_call(
+        &["second turn"],
+        "memory_search",
+        serde_json::json!({"query": "two"}),
+    ));
+    harness.brain.push(Script::hang(&[]));
+    let mut events = harness.bus.subscribe(EventScope::Installation, None).await;
+    harness.send("keep this request").await;
+    let started = next_state(&mut events, "running").await;
+    let run_id = started.run_id.unwrap();
+    wait_for("third model request", || async {
+        harness.brain.requests().len() == 3
+    })
+    .await;
+    let entry = pagis_storage_sqlite::SqliteRunJournal::new(pool.clone())
+        .last(&run_id)
+        .await
+        .unwrap()
+        .unwrap();
+    let checkpoint = entry.checkpoint.unwrap();
+    assert_eq!(checkpoint.turn, 2);
+    let transcript: Vec<pagis_agent::TurnMessage> =
+        serde_json::from_value(checkpoint.state["transcript"].clone()).unwrap();
+    assert!(
+        transcript
+            .iter()
+            .any(|message| message.text == "first turn")
+    );
+    assert!(
+        transcript
+            .iter()
+            .any(|message| message.text == "second turn")
+    );
+    assert!(
+        transcript
+            .iter()
+            .any(|message| message.text.contains("keep this request"))
+    );
+    assert_eq!(
+        transcript
+            .iter()
+            .filter(|message| message.tool_call_id.is_some())
+            .count(),
+        2
+    );
+    assert!(entry.pending_turn.is_none());
+    assert_eq!(
+        harness.system.cancel(&harness.workspace.id, &run_id).await,
+        CancelOutcome::Canceling
+    );
+    next_state(&mut events, "canceled").await;
+    assert!(
+        pagis_storage_sqlite::SqliteRunJournal::new(pool)
+            .last(&run_id)
+            .await
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn restart_reuses_a_recorded_tool_result(pool: SqlitePool) {
+    use pagis_core::RunJournal;
+    let harness = boot(pool.clone(), AgentLoopConfig::default()).await;
+    let run = planted_resume(&pool, &harness, Some("mail__send")).await;
+    let journal = pagis_storage_sqlite::SqliteRunJournal::new(pool.clone());
+    journal
+        .tool_started(&run.id, "interrupted-call", "outbound")
+        .await
+        .unwrap();
+    let result = pagis_broker::ToolResult::success("the mail was sent");
+    journal
+        .tool_ended(
+            &run.id,
+            "interrupted-call",
+            &serde_json::to_value(result).unwrap(),
+        )
+        .await
+        .unwrap();
+    recover_planted(&pool, &harness).await;
+    harness.brain.push(Script::reply(&["finished"]));
+    let mut events = harness.bus.subscribe(EventScope::Installation, None).await;
+    harness.system.enqueue_proactive(
+        harness
+            .runs
+            .get(&run.workspace_id, &run.id)
+            .await
+            .unwrap()
+            .unwrap(),
+    );
+    next_state(&mut events, "completed").await;
+    assert!(
+        harness.brain.requests()[0]
+            .messages
+            .iter()
+            .any(|message| message.text == "the mail was sent")
+    );
+    assert!(
+        !SqliteEventLog::new(pool)
+            .list_after(None, 0, 100)
+            .await
+            .unwrap()
+            .iter()
+            .any(|event| event.event_type == "tool.called")
+    );
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn restart_keeps_a_queued_run_without_a_checkpoint(pool: SqlitePool) {
+    let harness = boot(pool.clone(), AgentLoopConfig::default()).await;
+    let run = fixture::queued_run(&harness.workspace.id, &harness.agent.id, &harness.dm.id);
+    harness.runs.create(&run).await.unwrap();
+    recover_planted(&pool, &harness).await;
+    assert_eq!(
+        harness
+            .runs
+            .get(&run.workspace_id, &run.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .state,
+        RunState::Queued
+    );
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn restart_progress_says_resumed_after_a_restart(pool: SqlitePool) {
+    let harness = boot(pool.clone(), AgentLoopConfig::default()).await;
+    let run = planted_resume(&pool, &harness, None).await;
+    recover_planted(&pool, &harness).await;
+    harness.brain.push(Script::hang(&[]));
+    let mut events = harness.bus.subscribe(EventScope::Installation, None).await;
+    harness.system.enqueue_proactive(
+        harness
+            .runs
+            .get(&run.workspace_id, &run.id)
+            .await
+            .unwrap()
+            .unwrap(),
+    );
+    wait_for("resumed progress", || async {
+        harness
+            .progress
+            .snapshot(harness.dm.id.as_str())
+            .iter()
+            .any(|frame| frame.run_id == run.id.as_str() && frame.text == "Resumed after a restart")
+    })
+    .await;
+    assert_eq!(
+        harness.system.cancel(&run.workspace_id, &run.id).await,
+        CancelOutcome::Canceling
+    );
+    next_state(&mut events, "canceled").await;
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn an_arrival_turn_writes_a_resumable_checkpoint(pool: SqlitePool) {
+    use pagis_core::RunJournal;
+    let harness = boot(pool.clone(), AgentLoopConfig::default()).await;
+    harness.brain.push(Script::tool_call(
+        &["first reflection turn"],
+        "memory_read",
+        serde_json::json!({"path": "shared/MEMORY.md"}),
+    ));
+    harness.brain.push(Script::hang(&[]));
+    let mut run = fixture::queued_run(&harness.workspace.id, &harness.agent.id, &harness.dm.id);
+    run.channel_id = None;
+    run.trigger_kind = TriggerKind::Arrival;
+    run.trigger_ref = None;
+    harness.runs.create(&run).await.unwrap();
+    harness.system.enqueue_proactive(run.clone());
+    wait_for("second reflection model request", || async {
+        harness.brain.requests().len() == 2
+    })
+    .await;
+    let entry = pagis_storage_sqlite::SqliteRunJournal::new(pool)
+        .last(&run.id)
+        .await
+        .unwrap()
+        .expect("reflection checkpoint");
+    assert_eq!(entry.checkpoint.unwrap().turn, 1);
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn restart_during_computer_call_reads_a_screen_without_repeating_input(pool: SqlitePool) {
+    use pagis_core::RunJournal;
+    let harness = boot(pool.clone(), AgentLoopConfig::default()).await;
+    let frame = display_png();
+    harness.computer_runtime.set_frame(&frame);
+    let run = planted_resume(&pool, &harness, Some("computer")).await;
+    let journal = pagis_storage_sqlite::SqliteRunJournal::new(pool.clone());
+    journal
+        .tool_started(&run.id, "interrupted-call", "free")
+        .await
+        .unwrap();
+    recover_planted(&pool, &harness).await;
+    harness.brain.push(Script::reply(&["check the screen"]));
+    let mut events = harness.bus.subscribe(EventScope::Installation, None).await;
+    harness.system.enqueue_proactive(
+        harness
+            .runs
+            .get(&run.workspace_id, &run.id)
+            .await
+            .unwrap()
+            .unwrap(),
+    );
+    next_state(&mut events, "completed").await;
+    let requests = harness.brain.requests();
+    let result = requests[0]
+        .messages
+        .iter()
+        .find(|message| message.text == pagis_agent::UNKNOWN_OUTCOME)
+        .unwrap();
+    assert_eq!(result.images.len(), 1);
+    assert!(harness.computer_runtime.inputs().is_empty());
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn restart_folds_in_a_durable_message_after_the_checkpoint(pool: SqlitePool) {
+    let harness = boot(pool.clone(), AgentLoopConfig::default()).await;
+    let run = planted_resume(&pool, &harness, None).await;
+    let message = fixture::user_message(
+        &run.workspace_id,
+        &harness.dm.id,
+        "a correction after the checkpoint",
+    );
+    harness.messages.insert(&message).await.unwrap();
+    recover_planted(&pool, &harness).await;
+    harness.brain.push(Script::reply(&["finished"]));
+    let mut events = harness.bus.subscribe(EventScope::Installation, None).await;
+    harness.system.enqueue_proactive(
+        harness
+            .runs
+            .get(&run.workspace_id, &run.id)
+            .await
+            .unwrap()
+            .unwrap(),
+    );
+    next_state(&mut events, "completed").await;
+    assert!(
+        harness.brain.requests()[0]
+            .messages
+            .iter()
+            .any(|message| message.text.contains("a correction after the checkpoint"))
+    );
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_resumed_turn_does_not_use_an_approval_from_a_previous_turn(pool: SqlitePool) {
+    use pagis_core::RunJournal;
+    let harness = boot(pool.clone(), AgentLoopConfig::default()).await;
+    let run = planted_resume(&pool, &harness, Some("host_shell")).await;
+    let journal = pagis_storage_sqlite::SqliteRunJournal::new(pool);
+    let state = journal
+        .last(&run.id)
+        .await
+        .unwrap()
+        .unwrap()
+        .checkpoint
+        .unwrap()
+        .state;
+    journal.checkpoint(&run.id, 1, &state).await.unwrap();
+    let snapshot = harness
+        .broker
+        .prepare_run(&run.workspace_id, &run.agent_id, &run.id)
+        .await
+        .unwrap();
+    let outcome = harness
+        .broker
+        .invoke(
+            &run.workspace_id,
+            &run.id,
+            &snapshot.id,
+            pagis_broker::ToolCall::new("host_shell", r#"{"command":"pwd"}"#)
+                .with_tool_call_id("interrupted-call"),
+        )
+        .await
+        .unwrap();
+    assert!(matches!(outcome, pagis_broker::InvokeOutcome::Waiting(_)));
+    journal.checkpoint(&run.id, 2, &state).await.unwrap();
+    assert!(
+        harness
+            .broker
+            .request_for_call(&run.workspace_id, &run.id, "interrupted-call")
+            .await
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_stopped_actor_resumes_its_third_turn_from_the_database(pool: SqlitePool) {
+    // Drop the first runtime to stop its tasks without a terminal Run transition.
+    let first_pool = pool.clone();
+    let stopped = std::thread::spawn(move || {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        runtime.block_on(async move {
+            let harness = boot(first_pool, AgentLoopConfig::default()).await;
+            harness.brain.push(Script::tool_call(
+                &["first completed turn"],
+                "memory_search",
+                serde_json::json!({"query": "first"}),
+            ));
+            harness.brain.push(Script::tool_call(
+                &["second completed turn"],
+                "memory_search",
+                serde_json::json!({"query": "second"}),
+            ));
+            harness.brain.push(Script::hang(&[]));
+            harness.send("the original request").await;
+            wait_for("the third Turn starts", || async {
+                harness.brain.requests().len() == 3
+            })
+            .await;
+            harness
+        })
+    })
+    .join()
+    .unwrap();
+    let run = stopped.runs.list_unfinished().await.unwrap().pop().unwrap();
+    assert_eq!(run.state, RunState::Running);
+    recover_planted(&pool, &stopped).await;
+    let brain = Arc::new(ScriptedBrain::default());
+    brain.push(Script::reply(&["finished after the restart"]));
+    let mut deps = stopped.deps.clone();
+    deps.brain = brain.clone();
+    deps.progress = Arc::new(ProgressHub::default());
+    deps.hub = Arc::new(StreamHub::default());
+    let mut events = stopped.bus.subscribe(EventScope::Installation, None).await;
+    let _restarted = AgentSystem::start(deps).await;
+    let completed = next_state(&mut events, "completed").await;
+    assert_eq!(completed.run_id.as_ref(), Some(&run.id));
+    let requests = brain.requests();
+    assert_eq!(requests.len(), 1);
+    for text in ["first completed turn", "second completed turn"] {
+        assert!(
+            requests[0]
+                .messages
+                .iter()
+                .any(|message| message.text == text)
+        );
+    }
+    assert!(
+        requests[0]
+            .messages
+            .iter()
+            .any(|message| message.text.contains("the original request"))
+    );
+    let events = SqliteEventLog::new(pool)
+        .list_for_run(&run.workspace_id, &run.id)
+        .await
+        .unwrap();
+    let turns: Vec<_> = events
+        .iter()
+        .filter(|event| event.event_type == "turn.started")
+        .map(|event| event.payload["turn"].as_u64().unwrap())
+        .collect();
+    assert_eq!(turns, [0, 1, 2, 2]);
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_resumed_computer_call_does_not_use_a_safety_approval_from_a_previous_turn(
+    pool: SqlitePool,
+) {
+    use pagis_core::RunJournal;
+    let harness = boot(pool.clone(), AgentLoopConfig::default()).await;
+    harness.computer_runtime.set_frame(&display_png());
+    let run = planted_resume(&pool, &harness, Some("computer")).await;
+    let journal = pagis_storage_sqlite::SqliteRunJournal::new(pool.clone());
+    let mut pending = journal
+        .last(&run.id)
+        .await
+        .unwrap()
+        .unwrap()
+        .pending_turn
+        .unwrap();
+    pending["calls"][0]["arguments"] = serde_json::json!(serde_json::json!({
+        "type": "computer_call", "call_id": "interrupted-call",
+        "actions": [{"type": "screenshot"}],
+        "pending_safety_checks": [{"id": "check", "code": "malicious_instructions", "message": "Check this step"}],
+        "status": "completed"
+    }).to_string());
+    journal.turn_started(&run.id, &pending).await.unwrap();
+    let mut old = fixture::pending_request(&run.workspace_id, &run.agent_id, &run.id, "old action");
+    old.kind = "computer_safety".into();
+    old.state = RequestState::Approved;
+    old.payload = serde_json::json!({"turn": 1, "tool_call_id": "interrupted-call"});
+    harness.requests.create(&old).await.unwrap();
+    recover_planted(&pool, &harness).await;
+    let mut events = harness.bus.subscribe(EventScope::Installation, None).await;
+    harness.system.enqueue_proactive(
+        harness
+            .runs
+            .get(&run.workspace_id, &run.id)
+            .await
+            .unwrap()
+            .unwrap(),
+    );
+    next_state(&mut events, "waiting_for_approval").await;
+    let pending = harness
+        .requests
+        .list_by_state(
+            &run.workspace_id,
+            RequestState::Pending,
+            Some("computer_safety"),
+        )
+        .await
+        .unwrap();
+    assert_eq!(pending.len(), 1);
+    assert_ne!(pending[0].id, old.id);
+    assert_eq!(
+        harness.system.cancel(&run.workspace_id, &run.id).await,
+        CancelOutcome::Canceling
+    );
+    next_state(&mut events, "canceled").await;
+    assert!(harness.computer_runtime.inputs().is_empty());
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_recorded_computer_result_restores_the_scale_for_a_later_call(pool: SqlitePool) {
+    use pagis_core::RunJournal;
+    let harness = boot(pool.clone(), AgentLoopConfig::default()).await;
+    harness.computer_runtime.set_frame(&display_png());
+    let run = planted_resume(&pool, &harness, Some("computer")).await;
+    let journal = pagis_storage_sqlite::SqliteRunJournal::new(pool.clone());
+    let mut pending = journal
+        .last(&run.id)
+        .await
+        .unwrap()
+        .unwrap()
+        .pending_turn
+        .unwrap();
+    pending["calls"] = serde_json::json!([
+        {"id": "interrupted-call", "name": "computer", "arguments": computer_member("screenshot", serde_json::json!({})).to_string()},
+        {"id": "later-call", "name": "computer", "arguments": computer_member("left_click", serde_json::json!({"coordinate": [10, 20]})).to_string()},
+    ]);
+    journal.turn_started(&run.id, &pending).await.unwrap();
+    journal
+        .tool_started(&run.id, "interrupted-call", "free")
+        .await
+        .unwrap();
+    let mut result = serde_json::to_value(pagis_agent::TurnMessage::tool_result(
+        "interrupted-call".to_string(),
+        "recorded screen".to_string(),
+    ))
+    .unwrap();
+    result["computer"] = serde_json::json!({"scale_x": 2.0, "scale_y": 2.0, "batch_failed": false, "resumed_after_takeover": false, "input_since_screenshot": false});
+    journal
+        .tool_ended(&run.id, "interrupted-call", &result)
+        .await
+        .unwrap();
+    recover_planted(&pool, &harness).await;
+    harness.brain.push(Script::reply(&["finished"]));
+    let mut events = harness.bus.subscribe(EventScope::Installation, None).await;
+    harness.system.enqueue_proactive(
+        harness
+            .runs
+            .get(&run.workspace_id, &run.id)
+            .await
+            .unwrap()
+            .unwrap(),
+    );
+    next_state(&mut events, "completed").await;
+    assert!(
+        harness
+            .computer_runtime
+            .inputs()
+            .iter()
+            .any(|input| matches!(
+                input,
+                pagis_core::computer_action::InputOp::Move { x, y } if *x == 20.0 && *y == 40.0
+            ))
+    );
 }

@@ -406,6 +406,7 @@ impl Harness {
             tool_name: format!("{}__{tool}", plugin.name),
             source_version: plugin.manifest_version.clone(),
             route: ToolRoute::Plugin {
+                on_computer: false,
                 plugin: plugin.id.to_string(),
                 server: server.to_string(),
                 tool: tool.to_string(),

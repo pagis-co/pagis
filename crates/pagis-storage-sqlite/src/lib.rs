@@ -35,6 +35,7 @@ mod push_subscription_store;
 mod request_store;
 mod resource_store;
 mod retention_policy_store;
+mod run_journal;
 mod run_store;
 mod schedule_store;
 mod sent_mail_store;
@@ -81,6 +82,7 @@ pub use push_subscription_store::SqlitePushSubscriptionStore;
 pub use request_store::SqliteRequestStore;
 pub use resource_store::{SqliteConnectionStore, SqliteCredentialStore};
 pub use retention_policy_store::SqliteRetentionPolicyStore;
+pub use run_journal::SqliteRunJournal;
 pub use run_store::SqliteRunStore;
 pub use schedule_store::SqliteScheduleStore;
 pub use sent_mail_store::SqliteSentMailStore;
@@ -128,6 +130,7 @@ pub async fn open(db_path: &std::path::Path) -> Result<pagis_core::Stores, sqlx:
 /// Every store of this backend, over one pool.
 pub fn stores(pool: sqlx::SqlitePool) -> pagis_core::Stores {
     pagis_core::Stores {
+        run_journal: std::sync::Arc::new(SqliteRunJournal::new(pool.clone())),
         agent_mailboxes: Arc::new(SqliteAgentMailboxStore::new(pool.clone())),
         agents: Arc::new(SqliteAgentStore::new(pool.clone())),
         artifacts: Arc::new(SqliteArtifactStore::new(pool.clone())),

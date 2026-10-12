@@ -35,7 +35,7 @@ pub const SHELL_CAPABILITY: &str = "shell";
 pub const EXIT_CAPABILITY: &str = "exit";
 
 /// One machine of one Person, as the client on it registered.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Host {
     pub id: HostId,
     /// The Workspace of the Person who owns the machine.

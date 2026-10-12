@@ -49,6 +49,7 @@ struct LiveProgress {
     agent_id: AgentId,
     parent_message_id: Option<MessageId>,
     state: RunState,
+    resumed: bool,
     /// The tool in flight, as the line names it.
     tool: Option<String>,
     /// True while the Agent replaces older conversation context before
@@ -66,7 +67,9 @@ impl LiveProgress {
             agent_id: self.agent_id.to_string(),
             parent_message_id: self.parent_message_id.as_ref().map(|p| p.to_string()),
             seq: self.seq,
-            text: if self.preparing_context {
+            text: if self.resumed && self.tool.is_none() && self.state == RunState::Running {
+                "Resumed after a restart".to_string()
+            } else if self.preparing_context {
                 "Preparing conversation…".to_string()
             } else {
                 compose(self.state, self.tool.as_deref())
@@ -119,12 +122,18 @@ impl ProgressHub {
             agent_id,
             parent_message_id,
             state,
+            resumed: false,
             tool: None,
             preparing_context: false,
             seq: 1,
         };
         let _ = self.tx.send(progress.frame(&run_id));
         live.insert(run_id, progress);
+    }
+
+    /// Show the durable resume fact in the Product App.
+    pub fn resumed(&self, run_id: &RunId) {
+        self.update(run_id, |progress| progress.resumed = true);
     }
 
     /// The run changed state: recompose and broadcast.

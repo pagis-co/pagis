@@ -204,11 +204,11 @@ the next connect.
 A taken port gets a message that names the port and the flag that moves it,
 not the process, because the Headless Server image has no tool that finds it.
 
-A restart is the whole server's. Boot recovery fails every unfinished Run of
-the installation, because one daemon holds each Run's mid-turn state in
-memory. Each failed Run says that a restart ends every Run on the server, and
-the deployment document says to restart at a quiet hour. One daemon owns one
-state directory and one database.
+A restart covers the whole server. Boot recovery resumes unfinished Runs
+from their Run journal under ADR-0036. A queued Run stays in its queue, and
+a Run with a checkpoint keeps its pending Request. A Run with no checkpoint,
+or one that stops twice in the same resumed Turn, fails. One daemon owns one
+State Directory and one database.
 
 ### The Headless Server image
 
