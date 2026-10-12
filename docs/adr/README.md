@@ -11,6 +11,7 @@ records that touch an area before you change it.
 - [0004](0004-a-block-that-asks-is-a-request.md): A block that asks is a Request, and a block that shows is content
 - [0005](0005-stable-capability-snapshots-behind-one-broker.md): One broker serves tools from a stable Capability Snapshot
 - [0006](0006-a-wake-up-stands-between-a-trigger-and-a-run.md): A durable Wake-up stands between a trigger and a proactive Run
+- [0036](0036-the-daemon-resumes-unfinished-runs-from-their-journal.md): The daemon resumes unfinished Runs from their journal
 
 ## Memory
 

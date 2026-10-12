@@ -546,6 +546,22 @@ Review Run are `reflecting`. It can wait for the Person or for an approval,
 and it ends `completed`, `failed` or `canceled` (ADR-0002, ADR-0008,
 ADR-0010).
 
+The Run journal keeps a checkpoint at the end of each Turn. After a daemon
+restart, a running Run resumes from its last checkpoint, and a Run that
+waits for an approval keeps its Request open. A queued Run stays in its
+queue. A Run with no checkpoint fails, except a queued Run. A second
+restart in the same resumed Turn fails the Run (ADR-0036). Durable resume
+is not built.
+
+### Run journal
+The durable record of one Run: one checkpoint for each completed Turn,
+with the Turn number, the added transcript, the Loaded Set and the state
+of the Run. It also records the start and result of each tool call with an
+outside effect, including each call to a Computer or a Host. Resume uses
+the recorded result, or gives the model an unknown outcome when a started
+call has no result, without repeating that call (ADR-0036). Not built.
+_Avoid_: checkpoint log, history
+
 ### Schedule
 A durable rule that asks one Agent to act at future times in a target
 Channel and optional Thread: a wall-clock cron, an interval, or one

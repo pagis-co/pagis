@@ -194,9 +194,10 @@ Connection alias and the normalized metadata inside the untrusted envelope. A
 body or an attachment enters only through a live granted tool call.
 
 A user message in the same Thread enters the active proactive Run at its next
-turn. Another Wake-up never injects its instruction; it stays pending. Pending
-Wake-ups survive a restart. Once a Wake-up has started a Run, restart recovery
-fails the unfinished Run and Pagis does not start another one.
+turn. Another Wake-up never injects its instruction; it stays pending.
+Pending Wake-ups survive a restart. A Run that a Wake-up starts resumes as
+[ADR-0036](0036-the-daemon-resumes-unfinished-runs-from-their-journal.md)
+records. Durable resume is not built.
 
 A future Schedule keeps no actor alive. A pending Wake-up starts an actor only
 when capacity can claim it, and an Event Subscription keeps only its
@@ -227,8 +228,8 @@ Wake-up, with the Workspace, the revisions, the Agent and a redacted payload.
   details.
 - Several subscriptions on one Connection cost one collection pass, and each
   matched instruction stays auditable on its own.
-- One Wake-up starts one Run. An external effect is at most once, because a
-  failed Run does not replay.
+- One Wake-up starts one Run. Recovery resumes the same Run, and its Run
+  journal prevents a restart from repeating an outside effect (ADR-0036).
 - Catch-up on a sleeping local daemon is one late Wake-up for each rule.
 
 ## Out of scope
