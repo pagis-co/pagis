@@ -1089,6 +1089,47 @@
         }
       }
     },
+    "/api/v1/administration/sections": {
+      "get": {
+        "tags": [
+          "administration"
+        ],
+        "summary": "The sections this server offers to an Administrator.",
+        "operationId": "get_sections",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdministrationSectionsDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/administration/sessions": {
       "get": {
         "tags": [
@@ -11188,6 +11229,21 @@
             "items": {
               "$ref": "#/components/schemas/AdministrationHostDto"
             }
+          }
+        }
+      },
+      "AdministrationSectionsDto": {
+        "type": "object",
+        "required": [
+          "sections"
+        ],
+        "properties": {
+          "sections": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The offered sections, in navigation order. Restart has no view."
           }
         }
       },

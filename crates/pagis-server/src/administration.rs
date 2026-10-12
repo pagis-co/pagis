@@ -39,7 +39,7 @@
 //! yet, and the password sign-in, which is what hands out the Session
 //! the guard asks for.
 
-use std::sync::Arc;
+use std::{collections::BTreeSet, sync::Arc};
 
 use axum::extract::{Path, Query, Request, State};
 use axum::http::StatusCode;
@@ -66,6 +66,88 @@ const MIN_PASSWORD_LEN: usize = 12;
 
 /// How many Runs the usage read answers for at most.
 const RUN_PAGE: u32 = 200;
+
+/// A section that the deployment can hide from an Administrator.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AdministrationSection {
+    Providers,
+    Settings,
+    Restart,
+}
+
+/// The optional sections that the Administration Port offers.
+#[derive(Debug, Clone)]
+pub struct AdministrationSections(BTreeSet<AdministrationSection>);
+
+impl Default for AdministrationSections {
+    fn default() -> Self {
+        Self::without(&[])
+    }
+}
+
+impl AdministrationSections {
+    /// Offer all sections except the ones the deployment hides.
+    pub fn without(hidden: &[AdministrationSection]) -> Self {
+        Self(
+            [
+                AdministrationSection::Providers,
+                AdministrationSection::Settings,
+                AdministrationSection::Restart,
+            ]
+            .into_iter()
+            .filter(|section| !hidden.contains(section))
+            .collect(),
+        )
+    }
+
+    pub fn contains(&self, section: AdministrationSection) -> bool {
+        self.0.contains(&section)
+    }
+
+    fn offered(&self) -> Vec<&'static str> {
+        use AdministrationSection::{Providers, Restart, Settings};
+        [
+            ("spend", None),
+            ("people", None),
+            ("sessions", None),
+            ("resources", None),
+            ("providers", Some(Providers)),
+            ("settings", Some(Settings)),
+            ("plugins", None),
+            ("health", None),
+            ("restart", Some(Restart)),
+        ]
+        .into_iter()
+        .filter(|(_, section)| section.is_none_or(|section| self.contains(section)))
+        .map(|(name, _)| name)
+        .collect()
+    }
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AdministrationSectionsDto {
+    /// The offered sections, in navigation order. Restart has no view.
+    pub sections: Vec<&'static str>,
+}
+
+/// The sections this server offers to an Administrator.
+#[utoipa::path(
+    get, path = "/api/v1/administration/sections",
+    responses(
+        (status = 200, body = AdministrationSectionsDto),
+        (status = 401, body = crate::error::ErrorBody),
+        (status = 403, body = crate::error::ErrorBody),
+    )
+)]
+pub async fn get_sections(
+    State(state): State<Arc<AppState>>,
+    _administrator: Administrator,
+) -> Json<AdministrationSectionsDto> {
+    Json(AdministrationSectionsDto {
+        sections: state.administration_sections.offered(),
+    })
+}
 
 /// One Person on the roster, with what an Administrator manages.
 #[derive(Debug, Serialize, ToSchema)]
@@ -1108,7 +1190,8 @@ async fn require_administrator(request: Request, next: Next) -> Result<Response,
 /// own origin. The origin check that [`crate::routers`] puts around this
 /// router refuses a write from such a page.
 pub fn router(state: Arc<AppState>) -> Router {
-    let guarded = Router::new()
+    let mut guarded = Router::new()
+        .route("/api/v1/administration/sections", get(get_sections))
         .route(
             "/api/v1/administration/people",
             get(list_people).post(create_account),
@@ -1156,54 +1239,73 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route(
             "/api/v1/sessions/current",
             delete(crate::sessions::sign_out),
-        )
-        // The installation settings. They answer on this port alone:
-        // the product port serves a Person's own settings.
-        .route(
-            "/api/v1/settings/system",
-            get(crate::system::get_system_settings).put(crate::system::set_system_settings),
-        )
-        .route(
-            "/api/v1/settings/system/remote-access",
-            get(crate::remote_access::get_remote_access)
-                .put(crate::remote_access::turn_on_remote_access)
-                .delete(crate::remote_access::turn_off_remote_access),
-        )
-        .route(
-            "/api/v1/settings/system/analytics",
-            put(crate::system::set_analytics),
-        )
-        .route(
-            "/api/v1/settings/system/model-request-capture",
-            put(crate::system::set_model_request_capture),
-        )
-        .route(
-            "/api/v1/settings/system/home-exit",
-            put(crate::system::set_home_exit_setting),
-        )
-        .route(
-            "/api/v1/settings/system/docker/probe",
-            post(crate::system::probe_docker),
-        )
-        // The installation's setup of every provider: the model keys,
-        // the Installation OAuth Client, the carrier account with its
-        // SIP sign-in and the mail domain. One set of routes serves each
-        // part every provider declares; a person's own use of a provider
-        // stays on the product port.
-        .route(
-            "/api/v1/administration/providers",
-            get(crate::providers::list_provider_setups),
-        )
-        .route(
-            "/api/v1/administration/providers/{provider}/{part}",
-            put(crate::providers::configure_provider_part)
-                .delete(crate::providers::remove_provider_part),
-        )
-        .route(
-            "/api/v1/administration/providers/{provider}/{part}/test",
-            post(crate::providers::test_provider_part),
-        )
-        .route("/api/v1/system/restart", post(crate::system::restart))
+        );
+
+    if state
+        .administration_sections
+        .contains(AdministrationSection::Settings)
+    {
+        guarded = guarded
+            // The installation settings. They answer on this port alone:
+            // the product port serves a Person's own settings.
+            .route(
+                "/api/v1/settings/system",
+                get(crate::system::get_system_settings).put(crate::system::set_system_settings),
+            )
+            .route(
+                "/api/v1/settings/system/remote-access",
+                get(crate::remote_access::get_remote_access)
+                    .put(crate::remote_access::turn_on_remote_access)
+                    .delete(crate::remote_access::turn_off_remote_access),
+            )
+            .route(
+                "/api/v1/settings/system/analytics",
+                put(crate::system::set_analytics),
+            )
+            .route(
+                "/api/v1/settings/system/model-request-capture",
+                put(crate::system::set_model_request_capture),
+            )
+            .route(
+                "/api/v1/settings/system/home-exit",
+                put(crate::system::set_home_exit_setting),
+            )
+            .route(
+                "/api/v1/settings/system/docker/probe",
+                post(crate::system::probe_docker),
+            );
+    }
+    if state
+        .administration_sections
+        .contains(AdministrationSection::Providers)
+    {
+        guarded = guarded
+            // The installation's setup of every provider: the model keys,
+            // the Installation OAuth Client, the carrier account with its
+            // SIP sign-in and the mail domain. One set of routes serves each
+            // part every provider declares; a person's own use of a provider
+            // stays on the product port.
+            .route(
+                "/api/v1/administration/providers",
+                get(crate::providers::list_provider_setups),
+            )
+            .route(
+                "/api/v1/administration/providers/{provider}/{part}",
+                put(crate::providers::configure_provider_part)
+                    .delete(crate::providers::remove_provider_part),
+            )
+            .route(
+                "/api/v1/administration/providers/{provider}/{part}/test",
+                post(crate::providers::test_provider_part),
+            );
+    }
+    if state
+        .administration_sections
+        .contains(AdministrationSection::Restart)
+    {
+        guarded = guarded.route("/api/v1/system/restart", post(crate::system::restart));
+    }
+    let guarded = guarded
         // Which Plugins the Org holds, and what each one is bound to
         // (ADR-0017). A Person grants an installed Plugin to their own
         // Agent on the product port; installing one is the Org's.

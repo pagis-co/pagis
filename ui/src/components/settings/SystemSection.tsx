@@ -1,5 +1,5 @@
 // The installation settings (ADR-0024): the daemon's three settings in a
-// two-column form, "Save and restart", Remote Access (ADR-0028), the
+// two-column form, the save and restart controls, Remote Access (ADR-0028), the
 // Docker probe row, the anonymous analytics (ADR-0026), the Home Exit of
 // a server (ADR-0029), and About.
 // The installation's setup of each provider is the Providers view.
@@ -58,37 +58,50 @@ function DockerRow({ docker, api }: { docker: DockerReportDto; api: ApiClient })
   )
 }
 
-function SystemForm({ api, settings }: { api: ApiClient; settings: SystemSettingsDto }) {
+function SystemForm({
+  api,
+  settings,
+  restartAvailable,
+}: {
+  api: ApiClient
+  settings: SystemSettingsDto
+  restartAvailable: boolean
+}) {
   const save = useSaveSystemSettings(api)
   const restart = useDaemonRestart(api, settings)
   const [port, setPort] = useState(String(settings.port))
   const [logLevel, setLogLevel] = useState(settings.log_level)
   const [dockerEndpoint, setDockerEndpoint] = useState(settings.docker_endpoint ?? '')
 
-  // The button says "Save and restart", so a save that needs a restart
-  // asks for one at once. The Docker endpoint takes effect without one,
-  // so that save stops at "Saved.". The timezone is each Person's own,
-  // in the Product App's Settings.
-  const saveAndRestart = () =>
+  // A save asks for a restart only where the server offers one.
+  const saveSettings = () =>
     save.mutate(
       {
         port: Number(port),
         docker_endpoint: dockerEndpoint.trim() === '' ? null : dockerEndpoint.trim(),
         log_level: logLevel,
       },
-      { onSuccess: (saved) => saved.restart_required && restart.ask() },
+      { onSuccess: (saved) => restartAvailable && saved.restart_required && restart.ask() },
     )
 
   const busy = save.isPending || restart.isPending
+  let savedMessage: string | null = null
+  if (save.isSuccess) {
+    if (!save.data.restart_required) savedMessage = 'Saved.'
+    else if (!restartAvailable) savedMessage = 'Saved. The change applies at the next start of the server.'
+  }
   const status =
-    restartMessage(restart.phase, settings.supervised) ??
-    (save.isSuccess && !save.data.restart_required ? 'Saved.' : null)
+    restartMessage(restart.phase, settings.supervised) ?? savedMessage
 
   return (
     <section className="system-section">
       <div className="system-title">
         <h3>System</h3>
-        <span>The daemon. A change here restarts it.</span>
+        <span>
+          {restartAvailable
+            ? 'The daemon. A change here restarts it.'
+            : 'A change that needs a restart applies at the next start of the server.'}
+        </span>
       </div>
 
       <Frame>
@@ -131,12 +144,14 @@ function SystemForm({ api, settings }: { api: ApiClient; settings: SystemSetting
           </label>
         </div>
         <Row>
-          <Button variant="primary" disabled={busy} onClick={saveAndRestart}>
-            Save and restart
+          <Button variant="primary" disabled={busy} onClick={saveSettings}>
+            {restartAvailable ? 'Save and restart' : 'Save'}
           </Button>
-          <Button variant="ghost" disabled={busy} onClick={() => restart.ask()}>
-            Restart now
-          </Button>
+          {restartAvailable && (
+            <Button variant="ghost" disabled={busy} onClick={() => restart.ask()}>
+              Restart now
+            </Button>
+          )}
           <span className="system-row-trailing system-row-note">
             {save.isError ? (
               <span role="alert" className="system-error">
@@ -145,14 +160,14 @@ function SystemForm({ api, settings }: { api: ApiClient; settings: SystemSetting
             ) : status ? (
               <span role="status">{status}</span>
             ) : (
-              'Unsaved changes restart the daemon on Save.'
+              restartAvailable ? 'Unsaved changes restart the daemon on Save.' : 'Unsaved changes.'
             )}
           </span>
         </Row>
       </Frame>
 
       <SectionLabel>Network</SectionLabel>
-      <RemoteAccess api={api} screen={settings.screen} daemon={settings} />
+      <RemoteAccess api={api} screen={settings.screen} daemon={settings} restartAvailable={restartAvailable} />
 
       <SectionLabel>Docker</SectionLabel>
       <Frame>
@@ -188,7 +203,13 @@ function SystemForm({ api, settings }: { api: ApiClient; settings: SystemSetting
   )
 }
 
-export function SystemSection({ api }: { api: ApiClient }) {
+export function SystemSection({
+  api,
+  restartAvailable,
+}: {
+  api: ApiClient
+  restartAvailable: boolean
+}) {
   const settings = useSystemSettings(api)
   if (!settings.data) {
     return (
@@ -204,5 +225,5 @@ export function SystemSection({ api }: { api: ApiClient }) {
   }
   // The form starts from the saved values and then holds what the user
   // types, until a save replaces them.
-  return <SystemForm api={api} settings={settings.data} />
+  return <SystemForm api={api} settings={settings.data} restartAvailable={restartAvailable} />
 }

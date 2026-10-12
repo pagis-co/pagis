@@ -2,11 +2,11 @@
 // views, and what each view shows from the daemon's answers.
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import type { ApiClient } from '../api/client'
+import type { ApiClient, SystemSettingsDto } from '../api/client'
 import { Administration, viewOfPath } from './Administration'
 import { Health } from './Health'
 import { Resources, bytes } from './Resources'
@@ -18,6 +18,18 @@ const ADMINISTRATOR = {
   name: 'Ada',
   email: 'ada@example.com',
   role: 'administrator',
+}
+
+const SECTIONS = ['spend', 'people', 'sessions', 'resources', 'providers', 'settings', 'plugins', 'health', 'restart']
+
+const SYSTEM: SystemSettingsDto = {
+  port: 4400, listening_port: 4400, port_override: null, supervised: true, started_at: 1,
+  docker_endpoint: null, log_level: 'info', data_directory: '/tmp/pagis', version: '0.1.0',
+  docker: { endpoint: null, candidates: [] },
+  analytics: { enabled: true, blocked: null },
+  model_request_capture: { enabled: false, retention_days: 7 },
+  home_exit: null,
+  screen: { relay: 'daemon', advertise_ip: '127.0.0.1', media_port_first: 50000, media_port_last: 50099, loopback: true },
 }
 
 function person(id: string, name: string) {
@@ -48,6 +60,11 @@ function total(costUsd: number) {
 /** A client that answers each path with the body the test names, and
  *  throws the daemon's error shape for a path it was given none for. */
 function apiOf(answers: Record<string, unknown>, errors: Record<string, unknown> = {}) {
+  answers = {
+    '/api/v1/administration/sections': { sections: SECTIONS },
+    '/api/v1/administration/usage': { from: 0, to: 1, items: [], total: total(0) },
+    ...answers,
+  }
   // A set-up installation answers the first-run read with `410 Gone`,
   // which is what says it is set up. A test that wants the setup page
   // answers that read instead.
@@ -73,6 +90,79 @@ function mount(node: React.ReactElement) {
 }
 
 describe('the administration page', () => {
+  afterEach(() => window.history.replaceState(null, '', '/'))
+  it('shows only the views the server offers, in the offered order', async () => {
+    window.history.replaceState(null, '', '/')
+    const api = apiOf({
+      '/api/v1/user': ADMINISTRATOR,
+      '/api/v1/administration/sections': { sections: ['spend', 'people', 'sessions', 'resources', 'plugins', 'health'] },
+    })
+    mount(<Administration api={api} />)
+    const navigation = await screen.findByRole('navigation', { name: 'Administration' })
+    expect(within(navigation).getAllByRole('button').map((button) => button.textContent))
+      .toEqual(['Spend', 'People', 'Sessions', 'Resources', 'Plugins', 'Health'])
+    expect(api.GET).toHaveBeenCalledWith('/api/v1/administration/sections')
+    expect(api.GET).not.toHaveBeenCalledWith('/api/v1/administration/providers')
+    expect(api.GET).not.toHaveBeenCalledWith('/api/v1/settings/system')
+  })
+
+  it.each(['providers', 'settings'])('opens the first offered view at a hidden %s address', async (view) => {
+    window.history.replaceState(null, '', `/${view}`)
+    const api = apiOf({
+      '/api/v1/user': ADMINISTRATOR,
+      '/api/v1/administration/sections': { sections: ['health', 'spend'] },
+    })
+    mount(<Administration api={api} />)
+    expect(await screen.findByRole('heading', { name: 'Health' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: view === 'settings' ? 'Settings' : 'Providers' })).toBeNull()
+    expect(window.location.pathname).toBe('/health')
+    window.history.replaceState(null, '', '/')
+  })
+
+  it('waits for the offered sections before it draws a view', async () => {
+    let answer!: (value: unknown) => void
+    const pending = new Promise((resolve) => { answer = resolve })
+    const api = apiOf({ '/api/v1/user': ADMINISTRATOR })
+    const get = api.GET
+    api.GET = vi.fn((path, options) => path === '/api/v1/administration/sections' ? pending : get(path, options)) as ApiClient['GET']
+    mount(<Administration api={api} />)
+    await waitFor(() => expect(api.GET).toHaveBeenCalledWith('/api/v1/administration/sections'))
+    expect(screen.queryByRole('navigation')).toBeNull()
+    expect(api.GET).not.toHaveBeenCalledWith('/api/v1/administration/usage', expect.anything())
+    answer({ data: { sections: SECTIONS } })
+    expect(await screen.findByRole('navigation')).toBeTruthy()
+  })
+
+  it('says when the offered sections cannot be read', async () => {
+    const api = apiOf({ '/api/v1/user': ADMINISTRATOR })
+    const get = api.GET
+    api.GET = vi.fn((path, options) => path === '/api/v1/administration/sections'
+      ? Promise.resolve({ error: { error: { code: 'internal', message: 'failed' } } }) : get(path, options)) as ApiClient['GET']
+    mount(<Administration api={api} />)
+    expect((await screen.findByRole('alert')).textContent).toContain('The administration sections could not be read.')
+    expect(screen.queryByRole('navigation')).toBeNull()
+  })
+
+  it('saves Settings for the next start without restart controls or a restart request', async () => {
+    window.history.replaceState(null, '', '/settings')
+    const api = apiOf({
+      '/api/v1/user': ADMINISTRATOR,
+      '/api/v1/administration/sections': { sections: SECTIONS.filter((section) => section !== 'restart') },
+      '/api/v1/settings/system': SYSTEM,
+      '/api/v1/settings/system/remote-access': { enabled: false, switchable: false },
+    })
+    api.PUT = vi.fn(async () => ({ data: { settings: SYSTEM, restart_required: true } })) as unknown as ApiClient['PUT']
+    mount(<Administration api={api} />)
+    fireEvent.change(await screen.findByLabelText('Port'), { target: { value: '4500' } })
+    expect(screen.queryByRole('button', { name: 'Save and restart' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Restart now' })).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(await screen.findByText('Saved. The change applies at the next start of the server.')).toBeTruthy()
+    expect(api.PUT).toHaveBeenCalledWith('/api/v1/settings/system', { body: { port: 4500, docker_endpoint: null, log_level: 'info' } })
+    expect(api.POST).not.toHaveBeenCalled()
+    window.history.replaceState(null, '', '/')
+  })
+
   it('shows the sign-in while the browser holds no session', async () => {
     const api = apiOf({}, { '/api/v1/user': { error: { code: 'unauthorized', message: 'no' } } })
 
@@ -203,6 +293,8 @@ describe('the administration page', () => {
             ? { data: ADMINISTRATOR }
             : { error: { error: { code: 'unauthorized', message: 'no' } } }
         }
+        if (path === '/api/v1/administration/sections') return { data: { sections: SECTIONS } }
+        if (path === '/api/v1/administration/usage') return { data: { from: 0, to: 1, items: [], total: total(0) } }
         return { data: {} }
       }),
       POST: vi.fn(async (path: string) => {

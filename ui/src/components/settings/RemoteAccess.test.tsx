@@ -80,7 +80,7 @@ function stubApi(
   }
 }
 
-function mount(api: ReturnType<typeof stubApi>, supervised = true) {
+function mount(api: ReturnType<typeof stubApi>, supervised = true, restartAvailable = true) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
@@ -90,6 +90,7 @@ function mount(api: ReturnType<typeof stubApi>, supervised = true) {
         api={api as unknown as ApiClient}
         screen={loopbackScreen}
         daemon={{ supervised, started_at: 1 }}
+        restartAvailable={restartAvailable}
       />
     </QueryClientProvider>,
   )
@@ -105,6 +106,34 @@ afterEach(() => {
 })
 
 describe('RemoteAccess', () => {
+  it('shows no restart control for a saved change without restart', async () => {
+    const api = stubApi([on({ restart_required: true })])
+    mount(api, true, false)
+    await theSwitch()
+    expect(screen.queryByRole('button', { name: 'Restart now' })).toBeNull()
+    expect(screen.getByText('The change applies at the next start of the server.')).toBeTruthy()
+    expect(api.POST).not.toHaveBeenCalled()
+  })
+
+  it('turns Remote Access off for the next start without a restart request', async () => {
+    const api = stubApi([on()], { DELETE: vi.fn(async () => ({ data: { ...off(), restart_required: true } })) })
+    mount(api, true, false)
+    fireEvent.click(await theSwitch())
+    fireEvent.click(screen.getByRole('button', { name: 'Turn off' }))
+    expect(await screen.findByText('The change applies at the next start of the server.')).toBeTruthy()
+    expect(api.DELETE).toHaveBeenCalledWith('/api/v1/settings/system/remote-access')
+    expect(api.POST).not.toHaveBeenCalled()
+  })
+
+  it('turns Remote Access on for the next start without a restart request', async () => {
+    const api = stubApi([off(), on({ restart_required: true })])
+    mount(api, true, false)
+    fireEvent.click(await theSwitch())
+    fireEvent.click(screen.getByRole('button', { name: 'Turn on' }))
+    expect(await screen.findByText('The change applies at the next start of the server.', {}, { timeout: 3000 })).toBeTruthy()
+    expect(api.PUT).toHaveBeenCalledWith('/api/v1/settings/system/remote-access')
+    expect(api.POST).not.toHaveBeenCalled()
+  })
   it('scrolls to the switch when the address names it', async () => {
     const scrolled = vi.fn()
     Element.prototype.scrollIntoView = scrolled

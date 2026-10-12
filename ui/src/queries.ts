@@ -3089,6 +3089,13 @@ export function useSystemSettings(api: ApiClient) {
   });
 }
 
+export function useAdministrationSections(api: ApiClient) {
+  return useQuery({
+    queryKey: ["administration", "sections"],
+    queryFn: () => unwrap(api.GET("/api/v1/administration/sections")),
+  });
+}
+
 export function useSaveSystemSettings(api: ApiClient) {
   const queryClient = useQueryClient();
   return useMutation({
