@@ -13,9 +13,10 @@ use std::sync::Arc;
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
+#[cfg(feature = "native")]
+use pagis_core::HostId;
 use pagis_core::{
-    AgentId, ConnectionId, Grant, GrantId, HostId, NewEvent, SessionAllowRule, SessionApprovalMode,
-    now_ms,
+    AgentId, ConnectionId, Grant, GrantId, NewEvent, SessionAllowRule, SessionApprovalMode, now_ms,
 };
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -82,12 +83,14 @@ pub struct SetGrantCapabilitiesRequest {
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[cfg_attr(not(feature = "native"), allow(dead_code))]
 pub struct SetSessionApprovalModeRequest {
     /// The widest mode that the Agent may use on the machine.
     pub mode: SessionApprovalMode,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[cfg_attr(not(feature = "native"), allow(dead_code))]
 pub struct SetUnattendedModesRequest {
     /// Whether the Agent may use an Unattended Mode on the machine.
     pub allowed: bool,
@@ -414,20 +417,28 @@ pub async fn set_grant_rules(
         (status = 422, body = crate::error::ErrorBody),
     )
 )]
+#[cfg_attr(not(feature = "native"), allow(dead_code, unused_variables))]
 pub async fn set_session_approval_mode(
     State(state): State<Arc<AppState>>,
     tenant: Tenant,
     Path((agent_id, host_id)): Path<(String, String)>,
     Json(request): Json<SetSessionApprovalModeRequest>,
 ) -> Result<(StatusCode, Json<GrantDto>), ApiError> {
-    set_host_grant_field(
-        &state,
-        &tenant,
-        (agent_id, host_id),
-        |grant| grant.session_approval_mode() == request.mode,
-        |grant| grant.with_session_approval_mode(request.mode),
-    )
-    .await
+    #[cfg(not(feature = "native"))]
+    {
+        Err(ApiError::not_available("Hosts"))
+    }
+    #[cfg(feature = "native")]
+    {
+        set_host_grant_field(
+            &state,
+            &tenant,
+            (agent_id, host_id),
+            |grant| grant.session_approval_mode() == request.mode,
+            |grant| grant.with_session_approval_mode(request.mode),
+        )
+        .await
+    }
 }
 
 /// Allow or stop the Unattended Modes of an Agent on a machine. As with
@@ -446,20 +457,28 @@ pub async fn set_session_approval_mode(
         (status = 422, body = crate::error::ErrorBody),
     )
 )]
+#[cfg_attr(not(feature = "native"), allow(dead_code, unused_variables))]
 pub async fn set_unattended_modes(
     State(state): State<Arc<AppState>>,
     tenant: Tenant,
     Path((agent_id, host_id)): Path<(String, String)>,
     Json(request): Json<SetUnattendedModesRequest>,
 ) -> Result<(StatusCode, Json<GrantDto>), ApiError> {
-    set_host_grant_field(
-        &state,
-        &tenant,
-        (agent_id, host_id),
-        |grant| grant.unattended_modes() == request.allowed,
-        |grant| grant.with_unattended_modes(request.allowed),
-    )
-    .await
+    #[cfg(not(feature = "native"))]
+    {
+        Err(ApiError::not_available("Hosts"))
+    }
+    #[cfg(feature = "native")]
+    {
+        set_host_grant_field(
+            &state,
+            &tenant,
+            (agent_id, host_id),
+            |grant| grant.unattended_modes() == request.allowed,
+            |grant| grant.with_unattended_modes(request.allowed),
+        )
+        .await
+    }
 }
 
 /// Write one field of the scope of the live host grant of an Agent on a
@@ -467,6 +486,7 @@ pub async fn set_unattended_modes(
 /// grant with no allow rules gets it (201). A grant that `holds` the
 /// value already is not written. Each write is a revision and publishes
 /// `grant.changed`.
+#[cfg(feature = "native")]
 async fn set_host_grant_field(
     state: &AppState,
     tenant: &Tenant,

@@ -60,7 +60,7 @@ pub use agent::AgentAsks;
 pub use ask::{
     AskHandler, PermissionAnswer, PermissionAsk, PermissionOptionKind, QuestionAnswer, QuestionAsk,
 };
-pub use decisions::{DecidedBy, Pending, RefuseDecisions, SessionDecisions, Waited, WaitsFor};
+pub use decisions::{DecidedBy, Pending, RefuseDecisions, SessionDecisions, Waited};
 pub use error::CodingError;
 pub use event::{
     Cost, Location, PlanEntry, PlanPriority, PlanStatus, SessionEvent, StopReason, ToolKind,
@@ -75,6 +75,7 @@ pub use model_route::{
     ConfigDirectory, ConfigFile, EndpointRoute, MODEL_TOKEN_VARIABLE, ModelApi, ModelRoute,
     ModelRoutes, ModelSetup, NoModelRoute, RouteFailure, choose_route, routes,
 };
+pub use pagis_core::WaitsFor;
 pub use place::{
     OpenFailure, OpenFailureCode, OpenRequest, OpenedStream, Place, PlaceStream, SessionExit,
     SessionPlace, WorktreeRequest, open_on_host,

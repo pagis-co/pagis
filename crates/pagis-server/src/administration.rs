@@ -1113,7 +1113,6 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/v1/administration/sessions", get(list_sessions))
         .route("/api/v1/administration/hosts", get(list_hosts))
         .route("/api/v1/administration/health", get(installation_health))
-        .merge(crate::native_administration_routes())
         // Who the page serves. A Member who reaches the port gets `403`
         // from the layer here too, so the page says what is wrong
         // instead of showing an empty administration.
@@ -1188,29 +1187,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         guarded = guarded.route("/api/v1/system/restart", post(crate::system::restart));
     }
     let guarded = guarded
-        // Which Plugins the Org holds, and what each one is bound to
-        // (ADR-0017). A Person grants an installed Plugin to their own
-        // Agent on the product port; installing one is the Org's.
-        .route(
-            "/api/v1/plugins",
-            get(crate::plugins::list_plugins).post(crate::plugins::install_plugin),
-        )
-        .route(
-            "/api/v1/plugins/{plugin_id}",
-            get(crate::plugins::get_plugin).delete(crate::plugins::uninstall_plugin),
-        )
-        .route(
-            "/api/v1/plugins/{plugin_id}/update",
-            post(crate::plugins::update_plugin),
-        )
-        .route(
-            "/api/v1/plugins/{plugin_id}/bindings/{field}",
-            put(crate::plugins::bind_plugin_field),
-        )
-        .route(
-            "/api/v1/plugins/{plugin_id}/start",
-            post(crate::plugins::start_plugin),
-        )
+        .merge(crate::native_administration_routes())
         .layer(middleware::from_fn(require_administrator))
         .layer(middleware::from_fn_with_state(
             Arc::clone(&state),

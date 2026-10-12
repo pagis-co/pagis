@@ -143,7 +143,7 @@ starts the Run that `Admission::next` selects. Admission tests need no
 task, clock or store.
 
 `pagis-rt` supplies tasks, blocking calls, sleeps, deadlines, intervals,
-timeouts and `Instant` to `pagis-agent`, `pagis-telephony`,
+timeouts and `Instant` to `pagis-agent`, `pagis-mail`, `pagis-telephony`,
 `pagis-needs-you` and `pagis-server`.
 Intervals delay missed ticks, so the Media Hub sends no burst to catch
 up. Native targets use Tokio. On `wasm32-unknown-unknown`,
@@ -325,6 +325,14 @@ an Agent Mailbox record. `MailboxDesk` supplies `ImapMailbox`, which reads
 IMAP ids, selects folders and checks their numbering. The tools treat ids and
 page tokens as opaque strings and enforce the answer caps. The collector
 uses IMAP IDLE directly.
+
+`pagis-mail` builds on native and wasm targets. `MailboxDesk` uses the
+same host, transport and store seams on both targets. The `rules` tests
+use mail fakes and records in memory to check mailbox creation, the
+Address Ledger, dormant mailboxes and recipient domains in Allow Rules.
+`pagis-rt` supplies the tasks and timers. The IMAP byte driver stays
+portable; `StandardTransport` and its IMAP sockets exist only on native
+targets.
 
 ### Notifications
 

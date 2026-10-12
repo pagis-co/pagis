@@ -49,7 +49,7 @@ pub use coding_session::{
     CodingSession, CodingSessionEvent, CodingSessionEventKind, CodingSessionPlace,
     CodingSessionState, CodingSessionStore, CodingSessionUsage, HarnessChoice, HarnessModeInfo,
     HarnessSetting, ModeChangedBy, ModelTokenOwner, NewCodingSessionEvent, SessionAllowRule,
-    SessionApprovalMode, TranscriptWrite, mode_payload, path_is_inside,
+    SessionApprovalMode, TranscriptWrite, WaitsFor, mode_payload, path_is_inside,
 };
 pub use continuation::{
     ContinuationCheckpoint, ContinuationKey, ContinuationState, ContinuationStore,

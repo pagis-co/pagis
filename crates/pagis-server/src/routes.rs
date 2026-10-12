@@ -411,31 +411,31 @@ pub const ADMINISTRATION_ROUTES: &[Route] = &[
         path: "/api/v1/plugins",
         methods: &["get", "post"],
         authenticated: true,
-        part: None,
+        part: Some("Plugins"),
     },
     Route {
         path: "/api/v1/plugins/{plugin_id}",
         methods: &["get", "delete"],
         authenticated: true,
-        part: None,
+        part: Some("Plugins"),
     },
     Route {
         path: "/api/v1/plugins/{plugin_id}/update",
         methods: &["post"],
         authenticated: true,
-        part: None,
+        part: Some("Plugins"),
     },
     Route {
         path: "/api/v1/plugins/{plugin_id}/bindings/{field}",
         methods: &["put"],
         authenticated: true,
-        part: None,
+        part: Some("Plugins"),
     },
     Route {
         path: "/api/v1/plugins/{plugin_id}/start",
         methods: &["post"],
         authenticated: true,
-        part: None,
+        part: Some("Plugins"),
     },
 ];
 
@@ -661,7 +661,7 @@ pub const ROUTES: &[Route] = &[
         path: "/api/v1/calls/{call_id}/control",
         methods: &["post"],
         authenticated: true,
-        part: None,
+        part: Some("Calls"),
     },
     Route {
         path: "/api/v1/runs/{run_id}/cancel",
@@ -835,25 +835,25 @@ pub const ROUTES: &[Route] = &[
         path: "/api/v1/hosts",
         methods: &["get"],
         authenticated: true,
-        part: None,
+        part: Some("Hosts"),
     },
     Route {
         path: "/api/v1/hosts/{host_id}/harnesses/{harness_id}/sign-in",
         methods: &["post"],
         authenticated: true,
-        part: None,
+        part: Some("Hosts"),
     },
     Route {
         path: "/api/v1/hosts/{host_id}/harnesses/{harness_id}/sign-in-check",
         methods: &["post"],
         authenticated: true,
-        part: None,
+        part: Some("Hosts"),
     },
     Route {
         path: "/api/v1/harnesses",
         methods: &["get"],
         authenticated: true,
-        part: None,
+        part: Some("Hosts"),
     },
     Route {
         path: "/api/v1/grants",
@@ -883,13 +883,13 @@ pub const ROUTES: &[Route] = &[
         path: "/api/v1/agents/{agent_id}/hosts/{host_id}/session-approval-mode",
         methods: &["put"],
         authenticated: true,
-        part: None,
+        part: Some("Hosts"),
     },
     Route {
         path: "/api/v1/agents/{agent_id}/hosts/{host_id}/unattended-modes",
         methods: &["put"],
         authenticated: true,
-        part: None,
+        part: Some("Hosts"),
     },
     Route {
         path: "/api/v1/user",
@@ -1045,91 +1045,91 @@ pub const ROUTES: &[Route] = &[
         path: "/api/v1/calls",
         methods: &["get"],
         authenticated: true,
-        part: None,
+        part: Some("Calls"),
     },
     Route {
         path: "/api/v1/calls/{call_id}",
         methods: &["get"],
         authenticated: true,
-        part: None,
+        part: Some("Calls"),
     },
     Route {
         path: "/api/v1/calls/{call_id}/dismiss",
         methods: &["post"],
         authenticated: true,
-        part: None,
+        part: Some("Calls"),
     },
     Route {
         path: "/api/v1/calls/{call_id}/hangup",
         methods: &["post"],
         authenticated: true,
-        part: None,
+        part: Some("Calls"),
     },
     Route {
         path: "/api/v1/calls/{call_id}/tier",
         methods: &["post"],
         authenticated: true,
-        part: None,
+        part: Some("Calls"),
     },
     Route {
         path: "/api/v1/coding-sessions",
         methods: &["get"],
         authenticated: true,
-        part: None,
+        part: Some("Hosts"),
     },
     Route {
         path: "/api/v1/coding-sessions/{coding_session_id}",
         methods: &["get"],
         authenticated: true,
-        part: None,
+        part: Some("Hosts"),
     },
     Route {
         path: "/api/v1/coding-sessions/{coding_session_id}/transcript",
         methods: &["get"],
         authenticated: true,
-        part: None,
+        part: Some("Hosts"),
     },
     Route {
         path: "/api/v1/coding-sessions/{coding_session_id}/stop",
         methods: &["post"],
         authenticated: true,
-        part: None,
+        part: Some("Hosts"),
     },
     Route {
         path: "/api/v1/settings/phone-numbers",
         methods: &["get", "post"],
         authenticated: true,
-        part: None,
+        part: Some("Calls"),
     },
     Route {
         path: "/api/v1/settings/phone-numbers/adopt",
         methods: &["post"],
         authenticated: true,
-        part: None,
+        part: Some("Calls"),
     },
     Route {
         path: "/api/v1/settings/phone-numbers/available",
         methods: &["get"],
         authenticated: true,
-        part: None,
+        part: Some("Calls"),
     },
     Route {
         path: "/api/v1/settings/phone-numbers/{phone_number_id}/assign",
         methods: &["post"],
         authenticated: true,
-        part: None,
+        part: Some("Calls"),
     },
     Route {
         path: "/api/v1/settings/phone-numbers/{phone_number_id}/unassign",
         methods: &["post"],
         authenticated: true,
-        part: None,
+        part: Some("Calls"),
     },
     Route {
         path: "/api/v1/settings/phone-numbers/{phone_number_id}/release",
         methods: &["post"],
         authenticated: true,
-        part: None,
+        part: Some("Calls"),
     },
     Route {
         path: "/api/v1/settings/credentials",
@@ -1147,61 +1147,61 @@ pub const ROUTES: &[Route] = &[
         path: "/api/v1/plugins",
         methods: &["get"],
         authenticated: true,
-        part: None,
+        part: Some("Plugins"),
     },
     Route {
         path: "/api/v1/plugins/{plugin_id}",
         methods: &["get"],
         authenticated: true,
-        part: None,
+        part: Some("Plugins"),
     },
     Route {
         path: "/api/v1/plugins/{plugin_id}/grants",
         methods: &["post"],
         authenticated: true,
-        part: None,
+        part: Some("Plugins"),
     },
     Route {
         path: "/api/v1/plugins/{plugin_id}/log",
         methods: &["get"],
         authenticated: true,
-        part: None,
+        part: Some("Plugins"),
     },
     Route {
         path: "/api/v1/widgets/{package}/{version}/{widget}",
         methods: &["get"],
         authenticated: true,
-        part: None,
+        part: Some("Plugins"),
     },
     Route {
         path: "/api/v1/widgets/{tool_call_id}/view",
         methods: &["get"],
         authenticated: true,
-        part: None,
+        part: Some("Plugins"),
     },
     Route {
         path: "/api/v1/widgets/{tool_call_id}/rpc",
         methods: &["post"],
         authenticated: true,
-        part: None,
+        part: Some("Plugins"),
     },
     Route {
         path: "/api/v1/software",
         methods: &["get"],
         authenticated: true,
-        part: None,
+        part: Some("Plugins"),
     },
     Route {
         path: "/api/v1/software/{name}",
         methods: &["get"],
         authenticated: true,
-        part: None,
+        part: Some("Plugins"),
     },
     Route {
         path: "/api/v1/software/{name}/contributions/{contribution_id}",
         methods: &["get"],
         authenticated: true,
-        part: None,
+        part: Some("Plugins"),
     },
     Route {
         path: "/api/v1/usage",
@@ -1279,7 +1279,7 @@ pub const ROUTES: &[Route] = &[
         path: "/api/v1/hosts/{host_id}/sessions",
         methods: &["get"],
         authenticated: true,
-        part: Some("Hosts and Coding Sessions"),
+        part: Some("Hosts"),
     },
     Route {
         path: "/api/v1/channels/{channel_id}/dictate",
@@ -1297,7 +1297,7 @@ pub const ROUTES: &[Route] = &[
         path: "/api/v1/widgets/{workspace_id}/{package}/{version}/{widget}/sandbox",
         methods: &["get"],
         authenticated: false,
-        part: None,
+        part: Some("Plugins"),
     },
     Route {
         path: "/api/v1/connections/google/start",
@@ -1367,76 +1367,12 @@ mod tests {
 
     #[cfg(not(feature = "native"))]
     #[tokio::test]
-    async fn each_computers_route_answers_not_available() {
-        use axum::body::{Body, to_bytes};
-        use axum::http::{Request, StatusCode};
-        use tower::ServiceExt;
-
-        let router = crate::native_product_routes().merge(crate::native_administration_routes());
-        let routes = [
-            ("get", "/api/v1/agents/agent/computer"),
-            ("post", "/api/v1/agents/agent/computer/wake"),
-            ("post", "/api/v1/agents/agent/computer/sleep"),
-            ("get", "/api/v1/computers/disk"),
-            ("get", "/api/v1/screen/ice"),
-            ("get", "/api/v1/agents/agent/screen/preview.png"),
-            ("post", "/api/v1/agents/agent/screen/offer"),
-            ("post", "/api/v1/agents/agent/screen/takeover"),
-            ("post", "/api/v1/agents/agent/screen/handback"),
-            ("get", "/api/v1/settings/home-exit"),
-            ("put", "/api/v1/settings/home-exit"),
-            ("delete", "/api/v1/settings/home-exit"),
-            ("get", "/api/v1/hosts/host/exit"),
-            ("put", "/api/v1/settings/onboarding/docker-endpoint"),
-            ("get", "/api/v1/administration/resources"),
-            ("post", "/api/v1/administration/computer-image/pull"),
-        ];
-        for (method, path) in routes {
-            let response = router
-                .clone()
-                .oneshot(
-                    Request::builder()
-                        .method(method.to_uppercase().as_str())
-                        .uri(path)
-                        .body(Body::empty())
-                        .unwrap(),
-                )
-                .await
-                .unwrap();
-            assert_eq!(
-                response.status(),
-                StatusCode::NOT_IMPLEMENTED,
-                "{method} {path}"
-            );
-            let body: serde_json::Value =
-                serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
-                    .unwrap();
-            assert_eq!(body["error"]["code"], "not_available", "{method} {path}");
-            assert_eq!(
-                body["error"]["message"],
-                "This server does not offer Computers."
-            );
-        }
-    }
-
-    #[test]
-    fn onboarding_docker_report_accepts_null() {
-        let contract = serde_json::to_value(crate::ApiDoc::openapi()).unwrap();
-        assert_eq!(
-            contract["components"]["schemas"]["OnboardingDto"]["properties"]["docker"]["oneOf"][0]
-                ["type"],
-            "null",
-        );
-    }
-
-    #[cfg(not(feature = "native"))]
-    #[tokio::test]
     async fn each_absent_native_route_answers_not_available() {
         use axum::body::{Body, to_bytes};
         use axum::http::{Request, StatusCode};
         use tower::ServiceExt;
 
-        let router = crate::native_product_routes();
+        let router = crate::native_product_routes().merge(crate::native_public_routes());
         let mut count = 0;
         for route in ROUTES.iter().filter(|route| route.part.is_some()) {
             let part = route.part.unwrap();
@@ -1485,6 +1421,287 @@ mod tests {
             }
         }
         assert!(count >= 6, "the table names the native product routes");
+    }
+
+    #[test]
+    fn plugins_routes_name_one_native_part() {
+        let belongs = |route: &&Route| {
+            ["/api/v1/plugins", "/api/v1/software", "/api/v1/widgets"]
+                .iter()
+                .any(|prefix| route.path.starts_with(prefix))
+        };
+        let product: Vec<_> = ROUTES.iter().filter(belongs).collect();
+        let administration: Vec<_> = ADMINISTRATION_ROUTES.iter().filter(belongs).collect();
+        assert_eq!(product.len(), 11);
+        assert_eq!(administration.len(), 5);
+        for route in product.into_iter().chain(administration) {
+            assert_eq!(route.part, Some("Plugins"), "{}", route.path);
+        }
+    }
+
+    #[cfg(not(feature = "native"))]
+    #[tokio::test]
+    async fn each_plugins_route_answers_not_available() {
+        use axum::body::{Body, to_bytes};
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+
+        // Test each port's methods, including the public Sandbox Proxy.
+        let product: axum::Router =
+            crate::native_product_routes().merge(crate::native_public_routes());
+        let administration: axum::Router = crate::native_administration_routes();
+        for (router, table) in [(product, ROUTES), (administration, ADMINISTRATION_ROUTES)] {
+            for route in table.iter().filter(|route| {
+                ["/api/v1/plugins", "/api/v1/software", "/api/v1/widgets"]
+                    .iter()
+                    .any(|prefix| route.path.starts_with(prefix))
+            }) {
+                for method in route.methods {
+                    let path = route
+                        .path
+                        .split('/')
+                        .map(|segment| {
+                            if segment.starts_with('{') {
+                                "record"
+                            } else {
+                                segment
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join("/");
+                    let response = router
+                        .clone()
+                        .oneshot(
+                            Request::builder()
+                                .method(method.to_uppercase().as_str())
+                                .uri(path)
+                                .body(Body::empty())
+                                .unwrap(),
+                        )
+                        .await
+                        .unwrap();
+                    assert_eq!(
+                        response.status(),
+                        StatusCode::NOT_IMPLEMENTED,
+                        "{} {method}",
+                        route.path
+                    );
+                    let body: serde_json::Value = serde_json::from_slice(
+                        &to_bytes(response.into_body(), usize::MAX).await.unwrap(),
+                    )
+                    .unwrap();
+                    assert_eq!(
+                        body,
+                        serde_json::json!({"error": {
+                            "code": "not_available",
+                            "message": "This server does not offer Plugins."
+                        }})
+                    );
+                }
+            }
+        }
+    }
+
+    /// The routes of one native router. The guard belongs to its caller.
+    fn native_routes_in_source(
+        name: &str,
+        authenticated: bool,
+    ) -> Vec<(String, Vec<String>, bool)> {
+        let source = include_str!("native.rs");
+        let start = source
+            .find(&format!("fn {name}()"))
+            .expect("the native router exists");
+        let source = &source[start..];
+        let end = source.find("\n///").unwrap_or(source.len());
+        routes_in_source(&source[..end])
+            .into_iter()
+            .map(|(path, methods, _)| (path, methods, authenticated))
+            .collect()
+    }
+
+    #[cfg(not(feature = "native"))]
+    #[tokio::test]
+    async fn every_calls_route_answers_not_available() {
+        use axum::body::{Body, to_bytes};
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+
+        let router = crate::native_product_routes();
+        let routes: Vec<_> = ROUTES
+            .iter()
+            .filter(|route| {
+                route.path.starts_with("/api/v1/calls")
+                    || route.path.starts_with("/api/v1/settings/phone-numbers")
+            })
+            .collect();
+        assert_eq!(routes.len(), 13);
+        for route in routes {
+            assert_eq!(route.part, Some("Calls"), "{}", route.path);
+            let path = route
+                .path
+                .replace("{call_id}", "call")
+                .replace("{phone_number_id}", "number");
+            for method in route.methods {
+                let response = router
+                    .clone()
+                    .oneshot(
+                        Request::builder()
+                            .method(method.to_uppercase().as_str())
+                            .uri(&path)
+                            .body(Body::empty())
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    response.status(),
+                    StatusCode::NOT_IMPLEMENTED,
+                    "{method} {path}"
+                );
+                let body: serde_json::Value = serde_json::from_slice(
+                    &to_bytes(response.into_body(), usize::MAX).await.unwrap(),
+                )
+                .unwrap();
+                assert_eq!(
+                    body,
+                    serde_json::json!({"error": {
+                        "code": "not_available", "message": "This server does not offer Calls."
+                    }})
+                );
+            }
+        }
+    }
+
+    #[cfg(not(feature = "native"))]
+    #[tokio::test]
+    async fn each_hosts_route_answers_not_available() {
+        use axum::body::{Body, to_bytes};
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+
+        let paths = [
+            ("/api/v1/hosts", "GET"),
+            ("/api/v1/harnesses", "GET"),
+            ("/api/v1/hosts/host/harnesses/claude/sign-in", "POST"),
+            ("/api/v1/hosts/host/harnesses/claude/sign-in-check", "POST"),
+            ("/api/v1/coding-sessions", "GET"),
+            ("/api/v1/coding-sessions/session", "GET"),
+            ("/api/v1/coding-sessions/session/transcript", "GET"),
+            ("/api/v1/coding-sessions/session/stop", "POST"),
+            ("/api/v1/hosts/host/sessions", "GET"),
+            (
+                "/api/v1/agents/agent/hosts/host/session-approval-mode",
+                "PUT",
+            ),
+            ("/api/v1/agents/agent/hosts/host/unattended-modes", "PUT"),
+        ];
+        let router = crate::native_product_routes();
+        for (path, method) in paths {
+            let response = router
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method(method)
+                        .uri(path)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                response.status(),
+                StatusCode::NOT_IMPLEMENTED,
+                "{method} {path}"
+            );
+            let body: serde_json::Value =
+                serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                    .unwrap();
+            assert_eq!(
+                body,
+                serde_json::json!({"error": {
+                    "code": "not_available", "message": "This server does not offer Hosts."
+                }}),
+                "{method} {path}"
+            );
+        }
+        assert_eq!(
+            ROUTES
+                .iter()
+                .filter(|route| route.part == Some("Hosts"))
+                .count(),
+            paths.len()
+        );
+    }
+
+    #[cfg(not(feature = "native"))]
+    #[tokio::test]
+    async fn each_computers_route_answers_not_available() {
+        use axum::body::{Body, to_bytes};
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+
+        let product = crate::native_product_routes();
+        let administration = crate::native_administration_routes();
+        let routes = [
+            ("get", "/api/v1/agents/agent/computer"),
+            ("post", "/api/v1/agents/agent/computer/wake"),
+            ("post", "/api/v1/agents/agent/computer/sleep"),
+            ("get", "/api/v1/computers/disk"),
+            ("get", "/api/v1/screen/ice"),
+            ("get", "/api/v1/agents/agent/screen/preview.png"),
+            ("post", "/api/v1/agents/agent/screen/offer"),
+            ("post", "/api/v1/agents/agent/screen/takeover"),
+            ("post", "/api/v1/agents/agent/screen/handback"),
+            ("get", "/api/v1/settings/home-exit"),
+            ("put", "/api/v1/settings/home-exit"),
+            ("delete", "/api/v1/settings/home-exit"),
+            ("get", "/api/v1/hosts/host/exit"),
+            ("put", "/api/v1/settings/onboarding/docker-endpoint"),
+            ("get", "/api/v1/administration/resources"),
+            ("post", "/api/v1/administration/computer-image/pull"),
+        ];
+        for (method, path) in routes {
+            let router = if path.starts_with("/api/v1/administration/") {
+                &administration
+            } else {
+                &product
+            };
+            let response = router
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method(method.to_uppercase().as_str())
+                        .uri(path)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                response.status(),
+                StatusCode::NOT_IMPLEMENTED,
+                "{method} {path}"
+            );
+            let body: serde_json::Value =
+                serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                    .unwrap();
+            assert_eq!(body["error"]["code"], "not_available", "{method} {path}");
+            assert_eq!(
+                body["error"]["message"],
+                "This server does not offer Computers."
+            );
+        }
+    }
+
+    #[cfg(feature = "native")]
+    #[test]
+    fn onboarding_docker_report_accepts_null() {
+        let contract = serde_json::to_value(crate::ApiDoc::openapi()).unwrap();
+        assert_eq!(
+            contract["components"]["schemas"]["OnboardingDto"]["properties"]["docker"]["oneOf"][0]
+                ["type"],
+            "null",
+        );
     }
 
     /// Every `.route(...)` of one router, read out of its source: the
@@ -1584,10 +1801,8 @@ mod tests {
     #[test]
     fn the_route_table_holds_every_route_the_router_builds() {
         let mut from_source = routes_in_source(include_str!("lib.rs"));
-        let native: Vec<_> = routes_in_source(include_str!("native.rs"))
-            .into_iter()
-            .filter(|(path, _, _)| !path.starts_with("/api/v1/administration/"))
-            .collect();
+        let mut native = native_routes_in_source("product_routes", true);
+        native.extend(native_routes_in_source("public_routes", false));
         for route in ROUTES {
             assert_eq!(
                 route.part.is_some(),
@@ -1610,11 +1825,18 @@ mod tests {
     #[test]
     fn the_administration_table_holds_every_route_that_router_builds() {
         let mut from_source = routes_in_source(include_str!("administration.rs"));
-        from_source.extend(
-            routes_in_source(include_str!("native.rs"))
-                .into_iter()
-                .filter(|(path, _, _)| path.starts_with("/api/v1/administration/")),
-        );
+        let native = native_routes_in_source("administration_routes", true);
+        for route in ADMINISTRATION_ROUTES {
+            if route.path.starts_with("/api/v1/plugins") {
+                assert_eq!(
+                    route.part.is_some(),
+                    native.iter().any(|(path, _, _)| path == route.path),
+                    "{} must name the part that builds it",
+                    route.path
+                );
+            }
+        }
+        from_source.extend(native);
         from_source.sort();
         assert_eq!(
             table(ADMINISTRATION_ROUTES),

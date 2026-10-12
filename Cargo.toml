@@ -238,7 +238,8 @@ lettre = { version = "0.11.23", default-features = false, features = [
     "smtp-transport", "pool", "builder", "hostname",
     "tokio1", "tokio1-rustls", "ring", "webpki-roots" ] }
 mail-parser = "0.11.8"
-mail-builder = "0.5.0"
+# Pagis supplies the Message-ID, so MIME needs no host name lookup.
+mail-builder = { version = "0.5.0", default-features = false }
 # The public suffix list, compiled in: an offline daemon cannot fetch
 # one, and a fill must resolve the registrable domain the same way
 # every time.

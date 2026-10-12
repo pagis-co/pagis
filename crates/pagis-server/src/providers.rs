@@ -195,6 +195,7 @@ async fn describe_part(
             }
         }
         SetupKind::SipCredential => {
+            #[cfg(feature = "native")]
             if let Some((username, domain)) = installation_connection(state, setup.provider)
                 .await?
                 .as_ref()
@@ -399,8 +400,9 @@ pub async fn configure_provider_part(
                 // A new carrier gets its line at once. With no SIP
                 // credential the line asks the carrier nothing, and each
                 // held number says that the sign-in is missing.
+                #[cfg(feature = "native")]
                 if pagis_telephony::is_carrier(&connection.provider)
-                    && let Err(error) = state.numbers.start_carrier().await
+                    && let Err(error) = state.native.numbers.start_carrier().await
                 {
                     tracing::error!(%error, "starting the carrier's line failed");
                 }
@@ -429,7 +431,12 @@ pub async fn configure_provider_part(
                 )
                 .await
                 .map_err(connect_error)?;
-            state.numbers.sip_credential_changed(&connection.id).await;
+            #[cfg(feature = "native")]
+            state
+                .native
+                .numbers
+                .sip_credential_changed(&connection.id)
+                .await;
         }
     }
     describe(&state, &setup).await.map(Json)
@@ -538,7 +545,12 @@ pub async fn remove_provider_part(
                 .clear_sip_credential(&state.org_workspace_id, &connection.id)
                 .await
                 .map_err(connect_error)?;
-            state.numbers.sip_credential_changed(&connection.id).await;
+            #[cfg(feature = "native")]
+            state
+                .native
+                .numbers
+                .sip_credential_changed(&connection.id)
+                .await;
         }
     }
     describe(&state, &setup).await.map(Json)
@@ -547,14 +559,19 @@ pub async fn remove_provider_part(
 /// Delete one Installation Connection, refused while a number or a
 /// mailbox of any person still points at it.
 async fn remove_connection(state: &AppState, connection: &Connection) -> Result<(), ApiError> {
+    #[cfg(feature = "native")]
     let mut numbers = false;
     let mut mailboxes = 0;
     for workspace in state.workspaces.list().await? {
-        numbers |= state
-            .numbers
-            .connection_in_use(&workspace.id, &connection.id)
-            .await
-            .map_err(crate::phone_numbers::number_error)?;
+        #[cfg(feature = "native")]
+        {
+            numbers |= state
+                .native
+                .numbers
+                .connection_in_use(&workspace.id, &connection.id)
+                .await
+                .map_err(crate::phone_numbers::number_error)?;
+        }
         mailboxes += state
             .mailbox_desk
             .connection_in_use(&workspace.id, &connection.id)
@@ -562,6 +579,7 @@ async fn remove_connection(state: &AppState, connection: &Connection) -> Result<
             .map_err(crate::mailboxes::mailbox_error)?;
     }
     // A carrier that still carries a number stays (ADR-0018).
+    #[cfg(feature = "native")]
     if numbers {
         return Err(ApiError::conflict(
             "this carrier still carries a phone number. Release the numbers first.",
@@ -588,8 +606,13 @@ async fn remove_connection(state: &AppState, connection: &Connection) -> Result<
     }
     // The SIP credential goes with the carrier, so the carrier's line
     // stops.
+    #[cfg(feature = "native")]
     if pagis_telephony::is_carrier(&connection.provider) {
-        state.numbers.sip_credential_changed(&connection.id).await;
+        state
+            .native
+            .numbers
+            .sip_credential_changed(&connection.id)
+            .await;
     }
     publish(
         state,

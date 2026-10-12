@@ -10,16 +10,23 @@ use axum::{
 };
 
 pub(crate) fn product_routes<S: Clone + Send + Sync + 'static>() -> Router<S> {
-    routes(ROUTES)
+    routes(ROUTES, true)
+}
+
+pub(crate) fn public_routes<S: Clone + Send + Sync + 'static>() -> Router<S> {
+    routes(ROUTES, false)
 }
 
 pub(crate) fn administration_routes<S: Clone + Send + Sync + 'static>() -> Router<S> {
-    routes(ADMINISTRATION_ROUTES)
+    routes(ADMINISTRATION_ROUTES, true)
 }
 
-fn routes<S: Clone + Send + Sync + 'static>(table: &[Route]) -> Router<S> {
+fn routes<S: Clone + Send + Sync + 'static>(table: &[Route], authenticated: bool) -> Router<S> {
     let mut router = Router::new();
-    for route in table.iter().filter(|route| route.part.is_some()) {
+    for route in table
+        .iter()
+        .filter(|route| route.part.is_some() && route.authenticated == authenticated)
+    {
         let part = route.part.expect("the route names a Native Part");
         let mut methods = MethodRouter::new();
         for method in route.methods {

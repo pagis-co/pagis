@@ -251,7 +251,10 @@ impl From<pagis_mail::MailboxProvider> for MailboxProviderDto {
 
 impl From<pagis_core::Connection> for ConnectionDto {
     fn from(connection: pagis_core::Connection) -> Self {
+        #[cfg(feature = "native")]
         let (sip_username, sip_domain) = pagis_telephony::sip_identity(&connection).unzip();
+        #[cfg(not(feature = "native"))]
+        let (sip_username, sip_domain) = (None, None);
         let mail = pagis_mail::mailbox_provider(&connection).map(MailboxProviderDto::from);
         Self {
             id: connection.id.to_string(),
@@ -1175,6 +1178,45 @@ fn alias_dto(
     })
 }
 
+fn model_alias_settings(
+    alias: &str,
+    candidates_by_alias: &BTreeMap<String, Vec<String>>,
+) -> Vec<ModelAliasSettingDto> {
+    #[cfg(feature = "native")]
+    if alias == pagis_telephony::PHONE_ALIAS {
+        pagis_telephony::PHONE_MODEL_SETTINGS
+            .iter()
+            .map(|setting| ModelAliasSettingDto {
+                alias: setting.alias.to_string(),
+                label: setting.label.to_string(),
+                description: setting.description.to_string(),
+                when_candidates: setting
+                    .when_candidates
+                    .iter()
+                    .map(|candidate| candidate.to_string())
+                    .collect(),
+                candidates: candidates_by_alias
+                    .get(setting.alias)
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        setting
+                            .default_candidates
+                            .iter()
+                            .map(|candidate| candidate.to_string())
+                            .collect()
+                    }),
+            })
+            .collect()
+    } else {
+        Vec::new()
+    }
+    #[cfg(not(feature = "native"))]
+    {
+        let _ = (alias, candidates_by_alias);
+        Vec::new()
+    }
+}
+
 #[utoipa::path(
     get,
     path = "/api/v1/settings/model-aliases",
@@ -1195,33 +1237,7 @@ pub async fn list_model_aliases(
     let items = aliases
         .into_iter()
         .map(|model_alias| {
-            let settings = if model_alias.alias == pagis_telephony::PHONE_ALIAS {
-                pagis_telephony::PHONE_MODEL_SETTINGS
-                    .iter()
-                    .map(|setting| ModelAliasSettingDto {
-                        alias: setting.alias.to_string(),
-                        label: setting.label.to_string(),
-                        description: setting.description.to_string(),
-                        when_candidates: setting
-                            .when_candidates
-                            .iter()
-                            .map(|candidate| candidate.to_string())
-                            .collect(),
-                        candidates: candidates_by_alias
-                            .get(setting.alias)
-                            .cloned()
-                            .unwrap_or_else(|| {
-                                setting
-                                    .default_candidates
-                                    .iter()
-                                    .map(|candidate| candidate.to_string())
-                                    .collect()
-                            }),
-                    })
-                    .collect()
-            } else {
-                Vec::new()
-            };
+            let settings = model_alias_settings(&model_alias.alias, &candidates_by_alias);
             let mut dto = alias_dto(&state.keys, model_alias)?;
             dto.settings = settings;
             Ok(dto)
@@ -1906,3 +1922,34 @@ pub async fn set_retention_policy(
 #[cfg(all(test, not(feature = "native")))]
 #[path = "settings_portable_tests.rs"]
 mod portable_tests;
+
+#[cfg(all(test, not(feature = "native")))]
+mod calls_portable_tests {
+    use super::*;
+
+    #[test]
+    fn portable_connection_view_has_no_sip_identity() {
+        let connection = pagis_core::Connection {
+            id: pagis_core::ConnectionId::generate(),
+            workspace_id: pagis_core::WorkspaceId::generate(),
+            provider: "telnyx".into(),
+            alias: "carrier".into(),
+            display_name: "Carrier".into(),
+            status: "connected".into(),
+            authorized_capabilities: vec![],
+            config: serde_json::json!({
+                "sip_username": "line", "sip_domain": "sip.example.com"
+            }),
+            created_at: 1,
+        };
+        let dto = ConnectionDto::from(connection);
+        assert_eq!(dto.sip_username, None);
+        assert_eq!(dto.sip_domain, None);
+    }
+
+    #[test]
+    fn portable_model_alias_has_no_phone_settings() {
+        let settings = model_alias_settings("phone", &BTreeMap::new());
+        assert!(settings.is_empty());
+    }
+}
