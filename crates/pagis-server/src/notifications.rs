@@ -439,7 +439,7 @@ impl Notifier for Notifications {
             let plaintext = Arc::clone(&plaintext);
             let options = options.clone();
             let cancel = cancel.clone();
-            tokio::spawn(async move {
+            pagis_rt::spawn(async move {
                 cancel
                     .run_until_cancelled(notifications.deliver(&row, &plaintext, options))
                     .await;
@@ -463,7 +463,7 @@ pub async fn spawn_notifications(
 ) {
     let events = bus.subscribe(EventScope::Installation, None).await;
     let clock = Arc::clone(&notifications.clock);
-    tokio::spawn(serve(notifications, activity, clock, events, cancel));
+    pagis_rt::spawn(serve(notifications, activity, clock, events, cancel));
 }
 
 /// The loop of the Notification task over the events of the
@@ -508,7 +508,7 @@ async fn serve<N: Notifier>(
                 let item_id = added.item.id().to_string();
                 let hold = cancel.child_token();
                 holds.insert((workspace_id.clone(), item_id.clone()), hold.clone());
-                tokio::spawn(release(
+                pagis_rt::spawn(release(
                     Arc::clone(&notifier),
                     Arc::clone(&activity),
                     Arc::clone(&clock),
@@ -985,7 +985,7 @@ mod tests {
                 let notifier = Arc::new(FakeNotifier::default());
                 let activity = Arc::new(PersonActivity::new());
                 let (events, stream) = mpsc::unbounded();
-                tokio::spawn(serve(
+                pagis_rt::spawn(serve(
                     Arc::clone(&notifier),
                     Arc::clone(&activity),
                     Arc::clone(&clock) as Arc<dyn Clock>,

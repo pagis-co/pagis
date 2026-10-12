@@ -347,7 +347,7 @@ pub async fn set_default_candidates(
 pub fn key_changed(models: &Arc<ModelCatalog>, provider: Provider) {
     models.forget(provider);
     let models = Arc::clone(models);
-    tokio::spawn(async move {
+    pagis_rt::spawn(async move {
         match models.models(provider).await {
             Ok(_) | Err(ModelListError::NoKey(_)) => {}
             Err(error) => {

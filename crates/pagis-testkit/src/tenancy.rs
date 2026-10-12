@@ -447,7 +447,7 @@ async fn install_org_plugin(daemon: &TestDaemon) -> PluginId {
         .expect("the upload tar");
     let tar = builder.into_inner().expect("the upload tar");
 
-    let client = reqwest::Client::new();
+    let client = daemon.client();
     let part = reqwest::multipart::Part::bytes(tar)
         .file_name("weather.tar".to_string())
         .mime_str("application/x-tar")

@@ -1,8 +1,8 @@
 //! A Pagis client that starts the Coding Sessions of its Host
 //! (ADR-0033).
 //!
-//! It opens the session socket of a registered Host over a real
-//! WebSocket, with the Session cookie, and serves the streams of the
+//! It opens the session socket of a registered Host over its
+//! message socket, with the Session cookie, and serves the streams of the
 //! daemon with [`FakeClientApp`], which speaks the protocol of the Client
 //! App: yamux, the open request and the answer line. It starts no
 //! process: after `ok` it writes back each byte that it reads. The Client
@@ -15,8 +15,7 @@ use std::time::Duration;
 use futures::{SinkExt, StreamExt};
 use pagis_broker::fake::FakeClientApp;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio_tungstenite::connect_async;
-use tokio_tungstenite::tungstenite::{Error, Message};
+use tokio_tungstenite::tungstenite::Message;
 use tokio_util::compat::TokioAsyncReadCompatExt;
 
 use crate::TestDaemon;
@@ -40,12 +39,9 @@ impl SessionClient {
         host_id: &str,
         client_app: Arc<FakeClientApp>,
     ) -> Result<Self, u16> {
-        let url = format!("ws://{}/api/v1/hosts/{host_id}/sessions", daemon.addr);
-        let socket = match connect_async(daemon.ws_request_as(&url, cookie)).await {
-            Ok((socket, _)) => socket,
-            Err(Error::Http(response)) => return Err(response.status().as_u16()),
-            Err(error) => panic!("the session socket did not open: {error}"),
-        };
+        let socket = daemon
+            .open_socket(&format!("/api/v1/hosts/{host_id}/sessions"), cookie)
+            .await?;
         let (pipe, client_app_end) = tokio::io::duplex(64 * 1024);
         let serve = tokio::spawn(client_app.serve(client_app_end.compat()));
         let close = Arc::new(Mutex::new(None));

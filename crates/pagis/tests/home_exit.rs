@@ -19,7 +19,7 @@ use std::time::Duration;
 
 use futures::{SinkExt, StreamExt};
 use pagis_computer::ExitMode;
-use pagis_computer::fake::{FakeComputerRuntime, FakeHomeExit};
+use pagis_computer::fake::{FakeComputerRuntime, FakeExitAnswer, FakeHomeExit};
 use pagis_core::HostId;
 use pagis_testkit::{ExitClient, HostAnswer, HostClient, TestDaemon, TestDaemonOptions};
 use reqwest::StatusCode;
@@ -92,7 +92,7 @@ async fn wait_until(what: &str, ready: impl Fn() -> bool) {
 /// socket lives.
 #[tokio::test]
 async fn a_host_that_declares_exit_opens_its_exit_socket() {
-    let daemon = TestDaemon::start().await;
+    let daemon = TestDaemon::start_in_memory().await;
     let host = HostClient::connect(
         &daemon,
         "Air",
@@ -107,7 +107,7 @@ async fn a_host_that_declares_exit_opens_its_exit_socket() {
         &daemon,
         daemon.cookie(),
         host.host_id(),
-        FakeHomeExit::to(echo_target().await),
+        FakeHomeExit::new(|_, _| FakeExitAnswer::Echo),
     )
     .await
     .expect("the exit socket opens");
@@ -166,7 +166,7 @@ async fn the_exit_socket_of_another_persons_host_or_of_a_host_without_exit_is_re
 /// it with 1008, and the Host is absent as a Home Exit.
 #[tokio::test]
 async fn the_exit_socket_closes_with_1008_when_the_session_ends() {
-    let daemon = TestDaemon::start().await;
+    let daemon = TestDaemon::start_in_memory().await;
     let cookie = daemon.cookie_for(&daemon.user_id).await;
     let host = HostClient::connect_as(
         &daemon,
@@ -182,7 +182,7 @@ async fn the_exit_socket_closes_with_1008_when_the_session_ends() {
         &daemon,
         &cookie,
         host.host_id(),
-        FakeHomeExit::to(echo_target().await),
+        FakeHomeExit::new(|_, _| FakeExitAnswer::Echo),
     )
     .await
     .expect("the exit socket opens");
@@ -230,7 +230,7 @@ async fn a_local_installation_opens_no_exit_listener() {
 
 /// Wake the seeded Agent's Computer and wait until it is awake.
 async fn wake(daemon: &TestDaemon) {
-    let client = reqwest::Client::new();
+    let client = daemon.client();
     let woke = client
         .post(format!(
             "{}/api/v1/agents/{}/computer/wake",
@@ -386,7 +386,8 @@ async fn home_exit(
     method: reqwest::Method,
     body: Option<serde_json::Value>,
 ) -> reqwest::Response {
-    let request = reqwest::Client::new()
+    let request = daemon
+        .client()
         .request(
             method,
             format!("{}/api/v1/settings/home-exit", daemon.base_url),
@@ -415,7 +416,8 @@ async fn choose(daemon: &TestDaemon, host_id: &str) -> reqwest::Response {
 
 /// The Home Exit System Setting through the Administration Port.
 async fn switch_the_system_setting(daemon: &TestDaemon, enabled: bool) -> reqwest::Response {
-    reqwest::Client::new()
+    daemon
+        .client()
         .put(format!(
             "{}/api/v1/settings/system/home-exit",
             daemon.administration_base_url
@@ -429,7 +431,8 @@ async fn switch_the_system_setting(daemon: &TestDaemon, enabled: bool) -> reqwes
 
 /// The Computer of the seeded Agent, as its view reads it.
 async fn computer(daemon: &TestDaemon) -> serde_json::Value {
-    reqwest::Client::new()
+    daemon
+        .client()
         .get(format!(
             "{}/api/v1/agents/{}/computer",
             daemon.base_url, daemon.agent_id
@@ -766,7 +769,8 @@ async fn a_local_installation_has_no_home_exit() {
         switch_the_system_setting(&daemon, false).await.status(),
         StatusCode::CONFLICT
     );
-    let settings: serde_json::Value = reqwest::Client::new()
+    let settings: serde_json::Value = daemon
+        .client()
         .get(format!(
             "{}/api/v1/settings/system",
             daemon.administration_base_url
@@ -954,7 +958,7 @@ async fn the_daemon_and_the_client_app_carry_bytes_both_ways_over_the_exit_socke
 async fn bulk_bytes_both_ways_on_several_streams_keep_the_exit_socket_moving() {
     const STREAMS: usize = 8;
     const BYTES: usize = 4 * 1024 * 1024;
-    let daemon = TestDaemon::start().await;
+    let daemon = TestDaemon::start_in_memory().await;
     let host = HostClient::connect(
         &daemon,
         "Air",
@@ -976,7 +980,7 @@ async fn bulk_bytes_both_ways_on_several_streams_keep_the_exit_socket_moving() {
         &daemon,
         daemon.cookie(),
         host.host_id(),
-        FakeHomeExit::to(bulk_echo_target().await),
+        FakeHomeExit::new(|_, _| FakeExitAnswer::Echo),
     )
     .await
     .expect("the exit socket opens");

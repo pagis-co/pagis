@@ -7,7 +7,7 @@ mod agents;
 mod artifacts;
 mod auth;
 mod byte_socket;
-mod calls;
+pub mod calls;
 mod channels;
 mod client_name;
 mod coding_session_feed;
@@ -15,7 +15,7 @@ mod coding_sessions;
 mod cors;
 mod cross_origin;
 pub mod error;
-mod exit_socket;
+pub mod exit_socket;
 pub mod forget;
 pub mod forwarded;
 mod grants;
@@ -28,6 +28,7 @@ mod live_connections;
 mod mail;
 mod mailboxes;
 mod memory;
+mod message_socket;
 pub mod model_lists;
 pub mod model_preference;
 mod needs_you;
@@ -47,7 +48,7 @@ mod run_steps;
 mod runs;
 mod schedules;
 mod served_file;
-mod session_socket;
+pub mod session_socket;
 mod sessions;
 mod settings;
 pub mod setup;
@@ -57,11 +58,11 @@ mod subscriptions;
 pub mod system;
 mod trust_list;
 mod user;
-mod voice;
+pub mod voice;
 pub mod voice_list;
 mod widgets;
 mod workspace;
-mod ws;
+pub mod ws;
 
 use std::sync::Arc;
 
@@ -78,11 +79,13 @@ use pagis_core::{
 };
 
 pub use administration::{AdministrationSection, AdministrationSections};
+pub use auth::resolve as resolve_session;
 pub use auth::{SESSION_COOKIE, Tenant, hash_secret};
 pub use coding_session_feed::CodingSessionFeed;
 pub use forwarded::TrustedProxy;
 pub use harness_model::{HarnessModelDeps, HarnessModelTokens};
-pub use live_connections::LiveConnections;
+pub use live_connections::{LiveConnections, LiveTenant};
+pub use message_socket::{CloseFrame, Message, MessageSocket};
 pub use needs_you::{NeedsYou, spawn_needs_you};
 pub use notifications::{Notifications, spawn_notifications};
 pub use openapi::ApiDoc;
@@ -374,6 +377,8 @@ pub struct AppState {
 /// the team reaches, the Administration Interface on a port of its own.
 /// Both read one [`AppState`], because they are one process.
 pub struct Routers {
+    /// The state a host gives to the frame protocols.
+    pub state: Arc<AppState>,
     pub product: Router,
     pub administration: Router,
 }
@@ -397,6 +402,7 @@ pub fn routers(state: AppState) -> Routers {
         vec![state.administration.origin.clone()],
     );
     Routers {
+        state,
         product: product.layer(no_store()),
         administration: administration.layer(no_store()),
     }
