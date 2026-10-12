@@ -1296,21 +1296,24 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         Arc::clone(&options.clock),
         options.cancel.clone(),
     );
-    let needs_you = Arc::new(pagis_server::NeedsYou::new(&stores));
+    let needs_you = Arc::new(pagis_needs_you::NeedsYou::new(&stores));
     // Each item that enters the Needs-You Queue sends a Notification,
     // and waits while the Person is active in a client (ADR-0030). The
     // task subscribes before the queue task can publish.
-    let person_activity = Arc::new(pagis_server::PersonActivity::new());
-    let notifications = Arc::new(pagis_server::Notifications::new(
-        options.secrets.as_ref(),
+    let person_activity = Arc::new(pagis_needs_you::PersonActivity::new());
+    let notifications = Arc::new(pagis_needs_you::Notifications::new(
+        Arc::new(pagis_push::WebPush::new(
+            &pagis_needs_you::vapid_key(options.secrets.as_ref())?,
+            &options.public_origin,
+            options.push_policy,
+        )?),
         options.public_origin.clone(),
-        options.push_policy,
         stores.push_subscriptions.clone(),
         stores.agents.clone(),
         Arc::clone(&needs_you),
         Arc::clone(&options.clock),
-    )?);
-    pagis_server::spawn_notifications(
+    ));
+    pagis_needs_you::run_notifications(
         Arc::clone(&notifications),
         Arc::clone(&person_activity),
         Arc::clone(&bus),
@@ -1320,7 +1323,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     // The Needs-You Queue publishes each item that enters or leaves it
     // (ADR-0030). The task reads the baseline of each Workspace before
     // the daemon serves.
-    pagis_server::spawn_needs_you(
+    pagis_needs_you::run_needs_you(
         Arc::clone(&needs_you),
         Arc::clone(&bus),
         Arc::clone(&options.clock),

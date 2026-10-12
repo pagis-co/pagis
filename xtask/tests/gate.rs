@@ -137,11 +137,12 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
             ("pagis-rt", &["rt"][..]),
             ("pagis-agent", &["actor_host"][..]),
             ("pagis-push", &["wasm"][..]),
+            ("pagis-needs-you", &["rules"][..]),
         ]
     );
     let root = workspace_root();
     let cmds = wasm32_commands(&root);
-    assert_eq!(cmds.len(), 9);
+    assert_eq!(cmds.len(), 10);
     assert_eq!(
         cargo_arguments(&cmds[0]),
         [
@@ -162,6 +163,8 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
             "pagis-agent",
             "-p",
             "pagis-push",
+            "-p",
+            "pagis-needs-you",
             "--",
             "-D",
             "warnings",
@@ -176,6 +179,7 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
         ("pagis-rt", "rt"),
         ("pagis-agent", "actor_host"),
         ("pagis-push", "wasm"),
+        ("pagis-needs-you", "rules"),
     ];
     for (cmd, (package, binary)) in cmds[1..].iter().zip(expected) {
         assert_eq!(

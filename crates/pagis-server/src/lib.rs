@@ -32,9 +32,7 @@ mod message_socket;
 pub mod model_lists;
 pub mod model_preference;
 mod needs_you;
-mod notifications;
 mod openapi;
-mod person_activity;
 mod phone_numbers;
 mod plugins;
 mod providers;
@@ -77,6 +75,7 @@ use pagis_core::{
     ParticipantStore, ProviderKeys, RequestStore, RetentionPolicyStore, RunStore, SessionStore,
     SignInLinkStore, SoftwareStore, UserStore, WorkspaceStore,
 };
+use pagis_needs_you::{NeedsYou, Notifications, PersonActivity};
 
 pub use administration::{AdministrationSection, AdministrationSections};
 pub use auth::resolve as resolve_session;
@@ -86,10 +85,7 @@ pub use forwarded::TrustedProxy;
 pub use harness_model::{HarnessModelDeps, HarnessModelTokens};
 pub use live_connections::{LiveConnections, LiveTenant};
 pub use message_socket::{CloseFrame, Message, MessageSocket};
-pub use needs_you::{NeedsYou, spawn_needs_you};
-pub use notifications::{Notifications, spawn_notifications};
 pub use openapi::ApiDoc;
-pub use person_activity::PersonActivity;
 pub use remote_access::{
     FUNNEL_PROXY, FUNNEL_TURN_PORT, FunnelPort, FunnelTargets, RemoteAccessSwitch, Tailscale,
     TailscaleState, serves_this_machine_only,
