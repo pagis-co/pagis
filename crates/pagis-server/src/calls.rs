@@ -20,7 +20,7 @@
 use std::sync::Arc;
 
 use axum::Json;
-use axum::extract::ws::{Message as WsMessage, WebSocketUpgrade};
+use axum::extract::ws::WebSocketUpgrade;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
@@ -33,10 +33,11 @@ use tokio::sync::broadcast;
 use utoipa::ToSchema;
 
 use crate::AppState;
-use crate::MessageSocket;
 use crate::auth::Tenant;
+use crate::axum_socket::AxumSocket;
 use crate::error::ApiError;
 use crate::live_connections::{LiveTenant, close_for_ended_session};
+use crate::{Message, MessageSocket};
 
 /// Frames the daemon sends beside the audio. `ready` names the codec
 /// of the frames that follow; the socket ends after `ended` or
@@ -62,12 +63,8 @@ impl ListenServerFrame {
         }
     }
 
-    fn to_ws(&self) -> WsMessage {
-        WsMessage::Text(
-            serde_json::to_string(self)
-                .expect("listen frame serializes")
-                .into(),
-        )
+    fn to_ws(&self) -> Message {
+        Message::Text(serde_json::to_string(self).expect("listen frame serializes"))
     }
 }
 
@@ -78,7 +75,7 @@ pub async fn listen(
     ws: WebSocketUpgrade,
 ) -> Response {
     ws.on_upgrade(move |socket| async move {
-        let listened = serve_listen(socket, state, live, call_id).await;
+        let listened = serve_listen(AxumSocket(socket), state, live, call_id).await;
         if let Err(err) = listened {
             tracing::debug!(error = %err, "listen socket closed");
         }
@@ -131,7 +128,7 @@ async fn carry(hub: &MediaHub, socket: &mut impl MessageSocket) -> anyhow::Resul
             _ = ended.changed() => break,
             incoming = socket.next() => {
                 match incoming {
-                    None | Some(Ok(WsMessage::Close(_))) => {
+                    None | Some(Ok(Message::Close(_))) => {
                         MessageSocket::close(socket).await?;
                         return Ok(());
                     }
@@ -144,7 +141,7 @@ async fn carry(hub: &MediaHub, socket: &mut impl MessageSocket) -> anyhow::Resul
             Ok(recorded) => {
                 if let Some(frame) = mixer.push(recorded) {
                     socket
-                        .send(WsMessage::Binary(frame.payload().clone()))
+                        .send(Message::Binary(frame.payload().clone()))
                         .await?;
                 }
             }

@@ -6,6 +6,7 @@ mod administration;
 mod agents;
 mod artifacts;
 mod auth;
+mod axum_socket;
 mod byte_socket;
 pub mod calls;
 mod channels;

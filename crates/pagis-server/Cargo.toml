@@ -13,6 +13,7 @@ async-trait.workspace = true
 axum.workspace = true
 # The keys of a Push Subscription and the VAPID Key are base64url.
 base64.workspace = true
+bytes.workspace = true
 chrono-tz.workspace = true
 futures.workspace = true
 object_store.workspace = true

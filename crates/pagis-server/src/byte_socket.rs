@@ -9,15 +9,14 @@
 
 use std::future::Future;
 
-use axum::extract::ws::Message as WsMessage;
 use futures::stream::{SplitSink, SplitStream};
 use futures::{SinkExt, StreamExt};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream, ReadHalf, WriteHalf};
 use tokio_util::compat::{Compat, TokioAsyncReadCompatExt};
 use tokio_util::sync::CancellationToken;
 
-use crate::MessageSocket;
 use crate::live_connections::close_for_ended_session;
+use crate::{Message, MessageSocket};
 
 /// How many bytes wait between the socket and the yamux of the daemon,
 /// each way.
@@ -61,12 +60,12 @@ async fn into_pipe<S: MessageSocket>(
 ) {
     while let Some(frame) = stream.next().await {
         match frame {
-            Ok(WsMessage::Binary(bytes)) => {
+            Ok(Message::Binary(bytes)) => {
                 if pipe.write_all(&bytes).await.is_err() {
                     return;
                 }
             }
-            Ok(WsMessage::Ping(_) | WsMessage::Pong(_)) => {}
+            Ok(Message::Ping(_) | Message::Pong(_)) => {}
             // A close, a text frame, or an error.
             _ => return,
         }
@@ -75,7 +74,7 @@ async fn into_pipe<S: MessageSocket>(
 
 /// Send the bytes of the pipe in binary frames, until the pipe ends.
 async fn out_of_pipe<S: MessageSocket>(
-    sink: &mut SplitSink<S, WsMessage>,
+    sink: &mut SplitSink<S, Message>,
     mut pipe: ReadHalf<DuplexStream>,
 ) {
     let mut buffer = vec![0; PIPE_BYTES];
@@ -83,7 +82,7 @@ async fn out_of_pipe<S: MessageSocket>(
         match pipe.read(&mut buffer).await {
             Ok(0) | Err(_) => return,
             Ok(count) => {
-                let frame = WsMessage::Binary(buffer[..count].to_vec().into());
+                let frame = Message::Binary(buffer[..count].to_vec().into());
                 if sink.send(frame).await.is_err() {
                     return;
                 }

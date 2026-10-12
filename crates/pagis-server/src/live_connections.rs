@@ -26,16 +26,15 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use axum::extract::FromRequestParts;
-use axum::extract::ws::{CloseFrame, Message as WsMessage, close_code};
 use axum::http::request::Parts;
 use futures::{SinkExt, StreamExt};
 use pagis_core::{Clock, SessionId, UnixMillis, UserId};
 use tokio_util::sync::CancellationToken;
 
 use crate::AppState;
-use crate::MessageSocket;
 use crate::auth::Tenant;
 use crate::error::ApiError;
+use crate::{CloseFrame, Message, MessageSocket};
 
 /// How long a socket that the daemon closes waits for the Close of the
 /// client.
@@ -211,8 +210,8 @@ impl FromRequestParts<Arc<AppState>> for LiveTenant {
 /// Close a socket whose Session ended, with 1008.
 pub(crate) async fn close_for_ended_session(socket: &mut impl MessageSocket) -> anyhow::Result<()> {
     socket
-        .send(WsMessage::Close(Some(CloseFrame {
-            code: close_code::POLICY,
+        .send(Message::Close(Some(CloseFrame {
+            code: 1008,
             reason: "the session ended".into(),
         })))
         .await?;

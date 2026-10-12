@@ -31,7 +31,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::State;
-use axum::extract::ws::{Message as WsMessage, WebSocketUpgrade};
+use axum::extract::ws::WebSocketUpgrade;
 use axum::response::Response;
 use futures::{SinkExt, StreamExt};
 use pagis_agent::{DeltaFrame, ProgressFrame};
@@ -45,9 +45,10 @@ use tokio::sync::broadcast;
 use utoipa::ToSchema;
 
 use crate::AppState;
-use crate::MessageSocket;
 use crate::auth::Tenant;
+use crate::axum_socket::AxumSocket;
 use crate::live_connections::{LiveTenant, close_for_ended_session};
+use crate::{Message, MessageSocket};
 
 const AUTH_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -283,12 +284,8 @@ impl ServerFrame {
         }
     }
 
-    fn to_ws(&self) -> WsMessage {
-        WsMessage::Text(
-            serde_json::to_string(self)
-                .expect("server frame serializes")
-                .into(),
-        )
+    fn to_ws(&self) -> Message {
+        Message::Text(serde_json::to_string(self).expect("server frame serializes"))
     }
 }
 
@@ -298,7 +295,7 @@ pub async fn upgrade(
     ws: WebSocketUpgrade,
 ) -> Response {
     ws.on_upgrade(move |socket| async move {
-        if let Err(err) = serve_events(socket, state, live).await {
+        if let Err(err) = serve_events(AxumSocket(socket), state, live).await {
             tracing::debug!(error = %err, "websocket closed");
         }
     })
@@ -492,11 +489,11 @@ impl<S: MessageSocket> Connection<S> {
                         None => return Ok(()),
                         Some(frame) => frame?,
                     };
-                    if let WsMessage::Close(_) = frame {
+                    if let Message::Close(_) = frame {
                         MessageSocket::close(&mut self.socket).await?;
                         return Ok(());
                     }
-                    if let WsMessage::Text(text) = frame {
+                    if let Message::Text(text) = frame {
                         let action = handle_client_frame(&text, &mut self.subscriptions);
                         if self.act(action).await? {
                             return Ok(());
@@ -699,7 +696,7 @@ async fn authenticate(socket: &mut impl MessageSocket) -> anyhow::Result<Option<
         Err(_) | Ok(None) => return Ok(None),
         Ok(Some(frame)) => frame?,
     };
-    let WsMessage::Text(text) = frame else {
+    let Message::Text(text) = frame else {
         return reject(socket).await;
     };
     match serde_json::from_str::<ClientFrame>(&text) {
