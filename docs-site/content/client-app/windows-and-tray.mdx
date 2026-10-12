@@ -10,15 +10,20 @@ icon: PanelTop
   carries the [Update](/client-app/updates) item, and quits. While this
   computer carries exit traffic as the [Home Exit](/client-app/home-exit)
   of its Person, the first item says so with a byte count, and the next
-  one turns the Home Exit off.
+  one turns the Home Exit off. Both items name the server whose traffic
+  flows. Each server has its own counter and Home Exit action.
 - **Quits at once.** Quit on the setup page, in the app menu and in the tray
   asks "Quit Pagis?" only while an installation or a start-up is in
-  progress, as a sheet on the window that shows it. Else it quits with no
+  progress, or while Coding Sessions run on this computer, as a sheet on the window that shows it. Else it quits with no
   question. SIGTERM, SIGINT and a logout quit with no question. Each quit
   ends the process and its helper processes.
 - **The Product App** comes from the server: the Server Runtime this client
   started, or the server the Person signed in to. The product window has no
-  node integration, no installer preload and no native bridge.
+  node integration and no installer preload. A connected server has its
+  own window and persistent session partition, so its cookies, Session
+  and storage never reach another server. Its narrow sign-in bridge
+  gives only its sign-in main frame the matching verifier once. It gives
+  no other native action.
 - **Keeps each window where it loaded.** The product window stays on the
   origin of the Product App, the administration window on the
   Administration Port, and the setup and status windows on their own page.
@@ -39,3 +44,10 @@ icon: PanelTop
   Bluetooth. Each window cancels each Web Bluetooth device request, so a
   page gets no device and the Person sees no chooser. On Linux, the client
   also refuses each Bluetooth pairing.
+
+The application menu and tray list the servers by host. **Command-1** to
+**Command-9** on macOS and **Control-1** to **Control-9** on Linux show
+the first nine. **Add a Server…** opens the connect screen. **Remove This
+Server** ends that server's Host link, clears its partition storage and
+removes it from the list. A Local Installation keeps only its own server,
+and cannot add a connected server.

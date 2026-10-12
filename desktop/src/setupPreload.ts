@@ -13,6 +13,7 @@ const api = {
   /** Connect to a server this client did not start. The Person signs in
    *  on that server's own page, so the page sends the address alone. */
   connectToServer: (url: string): Promise<void> => ipcRenderer.invoke('pagis:install', { kind: 'server', url }),
+  browserSignIn: (url: string): Promise<void> => ipcRenderer.invoke('pagis:browser-sign-in', url),
   /** Upgrade the installation of an older release again, with a Backup
    *  first or without one. */
   upgrade: (backup: boolean): Promise<void> => ipcRenderer.invoke('pagis:upgrade', backup),

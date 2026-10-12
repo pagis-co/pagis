@@ -9,10 +9,10 @@ function appSignInRequest() {
   const app = query.get('app')
   const state = query.get('state')
   const challenge = query.get('challenge')
-  if ((app !== 'ios' && app !== 'android') || !state || state.length > 256 ||
+  if ((app !== 'ios' && app !== 'android' && app !== 'desktop') || !state || state.length > 256 ||
     !challenge || !/^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/.test(challenge) ||
     ['app', 'state', 'challenge'].some((key) => query.getAll(key).length !== 1)) return null
-  return { state, challenge }
+  return { app, state, challenge }
 }
 
 export function BrowserSignInPage({ api, redirect = (url) => window.location.assign(url) }: {
@@ -26,7 +26,7 @@ export function BrowserSignInPage({ api, redirect = (url) => window.location.ass
 
 function BrowserSignIn({ api, request, redirect }: {
   api: ApiClient
-  request: { state: string; challenge: string }
+  request: { app: string; state: string; challenge: string }
   redirect: (url: string) => void
 }) {
   const user = useUser(api)
@@ -51,7 +51,7 @@ function BrowserSignIn({ api, request, redirect }: {
           const ended = await api.DELETE('/api/v1/sessions/current')
           if (!ended.response.ok) throw new Error('Pagis could not end the browser Session. Connect again in the app.')
         }
-        const url = `pagis-app://signed-in?${new URLSearchParams({ state: request.state })}${secret}`
+        const url = `${request.app === 'desktop' ? 'pagis://auth' : 'pagis-app://signed-in'}?${new URLSearchParams({ state: request.state })}${secret}`
         setCallback(url)
         try {
           redirect(url)

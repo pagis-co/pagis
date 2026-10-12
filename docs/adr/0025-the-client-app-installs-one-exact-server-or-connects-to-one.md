@@ -1,4 +1,4 @@
-# 0025: The Client App installs one exact server or connects to one
+# 0025: The Client App installs one exact server or connects to several servers
 
 Status: accepted.
 
@@ -19,6 +19,20 @@ Electron products ship a deb or rpm from a signed repository, an AppImage, or
 both; Signal and 1Password sign theirs with a detached OpenPGP signature. No
 Linux distribution has a notary checked before first launch.
 
+A Person can use a home Server and a work Server. One stored origin, one
+window, one cookie jar and one Host link cannot keep both. Changing setup
+loses the first connection. A sign-in page inside a product window shows
+no address bar or TLS state, and the system browser's password manager
+cannot fill it. Without a link scheme, the browser cannot return a bound
+Sign-In Link to the Client App.
+
+Slack lists workspaces and gives the first nine Command-1 to Command-9
+on macOS and Control-1 to Control-9 on Linux. Slack, Mattermost and
+Element keep the storage of each workspace or server apart. The Client
+App uses these conventions. The system browser shows the origin and TLS
+state and supplies the password manager, as
+[RFC 8252](https://www.rfc-editor.org/rfc/rfc8252) requires for native sign-in.
+
 ## Decision
 
 ### Two installation methods
@@ -28,8 +42,10 @@ Linux distribution has a notary checked before first launch.
 - **The Client App**, on macOS arm64 and Linux amd64 and arm64. Setup asks
   whether to install on this computer or to connect to a server. Install
   installs and supervises one exact Server Runtime release and asks "Just me"
-  or "Several people". Connect opens the server's own sign-in page, or the
-  page of a Sign-In Link of the server (ADR-0028).
+  or "Several people". Connect keeps a list of servers. Each server has its own window and
+  persistent Electron session. The Person can sign in through the system
+  browser, on the server's page in its window, or with a pasted Sign-In
+  Link (ADR-0028).
 
 The Mobile App (ADR-0032) is not an installation method. It is a client of
 a Server, or of a Local Installation in Remote Access, and it installs
@@ -226,7 +242,9 @@ The answer is stored nowhere.
 Privileged setup IPC accepts a call only from the exact setup view, from its
 main frame, at the packaged setup URL, and validates every argument. The
 product window has no node integration, context isolation and renderer
-sandboxing on, no installer preload and no native bridge. Its navigation allows
+sandboxing on, and no installer preload. A connected product window has
+a narrow sign-in bridge that gives its main frame the verifier once for
+its exact origin and secret. It grants no other native action. Its navigation allows
 only the loopback origin of the server this client started or the origin of
 the server it connected to, and approved external links.
 
@@ -308,21 +326,52 @@ different times, so an upper bound would refuse a newer server that the
 Person cannot hold back. Not built: the bound is 0.2.0, not the first
 release that serves Notifications.
 
-Setup asks for the server address or a Sign-In Link of the server
-(ADR-0028), and nothing else. The client checks the origin of either with the
-rules of `serverOrigin`, reaches the health route and applies the range; a
-server not yet set up says so and names the Administration Interface. A link
-with no secret is refused. Problems show under the field. When the checks
-pass, the product window opens at the server's origin, and the person signs in
-on the server's own page, as the Slack, Mattermost and Element clients do; the
-client never holds the password. For a link, the product window opens at the
-link, which the client makes again from the checked origin and the secret. The
-page of the link trades the secret for the Session in the product window, so
-the client sends the secret nowhere itself. `server.json` holds the origin
-alone, and the secret goes to no file, no client storage and no log. When the
-product window's cookie jar holds a Session of the server, the client registers
-the machine as a Host, and on `https://` holds the cookie as `Secure`
-(ADR-0024). It has the same tray lifetime and supervises no process.
+### Several connected servers
+
+The connect screen takes a server address or a Sign-In Link. The client
+checks the origin with `serverOrigin`, the health route and the
+Compatibility Range. It refuses a server without setup and a link with
+no secret. Each problem shows under the field.
+
+`servers.json` holds a list of servers: a random id, the origin and a
+label equal to the host of that origin. It replaces `server.json` with
+no conversion. Each server has one window and the persistent partition
+`persist:server-<id>`. Its cookies, Session and storage never reach another
+server. Its sign-in watch and Host link read only that partition. Each
+server whose partition holds a Session registers this machine as a Host.
+Each server can send commands to this machine (ADR-0015). Every added
+server shows "Connect only to a server you trust."
+
+The application menu and tray list the servers. The first nine have
+Command-1 to Command-9 on macOS and Control-1 to Control-9 on Linux.
+"Add a Server…" opens the connect screen. "Remove This Server" stops that
+server's Host link, clears its partition storage and removes its record.
+"Turn Off Home Exit" names the server whose exit traffic flows (ADR-0029).
+
+"Sign in with the browser" makes a random verifier and state in client
+memory. It opens `<origin>/sign-in?app=desktop&state=<state>&challenge=<challenge>`
+in the system browser. The challenge is base64url of SHA-256 of the
+verifier. The signed-in page makes a five-minute, one-use Sign-In Link
+bound to that challenge, ends the browser Session and returns
+`pagis://auth?state=<state>#<secret>`.
+
+The packaged Client App registers `pagis` on macOS and Linux. It receives
+`open-url` on macOS and the arguments of `second-instance` on Linux. Only
+`pagis://auth` with a state made in the last five minutes opens a window,
+and each state works once. The window of that state's server opens
+`<origin>/sign-in#<secret>`. Its sign-in bridge gives the page the verifier
+once. The page trades both for a Session in that server's partition. A
+program that also registers `pagis` cannot spend a caught link without
+the verifier. State, verifier and secret go to no file or log.
+
+A pasted Sign-In Link opens its page in the server's window. The Person
+can also sign in on the server's own page there. The client holds no
+password. On `https://`, the partition holds the Session cookie as
+`Secure`, even when the server omits that flag (ADR-0024).
+
+A Local Installation stays the one server of its Client App. Not built:
+a Client App that installs a server on this computer and also keeps
+connected servers in one list.
 
 ### Updates never roll data backwards
 

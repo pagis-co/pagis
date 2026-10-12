@@ -75,3 +75,21 @@ describe('the Update source of a connected Client App', () => {
     }
   })
 })
+
+it('takes an Update no newer than any stored server', async () => {
+  const { serversSource } = await import('./updateSource')
+  const request = vi.fn(async (url: RequestInfo | URL) => server(String(url).includes('home.example') ? '1.4.3' : '1.5.0')(url))
+  expect(await serversSource(['https://home.example/', 'https://work.example/'], CLIENT, request as typeof fetch)).toMatchObject({ kind: 'feed', feed: { url: 'https://github.com/pagis-co/pagis/releases/download/v1.4.3' } })
+  expect(request).toHaveBeenCalledTimes(2)
+})
+
+it('offers no Update when one stored server is not newer, and fails if one does not answer', async () => {
+  const { serversSource } = await import('./updateSource')
+  const request = vi.fn(async (url: RequestInfo | URL) => server(String(url).includes('home.example') ? CLIENT : '1.5.0')(url))
+  expect(await serversSource(['https://home.example/', 'https://work.example/'], CLIENT, request as typeof fetch)).toEqual({ kind: 'server-not-newer', server: CLIENT })
+  const absent = vi.fn(async (url: RequestInfo | URL) => {
+    if (String(url).includes('home.example')) throw new Error('absent')
+    return server('1.5.0')(url)
+  })
+  await expect(serversSource(['https://home.example/', 'https://work.example/'], CLIENT, absent as typeof fetch)).rejects.toThrow('No Pagis server answered')
+})

@@ -3,6 +3,7 @@ import * as path from 'node:path'
 import { Menu, type MenuItemConstructorOptions, Tray, app } from 'electron'
 
 import type { ExitTraffic } from './exit'
+import type { ServerConnection } from './serverConnection'
 import type { UpdateState } from './updates'
 
 export interface MenuActions {
@@ -16,11 +17,17 @@ export interface MenuActions {
   update(): UpdateState | null
   checkForUpdates(): void
   restartToUpdate(): void
+  servers(): ServerConnection[]
+  currentServer(): string | null
+  canAddServer(): boolean
+  openServer(id: string): void
+  addServer(): void
+  removeServer(): void
   /** The exit traffic that this machine carries as its Person's Home
    *  Exit (ADR-0029). */
-  exitTraffic(): Pick<ExitTraffic, 'connections' | 'bytes'>
+  exitTraffic(): { id: string; label: string; traffic: Pick<ExitTraffic, 'connections' | 'bytes'> }[]
   /** Turn the Person's Home Exit off on the server. */
-  turnOffHomeExit(): void
+  turnOffHomeExit(id: string): void
 }
 
 /**
@@ -78,17 +85,18 @@ export function createTray(actions: MenuActions): Tray {
 
 export function renderTray(tray: Tray, actions: MenuActions): void {
   const update = updateItem(actions)
-  const traffic = actions.exitTraffic()
   const items: MenuItemConstructorOptions[] = []
-  if (traffic.connections > 0) {
+  for (const { id, label, traffic } of actions.exitTraffic()) {
+    if (traffic.connections === 0) continue
     items.push(
-      { label: exitTrafficLabel(traffic), enabled: false },
-      { label: 'Turn Off Home Exit', click: () => actions.turnOffHomeExit() },
+      { label: `${label} — ${exitTrafficLabel(traffic)}`, enabled: false },
+      { label: `Turn Off Home Exit — ${label}`, click: () => actions.turnOffHomeExit(id) },
       { type: 'separator' },
     )
   }
   items.push(
     { label: 'Open Pagis', click: () => actions.open() },
+    ...serverItems(actions, process.platform),
     { label: 'Administration', click: () => actions.openAdministration() },
     { type: 'separator' },
     {
@@ -138,6 +146,7 @@ export function applicationMenu(actions: MenuActions, platform: string = process
   return Menu.buildFromTemplate([
     first,
     { role: 'editMenu' },
+    { label: 'Servers', submenu: serverItems(actions, platform) },
     {
       label: 'Installation',
       submenu: [
@@ -189,4 +198,20 @@ function updateItem(actions: MenuActions): MenuItemConstructorOptions | null {
     case 'failed':
       return { label: 'Check for Updates…', click: () => actions.checkForUpdates() }
   }
+}
+
+/** Slack gives the first nine servers a numbered shortcut. */
+function serverItems(actions: MenuActions, platform: string): MenuItemConstructorOptions[] {
+  return [
+    ...actions.servers().map((server, index): MenuItemConstructorOptions => ({
+      label: server.label,
+      type: 'checkbox',
+      checked: actions.currentServer() === server.id,
+      accelerator: index < 9 ? `${platform === 'darwin' ? 'Command' : 'Control'}+${index + 1}` : undefined,
+      click: () => actions.openServer(server.id),
+    })),
+    { type: 'separator' },
+    { label: 'Add a Server…', enabled: actions.canAddServer(), click: () => actions.addServer() },
+    { label: 'Remove This Server', enabled: actions.currentServer() !== null, click: () => actions.removeServer() },
+  ]
 }

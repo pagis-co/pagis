@@ -27,13 +27,43 @@ the client's Compatibility Range: the client's own version and every later
 version that promises the same API. When the server has no Administrator
 yet, the client says so and names the Administration Interface that
 finishes setup. Each of these problems shows under the field, and the setup
-window stays. When the checks pass, the client keeps the origin in
-`userData/server.json`, closes the setup window and opens the product
-window. For an address, the window opens at the server's origin. There the
-Product App shows its own sign-in page, and the Person signs in on it, as in
-the Slack and Mattermost clients. When the cookie jar of the product window
-holds a Session of the server, the client registers this machine as a Host
-of the server.
+window stays. When the checks pass, the client keeps an id, the origin and
+its host as a label in `userData/servers.json`. Each server has its own
+window and persistent session partition, `persist:server-<id>`. Its
+Session, cookies and Product App storage stay apart from every other
+server. An address with **Continue** opens the server's own sign-in page
+in that window. The client registers this machine as a Host of each
+server whose partition holds a Session.
+
+## Sign in with the browser
+
+Enter the server address and select **Sign in with the browser**. The
+system browser shows the origin and TLS state, and its password manager
+can fill your password. The page takes a password or a Sign-In Link, as
+the server permits. After sign-in it makes a one-use Sign-In Link bound
+to the Client App's random verifier, ends the browser Session and returns
+to Pagis through `pagis://auth`. If the browser does not open Pagis,
+select **Return to the app**.
+
+The Client App accepts only the state that it made for that server,
+once and within five minutes. It opens the Sign-In Link in that server's
+window. The page trades the secret with the verifier for a Session in
+that server's partition. The verifier and state stay in memory. A
+program that also registers `pagis` cannot trade a caught link without
+the verifier. Each other `pagis://` link opens nothing.
+
+## Keep several servers
+
+The application menu and tray list your servers by host. The first nine
+have **Command-1** to **Command-9** on macOS and **Control-1** to
+**Control-9** on Linux. Select a server to show its window. **Add a
+Server…** opens the connect screen with the same trust statement for
+each server. **Remove This Server** stops that server's Host link,
+clears its partition storage and removes it from the list.
+
+A Client App that installs a Local Installation keeps only that server.
+Not built: a Client App with both a Local Installation and connected
+servers.
 
 ## Connect with a sign-in link
 
@@ -56,7 +86,7 @@ it signs in one client, one time. Get a link in one of these ways:
 Paste the whole link in the field, then select **Continue**. The client
 checks the origin of the link as it checks an address: the https rule, the
 health route, the Compatibility Range and the setup of the server. It keeps
-the origin in `userData/server.json`, and nothing more. The secret of the
+only the id, origin and host label in `userData/servers.json`. The secret of the
 link goes to no file, no client storage and no log. The product window then
 opens at the link. The page of the link posts the secret to the server, and
 the answer puts the Session cookie in the cookie jar of the product window.
@@ -76,7 +106,7 @@ client connected before and its Session ended.
 
 The client checks the range again on every start and refuses a server outside
 it, with a message that says which end to update. The next start opens the
-same server, signed in while the Session of the last sign-in lasts. When that
+same servers, each signed in while its Session lasts. When a
 server does not answer, or its release is outside the range, the setup page
 says so and offers "Try again" and "Choose another setup". It offers no
 repair, because the client installed nothing. Quit stops no process, because
@@ -84,22 +114,23 @@ the client started none.
 
 ## Updates
 
-A connected Client App follows the release of its server
+A connected Client App follows the oldest release of its stored servers
 ([ADR-0027](https://github.com/pagis-co/pagis/blob/main/docs/adr/0027-the-client-app-installs-updates-and-upgrades-its-installation.md)).
 Its Compatibility Range refuses a server older than itself, so it takes only
-the Update to the release of its server, and never an Update past it. At
+the Update to the oldest release of its stored servers, and never an Update
+past it. At
 each check (at start, every 24 hours, and from "Check for Updates…"), it
-reads the release of the server from the health route:
+reads the release of each stored server from the health route:
 
-- When the server runs a newer release, the client downloads the Update to
-  that release from the feed of that release on GitHub. It checks and
+- When every stored server runs a newer release, the client downloads the Update to
+  the oldest of those releases from its feed on GitHub. It checks and
   installs that Update as in [Updates](/client-app/updates). So when the
   Administrator updates the server past the Compatibility Range, the check at
   the next start gets the Update that this client needs.
-- When the server runs the same release or an older one, there is no Update.
+- When any stored server runs the same release or an older one, there is no Update.
   "Check for Updates…" says that Pagis is up to date with its server, and
   names both releases.
-- When the server does not answer, the check fails and gives that reason.
+- When any stored server does not answer, the check fails and gives that reason.
 
 The client prepares nothing for a restart, because it supervises no server.
 "Restart to Update" asks no question about Runs, because the Runs belong to
@@ -112,7 +143,7 @@ the server.
 (`127.0.0.1`, `[::1]` or `localhost`), such as an SSH tunnel. The refusal
 names the two ways to an `https://` address: Remote Access on a local
 installation ([Serve several People](/client-app/several-people)), and a proxy
-that holds TLS in front of a server. A `server.json` that holds an
+that holds TLS in front of a server. A `servers.json` entry that holds an
 `http://` origin of another computer fails at the start, and the setup page
 shows the refusal. The client follows no redirect before the product window
 opens, and uses the TLS certificate check of the platform. On an `https://`

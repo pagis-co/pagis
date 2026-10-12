@@ -43,15 +43,34 @@ export async function serverSource(
   clientVersion: string,
   request: typeof fetch = fetch,
 ): Promise<UpdateSource> {
+  return sourceForVersion(await serverRelease(origin, request), clientVersion)
+}
+
+/** The oldest stored server bounds the Update of the whole Client App. */
+export async function serversSource(
+  origins: readonly string[],
+  clientVersion: string,
+  request: typeof fetch = fetch,
+): Promise<UpdateSource> {
+  if (origins.length === 0) throw new Error('The Client App has no connected server.')
+  const versions = await Promise.all(origins.map((origin) => serverRelease(origin, request)))
+  versions.sort(semver.compare)
+  return sourceForVersion(versions[0], clientVersion)
+}
+
+async function serverRelease(origin: string, request: typeof fetch): Promise<string> {
   const health = await probeHealth(origin, HEALTH_TIMEOUT_MS, request)
   if (!health) {
     throw new Error(`No Pagis server answered at ${origin}, so Pagis cannot read the release of its server.`)
   }
   const server = health.version
-  // The release becomes a part of the URL of the feed.
   if (semver.valid(server) !== server) {
     throw new Error(`The Pagis server at ${origin} reported the release "${server}", which is not a release version.`)
   }
+  return server
+}
+
+function sourceForVersion(server: string, clientVersion: string): UpdateSource {
   if (!semver.gt(server, clientVersion)) return { kind: 'server-not-newer', server }
   return {
     kind: 'feed',

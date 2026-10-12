@@ -48,6 +48,7 @@
                 <!-- The client runs each command that the server sends, with no check of its own (ADR-0015). The Connect to a server page of the documentation site states this in full. -->
                 <p id="connect-trust" class="field-hint">Connect only to a server you trust.</p>
                 <p id="server-url-error" class="field-error" hidden></p>
+                <button id="browser-sign-in" class="button button-outline">Sign in with the browser</button>
                 <p id="server-progress" class="field-progress" role="status" hidden></p>
               </div>
             </div>
@@ -200,8 +201,9 @@
         }
         renderSteps(shown !== null && current.kind === 'setting-up' ? current : null)
         server.hidden = selected('use') !== 'connect'
-        progress.hidden = !checking
-        progress.textContent = checking ? current.detail : ''
+        const waiting = current.kind === 'browser-sign-in'
+        progress.hidden = !checking && !waiting
+        progress.textContent = waiting ? 'Complete sign-in in your browser. Pagis waits for you here.' : checking ? current.detail : ''
         const visible = new Set()
         if (view === 'use') visible.add('continue')
         if (view === 'who') { visible.add('back'); visible.add('install') }
@@ -216,6 +218,7 @@
         }
         for (const [id, button] of Object.entries(buttons)) button.hidden = !visible.has(id)
         buttons.continue.disabled = checking
+        element('browser-sign-in').disabled = checking
         if (current.kind === 'taken-port') buttons['use-port'].textContent = `Use port ${current.suggested}`
       }
 
@@ -311,6 +314,14 @@
         window.pagisSetup.connectToServer(address.value).catch(() => {})
       }
 
+      element('browser-sign-in').addEventListener('click', () => {
+        const problem = serverAddressProblem(address.value)
+        showAddressProblem(problem)
+        if (problem !== null) return
+        connecting = true
+        window.pagisSetup.browserSignIn(address.value).catch(() => {})
+      })
+
       for (const input of document.querySelectorAll('input[type="radio"]')) {
         input.addEventListener('change', render)
       }
@@ -333,6 +344,12 @@
       element('quit').addEventListener('click', () => window.pagisSetup.quit())
       window.pagisSetup.onState((state) => {
         current = state
+        if (state.kind === 'add-server') {
+          question = 'use'
+          document.querySelector('input[name="use"][value="connect"]').checked = true
+          document.querySelector('.choices').hidden = true
+          element('use-title').textContent = 'Add a Server'
+        }
         choosing = false
         if (state.kind !== 'installing') connecting = false
         if (state.kind === 'server-check-failed') {

@@ -142,10 +142,10 @@ this too.
 ### A connected Client App follows its server
 
 A connected Client App refuses a server older than itself (its Compatibility
-Range). So it takes only the Update to its server's release, and never an
-Update past it. At each check it reads the server's release from the health
-route, and then the feed of that release, not of the latest release. When
-the server's release is not newer than the Client App, there is no Update,
+Range). So it takes only the Update to the oldest release of its stored servers, and never an
+Update past it. At each check it reads each server's release from its health
+route, and then the feed of the oldest release, not of the latest release.
+When any server's release is not newer than the Client App, there is no Update,
 and "Check for Updates…" says that Pagis is up to date with its server. A
 connected Client App prepares no restart and asks no Runs question, because
 it supervises no server. Its checked Update installs at quit, as on a Local
