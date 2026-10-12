@@ -18,7 +18,7 @@ pub mod http;
 pub mod memory_suite;
 mod message_socket;
 pub mod migration;
-pub use message_socket::{MemorySocket, Socket, message_socket_pair};
+pub use message_socket::Socket;
 pub mod plugin;
 pub mod postgres;
 pub mod session_client;

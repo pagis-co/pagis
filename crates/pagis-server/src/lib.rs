@@ -21,6 +21,7 @@ mod connections_portable_tests;
 mod cors;
 mod cross_origin;
 pub mod error;
+pub mod fake;
 pub mod forget;
 pub mod forwarded;
 mod grants;

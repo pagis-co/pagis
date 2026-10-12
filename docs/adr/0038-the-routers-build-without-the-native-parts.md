@@ -100,6 +100,14 @@ answer.
   parts and give the defined answer for an absent Native Part.
 
 `pagis-server` builds without `native` on `wasm32-unknown-unknown`.
-The Agent route tests build `AppState` over fake stores and services,
-then send requests through Tower with no listener. The same test binary
-runs under Node and on native targets.
+The Agent and conversation route tests build `AppState` over the same
+fake stores and services, then send requests through Tower with no
+listener. They cover Channels, messages, Threads, Runs, Approvals,
+the Needs-You Queue, memory and spoken messages. Each read checks the
+Workspace of the Session. The test binaries run under Node and on
+native targets.
+
+`pagis-server::fake` holds the in-memory pair of `MessageSocket`s.
+`pagis-testkit` uses this pair. The live event tests send the first
+`auth` frame, subscribe to a Channel, read its events and check that
+Session sign-out closes the socket.
