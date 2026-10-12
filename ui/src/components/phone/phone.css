@@ -959,10 +959,31 @@ p.approval-phone-body {
 .phone-add-connection {
   gap: var(--space-6);
 }
+.phone-disclosure-title {
+  margin: 0;
+  font-size: var(--text-lg);
+}
 .phone-add-connection-lead {
   margin: 0;
   color: var(--muted);
   text-align: center;
+}
+.phone-connection-row {
+  flex-direction: column;
+  align-items: stretch;
+}
+.phone-connection-open {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--space-3);
+  min-height: 44px;
+  text-align: left;
+}
+.phone-connection-row > a {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
 }
 .usage-phone-summary {
   display: flex;

@@ -658,7 +658,8 @@ describe('Connections Google sign-in', () => {
     }
 
     nameTheConnection()
-    fireEvent.click(screen.getByText('Continue at Google'))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue to Google' }))
 
     await waitFor(() =>
       expect(api.POST).toHaveBeenCalledWith('/api/v1/settings/connections', {
@@ -708,7 +709,8 @@ describe('Connections Google sign-in', () => {
 
     await openGoogle()
     nameTheConnection()
-    fireEvent.click(screen.getByText('Continue at Google'))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue to Google' }))
 
     expect(await screen.findByText('Finish at Google')).toBeTruthy()
     expect(screen.getByText(/opened in a new tab/)).toBeTruthy()
@@ -727,7 +729,7 @@ describe('Connections Google sign-in', () => {
     expect(
       screen.getByText(/An administrator sets it up in the Administration Interface/),
     ).toBeTruthy()
-    expect(screen.queryByText('Continue at Google')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Continue' })).toBeNull()
     expect(screen.queryByLabelText('Short name')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
     expect(await screen.findByText('Add a connection')).toBeTruthy()
@@ -745,7 +747,8 @@ describe('Connections Google sign-in', () => {
 
     await openGoogle()
     nameTheConnection()
-    fireEvent.click(screen.getByText('Continue at Google'))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue to Google' }))
 
     expect(await screen.findByText('Google said no.')).toBeTruthy()
     expect(screen.getByText('Connect Google')).toBeTruthy()
@@ -771,7 +774,8 @@ describe('Connections Google sign-in', () => {
 
     await openGoogle()
     nameTheConnection()
-    fireEvent.click(screen.getByText('Continue at Google'))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue to Google' }))
 
     expect(await screen.findByText('alias work is taken')).toBeTruthy()
     expect(screen.getByText('Connect Google')).toBeTruthy()

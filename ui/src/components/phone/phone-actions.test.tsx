@@ -104,10 +104,10 @@ it.each([true, false])('offers Google sign-in only when the installation is set 
   fireEvent.click(await screen.findByRole('button', { name: 'Add a connection' }))
   await screen.findByRole('dialog', { name: 'Add a connection' })
   if (setUp) {
-    expect(await screen.findByRole('button', { name: 'Continue at Google' })).not.toBeNull()
+    expect(await screen.findByRole('button', { name: 'Continue' })).not.toBeNull()
   } else {
     expect(await screen.findByText('Google is not set up on this server yet.')).not.toBeNull()
-    expect(screen.queryByRole('button', { name: 'Continue at Google' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Continue' })).toBeNull()
   }
   expect(screen.queryByLabelText(/Client ID|Client secret|Google account address/)).toBeNull()
 })

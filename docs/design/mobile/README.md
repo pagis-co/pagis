@@ -76,7 +76,8 @@ The phone shows no Administration section and no sign-in link.
 | --- | --- |
 | Settings | [settings.png](settings.png) |
 | Connections | [settings-connections.png](settings-connections.png) |
-| Add a connection | [add-connection.png](add-connection.png) |
+| Add a connection, names | [add-connection.png](add-connection.png) |
+| Add a connection, Google data disclosure | [google-disclosure.png](google-disclosure.png) |
 | Add a connection, no Installation OAuth Client | [add-connection-no-client.png](add-connection-no-client.png) |
 | Hosts | [settings-hosts.png](settings-hosts.png) |
 | Sessions | [settings-sessions.png](settings-sessions.png) |

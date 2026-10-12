@@ -1,0 +1,136 @@
+---
+title: Delete the Google data that Pagis holds
+description: Remove imported Google data, disconnect a Connection, remove access at Google, and check the copies that stay.
+icon: ShieldCheck
+---
+
+Pagis reads the mail and calendar that you allow. A Sync copies selected
+mail and calendar events into the records of your Workspace on this server.
+Reflection writes Subject Pages in memory from them. Your sprites send the
+data that they read to the model provider of their Model Alias when they
+work for you. Pagis does not sell Google data or use it for ads. A Run
+that reads Google data keeps no Model Request Capture from that point.
+
+You can delete imported data with **Forget**. Disconnecting the Connection
+or removing access at Google alone does not delete that data. Use Forget
+before you delete the Connection, so its controls are still available.
+
+## Disconnect the Connection
+
+In the Product App, open **Settings → Connections**. Open the Google
+Connection and select **Disconnect**. In the desk layout, **Delete** on
+the Google Connection row performs the same action.
+
+A successful delete removes the Connection record and its sealed Google
+refresh token from the database. It revokes the Grants for that Connection.
+Sprites lose access through it. It does not remove access at Google.
+
+The imported Source Items, Source Versions, Sync records, memory files and
+their git history stay. Conversations, tool results, Model Request Captures
+and Artifacts also stay. The files of the Google provider in
+`gog/<workspace_id>/` stay. Deleting a Connection does not compact the
+database files to erase the deleted row. Use Forget to remove imported data.
+
+## Forget a source
+
+To remove everything imported from one Google account:
+
+1. Open **Settings → Connections**, then open the Google Connection.
+2. In **Forget**, select **Preview what goes** for **Forget everything
+   imported from this account**.
+3. Read the preview. Select **Confirm forget** to delete the data.
+4. Wait for **Deletion completed**. If the operation fails, the data stays
+   blocked. Select **Retry deletion** to complete the deletion.
+
+To forget one Source Item, open its Subject Page in **Memory**. Select
+**Forget this page**, then **Preview what goes** for the item. Read the
+preview, select **Confirm forget**, and wait for **Deletion completed**.
+
+Forget deletes the selected Source Items, every Source Version and arrival,
+and the stored Incoming Events and Reflection Filter decisions that refer to
+them. It removes the memory content derived from the source and rebuilds
+the git history without that content. It updates the Page Index, Memory
+Search, Learning Feed and Brief cursors to remove the purged pages.
+
+Forget also removes the words of messages from Runs that read the source,
+their stored tool results, the Source Reads for that source and their
+Model Request Captures. The message rows stay to keep the conversation in
+order. They show that the message is unavailable. Messages without a Grant
+in their Exposure Stamp, such as your own words, stay.
+
+Forget compacts the database files. On SQLite it clears the WAL. On
+Postgres it rewrites the affected tables; Postgres keeps its own WAL
+segments until it recycles them. A failed compaction does not count as a
+completed deletion.
+
+A suppression record blocks a new retrieval of a forgotten source. For one
+item it holds a keyed hash of the source identity, not its readable id. An
+account Forget blocks retrieval through that Connection. **Allow learning
+again** removes the block and permits a fresh import. It restores no deleted
+content.
+
+The following deletion is not built: words that reach a Run through a Brief
+or a memory read; a message of another Run that quotes a forgotten message;
+cards, sent mail, Artifacts and other Run records that are not messages or
+tool results; and call arguments in the audit log. Other event log entries,
+including tool call arguments and failed commit entries, can still name a
+purged page. A Run in progress can write words after the purge; its message
+is unavailable, but those words stay until another purge. Coding Session
+records and transcripts also stay.
+
+Forget changes no data at Google and no copy that a model provider holds.
+Use the provider's deletion controls for those copies. [What the model
+provider receives](/data-and-privacy#what-the-model-provider-receives) says
+what Pagis sends. These limits follow the
+[memory deletion decision](https://github.com/pagis-co/pagis/blob/main/docs/adr/0008-memory-reads-through-derived-indexes.md).
+
+## Remove access at Google
+
+1. Open [the connections of your Google account](https://myaccount.google.com/permissions).
+2. Select the app that your Server's Installation OAuth Client names.
+3. Remove its access to your Google account.
+
+This stops that app from using its Google authorization. It does not delete
+your mail or calendar at Google, or the copies that Pagis already holds.
+Use Forget in Pagis to delete its imported copies.
+
+## When a Person leaves a Server
+
+Before the Person leaves, ask them to use Forget for each Google Connection,
+wait for completion, delete each Connection, and remove access at Google.
+
+In **People** in the Administration Interface, an Administrator disables
+the Person. This deletes every Session of that Person, closes their live
+connections and ends their Computer Takeovers. It prevents sign-in. It
+does not delete the Person's Workspace, Google refresh tokens, imported
+records, memory, conversations, Artifacts or Computer volumes.
+
+Deletion of a Person and their Workspace is not built. The Administration
+Interface has no control that deletes another Person's imported Google
+data. An Administrator must also remove Backups and other copies under
+their control that still hold that data.
+
+## What stays in a Backup
+
+A Backup made before a deletion still holds the imported records,
+conversations, stored tool results, memory and its git history, Artifacts,
+and sealed Google refresh tokens that existed when it was made. The Backup
+of a Headless Server also holds the Computer volumes. A Backup holds no
+Model Request Capture and no Installation Key.
+
+Forget, deletion of a Connection and disabling a Person do not edit an
+existing Backup. A manual Backup has no time limit in Pagis. It stays until
+its owner deletes it, or the owner's backup tool removes it under that
+tool's retention rules. Ask the Administrator how long the Server keeps
+Backups, and ask them to remove copies that hold the deleted data.
+
+The Client App keeps one Backup of an Upgrade. It removes the previous
+Upgrade Backup when another Upgrade completes. It has no time limit while
+no further Upgrade completes. A copy saved elsewhere stays until its owner
+deletes it.
+
+Restoring an old Backup brings its old data back, including the suppression
+state at the time of that Backup. Deletions made after the Backup do not
+apply to that restored copy. Use Forget again if you restore it.
+[Backup and restore](/server/backup) and [Back up and
+restore](/client-app/backup) give the procedures.

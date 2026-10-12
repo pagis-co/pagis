@@ -16,6 +16,7 @@
     "plugins",
     "widgets",
     "---Security---",
-    "data-and-privacy"
+    "data-and-privacy",
+    "google-data"
   ]
 }
