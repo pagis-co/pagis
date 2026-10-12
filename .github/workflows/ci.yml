@@ -70,13 +70,9 @@ jobs:
       - run: cargo xtask step fmt clippy members-alone
 
   wasm32:
-    name: wasm32 (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+    name: wasm32
+    runs-on: ubuntu-latest
     timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -97,9 +93,7 @@ jobs:
         with:
           node-version-file: .nvmrc
 
-      # macOS supplies Apple clang. Linux installs clang with wasm32.
       - name: Install clang
-        if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y clang
 
       # Cargo reads the wasm-bindgen version from Cargo.lock.
