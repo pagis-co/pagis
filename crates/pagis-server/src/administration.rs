@@ -41,7 +41,7 @@
 
 use std::{collections::BTreeSet, sync::Arc};
 
-use axum::extract::{Path, Query, Request, State};
+use axum::extract::{FromRef, Path, Query, Request, State};
 use axum::http::StatusCode;
 use axum::middleware::Next;
 use axum::response::Response;
@@ -80,6 +80,12 @@ pub enum AdministrationSection {
 #[derive(Debug, Clone)]
 pub struct AdministrationSections(BTreeSet<AdministrationSection>);
 
+impl FromRef<Arc<AppState>> for AdministrationSections {
+    fn from_ref(state: &Arc<AppState>) -> Self {
+        state.administration_sections.clone()
+    }
+}
+
 impl Default for AdministrationSections {
     fn default() -> Self {
         Self::without(&[])
@@ -97,6 +103,9 @@ impl AdministrationSections {
             ]
             .into_iter()
             .filter(|section| !hidden.contains(section))
+            .filter(|section| {
+                cfg!(feature = "native") || *section == AdministrationSection::Providers
+            })
             .collect(),
         )
     }
@@ -141,11 +150,11 @@ pub struct AdministrationSectionsDto {
     )
 )]
 pub async fn get_sections(
-    State(state): State<Arc<AppState>>,
+    State(sections): State<AdministrationSections>,
     _administrator: Administrator,
 ) -> Json<AdministrationSectionsDto> {
     Json(AdministrationSectionsDto {
-        sections: state.administration_sections.offered(),
+        sections: sections.offered(),
     })
 }
 
@@ -1254,9 +1263,9 @@ pub fn router(state: Arc<AppState>) -> Router {
             )
             .route(
                 "/api/v1/settings/system/remote-access",
-                get(crate::remote_access::get_remote_access)
-                    .put(crate::remote_access::turn_on_remote_access)
-                    .delete(crate::remote_access::turn_off_remote_access),
+                get(crate::remote_access_native::get_remote_access)
+                    .put(crate::remote_access_native::turn_on_remote_access)
+                    .delete(crate::remote_access_native::turn_off_remote_access),
             )
             .route(
                 "/api/v1/settings/system/analytics",
@@ -1379,3 +1388,7 @@ mod tests {
         assert!(check_password("correct horse battery").is_ok());
     }
 }
+
+#[cfg(all(test, not(feature = "native")))]
+#[path = "administration_portable_tests.rs"]
+mod portable_tests;

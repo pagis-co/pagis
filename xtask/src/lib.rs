@@ -199,6 +199,7 @@ fn gate_lanes(
             ]),
         },
         members_alone_step(root),
+        server_portable_step(root),
         wasm32::step(root),
         computer_image_step(root, docker_available),
         screend::test_step(root, docker_available),
@@ -268,6 +269,40 @@ fn gate_lanes(
         mobile::lane(root, toolchains, absent),
         secrets_lane(root),
     ]
+}
+
+/// Check the server without feature unification from the daemon.
+fn server_portable_step(root: &Path) -> Step {
+    Step {
+        name: "server-portable",
+        action: Action::Run(vec![
+            Cmd::new(
+                "cargo",
+                &[
+                    "clippy",
+                    "-p",
+                    "pagis-server",
+                    "--all-targets",
+                    "--no-default-features",
+                    "--",
+                    "-D",
+                    "warnings",
+                ],
+            )
+            .in_dir(root),
+            Cmd::new(
+                "cargo",
+                &[
+                    "nextest",
+                    "run",
+                    "-p",
+                    "pagis-server",
+                    "--no-default-features",
+                ],
+            )
+            .in_dir(root),
+        ]),
+    }
 }
 
 /// Check each workspace member in a separate Cargo invocation. The
@@ -600,6 +635,7 @@ pub fn dev_lanes(
             cargo_steps.push(pins_step(root));
         }
         if affected.iter().any(|package| package == "pagis-server") {
+            cargo_steps.push(server_portable_step(root));
             cargo_steps.push(Step {
                 name: "contract-drift",
                 action: pnpm_script_action(root, "ui", "api:check"),

@@ -165,7 +165,7 @@ jobs:
       # Rust image that builds screend in the Computer Image. The named
       # volumes that keep their Cargo registry and target directory start
       # empty on a runner, so the step compiles screend each time.
-      - run: cargo xtask step computer-image screend-test test
+      - run: cargo xtask step computer-image screend-test server-portable test
         env:
           PAGIS_IMAGE_CACHE_FROM: type=gha,scope=computer-image
           PAGIS_IMAGE_CACHE_TO: ${{ github.ref == 'refs/heads/main' && 'type=gha,scope=computer-image,mode=max' || '' }}

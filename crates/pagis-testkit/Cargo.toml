@@ -7,7 +7,7 @@ publish.workspace = true
 
 [dependencies]
 async-trait.workspace = true
-axum.workspace = true
+axum = { workspace = true, features = ["tokio", "http1", "ws"] }
 base64.workspace = true
 chrono.workspace = true
 chrono-tz.workspace = true

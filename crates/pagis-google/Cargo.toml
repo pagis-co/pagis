@@ -23,7 +23,7 @@ thiserror.workspace = true
 tokio = { workspace = true, features = ["io-util", "process", "rt"] }
 
 [dev-dependencies]
-axum.workspace = true
+axum = { workspace = true, features = ["tokio", "http1"] }
 tempfile.workspace = true
 # The collector test checks its metadata against the declaration.
 jsonschema.workspace = true

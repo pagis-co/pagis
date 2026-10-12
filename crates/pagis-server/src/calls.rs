@@ -20,6 +20,7 @@
 use std::sync::Arc;
 
 use axum::Json;
+#[cfg(feature = "native")]
 use axum::extract::ws::WebSocketUpgrade;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
@@ -34,6 +35,7 @@ use utoipa::ToSchema;
 
 use crate::AppState;
 use crate::auth::Tenant;
+#[cfg(feature = "native")]
 use crate::axum_socket::AxumSocket;
 use crate::error::ApiError;
 use crate::live_connections::{LiveTenant, close_for_ended_session};
@@ -68,6 +70,7 @@ impl ListenServerFrame {
     }
 }
 
+#[cfg(feature = "native")]
 pub async fn listen(
     State(state): State<Arc<AppState>>,
     live: LiveTenant,

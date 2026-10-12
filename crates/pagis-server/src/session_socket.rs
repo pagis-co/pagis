@@ -14,12 +14,16 @@
 
 use std::sync::Arc;
 
+#[cfg(feature = "native")]
 use axum::extract::ws::WebSocketUpgrade;
+#[cfg(feature = "native")]
 use axum::extract::{Path, State};
+#[cfg(feature = "native")]
 use axum::response::Response;
 use pagis_core::{Host, HostId};
 
 use crate::auth::Tenant;
+#[cfg(feature = "native")]
 use crate::axum_socket::AxumSocket;
 use crate::byte_socket;
 use crate::error::ApiError;
@@ -27,6 +31,7 @@ use crate::live_connections::LiveTenant;
 use crate::{AppState, MessageSocket};
 
 /// Open the session socket of one Host of the signed-in Person.
+#[cfg(feature = "native")]
 pub async fn upgrade(
     State(state): State<Arc<AppState>>,
     live: LiveTenant,

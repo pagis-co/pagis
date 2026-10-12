@@ -17,6 +17,8 @@ pub struct Route {
     /// data: they answer without a Session. [`PUBLIC_ROUTES`] names
     /// every one of them and says why each holds no workspace content.
     pub authenticated: bool,
+    /// The Native Part that serves this route, or `None` for a portable route.
+    pub part: Option<&'static str>,
 }
 
 /// Every route outside the session middleware, with why it returns no
@@ -241,166 +243,199 @@ pub const ADMINISTRATION_ROUTES: &[Route] = &[
         path: "/api/v1/administration/sections",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/administration/people",
         methods: &["get", "post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/administration/people/{user_id}/disable",
         methods: &["post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/administration/people/{user_id}/enable",
         methods: &["post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/administration/people/{user_id}/password",
         methods: &["post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/administration/people/{user_id}/sign-in",
         methods: &["put"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/administration/people/{user_id}/sign-in-links",
         methods: &["post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/administration/people/{user_id}/spend-cap",
         methods: &["put"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/administration/usage",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/administration/sessions",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/administration/hosts",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/administration/resources",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/administration/health",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/administration/computer-image/pull",
         methods: &["post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/user",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/sessions/current",
         methods: &["delete"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/settings/system",
         methods: &["get", "put"],
         authenticated: true,
+        part: Some("System Settings"),
     },
     Route {
         path: "/api/v1/settings/system/remote-access",
         methods: &["get", "put", "delete"],
         authenticated: true,
+        part: Some("Remote Access"),
     },
     Route {
         path: "/api/v1/settings/system/analytics",
         methods: &["put"],
         authenticated: true,
+        part: Some("System Settings"),
     },
     Route {
         path: "/api/v1/settings/system/model-request-capture",
         methods: &["put"],
         authenticated: true,
+        part: Some("System Settings"),
     },
     Route {
         path: "/api/v1/settings/system/home-exit",
         methods: &["put"],
         authenticated: true,
+        part: Some("System Settings"),
     },
     Route {
         path: "/api/v1/settings/system/docker/probe",
         methods: &["post"],
         authenticated: true,
+        part: Some("System Settings"),
     },
     Route {
         path: "/api/v1/administration/providers",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/administration/providers/{provider}/{part}",
         methods: &["put", "delete"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/administration/providers/{provider}/{part}/test",
         methods: &["post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/system/restart",
         methods: &["post"],
         authenticated: true,
+        part: Some("System Settings"),
     },
     Route {
         path: "/api/v1/setup",
         methods: &["get", "post"],
         authenticated: false,
+        part: None,
     },
     Route {
         path: "/api/v1/sessions",
         methods: &["post"],
         authenticated: false,
+        part: None,
     },
     Route {
         path: "/api/v1/plugins",
         methods: &["get", "post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/plugins/{plugin_id}",
         methods: &["get", "delete"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/plugins/{plugin_id}/update",
         methods: &["post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/plugins/{plugin_id}/bindings/{field}",
         methods: &["put"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/plugins/{plugin_id}/start",
         methods: &["post"],
         authenticated: true,
+        part: None,
     },
 ];
 
@@ -410,772 +445,983 @@ pub const ROUTES: &[Route] = &[
         path: "/api/v1/knowledge/forget",
         methods: &["get", "post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/knowledge/forget/preview",
         methods: &["post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/knowledge/forget/{id}",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/knowledge/forget/{id}/retry",
         methods: &["post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/knowledge/forget/{id}/reopt",
         methods: &["post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/connections/{connection_id}/sync",
         methods: &["get", "put"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/connections/{connection_id}/sync/catalogue",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/connections/{connection_id}/sync/filter/preview",
         methods: &["post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/agents/{agent_id}/sync-connections",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/agents",
         methods: &["get", "post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/agents/{agent_id}",
         methods: &["put"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/agents/{agent_id}/appearance",
         methods: &["put"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/agents/{agent_id}/archive",
         methods: &["post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/agents/{agent_id}/mailbox",
         methods: &["get", "post", "delete"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/settings/mailboxes",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/settings/mailbox-offers",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/settings/mailbox-offers/name",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/agents/{agent_id}/mailbox/reset-password",
         methods: &["post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/mail/{mailbox}/{message_id}",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/agents/{agent_id}/computer",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/agents/{agent_id}/computer/wake",
         methods: &["post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/agents/{agent_id}/computer/sleep",
         methods: &["post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/computers/disk",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/screen/ice",
         methods: &["get"],
         authenticated: true,
+        part: Some("Remote Access"),
     },
     Route {
         path: "/api/v1/agents/{agent_id}/screen/preview.png",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/agents/{agent_id}/screen/offer",
         methods: &["post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/agents/{agent_id}/screen/takeover",
         methods: &["post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/agents/{agent_id}/screen/handback",
         methods: &["post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/channels",
         methods: &["get", "post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/channels/{channel_id}/messages",
         methods: &["get", "post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/channels/{channel_id}/messages/{message_id}",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/channels/{channel_id}/messages/{message_id}/speech",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/channels/{channel_id}/threads/{root_message_id}",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/settings/voices",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/artifacts",
         methods: &["post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/artifacts/{artifact_id}",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/calls/{call_id}/control",
         methods: &["post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/runs/{run_id}/cancel",
         methods: &["post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/runs/{run_id}/dismiss",
         methods: &["post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/runs/{run_id}/retry",
         methods: &["post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/runs/{run_id}/events",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/runs/{run_id}/steps",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/runs/{run_id}/model-requests",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/runs",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/schedules",
         methods: &["get", "post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/schedules/{schedule_id}",
         methods: &["get", "post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/schedules/{schedule_id}/archive",
         methods: &["post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/schedules/{schedule_id}/run",
         methods: &["post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/schedules/{schedule_id}/revisions",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/schedules/{schedule_id}/occurrences",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/schedules/{schedule_id}/wakeups",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/event-subscriptions",
         methods: &["get", "post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/event-subscriptions/{subscription_id}",
         methods: &["get", "post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/event-subscriptions/{subscription_id}/events",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/event-subscriptions/{subscription_id}/wakeups",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/needs-you",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/requests",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/requests/{request_id}",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/requests/{request_id}/decision",
         methods: &["post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/memory/feed",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/memory/commits/{sha}/revert",
         methods: &["post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/memory/file",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/memory/pages",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/memory/pages/counts",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/memory/commits/{sha}/diff",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/hosts",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/hosts/{host_id}/harnesses/{harness_id}/sign-in",
         methods: &["post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/hosts/{host_id}/harnesses/{harness_id}/sign-in-check",
         methods: &["post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/harnesses",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/grants",
         methods: &["get", "post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/grants/{grant_id}/rules",
         methods: &["put"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/grants/{grant_id}/capabilities",
         methods: &["put"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/grants/{grant_id}",
         methods: &["delete"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/agents/{agent_id}/hosts/{host_id}/session-approval-mode",
         methods: &["put"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/agents/{agent_id}/hosts/{host_id}/unattended-modes",
         methods: &["put"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/user",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/workspace",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/workspace/chief-of-staff",
         methods: &["put"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/workspace/timezone",
         methods: &["put"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/workspace/report",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/settings/onboarding",
         methods: &["get"],
         authenticated: true,
+        part: Some("System Settings"),
     },
     Route {
         path: "/api/v1/settings/onboarding/complete",
         methods: &["post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/settings/onboarding/providers/{provider}/key",
         methods: &["put"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/settings/onboarding/providers/{provider}/key/check",
         methods: &["post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/settings/onboarding/docker-endpoint",
         methods: &["put"],
         authenticated: true,
+        part: Some("System Settings"),
     },
     Route {
         path: "/api/v1/settings/onboarding/default-model",
         methods: &["put"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/settings/providers/{provider}/check",
         methods: &["post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/settings/models",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/settings/model-aliases/{alias}",
         methods: &["put", "delete"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/settings/model-aliases",
         methods: &["get", "post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/settings/retention",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/settings/retention/{kind}",
         methods: &["put"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/settings/connections/providers",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/settings/connections",
         methods: &["get", "post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/settings/connections/{connection_id}",
         methods: &["delete"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/settings/connections/{connection_id}/authorize",
         methods: &["post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/settings/trust-list",
         methods: &["get", "post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/settings/trust-list/{trust_entry_id}",
         methods: &["delete"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/settings/keypad-code",
         methods: &["put", "delete"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/settings/keypad-code/failures",
         methods: &["delete"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/calls",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/calls/{call_id}",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/calls/{call_id}/dismiss",
         methods: &["post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/calls/{call_id}/hangup",
         methods: &["post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/calls/{call_id}/tier",
         methods: &["post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/coding-sessions",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/coding-sessions/{coding_session_id}",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/coding-sessions/{coding_session_id}/transcript",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/coding-sessions/{coding_session_id}/stop",
         methods: &["post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/settings/phone-numbers",
         methods: &["get", "post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/settings/phone-numbers/adopt",
         methods: &["post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/settings/phone-numbers/available",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/settings/phone-numbers/{phone_number_id}/assign",
         methods: &["post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/settings/phone-numbers/{phone_number_id}/unassign",
         methods: &["post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/settings/phone-numbers/{phone_number_id}/release",
         methods: &["post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/settings/credentials",
         methods: &["get", "post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/settings/credentials/{credential_id}",
         methods: &["delete"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/plugins",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/plugins/{plugin_id}",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/plugins/{plugin_id}/grants",
         methods: &["post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/plugins/{plugin_id}/log",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/widgets/{package}/{version}/{widget}",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/widgets/{tool_call_id}/view",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/widgets/{tool_call_id}/rpc",
         methods: &["post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/software",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/software/{name}",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/software/{name}/contributions/{contribution_id}",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/usage",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/sessions/current",
         methods: &["delete"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/settings/sessions",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/settings/sessions/{session_id}",
         methods: &["delete"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/settings/sign-in-links",
         methods: &["post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/push/key",
         methods: &["get"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/push-subscriptions",
         methods: &["get", "post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/push-subscriptions/{push_subscription_id}",
         methods: &["delete"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/push-subscriptions/{push_subscription_id}/test",
         methods: &["post"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/settings/home-exit",
         methods: &["get", "put", "delete"],
         authenticated: true,
+        part: None,
     },
     Route {
         path: "/api/v1/ws",
         methods: &["get"],
         authenticated: true,
+        part: Some("live events"),
     },
     Route {
         path: "/api/v1/hosts/{host_id}/exit",
         methods: &["get"],
         authenticated: true,
+        part: Some("Hosts and Coding Sessions"),
     },
     Route {
         path: "/api/v1/hosts/{host_id}/sessions",
         methods: &["get"],
         authenticated: true,
+        part: Some("Hosts and Coding Sessions"),
     },
     Route {
         path: "/api/v1/channels/{channel_id}/dictate",
         methods: &["get"],
         authenticated: true,
+        part: Some("Dictation"),
     },
     Route {
         path: "/api/v1/calls/{call_id}/listen",
         methods: &["get"],
         authenticated: true,
+        part: Some("Calls"),
     },
     Route {
         path: "/api/v1/widgets/{workspace_id}/{package}/{version}/{widget}/sandbox",
         methods: &["get"],
         authenticated: false,
+        part: None,
     },
     Route {
         path: "/api/v1/connections/google/start",
         methods: &["get"],
         authenticated: false,
+        part: None,
     },
     Route {
         path: "/api/v1/connections/google/callback",
         methods: &["get"],
         authenticated: false,
+        part: None,
     },
     Route {
         path: "/api/v1/health",
         methods: &["get"],
         authenticated: false,
+        part: None,
     },
     Route {
         path: "/api/v1/runtime/identity",
         methods: &["get"],
         authenticated: false,
+        part: None,
     },
     Route {
         path: "/api/v1/setup",
         methods: &["get"],
         authenticated: false,
+        part: None,
     },
     Route {
         path: "/api/v1/openapi.json",
         methods: &["get"],
         authenticated: false,
+        part: None,
     },
     Route {
         path: "/api/v1/sessions",
         methods: &["post"],
         authenticated: false,
+        part: None,
     },
     Route {
         path: "/api/v1/sessions/client",
         methods: &["post"],
         authenticated: false,
+        part: None,
     },
     Route {
         path: "/api/v1/sessions/link",
         methods: &["post"],
         authenticated: false,
+        part: None,
     },
     Route {
         path: "/api/v1/sessions/link/{code}",
         methods: &["get"],
         authenticated: false,
+        part: None,
     },
 ];
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(not(feature = "native"))]
+    #[tokio::test]
+    async fn each_absent_native_route_answers_not_available() {
+        use axum::body::{Body, to_bytes};
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+
+        let router = crate::native_product_routes();
+        let mut count = 0;
+        for route in ROUTES.iter().filter(|route| route.part.is_some()) {
+            let part = route.part.unwrap();
+            for method in route.methods {
+                let path = route
+                    .path
+                    .split('/')
+                    .map(|segment| {
+                        if segment.starts_with('{') {
+                            "record"
+                        } else {
+                            segment
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("/");
+                let response = router
+                    .clone()
+                    .oneshot(
+                        Request::builder()
+                            .method(method.to_uppercase().as_str())
+                            .uri(path)
+                            .body(Body::empty())
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    response.status(),
+                    StatusCode::NOT_IMPLEMENTED,
+                    "{} {method}",
+                    route.path
+                );
+                let body: serde_json::Value = serde_json::from_slice(
+                    &to_bytes(response.into_body(), usize::MAX).await.unwrap(),
+                )
+                .unwrap();
+                assert_eq!(
+                    body,
+                    serde_json::json!({"error": {
+                        "code": "not_available",
+                        "message": format!("This server does not offer {part}.")
+                    }})
+                );
+                count += 1;
+            }
+        }
+        assert!(count >= 6, "the table names the native product routes");
+    }
 
     /// Every `.route(...)` of one router, read out of its source: the
     /// path, the methods, and whether it is inside the authenticated
@@ -1184,7 +1430,7 @@ mod tests {
     fn routes_in_source(source: &str) -> Vec<(String, Vec<String>, bool)> {
         let middleware = source
             .find(".layer(middleware::from_fn_with_state(")
-            .expect("the session middleware closes the authenticated router");
+            .unwrap_or(source.len());
         let mut found = Vec::new();
         let bytes = source.as_bytes();
         let mut at = 0;
@@ -1274,6 +1520,16 @@ mod tests {
     #[test]
     fn the_route_table_holds_every_route_the_router_builds() {
         let mut from_source = routes_in_source(include_str!("lib.rs"));
+        let native = routes_in_source(include_str!("native.rs"));
+        for route in ROUTES {
+            assert_eq!(
+                route.part.is_some(),
+                native.iter().any(|(path, _, _)| path == route.path),
+                "{} must name the part that builds it",
+                route.path
+            );
+        }
+        from_source.extend(native);
         from_source.sort();
         assert_eq!(
             table(ROUTES),

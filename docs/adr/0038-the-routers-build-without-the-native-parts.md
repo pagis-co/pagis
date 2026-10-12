@@ -101,7 +101,7 @@ answer.
 
 ## Not built
 
-The `native` Cargo feature, the router build without it, and the `501`
-handlers for absent Native Parts are not built. The five frame protocol
-functions over `MessageSocket` are built. The separation of their frame
-types from axum's `ws` feature is not built.
+The separation of the other services and routes of Computers, Calls,
+Hosts and Coding Sessions, Plugins and Software, and Connections into
+Native Parts is not built. The `wasm32-unknown-unknown` build of
+`pagis-server` is not built.
