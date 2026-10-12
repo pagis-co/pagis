@@ -42,10 +42,7 @@ pub(crate) struct Real {
 }
 
 impl Real {
-    /// The real runtime, with the default limits and the screend
-    /// tokens under the test target directory. A colima bind mount from
-    /// the system temporary directory arrives empty, so the token file
-    /// has to live here.
+    /// The real runtime, with default limits and a local token copy.
     pub(crate) fn new() -> Self {
         Self::with_limits(ComputerLimits::default())
     }
@@ -2441,7 +2438,18 @@ async fn a_started_container_carries_the_limits_and_the_owner_labels() {
     assert_eq!(host["Memory"].as_i64(), Some(limits.memory_bytes));
     assert_eq!(host["NanoCpus"].as_i64(), Some(limits.nano_cpus));
     assert_eq!(host["PidsLimit"].as_i64(), Some(limits.pids));
-    assert_eq!(host["ShmSize"].as_i64(), Some(limits.shm_bytes));
+    let shm = host["Mounts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|mount| mount["Target"] == "/dev/shm")
+        .expect("shared memory mount");
+    assert_eq!(shm["Type"], "tmpfs");
+    assert_eq!(
+        shm["TmpfsOptions"]["SizeBytes"].as_i64(),
+        Some(limits.shm_bytes)
+    );
+    assert_eq!(shm["TmpfsOptions"]["Mode"].as_i64(), Some(0o1777));
     assert_eq!(host["Ulimits"][0]["Hard"].as_i64(), Some(limits.open_files));
     let labels = &container["Config"]["Labels"];
     assert_eq!(
@@ -2517,7 +2525,12 @@ async fn a_failed_test_leaves_no_docker_object_behind() {
 #[tokio::test]
 #[ignore = "needs Docker; run via cargo test -- --ignored"]
 async fn the_control_port_refuses_a_request_without_the_token() {
-    let real = Real::new();
+    let limits = ComputerLimits {
+        shm_bytes: 256 * 1024 * 1024,
+        ..ComputerLimits::default()
+    };
+    let shm_bytes = limits.shm_bytes;
+    let real = Real::with_limits(limits);
     let runtime = &real.runtime;
     let owner = real.owner(&AgentId::generate());
     let computer = runtime
@@ -2547,13 +2560,31 @@ async fn the_control_port_refuses_a_request_without_the_token() {
         .await
         .expect("the daemon reads a frame");
     assert!(!frame.is_empty());
-    // The sprite's own shell cannot read the token out of its container.
+    assert_eq!(
+        docker_exec(&owner, &["stat", "-c", "%U:%G:%a", "/etc/pagis"]).trim(),
+        "root:screen:750"
+    );
+    assert_eq!(
+        docker_exec(
+            &owner,
+            &["stat", "-c", "%U:%G:%a", "/etc/pagis/screend-token"]
+        )
+        .trim(),
+        "root:screen:440"
+    );
+    let df = docker_exec(&owner, &["df", "-B1", "--output=size", "/dev/shm"]);
+    assert_eq!(
+        df.lines().nth(1).unwrap().trim().parse::<i64>().unwrap(),
+        shm_bytes
+    );
+    // The Agent's shell cannot read the token.
     let unreadable = docker_exec_raw(
         &owner,
         &["--user", "agent"],
-        &["cat", "/run/pagis/screend-token"],
+        &["cat", "/etc/pagis/screend-token"],
     );
     assert!(!unreadable.status.success());
+    assert!(String::from_utf8_lossy(&unreadable.stderr).contains("Permission denied"));
 }
 
 /// The tenant's Plugin Computer answers a streaming exec: the

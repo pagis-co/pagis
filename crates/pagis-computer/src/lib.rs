@@ -281,12 +281,6 @@ impl Default for AwakeCaps {
     }
 }
 
-/// Where the daemon puts the container's screend token, read-only.
-/// The entrypoint copies it to a file only the `screen` user
-/// reads, then closes this directory, so the sprite's own shell never
-/// reads the token of its container.
-pub const TOKEN_MOUNT: &str = "/run/pagis-token/screend";
-
 /// What one tenant's Docker objects add up to.
 ///
 /// The owner label decides whose object each one is, never its name, so

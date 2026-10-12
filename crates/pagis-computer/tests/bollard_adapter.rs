@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
@@ -46,8 +47,17 @@ enum CreateAnswer {
 }
 
 #[derive(Clone)]
+struct LifecycleCall {
+    path: String,
+    query: String,
+    body: Vec<u8>,
+}
+
+#[derive(Clone)]
 struct DockerFixture {
     port: u16,
+    lifecycle: Arc<Mutex<Vec<LifecycleCall>>>,
+    upload_refused: bool,
     container_image: &'static str,
     pull_error: bool,
     health_ready: bool,
@@ -72,6 +82,8 @@ struct DockerFixture {
 fn fixture() -> DockerFixture {
     DockerFixture {
         port: 0,
+        lifecycle: Arc::default(),
+        upload_refused: false,
         container_image: PLATFORM_CONFIG_ID,
         pull_error: false,
         health_ready: true,
@@ -92,6 +104,33 @@ async fn docker_response(State(fixture): State<DockerFixture>, request: Request)
     let body = axum::body::to_bytes(request.into_body(), usize::MAX)
         .await
         .expect("request body");
+    if path.ends_with("/containers/create")
+        || path.ends_with("/archive")
+        || path.ends_with("/start")
+    {
+        fixture
+            .lifecycle
+            .lock()
+            .expect("lifecycle")
+            .push(LifecycleCall {
+                path: path.clone(),
+                query: query.clone(),
+                body: body.to_vec(),
+            });
+    }
+    if method == Method::PUT && path.ends_with("/archive") {
+        return if fixture.upload_refused {
+            json_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                json!({"message": "archive refused"}).to_string(),
+            )
+        } else {
+            Response::builder()
+                .status(StatusCode::OK)
+                .body(Body::empty())
+                .expect("upload response")
+        };
+    }
     if path == "/healthz" {
         return Response::builder()
             .status(if fixture.health_ready {
@@ -667,4 +706,89 @@ async fn a_taken_layer_size_is_supported_under_a_graph_driver_alone() {
             "{log}"
         );
     }
+}
+
+/// Each start uploads one private token after create and before start.
+#[tokio::test]
+async fn each_start_uploads_the_token_before_the_container_starts() {
+    let docker = fixture();
+    let lifecycle = Arc::clone(&docker.lifecycle);
+    let creates = Arc::clone(&docker.creates);
+    let (runtime, owner, token_file) = runtime_with_token(docker, false).await;
+    let mut tokens = Vec::new();
+    for _ in 0..2 {
+        let computer = runtime.start(&owner, &[], &[]).await.expect("start");
+        assert_eq!(
+            std::fs::read_to_string(&token_file).unwrap(),
+            computer.token
+        );
+        tokens.push(computer.token);
+    }
+    assert_ne!(tokens[0], tokens[1]);
+    let calls = lifecycle.lock().unwrap();
+    assert_eq!(calls.len(), 6);
+    for (calls, token) in calls.as_chunks::<3>().0.iter().zip(tokens) {
+        assert!(calls[0].path.ends_with("/containers/create"));
+        assert!(calls[1].path.ends_with("/archive"));
+        assert!(calls[1].query.contains("path=%2F"), "{}", calls[1].query);
+        assert!(
+            calls[1].query.contains("copyUIDGID=true"),
+            "{}",
+            calls[1].query
+        );
+        assert!(calls[2].path.ends_with("/start"));
+        let mut archive = tar::Archive::new(calls[1].body.as_slice());
+        let mut entries = archive.entries().expect("tar entries");
+        let mut entry = entries
+            .next()
+            .expect("one token entry")
+            .expect("token entry");
+        assert_eq!(
+            Path::new("/").join(entry.path().unwrap()),
+            Path::new("/etc/pagis/screend-token")
+        );
+        let header = entry.header();
+        assert_eq!(header.uid().unwrap(), 0);
+        assert_eq!(header.gid().unwrap(), 1001);
+        assert_eq!(header.username().unwrap(), Some("root"));
+        assert_eq!(header.groupname().unwrap(), Some("screen"));
+        assert_eq!(header.mode().unwrap(), 0o440);
+        assert!(header.entry_type().is_file());
+        let mut contents = String::new();
+        std::io::Read::read_to_string(&mut entry, &mut contents).unwrap();
+        assert_eq!(contents, token);
+        assert!(entries.next().is_none());
+    }
+    for create in creates.lock().unwrap().iter() {
+        assert_eq!(create["HostConfig"]["Binds"].as_array().unwrap().len(), 1);
+        assert!(create["HostConfig"]["ShmSize"].is_null());
+        assert_eq!(
+            create["HostConfig"]["Mounts"][0]["TmpfsOptions"]["Mode"],
+            json!(0o1777)
+        );
+        assert!(!create["Env"].to_string().contains("TOKEN"));
+    }
+}
+
+/// An upload failure fails the wake and never starts the container.
+#[tokio::test]
+async fn a_token_upload_failure_does_not_start_the_container() {
+    let docker = DockerFixture {
+        upload_refused: true,
+        ..fixture()
+    };
+    let lifecycle = Arc::clone(&docker.lifecycle);
+    let (runtime, owner) = runtime(docker).await;
+    let error = runtime
+        .start(&owner, &[], &[])
+        .await
+        .expect_err("upload fails");
+    assert!(error.contains("archive refused"), "{error}");
+    assert!(
+        !lifecycle
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|call| call.path.ends_with("/start"))
+    );
 }

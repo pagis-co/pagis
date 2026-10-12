@@ -26,8 +26,8 @@ use crate::pull_progress::PullProgress;
 use crate::{
     AGENT_LABEL, BindMount, CONTROL_PORT, ComputerLimits, ComputerOwner, ComputerRuntime, IMAGE,
     ImageRemoval, MOUNTS_LABEL, OtherImage, RELAY_HOST, RunningComputer, SECCOMP_PROFILE,
-    StartedComputer, TOKEN_MOUNT, TenantResources, VERSION_LABEL, WORKSPACE_LABEL,
-    image_repository, mounts_fingerprint, network_name,
+    StartedComputer, TenantResources, VERSION_LABEL, WORKSPACE_LABEL, image_repository,
+    mounts_fingerprint, network_name,
 };
 /// How long a booting container gets to answer `/healthz`.
 const BOOT_TIMEOUT: Duration = Duration::from_secs(120);
@@ -45,8 +45,8 @@ const EXEC_LAUNCH_REFUSED: i64 = 126;
 pub struct RuntimeOptions {
     pub limits: ComputerLimits,
     /// The directory of the per-container screend tokens. One file per
-    /// (tenant, Agent), mode 0600, bind-mounted read-only into the
-    /// container it belongs to.
+    /// (Workspace, Agent), mode 0600. The daemon uploads a separate
+    /// copy to `/etc/pagis/screend-token` before each container start.
     pub tokens_dir: PathBuf,
     /// The labels every container, volume and Tenant Network this
     /// runtime creates carries beside its owner labels. The daemon gives
@@ -678,18 +678,11 @@ impl ComputerRuntime for BollardRuntime {
 
         self.ensure_volume(&docker, owner).await?;
         let network = self.ensure_network(&docker, &owner.workspace_id).await?;
-        // A fresh token per start. It reaches the container as a
-        // read-only mount and never as an argument or an environment
-        // entry: every `docker exec` inherits the container environment,
-        // and the sprite's own shell is such an exec.
+        // Each start gets a fresh token at /etc/pagis/screend-token
+        // through the archive API. It never enters the environment:
+        // every docker exec, including the Agent's shell, inherits it.
         let token = self.mint_token(owner)?;
-        let token_mount = BindMount {
-            host: self.token_path(owner),
-            container: TOKEN_MOUNT.to_string(),
-            read_only: true,
-        };
-
-        let host_config = host_config(owner, &network, mounts, &token_mount, &self.options.limits);
+        let host_config = host_config(owner, &network, mounts, &self.options.limits);
         let mut labels = self.labels(owner.labels());
         // The fingerprint says which mount set this container
         // booted with, so a later wake can tell a stale one.
@@ -706,6 +699,19 @@ impl ComputerRuntime for BollardRuntime {
             ..Default::default()
         };
         self.create_container(&docker, &name, config).await?;
+        docker
+            .upload_to_container(
+                &name,
+                Some(
+                    bollard::query_parameters::UploadToContainerOptionsBuilder::default()
+                        .path("/")
+                        .copy_uidgid("true")
+                        .build(),
+                ),
+                bollard::body_full(token_archive(&token)?.into()),
+            )
+            .await
+            .map_err(|err| format!("screen token upload failed: {err}"))?;
         docker
             .start_container(
                 &name,
@@ -724,7 +730,7 @@ impl ComputerRuntime for BollardRuntime {
         let computer = started_computer(&container, token)
             .ok_or_else(|| "no published control port on the container".to_string())?;
 
-        wait_ready(&computer, &self.token_path(owner), BOOT_TIMEOUT).await?;
+        wait_ready(&computer, BOOT_TIMEOUT).await?;
         Ok(computer)
     }
 
@@ -1215,6 +1221,32 @@ impl ComputerRuntime for BollardRuntime {
     }
 }
 
+/// One regular file, extracted at `/etc/pagis/screend-token`.
+/// The image fixes the `screen` group at gid 1001. The archive API
+/// preserves this owner and group, so only root and screen read it.
+fn token_archive(token: &str) -> Result<Vec<u8>, String> {
+    let mut archive = tar::Builder::new(Vec::new());
+    let mut header = tar::Header::new_ustar();
+    header.set_uid(0);
+    header.set_gid(1001);
+    header.set_mode(0o440);
+    header.set_size(token.len() as u64);
+    header.set_entry_type(tar::EntryType::Regular);
+    header.set_mtime(0);
+    header
+        .set_username("root")
+        .map_err(|err| format!("token owner failed: {err}"))?;
+    header
+        .set_groupname("screen")
+        .map_err(|err| format!("token group failed: {err}"))?;
+    archive
+        .append_data(&mut header, "etc/pagis/screend-token", token.as_bytes())
+        .map_err(|err| format!("token archive failed: {err}"))?;
+    archive
+        .into_inner()
+        .map_err(|err| format!("token archive finish failed: {err}"))
+}
+
 /// What one container may take and where it may go.
 ///
 /// `network_mode` is the tenant's own network and nothing else, so the
@@ -1227,13 +1259,11 @@ fn host_config(
     owner: &ComputerOwner,
     network: &str,
     mounts: &[BindMount],
-    token: &BindMount,
     limits: &ComputerLimits,
 ) -> bollard::models::HostConfig {
     bollard::models::HostConfig {
         binds: Some(
             std::iter::once(format!("{}:/data", owner.volume_name()))
-                .chain(std::iter::once(token.spec()))
                 .chain(mounts.iter().map(BindMount::spec))
                 .collect(),
         ),
@@ -1246,7 +1276,16 @@ fn host_config(
             soft: Some(limits.open_files),
             hard: Some(limits.open_files),
         }]),
-        shm_size: Some(limits.shm_bytes),
+        mounts: Some(vec![bollard::models::Mount {
+            target: Some("/dev/shm".to_string()),
+            typ: Some(bollard::models::MountTypeEnum::TMPFS),
+            tmpfs_options: Some(bollard::models::MountTmpfsOptions {
+                size_bytes: Some(limits.shm_bytes),
+                mode: Some(0o1777),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }]),
         // Docker's `--storage-opt size=`: the bound of every write
         // outside `/data`, where the storage driver holds it.
         storage_opt: limits
@@ -1344,24 +1383,20 @@ const BROWSER_APP_ID: &str = "chromium";
 /// that is ready at `/healthz` alone gives a first screenshot with a
 /// terminal and no browser, and the Agent tries to start one itself.
 ///
-/// A screend that refuses the token the daemon wrote at `token_file`
-/// did not get that file. Docker reads a bind source on the Docker host,
-/// so it mounted an empty file or directory: a Docker VM gives one for a
-/// host path that it does not share, and a daemon in a container gives
-/// one for a state directory that is not at the same path on the Docker
-/// host. That fails at once and names the path.
-async fn wait_ready(
-    computer: &StartedComputer,
-    token_file: &std::path::Path,
-    timeout: Duration,
-) -> Result<(), String> {
+/// A token refusal fails at once and names the uploaded file.
+async fn wait_ready(computer: &StartedComputer, timeout: Duration) -> Result<(), String> {
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
         let healthy = healthy_now(computer).await;
         if healthy {
             match browser_window(computer).await {
                 BrowserWindow::Open => return Ok(()),
-                BrowserWindow::TokenRefused => return Err(token_not_shared(token_file)),
+                BrowserWindow::TokenRefused => {
+                    return Err(
+                        "the computer refused its access token at /etc/pagis/screend-token"
+                            .to_string(),
+                    );
+                }
                 BrowserWindow::NotYet => {}
             }
         }
@@ -1412,19 +1447,6 @@ async fn browser_window(computer: &StartedComputer) -> BrowserWindow {
         }
         _ => BrowserWindow::NotYet,
     }
-}
-
-/// Why a computer refuses the token it was given, and what to do.
-fn token_not_shared(token_file: &std::path::Path) -> String {
-    let directory = token_file.parent().unwrap_or(token_file);
-    format!(
-        "the computer did not get its access token: Docker mounted nothing from {}, \
-         because Docker reads a mount on the Docker host and that directory is not there. \
-         Share that directory with the Docker VM, or set PAGIS_HOME to a directory it \
-         shares, such as one in your home directory. A daemon in a container needs its \
-         state directory mounted at the same path on the Docker host",
-        directory.display()
-    )
 }
 
 /// The frames of one attached exec, as the output stream of bollard
@@ -1515,13 +1537,11 @@ mod tests {
     /// and the owner labels.
     #[test]
     fn the_host_config_carries_the_tenant_network_and_the_limits() {
-        let limits = ComputerLimits::default();
-        let token = BindMount {
-            host: std::path::PathBuf::from("/var/pagis/tokens/workspace-one/agent-one.token"),
-            container: TOKEN_MOUNT.to_string(),
-            read_only: true,
+        let limits = ComputerLimits {
+            shm_bytes: 256 * 1024 * 1024,
+            ..ComputerLimits::default()
         };
-        let config = host_config(&owner(), "pagis-tenant-workspace-one", &[], &token, &limits);
+        let config = host_config(&owner(), "pagis-tenant-workspace-one", &[], &limits);
 
         assert_eq!(
             config.network_mode.as_deref(),
@@ -1530,7 +1550,14 @@ mod tests {
         assert_eq!(config.memory, Some(limits.memory_bytes));
         assert_eq!(config.nano_cpus, Some(limits.nano_cpus));
         assert_eq!(config.pids_limit, Some(limits.pids));
-        assert_eq!(config.shm_size, Some(limits.shm_bytes));
+        assert_eq!(config.shm_size, None);
+        let mounts = config.mounts.expect("the container carries a tmpfs mount");
+        assert_eq!(mounts.len(), 1);
+        assert_eq!(mounts[0].target.as_deref(), Some("/dev/shm"));
+        assert_eq!(mounts[0].typ, Some(bollard::models::MountTypeEnum::TMPFS));
+        let tmpfs = mounts[0].tmpfs_options.as_ref().expect("tmpfs options");
+        assert_eq!(tmpfs.size_bytes, Some(limits.shm_bytes));
+        assert_eq!(tmpfs.mode, Some(0o1777));
         let ulimits = config.ulimits.expect("the container carries ulimits");
         assert_eq!(ulimits.len(), 1);
         assert_eq!(ulimits[0].name.as_deref(), Some("nofile"));
@@ -1543,16 +1570,10 @@ mod tests {
     /// Media Relay, so the host carries no port for any Computer's media.
     #[test]
     fn the_host_config_publishes_the_control_port_on_loopback_alone() {
-        let token = BindMount {
-            host: std::path::PathBuf::from("/var/pagis/tokens/workspace-one/agent-one.token"),
-            container: TOKEN_MOUNT.to_string(),
-            read_only: true,
-        };
         let config = host_config(
             &owner(),
             "pagis-tenant-workspace-one",
             &[],
-            &token,
             &ComputerLimits::default(),
         );
 
@@ -1570,16 +1591,11 @@ mod tests {
     /// none.
     #[test]
     fn the_host_config_carries_the_layer_size_of_the_limits() {
-        let token = BindMount {
-            host: std::path::PathBuf::from("/var/pagis/tokens/workspace-one/agent-one.token"),
-            container: TOKEN_MOUNT.to_string(),
-            read_only: true,
-        };
         let sized = ComputerLimits {
             layer_bytes: Some(2 * 1024 * 1024 * 1024),
             ..ComputerLimits::default()
         };
-        let config = host_config(&owner(), "pagis-tenant-workspace-one", &[], &token, &sized);
+        let config = host_config(&owner(), "pagis-tenant-workspace-one", &[], &sized);
 
         assert_eq!(
             config.storage_opt,
@@ -1593,13 +1609,7 @@ mod tests {
             layer_bytes: None,
             ..ComputerLimits::default()
         };
-        let config = host_config(
-            &owner(),
-            "pagis-tenant-workspace-one",
-            &[],
-            &token,
-            &no_size,
-        );
+        let config = host_config(&owner(), "pagis-tenant-workspace-one", &[], &no_size);
 
         assert_eq!(config.storage_opt, None);
     }
@@ -1608,16 +1618,10 @@ mod tests {
     /// name the offer gives the pipeline resolves to the host's gateway.
     #[test]
     fn the_host_config_maps_the_relay_host_to_the_docker_host() {
-        let token = BindMount {
-            host: std::path::PathBuf::from("/var/pagis/tokens/workspace-one/agent-one.token"),
-            container: TOKEN_MOUNT.to_string(),
-            read_only: true,
-        };
         let config = host_config(
             &owner(),
             "pagis-tenant-workspace-one",
             &[],
-            &token,
             &ComputerLimits::default(),
         );
 
@@ -1724,7 +1728,7 @@ mod tests {
             "No such image: ghcr.io/pagis-co/pagis-computer:0.17.0",
             "network pagis-tenant-workspace-one not found",
             "invalid mount config for type \"bind\": bind source path does not exist: \
-             /var/lib/pagis/computer-tokens",
+             /var/lib/pagis/plugins",
             "cannot connect to the Docker daemon",
         ] {
             assert!(!layer_size_refused(&server_error(message)), "{message}");
@@ -1829,29 +1833,19 @@ mod tests {
         );
     }
 
-    /// The token reaches the container read-only, and the volume the
-    /// binds name is the tenant's own.
+    /// The binds carry the Workspace volume and no token file.
     #[test]
-    fn the_binds_carry_the_tenant_volume_and_the_token_read_only() {
-        let token = BindMount {
-            host: std::path::PathBuf::from("/var/pagis/tokens/workspace-one/agent-one.token"),
-            container: TOKEN_MOUNT.to_string(),
-            read_only: true,
-        };
+    fn the_binds_carry_the_tenant_volume_without_a_token() {
         let config = host_config(
             &owner(),
             "pagis-tenant-workspace-one",
             &[],
-            &token,
             &ComputerLimits::default(),
         );
 
         let binds = config.binds.expect("the container carries binds");
         assert!(binds.contains(&"pagis-volume-workspace-one-agent-one:/data".to_string()));
-        assert!(binds.iter().any(|bind| {
-            bind.ends_with(&format!(":{TOKEN_MOUNT}:ro"))
-                && bind.starts_with("/var/pagis/tokens/workspace-one/")
-        }));
+        assert_eq!(binds.len(), 1, "{binds:?}");
     }
 
     /// The names of two tenants never meet, and the labels say who owns
@@ -1940,7 +1934,7 @@ mod tests {
     async fn a_computer_is_ready_only_when_the_browser_window_is_open() {
         let (computer, reads) = screend(3).await;
 
-        wait_ready(&computer, TOKEN_FILE.as_ref(), Duration::from_secs(10))
+        wait_ready(&computer, Duration::from_secs(10))
             .await
             .unwrap();
 
@@ -1951,7 +1945,7 @@ mod tests {
     async fn a_computer_whose_browser_never_opens_is_not_ready() {
         let (computer, _reads) = screend(usize::MAX).await;
 
-        let error = wait_ready(&computer, TOKEN_FILE.as_ref(), Duration::from_secs(1))
+        let error = wait_ready(&computer, Duration::from_secs(1))
             .await
             .unwrap_err();
 
@@ -2103,15 +2097,9 @@ mod tests {
         );
     }
 
-    const TOKEN_FILE: &str = "/private/tmp/pagis/computer-tokens/workspace-one/agent-one.token";
-
-    /// A Docker VM that does not share the token directory, or a daemon
-    /// in a container whose state directory has another path on the
-    /// Docker host, mounts nothing, so screend refuses the token. The
-    /// wake fails at once and names the directory and both causes, not
-    /// a browser that never opened.
+    /// A token refusal fails at once and names the uploaded file.
     #[tokio::test]
-    async fn a_computer_that_refuses_its_token_names_the_unshared_directory() {
+    async fn a_computer_that_refuses_its_token_names_the_uploaded_file() {
         let (computer, _reads) = screend(1).await;
         let computer = StartedComputer {
             token: "another-token".to_string(),
@@ -2119,7 +2107,7 @@ mod tests {
         };
 
         let started = tokio::time::Instant::now();
-        let error = wait_ready(&computer, TOKEN_FILE.as_ref(), Duration::from_secs(10))
+        let error = wait_ready(&computer, Duration::from_secs(10))
             .await
             .unwrap_err();
 
@@ -2128,12 +2116,7 @@ mod tests {
             "it waited for the deadline"
         );
         assert!(error.contains("access token"), "{error}");
-        assert!(
-            error.contains("/private/tmp/pagis/computer-tokens/workspace-one"),
-            "{error}"
-        );
-        assert!(error.contains("PAGIS_HOME"), "{error}");
-        assert!(error.contains("same path on the Docker host"), "{error}");
+        assert!(error.contains("/etc/pagis/screend-token"), "{error}");
     }
 
     /// Stderr frames without end, as a server that prints without end

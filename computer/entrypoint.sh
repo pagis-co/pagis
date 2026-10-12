@@ -23,25 +23,11 @@ mkdir -p "$XDG_RUNTIME_DIR"
 chown screen:screen "$XDG_RUNTIME_DIR"
 chmod 700 "$XDG_RUNTIME_DIR"
 
-# The control token. The daemon bind-mounts the token file
-# read-only at /run/pagis-token/screend. Its owner is the host uid that
-# wrote it, a uid this image does not know, so the mode of the mounted
-# file protects nothing here. The copy below belongs to `screen`, the
-# uid that runs screend, and 0700 on the mount point puts the source
-# out of reach of both other uids afterwards — also in the case where
-# the host uid is 1000, which is `agent` in this image. The token stays
-# out of the environment: every `docker exec`, the agent's own shell
-# among them, inherits it. A container that boots with no mounted token
-# still boots; screend then refuses every control request.
-mkdir -p /run/pagis
-chown root:root /run/pagis
-chmod 755 /run/pagis
-if [ -f /run/pagis-token/screend ]; then
-    cp /run/pagis-token/screend /run/pagis/screend-token
-    chown screen:screen /run/pagis/screend-token
-    chmod 400 /run/pagis/screend-token
-    chmod 700 /run/pagis-token
-fi
+# The daemon uploads /etc/pagis/screend-token before each start.
+# The image owns /etc/pagis as root:screen with mode 0750, and the
+# token is root:screen with mode 0440. Only root and screen read it.
+# The token stays outside /run, so a tmpfs there does not hide it.
+# It stays out of the environment that every docker exec inherits.
 
 # Chromium records <hostname>-<pid> in SingletonLock. The profile lives
 # in the per-agent volume, but each container gets a new hostname, so a
