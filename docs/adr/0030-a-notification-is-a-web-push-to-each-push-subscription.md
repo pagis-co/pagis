@@ -92,13 +92,19 @@ OpenSSL. The workspace `reqwest`, with `rustls-tls`, sends it. The
 
 ### The sender
 
-The crate `pagis-push` holds the Web Push protocol, and only it. It
-depends on `pagis-core` and on no other daemon crate. The daemon holds
-the Push Subscriptions, the payload and the retry rules.
+The crate `pagis-push` holds the Web Push protocol. It depends on
+`pagis-core` and on no other daemon crate. The daemon holds the Push
+Subscriptions, the payload and the retry rules.
 
-`WebPush::send` takes a `Subscription` (the endpoint, `p256dh` and
+`WebPush::request` takes a `Subscription` (the endpoint, `p256dh` and
 `auth`), the plaintext and the `Options` (`TTL`, `Urgency` and an
-optional `Topic`), and answers an `Outcome`:
+optional `Topic`). With no network I/O, it checks the endpoint URL,
+encrypts the body and makes an `http::Request<Vec<u8>>` with the VAPID
+token and the option headers. A refused request gives an `Outcome`.
+
+`Outcome::of` reads one answer: its status, headers, the start of its
+body and the time of the caller in Unix milliseconds. It does no I/O.
+It gives these outcomes:
 
 - `Delivered` for a `2xx` answer;
 - `Gone` for `404` or `410`;
@@ -111,6 +117,17 @@ optional `Topic`), and answers an `Outcome`:
 A plaintext over 2048 bytes gets `TooLarge` before the encryption, and
 nothing goes. The body is one `aes128gcm` record: the plaintext and 103
 bytes.
+
+On native targets, `WebPush::send` posts the request with the HTTP
+client and reads the answer with `Outcome::of`. It gets the time from
+`pagis_core::now_ms()`. The address guard, `reqwest` and tokio build only
+on native targets. On `wasm32-unknown-unknown`, the host posts the request
+with no redirect and refuses an endpoint whose name resolves to an
+address that is not public. It connects only to the checked addresses,
+so a second DNS lookup cannot change the destination. The host sets the
+timeout and gives the answer to `Outcome::of`. RustCrypto makes the body
+and signs the token on each target, with no C library. The wasm target
+gets random values from JavaScript.
 
 The VAPID token is an ES256 JWT. `aud` is the origin of the endpoint,
 with its port when the port is not the default one. `exp` is 12 hours

@@ -1,6 +1,8 @@
 //! A Web Push to a fake push service: the body that the client decrypts,
 //! the VAPID token, the headers, and the outcome of each answer.
 
+#![cfg(not(target_arch = "wasm32"))]
+
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use base64::Engine as _;

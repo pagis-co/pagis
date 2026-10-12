@@ -13,6 +13,7 @@ pub const WASM_CRATES: &[(&str, &[&str])] = &[
     ("pagis-core", &["wasm"]),
     ("llm-router", &["rt", "realtime_host"]),
     ("pagis-broker", &["rules_wasm"]),
+    ("pagis-push", &["wasm"]),
 ];
 
 pub fn step(root: &Path) -> Step {
