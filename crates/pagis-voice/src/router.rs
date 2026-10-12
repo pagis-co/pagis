@@ -14,7 +14,7 @@ use futures::stream::SplitSink;
 use futures::{SinkExt, StreamExt};
 use llm_router::{
     AudioFormat, Candidate, Error, ProviderConfig, RealtimeConnection, RealtimeMessage,
-    RealtimeProtocol, Router, RouterConfig, SpeechRequest, TranscriptionRequest,
+    RealtimeProtocol, RealtimeTransport, Router, RouterConfig, SpeechRequest, TranscriptionRequest,
 };
 use pagis_core::{ModelAliasStore, Provider, ProviderKeys, ProviderUse, WorkspaceId};
 
@@ -39,6 +39,7 @@ pub struct RouterVoice {
     /// Base URL overrides per provider; how a test points the daemon at
     /// a local server.
     base_urls: HashMap<Provider, String>,
+    realtime_transport: Option<Arc<dyn RealtimeTransport>>,
 }
 
 impl RouterVoice {
@@ -48,11 +49,18 @@ impl RouterVoice {
             aliases,
             http: reqwest::Client::new(),
             base_urls: HashMap::new(),
+            realtime_transport: None,
         }
     }
 
-    /// Send one provider's requests to `base_url` instead of its own
-    /// host. For tests.
+    /// Use the host's transport for realtime connections.
+    pub fn with_realtime_transport(mut self, transport: Arc<dyn RealtimeTransport>) -> Self {
+        self.realtime_transport = Some(transport);
+        self
+    }
+
+    /// Send one provider's requests to `base_url` instead of its own host.
+    /// For tests.
     pub fn with_base_url(mut self, provider: Provider, base_url: impl Into<String>) -> Self {
         self.base_urls.insert(provider, base_url.into());
         self
@@ -110,8 +118,12 @@ impl RouterVoice {
             return Err(VoiceError::NoProvider(alias.to_string()));
         }
         config = config.model(alias, candidates);
-        Router::with_client(self.http.clone(), config)
-            .map_err(|error| VoiceError::Provider(error.to_string()))
+        let router = Router::with_client(self.http.clone(), config)
+            .map_err(|error| VoiceError::Provider(error.to_string()))?;
+        Ok(match &self.realtime_transport {
+            Some(transport) => router.with_realtime_transport(Arc::clone(transport)),
+            None => router,
+        })
     }
 }
 
@@ -228,7 +240,7 @@ async fn open_transcription_session(
             async move {
                 match frame {
                     Ok(RealtimeMessage::Text(text)) => transcript_event(&text),
-                    Ok(RealtimeMessage::Close(_)) => None,
+                    Ok(RealtimeMessage::Close) => None,
                     Ok(_) => None,
                     Err(error) => Some(Err(VoiceError::Provider(format!("{provider}: {error}")))),
                 }

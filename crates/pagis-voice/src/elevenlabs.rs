@@ -47,9 +47,9 @@ pub(crate) fn open_scribe_session(connection: RealtimeConnection) -> DictationSe
                         Some(piece) => piece,
                         None => continue,
                     },
-                    Some(Ok(RealtimeMessage::Close(_))) | None => Err(VoiceError::Provider(
-                        format!("{provider}: the session closed with no committed transcript"),
-                    )),
+                    Some(Ok(RealtimeMessage::Close)) | None => Err(VoiceError::Provider(format!(
+                        "{provider}: the session closed with no committed transcript"
+                    ))),
                     Some(Ok(_)) => continue,
                     Some(Err(error)) => Err(VoiceError::Provider(format!("{provider}: {error}"))),
                 };

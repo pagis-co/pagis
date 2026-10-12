@@ -51,7 +51,6 @@ tempfile.workspace = true
 # `test-util` pauses the clock, so the endpoint tests drive a refresh
 # and a backoff without waiting for one.
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "test-util"] }
-tokio-tungstenite.workspace = true
 
 [[test]]
 name = "main"

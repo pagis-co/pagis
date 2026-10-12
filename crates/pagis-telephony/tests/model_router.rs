@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::{SinkExt, StreamExt};
+use llm_router::RealtimeMessage as Message;
 use pagis_core::{
     MemorySecretStore, ModelAlias, ModelAliasId, ModelAliasStore, Provider, ProviderKeys,
     StoreError, WorkspaceId,
@@ -18,8 +19,8 @@ use pagis_telephony::{
     GPT_LIVE_REASONING_ALIAS, GPT_LIVE_REASONING_MODELS, KeyedModelSessions, PHONE_ALIAS,
     PHONE_CLASSIFIER_ALIAS, PHONE_CLASSIFIER_MODELS, PHONE_MODELS,
 };
-use tokio_tungstenite::tungstenite::Message;
-use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
+
+use crate::realtime_transport::MemoryTransport;
 
 fn keys(env: Vec<(&'static str, &'static str)>) -> Arc<ProviderKeys> {
     Arc::new(ProviderKeys::with_env(
@@ -153,11 +154,9 @@ async fn the_key_is_read_on_every_open() {
         HashMap::new(),
         Arc::clone(&secrets) as _,
     ));
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let address = listener.local_addr().unwrap();
+    let (transport, mut socket) = MemoryTransport::pair();
+    let observed = Arc::clone(&transport);
     let server = tokio::spawn(async move {
-        let (stream, _) = listener.accept().await.unwrap();
-        let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
         socket.next().await.unwrap().unwrap();
         socket
             .send(Message::text(
@@ -174,10 +173,9 @@ async fn the_key_is_read_on_every_open() {
             .await
             .unwrap();
     });
-    let sessions = sessions(Arc::clone(&keys)).with_base_url(
-        Provider::OpenAi,
-        format!("http://127.0.0.1:{}/v1", address.port()),
-    );
+    let sessions = sessions(Arc::clone(&keys))
+        .with_base_url(Provider::OpenAi, "https://openai.test/v1")
+        .with_realtime_transport(transport);
 
     let before = sessions
         .open(&workspace())
@@ -202,16 +200,19 @@ async fn the_key_is_read_on_every_open() {
         .expect("the new key reaches the provider");
     session.close().await;
     server.await.unwrap();
+    assert_eq!(
+        observed.requests.lock().unwrap()[0].1["authorization"],
+        "Bearer sk-test"
+    );
 }
 
 #[tokio::test]
 async fn gpt_live_starts_with_pcmu_and_the_configured_responses_backend() {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let address = listener.local_addr().unwrap();
+    let (transport, mut socket) = MemoryTransport::pair();
     let server = tokio::spawn(async move {
-        let (stream, _) = listener.accept().await.unwrap();
-        let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
-        let start = socket.next().await.unwrap().unwrap().into_text().unwrap();
+        let Message::Text(start) = socket.next().await.unwrap().unwrap() else {
+            panic!("a text frame")
+        };
         let start: serde_json::Value = serde_json::from_str(&start).unwrap();
         socket
             .send(Message::text(
@@ -220,7 +221,9 @@ async fn gpt_live_starts_with_pcmu_and_the_configured_responses_backend() {
             ))
             .await
             .unwrap();
-        let close = socket.next().await.unwrap().unwrap().into_text().unwrap();
+        let Message::Text(close) = socket.next().await.unwrap().unwrap() else {
+            panic!("a text frame")
+        };
         assert_eq!(
             serde_json::from_str::<serde_json::Value>(&close).unwrap()["type"],
             "session.close"
@@ -233,10 +236,9 @@ async fn gpt_live_starts_with_pcmu_and_the_configured_responses_backend() {
             .unwrap();
         start
     });
-    let sessions = sessions(keys(vec![("OPENAI_API_KEY", "sk-test")])).with_base_url(
-        Provider::OpenAi,
-        format!("http://127.0.0.1:{}/v1", address.port()),
-    );
+    let sessions = sessions(keys(vec![("OPENAI_API_KEY", "sk-test")]))
+        .with_base_url(Provider::OpenAi, "https://openai.test/v1")
+        .with_realtime_transport(transport);
 
     let mut session = sessions.open(&workspace()).await.unwrap();
     session
@@ -261,23 +263,16 @@ async fn gpt_live_starts_with_pcmu_and_the_configured_responses_backend() {
 }
 
 #[tokio::test]
-#[allow(clippy::result_large_err)]
 async fn the_phone_alias_can_select_openai_realtime_2_1() {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let address = listener.local_addr().unwrap();
+    let (transport, mut socket) = MemoryTransport::pair();
+    let observed = Arc::clone(&transport);
     let server = tokio::spawn(async move {
-        let (stream, _) = listener.accept().await.unwrap();
-        let mut path = String::new();
-        let mut socket =
-            tokio_tungstenite::accept_hdr_async(stream, |request: &Request, response| {
-                path = request.uri().to_string();
-                Ok::<Response, tokio_tungstenite::tungstenite::handshake::server::ErrorResponse>(
-                    response,
-                )
-            })
-            .await
-            .unwrap();
-        let update = socket.next().await.unwrap().unwrap().into_text().unwrap();
+        let Message::Text(update) = socket.next().await.unwrap().unwrap() else {
+            panic!("a text frame")
+        };
+        let url = observed.requests.lock().unwrap()[0].0.clone();
+        let url = reqwest::Url::parse(&url).unwrap();
+        let path = format!("{}?{}", url.path(), url.query().unwrap());
         (
             path,
             serde_json::from_str::<serde_json::Value>(&update).unwrap(),
@@ -290,10 +285,8 @@ async fn the_phone_alias_can_select_openai_realtime_2_1() {
             reasoning: None,
         },
     )
-    .with_base_url(
-        Provider::OpenAi,
-        format!("http://127.0.0.1:{}/v1", address.port()),
-    );
+    .with_base_url(Provider::OpenAi, "https://openai.test/v1")
+    .with_realtime_transport(transport);
 
     let mut session = sessions.open(&workspace()).await.unwrap();
     session

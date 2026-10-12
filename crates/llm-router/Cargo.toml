@@ -44,3 +44,7 @@ path = "tests/main.rs"
 [[test]]
 name = "rt"
 path = "tests/rt.rs"
+
+[[test]]
+name = "realtime_host"
+path = "tests/realtime_host.rs"

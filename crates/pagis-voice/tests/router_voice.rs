@@ -1,11 +1,12 @@
-//! The production voice provider against local servers
+//! The production voice provider over frame channels and HTTP servers
 //! (ADR-0020): the OpenAI transcription dialect over a scripted
-//! WebSocket, buffered transcription and speech over wiremock, and the
+//! frame channel, buffered transcription and speech over wiremock, and the
 //! degradation when no candidate has a realtime socket.
 
 use std::sync::Arc;
 
 use futures::{SinkExt, StreamExt};
+use llm_router::{RealtimeMessage as Message, RealtimeTransport};
 use pagis_core::{
     MemorySecretStore, ModelAlias, ModelAliasId, ModelAliasStore, Provider, ProviderKeys,
     StoreError, WorkspaceId, now_ms,
@@ -14,7 +15,10 @@ use pagis_voice::{
     Clip, RouterVoice, SAMPLE_RATE, SPEAK_ALIAS, TRANSCRIBE_ALIAS, Transcript, VoiceError,
     VoiceProvider,
 };
-use tokio_tungstenite::tungstenite::Message;
+
+#[path = "../../llm-router/tests/support/realtime.rs"]
+mod realtime;
+use realtime::MemoryTransport;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -102,26 +106,13 @@ fn voice(provider: Provider, base_url: &str, transcribe: &[&str], speak: &[&str]
 /// back: it records every client event, answers the commit with two
 /// deltas and a completed transcript, and hands the recorded events
 /// over when the client goes away.
-// The handshake callback's Result type comes from tokio-tungstenite.
-#[allow(clippy::result_large_err)]
 async fn transcription_server() -> (
-    String,
+    Arc<dyn RealtimeTransport>,
     tokio::task::JoinHandle<(String, Vec<serde_json::Value>)>,
 ) {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
+    let (transport, mut socket) = MemoryTransport::pair();
+    let observed = Arc::clone(&transport);
     let handle = tokio::spawn(async move {
-        let (stream, _) = listener.accept().await.unwrap();
-        let mut seen_path = String::new();
-        let mut socket = tokio_tungstenite::accept_hdr_async(
-            stream,
-            |req: &tokio_tungstenite::tungstenite::handshake::server::Request, resp| {
-                seen_path = req.uri().to_string();
-                Ok(resp)
-            },
-        )
-        .await
-        .unwrap();
         socket
             .send(Message::text(r#"{"type":"session.created"}"#))
             .await
@@ -152,40 +143,24 @@ async fn transcription_server() -> (
                 _ => {}
             }
         }
+        let url = observed.requests.lock().unwrap()[0].0.clone();
+        let url = reqwest::Url::parse(&url).unwrap();
+        let seen_path = format!("{}?{}", url.path(), url.query().unwrap());
         (seen_path, events)
     });
-    (format!("http://127.0.0.1:{}/v1", addr.port()), handle)
+    (transport, handle)
 }
 
 /// A one-session Deepgram `/listen` server: it records the audio frames
 /// and the control messages, answers `CloseStream` with an interim and
 /// two final results and the closing metadata, and hands the record over.
-#[allow(clippy::result_large_err)]
 async fn listen_server() -> (
-    String,
+    Arc<dyn RealtimeTransport>,
     tokio::task::JoinHandle<(String, String, Vec<Vec<u8>>, Vec<serde_json::Value>)>,
 ) {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
+    let (transport, mut socket) = MemoryTransport::pair();
+    let observed = Arc::clone(&transport);
     let handle = tokio::spawn(async move {
-        let (stream, _) = listener.accept().await.unwrap();
-        let mut seen_path = String::new();
-        let mut seen_auth = String::new();
-        let mut socket = tokio_tungstenite::accept_hdr_async(
-            stream,
-            |req: &tokio_tungstenite::tungstenite::handshake::server::Request, resp| {
-                seen_path = req.uri().to_string();
-                seen_auth = req
-                    .headers()
-                    .get("authorization")
-                    .and_then(|value| value.to_str().ok())
-                    .unwrap_or_default()
-                    .to_string();
-                Ok(resp)
-            },
-        )
-        .await
-        .unwrap();
         let mut audio = Vec::new();
         let mut controls = Vec::new();
         while let Some(Ok(frame)) = socket.next().await {
@@ -204,16 +179,20 @@ async fn listen_server() -> (
                         ] {
                             socket.send(Message::text(frame)).await.unwrap();
                         }
-                        socket.close(None).await.ok();
+                        socket.close().await.ok();
                         break;
                     }
                 }
                 _ => break,
             }
         }
+        let (url, headers, _) = observed.requests.lock().unwrap()[0].clone();
+        let url = reqwest::Url::parse(&url).unwrap();
+        let seen_path = format!("{}?{}", url.path(), url.query().unwrap());
+        let seen_auth = headers["authorization"].to_str().unwrap().to_string();
         (seen_path, seen_auth, audio, controls)
     });
-    (format!("http://127.0.0.1:{}/v1", addr.port()), handle)
+    (transport, handle)
 }
 
 /// Deepgram streams PCM frames to `/listen` and finishes on
@@ -221,8 +200,10 @@ async fn listen_server() -> (
 /// waits for its final, and the whole draft ends the session.
 #[tokio::test]
 async fn a_live_dictation_on_deepgram_streams_frames_and_ends_on_close_stream() {
-    let (base_url, server) = listen_server().await;
-    let voice = voice(Provider::Deepgram, &base_url, &["deepgram/nova-3"], &[]);
+    let (transport, server) = listen_server().await;
+    let base_url = "https://deepgram.test/v1";
+    let voice = voice(Provider::Deepgram, base_url, &["deepgram/nova-3"], &[])
+        .with_realtime_transport(transport);
 
     let mut session = voice
         .dictate(&workspace())
@@ -264,25 +245,13 @@ async fn a_live_dictation_on_deepgram_streams_frames_and_ends_on_close_stream() 
 /// A one-session Scribe realtime server: it records each audio chunk and
 /// answers the chunk that commits with a partial and a committed
 /// transcript, then closes.
-#[allow(clippy::result_large_err)]
 async fn scribe_server() -> (
-    String,
+    Arc<dyn RealtimeTransport>,
     tokio::task::JoinHandle<(String, Vec<serde_json::Value>)>,
 ) {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
+    let (transport, mut socket) = MemoryTransport::pair();
+    let observed = Arc::clone(&transport);
     let handle = tokio::spawn(async move {
-        let (stream, _) = listener.accept().await.unwrap();
-        let mut seen_path = String::new();
-        let mut socket = tokio_tungstenite::accept_hdr_async(
-            stream,
-            |req: &tokio_tungstenite::tungstenite::handshake::server::Request, resp| {
-                seen_path = req.uri().to_string();
-                Ok(resp)
-            },
-        )
-        .await
-        .unwrap();
         socket
             .send(Message::text(
                 r#"{"message_type":"session_started","session_id":"s1"}"#,
@@ -301,13 +270,16 @@ async fn scribe_server() -> (
                 ] {
                     socket.send(Message::text(frame)).await.unwrap();
                 }
-                socket.close(None).await.ok();
+                socket.close().await.ok();
                 break;
             }
         }
+        let url = observed.requests.lock().unwrap()[0].0.clone();
+        let url = reqwest::Url::parse(&url).unwrap();
+        let seen_path = format!("{}?{}", url.path(), url.query().unwrap());
         (seen_path, chunks)
     });
-    (format!("http://127.0.0.1:{}/v1", addr.port()), handle)
+    (transport, handle)
 }
 
 /// Scribe takes base64 audio chunks and one chunk that commits on
@@ -315,13 +287,15 @@ async fn scribe_server() -> (
 /// guess that the commit replaces.
 #[tokio::test]
 async fn a_live_dictation_on_elevenlabs_sends_chunks_and_commits_on_release() {
-    let (base_url, server) = scribe_server().await;
+    let (transport, server) = scribe_server().await;
+    let base_url = "https://elevenlabs.test/v1";
     let voice = voice(
         Provider::ElevenLabs,
-        &base_url,
+        base_url,
         &["elevenlabs/scribe_v2"],
         &[],
-    );
+    )
+    .with_realtime_transport(transport);
 
     let mut session = voice
         .dictate(&workspace())
@@ -369,13 +343,15 @@ async fn a_live_dictation_on_elevenlabs_sends_chunks_and_commits_on_release() {
 
 #[tokio::test]
 async fn a_live_dictation_runs_a_transcription_only_session_ended_by_the_commit() {
-    let (base_url, server) = transcription_server().await;
+    let (transport, server) = transcription_server().await;
+    let base_url = "https://openai.test/v1";
     let voice = voice(
         Provider::OpenAi,
-        &base_url,
+        base_url,
         &["openai/gpt-4o-transcribe"],
         &["openai/gpt-4o-mini-tts"],
-    );
+    )
+    .with_realtime_transport(transport);
 
     let mut session = voice
         .dictate(&workspace())

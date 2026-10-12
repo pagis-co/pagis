@@ -6,22 +6,93 @@
 //! The router does not translate events. The caller owns the adapter
 //! that maps those frames to its product-level session contract.
 
-use futures::{SinkExt, StreamExt};
-use tokio_tungstenite::tungstenite::Message;
-use tokio_tungstenite::tungstenite::client::IntoClientRequest;
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
+use std::pin::Pin;
+use std::time::Duration;
+
+use futures::{Sink, SinkExt, Stream, StreamExt};
+use reqwest::header::HeaderMap;
 
 use crate::config::{ProtocolKind, ProviderConfig};
 use crate::error::Error;
 
-/// The frames of a realtime socket, re-exported so callers do not depend on
-/// `tokio-tungstenite` directly. Realtime events are `Text` frames of
-/// OpenAI Realtime JSON.
-pub type RealtimeMessage = Message;
+#[cfg(not(target_arch = "wasm32"))]
+mod tungstenite;
+#[cfg(not(target_arch = "wasm32"))]
+pub use tungstenite::TungsteniteTransport;
 
-/// The socket type behind [`RealtimeConnection`], so a caller can split
-/// it into a sink and a stream without naming `tokio-tungstenite`.
-pub type RealtimeSocket = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
+/// An application frame. The transport handles WebSocket control frames.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RealtimeMessage {
+    Text(String),
+    Binary(Vec<u8>),
+    Close,
+}
+
+impl RealtimeMessage {
+    pub fn text(text: impl Into<String>) -> Self {
+        Self::Text(text.into())
+    }
+
+    pub fn binary(bytes: impl Into<Vec<u8>>) -> Self {
+        Self::Binary(bytes.into())
+    }
+}
+
+/// A transport failure. The connection adds the provider name.
+pub type RealtimeError = Box<dyn std::error::Error + Send + Sync>;
+
+/// The stream and sink contract of a realtime socket.
+pub trait RealtimeIo:
+    Stream<Item = Result<RealtimeMessage, RealtimeError>> + Sink<RealtimeMessage, Error = RealtimeError>
+{
+}
+
+impl<T> RealtimeIo for T where
+    T: Stream<Item = Result<RealtimeMessage, RealtimeError>>
+        + Sink<RealtimeMessage, Error = RealtimeError>
+{
+}
+
+/// A socket that a caller can split into its sink and stream.
+#[cfg(not(target_arch = "wasm32"))]
+pub type RealtimeSocket = Pin<Box<dyn RealtimeIo + Send>>;
+/// A socket that stays on the host's thread.
+#[cfg(target_arch = "wasm32")]
+pub type RealtimeSocket = Pin<Box<dyn RealtimeIo>>;
+
+/// The pending connection of a transport.
+#[cfg(not(target_arch = "wasm32"))]
+pub type RealtimeConnectFuture<'a> =
+    futures::future::BoxFuture<'a, Result<RealtimeSocket, RealtimeError>>;
+/// The pending connection on the host's thread.
+#[cfg(target_arch = "wasm32")]
+pub type RealtimeConnectFuture<'a> =
+    futures::future::LocalBoxFuture<'a, Result<RealtimeSocket, RealtimeError>>;
+
+/// Opens an outbound WebSocket with the supplied headers and deadline.
+/// Credentials stay in headers. A transport must not put them in the URL.
+#[cfg(not(target_arch = "wasm32"))]
+pub trait RealtimeTransport: Send + Sync {
+    fn connect<'a>(
+        &'a self,
+        url: &'a str,
+        headers: &'a HeaderMap,
+        timeout: Duration,
+    ) -> RealtimeConnectFuture<'a>;
+}
+
+/// Opens an outbound WebSocket with the supplied headers and deadline.
+/// The host supplies this transport; a browser WebSocket cannot send
+/// an Authorization header. Credentials must not go in the URL.
+#[cfg(target_arch = "wasm32")]
+pub trait RealtimeTransport {
+    fn connect<'a>(
+        &'a self,
+        url: &'a str,
+        headers: &'a HeaderMap,
+        timeout: Duration,
+    ) -> RealtimeConnectFuture<'a>;
+}
 
 /// A connected upstream realtime socket.
 ///
@@ -67,7 +138,7 @@ impl RealtimeConnection {
     /// Close the connection cleanly.
     pub async fn close(mut self) -> Result<(), Error> {
         self.socket
-            .close(None)
+            .close()
             .await
             .map_err(|e| realtime_error(&self.provider, e))
     }
@@ -111,7 +182,8 @@ pub(crate) async fn connect(
     provider: &ProviderConfig,
     model: &str,
     intent: RealtimeIntent,
-    timeout: std::time::Duration,
+    timeout: Duration,
+    transport: &dyn RealtimeTransport,
 ) -> Result<RealtimeConnection, Error> {
     let (url, protocol) = realtime_url(
         provider_key,
@@ -120,11 +192,7 @@ pub(crate) async fn connect(
         model,
         intent,
     )?;
-    let mut request = url
-        .as_str()
-        .into_client_request()
-        .map_err(|e| realtime_error(provider_key, e))?;
-    let headers = request.headers_mut();
+    let mut headers = HeaderMap::new();
     for (name, value) in &provider.headers {
         let name: reqwest::header::HeaderName = name.parse().map_err(|_| {
             Error::InvalidConfig(format!(
@@ -157,9 +225,9 @@ pub(crate) async fn connect(
         headers.insert(name, value);
     }
 
-    let (socket, _response) = crate::rt::timeout(timeout, connect_async(request))
+    let socket = transport
+        .connect(url.as_str(), &headers, timeout)
         .await
-        .map_err(|_| realtime_error(provider_key, "timed out opening the WebSocket"))?
         .map_err(|e| realtime_error(provider_key, e))?;
     Ok(RealtimeConnection {
         provider: provider_key.to_owned(),
