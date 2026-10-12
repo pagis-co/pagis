@@ -23,7 +23,7 @@ tree-sitter-bash.workspace = true
 # stream for each Coding Session.
 yamux.workspace = true
 
-[dev-dependencies]
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 pagis-audit.workspace = true
 # The Home Exit of a Person on the two-Workspace harness (ADR-0029).
 pagis-computer.workspace = true
@@ -40,3 +40,10 @@ tokio-util = { workspace = true, features = ["compat"] }
 [[test]]
 name = "main"
 path = "tests/main.rs"
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "0.3"
+
+[[test]]
+name = "rules_wasm"
+path = "tests/rules_wasm.rs"

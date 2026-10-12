@@ -1,5 +1,6 @@
 [workspace]
 resolver = "2"
+exclude = ["vendor/tree-sitter-bash"]
 members = [
     "crates/llm-router",
     "crates/pagis",
@@ -237,6 +238,14 @@ totp-rs = { version = "6", default-features = false, features = ["std", "alloc"]
 # for the same check.
 tree-sitter = "0.27"
 tree-sitter-bash = "0.25"
+
+[patch.crates-io]
+# tree-sitter-bash 0.25.1 with two changes, so that it builds for
+# wasm32-unknown-unknown: bindings/rust/build.rs adds the wasm headers of
+# tree-sitter-language to the include path, and src/scanner.c calls
+# iswdigit in place of isdigit. The scanner change is also
+# https://github.com/tree-sitter/tree-sitter-bash/pull/348.
+tree-sitter-bash = { path = "vendor/tree-sitter-bash" }
 
 # Debug info is the bulk of every artifact and of every link. The
 # workspace crates keep line tables, enough for a backtrace with file

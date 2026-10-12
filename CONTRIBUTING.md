@@ -84,6 +84,35 @@ does. [docs-site/README.md](docs-site/README.md) tells how to write a page. Afte
 `pnpm --filter ./ui run api:generate` to write `openapi.json` and the API
 types again.
 
+### Bash parser tests under Node
+
+The Bash parser tests run on `wasm32-unknown-unknown` with
+`wasm-bindgen-test`. They use the production parser and the same expected
+simple commands as the native tests. The native test harness dependencies
+build only for native targets.
+
+The C build needs a clang with the WebAssembly back end and `llvm-ar`.
+`clang --print-targets` lists `wasm32` when the compiler has this back end.
+The `llvm-tools` Rust component supplies `llvm-ar`. Set
+`AR_wasm32_unknown_unknown` to its full path. The macOS `ar` does not make
+an archive of WebAssembly objects that the wasm linker can use.
+
+Install `wasm-bindgen-cli` at the version of `wasm-bindgen` in
+`Cargo.lock`. It supplies `wasm-bindgen-test-runner`, which the Cargo
+configuration selects for this target. The runner uses Node by default.
+
+```bash
+rustup target add wasm32-unknown-unknown
+rustup component add llvm-tools
+export CC_wasm32_unknown_unknown=clang
+export AR_wasm32_unknown_unknown="$(rustc --print sysroot)/lib/rustlib/$(rustc -vV | sed -n 's/^host: //p')/bin/llvm-ar"
+cargo test -p pagis-broker --test rules_wasm --target wasm32-unknown-unknown
+```
+
+This target uses the wasm headers and allocator of tree-sitter. It needs
+no WASI SDK. `cargo nextest run -p pagis-broker --lib rules::tests::`
+runs the same rule tests natively.
+
 ### Tests that need an account
 
 Two `#[ignore]` tests of `pagis-mail` reach a real mail account. The checks
