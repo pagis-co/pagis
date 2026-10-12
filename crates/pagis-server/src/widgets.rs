@@ -16,33 +16,50 @@
 //! a `resources/read` is refused outside the view's package, and a
 //! `ui/message` answers one Request exactly once.
 
+// The API types and OpenAPI operations exist in every build. Only the
+// handler operations and their services need the native feature.
+#![cfg_attr(not(feature = "native"), allow(dead_code))]
+
 use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::{Path, State};
+#[cfg(feature = "native")]
 use axum::http::header;
 use axum::response::{IntoResponse, Response};
+#[cfg(feature = "native")]
 use pagis_broker::{InvokeOutcome, ToolCall, WidgetView};
+#[cfg(feature = "native")]
 use pagis_core::{DecideOutcome, NewEvent, Request, RequestState, now_ms, validate_values};
+#[cfg(feature = "native")]
 use pagis_software::{WIDGET_MIME, WidgetSpec, parse_widget_uri};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::Value;
+#[cfg(feature = "native")]
+use serde_json::json;
 use utoipa::ToSchema;
 
 use crate::AppState;
 use crate::auth::Tenant;
 use crate::error::ApiError;
+#[cfg(feature = "native")]
 use crate::served_file;
 
 /// The only JSON-RPC version the view speaks.
+#[cfg(feature = "native")]
 const JSONRPC_VERSION: &str = "2.0";
 /// A malformed envelope, or an answer the view already gave.
+#[cfg(feature = "native")]
 const INVALID_REQUEST: i32 = -32600;
+#[cfg(feature = "native")]
 const METHOD_NOT_FOUND: i32 = -32601;
+#[cfg(feature = "native")]
 const INVALID_PARAMS: i32 = -32602;
+#[cfg(feature = "native")]
 const INTERNAL_ERROR: i32 = -32603;
 
 /// A Version never changes (ADR-0016), so its page is cached forever.
+#[cfg(feature = "native")]
 const IMMUTABLE: &str = "public, max-age=31536000, immutable";
 
 // -- the page ------------------------------------------------------
@@ -61,23 +78,32 @@ const IMMUTABLE: &str = "public, max-age=31536000, immutable";
         (status = 404, body = crate::error::ErrorBody),
     )
 )]
+#[cfg_attr(not(feature = "native"), allow(unused_variables, dead_code))]
 pub async fn widget_page(
     State(state): State<Arc<AppState>>,
     tenant: Tenant,
     Path((package, version, widget)): Path<(String, String, String)>,
 ) -> Result<Response, ApiError> {
-    let html = widget_source(&state, &tenant.workspace_id, &package, &version, &widget).await?;
-    // A browser that opens this route directly saves the page and runs
-    // nothing at the Product App origin.
-    Ok((
-        [(header::CACHE_CONTROL, IMMUTABLE)],
-        served_file::attachment(None),
-        html,
-    )
-        .into_response())
+    #[cfg(not(feature = "native"))]
+    {
+        Err(ApiError::not_available("Plugins"))
+    }
+    #[cfg(feature = "native")]
+    {
+        let html = widget_source(&state, &tenant.workspace_id, &package, &version, &widget).await?;
+        // A browser that opens this route directly saves the page and runs
+        // nothing at the Product App origin.
+        Ok((
+            [(header::CACHE_CONTROL, IMMUTABLE)],
+            served_file::attachment(None),
+            html,
+        )
+            .into_response())
+    }
 }
 
 /// The Widget's own declaration inside the resolved Version.
+#[cfg(feature = "native")]
 async fn widget_spec(
     state: &AppState,
     workspace_id: &pagis_core::WorkspaceId,
@@ -86,6 +112,7 @@ async fn widget_spec(
     widget: &str,
 ) -> Result<WidgetSpec, ApiError> {
     let resolved = state
+        .native
         .versions
         .version(workspace_id, package, version)
         .await
@@ -104,6 +131,7 @@ async fn widget_spec(
 /// `[[widget]]` entry or a file that is missing is one 404: the view
 /// asked for a page that does not exist, and which of the four is
 /// missing is the daemon's business, not the caller's.
+#[cfg(feature = "native")]
 async fn widget_source(
     state: &AppState,
     workspace_id: &pagis_core::WorkspaceId,
@@ -113,6 +141,7 @@ async fn widget_source(
 ) -> Result<Vec<u8>, ApiError> {
     let spec = widget_spec(state, workspace_id, package, version, widget).await?;
     state
+        .native
         .versions
         .file(workspace_id, package, version, &spec.html)
         .await
@@ -127,6 +156,7 @@ async fn widget_source(
 /// The proxy document itself. It holds no data: it loads the page the
 /// host sends it into an inner frame at an opaque origin, and forwards
 /// messages.
+#[cfg(feature = "native")]
 const SANDBOX_HTML: &str = include_str!("widget_sandbox.html");
 
 #[utoipa::path(
@@ -140,35 +170,44 @@ const SANDBOX_HTML: &str = include_str!("widget_sandbox.html");
     ),
     responses((status = 200, description = "The sandbox proxy", content_type = "text/html")),
 )]
+#[cfg_attr(not(feature = "native"), allow(unused_variables, dead_code))]
 pub async fn widget_sandbox(
     State(state): State<Arc<AppState>>,
     Path((workspace_id, package, version, widget)): Path<(String, String, String, String)>,
 ) -> Response {
-    // No session needed: the proxy document holds nothing to protect. A
-    // sandboxed frame sends no cookie, so the tenant is in the path
-    // instead: a Widget of one tenant gets that tenant's declared
-    // policy, and a caller who names another tenant reads nothing of it.
-    // An unknown Workspace, package, Version or Widget answers the same
-    // way, under the closed default policy, so this route tells an
-    // unauthenticated caller nothing about what is installed anywhere.
-    let workspace_id = pagis_core::WorkspaceId::from(workspace_id);
-    let csp = state
-        .versions
-        .sandbox_csp(&workspace_id, &package, &version, &widget)
-        .await
-        .unwrap_or_default();
-    // The `srcdoc` page inherits this header, so the Widget's policy is
-    // enforced by the browser on content the page cannot rewrite.
-    (
-        [
-            (header::CONTENT_TYPE, "text/html; charset=utf-8".to_string()),
-            (header::CONTENT_SECURITY_POLICY, csp.header()),
-            (header::CACHE_CONTROL, IMMUTABLE.to_string()),
-            (header::X_CONTENT_TYPE_OPTIONS, "nosniff".to_string()),
-        ],
-        SANDBOX_HTML,
-    )
-        .into_response()
+    #[cfg(not(feature = "native"))]
+    {
+        ApiError::not_available("Plugins").into_response()
+    }
+    #[cfg(feature = "native")]
+    {
+        // No session needed: the proxy document holds nothing to protect. A
+        // sandboxed frame sends no cookie, so the tenant is in the path
+        // instead: a Widget of one tenant gets that tenant's declared
+        // policy, and a caller who names another tenant reads nothing of it.
+        // An unknown Workspace, package, Version or Widget answers the same
+        // way, under the closed default policy, so this route tells an
+        // unauthenticated caller nothing about what is installed anywhere.
+        let workspace_id = pagis_core::WorkspaceId::from(workspace_id);
+        let csp = state
+            .native
+            .versions
+            .sandbox_csp(&workspace_id, &package, &version, &widget)
+            .await
+            .unwrap_or_default();
+        // The `srcdoc` page inherits this header, so the Widget's policy is
+        // enforced by the browser on content the page cannot rewrite.
+        (
+            [
+                (header::CONTENT_TYPE, "text/html; charset=utf-8".to_string()),
+                (header::CONTENT_SECURITY_POLICY, csp.header()),
+                (header::CACHE_CONTROL, IMMUTABLE.to_string()),
+                (header::X_CONTENT_TYPE_OPTIONS, "nosniff".to_string()),
+            ],
+            SANDBOX_HTML,
+        )
+            .into_response()
+    }
 }
 
 // -- the view record -----------------------------------------------
@@ -196,23 +235,31 @@ pub struct WidgetViewDto {
         (status = 404, description = "No live view with that tool call id", body = crate::error::ErrorBody),
     )
 )]
+#[cfg_attr(not(feature = "native"), allow(unused_variables, dead_code))]
 pub async fn widget_view(
     State(state): State<Arc<AppState>>,
     tenant: Tenant,
     Path(tool_call_id): Path<String>,
 ) -> Result<Json<WidgetViewDto>, ApiError> {
-    let view = state
-        .broker
-        .widget_view(&tenant.workspace_id, &tool_call_id)
-        .ok_or_else(|| ApiError::not_found("widget view"))?;
-    Ok(Json(WidgetViewDto {
-        tool_call_id: view.tool_call_id,
-        package: view.package,
-        version: view.version,
-        widget: view.widget,
-        tool_input: view.tool_input,
-        structured_content: view.structured_content,
-    }))
+    #[cfg(not(feature = "native"))]
+    {
+        Err(ApiError::not_available("Plugins"))
+    }
+    #[cfg(feature = "native")]
+    {
+        let view = state
+            .broker
+            .widget_view(&tenant.workspace_id, &tool_call_id)
+            .ok_or_else(|| ApiError::not_found("widget view"))?;
+        Ok(Json(WidgetViewDto {
+            tool_call_id: view.tool_call_id,
+            package: view.package,
+            version: view.version,
+            widget: view.widget,
+            tool_input: view.tool_input,
+            structured_content: view.structured_content,
+        }))
+    }
 }
 
 // -- the envelope --------------------------------------------------
@@ -242,6 +289,7 @@ pub struct JsonRpcError {
     pub message: String,
 }
 
+#[cfg(feature = "native")]
 impl JsonRpcError {
     fn new(code: i32, message: impl Into<String>) -> Self {
         JsonRpcError {
@@ -267,6 +315,7 @@ impl JsonRpcError {
     }
 }
 
+#[cfg(feature = "native")]
 impl JsonRpcResponse {
     fn ok(id: Value, result: Value) -> Self {
         JsonRpcResponse {
@@ -300,35 +349,44 @@ impl JsonRpcResponse {
         (status = 404, description = "No live view with that tool call id", body = crate::error::ErrorBody),
     )
 )]
+#[cfg_attr(not(feature = "native"), allow(unused_variables, dead_code))]
 pub async fn widget_rpc(
     State(state): State<Arc<AppState>>,
     tenant: Tenant,
     Path(tool_call_id): Path<String>,
     Json(request): Json<JsonRpcRequest>,
 ) -> Result<Json<JsonRpcResponse>, ApiError> {
-    // The view record is the whole authority: no live view, no call.
-    let view = state
-        .broker
-        .widget_view(&tenant.workspace_id, &tool_call_id)
-        .ok_or_else(|| ApiError::not_found("widget view"))?;
-    let id = request.id.clone();
-    if request.jsonrpc != JSONRPC_VERSION {
-        return Ok(Json(JsonRpcResponse::failed(
-            id,
-            JsonRpcError::invalid_request(format!(
-                "jsonrpc must be \"{JSONRPC_VERSION}\", not \"{}\"",
-                request.jsonrpc
-            )),
-        )));
+    #[cfg(not(feature = "native"))]
+    {
+        Err(ApiError::not_available("Plugins"))
     }
-    Ok(Json(match dispatch(&state, &view, &request).await {
-        Ok(result) => JsonRpcResponse::ok(id, result),
-        Err(error) => JsonRpcResponse::failed(id, error),
-    }))
+    #[cfg(feature = "native")]
+    {
+        // The view record is the whole authority: no live view, no call.
+        let view = state
+            .broker
+            .widget_view(&tenant.workspace_id, &tool_call_id)
+            .ok_or_else(|| ApiError::not_found("widget view"))?;
+        let id = request.id.clone();
+        if request.jsonrpc != JSONRPC_VERSION {
+            return Ok(Json(JsonRpcResponse::failed(
+                id,
+                JsonRpcError::invalid_request(format!(
+                    "jsonrpc must be \"{JSONRPC_VERSION}\", not \"{}\"",
+                    request.jsonrpc
+                )),
+            )));
+        }
+        Ok(Json(match dispatch(&state, &view, &request).await {
+            Ok(result) => JsonRpcResponse::ok(id, result),
+            Err(error) => JsonRpcResponse::failed(id, error),
+        }))
+    }
 }
 
 /// The methods a view may call, and nothing else. A failure here is a
 /// JSON-RPC error inside a 200: the transport carried the call.
+#[cfg(feature = "native")]
 async fn dispatch(
     state: &AppState,
     view: &WidgetView,
@@ -349,6 +407,7 @@ async fn dispatch(
 /// package's own, unqualified, and it is qualified with the view's
 /// package here: a view cannot name another package's tool at all,
 /// before the broker's own check on the call origin ever runs.
+#[cfg(feature = "native")]
 async fn call_tool(
     state: &AppState,
     view: &WidgetView,
@@ -385,11 +444,13 @@ async fn call_tool(
 }
 
 /// The tool name as the snapshot holds it.
+#[cfg(feature = "native")]
 fn qualified(package: &str, tool: &str) -> String {
     format!("{package}__{tool}")
 }
 
 /// One tool result in the MCP shape the view reads.
+#[cfg(feature = "native")]
 fn tool_result(content: &str, is_error: bool) -> Value {
     json!({
         "content": [{ "type": "text", "text": content }],
@@ -399,6 +460,7 @@ fn tool_result(content: &str, is_error: bool) -> Value {
 
 /// The page behind a `ui://` URI. The view reads its own package's
 /// Widgets and nothing else.
+#[cfg(feature = "native")]
 async fn read_resource(
     state: &AppState,
     view: &WidgetView,
@@ -426,6 +488,7 @@ async fn read_resource(
 }
 
 /// The Widget a `ui://` URI names, when it belongs to `package`.
+#[cfg(feature = "native")]
 fn scoped_widget<'a>(package: &str, uri: &'a str) -> Result<&'a str, JsonRpcError> {
     let Some((named, widget)) = parse_widget_uri(uri) else {
         return Err(JsonRpcError::invalid_params(format!(
@@ -443,6 +506,7 @@ fn scoped_widget<'a>(package: &str, uri: &'a str) -> Result<&'a str, JsonRpcErro
 /// The view's one answer to the `widget` Request the tool parked on.
 /// The decision wakes the run, and the store's own pending check makes
 /// it one-shot: a second call finds the row decided and is refused.
+#[cfg(feature = "native")]
 async fn answer(
     state: &AppState,
     view: &WidgetView,
@@ -501,7 +565,7 @@ async fn answer(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "native"))]
 mod tests {
     use super::*;
 

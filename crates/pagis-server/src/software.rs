@@ -8,11 +8,17 @@
 //! Contribution reads on its own address, and only that answer carries
 //! the patch.
 
+// The API types and OpenAPI operations exist in every build. Only the
+// handler operations and their services need the native feature.
+#![cfg_attr(not(feature = "native"), allow(dead_code))]
+
 use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::{Path, State};
+#[cfg(feature = "native")]
 use pagis_core::{AgentId, Contribution, ContributionId, SoftwarePackage, SoftwareVersion};
+#[cfg(feature = "native")]
 use pagis_software::PackageVersion;
 use serde::Serialize;
 use utoipa::ToSchema;
@@ -109,34 +115,43 @@ pub struct SoftwarePackageDetailDto {
     (status = 200, body = SoftwarePackagePage),
     (status = 401, body = crate::error::ErrorBody),
 ))]
+#[cfg_attr(not(feature = "native"), allow(unused_variables, dead_code))]
 pub async fn list_software(
     State(state): State<Arc<AppState>>,
     tenant: Tenant,
 ) -> Result<Json<SoftwarePackagePage>, ApiError> {
-    let packages = state.software.list_packages(&tenant.workspace_id).await?;
-    let mut items = Vec::with_capacity(packages.len());
-    for package in packages {
-        let versions = state
-            .software
-            .list_versions(&tenant.workspace_id, &package.id)
-            .await?;
-        let contributions = state
-            .contributions
-            .list_by_package(&tenant.workspace_id, &package.id)
-            .await?;
-        items.push(SoftwarePackageDto {
-            name: package.name.clone(),
-            description: package.description.clone(),
-            latest_version: package.latest_version.clone(),
-            author_agent_id: package.author_agent_id.to_string(),
-            author_name: author_name(&state, &tenant.workspace_id, &package.author_agent_id).await,
-            keywords: package.keywords.clone(),
-            tool_count: tools(&versions, &package.latest_version).len(),
-            open_contributions: contributions.iter().filter(|held| is_open(held)).count(),
-            updated_at: package.updated_at,
-        });
+    #[cfg(not(feature = "native"))]
+    {
+        Err(ApiError::not_available("Plugins"))
     }
-    Ok(Json(SoftwarePackagePage { items }))
+    #[cfg(feature = "native")]
+    {
+        let packages = state.software.list_packages(&tenant.workspace_id).await?;
+        let mut items = Vec::with_capacity(packages.len());
+        for package in packages {
+            let versions = state
+                .software
+                .list_versions(&tenant.workspace_id, &package.id)
+                .await?;
+            let contributions = state
+                .contributions
+                .list_by_package(&tenant.workspace_id, &package.id)
+                .await?;
+            items.push(SoftwarePackageDto {
+                name: package.name.clone(),
+                description: package.description.clone(),
+                latest_version: package.latest_version.clone(),
+                author_agent_id: package.author_agent_id.to_string(),
+                author_name: author_name(&state, &tenant.workspace_id, &package.author_agent_id)
+                    .await,
+                keywords: package.keywords.clone(),
+                tool_count: tools(&versions, &package.latest_version).len(),
+                open_contributions: contributions.iter().filter(|held| is_open(held)).count(),
+                updated_at: package.updated_at,
+            });
+        }
+        Ok(Json(SoftwarePackagePage { items }))
+    }
 }
 
 #[utoipa::path(get, path = "/api/v1/software/{name}", params(
@@ -146,59 +161,67 @@ pub async fn list_software(
     (status = 401, body = crate::error::ErrorBody),
     (status = 404, body = crate::error::ErrorBody),
 ))]
+#[cfg_attr(not(feature = "native"), allow(unused_variables, dead_code))]
 pub async fn get_software(
     State(state): State<Arc<AppState>>,
     tenant: Tenant,
     Path(name): Path<String>,
 ) -> Result<Json<SoftwarePackageDetailDto>, ApiError> {
-    let package = package_named(&state, &tenant, &name).await?;
-    let mut versions = state
-        .software
-        .list_versions(&tenant.workspace_id, &package.id)
-        .await?;
-    let tools = tools(&versions, &package.latest_version);
-    versions.reverse();
-    let mut contributions = state
-        .contributions
-        .list_by_package(&tenant.workspace_id, &package.id)
-        .await?;
-    contributions.reverse();
-    let mut records = Vec::with_capacity(contributions.len());
-    for contribution in contributions {
-        records.push(summary(&state, &tenant, &contribution, &package.name).await?);
+    #[cfg(not(feature = "native"))]
+    {
+        Err(ApiError::not_available("Plugins"))
     }
-    let origin_package = match &package.origin_package_id {
-        Some(origin_id) => state
+    #[cfg(feature = "native")]
+    {
+        let package = package_named(&state, &tenant, &name).await?;
+        let mut versions = state
             .software
-            .list_packages(&tenant.workspace_id)
-            .await?
-            .into_iter()
-            .find(|held| &held.id == origin_id)
-            .map(|held| held.name),
-        None => None,
-    };
-    Ok(Json(SoftwarePackageDetailDto {
-        name: package.name.clone(),
-        description: package.description.clone(),
-        latest_version: package.latest_version.clone(),
-        author_agent_id: package.author_agent_id.to_string(),
-        author_name: author_name(&state, &tenant.workspace_id, &package.author_agent_id).await,
-        keywords: package.keywords.clone(),
-        origin_package,
-        origin_version: package.origin_version.clone(),
-        tools,
-        versions: versions
-            .into_iter()
-            .map(|version| SoftwareVersionDto {
-                version: version.version,
-                notes: version.notes,
-                published_at: version.published_at,
-            })
-            .collect(),
-        contributions: records,
-        created_at: package.created_at,
-        updated_at: package.updated_at,
-    }))
+            .list_versions(&tenant.workspace_id, &package.id)
+            .await?;
+        let tools = tools(&versions, &package.latest_version);
+        versions.reverse();
+        let mut contributions = state
+            .contributions
+            .list_by_package(&tenant.workspace_id, &package.id)
+            .await?;
+        contributions.reverse();
+        let mut records = Vec::with_capacity(contributions.len());
+        for contribution in contributions {
+            records.push(summary(&state, &tenant, &contribution, &package.name).await?);
+        }
+        let origin_package = match &package.origin_package_id {
+            Some(origin_id) => state
+                .software
+                .list_packages(&tenant.workspace_id)
+                .await?
+                .into_iter()
+                .find(|held| &held.id == origin_id)
+                .map(|held| held.name),
+            None => None,
+        };
+        Ok(Json(SoftwarePackageDetailDto {
+            name: package.name.clone(),
+            description: package.description.clone(),
+            latest_version: package.latest_version.clone(),
+            author_agent_id: package.author_agent_id.to_string(),
+            author_name: author_name(&state, &tenant.workspace_id, &package.author_agent_id).await,
+            keywords: package.keywords.clone(),
+            origin_package,
+            origin_version: package.origin_version.clone(),
+            tools,
+            versions: versions
+                .into_iter()
+                .map(|version| SoftwareVersionDto {
+                    version: version.version,
+                    notes: version.notes,
+                    published_at: version.published_at,
+                })
+                .collect(),
+            contributions: records,
+            created_at: package.created_at,
+            updated_at: package.updated_at,
+        }))
+    }
 }
 
 #[utoipa::path(get, path = "/api/v1/software/{name}/contributions/{contribution_id}", params(
@@ -209,25 +232,34 @@ pub async fn get_software(
     (status = 401, body = crate::error::ErrorBody),
     (status = 404, body = crate::error::ErrorBody),
 ))]
+#[cfg_attr(not(feature = "native"), allow(unused_variables, dead_code))]
 pub async fn get_contribution(
     State(state): State<Arc<AppState>>,
     tenant: Tenant,
     Path((name, contribution_id)): Path<(String, String)>,
 ) -> Result<Json<ContributionDto>, ApiError> {
-    let package = package_named(&state, &tenant, &name).await?;
-    let contribution = state
-        .contributions
-        .get(&tenant.workspace_id, &ContributionId::from(contribution_id))
-        .await?
-        .filter(|held| held.package_id == package.id)
-        .ok_or_else(|| ApiError::not_found("contribution"))?;
-    Ok(Json(ContributionDto {
-        patch: contribution.patch.clone(),
-        record: summary(&state, &tenant, &contribution, &package.name).await?,
-    }))
+    #[cfg(not(feature = "native"))]
+    {
+        Err(ApiError::not_available("Plugins"))
+    }
+    #[cfg(feature = "native")]
+    {
+        let package = package_named(&state, &tenant, &name).await?;
+        let contribution = state
+            .contributions
+            .get(&tenant.workspace_id, &ContributionId::from(contribution_id))
+            .await?
+            .filter(|held| held.package_id == package.id)
+            .ok_or_else(|| ApiError::not_found("contribution"))?;
+        Ok(Json(ContributionDto {
+            patch: contribution.patch.clone(),
+            record: summary(&state, &tenant, &contribution, &package.name).await?,
+        }))
+    }
 }
 
 /// The package of this Workspace with that name.
+#[cfg(feature = "native")]
 async fn package_named(
     state: &AppState,
     tenant: &Tenant,
@@ -242,6 +274,7 @@ async fn package_named(
 
 /// The record without its patch. The Fork is named, because the row
 /// says where the change comes from.
+#[cfg(feature = "native")]
 async fn summary(
     state: &AppState,
     tenant: &Tenant,
@@ -270,6 +303,7 @@ async fn summary(
     })
 }
 
+#[cfg(feature = "native")]
 fn is_open(contribution: &Contribution) -> bool {
     contribution.status == pagis_core::ContributionStatus::Open
 }
@@ -277,6 +311,7 @@ fn is_open(contribution: &Contribution) -> bool {
 /// The tools of one Version, out of the manifest the record holds. A
 /// manifest that does not parse shows no tool: the desk reads, and it
 /// never fails on one corrupt row.
+#[cfg(feature = "native")]
 fn tools(versions: &[SoftwareVersion], version: &str) -> Vec<SoftwareToolDto> {
     versions
         .iter()
@@ -298,6 +333,7 @@ fn tools(versions: &[SoftwareVersion], version: &str) -> Vec<SoftwareToolDto> {
 
 /// What an Agent is called. An Agent the roster lost is named by its
 /// id, so a listing never fails on a missing row.
+#[cfg(feature = "native")]
 async fn author_name(
     state: &AppState,
     workspace_id: &pagis_core::WorkspaceId,
