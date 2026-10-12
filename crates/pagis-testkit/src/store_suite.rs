@@ -13,6 +13,32 @@
 //! and a Postgres test. A body that its module does not name fails the
 //! guard test at the bottom of this file, so a body cannot be added and
 //! left out of a backend either.
+//!
+//! Another crate proves its stores over the SQLite schema with
+//! [`Backend::sqlite_with`]. The builder uses the supplied pool for its
+//! own store for each trait it implements, and the stores of
+//! `pagis-storage-sqlite` for the rest. It then calls the public bodies
+//! of those traits. The backend applies `pagis_storage_sqlite::MIGRATOR`
+//! before it calls the builder, so these stores use the daemon's schema.
+//! A store over another schema is not in scope.
+//!
+//! For example, `build_agent_store` builds the other crate's `AgentStore`:
+//!
+//! ```no_run
+//! # async fn prove_agent_store(
+//! #     build_agent_store: impl FnOnce(sqlx::SqlitePool) -> std::sync::Arc<dyn pagis_core::AgentStore>,
+//! # ) {
+//! use pagis_testkit::store_suite::{Backend, stores};
+//!
+//! let backend = Backend::sqlite_with(|pool| {
+//!     let mut stores = pagis_storage_sqlite::stores(pool.clone());
+//!     stores.agents = build_agent_store(pool);
+//!     stores
+//! }).await;
+//!
+//! stores::agent_update_writes_the_mutable_fields(&backend).await;
+//! # }
+//! ```
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -20,6 +46,7 @@ use std::sync::Arc;
 use pagis_core::{
     MemorySecretStore, SecretStore, Stores, TenantKeys, Workspace, WorkspaceId, now_ms,
 };
+use sqlx::SqlitePool;
 use tempfile::TempDir;
 
 pub use crate::sql::{Bind, Rows};
@@ -46,6 +73,13 @@ pub struct Backend {
 impl Backend {
     /// A fresh SQLite database with the migrations applied.
     pub async fn sqlite() -> Self {
+        Self::sqlite_with(pagis_storage_sqlite::stores).await
+    }
+
+    /// A fresh SQLite database with the daemon's migrations applied,
+    /// and stores built from its pool. The rows and database files
+    /// belong to the same database as the supplied pool.
+    pub async fn sqlite_with(build: impl FnOnce(SqlitePool) -> Stores) -> Self {
         let home = tempfile::tempdir().expect("a temp directory for the database");
         let pool = pagis_storage_sqlite::connect(&home.path().join(SQLITE_FILE))
             .await
@@ -54,11 +88,7 @@ impl Backend {
             .run(&pool)
             .await
             .expect("apply the migrations");
-        Self::over(
-            pagis_storage_sqlite::stores(pool.clone()),
-            Rows::Sqlite(pool),
-            Some(home),
-        )
+        Self::over(build(pool.clone()), Rows::Sqlite(pool), Some(home))
     }
 
     /// A fresh Postgres database with the migrations applied, or `None`
