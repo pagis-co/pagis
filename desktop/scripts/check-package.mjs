@@ -22,12 +22,17 @@ const resources = mac ? path.join(app, 'Contents', 'Resources') : path.join(app,
 // from app-update.yml. The Client App sets the feed itself at each check.
 // The third-party notices are the notices of the npm packages of the app
 // (`cargo xtask notices client`), and the notices of Electron and Chromium
-// that electron-builder copies.
-const notices = ['THIRD_PARTY_NOTICES', 'LICENSE.electron.txt', 'LICENSES.chromium.html']
-const required = ['app.asar', 'runtime-lock.json', 'app-update.yml', ...notices, ...(mac ? [] : ['update-key.pem'])]
-for (const name of required) {
-  if (!fs.statSync(path.join(resources, name), { throwIfNoEntry: false })?.isFile()) {
-    throw new Error(`the client package has no ${name}`)
+// that electron-builder copies: into Resources on macOS, and beside the
+// executable on Linux.
+const electronNotices = ['LICENSE.electron.txt', 'LICENSES.chromium.html']
+const required = [
+  'app.asar', 'runtime-lock.json', 'app-update.yml', 'THIRD_PARTY_NOTICES',
+  ...(mac ? electronNotices : ['update-key.pem']),
+].map((name) => path.join(resources, name))
+if (!mac) required.push(...electronNotices.map((name) => path.join(app, name)))
+for (const file of required) {
+  if (!fs.statSync(file, { throwIfNoEntry: false })?.isFile()) {
+    throw new Error(`the client package has no ${path.basename(file)}`)
   }
 }
 // The package holds the public key of the repository. The private half is
