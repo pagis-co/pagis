@@ -4619,6 +4619,8 @@ dependencies = [
  "chacha20poly1305",
  "chrono",
  "chrono-tz",
+ "croner",
+ "diffy",
  "futures",
  "getrandom 0.2.17",
  "getrandom 0.3.4",
@@ -4633,6 +4635,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "thiserror 2.0.20",
+ "tokio",
  "ulid",
  "utoipa",
  "wasm-bindgen-test",
@@ -4753,15 +4756,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pagis-memory"
-version = "0.3.0"
-dependencies = [
- "pagis-core",
- "serde",
- "wasm-bindgen-test",
-]
-
-[[package]]
 name = "pagis-memory-git"
 version = "0.3.0"
 dependencies = [
@@ -4769,7 +4763,6 @@ dependencies = [
  "git2",
  "hex",
  "pagis-core",
- "pagis-memory",
  "pagis-testkit",
  "serde_json",
  "tempfile",
@@ -5070,7 +5063,6 @@ dependencies = [
  "chromiumoxide",
  "chrono",
  "chrono-tz",
- "diffy",
  "futures",
  "llm-router",
  "pagis",
@@ -5084,7 +5076,6 @@ dependencies = [
  "pagis-evaluation",
  "pagis-google",
  "pagis-mail",
- "pagis-memory",
  "pagis-memory-git",
  "pagis-plugins",
  "pagis-push",

@@ -1,7 +1,7 @@
 //! An in-memory MemoryStore with the same rules as each storage backend.
+use crate::memory::rules::{self, FileStamp};
+use crate::{memory_page::PageSummary, *};
 use async_trait::async_trait;
-use pagis_core::{memory_page::PageSummary, *};
-use pagis_memory::rules::{self, FileStamp};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{
     Arc, Mutex,
@@ -25,7 +25,7 @@ struct Revision {
     author: MemoryAuthor,
     time: i64,
 }
-type History = Arc<tokio::sync::Mutex<Vec<Revision>>>;
+type History = Arc<futures::lock::Mutex<Vec<Revision>>>;
 
 /// A store of memory values. A clone opens the same memory through another handle.
 #[derive(Clone)]
@@ -36,7 +36,7 @@ pub struct FakeMemoryStore {
 }
 impl Default for FakeMemoryStore {
     fn default() -> Self {
-        Self::new(Arc::new(crate::memory_suite::NoSuppression::default()))
+        Self::new(Arc::new(super::FakeForgetStore::default()))
     }
 }
 impl FakeMemoryStore {

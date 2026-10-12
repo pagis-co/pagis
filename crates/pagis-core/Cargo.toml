@@ -9,6 +9,8 @@ publish.workspace = true
 async-trait.workspace = true
 chrono.workspace = true
 chrono-tz.workspace = true
+croner.workspace = true
+diffy.workspace = true
 futures.workspace = true
 hkdf.workspace = true
 hmac.workspace = true
@@ -24,6 +26,7 @@ utoipa.workspace = true
 web-time.workspace = true
 
 [dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
 serde-saphyr.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
