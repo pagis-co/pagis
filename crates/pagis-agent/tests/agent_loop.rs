@@ -364,7 +364,7 @@ async fn boot_watching_writes<F>(pool: SqlitePool, config: AgentLoopConfig, wrap
 where
     F: FnOnce(Arc<SqliteMessageStore>) -> Arc<dyn MessageStore>,
 {
-    boot_as(pool, config, wrap, false, None).await
+    boot_as(pool, config, wrap, false, None, None).await
 }
 
 /// Boot the loop as a Server, whose Agent's Computer names the exit
@@ -377,6 +377,7 @@ async fn boot_on_server(pool: SqlitePool) -> Loop {
         |messages| messages as Arc<dyn MessageStore>,
         true,
         None,
+        None,
     )
     .await
 }
@@ -387,6 +388,7 @@ async fn boot_as<F>(
     wrap: F,
     server: bool,
     model: Option<Arc<dyn pagis_agent::Brain>>,
+    gate: Option<Arc<dyn pagis_agent::ModelCallGate>>,
 ) -> Loop
 where
     F: FnOnce(Arc<SqliteMessageStore>) -> Arc<dyn MessageStore>,
@@ -534,6 +536,9 @@ where
     let captures = Arc::new(pagis_storage_sqlite::SqliteModelRequestCaptureStore::new(
         pool.clone(),
     ));
+    let models = Arc::new(pagis_agent::ModelCatalog::new(
+        pagis_testkit::test_provider_keys(Vec::new()),
+    ));
     let system = AgentSystem::start(AgentDeps {
         forget: Arc::new(pagis_storage_sqlite::SqliteForgetStore::new(pool.clone())),
         workspaces: Arc::new(SqliteWorkspaceStore::new(pool.clone())),
@@ -542,7 +547,6 @@ where
         messages: Arc::clone(&written),
         runs: Arc::clone(&runs) as _,
         model_aliases,
-        users: Arc::new(pagis_storage_sqlite::SqliteUserStore::new(pool.clone())),
         usage: Arc::new(pagis_storage_sqlite::SqliteUsageStore::new(pool.clone())),
         capture: Arc::clone(&capture),
         model_request_captures: Arc::clone(&captures) as _,
@@ -561,9 +565,16 @@ where
         computers: Arc::clone(&computers),
         bus: Arc::clone(&bus),
         brain: model.unwrap_or_else(|| Arc::clone(&brain) as _),
-        models: Arc::new(pagis_agent::ModelCatalog::new(
-            pagis_testkit::test_provider_keys(Vec::new()),
-        )),
+        gate: gate.unwrap_or_else(|| {
+            Arc::new(pagis_agent::SpendCapGate {
+                workspaces: Arc::clone(&workspaces) as _,
+                users: Arc::new(pagis_storage_sqlite::SqliteUserStore::new(pool.clone())),
+                usage: Arc::new(pagis_storage_sqlite::SqliteUsageStore::new(pool.clone())),
+                models: Arc::clone(&models),
+                clock: Arc::new(pagis_core::SystemClock),
+            })
+        }),
+        models,
         broker,
         tool_runtime: Arc::clone(&tool_runtime),
         hub: Arc::clone(&hub),
@@ -756,6 +767,7 @@ async fn two_runs_of_one_person_send_one_opaque_id_and_another_person_sends_anot
         |messages| messages as Arc<dyn MessageStore>,
         false,
         Some(brain),
+        None,
     )
     .await;
     let aliases = pagis_storage_sqlite::SqliteModelAliasStore::new(pool.clone());
@@ -1940,6 +1952,283 @@ async fn a_pending_review_records_a_successful_no_change_once(pool: SqlitePool) 
             .iter()
             .any(|tool| tool.name == pagis_broker::MEMORY_REVIEW)
     );
+}
+
+async fn set_spend_cap(pool: &SqlitePool, harness: &Loop, cap: f64) {
+    pagis_core::UserStore::set_monthly_spend_cap(
+        &pagis_storage_sqlite::SqliteUserStore::new(pool.clone()),
+        &harness.workspace.user_id,
+        Some(cap),
+        now_ms(),
+    )
+    .await
+    .unwrap();
+}
+
+async fn next_terminal(events: &mut pagis_core::EventStream) -> Event {
+    loop {
+        let event = next_event(events, "run.state_changed").await;
+        if matches!(
+            event.payload["to"].as_str(),
+            Some("completed" | "failed" | "canceled")
+        ) {
+            return event;
+        }
+    }
+}
+
+/// A different host refuses the second call with its own note and failure kind.
+#[derive(Default)]
+struct HostGate {
+    calls: std::sync::Mutex<Vec<(pagis_core::Run, Vec<String>)>>,
+}
+
+#[async_trait::async_trait]
+impl pagis_agent::ModelCallGate for HostGate {
+    async fn before_call(
+        &self,
+        run: &pagis_core::Run,
+        candidates: &[String],
+    ) -> Result<(), pagis_agent::GateStop> {
+        let mut calls = self.calls.lock().unwrap();
+        calls.push((run.clone(), candidates.to_vec()));
+        if calls.len() > 1 {
+            Err(pagis_agent::GateStop {
+                note: "The host stopped this Run because access changed.".into(),
+                failure_kind: pagis_core::FailureKind::AccessChanged,
+            })
+        } else {
+            Ok(())
+        }
+    }
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_host_model_call_gate_receives_the_run_and_route_and_keeps_its_failure_kind(
+    pool: SqlitePool,
+) {
+    let gate = Arc::new(HostGate::default());
+    let harness = boot_as(
+        pool,
+        AgentLoopConfig::default(),
+        |messages| messages as Arc<dyn MessageStore>,
+        false,
+        None,
+        Some(Arc::clone(&gate) as _),
+    )
+    .await;
+    harness.brain.push(Script::tool_call(
+        &["I will check the conversation."],
+        "conversation_search",
+        serde_json::json!({"query": "hi"}),
+    ));
+    harness.brain.push(Script::reply(&["Done."]));
+    let mut events = harness
+        .bus
+        .subscribe(EventScope::Installation, Some(0))
+        .await;
+
+    harness.send("hi").await;
+
+    let terminal = next_terminal(&mut events).await;
+    assert_eq!(terminal.payload["to"], "failed");
+    assert_eq!(terminal.payload["failure_kind"], "access_changed");
+    assert_eq!(harness.brain.requests().len(), 1);
+    let run_id = terminal.run_id.as_ref().unwrap();
+    let run = harness
+        .runs
+        .get(&harness.workspace.id, run_id)
+        .await
+        .unwrap()
+        .unwrap();
+    let note = "The host stopped this Run because access changed.";
+    assert_eq!(run.error.as_deref(), Some(note));
+    let messages = harness
+        .messages
+        .list_top_level(&harness.workspace.id, &harness.dm.id, None, 100)
+        .await
+        .unwrap();
+    assert!(
+        messages
+            .iter()
+            .any(|entry| entry.message.author_kind == AuthorKind::System
+                && entry.message.text_content == note
+                && entry.message.run_id.as_ref() == Some(run_id))
+    );
+    let calls = gate.calls.lock().unwrap();
+    assert_eq!(calls.len(), 2);
+    for (run, candidates) in calls.iter() {
+        assert_eq!(&run.id, run_id);
+        assert_eq!(run.workspace_id, harness.workspace.id);
+        assert_eq!(candidates, &["anthropic/claude-haiku-4-5"]);
+    }
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_three_turn_run_stops_at_the_spend_cap_after_its_first_turn(pool: SqlitePool) {
+    let harness = boot(pool.clone(), AgentLoopConfig::default()).await;
+    set_spend_cap(&pool, &harness, 1.0).await;
+    harness.brain.push(
+        Script::tool_call(
+            &["I will read the conversation."],
+            "conversation_search",
+            serde_json::json!({ "query": "hi" }),
+        )
+        .costing(2.0),
+    );
+    harness.brain.push(Script::tool_call(
+        &["I will read it again."],
+        "conversation_search",
+        serde_json::json!({ "query": "hi" }),
+    ));
+    harness.brain.push(Script::reply(&["Done."]));
+    let mut events = harness
+        .bus
+        .subscribe(EventScope::Installation, Some(0))
+        .await;
+
+    harness.send("hi").await;
+
+    let terminal = next_terminal(&mut events).await;
+    let run_id = terminal.run_id.as_ref().unwrap();
+    let run = harness
+        .runs
+        .get(&harness.workspace.id, run_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(harness.brain.requests().len(), 1);
+    assert_eq!(run.state, RunState::Failed);
+    assert_eq!(
+        run.failure_kind,
+        Some(pagis_core::FailureKind::SpendCapReached)
+    );
+    let usage = pagis_core::UsageStore::total_for_workspace(
+        &pagis_storage_sqlite::SqliteUsageStore::new(pool),
+        &harness.workspace.id,
+        pagis_core::UsagePeriod::calendar_month(now_ms(), &harness.workspace.timezone),
+    )
+    .await
+    .unwrap();
+    assert_eq!(usage.calls, 1);
+    assert_eq!(usage.cost_usd, 2.0);
+    let messages = harness
+        .messages
+        .list_top_level(&harness.workspace.id, &harness.dm.id, None, 100)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|entry| entry.message)
+        .collect::<Vec<_>>();
+    assert!(
+        messages
+            .iter()
+            .any(|message| message.author_kind == AuthorKind::Agent
+                && message.text_content == "I will read the conversation."
+                && message.status == MessageStatus::Complete)
+    );
+    let note = messages
+        .iter()
+        .find(|message| {
+            message.author_kind == AuthorKind::System && message.run_id.as_ref() == Some(run_id)
+        })
+        .expect("the conversation holds the cap note");
+    assert_eq!(note.text_content, pagis_agent::CapStop::Reached.note());
+    assert_eq!(run.error.as_deref(), Some(note.text_content.as_str()));
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn compaction_usage_reaches_the_spend_cap_before_the_reply_call(pool: SqlitePool) {
+    let harness = boot(pool.clone(), AgentLoopConfig::default()).await;
+    set_spend_cap(&pool, &harness, 1.0).await;
+    seed_over_budget_history(&harness).await;
+    harness.brain.push(
+        Script::reply(&[&compaction_json(
+            "Read the report.",
+            "Keep the original constraint.",
+            "Answer about the report.",
+        )])
+        .costing(2.0),
+    );
+    harness.brain.push(Script::reply(&["Done."]));
+    let mut events = harness
+        .bus
+        .subscribe(EventScope::Installation, Some(0))
+        .await;
+
+    harness.send("Read the report.").await;
+
+    let terminal = next_terminal(&mut events).await;
+    assert_eq!(harness.brain.requests().len(), 1);
+    assert_eq!(terminal.payload["to"], "failed");
+    assert_eq!(terminal.payload["failure_kind"], "spend_cap_reached");
+    assert!(
+        harness
+            .continuations
+            .get(&continuation_key(&harness))
+            .await
+            .unwrap()
+            .is_some()
+    );
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn the_spend_cap_stops_the_first_compaction_call(pool: SqlitePool) {
+    let harness = boot(pool.clone(), AgentLoopConfig::default()).await;
+    set_spend_cap(&pool, &harness, 0.0).await;
+    seed_over_budget_history(&harness).await;
+    let mut events = harness
+        .bus
+        .subscribe(EventScope::Installation, Some(0))
+        .await;
+
+    harness.send("Read the report.").await;
+
+    let terminal = next_terminal(&mut events).await;
+    assert!(harness.brain.requests().is_empty());
+    assert_eq!(terminal.payload["to"], "failed");
+    assert_eq!(terminal.payload["failure_kind"], "spend_cap_reached");
+    assert!(
+        harness
+            .continuations
+            .get(&continuation_key(&harness))
+            .await
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn the_spend_cap_stops_a_later_reflection_call(pool: SqlitePool) {
+    let harness = boot(pool.clone(), AgentLoopConfig::default()).await;
+    set_spend_cap(&pool, &harness, 1.0).await;
+    harness.brain.push(
+        Script::tool_call(
+            &[],
+            "memory_read",
+            serde_json::json!({"path": "shared/MEMORY.md"}),
+        )
+        .costing(2.0),
+    );
+    harness.brain.push(Script::reply(&["Nothing to keep."]));
+    let mut events = harness
+        .bus
+        .subscribe(EventScope::Installation, Some(0))
+        .await;
+    let mut arrival = fixture::queued_run(&harness.workspace.id, &harness.agent.id, &harness.dm.id);
+    arrival.channel_id = None;
+    arrival.trigger_kind = TriggerKind::Arrival;
+    arrival.trigger_ref = None;
+    harness.runs.create(&arrival).await.unwrap();
+
+    harness.system.enqueue_proactive(arrival.clone());
+
+    let terminal = next_terminal(&mut events).await;
+    assert_eq!(harness.brain.requests().len(), 1);
+    assert_eq!(terminal.run_id.as_ref(), Some(&arrival.id));
+    assert_eq!(terminal.payload["from"], "reflecting");
+    assert_eq!(terminal.payload["to"], "failed");
+    assert_eq!(terminal.payload["failure_kind"], "spend_cap_reached");
 }
 
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]

@@ -4,32 +4,36 @@
 //!
 //! The router computes the cost of every model call from the serving
 //! model's own price table. [`record`] keeps it, named by the Workspace
-//! that spent it and the Run that asked. Nothing kept it before, so an
-//! installation whose Administrator supplies the keys could not say who
-//! spent the budget.
+//! that spent it and the Run that asked. The Administrator supplies the
+//! provider keys, and the Usage Records show what each Person spends.
 //!
 //! [`cap_stop`] reads the same records back. An Administrator may
-//! give a Person a monthly Spend Cap; a Run that would start over it
-//! stops before it asks a model anything, and the conversation says so.
-//! A silent stop would be the worst answer: the person would see a
-//! sprite that does nothing and no reason for it. The Harness Model
-//! Endpoint asks the same question before each model request of a
+//! give a Person a monthly Spend Cap. A Run checks it before each model
+//! call, in its first Turn and in each later Turn. It stops before the
+//! call that would go over the cap, and the conversation says why.
+//! Replies from earlier Turns stay in the conversation. The Harness
+//! Model Endpoint makes the same check before each model request of a
 //! Coding Session.
 //!
 //! A model with no known price (neither the Provider Model List nor
 //! `models.json` prices it) costs an unknown amount. Its record keeps
 //! the cost as unknown, never as zero. A cap cannot count an unknown
-//! cost, so a capped Person's Run does not start on a route that names
+//! cost, so a capped Person's Run makes no call on a route that names
 //! such a model: the cap holds, and the note names the model.
 
+use std::sync::Arc;
+
+use async_trait::async_trait;
+
 use pagis_core::{
-    Clock, Run, UsageId, UsagePeriod, UsageRecord, UsageStore, UserStore, WorkspaceId,
+    Clock, FailureKind, Run, UsageId, UsagePeriod, UsageRecord, UsageStore, UserStore, WorkspaceId,
     WorkspaceStore,
 };
 
 use crate::ModelCatalog;
 use crate::brain::TurnEnd;
 use crate::system::AgentDeps;
+use crate::{GateStop, ModelCallGate};
 
 /// Why the Spend Cap stops a model call before it starts.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -46,7 +50,7 @@ impl CapStop {
     /// and what to do about it, and it names no other person's spend.
     pub fn note(&self) -> String {
         format!(
-            "This sprite stopped before it started work: {}",
+            "This sprite stopped before its next model call: {}",
             self.cause()
         )
     }
@@ -71,14 +75,6 @@ impl CapStop {
                  count what it costs. An administrator of this installation can remove the \
                  cap, or you can choose a model with a known price in Settings under Models."
             ),
-        }
-    }
-
-    /// The short reason the Run's failure event carries.
-    pub fn reason(&self) -> &'static str {
-        match self {
-            CapStop::Reached => "monthly spend cap reached",
-            CapStop::Unpriced(_) => "model without a price under a spend cap",
         }
     }
 }
@@ -124,15 +120,31 @@ pub struct CapReads<'a> {
     pub clock: &'a dyn Clock,
 }
 
-impl<'a> CapReads<'a> {
-    /// The reads of the agent loop.
-    pub fn of(deps: &'a AgentDeps) -> Self {
-        Self {
-            workspaces: deps.workspaces.as_ref(),
-            users: deps.users.as_ref(),
-            usage: deps.usage.as_ref(),
-            models: deps.models.as_ref(),
-            clock: deps.clock.as_ref(),
+/// The daemon's Spend Cap check before each model call of a Run.
+pub struct SpendCapGate {
+    pub workspaces: Arc<dyn WorkspaceStore>,
+    pub users: Arc<dyn UserStore>,
+    pub usage: Arc<dyn UsageStore>,
+    pub models: Arc<ModelCatalog>,
+    pub clock: Arc<dyn Clock>,
+}
+
+#[async_trait]
+impl ModelCallGate for SpendCapGate {
+    async fn before_call(&self, run: &Run, model_candidates: &[String]) -> Result<(), GateStop> {
+        let reads = CapReads {
+            workspaces: self.workspaces.as_ref(),
+            users: self.users.as_ref(),
+            usage: self.usage.as_ref(),
+            models: self.models.as_ref(),
+            clock: self.clock.as_ref(),
+        };
+        match cap_stop(reads, &run.workspace_id, model_candidates).await {
+            Some(stop) => Err(GateStop {
+                note: stop.note(),
+                failure_kind: FailureKind::SpendCapReached,
+            }),
+            None => Ok(()),
         }
     }
 }
