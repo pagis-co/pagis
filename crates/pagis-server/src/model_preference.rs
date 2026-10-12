@@ -24,7 +24,7 @@ pub const DEFAULT_PREFERENCE: &[&str] = &[
 ];
 
 /// Each well-known alias and its Model Preference.
-pub const PREFERENCES: [(&str, &[&str]); 6] = [
+pub const PREFERENCES: [(&str, &[&str]); if cfg!(feature = "native") { 6 } else { 3 }] = [
     (DEFAULT_MODEL_ALIAS, DEFAULT_PREFERENCE),
     (
         pagis_voice::TRANSCRIBE_ALIAS,
@@ -44,11 +44,14 @@ pub const PREFERENCES: [(&str, &[&str]); 6] = [
             "openrouter/google/gemini-3.8-flash-tts",
         ],
     ),
+    #[cfg(feature = "native")]
     (pagis_telephony::PHONE_ALIAS, &pagis_telephony::PHONE_MODELS),
+    #[cfg(feature = "native")]
     (
         pagis_telephony::GPT_LIVE_REASONING_ALIAS,
         &pagis_telephony::GPT_LIVE_REASONING_MODELS,
     ),
+    #[cfg(feature = "native")]
     (
         pagis_telephony::PHONE_CLASSIFIER_ALIAS,
         &pagis_telephony::PHONE_CLASSIFIER_MODELS,
@@ -61,6 +64,7 @@ pub fn alias_use(alias: &str) -> ProviderUse {
     match alias {
         pagis_voice::SPEAK_ALIAS => ProviderUse::SpokenReplies,
         pagis_voice::TRANSCRIBE_ALIAS => ProviderUse::Dictation,
+        #[cfg(feature = "native")]
         pagis_telephony::PHONE_ALIAS
         | pagis_telephony::GPT_LIVE_REASONING_ALIAS
         | pagis_telephony::PHONE_CLASSIFIER_ALIAS => ProviderUse::Calls,
@@ -133,6 +137,17 @@ mod tests {
 
     use super::*;
 
+    #[cfg(not(feature = "native"))]
+    #[test]
+    fn portable_preferences_have_no_call_alias() {
+        assert_eq!(PREFERENCES.len(), 3);
+        for alias in ["phone", "gpt-live-reasoning", "phone-classifier"] {
+            assert!(preference(alias).is_empty(), "{alias}");
+            assert_eq!(alias_use(alias), ProviderUse::Thinking);
+            assert_eq!(route_for(alias, &[Provider::OpenAi]), None);
+        }
+    }
+
     /// A preference names only providers that serve its alias's use, so
     /// the seed and a key change never pick a provider that cannot
     /// answer.
@@ -183,12 +198,14 @@ mod tests {
             ),
             Some(vec!["openai/gpt-4o-transcribe".to_string()])
         );
+        #[cfg(feature = "native")]
         assert_eq!(
             route_for(pagis_telephony::PHONE_ALIAS, &[Provider::OpenAi]),
             Some(pagis_telephony::PHONE_MODELS.map(str::to_string).to_vec())
         );
     }
 
+    #[cfg(feature = "native")]
     #[test]
     fn no_route_when_no_keyed_provider_serves_the_alias() {
         assert_eq!(

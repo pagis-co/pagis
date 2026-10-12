@@ -26,7 +26,7 @@ use pagis_core::{
     AgentMailbox, AgentMailboxId, AgentMailboxState, IngestBatch, MailboxCursor, NormalizedEvent,
     SentMail, SentMailStore, WakeupLanding, WorkspaceId, now_ms,
 };
-use tokio::task::JoinHandle;
+use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
 use crate::desk::{MailboxDesk, MailboxError};
@@ -118,7 +118,16 @@ impl Drop for PollLease<'_> {
 struct Watcher {
     workspace_id: WorkspaceId,
     cancel: CancellationToken,
-    handle: JoinHandle<()>,
+    finished: oneshot::Receiver<()>,
+}
+
+impl Watcher {
+    fn is_finished(&mut self) -> bool {
+        !matches!(
+            self.finished.try_recv(),
+            Err(oneshot::error::TryRecvError::Empty)
+        )
+    }
 }
 
 impl MailCollector {
@@ -160,7 +169,7 @@ impl MailCollector {
                     return true;
                 }
                 let live = active.iter().any(|mailbox| mailbox.id == *id);
-                if !live || watcher.handle.is_finished() {
+                if !live || watcher.is_finished() {
                     watcher.cancel.cancel();
                     return false;
                 }
@@ -179,16 +188,20 @@ impl MailCollector {
             let id = mailbox.id.clone();
             let cancel = CancellationToken::new();
             let collector = Arc::clone(self);
-            let handle = tokio::spawn({
+            let (finish, finished) = oneshot::channel();
+            pagis_rt::spawn({
                 let cancel = cancel.clone();
-                async move { collector.watch(mailbox, cancel).await }
+                async move {
+                    collector.watch(mailbox, cancel).await;
+                    let _ = finish.send(());
+                }
             });
             tasks.insert(
                 id,
                 Watcher {
                     workspace_id: workspace_id.clone(),
                     cancel,
-                    handle,
+                    finished,
                 },
             );
         }
@@ -206,8 +219,8 @@ impl MailCollector {
                 let mut state = self.state.lock().expect("collector state lock");
                 if state
                     .tasks
-                    .get(&mailbox.id)
-                    .is_some_and(|watcher| !watcher.handle.is_finished())
+                    .get_mut(&mailbox.id)
+                    .is_some_and(|watcher| !watcher.is_finished())
                     || !state.polling.insert(mailbox.id.clone())
                 {
                     continue;
@@ -501,7 +514,7 @@ impl MailCollector {
     /// is stopped.
     async fn wait(&self, cancel: &CancellationToken, wait: Duration) -> bool {
         cancel
-            .run_until_cancelled(tokio::time::sleep(wait))
+            .run_until_cancelled(pagis_rt::sleep(wait))
             .await
             .is_some()
     }

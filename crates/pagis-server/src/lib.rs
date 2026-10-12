@@ -9,6 +9,7 @@ mod auth;
 #[cfg(feature = "native")]
 mod axum_socket;
 mod byte_socket;
+#[cfg(feature = "native")]
 pub mod calls;
 mod channels;
 mod client_name;
@@ -36,8 +37,10 @@ pub mod model_preference;
 #[cfg(feature = "native")]
 mod native;
 mod needs_you;
+#[cfg(feature = "native")]
 mod openapi;
 mod peer;
+#[cfg(feature = "native")]
 mod phone_numbers;
 mod plugins;
 mod providers;
@@ -50,9 +53,15 @@ mod unavailable;
 #[cfg(feature = "native")]
 pub use native::NativeState;
 #[cfg(feature = "native")]
-use native::product_routes as native_product_routes;
+use native::{
+    administration_routes as native_administration_routes, product_routes as native_product_routes,
+    public_routes as native_public_routes,
+};
 #[cfg(not(feature = "native"))]
-use unavailable::product_routes as native_product_routes;
+use unavailable::{
+    administration_routes as native_administration_routes, product_routes as native_product_routes,
+    public_routes as native_public_routes,
+};
 mod requests;
 mod ring;
 pub mod routes;
@@ -100,6 +109,7 @@ pub use forwarded::TrustedProxy;
 pub use harness_model::{HarnessModelDeps, HarnessModelTokens};
 pub use live_connections::{LiveConnections, LiveTenant};
 pub use message_socket::{CloseFrame, Message, MessageSocket};
+#[cfg(feature = "native")]
 pub use openapi::ApiDoc;
 pub use peer::Peer;
 pub use remote_access::serves_this_machine_only;
@@ -178,9 +188,6 @@ pub struct AppState {
     pub broker: Arc<pagis_broker::Broker>,
     /// The agent profiles, for names on the grants page.
     pub agent_store: Arc<dyn AgentStore>,
-    /// The calls that run right now. Listen-Live and hang up find the
-    /// media hub of a live call here, under the Person's own Workspace.
-    pub live_calls: Arc<pagis_telephony::LiveCalls>,
     /// The Call records. The strip, the call inspector and the
     /// settled block read them: the record is the one source of truth.
     pub calls: Arc<dyn pagis_core::CallStore>,
@@ -189,24 +196,14 @@ pub struct AppState {
     /// record is the one source of truth for a text, and a Text
     /// Conversation is grouped from these rows.
     pub texts: Arc<dyn pagis_core::TextRecordStore>,
-    /// The text half of every carrier (ADR-0020), one per provider.
-    /// The number surfaces and the text tools read it to learn whether
-    /// the carrier that carries the number carries a text.
-    pub text_transports: Arc<pagis_telephony::TextTransports>,
     /// The mailbox desk (ADR-0019): the one path that makes,
     /// proves, recovers, sleeps and deletes an Agent Mailbox. Removing
     /// a Mailbox Provider Connection also reads the count of the
     /// mailboxes that still point at it here.
     pub mailbox_desk: Arc<pagis_mail::MailboxDesk>,
-    /// The number desk: the one path that buys, assigns,
-    /// unassigns and releases an Agent Phone Number.
-    pub numbers: Arc<pagis_telephony::NumberDesk>,
     /// The Trust List (ADR-0021, ADR-0019). Only this
     /// surface writes it.
     pub trust_list: Arc<dyn pagis_core::TrustListStore>,
-    /// The tier gate of every call that runs now, so the user can drop
-    /// a live call of their own Workspace to Unknown.
-    pub live_tiers: Arc<pagis_telephony::LiveTiers>,
     /// The daemon's secret store. It holds the hash of the Keypad Code.
     pub secrets: Arc<dyn pagis_core::SecretStore>,
     /// The failed-attempt count of each Workspace's Keypad Code
@@ -240,18 +237,6 @@ pub struct AppState {
     /// The Software List (ADR-0016). The desk reads it; only the
     /// Agent tools write it.
     pub software: Arc<dyn SoftwareStore>,
-    /// The Version tree behind the records: the manifest of one
-    /// Version and the bytes of one file of it. A Widget page reads
-    /// through it.
-    pub versions: Arc<dyn pagis_software::VersionSource>,
-    /// The installed Plugins (ADR-0017). Only the desk writes
-    /// them: installing one decides which code runs on this computer.
-    pub plugins: Arc<pagis_plugin::Plugins>,
-    /// The MCP hosts of those Plugins (ADR-0017), one per
-    /// tenant. A handler resolves the host of the signed-in person's
-    /// Workspace: the desk starts a failed Plugin again in that person's
-    /// own Plugin Computer and reads that Computer's server log.
-    pub plugin_hosts: Arc<pagis_plugins::PluginHosts>,
     /// The Org's Workspace ([`pagis_core::Org::workspace_id`]), which
     /// no person owns. It holds the installed Plugins with their
     /// Bindings and checkouts (ADR-0017) and the Installation
@@ -541,7 +526,6 @@ fn product_router(state: Arc<AppState>) -> Router {
             "/api/v1/artifacts/{artifact_id}",
             get(artifacts::download_artifact),
         )
-        .route("/api/v1/calls/{call_id}/control", post(calls::control))
         .route("/api/v1/runs/{run_id}/cancel", post(runs::cancel_run))
         .route("/api/v1/runs/{run_id}/dismiss", post(runs::dismiss_run))
         .route("/api/v1/runs/{run_id}/retry", post(runs::retry_review))
@@ -707,35 +691,6 @@ fn product_router(state: Arc<AppState>) -> Router {
             "/api/v1/settings/keypad-code/failures",
             delete(trust_list::clear_keypad_failures),
         )
-        .route("/api/v1/calls", get(calls::list_calls))
-        .route("/api/v1/calls/{call_id}", get(calls::get_call))
-        .route("/api/v1/calls/{call_id}/dismiss", post(calls::dismiss_call))
-        .route("/api/v1/calls/{call_id}/hangup", post(calls::hang_up))
-        .route("/api/v1/calls/{call_id}/tier", post(calls::drop_call_tier))
-        .route(
-            "/api/v1/settings/phone-numbers",
-            get(phone_numbers::list_phone_numbers).post(phone_numbers::buy_phone_number),
-        )
-        .route(
-            "/api/v1/settings/phone-numbers/adopt",
-            post(phone_numbers::adopt_phone_number),
-        )
-        .route(
-            "/api/v1/settings/phone-numbers/available",
-            get(phone_numbers::search_phone_numbers),
-        )
-        .route(
-            "/api/v1/settings/phone-numbers/{phone_number_id}/assign",
-            post(phone_numbers::assign_phone_number),
-        )
-        .route(
-            "/api/v1/settings/phone-numbers/{phone_number_id}/unassign",
-            post(phone_numbers::unassign_phone_number),
-        )
-        .route(
-            "/api/v1/settings/phone-numbers/{phone_number_id}/release",
-            post(phone_numbers::release_phone_number),
-        )
         .route(
             "/api/v1/settings/credentials",
             get(settings::list_credentials).post(settings::add_credential),
@@ -743,31 +698,6 @@ fn product_router(state: Arc<AppState>) -> Router {
         .route(
             "/api/v1/settings/credentials/{credential_id}",
             delete(settings::delete_credential),
-        )
-        .route("/api/v1/plugins", get(plugins::list_plugins))
-        .route("/api/v1/plugins/{plugin_id}", get(plugins::get_plugin))
-        .route(
-            "/api/v1/plugins/{plugin_id}/grants",
-            post(plugins::grant_plugin),
-        )
-        .route("/api/v1/plugins/{plugin_id}/log", get(plugins::plugin_log))
-        .route(
-            "/api/v1/widgets/{package}/{version}/{widget}",
-            get(widgets::widget_page),
-        )
-        .route(
-            "/api/v1/widgets/{tool_call_id}/view",
-            get(widgets::widget_view),
-        )
-        .route(
-            "/api/v1/widgets/{tool_call_id}/rpc",
-            post(widgets::widget_rpc),
-        )
-        .route("/api/v1/software", get(software::list_software))
-        .route("/api/v1/software/{name}", get(software::get_software))
-        .route(
-            "/api/v1/software/{name}/contributions/{contribution_id}",
-            get(software::get_contribution),
         )
         // What the signed-in person spent. A Member reads their own and
         // nothing else of the installation's accounting.
@@ -818,12 +748,7 @@ fn product_router(state: Arc<AppState>) -> Router {
         ));
 
     Router::new()
-        // The sandbox proxy: the proxy document holds no data of
-        // its own.
-        .route(
-            "/api/v1/widgets/{workspace_id}/{package}/{version}/{widget}/sandbox",
-            get(widgets::widget_sandbox),
-        )
+        .merge(native_public_routes())
         .route("/api/v1/health", get(health))
         .route("/api/v1/runtime/identity", get(runtime_identity))
         // The start route of a Google authorization. It reads
@@ -1008,9 +933,32 @@ fn runtime_identity_proof(
     hex::encode(mac.finalize().into_bytes())
 }
 
+#[cfg(feature = "native")]
 async fn openapi_json() -> Json<serde_json::Value> {
     use utoipa::OpenApi;
     Json(serde_json::to_value(ApiDoc::openapi()).expect("spec serializes"))
+}
+
+/// The contract of the full build, which a build without `native` serves
+/// too (ADR-0038). The `contract-drift` step keeps `ui/openapi.json`
+/// equal to what the full build generates.
+#[cfg(not(feature = "native"))]
+const FULL_CONTRACT: &str = include_str!("../../../ui/openapi.json");
+
+#[cfg(not(feature = "native"))]
+async fn openapi_json() -> Json<serde_json::Value> {
+    Json(serde_json::from_str(FULL_CONTRACT).expect("the full contract is JSON"))
+}
+
+#[cfg(all(test, not(feature = "native")))]
+mod full_contract_tests {
+    #[tokio::test]
+    async fn a_build_without_native_serves_the_full_contract() {
+        let served = super::openapi_json().await.0;
+        let expected: serde_json::Value = serde_json::from_str(super::FULL_CONTRACT).unwrap();
+        assert_eq!(served, expected);
+        assert!(served["paths"]["/api/v1/calls/{call_id}/hangup"].is_object());
+    }
 }
 
 #[cfg(test)]
@@ -1032,3 +980,6 @@ mod runtime_identity_tests {
         );
     }
 }
+
+#[cfg(all(test, not(feature = "native")))]
+mod calls_portable_tests;

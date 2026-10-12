@@ -575,6 +575,32 @@ pub async fn update_appearance(
     Ok(Json(agent_dto(agent, email_address)))
 }
 
+/// The stores and services that archive an Agent's identity.
+#[derive(Clone)]
+pub(crate) struct ArchiveState {
+    pub agent_store: Arc<dyn pagis_core::AgentStore>,
+    pub workspaces: Arc<dyn pagis_core::WorkspaceStore>,
+    pub credentials: Arc<dyn pagis_core::CredentialStore>,
+    pub mailbox_desk: Arc<pagis_mail::MailboxDesk>,
+    pub bus: Arc<dyn pagis_core::EventBus>,
+    #[cfg(feature = "native")]
+    pub numbers: Arc<pagis_telephony::NumberDesk>,
+}
+
+impl axum::extract::FromRef<Arc<AppState>> for ArchiveState {
+    fn from_ref(state: &Arc<AppState>) -> Self {
+        Self {
+            agent_store: state.agent_store.clone(),
+            workspaces: state.workspaces.clone(),
+            credentials: state.credentials.clone(),
+            mailbox_desk: state.mailbox_desk.clone(),
+            bus: state.bus.clone(),
+            #[cfg(feature = "native")]
+            numbers: state.native.numbers.clone(),
+        }
+    }
+}
+
 #[utoipa::path(
     post,
     path = "/api/v1/agents/{agent_id}/archive",
@@ -586,7 +612,7 @@ pub async fn update_appearance(
     )
 )]
 pub async fn archive_agent(
-    State(state): State<Arc<AppState>>,
+    State(state): State<ArchiveState>,
     tenant: Tenant,
     Path(agent_id): Path<String>,
 ) -> Result<Json<AgentDto>, ApiError> {
@@ -597,7 +623,12 @@ pub async fn archive_agent(
         .await?
         .ok_or_else(|| ApiError::not_found("agent"))?;
     if agent.status == AgentStatus::Archived {
-        let email_address = email_address_of(&state, &tenant, &agent.id).await?;
+        let email_address = state
+            .mailbox_desk
+            .for_agent(&tenant.workspace_id, &agent.id)
+            .await
+            .map_err(crate::mailboxes::mailbox_error)?
+            .map(|mailbox| mailbox.address);
         return Ok(Json(agent_dto(agent, email_address)));
     }
     agent.status = AgentStatus::Archived;
@@ -613,12 +644,19 @@ pub async fn archive_agent(
         .ok_or_else(|| ApiError::not_found("workspace"))?;
     let chief_moved = workspace.chief_of_staff_agent_id.as_ref() == Some(&agent.id);
     if chief_moved {
-        let successor = crate::workspace::active_agents_oldest_first(&state, &tenant)
-            .await?
-            .into_iter()
-            .next()
-            .map(|next| next.id);
-        crate::workspace::designate(&state, &tenant, successor.as_ref()).await?;
+        let successor =
+            crate::workspace::active_agents_oldest_first(state.agent_store.as_ref(), &tenant)
+                .await?
+                .into_iter()
+                .next()
+                .map(|next| next.id);
+        crate::workspace::designate(
+            state.workspaces.as_ref(),
+            state.bus.as_ref(),
+            &tenant,
+            successor.as_ref(),
+        )
+        .await?;
     }
     // Archival must not destroy account access (ADR-0013): there
     // is no backup and no export, so the agent's minted credentials
@@ -630,11 +668,15 @@ pub async fn archive_agent(
     // Archiving an Agent unassigns its number (ADR-0018). The Workspace
     // keeps the number and keeps paying for it, and the Calls stay with
     // the Agent that made them.
+    #[cfg(feature = "native")]
     let unassigned = state
         .numbers
         .unassign_for_agent(&tenant.workspace_id, &agent.id)
         .await
-        .map_err(crate::phone_numbers::number_error)?;
+        .map_err(crate::phone_numbers::number_error)?
+        .map(|number| number.e164);
+    #[cfg(not(feature = "native"))]
+    let unassigned: Option<String> = None;
     // Archiving an Agent puts its mailbox to sleep (ADR-0019). Unlike
     // the number, the mailbox stays with the Agent: the mail is kept,
     // nothing wakes and nothing sends.
@@ -655,7 +697,7 @@ pub async fn archive_agent(
             payload: serde_json::json!({
                 "name": agent.name,
                 "released_credentials": released,
-                "unassigned_e164": unassigned.map(|number| number.e164),
+                "unassigned_e164": unassigned,
                 "dormant_mailbox": email_address,
                 "chief_of_staff_moved": chief_moved,
             }),

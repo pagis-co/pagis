@@ -21,3 +21,45 @@ fn run_state_contract_includes_reflecting() {
         "#/components/schemas/RunStateDto"
     );
 }
+
+#[test]
+fn plugins_contract_holds_every_route_and_schema() {
+    let document = serde_json::to_value(pagis_server::ApiDoc::openapi()).unwrap();
+    for route in pagis_server::ROUTES
+        .iter()
+        .chain(pagis_server::ADMINISTRATION_ROUTES)
+        .filter(|route| {
+            ["/api/v1/plugins", "/api/v1/software", "/api/v1/widgets"]
+                .iter()
+                .any(|prefix| route.path.starts_with(prefix))
+        })
+    {
+        for method in route.methods {
+            assert!(
+                document["paths"][route.path][method].is_object(),
+                "{} {method} has an OpenAPI operation",
+                route.path
+            );
+        }
+    }
+    for schema in [
+        "PluginPage",
+        "PluginDto",
+        "InstallPluginRequest",
+        "UpdatePluginRequest",
+        "BindingValueRequest",
+        "GrantPluginRequest",
+        "PluginLogDto",
+        "SoftwarePackagePage",
+        "SoftwarePackageDetailDto",
+        "ContributionDto",
+        "WidgetViewDto",
+        "JsonRpcRequest",
+        "JsonRpcResponse",
+    ] {
+        assert!(
+            document["components"]["schemas"][schema].is_object(),
+            "{schema} has an OpenAPI schema"
+        );
+    }
+}

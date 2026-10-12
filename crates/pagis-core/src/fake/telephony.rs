@@ -328,10 +328,10 @@ impl AgentMailboxStore for FakeAgentMailboxStore {
     async fn create(&self, mailbox: &AgentMailbox) -> Result<(), StoreError> {
         let mut data = self.0.lock().unwrap();
         if data.agent_mailboxes.0.values().any(|row| {
-            row.deleted_at.is_none()
-                && (row.address == mailbox.address
-                    || (row.workspace_id == mailbox.workspace_id
-                        && row.agent_id == mailbox.agent_id))
+            row.address == mailbox.address
+                || (row.state.is_live()
+                    && row.workspace_id == mailbox.workspace_id
+                    && row.agent_id == mailbox.agent_id)
         }) {
             return Err(conflict("Agent Mailbox exists"));
         }
@@ -378,7 +378,7 @@ impl AgentMailboxStore for FakeAgentMailboxStore {
             .unwrap()
             .agent_mailboxes
             .rows(workspace_id)
-            .find(|row| &row.agent_id == agent_id && row.deleted_at.is_none())
+            .find(|row| &row.agent_id == agent_id && row.state.is_live())
             .cloned())
     }
     async fn list(&self, workspace_id: &WorkspaceId) -> Result<Vec<AgentMailbox>, StoreError> {
@@ -388,10 +388,12 @@ impl AgentMailboxStore for FakeAgentMailboxStore {
             .unwrap()
             .agent_mailboxes
             .rows(workspace_id)
+            .filter(|row| row.state.is_live())
             .cloned()
             .collect())
     }
     async fn address_taken(&self, address: &str) -> Result<bool, StoreError> {
+        let address = address.to_lowercase();
         Ok(self
             .0
             .lock()
@@ -399,7 +401,7 @@ impl AgentMailboxStore for FakeAgentMailboxStore {
             .agent_mailboxes
             .0
             .values()
-            .any(|row| row.address == address && row.deleted_at.is_none()))
+            .any(|row| row.address == address))
     }
     async fn set_state(
         &self,
@@ -408,8 +410,17 @@ impl AgentMailboxStore for FakeAgentMailboxStore {
         state: AgentMailboxState,
         reason: Option<&str>,
     ) -> Result<bool, StoreError> {
+        if state == AgentMailboxState::Deleted {
+            return Err(conflict(
+                "a tombstone is written by a delete, not by a state change",
+            ));
+        }
         let mut data = self.0.lock().unwrap();
-        let Some(row) = data.agent_mailboxes.get_mut(workspace_id, id) else {
+        let Some(row) = data
+            .agent_mailboxes
+            .get_mut(workspace_id, id)
+            .filter(|row| row.state.is_live())
+        else {
             return Ok(false);
         };
         row.state = state;
@@ -423,7 +434,11 @@ impl AgentMailboxStore for FakeAgentMailboxStore {
         cursor: &MailboxCursor,
     ) -> Result<bool, StoreError> {
         let mut data = self.0.lock().unwrap();
-        let Some(row) = data.agent_mailboxes.get_mut(workspace_id, id) else {
+        let Some(row) = data
+            .agent_mailboxes
+            .get_mut(workspace_id, id)
+            .filter(|row| row.state.is_live())
+        else {
             return Ok(false);
         };
         row.cursor = Some(cursor.clone());
@@ -438,11 +453,12 @@ impl AgentMailboxStore for FakeAgentMailboxStore {
         let Some(row) = data
             .agent_mailboxes
             .rows_mut(workspace_id)
-            .find(|row| &row.agent_id == agent_id && row.deleted_at.is_none())
+            .find(|row| &row.agent_id == agent_id && row.state.is_live())
         else {
             return Ok(None);
         };
         row.state = AgentMailboxState::Dormant;
+        row.reason = None;
         Ok(Some(row.clone()))
     }
     async fn delete(
@@ -455,12 +471,14 @@ impl AgentMailboxStore for FakeAgentMailboxStore {
         let Some(row) = data
             .agent_mailboxes
             .get_mut(workspace_id, id)
-            .filter(|row| row.deleted_at.is_none())
+            .filter(|row| row.state.is_live())
         else {
             return Ok(false);
         };
         row.state = AgentMailboxState::Deleted;
         row.deleted_at = Some(at);
+        row.reason = None;
+        row.cursor = None;
         Ok(true)
     }
     async fn note_send(
@@ -473,6 +491,9 @@ impl AgentMailboxStore for FakeAgentMailboxStore {
         let Some(row) = data.agent_mailboxes.get_mut(workspace_id, id) else {
             return Ok(0);
         };
+        if !row.state.is_live() {
+            return Ok(row.sends_today);
+        }
         Ok(note_send(&mut row.sends_day, &mut row.sends_today, at))
     }
     async fn add_allow_rules(
@@ -482,9 +503,11 @@ impl AgentMailboxStore for FakeAgentMailboxStore {
         rules: &[String],
     ) -> Result<Vec<String>, StoreError> {
         let mut data = self.0.lock().unwrap();
-        let Some(row) = data.agent_mailboxes.get_mut(workspace_id, id) else {
-            return Ok(vec![]);
-        };
+        let row = data
+            .agent_mailboxes
+            .get_mut(workspace_id, id)
+            .filter(|row| row.state.is_live())
+            .ok_or_else(|| conflict("that mailbox is gone, so it takes no rules"))?;
         add_rules(&mut row.allow_rules, rules);
         Ok(row.allow_rules.clone())
     }
@@ -499,7 +522,7 @@ impl AgentMailboxStore for FakeAgentMailboxStore {
             .unwrap()
             .agent_mailboxes
             .rows(workspace_id)
-            .filter(|row| &row.connection_id == connection_id && row.deleted_at.is_none())
+            .filter(|row| &row.connection_id == connection_id && row.state.is_live())
             .count() as u32)
     }
 }
