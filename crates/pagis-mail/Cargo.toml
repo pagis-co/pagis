@@ -5,11 +5,16 @@ edition.workspace = true
 license.workspace = true
 autotests = false
 
+[package.metadata.cargo-machete]
+ignored = ["nom"]
+
 [dependencies]
-async-imap.workspace = true
+imap-next.workspace = true
+imap-codec.workspace = true
+# imap-codec uses nom allocation functions with default features disabled.
+nom.workspace = true
 chrono.workspace = true
 async-trait.workspace = true
-futures.workspace = true
 lettre.workspace = true
 mail-builder.workspace = true
 mail-parser.workspace = true

@@ -1388,7 +1388,6 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
             trust: Arc::clone(&sender_trust) as _,
             ingest: Arc::new(crate::mail_events::TriggerIngest(Arc::clone(&trigger))),
             idle_turn: pagis_mail::MAX_IDLE_TURN,
-            poll_interval: pagis_mail::POLL_INTERVAL,
         },
     ));
     Arc::new(crate::sweeps::Sweeps {

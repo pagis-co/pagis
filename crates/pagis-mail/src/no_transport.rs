@@ -7,8 +7,7 @@
 use async_trait::async_trait;
 
 use crate::transport::{
-    MailSession, MailTransport, MailboxCredential, TransportCapabilities, TransportError,
-    TransportErrorCode,
+    MailSession, MailTransport, MailboxCredential, TransportError, TransportErrorCode,
 };
 
 /// A transport that reaches no mail host.
@@ -17,10 +16,6 @@ pub struct NoMailTransport;
 
 #[async_trait]
 impl MailTransport for NoMailTransport {
-    fn capabilities(&self) -> TransportCapabilities {
-        TransportCapabilities { idle: false }
-    }
-
     async fn login(
         &self,
         _credential: &MailboxCredential,

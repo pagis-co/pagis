@@ -27,8 +27,8 @@ use pagis_mail::fake::{
 use pagis_mail::{
     Endpoint, ListedSenders, MAIL_MESSAGE_RECEIVED, MailCollector, MailCollectorDeps,
     MailMessageMatcher, MailboxCapabilities, MailboxDesk, MailboxDeskDeps, MailboxHost,
-    MailboxProvider, NewMailbox, OWN_MAILBOX, ProofTiming, TransportCapabilities,
-    TransportErrorCode, host_api_key_secret_name,
+    MailboxProvider, NewMailbox, OWN_MAILBOX, ProofTiming, TransportErrorCode,
+    host_api_key_secret_name,
 };
 use pagis_storage_sqlite::{
     SqliteAgentMailboxStore, SqliteAgentStore, SqliteChannelStore, SqliteConnectionStore,
@@ -202,7 +202,6 @@ impl World {
             )),
             ingest: Arc::clone(&ingest) as _,
             idle_turn: TURN,
-            poll_interval: TURN,
         }));
         Self {
             pool: pool.clone(),
@@ -421,7 +420,7 @@ fn mail_connection(
         domain: "example.com".to_string(),
         imap: Endpoint::new("imap.example.net", 993),
         smtp: Endpoint::new("smtp.example.net", 465),
-        capabilities: MailboxCapabilities::of(host, TransportCapabilities { idle: true }),
+        capabilities: MailboxCapabilities::of(host, true),
     };
     Connection {
         id: ConnectionId::generate(),
@@ -1187,20 +1186,21 @@ async fn a_refused_login_makes_the_mailbox_unavailable_and_stops_the_task(pool: 
 
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
 async fn a_transport_without_idle_polls_the_folder(pool: SqlitePool) {
-    let world = World::with_transport(
-        pool,
-        FakeMailTransport::with_capabilities(TransportCapabilities { idle: false }),
-    )
-    .await;
+    let world = World::with_transport(pool, FakeMailTransport::with_idle(false)).await;
     world.provision(&world.agent_id, "ada").await;
     world
         .collector
-        .sweep_workspace(&world.workspace_id)
+        .poll_workspace(&world.workspace_id)
         .await
         .unwrap();
 
     world.transport.deliver("care@clinic.test", "Polled", "");
 
+    world
+        .collector
+        .poll_workspace(&world.workspace_id)
+        .await
+        .unwrap();
     let events = world.ingest.wait_for(1, PATIENCE).await;
     assert_eq!(events.len(), 1, "the poll finds what IDLE would have");
     world.collector.stop();
@@ -1397,4 +1397,208 @@ async fn a_workspace_sweep_leaves_another_workspaces_watcher_alone(pool: SqliteP
         "the other watcher stays active"
     );
     world.collector.stop();
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_poll_reads_only_active_mailboxes_of_its_workspace_and_closes_sessions(pool: SqlitePool) {
+    let world = World::new(pool).await;
+    let first = world.provision(&world.agent_id, "ada").await;
+    let second = world.provision(&world.other_agent_id, "ava").await;
+    let (other_workspace, _) = world.second_person().await;
+    // A stored cursor differs for each mailbox, even on the shared fake inbox.
+    world.transport.deliver("care@clinic.test", "Earlier", "");
+    world
+        .desk
+        .set_cursor(
+            &world.workspace_id,
+            &first.id,
+            &pagis_core::MailboxCursor {
+                folder: "INBOX".into(),
+                uid_validity: 1,
+                last_uid: 1,
+            },
+        )
+        .await
+        .unwrap();
+    world.transport.deliver("care@clinic.test", "New", "");
+    let before = world.transport.logins().len();
+    let closed = world.transport.logouts().len();
+    world
+        .collector
+        .poll_workspace(&world.workspace_id)
+        .await
+        .unwrap();
+    assert_eq!(world.transport.logins().len() - before, 2);
+    assert_eq!(world.transport.logouts().len() - closed, 2);
+    assert_eq!(world.transport.open_sessions(), 0);
+    let events = world.ingest.events();
+    assert_eq!(events.len(), 3);
+    assert!(
+        world
+            .ingest
+            .passes()
+            .iter()
+            .all(|pass| pass.workspace_id == world.workspace_id)
+    );
+    assert_eq!(world.read(&first).await.cursor.unwrap().last_uid, 2);
+    assert_eq!(world.read(&second).await.cursor.unwrap().last_uid, 2);
+    assert!(
+        world
+            .mailboxes
+            .list(&other_workspace)
+            .await
+            .unwrap()
+            .iter()
+            .all(|mailbox| mailbox.cursor.as_ref().unwrap().last_uid == 0)
+    );
+    let passes = world.ingest.passes();
+    assert_eq!(
+        passes
+            .iter()
+            .find(|pass| pass.agent_id.as_ref() == Some(&first.agent_id))
+            .unwrap()
+            .events
+            .len(),
+        1
+    );
+    assert_eq!(
+        passes
+            .iter()
+            .find(|pass| pass.agent_id.as_ref() == Some(&second.agent_id))
+            .unwrap()
+            .events
+            .len(),
+        2
+    );
+    world
+        .mailboxes
+        .set_state(
+            &world.workspace_id,
+            &first.id,
+            AgentMailboxState::Dormant,
+            None,
+        )
+        .await
+        .unwrap();
+    let before = world.transport.logins().len();
+    world
+        .collector
+        .poll_workspace(&world.workspace_id)
+        .await
+        .unwrap();
+    assert_eq!(&world.transport.logins()[before..], &[second.address]);
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_failed_poll_mailbox_does_not_stop_the_others(pool: SqlitePool) {
+    let world = World::new(pool).await;
+    let first = world.provision(&world.agent_id, "ada").await;
+    let second = world.provision(&world.other_agent_id, "ava").await;
+    world
+        .transport
+        .fail_address_with(&first.address, Some(TransportErrorCode::Unreachable));
+    world.transport.deliver("care@clinic.test", "New", "");
+    world
+        .collector
+        .poll_workspace(&world.workspace_id)
+        .await
+        .unwrap();
+    assert_eq!(world.ingest.events().len(), 1);
+    assert_eq!(world.read(&second).await.cursor.unwrap().last_uid, 1);
+    assert_eq!(world.read(&first).await.cursor.unwrap().last_uid, 0);
+    assert_eq!(world.transport.open_sessions(), 0);
+    assert_eq!(world.transport.logouts().len(), 2);
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_poll_refused_login_makes_the_mailbox_unavailable(pool: SqlitePool) {
+    let world = World::new(pool).await;
+    let mailbox = world.provision(&world.agent_id, "ada").await;
+    world
+        .transport
+        .refuse_login_with(Some(TransportErrorCode::Unauthorized));
+    world
+        .collector
+        .poll_workspace(&world.workspace_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        world.read(&mailbox).await.state,
+        AgentMailboxState::Unavailable
+    );
+    assert_eq!(world.transport.open_sessions(), 0);
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_poll_skips_a_mailbox_with_an_idle_task(pool: SqlitePool) {
+    let world = World::new(pool).await;
+    world.provision(&world.agent_id, "ada").await;
+    world
+        .collector
+        .sweep_workspace(&world.workspace_id)
+        .await
+        .unwrap();
+    tokio::time::timeout(PATIENCE, async {
+        while world.transport.open_sessions() == 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    let before = world.transport.logins().len();
+    world
+        .collector
+        .poll_workspace(&world.workspace_id)
+        .await
+        .unwrap();
+    assert_eq!(world.transport.logins().len(), before);
+    world.collector.stop();
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_server_without_idle_has_no_second_task_and_receives_mail_on_the_next_poll(
+    pool: SqlitePool,
+) {
+    let world = World::with_transport(pool, FakeMailTransport::with_idle(false)).await;
+    let mailbox = world.provision(&world.agent_id, "ada").await;
+    let before = world.transport.logins().len();
+    world
+        .collector
+        .sweep_workspace(&world.workspace_id)
+        .await
+        .unwrap();
+    tokio::time::timeout(PATIENCE, async {
+        loop {
+            world
+                .collector
+                .sweep_workspace(&world.workspace_id)
+                .await
+                .unwrap();
+            if world.collector.watched() == 0 && world.transport.logins().len() > before {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(world.transport.open_sessions(), 0);
+    let before = world.transport.logins().len();
+    world
+        .collector
+        .sweep_workspace(&world.workspace_id)
+        .await
+        .unwrap();
+    assert_eq!(world.collector.watched(), 0);
+    assert_eq!(world.transport.logins().len(), before);
+    world.transport.deliver("care@clinic.test", "Polled", "");
+    assert!(world.ingest.events().is_empty());
+    world
+        .collector
+        .poll_workspace(&world.workspace_id)
+        .await
+        .unwrap();
+    assert_eq!(world.ingest.events().len(), 1);
+    assert_eq!(world.read(&mailbox).await.cursor.unwrap().last_uid, 1);
+    assert_eq!(world.transport.open_sessions(), 0);
 }

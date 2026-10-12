@@ -3,7 +3,7 @@
 
 use pagis_mail::{
     Endpoint, HostCapabilities, MANUAL_PROVIDER, MIGADU_PROVIDER, MailboxCapabilities,
-    MailboxProvider, TransportCapabilities, authserv_ids, is_mailbox_provider, mailbox_provider,
+    MailboxProvider, authserv_ids, is_mailbox_provider, mailbox_provider,
 };
 
 use pagis_core::{Connection, ConnectionId, WorkspaceId};
@@ -101,7 +101,7 @@ fn the_capability_set_is_the_two_seams_together() {
             delete_mailbox: false,
             reset_password: false,
         },
-        TransportCapabilities { idle: true },
+        true,
     );
 
     assert!(capabilities.idle);

@@ -23,9 +23,9 @@ use pagis_core::{
 };
 use pagis_mail::fake::{FakeMailTransport, FakeMailboxHost, FakeStandingRule, MemoryMailbox};
 use pagis_mail::{
-    Endpoint, MAIL_TRANSPORT, MAX_SUMMARIES, MAX_TEXT_BYTES, MAX_THREAD_MESSAGES, MIGADU_PROVIDER,
-    MailBlockDeps, MailBlocks, MailToolDeps, MailToolRuntime, MailboxCapabilities, MailboxDesk,
-    MailboxDeskDeps, MailboxHost, MailboxProvider, NewMailbox, ProofTiming, TRUNCATION_MARKER,
+    Endpoint, MAX_SUMMARIES, MAX_TEXT_BYTES, MAX_THREAD_MESSAGES, MIGADU_PROVIDER, MailBlockDeps,
+    MailBlocks, MailToolDeps, MailToolRuntime, MailboxCapabilities, MailboxDesk, MailboxDeskDeps,
+    MailboxHost, MailboxProvider, NewMailbox, ProofTiming, TRUNCATION_MARKER,
     host_api_key_secret_name,
 };
 use pagis_storage_sqlite::{
@@ -93,7 +93,7 @@ impl World {
         let host = Arc::new(FakeMailboxHost::default());
         let connection = mail_connection(
             &workspace.id,
-            MailboxCapabilities::of(host.capabilities(), MAIL_TRANSPORT),
+            MailboxCapabilities::of(host.capabilities(), true),
         );
         connections.create(&connection).await.unwrap();
         secrets

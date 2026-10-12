@@ -30,9 +30,8 @@ use pagis_core::{
 };
 use pagis_google::GoogleCapability;
 use pagis_mail::{
-    Endpoint, HostAccount, HostErrorCode, MAIL_TRANSPORT, MANUAL_PROVIDER, MIGADU_IMAP,
-    MIGADU_PROVIDER, MIGADU_SMTP, MailboxCapabilities, MailboxHost, MailboxProvider,
-    host_api_key_secret_name,
+    Endpoint, HostAccount, HostErrorCode, MANUAL_PROVIDER, MIGADU_IMAP, MIGADU_PROVIDER,
+    MIGADU_SMTP, MailboxCapabilities, MailboxHost, MailboxProvider, host_api_key_secret_name,
 };
 use pagis_telephony::{
     CARRIER_ACCOUNT_KEY, CarrierKey, CatalogErrorCode, NumberCatalogs, NumberSearch,
@@ -315,10 +314,7 @@ impl Connector {
                     domain: account.domain().to_string(),
                     imap: Endpoint::new(MIGADU_IMAP.0, MIGADU_IMAP.1),
                     smtp: Endpoint::new(MIGADU_SMTP.0, MIGADU_SMTP.1),
-                    capabilities: MailboxCapabilities::of(
-                        self.mail_host.capabilities(),
-                        MAIL_TRANSPORT,
-                    ),
+                    capabilities: MailboxCapabilities::of(self.mail_host.capabilities(), true),
                 };
                 let connection = self.mail_connection(
                     &new.workspace_id,
@@ -352,7 +348,7 @@ impl Connector {
                     smtp: mail_endpoint(smtp, "SMTP")?,
                     capabilities: MailboxCapabilities::of(
                         pagis_mail::ManualHost::new().capabilities(),
-                        MAIL_TRANSPORT,
+                        true,
                     ),
                 };
                 let connection = self.mail_connection(
