@@ -835,25 +835,25 @@ pub const ROUTES: &[Route] = &[
         path: "/api/v1/hosts",
         methods: &["get"],
         authenticated: true,
-        part: None,
+        part: Some("Hosts"),
     },
     Route {
         path: "/api/v1/hosts/{host_id}/harnesses/{harness_id}/sign-in",
         methods: &["post"],
         authenticated: true,
-        part: None,
+        part: Some("Hosts"),
     },
     Route {
         path: "/api/v1/hosts/{host_id}/harnesses/{harness_id}/sign-in-check",
         methods: &["post"],
         authenticated: true,
-        part: None,
+        part: Some("Hosts"),
     },
     Route {
         path: "/api/v1/harnesses",
         methods: &["get"],
         authenticated: true,
-        part: None,
+        part: Some("Hosts"),
     },
     Route {
         path: "/api/v1/grants",
@@ -883,13 +883,13 @@ pub const ROUTES: &[Route] = &[
         path: "/api/v1/agents/{agent_id}/hosts/{host_id}/session-approval-mode",
         methods: &["put"],
         authenticated: true,
-        part: None,
+        part: Some("Hosts"),
     },
     Route {
         path: "/api/v1/agents/{agent_id}/hosts/{host_id}/unattended-modes",
         methods: &["put"],
         authenticated: true,
-        part: None,
+        part: Some("Hosts"),
     },
     Route {
         path: "/api/v1/user",
@@ -1075,25 +1075,25 @@ pub const ROUTES: &[Route] = &[
         path: "/api/v1/coding-sessions",
         methods: &["get"],
         authenticated: true,
-        part: None,
+        part: Some("Hosts"),
     },
     Route {
         path: "/api/v1/coding-sessions/{coding_session_id}",
         methods: &["get"],
         authenticated: true,
-        part: None,
+        part: Some("Hosts"),
     },
     Route {
         path: "/api/v1/coding-sessions/{coding_session_id}/transcript",
         methods: &["get"],
         authenticated: true,
-        part: None,
+        part: Some("Hosts"),
     },
     Route {
         path: "/api/v1/coding-sessions/{coding_session_id}/stop",
         methods: &["post"],
         authenticated: true,
-        part: None,
+        part: Some("Hosts"),
     },
     Route {
         path: "/api/v1/settings/phone-numbers",
@@ -1279,7 +1279,7 @@ pub const ROUTES: &[Route] = &[
         path: "/api/v1/hosts/{host_id}/sessions",
         methods: &["get"],
         authenticated: true,
-        part: Some("Hosts and Coding Sessions"),
+        part: Some("Hosts"),
     },
     Route {
         path: "/api/v1/channels/{channel_id}/dictate",
@@ -1421,6 +1421,67 @@ mod tests {
             }
         }
         assert!(count >= 6, "the table names the native product routes");
+    }
+
+    #[cfg(not(feature = "native"))]
+    #[tokio::test]
+    async fn each_hosts_route_answers_not_available() {
+        use axum::body::{Body, to_bytes};
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+
+        let paths = [
+            ("/api/v1/hosts", "GET"),
+            ("/api/v1/harnesses", "GET"),
+            ("/api/v1/hosts/host/harnesses/claude/sign-in", "POST"),
+            ("/api/v1/hosts/host/harnesses/claude/sign-in-check", "POST"),
+            ("/api/v1/coding-sessions", "GET"),
+            ("/api/v1/coding-sessions/session", "GET"),
+            ("/api/v1/coding-sessions/session/transcript", "GET"),
+            ("/api/v1/coding-sessions/session/stop", "POST"),
+            ("/api/v1/hosts/host/sessions", "GET"),
+            (
+                "/api/v1/agents/agent/hosts/host/session-approval-mode",
+                "PUT",
+            ),
+            ("/api/v1/agents/agent/hosts/host/unattended-modes", "PUT"),
+        ];
+        let router = crate::native_product_routes();
+        for (path, method) in paths {
+            let response = router
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method(method)
+                        .uri(path)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                response.status(),
+                StatusCode::NOT_IMPLEMENTED,
+                "{method} {path}"
+            );
+            let body: serde_json::Value =
+                serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                    .unwrap();
+            assert_eq!(
+                body,
+                serde_json::json!({"error": {
+                    "code": "not_available", "message": "This server does not offer Hosts."
+                }}),
+                "{method} {path}"
+            );
+        }
+        assert_eq!(
+            ROUTES
+                .iter()
+                .filter(|route| route.part == Some("Hosts"))
+                .count(),
+            paths.len()
+        );
     }
 
     /// Every `.route(...)` of one router, read out of its source: the

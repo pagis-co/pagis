@@ -7,7 +7,7 @@ publish.workspace = true
 
 [features]
 default = ["native"]
-native = ["axum/tokio", "axum/ws", "dep:pagis-analytics"]
+native = ["axum/tokio", "axum/ws", "dep:pagis-analytics", "dep:pagis-coding"]
 
 [dependencies]
 anyhow.workspace = true
@@ -28,7 +28,7 @@ pagis-agent.workspace = true
 pagis-analytics = { workspace = true, optional = true }
 llm-router.workspace = true
 pagis-broker.workspace = true
-pagis-coding.workspace = true
+pagis-coding = { workspace = true, optional = true }
 pagis-computer.workspace = true
 pagis-connect.workspace = true
 pagis-google.workspace = true
@@ -67,3 +67,4 @@ utoipa.workspace = true
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
+tracing-subscriber.workspace = true

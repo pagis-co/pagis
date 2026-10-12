@@ -6,13 +6,20 @@
 //! Person signs in in the terminal window that it opens. Pagis never
 //! reads, copies, stores or relays the credential.
 
+// Without native, these types and paths describe the full OpenAPI contract.
+#![cfg_attr(not(feature = "native"), allow(dead_code))]
+
 use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
+#[cfg(feature = "native")]
 use pagis_coding::SignInFailure;
-use pagis_core::harness::{self, SignInMethod};
+#[cfg(feature = "native")]
+use pagis_core::harness;
+use pagis_core::harness::SignInMethod;
+#[cfg(feature = "native")]
 use pagis_core::{Host, HostId};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -69,24 +76,32 @@ pub struct SignInStartedDto {
         (status = 401, body = crate::error::ErrorBody),
     )
 )]
-pub async fn list_harnesses(_tenant: Tenant) -> Json<HarnessesDto> {
-    let items = harness::catalog()
-        .iter()
-        .map(|entry| HarnessDto {
-            id: entry.id.to_string(),
-            name: entry.label.to_string(),
-            sign_in_methods: entry
-                .sign_in
-                .iter()
-                .map(|sign_in| SignInMethodDto {
-                    method: sign_in.method,
-                    label: sign_in.method.label().to_string(),
-                })
-                .collect(),
-            checks_sign_in: entry.sign_in_check.is_some(),
-        })
-        .collect();
-    Json(HarnessesDto { items })
+#[cfg_attr(not(feature = "native"), allow(unused_variables))]
+pub async fn list_harnesses(_tenant: Tenant) -> Result<Json<HarnessesDto>, ApiError> {
+    #[cfg(not(feature = "native"))]
+    {
+        Err(ApiError::not_available("Hosts"))
+    }
+    #[cfg(feature = "native")]
+    {
+        let items = harness::catalog()
+            .iter()
+            .map(|entry| HarnessDto {
+                id: entry.id.to_string(),
+                name: entry.label.to_string(),
+                sign_in_methods: entry
+                    .sign_in
+                    .iter()
+                    .map(|sign_in| SignInMethodDto {
+                        method: sign_in.method,
+                        label: sign_in.method.label().to_string(),
+                    })
+                    .collect(),
+                checks_sign_in: entry.sign_in_check.is_some(),
+            })
+            .collect();
+        Ok(Json(HarnessesDto { items }))
+    }
 }
 
 /// Start a Harness Sign-In on one of the Person's Hosts. The Client App
@@ -108,26 +123,35 @@ pub async fn list_harnesses(_tenant: Tenant) -> Json<HarnessesDto> {
         (status = 502, body = crate::error::ErrorBody, description = "The harness did not give its sign-in methods"),
     )
 )]
+#[cfg_attr(not(feature = "native"), allow(unused_variables))]
 pub async fn start_sign_in(
     State(state): State<Arc<AppState>>,
     tenant: Tenant,
     Path((host_id, harness_id)): Path<(String, String)>,
     Json(request): Json<StartSignInRequest>,
 ) -> Result<(StatusCode, Json<SignInStartedDto>), ApiError> {
-    let host = state
-        .hosts
-        .get(&tenant.workspace_id, &HostId::from(host_id))
-        .await?
-        .ok_or_else(|| ApiError::not_found("that host"))?;
-    let id = state
-        .sign_ins
-        .start(&host, &harness_id, request.method)
-        .await
-        .map_err(|failure| sign_in_error(&host, failure))?;
-    Ok((
-        StatusCode::ACCEPTED,
-        Json(SignInStartedDto { id: id.to_string() }),
-    ))
+    #[cfg(not(feature = "native"))]
+    {
+        Err(ApiError::not_available("Hosts"))
+    }
+    #[cfg(feature = "native")]
+    {
+        let host = state
+            .hosts
+            .get(&tenant.workspace_id, &HostId::from(host_id))
+            .await?
+            .ok_or_else(|| ApiError::not_found("that host"))?;
+        let id = state
+            .native
+            .sign_ins
+            .start(&host, &harness_id, request.method)
+            .await
+            .map_err(|failure| sign_in_error(&host, failure))?;
+        Ok((
+            StatusCode::ACCEPTED,
+            Json(SignInStartedDto { id: id.to_string() }),
+        ))
+    }
 }
 
 /// Ask one of the Person's Hosts to run the vendor's status command of a
@@ -148,23 +172,33 @@ pub async fn start_sign_in(
         (status = 422, body = crate::error::ErrorBody, description = "The Host does not declare the harness, or the harness has no status command"),
     )
 )]
+#[cfg_attr(not(feature = "native"), allow(unused_variables))]
 pub async fn check_sign_in(
     State(state): State<Arc<AppState>>,
     tenant: Tenant,
     Path((host_id, harness_id)): Path<(String, String)>,
 ) -> Result<StatusCode, ApiError> {
-    let host = state
-        .hosts
-        .get(&tenant.workspace_id, &HostId::from(host_id))
-        .await?
-        .ok_or_else(|| ApiError::not_found("that host"))?;
-    state
-        .sign_ins
-        .check(&host, &harness_id)
-        .map_err(|failure| sign_in_error(&host, failure))?;
-    Ok(StatusCode::NO_CONTENT)
+    #[cfg(not(feature = "native"))]
+    {
+        Err(ApiError::not_available("Hosts"))
+    }
+    #[cfg(feature = "native")]
+    {
+        let host = state
+            .hosts
+            .get(&tenant.workspace_id, &HostId::from(host_id))
+            .await?
+            .ok_or_else(|| ApiError::not_found("that host"))?;
+        state
+            .native
+            .sign_ins
+            .check(&host, &harness_id)
+            .map_err(|failure| sign_in_error(&host, failure))?;
+        Ok(StatusCode::NO_CONTENT)
+    }
 }
 
+#[cfg(feature = "native")]
 fn sign_in_error(host: &Host, failure: SignInFailure) -> ApiError {
     let (status, message) = match &failure {
         SignInFailure::NotConnected => (

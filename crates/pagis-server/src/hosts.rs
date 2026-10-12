@@ -9,11 +9,16 @@
 //! which is the useful thing to say about a machine that is not present.
 //! The sign-in report of each harness is daemon memory too.
 
+// Without native, these types and paths describe the full OpenAPI contract.
+#![cfg_attr(not(feature = "native"), allow(dead_code))]
+
 use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::State;
-use pagis_core::harness::{self, SignInState};
+#[cfg(feature = "native")]
+use pagis_core::harness;
+use pagis_core::harness::SignInState;
 use serde::Serialize;
 use utoipa::ToSchema;
 
@@ -77,11 +82,12 @@ pub struct HostsDto {
     pub items: Vec<HostDto>,
 }
 
+#[cfg(feature = "native")]
 async fn host_dto(state: &AppState, host: pagis_core::Host) -> HostDto {
     let mut harnesses = Vec::new();
     for capability in &host.capabilities {
         if let Some(id) = capability.strip_prefix(harness::CAPABILITY_PREFIX) {
-            let report = state.sign_in_reports.report(&host.id, id).await;
+            let report = state.native.sign_in_reports.report(&host.id, id).await;
             harnesses.push(HostHarnessDto {
                 id: id.to_string(),
                 needs_sign_in: report.needs_sign_in_since.is_some(),
@@ -118,13 +124,21 @@ async fn host_dto(state: &AppState, host: pagis_core::Host) -> HostDto {
         (status = 401, body = crate::error::ErrorBody),
     )
 )]
+#[cfg_attr(not(feature = "native"), allow(unused_variables))]
 pub async fn list_my_hosts(
     State(state): State<Arc<AppState>>,
     tenant: Tenant,
 ) -> Result<Json<HostsDto>, ApiError> {
-    let mut items = Vec::new();
-    for host in state.hosts.list(&tenant.workspace_id).await? {
-        items.push(host_dto(&state, host).await);
+    #[cfg(not(feature = "native"))]
+    {
+        Err(ApiError::not_available("Hosts"))
     }
-    Ok(Json(HostsDto { items }))
+    #[cfg(feature = "native")]
+    {
+        let mut items = Vec::new();
+        for host in state.hosts.list(&tenant.workspace_id).await? {
+            items.push(host_dto(&state, host).await);
+        }
+        Ok(Json(HostsDto { items }))
+    }
 }

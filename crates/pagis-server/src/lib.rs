@@ -60,6 +60,7 @@ mod run_steps;
 mod runs;
 mod schedules;
 mod served_file;
+#[cfg(feature = "native")]
 pub mod session_socket;
 mod sessions;
 mod settings;
@@ -169,15 +170,6 @@ pub struct AppState {
     /// The session sockets of the Hosts, which carry one stream for each
     /// Coding Session (ADR-0033).
     pub host_sessions: Arc<pagis_broker::HostSessions>,
-    /// The Coding Sessions that run on those sockets (ADR-0033): the
-    /// start, the prompts, the cancel and the close of each session.
-    pub coding_sessions: Arc<pagis_coding::CodingSessions>,
-    /// The Harness Sign-Ins that the Person starts on their Hosts
-    /// (ADR-0033).
-    pub sign_ins: Arc<pagis_coding::SignIns>,
-    /// The harnesses that need a Harness Sign-In on each Host. The Host
-    /// list reads it.
-    pub sign_in_reports: Arc<pagis_coding::SignInReports>,
     /// The Coding Session records and their transcripts. Each write
     /// reports itself as an event.
     pub coding_session_store: Arc<dyn pagis_core::CodingSessionStore>,
@@ -453,16 +445,6 @@ fn product_router(state: Arc<AppState>) -> Router {
             "/api/v1/agents/{agent_id}/sync-connections",
             get(knowledge::agent_sync_connections),
         )
-        .route("/api/v1/hosts", get(hosts::list_my_hosts))
-        .route(
-            "/api/v1/hosts/{host_id}/harnesses/{harness_id}/sign-in",
-            post(harnesses::start_sign_in),
-        )
-        .route(
-            "/api/v1/hosts/{host_id}/harnesses/{harness_id}/sign-in-check",
-            post(harnesses::check_sign_in),
-        )
-        .route("/api/v1/harnesses", get(harnesses::list_harnesses))
         .route(
             "/api/v1/agents",
             get(agents::list_agents).post(agents::create_agent),
@@ -646,14 +628,6 @@ fn product_router(state: Arc<AppState>) -> Router {
             put(grants::set_grant_capabilities),
         )
         .route("/api/v1/grants/{grant_id}", delete(grants::revoke_grant))
-        .route(
-            "/api/v1/agents/{agent_id}/hosts/{host_id}/session-approval-mode",
-            put(grants::set_session_approval_mode),
-        )
-        .route(
-            "/api/v1/agents/{agent_id}/hosts/{host_id}/unattended-modes",
-            put(grants::set_unattended_modes),
-        )
         .route("/api/v1/user", get(user::get_user))
         .route("/api/v1/workspace", get(workspace::get_workspace))
         .route(
@@ -738,22 +712,6 @@ fn product_router(state: Arc<AppState>) -> Router {
         .route("/api/v1/calls/{call_id}/dismiss", post(calls::dismiss_call))
         .route("/api/v1/calls/{call_id}/hangup", post(calls::hang_up))
         .route("/api/v1/calls/{call_id}/tier", post(calls::drop_call_tier))
-        .route(
-            "/api/v1/coding-sessions",
-            get(coding_sessions::list_coding_sessions),
-        )
-        .route(
-            "/api/v1/coding-sessions/{coding_session_id}",
-            get(coding_sessions::get_coding_session),
-        )
-        .route(
-            "/api/v1/coding-sessions/{coding_session_id}/transcript",
-            get(coding_sessions::coding_session_transcript),
-        )
-        .route(
-            "/api/v1/coding-sessions/{coding_session_id}/stop",
-            post(coding_sessions::stop_coding_session),
-        )
         .route(
             "/api/v1/settings/phone-numbers",
             get(phone_numbers::list_phone_numbers).post(phone_numbers::buy_phone_number),

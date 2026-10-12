@@ -63,6 +63,16 @@ impl std::str::FromStr for CodingSessionPlace {
     }
 }
 
+/// Who answers an ask.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum WaitsFor {
+    /// The Person.
+    Person,
+    /// The supervising Agent.
+    Agent,
+}
+
 /// Who answers a Harness Permission of a Coding Session.
 // The variants go from the narrowest mode to the widest, and the derived
 // order compares them.
