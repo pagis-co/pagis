@@ -7,7 +7,15 @@ publish.workspace = true
 
 [features]
 default = ["native"]
-native = ["axum/tokio", "axum/ws", "dep:pagis-analytics", "dep:pagis-telephony"]
+native = [
+    "axum/tokio",
+    "axum/ws",
+    "dep:pagis-analytics",
+    "dep:pagis-plugin",
+    "dep:pagis-plugins",
+    "dep:pagis-software",
+    "dep:pagis-telephony",
+]
 
 [dependencies]
 anyhow.workspace = true
@@ -34,12 +42,12 @@ pagis-connect.workspace = true
 pagis-google.workspace = true
 pagis-core.workspace = true
 pagis-needs-you.workspace = true
-pagis-plugin.workspace = true
-pagis-plugins.workspace = true
+pagis-plugin = { workspace = true, optional = true }
+pagis-plugins = { workspace = true, optional = true }
 # The Web Push of each Notification (ADR-0030).
 pagis-push.workspace = true
 pagis-rt.workspace = true
-pagis-software.workspace = true
+pagis-software = { workspace = true, optional = true }
 pagis-mail.workspace = true
 pagis-telephony = { workspace = true, optional = true }
 pagis-trigger.workspace = true

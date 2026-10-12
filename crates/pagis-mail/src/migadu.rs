@@ -33,7 +33,6 @@ impl MigaduHost {
     pub fn new() -> Result<Self, HostError> {
         Ok(Self {
             http: reqwest::Client::builder()
-                .timeout(REQUEST_TIMEOUT)
                 .build()
                 .map_err(|_| HostError(HostErrorCode::TemporarilyUnavailable))?,
             base_url: API_BASE.to_string(),
@@ -115,28 +114,20 @@ impl MailboxHost for MigaduHost {
                 // Agent cannot open.
                 "password_method": "password",
             }));
-        let response = self
-            .authorize(request, account)
-            .send()
-            .await
-            .map_err(transport_error)?;
-        let created: MailboxDto = read(response).await?;
+        let response = send(self.authorize(request, account)).await?;
+        let created: MailboxDto = read(response)?;
         Ok(created.into())
     }
 
     async fn delete(&self, account: &HostAccount, address: &str) -> Result<Deletion, HostError> {
         let local_part = local_part_on(account, address)?;
         let request = self.http.delete(self.mailbox_url(account, &local_part));
-        let response = self
-            .authorize(request, account)
-            .send()
-            .await
-            .map_err(transport_error)?;
+        let response = send(self.authorize(request, account)).await?;
         // A mailbox the host does not hold is deleted already.
-        if response.status() == reqwest::StatusCode::NOT_FOUND {
+        if response.0 == reqwest::StatusCode::NOT_FOUND {
             return Ok(Deletion::Removed);
         }
-        let _: serde_json::Value = read(response).await?;
+        let _: serde_json::Value = read(response)?;
         Ok(Deletion::Removed)
     }
 
@@ -151,23 +142,15 @@ impl MailboxHost for MigaduHost {
             .http
             .put(self.mailbox_url(account, &local_part))
             .json(&serde_json::json!({ "password": password.expose() }));
-        let response = self
-            .authorize(request, account)
-            .send()
-            .await
-            .map_err(transport_error)?;
-        let _: serde_json::Value = read(response).await?;
+        let response = send(self.authorize(request, account)).await?;
+        let _: serde_json::Value = read(response)?;
         Ok(())
     }
 
     async fn list(&self, account: &HostAccount) -> Result<Vec<HostedMailbox>, HostError> {
         let request = self.http.get(self.mailboxes_url(account));
-        let response = self
-            .authorize(request, account)
-            .send()
-            .await
-            .map_err(transport_error)?;
-        let found: MailboxListDto = read(response).await?;
+        let response = send(self.authorize(request, account)).await?;
+        let found: MailboxListDto = read(response)?;
         Ok(found
             .mailboxes
             .into_iter()
@@ -176,15 +159,40 @@ impl MailboxHost for MigaduHost {
     }
 }
 
+/// Read the response on the host's thread before it enters a domain future.
+fn send(
+    request: reqwest::RequestBuilder,
+) -> impl std::future::Future<Output = Result<(reqwest::StatusCode, String), HostError>> + Send {
+    let work = async move {
+        let response = request
+            .timeout(REQUEST_TIMEOUT)
+            .send()
+            .await
+            .map_err(transport_error)?;
+        let status = response.status();
+        let body = response.text().await;
+        let body = if status.is_success() {
+            body.map_err(transport_error)?
+        } else {
+            body.unwrap_or_default()
+        };
+        Ok((status, body))
+    };
+    // Fetch futures stay on the wasm host's one thread. The host seam
+    // keeps its Send contract, as the Brain and runtime timers do.
+    #[cfg(target_arch = "wasm32")]
+    let work = send_wrapper::SendWrapper::new(work);
+    work
+}
+
 /// One answer, turned into either a document or a stable code. No
 /// upstream text reaches the caller.
-async fn read<T: serde::de::DeserializeOwned>(response: reqwest::Response) -> Result<T, HostError> {
-    let status = response.status();
+fn read<T: serde::de::DeserializeOwned>(
+    (status, body): (reqwest::StatusCode, String),
+) -> Result<T, HostError> {
     if !status.is_success() {
-        let body = response.text().await.unwrap_or_default();
         return Err(HostError(failure_code(status, &body)));
     }
-    let body = response.text().await.map_err(transport_error)?;
     serde_json::from_str(&body).map_err(|_| HostError(HostErrorCode::Unreadable))
 }
 

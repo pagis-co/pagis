@@ -282,6 +282,354 @@ async fn agent_mailboxes_read_only_the_named_workspace() {
     );
 }
 
+fn agent_mailbox() -> AgentMailbox {
+    AgentMailbox {
+        id: "mailbox".to_string().into(),
+        workspace_id: owner(),
+        agent_id: "agent".to_string().into(),
+        connection_id: "connection".to_string().into(),
+        address: "agent@example.com".into(),
+        state: AgentMailboxState::Active,
+        reason: None,
+        outgoing_cap: 20,
+        allow_rules: Vec::new(),
+        cursor: Some(MailboxCursor {
+            folder: "INBOX".into(),
+            uid_validity: 7,
+            last_uid: 9,
+        }),
+        sends_day: Some(0),
+        sends_today: 3,
+        created_at: 0,
+        deleted_at: None,
+    }
+}
+
+#[tokio::test]
+async fn agent_mailbox_addresses_stay_in_the_ledger_after_delete() {
+    let stores = FakeDatabase::default().stores();
+    let row = agent_mailbox();
+    stores.agent_mailboxes.create(&row).await.unwrap();
+    assert!(
+        stores
+            .agent_mailboxes
+            .delete(&owner(), &row.id, 10)
+            .await
+            .unwrap()
+    );
+    assert!(
+        stores
+            .agent_mailboxes
+            .address_taken("AGENT@EXAMPLE.COM")
+            .await
+            .unwrap()
+    );
+    let same_address = AgentMailbox {
+        id: "another-mailbox".to_string().into(),
+        workspace_id: other(),
+        agent_id: "another-agent".to_string().into(),
+        connection_id: "another-provider".to_string().into(),
+        ..row.clone()
+    };
+    assert!(matches!(
+        stores.agent_mailboxes.create(&same_address).await,
+        Err(StoreError::Conflict(_))
+    ));
+    let new_address = AgentMailbox {
+        id: "new-mailbox".to_string().into(),
+        address: "new@example.com".into(),
+        ..row
+    };
+    stores.agent_mailboxes.create(&new_address).await.unwrap();
+    assert_eq!(
+        stores
+            .agent_mailboxes
+            .for_agent(&owner(), &new_address.agent_id)
+            .await
+            .unwrap(),
+        Some(new_address)
+    );
+}
+
+#[tokio::test]
+async fn agent_mailbox_creation_refuses_a_deleted_address_in_another_workspace() {
+    let stores = FakeDatabase::default().stores();
+    let row = agent_mailbox();
+    stores.agent_mailboxes.create(&row).await.unwrap();
+    stores
+        .agent_mailboxes
+        .delete(&owner(), &row.id, 10)
+        .await
+        .unwrap();
+    let another = AgentMailbox {
+        id: "another-mailbox".to_string().into(),
+        workspace_id: other(),
+        agent_id: "another-agent".to_string().into(),
+        ..row
+    };
+    assert!(matches!(
+        stores.agent_mailboxes.create(&another).await,
+        Err(StoreError::Conflict(_))
+    ));
+}
+
+#[tokio::test]
+async fn agent_mailbox_allow_rules_need_a_live_mailbox_in_the_named_workspace() {
+    let stores = FakeDatabase::default().stores();
+    let row = agent_mailbox();
+    stores.agent_mailboxes.create(&row).await.unwrap();
+    let rules = vec![
+        "example.org".into(),
+        "example.net".into(),
+        "example.org".into(),
+    ];
+    for (workspace, id) in [
+        (other(), row.id.clone()),
+        (owner(), "missing".to_string().into()),
+    ] {
+        assert!(matches!(
+            stores
+                .agent_mailboxes
+                .add_allow_rules(&workspace, &id, &rules)
+                .await,
+            Err(StoreError::Conflict(_))
+        ));
+    }
+    assert_eq!(
+        stores.agent_mailboxes.get(&owner(), &row.id).await.unwrap(),
+        Some(row.clone())
+    );
+    assert_eq!(
+        stores
+            .agent_mailboxes
+            .add_allow_rules(&owner(), &row.id, &rules)
+            .await
+            .unwrap(),
+        ["example.org", "example.net"]
+    );
+    assert_eq!(
+        stores
+            .agent_mailboxes
+            .add_allow_rules(
+                &owner(),
+                &row.id,
+                &["example.net".into(), "example.edu".into()]
+            )
+            .await
+            .unwrap(),
+        ["example.org", "example.net", "example.edu"]
+    );
+    stores
+        .agent_mailboxes
+        .delete(&owner(), &row.id, 10)
+        .await
+        .unwrap();
+    assert!(matches!(
+        stores
+            .agent_mailboxes
+            .add_allow_rules(&owner(), &row.id, &rules)
+            .await,
+        Err(StoreError::Conflict(_))
+    ));
+}
+
+#[tokio::test]
+async fn deleted_agent_mailboxes_leave_the_live_lists() {
+    let stores = FakeDatabase::default().stores();
+    let row = agent_mailbox();
+    let live = AgentMailbox {
+        id: "new-mailbox".to_string().into(),
+        agent_id: "another-agent".to_string().into(),
+        address: "new@example.com".into(),
+        ..row.clone()
+    };
+    stores.agent_mailboxes.create(&live).await.unwrap();
+    stores.agent_mailboxes.create(&row).await.unwrap();
+    assert_eq!(
+        stores.agent_mailboxes.list(&owner()).await.unwrap(),
+        [row.clone(), live.clone()]
+    );
+    assert!(
+        !stores
+            .agent_mailboxes
+            .delete(&other(), &row.id, 10)
+            .await
+            .unwrap()
+    );
+    stores
+        .agent_mailboxes
+        .delete(&owner(), &row.id, 10)
+        .await
+        .unwrap();
+    assert_eq!(stores.agent_mailboxes.list(&owner()).await.unwrap(), [live]);
+    assert!(
+        stores
+            .agent_mailboxes
+            .list(&other())
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        stores
+            .agent_mailboxes
+            .for_agent(&owner(), &row.agent_id)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        stores
+            .agent_mailboxes
+            .count_live_for_connection(&owner(), &row.connection_id)
+            .await
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        stores
+            .agent_mailboxes
+            .count_live_for_connection(&other(), &row.connection_id)
+            .await
+            .unwrap(),
+        0
+    );
+}
+
+#[tokio::test]
+async fn deleted_agent_mailboxes_keep_their_tombstone() {
+    let stores = FakeDatabase::default().stores();
+    let row = AgentMailbox {
+        state: AgentMailboxState::Unavailable,
+        reason: Some("login refused".into()),
+        ..agent_mailbox()
+    };
+    stores.agent_mailboxes.create(&row).await.unwrap();
+    stores
+        .agent_mailboxes
+        .delete(&owner(), &row.id, 10)
+        .await
+        .unwrap();
+    let tombstone = AgentMailbox {
+        state: AgentMailboxState::Deleted,
+        deleted_at: Some(10),
+        reason: None,
+        cursor: None,
+        ..row.clone()
+    };
+    assert_eq!(
+        stores.agent_mailboxes.get(&owner(), &row.id).await.unwrap(),
+        Some(tombstone.clone())
+    );
+    assert!(
+        !stores
+            .agent_mailboxes
+            .set_state(&owner(), &row.id, AgentMailboxState::Active, None)
+            .await
+            .unwrap()
+    );
+    assert!(
+        !stores
+            .agent_mailboxes
+            .set_cursor(&owner(), &row.id, row.cursor.as_ref().unwrap())
+            .await
+            .unwrap()
+    );
+    assert!(
+        stores
+            .agent_mailboxes
+            .make_dormant_for_agent(&owner(), &row.agent_id)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        !stores
+            .agent_mailboxes
+            .drop_reservation(&owner(), &row.id)
+            .await
+            .unwrap()
+    );
+    assert!(
+        !stores
+            .agent_mailboxes
+            .delete(&owner(), &row.id, 20)
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        stores
+            .agent_mailboxes
+            .note_send(&owner(), &row.id, 86_400_000)
+            .await
+            .unwrap(),
+        3
+    );
+    assert_eq!(
+        stores.agent_mailboxes.get(&owner(), &row.id).await.unwrap(),
+        Some(tombstone)
+    );
+}
+
+#[tokio::test]
+async fn agent_mailbox_state_changes_do_not_write_tombstones() {
+    let stores = FakeDatabase::default().stores();
+    let row = agent_mailbox();
+    stores.agent_mailboxes.create(&row).await.unwrap();
+    assert!(matches!(
+        stores
+            .agent_mailboxes
+            .set_state(&owner(), &row.id, AgentMailboxState::Deleted, None)
+            .await,
+        Err(StoreError::Conflict(_))
+    ));
+    assert_eq!(
+        stores.agent_mailboxes.get(&owner(), &row.id).await.unwrap(),
+        Some(row)
+    );
+}
+
+#[tokio::test]
+async fn dormant_agent_mailboxes_clear_the_refusal_reason() {
+    let stores = FakeDatabase::default().stores();
+    let row = AgentMailbox {
+        state: AgentMailboxState::Unavailable,
+        reason: Some("login refused".into()),
+        ..agent_mailbox()
+    };
+    stores.agent_mailboxes.create(&row).await.unwrap();
+    assert!(
+        stores
+            .agent_mailboxes
+            .make_dormant_for_agent(&other(), &row.agent_id)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    let dormant = stores
+        .agent_mailboxes
+        .make_dormant_for_agent(&owner(), &row.agent_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        dormant,
+        AgentMailbox {
+            state: AgentMailboxState::Dormant,
+            reason: None,
+            ..row
+        }
+    );
+    assert_eq!(
+        stores
+            .agent_mailboxes
+            .get(&owner(), &dormant.id)
+            .await
+            .unwrap(),
+        Some(dormant)
+    );
+}
+
 #[tokio::test]
 async fn calls_read_only_the_named_workspace() {
     let stores = pagis_core::fake::stores();

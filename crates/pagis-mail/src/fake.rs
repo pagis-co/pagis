@@ -697,7 +697,7 @@ impl MailSession for FakeMailSession {
                 }
                 Ok(IdleOutcome::Changed)
             }
-            _ = tokio::time::sleep(deadline) => Ok(IdleOutcome::Deadline),
+            _ = pagis_rt::sleep(deadline) => Ok(IdleOutcome::Deadline),
         }
     }
 
@@ -818,7 +818,7 @@ impl FakeMailIngest {
     /// events, or give up. It answers the events it saw.
     pub async fn wait_for(&self, count: usize, within: Duration) -> Vec<NormalizedEvent> {
         let mut changes = self.changes.subscribe();
-        let _ = tokio::time::timeout(within, async {
+        let _ = pagis_rt::timeout(within, async {
             loop {
                 if self.events().len() >= count {
                     return;

@@ -366,7 +366,7 @@ impl MailboxDesk {
         let (_, settings) = self.provider_of(&mailbox.connection_id).await?;
         let credential = self.credential_of(&mailbox, &settings)?;
 
-        let deadline = std::time::Instant::now() + self.proof.budget;
+        let deadline = pagis_rt::Instant::now() + self.proof.budget;
         let mut wait = self.proof.first_wait;
         // The cursor starts where the folder stands the first time, so
         // mail that arrived before the mailbox was the Agent's wakes
@@ -398,11 +398,11 @@ impl MailboxDesk {
                 // has not finished making the mailbox refuses the login
                 // it accepts a minute later.
                 Err(error) => {
-                    let left = deadline.saturating_duration_since(std::time::Instant::now());
+                    let left = deadline.saturating_duration_since(pagis_rt::Instant::now());
                     if left.is_zero() {
                         break error;
                     }
-                    tokio::time::sleep(wait.min(left)).await;
+                    pagis_rt::sleep(wait.min(left)).await;
                     wait = (wait * 2).min(self.proof.max_wait);
                 }
             }
@@ -742,7 +742,7 @@ impl MailboxDesk {
         let desk = Arc::clone(self);
         let workspace_id = mailbox.workspace_id.clone();
         let id = mailbox.id.clone();
-        tokio::spawn(async move {
+        pagis_rt::spawn(async move {
             if let Err(error) = desk.prove_login(&workspace_id, &id).await {
                 tracing::error!(%error, "proving the mailbox login failed");
             }

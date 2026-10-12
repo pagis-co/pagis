@@ -176,7 +176,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Driver<S> {
             }
         })
         .await?;
-        let outcome = match tokio::time::timeout(turn, async {
+        let outcome = match pagis_rt::timeout(turn, async {
             loop {
                 match self.next().await? {
                     Event::DataReceived { .. } => return Ok(IdleOutcome::Changed),
@@ -256,7 +256,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Driver<S> {
 pub(crate) async fn timeout<T>(
     work: impl std::future::Future<Output = Result<T, TransportError>>,
 ) -> Result<T, TransportError> {
-    tokio::time::timeout(COMMAND_TIMEOUT, work)
+    pagis_rt::timeout(COMMAND_TIMEOUT, work)
         .await
         .map_err(|_| TransportError(TransportErrorCode::Unreachable))?
 }

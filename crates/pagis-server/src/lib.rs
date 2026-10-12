@@ -10,7 +10,7 @@ mod auth;
 mod axum_socket;
 mod byte_socket;
 #[cfg(feature = "native")]
-pub use native::calls;
+pub mod calls;
 mod channels;
 mod client_name;
 mod coding_session_feed;
@@ -41,7 +41,7 @@ mod needs_you;
 mod openapi;
 mod peer;
 #[cfg(feature = "native")]
-use native::phone_numbers;
+mod phone_numbers;
 mod plugins;
 mod providers;
 pub mod provisioning;
@@ -53,9 +53,15 @@ mod unavailable;
 #[cfg(feature = "native")]
 pub use native::NativeState;
 #[cfg(feature = "native")]
-use native::product_routes as native_product_routes;
+use native::{
+    administration_routes as native_administration_routes, product_routes as native_product_routes,
+    public_routes as native_public_routes,
+};
 #[cfg(not(feature = "native"))]
-use unavailable::product_routes as native_product_routes;
+use unavailable::{
+    administration_routes as native_administration_routes, product_routes as native_product_routes,
+    public_routes as native_public_routes,
+};
 mod requests;
 mod ring;
 pub mod routes;
@@ -239,18 +245,6 @@ pub struct AppState {
     /// The Software List (ADR-0016). The desk reads it; only the
     /// Agent tools write it.
     pub software: Arc<dyn SoftwareStore>,
-    /// The Version tree behind the records: the manifest of one
-    /// Version and the bytes of one file of it. A Widget page reads
-    /// through it.
-    pub versions: Arc<dyn pagis_software::VersionSource>,
-    /// The installed Plugins (ADR-0017). Only the desk writes
-    /// them: installing one decides which code runs on this computer.
-    pub plugins: Arc<pagis_plugin::Plugins>,
-    /// The MCP hosts of those Plugins (ADR-0017), one per
-    /// tenant. A handler resolves the host of the signed-in person's
-    /// Workspace: the desk starts a failed Plugin again in that person's
-    /// own Plugin Computer and reads that Computer's server log.
-    pub plugin_hosts: Arc<pagis_plugins::PluginHosts>,
     /// The Org's Workspace ([`pagis_core::Org::workspace_id`]), which
     /// no person owns. It holds the installed Plugins with their
     /// Bindings and checkouts (ADR-0017) and the Installation
@@ -747,31 +741,6 @@ fn product_router(state: Arc<AppState>) -> Router {
             "/api/v1/settings/credentials/{credential_id}",
             delete(settings::delete_credential),
         )
-        .route("/api/v1/plugins", get(plugins::list_plugins))
-        .route("/api/v1/plugins/{plugin_id}", get(plugins::get_plugin))
-        .route(
-            "/api/v1/plugins/{plugin_id}/grants",
-            post(plugins::grant_plugin),
-        )
-        .route("/api/v1/plugins/{plugin_id}/log", get(plugins::plugin_log))
-        .route(
-            "/api/v1/widgets/{package}/{version}/{widget}",
-            get(widgets::widget_page),
-        )
-        .route(
-            "/api/v1/widgets/{tool_call_id}/view",
-            get(widgets::widget_view),
-        )
-        .route(
-            "/api/v1/widgets/{tool_call_id}/rpc",
-            post(widgets::widget_rpc),
-        )
-        .route("/api/v1/software", get(software::list_software))
-        .route("/api/v1/software/{name}", get(software::get_software))
-        .route(
-            "/api/v1/software/{name}/contributions/{contribution_id}",
-            get(software::get_contribution),
-        )
         // What the signed-in person spent. A Member reads their own and
         // nothing else of the installation's accounting.
         .route("/api/v1/usage", get(administration::my_usage))
@@ -821,12 +790,7 @@ fn product_router(state: Arc<AppState>) -> Router {
         ));
 
     Router::new()
-        // The sandbox proxy: the proxy document holds no data of
-        // its own.
-        .route(
-            "/api/v1/widgets/{workspace_id}/{package}/{version}/{widget}/sandbox",
-            get(widgets::widget_sandbox),
-        )
+        .merge(native_public_routes())
         .route("/api/v1/health", get(health))
         .route("/api/v1/runtime/identity", get(runtime_identity))
         // The start route of a Google authorization. It reads

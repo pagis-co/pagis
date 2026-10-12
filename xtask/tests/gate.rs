@@ -138,11 +138,12 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
             ("pagis-push", &["wasm"][..]),
             ("pagis-needs-you", &["rules"][..]),
             ("pagis-voice", &["router_host"][..]),
+            ("pagis-mail", &["rules"][..]),
         ]
     );
     let root = workspace_root();
     let cmds = wasm32_commands(&root);
-    assert_eq!(cmds.len(), 11);
+    assert_eq!(cmds.len(), 12);
     assert_eq!(
         cargo_arguments(&cmds[0]),
         [
@@ -165,6 +166,8 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
             "pagis-needs-you",
             "-p",
             "pagis-voice",
+            "-p",
+            "pagis-mail",
             "--",
             "-D",
             "warnings",
@@ -181,6 +184,7 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
         ("pagis-push", "wasm"),
         ("pagis-needs-you", "rules"),
         ("pagis-voice", "router_host"),
+        ("pagis-mail", "rules"),
     ];
     for (cmd, (package, binary)) in cmds[1..].iter().zip(expected) {
         assert_eq!(
@@ -231,6 +235,7 @@ fn dev_selects_wasm32_for_portable_crates_and_their_dependencies() {
         "crates/pagis-core/src/lib.rs",
         "crates/pagis-push/src/lib.rs",
         "crates/pagis-voice/src/lib.rs",
+        "crates/pagis-mail/src/desk.rs",
     ] {
         let lanes = dev_lanes(&workspace_root(), &[path.into()], false, NO_TOOLCHAINS).unwrap();
         assert!(step_names(&lanes).contains(&"wasm32"), "{path}");
