@@ -24,7 +24,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use pagis_core::{
     AgentMailbox, AgentMailboxId, AgentMailboxState, IngestBatch, MailboxCursor, NormalizedEvent,
-    SentMail, SentMailStore, WakeupLanding, WorkspaceStore, now_ms,
+    SentMail, SentMailStore, WakeupLanding, WorkspaceId, now_ms,
 };
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -71,9 +71,6 @@ enum PassError {
 
 /// Everything the collector reads and writes.
 pub struct MailCollectorDeps {
-    /// Every Workspace on this installation. One sweep covers them all:
-    /// the tenant comes off each mailbox row.
-    pub workspaces: Arc<dyn WorkspaceStore>,
     pub desk: Arc<MailboxDesk>,
     /// The sent-message table, which lands a reply in the Thread that
     /// sent the message it answers (ADR-0019).
@@ -88,7 +85,6 @@ pub struct MailCollectorDeps {
 
 /// One task per `active` own mailbox (ADR-0019).
 pub struct MailCollector {
-    workspaces: Arc<dyn WorkspaceStore>,
     desk: Arc<MailboxDesk>,
     sent: Arc<dyn SentMailStore>,
     trust: Arc<dyn SenderTrust>,
@@ -100,6 +96,7 @@ pub struct MailCollector {
 
 /// One running mailbox task.
 struct Watcher {
+    workspace_id: WorkspaceId,
     cancel: CancellationToken,
     handle: JoinHandle<()>,
 }
@@ -107,7 +104,6 @@ struct Watcher {
 impl MailCollector {
     pub fn new(deps: MailCollectorDeps) -> Self {
         Self {
-            workspaces: deps.workspaces,
             desk: deps.desk,
             sent: deps.sent,
             trust: deps.trust,
@@ -118,56 +114,27 @@ impl MailCollector {
         }
     }
 
-    /// Watch the mailboxes, and keep watching them. The sweep is what
-    /// starts a task for a mailbox that became `active` and stops the
-    /// task of one that became `dormant`, `unavailable` or deleted.
-    /// The daemon's token ends the loop, and every mailbox task with
-    /// it.
-    pub fn spawn(self: &Arc<Self>, sweep: Duration, cancel: CancellationToken) -> JoinHandle<()> {
-        let collector = Arc::clone(self);
-        tokio::spawn(async move {
-            while !cancel.is_cancelled() {
-                collector.sweep().await;
-                if cancel
-                    .run_until_cancelled(tokio::time::sleep(sweep))
-                    .await
-                    .is_none()
-                {
-                    break;
-                }
-            }
-            collector.stop();
-        })
-    }
-
-    /// Match the running tasks to the `active` mailboxes, once.
-    pub async fn sweep(self: &Arc<Self>) {
-        let workspaces = match self.workspaces.list().await {
-            Ok(workspaces) => workspaces,
-            Err(error) => {
-                tracing::error!(%error, "listing the workspaces failed");
-                return;
-            }
-        };
-        let mut active: Vec<AgentMailbox> = Vec::new();
-        for workspace in workspaces {
-            match self.desk.list(&workspace.id).await {
-                Ok(mailboxes) => active.extend(
-                    mailboxes
-                        .into_iter()
-                        .filter(|mailbox| mailbox.state == AgentMailboxState::Active),
-                ),
-                Err(error) => {
-                    tracing::error!(%error, workspace = %workspace.id, "listing the agent mailboxes failed");
-                }
-            }
-        }
+    /// Match this Workspace's tasks to its active Agent Mailboxes.
+    pub async fn sweep_workspace(
+        self: &Arc<Self>,
+        workspace_id: &WorkspaceId,
+    ) -> Result<(), MailboxError> {
+        let active: Vec<AgentMailbox> = self
+            .desk
+            .list(workspace_id)
+            .await?
+            .into_iter()
+            .filter(|mailbox| mailbox.state == AgentMailboxState::Active)
+            .collect();
+        let mut tasks = self.tasks.lock().expect("collector task lock");
         let start: Vec<AgentMailbox> = {
-            let mut tasks = self.tasks.lock().expect("collector task lock");
             // A mailbox that left `active`, and one whose task ended by
             // itself, both lose their entry. Cancelling is what stops
             // the task; it never stops in the middle of a pass.
             tasks.retain(|id, watcher| {
+                if &watcher.workspace_id != workspace_id {
+                    return true;
+                }
                 let live = active.iter().any(|mailbox| mailbox.id == *id);
                 if !live || watcher.handle.is_finished() {
                     watcher.cancel.cancel();
@@ -188,11 +155,16 @@ impl MailCollector {
                 let cancel = cancel.clone();
                 async move { collector.watch(mailbox, cancel).await }
             });
-            self.tasks
-                .lock()
-                .expect("collector task lock")
-                .insert(id, Watcher { cancel, handle });
+            tasks.insert(
+                id,
+                Watcher {
+                    workspace_id: workspace_id.clone(),
+                    cancel,
+                    handle,
+                },
+            );
         }
+        Ok(())
     }
 
     /// Stop every task. The daemon calls it at shutdown.

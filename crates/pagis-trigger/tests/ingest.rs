@@ -305,7 +305,14 @@ async fn a_pause_withdraws_pending_work_and_a_resume_does_not_catch_up() {
     assert_eq!(wakeups[0].state, WakeupState::Withdrawn);
 
     // A paused rule is not in the collector's work list at all.
-    assert!(world.trigger.collector_targets().await.unwrap().is_empty());
+    assert!(
+        world
+            .trigger
+            .collector_targets(&world.workspace_id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
 
     let resumed = world
         .trigger
@@ -463,8 +470,21 @@ impl EventSubscriptionStore for BlockedRuleReader {
         self.read_after_write(subscription).await?;
         Ok(withdrawn)
     }
-    async fn collector_targets(&self) -> Result<Vec<CollectorTarget>, StoreError> {
-        self.inner.collector_targets().await
+    async fn collector_targets(
+        &self,
+        workspace_id: &WorkspaceId,
+    ) -> Result<Vec<CollectorTarget>, StoreError> {
+        self.inner.collector_targets(workspace_id).await
+    }
+    async fn set_collector_backoff(
+        &self,
+        target: &CollectorTarget,
+        failures: u32,
+        next_attempt_at: i64,
+    ) -> Result<(), StoreError> {
+        self.inner
+            .set_collector_backoff(target, failures, next_attempt_at)
+            .await
     }
     async fn live_for_source(
         &self,
@@ -594,7 +614,14 @@ async fn a_connection_block_keeps_the_cursor_and_reauthorization_catches_up() {
         .await
         .expect("block");
     assert_eq!(blocked, 1);
-    assert!(world.trigger.collector_targets().await.unwrap().is_empty());
+    assert!(
+        world
+            .trigger
+            .collector_targets(&world.workspace_id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
     assert_eq!(
         world
             .trigger
@@ -988,7 +1015,11 @@ async fn a_coding_session_event_wakes_the_rule_of_that_session_alone() {
         );
     }
     // A Coding Session has no collector.
-    let targets = world.trigger.collector_targets().await.expect("targets");
+    let targets = world
+        .trigger
+        .collector_targets(&world.workspace_id)
+        .await
+        .expect("targets");
     assert_eq!(targets.len(), 1);
     assert_eq!(targets[0].connection_id, world.connection_id);
 }
@@ -1222,4 +1253,96 @@ async fn a_coding_session_rule_reads_no_connection_kind() {
         ),
         "{refused:?}"
     );
+}
+
+#[tokio::test]
+async fn collector_targets_and_backoff_belong_to_one_workspace() {
+    let world = common::world().await;
+    let rule = subscribe(&world, "one", &[]).await;
+    let other = WorkspaceId::generate();
+    assert!(
+        world
+            .trigger
+            .collector_targets(&other)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    let target = world
+        .trigger
+        .collector_targets(&world.workspace_id)
+        .await
+        .unwrap()
+        .remove(0);
+    world
+        .trigger
+        .set_collector_backoff(&target, 3, NOW + 900_000)
+        .await
+        .unwrap();
+    let restarted = pagis_storage_sqlite::SqliteEventSubscriptionStore::new(world.pool.clone());
+    let stored = restarted
+        .get(&world.workspace_id, &rule.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored.failures, 3);
+    assert_eq!(stored.next_attempt_at, NOW + 900_000);
+    let mut wrong = target.clone();
+    wrong.workspace_id = other;
+    world
+        .trigger
+        .set_collector_backoff(&wrong, 0, 0)
+        .await
+        .unwrap();
+    let targets = restarted
+        .collector_targets(&world.workspace_id)
+        .await
+        .unwrap();
+    assert_eq!(targets[0].failures, 3);
+    assert_eq!(targets[0].next_attempt_at, NOW + 900_000);
+}
+
+#[tokio::test]
+async fn a_reauthorized_connection_is_due_now_despite_its_old_backoff() {
+    let world = common::world().await;
+    let rule = subscribe(&world, "mail", &[]).await;
+    let target = world
+        .trigger
+        .collector_targets(&world.workspace_id)
+        .await
+        .unwrap()
+        .remove(0);
+    world
+        .trigger
+        .set_collector_backoff(&target, 4, NOW + 900_000)
+        .await
+        .unwrap();
+    world
+        .trigger
+        .block_connection(
+            &world.workspace_id,
+            &world.connection_id,
+            pagis_core::BlockReason::ReauthRequired,
+            NOW,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        world
+            .trigger
+            .unblock_connection(&world.workspace_id, &world.connection_id, NOW + 1)
+            .await
+            .unwrap(),
+        1
+    );
+    let stored = pagis_storage_sqlite::SqliteEventSubscriptionStore::new(world.pool.clone())
+        .get(&world.workspace_id, &rule.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        stored.next_attempt_at, 0,
+        "the reauthorized Connection collects at once"
+    );
+    assert_eq!(stored.failures, 0);
 }

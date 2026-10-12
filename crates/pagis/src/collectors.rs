@@ -12,18 +12,15 @@
 //! rule on it is blocked, the cursor is kept, and reauthorization runs
 //! one catch-up collection from where the cursor stopped.
 
-use std::collections::HashMap;
-use std::sync::Arc;
 use std::time::Duration;
 
 use pagis_broker::MAIL_MESSAGE_RECEIVED;
 use pagis_core::{
     BlockReason, CollectorTarget, Connection, ConnectionId, ConnectionStore, IngestBatch,
-    WorkspaceStore, now_ms,
+    WorkspaceId, now_ms,
 };
 use pagis_google::ProviderErrorCode;
 use pagis_trigger::Trigger;
-use tokio_util::sync::CancellationToken;
 
 /// How often the daemon polls each active Connection.
 pub const DEFAULT_POLL_INTERVAL: Duration = Duration::from_secs(60);
@@ -61,84 +58,38 @@ impl Backoff {
     }
 }
 
-/// Start the collector loop. It stops polling a Connection as soon as
-/// no live subscription remains on it, because the work list is the
-/// live subscriptions themselves.
-pub(crate) fn spawn_collectors(
-    trigger: Arc<Trigger>,
-    connections: Arc<dyn ConnectionStore>,
-    google: Arc<crate::connections::GoogleBinder>,
-    knowledge: Arc<crate::knowledge::Worker>,
+/// Collect the due targets of one Workspace. Shared acquisition reads Gmail once.
+pub async fn collect_workspace_targets(
+    trigger: &Trigger,
+    connections: &dyn ConnectionStore,
+    google: &crate::connections::GoogleBinder,
+    workspace_id: &WorkspaceId,
+    shared: &std::collections::HashSet<ConnectionId>,
     interval: Duration,
-    cancel: CancellationToken,
-) {
-    // Cache invalidations must also progress while acquisition or the model waits.
-    let notification_cancel = cancel.clone();
-    let notifications = Arc::clone(&knowledge);
-    tokio::spawn(async move {
-        while let Some(result) = notification_cancel
-            .run_until_cancelled(notifications.publish_changes())
-            .await
-        {
-            if let Err(error) = result {
-                tracing::warn!(%error, "knowledge change publication failed; will retry");
-            }
-            if notification_cancel
-                .run_until_cancelled(tokio::time::sleep(interval))
-                .await
-                .is_none()
-            {
-                break;
+) -> Result<(), pagis_trigger::TriggerError> {
+    for target in trigger.collector_targets(workspace_id).await? {
+        if target.event_kind == MAIL_MESSAGE_RECEIVED && shared.contains(&target.connection_id) {
+            continue;
+        }
+        if now_ms() < target.next_attempt_at {
+            continue;
+        }
+        let state = Backoff {
+            failures: target.failures,
+            next_attempt_at: target.next_attempt_at,
+        };
+        match collect_once(trigger, connections, google, &target).await {
+            Pass::Done => trigger.set_collector_backoff(&target, 0, 0).await?,
+            Pass::Skipped => {}
+            Pass::Failed => {
+                let next = state.after_failure(interval, now_ms());
+                trigger
+                    .set_collector_backoff(&target, next.failures, next.next_attempt_at)
+                    .await?;
             }
         }
-    });
-    let acquisition = Arc::clone(&knowledge);
-    tokio::spawn(async move {
-        let mut backoff: HashMap<(ConnectionId, String), Backoff> = HashMap::new();
-        while !cancel.is_cancelled() {
-            let shared = acquisition.collect_pass().await;
-            let targets = match trigger.collector_targets().await {
-                Ok(targets) => targets,
-                Err(error) => {
-                    tracing::error!(%error, "loading collector targets failed");
-                    Vec::new()
-                }
-            };
-            let live: std::collections::HashSet<(ConnectionId, String)> = targets
-                .iter()
-                .map(|target| (target.connection_id.clone(), target.event_kind.clone()))
-                .collect();
-            backoff.retain(|key, _| live.contains(key));
-            for target in targets {
-                if target.event_kind == MAIL_MESSAGE_RECEIVED
-                    && shared.contains(&target.connection_id)
-                {
-                    continue;
-                }
-                let key = (target.connection_id.clone(), target.event_kind.clone());
-                let state = backoff.get(&key).copied().unwrap_or_default();
-                if now_ms() < state.next_attempt_at {
-                    continue;
-                }
-                match collect_once(&trigger, connections.as_ref(), &google, &target).await {
-                    Pass::Done => {
-                        backoff.remove(&key);
-                    }
-                    Pass::Skipped => {}
-                    Pass::Failed => {
-                        backoff.insert(key, state.after_failure(interval, now_ms()));
-                    }
-                }
-            }
-            if cancel
-                .run_until_cancelled(tokio::time::sleep(interval))
-                .await
-                .is_none()
-            {
-                return;
-            }
-        }
-    });
+    }
+    Ok(())
 }
 
 enum Pass {
@@ -155,7 +106,7 @@ async fn collect_once(
     target: &CollectorTarget,
 ) -> Pass {
     if target.event_kind != MAIL_MESSAGE_RECEIVED {
-        tracing::warn!(kind = %target.event_kind, "no collector for this event kind");
+        tracing::warn!(workspace_id = %target.workspace_id, kind = %target.event_kind, "no collector for this event kind");
         return Pass::Skipped;
     }
     let connection = match connections
@@ -165,7 +116,7 @@ async fn collect_once(
         Ok(Some(connection)) => connection,
         Ok(None) => return Pass::Skipped,
         Err(error) => {
-            tracing::error!(%error, "loading a collector's connection failed");
+            tracing::error!(%error, workspace_id = %target.workspace_id, "loading a collector's connection failed");
             return Pass::Failed;
         }
     };
@@ -191,7 +142,7 @@ async fn collect_once(
     {
         Ok(cursor) => cursor,
         Err(error) => {
-            tracing::error!(%error, "loading a provider cursor failed");
+            tracing::error!(%error, workspace_id = %target.workspace_id, "loading a provider cursor failed");
             return Pass::Failed;
         }
     };
@@ -210,7 +161,7 @@ async fn collect_once(
                 )
                 .await
             {
-                tracing::error!(%error, "recording a collection failure failed");
+                tracing::error!(%error, workspace_id = %target.workspace_id, "recording a collection failure failed");
             }
             // The account, not one pass, is what a refused
             // authorization means: every rule on it stops until the
@@ -241,7 +192,7 @@ async fn collect_once(
     match trigger.ingest(batch).await {
         Ok(_) => Pass::Done,
         Err(error) => {
-            tracing::error!(%error, "ingesting a collection batch failed");
+            tracing::error!(%error, workspace_id = %target.workspace_id, "ingesting a collection batch failed");
             Pass::Failed
         }
     }
@@ -255,68 +206,28 @@ async fn block(trigger: &Trigger, connection: &Connection, reason: BlockReason) 
         Ok(0) => {}
         Ok(count) => {
             let reason = reason.as_str();
-            tracing::info!(count, connection = %connection.alias, reason, "event subscriptions blocked")
+            tracing::info!(workspace_id = %connection.workspace_id, count, connection = %connection.alias, reason, "event subscriptions blocked")
         }
-        Err(error) => tracing::error!(%error, "blocking event subscriptions failed"),
+        Err(error) => {
+            tracing::error!(%error, workspace_id = %connection.workspace_id, "blocking event subscriptions failed")
+        }
     }
-}
-
-/// Reactivate the subscriptions a Connection blocked, once it is
-/// connected again. The retained cursor makes the next collection one
-/// catch-up rather than a replay of the whole mailbox.
-///
-/// One pass covers every Workspace: the tenant comes off each Workspace
-/// row, as the Schedule sweeper reads it off each Schedule.
-pub fn spawn_reauth_catchup(
-    trigger: Arc<Trigger>,
-    connections: Arc<dyn ConnectionStore>,
-    workspaces: Arc<dyn WorkspaceStore>,
-    interval: Duration,
-    cancel: CancellationToken,
-) {
-    tokio::spawn(async move {
-        while !cancel.is_cancelled() {
-            match workspaces.list().await {
-                Ok(rows) => {
-                    for workspace in rows {
-                        unblock_connected(&trigger, connections.as_ref(), &workspace.id).await;
-                    }
-                }
-                Err(error) => tracing::error!(%error, "listing workspaces failed"),
-            }
-            if cancel
-                .run_until_cancelled(tokio::time::sleep(interval))
-                .await
-                .is_none()
-            {
-                return;
-            }
-        }
-    });
 }
 
 /// Reactivate the subscriptions of one Workspace's connected accounts.
-async fn unblock_connected(
+pub async fn unblock_connected(
     trigger: &Trigger,
     connections: &dyn ConnectionStore,
-    workspace_id: &pagis_core::WorkspaceId,
-) {
-    match connections.list(workspace_id).await {
-        Ok(records) => {
-            for connection in records
-                .into_iter()
-                .filter(|connection| connection.status == Connection::CONNECTED)
-            {
-                if let Err(error) = trigger
-                    .unblock_connection(workspace_id, &connection.id, now_ms())
-                    .await
-                {
-                    tracing::error!(%error, "reactivating event subscriptions failed");
-                }
-            }
+    workspace_id: &WorkspaceId,
+) -> Result<(), pagis_trigger::TriggerError> {
+    for connection in connections.list(workspace_id).await? {
+        if connection.status == Connection::CONNECTED {
+            trigger
+                .unblock_connection(workspace_id, &connection.id, now_ms())
+                .await?;
         }
-        Err(error) => tracing::error!(%error, "listing connections failed"),
     }
+    Ok(())
 }
 
 #[cfg(test)]

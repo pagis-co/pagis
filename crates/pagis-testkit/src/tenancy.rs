@@ -702,6 +702,8 @@ async fn seed_a(
         revision: 1,
         approved_revision: Some(1),
         watermark_at: None,
+        failures: 0,
+        next_attempt_at: 0,
         blocked_reason: None,
         created_at: now,
         updated_at: now,
