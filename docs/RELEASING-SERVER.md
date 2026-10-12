@@ -300,7 +300,10 @@ Each server package and the Headless Server image hold
 `pagis` links and of the npm packages of the Product App. The assembly
 writes it with `cargo xtask notices server` after the Product App build,
 and the image build writes it after `pagis`. The Computer Image holds the
-stored notices of the crates of `pagis-screend`. `about.toml` holds the
+stored notices of the crates of `pagis-screend` and of the npm packages of
+the Coding Harnesses. It keeps the license of each other program that no
+Debian package gives in `/usr/share/doc/<program>/`, with the source of
+labwc and wlroots and the Dockerfile that builds them. `about.toml` holds the
 licenses that a release can ship
 ([ADR-0037](adr/0037-each-release-ships-the-notices-of-its-third-party-software.md)).
 

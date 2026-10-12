@@ -54,6 +54,20 @@ RUN cd /src/labwc && env PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:/usr/local/lib
     meson setup build --prefix=/usr/local -Dxwayland=disabled \
     && ninja -C build install
 
+# The license and the source of labwc and wlroots. labwc is under
+# GPL-2.0, which asks that a binary comes with its complete source code,
+# and labwc links wlroots. So the image holds the source of both, as the
+# pinned commits give it, and the Dockerfile, which holds the build
+# commands. Each archive is a `git archive` of the checked commit.
+RUN set -eux; \
+    for project in wlroots labwc; do \
+      version=$(git -C /src/$project describe --tags --exact-match); \
+      mkdir -p /doc/$project; \
+      cp /src/$project/LICENSE /doc/$project/LICENSE; \
+      git -C /src/$project archive --format=tar.gz --prefix=$project-$version/ \
+        -o /doc/$project/$project-$version.tar.gz HEAD; \
+    done
+
 # cargo-auditable writes the list of the crates of pagis-screend into
 # the executable, so Trivy identifies them in the image. The build takes
 # the crate versions of Cargo.lock, which cargo-deny also checks.
@@ -99,6 +113,19 @@ RUN set -eux; \
     mkdir -p /opt/uv; \
     tar -xzf /tmp/uv.tar.gz -C /opt/uv --strip-components=1 --no-same-owner
 
+# The release archive of uv holds no license, so its license files come
+# from the source at the release tag, pinned by sha256.
+ARG UV_LICENSE_MIT_SHA256=860e3d7a86b84e6a7012c7a635fc64df475cebc6cce34dfeb73a5982ec58176c
+ARG UV_LICENSE_APACHE_SHA256=c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4
+RUN set -eux; \
+    mkdir -p /doc/uv; \
+    for license in MIT APACHE; do \
+      curl -fsSLo /doc/uv/LICENSE-$license \
+        "https://raw.githubusercontent.com/astral-sh/uv/${UV_VERSION}/LICENSE-$license"; \
+    done; \
+    echo "$UV_LICENSE_MIT_SHA256  /doc/uv/LICENSE-MIT" | sha256sum -c -; \
+    echo "$UV_LICENSE_APACHE_SHA256  /doc/uv/LICENSE-APACHE" | sha256sum -c -
+
 ARG NODE_VERSION=24.20.0
 ARG NODE_SHA256_amd64=2f2c0da162318f0de47665410c7c8c2ed3d36c8f3105de4bbc61176c70a7cbf2
 ARG NODE_SHA256_arm64=5f4ddab610c1ab2016b3c227cebdbf6d9495161487e4739c7b90090595f465f7
@@ -111,9 +138,10 @@ RUN set -eux; \
     curl -fsSLo /tmp/node.tar.xz \
       "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${arch}.tar.xz"; \
     echo "$sha  /tmp/node.tar.xz" | sha256sum -c -; \
-    mkdir -p /opt/node; \
+    mkdir -p /opt/node /doc/node; \
     tar -xJf /tmp/node.tar.xz -C /opt/node --strip-components=1 --no-same-owner \
-      --exclude CHANGELOG.md --exclude LICENSE --exclude README.md
+      --exclude CHANGELOG.md --exclude README.md; \
+    mv /opt/node/LICENSE /doc/node/LICENSE
 
 # npm replaces the npm that the Node release bundles, so the image holds
 # one npm only. The links in /opt/node/bin point into the package
@@ -125,7 +153,9 @@ RUN set -eux; \
     echo "$NPM_SHA512  /tmp/npm.tgz" | sha512sum -c -; \
     rm -rf /opt/node/lib/node_modules/npm; \
     mkdir /opt/node/lib/node_modules/npm; \
-    tar -xzf /tmp/npm.tgz -C /opt/node/lib/node_modules/npm --strip-components=1 --no-same-owner
+    tar -xzf /tmp/npm.tgz -C /opt/node/lib/node_modules/npm --strip-components=1 --no-same-owner; \
+    mkdir -p /doc/npm; \
+    cp /opt/node/lib/node_modules/npm/LICENSE /doc/npm/LICENSE
 
 # pnpm goes into the Node tree, as npm does, so each uid runs the pinned
 # version. The agent uid cannot read the home of root, so a copy that
@@ -138,7 +168,9 @@ RUN set -eux; \
     mkdir /opt/node/lib/node_modules/pnpm; \
     tar -xzf /tmp/pnpm.tgz -C /opt/node/lib/node_modules/pnpm --strip-components=1 --no-same-owner; \
     ln -s ../lib/node_modules/pnpm/bin/pnpm.mjs /opt/node/bin/pnpm; \
-    ln -s ../lib/node_modules/pnpm/bin/pnpx.mjs /opt/node/bin/pnpx
+    ln -s ../lib/node_modules/pnpm/bin/pnpx.mjs /opt/node/bin/pnpx; \
+    mkdir -p /doc/pnpm; \
+    cp /opt/node/lib/node_modules/pnpm/LICENSE /doc/pnpm/LICENSE
 
 # The Coding Harnesses that run in a Computer (ADR-0033), at the pins of
 # the Computer launches of the Harness Catalog
@@ -202,6 +234,15 @@ RUN set -eux; \
     tar -xzf /tmp/opencode.tar.gz -C /opt/opencode --no-same-owner; \
     test -x /opt/opencode/opencode
 
+# The release archive of OpenCode holds no license, so its license file
+# comes from the source at the release tag, pinned by sha256.
+ARG OPENCODE_LICENSE_SHA256=625f0f619133f89bbbb2abe37369613dfa1885eba1e50d02170deb62bb42cb6b
+RUN set -eux; \
+    mkdir -p /doc/opencode; \
+    curl -fsSLo /doc/opencode/LICENSE \
+      "https://raw.githubusercontent.com/anomalyco/opencode/v${OPENCODE_VERSION}/LICENSE"; \
+    echo "$OPENCODE_LICENSE_SHA256  /doc/opencode/LICENSE" | sha256sum -c -
+
 # The content blocker: the uBlock Origin Lite release the
 # browser loads as an unpacked extension. It comes from the vendor's
 # own release asset, pinned by tag and sha256, as uv and Node above do,
@@ -257,6 +298,10 @@ RUN apt-get update && apt-get upgrade -y \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=compositor /usr/local /usr/local
 RUN ldconfig /usr/local/lib || ldconfig
+# Each third-party program that no Debian package gives keeps its license
+# in /usr/share/doc/<program>/, where a Debian package keeps its
+# `copyright` file.
+COPY --from=compositor /doc/ /usr/share/doc/
 COPY --from=screend /src/screend/target/release/pagis-screend /usr/local/bin/pagis-screend
 # The license texts of the crates that pagis-screend links. The file is
 # stored beside screend, because this build has only `computer/`, and the
@@ -270,6 +315,7 @@ COPY screend/THIRD_PARTY_NOTICES /usr/share/doc/pagis-screend/THIRD_PARTY_NOTICE
 # ~/software/<name> (`uv venv`, `pnpm install`).
 COPY --from=runtimes /opt/uv/uv /opt/uv/uvx /usr/local/bin/
 COPY --from=runtimes /opt/node /usr/local/
+COPY --from=runtimes /doc/ /usr/share/doc/
 
 # The uid split (ADR-0013). `screen` runs the compositor, screend
 # and Chromium; `agent` runs only the shell inside the terminal. The
@@ -372,9 +418,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends locales tzdata 
 # which is on the PATH that the daemon gives a command of the Computer.
 COPY --from=harnesses /opt/pagis/harnesses /opt/pagis/harnesses
 COPY --from=harnesses /opt/opencode/opencode /usr/local/bin/opencode
+COPY --from=harnesses /doc/opencode /usr/share/doc/opencode
+# The license of each npm package of the Coding Harnesses. The file is
+# stored beside the harness lockfile, because this build has only
+# `computer/`, and the gate checks it against the lockfile (`cargo xtask
+# notices harnesses`).
+COPY harnesses/THIRD_PARTY_NOTICES /usr/share/doc/coding-harnesses/THIRD_PARTY_NOTICES
 RUN for program in claude-agent-acp codex-acp pi-acp pi; do \
       ln -s "/opt/pagis/harnesses/node_modules/.bin/$program" "/usr/local/bin/$program"; \
     done
+# The build commands of labwc and wlroots, which GPL-2.0 counts as part of
+# the source of labwc, are in this file.
+COPY Dockerfile /usr/share/doc/pagis-computer/Dockerfile
 ENV XDG_RUNTIME_DIR=/run/pagis-xdg \
     WLR_BACKENDS=headless \
     WLR_RENDERER=pixman \

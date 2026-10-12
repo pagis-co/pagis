@@ -595,9 +595,13 @@ pub fn dev_lanes(
                 action: pnpm_script_action(root, "ui", "api:check"),
             });
         }
-        // The lockfile of screend is under `computer/screend/`. Each other
-        // lockfile selects the full gate.
-        if screend_changed {
+        // The lockfiles of screend and of the Coding Harnesses are under
+        // `computer/`. Each other lockfile selects the full gate.
+        if screend_changed
+            || changed_paths
+                .iter()
+                .any(|path| path.starts_with(&format!("{}/", notices::HARNESS_DIR)))
+        {
             cargo_steps.push(notices::notices_step(root));
         }
     }
