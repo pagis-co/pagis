@@ -567,3 +567,38 @@ async fn the_connections_page_reads_the_mailboxes_of_the_workspace() {
     assert_eq!(items[0]["agent_id"], agent_id);
     assert_eq!(items[0]["connection_id"], connection_id);
 }
+
+#[tokio::test]
+async fn an_active_mailbox_starts_idle_before_the_next_sweep() {
+    let host = Arc::new(FakeMailboxHost::default());
+    let transport = Arc::new(FakeMailTransport::default());
+    let daemon = TestDaemon::start_with(TestDaemonOptions {
+        mail_host: host.clone(),
+        mail_transport: transport.clone(),
+        collector_interval: Duration::from_secs(3600),
+        ..TestDaemonOptions::default()
+    })
+    .await;
+    let harness = Harness {
+        daemon,
+        host,
+        transport,
+    };
+    let connection = harness.connect_provider().await;
+    let agent = harness
+        .create_agent(
+            "Ada",
+            Some(serde_json::json!({
+                "connection_id": connection, "local_part": "ada"
+            })),
+        )
+        .await;
+    assert_eq!(harness.settled_mailbox(&agent).await["state"], "active");
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while harness.transport.logins().len() < 2 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("the active event starts the mailbox watcher before the next sweep");
+}

@@ -12,7 +12,7 @@
 // answer on this port alone, so this page is the one surface that draws them. The
 // product links here for an administrator and draws none of them.
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { createApiClient, type ApiClient } from '../api/client'
 import { SignIn } from '../SignIn'
@@ -20,7 +20,7 @@ import { Plugins } from '../components/Plugins'
 import { People } from '../components/settings/People'
 import { SystemSection } from '../components/settings/SystemSection'
 import { Button, cx } from '../primitives'
-import { errorCode, useSetupState, useSignOut, useUser, useUserName } from '../queries'
+import { errorCode, useAdministrationSections, useSetupState, useSignOut, useUser, useUserName } from '../queries'
 import { Health } from './Health'
 import { Providers } from './Providers'
 import { Resources } from './Resources'
@@ -65,9 +65,25 @@ export function AdministrationShell({
   api: ApiClient
   initialView: AdministrationView
 }) {
-  const [view, setView] = useState<AdministrationView>(initialView)
+  const [selected, setView] = useState<AdministrationView>(initialView)
+  const sections = useAdministrationSections(api)
+  const views = (sections.data?.sections ?? []).flatMap((section) => {
+    const entry = ADMINISTRATION_VIEWS.find((entry) => entry.value === section)
+    return entry ? [entry] : []
+  })
+  const view = views.find((entry) => entry.value === selected)?.value ?? views[0]?.value
   const signOut = useSignOut(api)
   const name = useUserName(api)
+
+  useEffect(() => {
+    if (view && view !== selected) {
+      setView(view)
+      window.history.replaceState(null, '', `/${view}`)
+    }
+  }, [view, selected])
+
+  if (sections.isPending) return null
+  if (sections.isError) return <p role="alert">The administration sections could not be read.</p>
 
   return (
     <div className="administration">
@@ -85,7 +101,7 @@ export function AdministrationShell({
           </Button>
         </div>
         <nav aria-label="Administration">
-          {ADMINISTRATION_VIEWS.map((entry) => (
+          {views.map((entry) => (
             <Button
               key={entry.value}
               variant="ghost"
@@ -112,7 +128,7 @@ export function AdministrationShell({
         {view === 'providers' && <Providers api={api} />}
         {view === 'settings' && (
           <section className="administration-settings">
-            <SystemSection api={api} />
+            <SystemSection api={api} restartAvailable={sections.data.sections.includes('restart')} />
           </section>
         )}
         {view === 'plugins' && <Plugins api={api} />}

@@ -909,7 +909,8 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     // The mail tool route for runs that pass the broker's authority and
     // effect reservation checks.
     let mail_tools = Arc::new(pagis_mail::MailToolRuntime::new(pagis_mail::MailToolDeps {
-        desk: Arc::clone(&mailbox_desk),
+        mailboxes: Arc::clone(&mailbox_desk) as _,
+        records: Arc::clone(&mailbox_store) as _,
         runs: Arc::clone(&runs) as _,
         sent: Arc::clone(&sent_mail) as _,
         blocks: Arc::clone(&mail_blocks),
@@ -1321,7 +1322,6 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     ));
     let knowledge_worker = Arc::new(crate::knowledge::Worker {
         bus: Arc::clone(&bus),
-        workspaces: Arc::clone(&workspaces) as _,
         store: Arc::clone(&knowledge) as _,
         forget_keys: Arc::clone(&tenant_keys) as _,
         connections: Arc::clone(&connections) as _,
@@ -1336,21 +1336,6 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     });
     let catalogues =
         Arc::clone(&knowledge_worker) as Arc<dyn pagis_core::knowledge::CatalogueProvider>;
-    crate::collectors::spawn_collectors(
-        Arc::clone(&trigger),
-        Arc::clone(&connections) as _,
-        Arc::clone(&google_binder),
-        knowledge_worker,
-        options.collector_interval,
-        options.cancel.clone(),
-    );
-    crate::collectors::spawn_reauth_catchup(
-        Arc::clone(&trigger),
-        Arc::clone(&connections) as _,
-        Arc::clone(&workspaces) as _,
-        options.collector_interval,
-        options.cancel.clone(),
-    );
     // The mailbox desk can now make a Standing Mail Rule, and one task
     // per `active` mailbox watches its INBOX (ADR-0019).
     standing_mail_rule.set(Arc::new(crate::mail_events::StandingMailRules::new(
@@ -1387,7 +1372,6 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     }
     let mail_collector = Arc::new(pagis_mail::MailCollector::new(
         pagis_mail::MailCollectorDeps {
-            workspaces: Arc::clone(&workspaces) as _,
             desk: Arc::clone(&mailbox_desk),
             sent: Arc::clone(&sent_mail) as _,
             trust: Arc::clone(&sender_trust) as _,
@@ -1396,10 +1380,18 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
             poll_interval: pagis_mail::POLL_INTERVAL,
         },
     ));
-    mail_collector.spawn(
-        options.collector_interval.min(pagis_mail::SWEEP_INTERVAL),
-        options.cancel.clone(),
-    );
+    Arc::new(crate::sweeps::Sweeps {
+        workspaces: Arc::clone(&workspaces) as _,
+        bus: Arc::clone(&bus),
+        mail: mail_collector,
+        knowledge: knowledge_worker,
+        trigger: Arc::clone(&trigger),
+        connections: Arc::clone(&connections) as _,
+        google: Arc::clone(&google_binder),
+        collector_interval: options.collector_interval,
+    })
+    .spawn(options.cancel.clone())
+    .await;
 
     let analytics_blocked = spawn_analytics(
         booted,
@@ -1528,6 +1520,9 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         ),
         remote_access_turn,
         administration: options.administration,
+        administration_sections: pagis_server::AdministrationSections::without(
+            &booted.config.administration.hide,
+        ),
         proxy: options.proxy,
         screen: options.screen,
         ring,

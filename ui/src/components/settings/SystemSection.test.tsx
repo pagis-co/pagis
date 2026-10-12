@@ -76,7 +76,7 @@ function mount(api: ReturnType<typeof stubApi>) {
   })
   render(
     <QueryClientProvider client={queryClient}>
-      <SystemSection api={api as unknown as ApiClient} />
+      <SystemSection api={api as unknown as ApiClient} restartAvailable={true} />
     </QueryClientProvider>,
   )
 }

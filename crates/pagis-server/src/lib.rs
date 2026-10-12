@@ -77,6 +77,7 @@ use pagis_core::{
     SignInLinkStore, SoftwareStore, UserStore, WorkspaceStore,
 };
 
+pub use administration::{AdministrationSection, AdministrationSections};
 pub use auth::{SESSION_COOKIE, Tenant, hash_secret};
 pub use coding_session_feed::CodingSessionFeed;
 pub use forwarded::TrustedProxy;
@@ -338,6 +339,8 @@ pub struct AppState {
     /// Administration Port refuses a browser request from any other
     /// origin.
     pub administration: user::AdministrationAddress,
+    /// The optional sections this server offers on the Administration Port.
+    pub administration_sections: AdministrationSections,
     /// The one address whose `X-Forwarded-*` headers the daemon believes.
     /// A local installation trusts none.
     pub proxy: TrustedProxy,

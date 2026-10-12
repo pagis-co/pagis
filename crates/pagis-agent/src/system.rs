@@ -21,11 +21,13 @@ use pagis_core::{
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
+use crate::admission::{Admission, AdmissionRun, CancelAction, Pool, ThreadKey};
 use crate::brain::Brain;
 use crate::hub::StreamHub;
 use crate::progress::ProgressHub;
 use crate::run::{RunOutcome, execute, fail, transition};
 use crate::tool_runtime::CoreToolRuntime;
+use crate::{RunQueue, RunSignals};
 
 /// Loop tuning. Tests shrink the idle timeout.
 #[derive(Debug, Clone, Copy)]
@@ -491,53 +493,43 @@ async fn chain_of(deps: &AgentDeps, message: &Message) -> (u32, Option<RunOrigin
     (sender.hop_count.saturating_add(1), origin)
 }
 
-/// The serialization unit: runs in one thread execute one at a
-/// time; `None` root is the channel's top level.
-type ThreadKey = (String, Option<String>);
-
-/// The slot pool a run takes (ADR-0002).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Pool {
-    Conversation,
-    Arrival,
-}
-
-fn pool_of(run: &Run) -> Pool {
-    if matches!(run.trigger_kind, TriggerKind::Arrival | TriggerKind::Review) {
-        Pool::Arrival
-    } else {
-        Pool::Conversation
+fn thread_key(message: &Message) -> ThreadKey {
+    ThreadKey::Conversation {
+        channel_id: message.channel_id.clone(),
+        root_message_id: message.parent_message_id.clone(),
     }
 }
 
-fn thread_key(message: &Message) -> ThreadKey {
-    (
-        message.channel_id.to_string(),
-        message.parent_message_id.as_ref().map(|p| p.to_string()),
-    )
-}
-
-struct QueuedRun {
-    run: Run,
-    key: ThreadKey,
-}
-
-/// The actor's grip on one running run: its thread, its cancel token,
-/// and the injection channel the run drains each turn.
+/// The cancel token and the message channel the Run drains each Turn.
 struct RunHandle {
-    key: ThreadKey,
-    pool: Pool,
     cancel: CancellationToken,
     inject: mpsc::UnboundedSender<Message>,
+}
+
+impl RunSignals for HashMap<RunId, RunHandle> {
+    fn cancel(&self, run_id: &RunId) -> bool {
+        let Some(handle) = self.get(run_id) else {
+            return false;
+        };
+        handle.cancel.cancel();
+        true
+    }
+
+    fn inject(&self, run_id: &RunId, message: Message) -> Option<Message> {
+        let Some(handle) = self.get(run_id) else {
+            return Some(message);
+        };
+        handle.inject.send(message).err().map(|error| error.0)
+    }
 }
 
 struct Actor {
     agent_id: AgentId,
     deps: Arc<AgentDeps>,
     self_tx: mpsc::UnboundedSender<ActorMsg>,
-    queue: VecDeque<QueuedRun>,
-    running: HashMap<RunId, RunHandle>,
-    busy_threads: HashSet<ThreadKey>,
+    admission: Admission,
+    queue: VecDeque<Run>,
+    signals: HashMap<RunId, RunHandle>,
 }
 
 fn spawn_actor(
@@ -548,15 +540,15 @@ fn spawn_actor(
     let (tx, mut rx) = mpsc::unbounded_channel();
     let mut actor = Actor {
         agent_id: agent_id.clone(),
+        admission: Admission::new(&deps.config),
         deps,
         self_tx: tx.clone(),
         queue: VecDeque::new(),
-        running: HashMap::new(),
-        busy_threads: HashSet::new(),
+        signals: HashMap::new(),
     };
     tokio::spawn(async move {
         loop {
-            let idle = actor.running.is_empty() && actor.queue.is_empty();
+            let idle = actor.admission.is_empty();
             let msg = if idle {
                 match tokio::time::timeout(actor.deps.config.idle_timeout, rx.recv()).await {
                     Ok(msg) => msg,
@@ -594,17 +586,16 @@ impl Actor {
             ActorMsg::Proactive(run) => self.proactive(*run).await,
             ActorMsg::Available(reply) => {
                 let _ = reply.send(RunSlots {
-                    conversation: slot_count(self.free_slots(Pool::Conversation)),
-                    arrival: slot_count(self.free_slots(Pool::Arrival)),
+                    conversation: slot_count(self.admission.free_slots(Pool::Conversation)),
+                    arrival: slot_count(self.admission.free_slots(Pool::Arrival)),
                 });
             }
             ActorMsg::Cancel(run_id, reply) => {
                 let _ = reply.send(self.cancel(&run_id).await);
             }
             ActorMsg::Ended(run_id, mut leftover) => {
-                if let Some(handle) = self.running.remove(&run_id) {
-                    self.busy_threads.remove(&handle.key);
-                }
+                self.signals.remove(&run_id);
+                self.admission.end(&run_id);
                 // The handle's sender is dropped: no further message
                 // can land in `leftover`. An injection that raced the
                 // run's end becomes a new queued run — the
@@ -618,20 +609,8 @@ impl Actor {
     }
 
     async fn proactive(&mut self, run: Run) {
-        // An arrival has no conversation thread. Its Run id gives the actor a
-        // private serialization key and prevents message injection.
-        let key = if matches!(run.trigger_kind, TriggerKind::Arrival | TriggerKind::Review) {
-            (format!("background:{}", run.id), None)
-        } else {
-            (
-                run.channel_id
-                    .as_ref()
-                    .expect("conversation-bound proactive run has a channel")
-                    .to_string(),
-                run.root_message_id.as_ref().map(ToString::to_string),
-            )
-        };
-        self.queue.push_back(QueuedRun { run, key });
+        self.admission.enqueue(AdmissionRun::from(&run));
+        self.queue.enqueue(run);
         self.pump().await;
     }
 
@@ -706,32 +685,24 @@ impl Actor {
         if let Err(err) = self.deps.bus.publish(created).await {
             tracing::error!(error = %err, run_id = %run.id, "run.created publish failed");
         }
-        self.queue.push_back(QueuedRun {
-            key: thread_key(&message),
-            run,
-        });
+        self.admission.enqueue(AdmissionRun::from(&run));
+        self.queue.enqueue(run);
         self.pump().await;
     }
 
     /// Send the message into its thread's active run, when one exists.
     /// Returns the message back when no run absorbed it.
     async fn inject(&mut self, message: Message) -> Option<Message> {
-        let key = thread_key(&message);
-        let active = self
-            .running
-            .iter()
-            .find(|(_, handle)| handle.key == key)
-            .map(|(run_id, handle)| (run_id.clone(), handle.inject.clone()));
-        let Some((run_id, inject)) = active else {
+        let Some(run_id) = self.admission.active(&thread_key(&message)) else {
             return Some(message);
         };
         let message_id = message.id.clone();
         let channel_id = message.channel_id.clone();
         let workspace_id = message.workspace_id.clone();
-        match inject.send(message) {
-            Ok(()) => {}
-            // The run stopped reading; queue a fresh run instead.
-            Err(mpsc::error::SendError(unsent)) => return Some(unsent),
+        let root_message_id = message.parent_message_id.clone();
+        if let Some(unsent) = self.signals.inject(&run_id, message) {
+            // The Run stopped reading; queue a fresh Run instead.
+            return Some(unsent);
         }
         let injected = NewEvent {
             workspace_id,
@@ -741,7 +712,7 @@ impl Actor {
             channel_id: Some(channel_id),
             payload: serde_json::json!({
                 "message_id": message_id.as_str(),
-                "root_message_id": key.1,
+                "root_message_id": root_message_id,
             }),
         };
         if let Err(err) = self.deps.bus.publish(injected).await {
@@ -750,53 +721,12 @@ impl Actor {
         None
     }
 
-    fn cap(&self, pool: Pool) -> usize {
-        match pool {
-            Pool::Conversation => self.deps.config.max_concurrent_runs,
-            Pool::Arrival => self.deps.config.max_arrival_runs,
-        }
-    }
-
-    /// The slots of one pool that neither a running nor a queued run holds.
-    fn free_slots(&self, pool: Pool) -> usize {
-        let running = self
-            .running
-            .values()
-            .filter(|handle| handle.pool == pool)
-            .count();
-        let queued = self
-            .queue
-            .iter()
-            .filter(|queued| pool_of(&queued.run) == pool)
-            .count();
-        self.cap(pool)
-            .saturating_sub(running.saturating_add(queued))
-    }
-
     /// Start queued runs while their pool has a slot and their thread
     /// is free. A user message goes before a proactive run.
     async fn pump(&mut self) {
-        loop {
-            let running_in = |pool: Pool| {
-                self.running
-                    .values()
-                    .filter(|handle| handle.pool == pool)
-                    .count()
-            };
-            let next = self
-                .queue
-                .iter()
-                .enumerate()
-                .filter(|(_, queued)| !self.busy_threads.contains(&queued.key))
-                .filter(|(_, queued)| {
-                    let pool = pool_of(&queued.run);
-                    running_in(pool) < self.cap(pool)
-                })
-                .min_by_key(|(_, queued)| queued.run.trigger_kind != TriggerKind::Message)
-                .map(|(position, _)| position);
-            let Some(position) = next else { return };
-            let QueuedRun { mut run, key } = self.queue.remove(position).expect("position valid");
-            let pool = pool_of(&run);
+        while let Some(run_id) = self.admission.next() {
+            let mut run =
+                RunQueue::remove(&mut self.queue, &run_id).expect("admitted Run is queued");
 
             let agent = match self
                 .deps
@@ -806,6 +736,7 @@ impl Actor {
             {
                 Ok(Some(agent)) => agent,
                 Ok(None) => {
+                    self.admission.cancel(&run_id);
                     run.error = Some("agent not found".to_string());
                     fail(
                         &self.deps,
@@ -817,6 +748,7 @@ impl Actor {
                     continue;
                 }
                 Err(err) => {
+                    self.admission.cancel(&run_id);
                     run.error = Some(err.to_string());
                     fail(
                         &self.deps,
@@ -832,12 +764,10 @@ impl Actor {
             transition(&self.deps, &mut run, RunState::Running, "run started").await;
             let token = CancellationToken::new();
             let (inject_tx, mut inject_rx) = mpsc::unbounded_channel();
-            self.busy_threads.insert(key.clone());
-            self.running.insert(
+            assert!(self.admission.start(&run_id), "next Run can start");
+            self.signals.insert(
                 run.id.clone(),
                 RunHandle {
-                    key,
-                    pool,
                     cancel: token.clone(),
                     inject: inject_tx,
                 },
@@ -854,15 +784,85 @@ impl Actor {
 
     /// True when the run was ours to cancel.
     async fn cancel(&mut self, run_id: &RunId) -> bool {
-        if let Some(handle) = self.running.get(run_id) {
-            handle.cancel.cancel();
-            return true;
+        match self.admission.cancel(run_id) {
+            CancelAction::Running => self.signals.cancel(run_id),
+            CancelAction::Queued => {
+                let mut run =
+                    RunQueue::remove(&mut self.queue, run_id).expect("canceled Run is queued");
+                transition(&self.deps, &mut run, RunState::Canceled, "canceled by user").await;
+                true
+            }
+            CancelAction::Unknown => false,
         }
-        if let Some(position) = self.queue.iter().position(|q| q.run.id == *run_id) {
-            let QueuedRun { mut run, .. } = self.queue.remove(position).expect("position valid");
-            transition(&self.deps, &mut run, RunState::Canceled, "canceled by user").await;
-            return true;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::RunSignals;
+
+    fn message() -> Message {
+        serde_json::from_value(serde_json::json!({
+            "id": "message",
+            "workspace_id": "workspace",
+            "channel_id": "channel",
+            "author_kind": "user",
+            "status": "complete",
+            "blocks": [],
+            "text_content": "Continue",
+            "created_at": 0,
+        }))
+        .expect("Message")
+    }
+
+    #[test]
+    fn memory_signals_cancel_only_the_named_run() {
+        let mut signals = HashMap::new();
+        let tokens = [CancellationToken::new(), CancellationToken::new()];
+        let mut receivers = Vec::new();
+        for (name, token) in ["a", "b"].into_iter().zip(&tokens) {
+            let (inject, receiver) = mpsc::unbounded_channel();
+            receivers.push(receiver);
+            signals.insert(
+                RunId::from(name.to_string()),
+                RunHandle {
+                    cancel: token.clone(),
+                    inject,
+                },
+            );
         }
-        false
+        assert!(!signals.cancel(&RunId::from("absent".to_string())));
+        assert!(signals.cancel(&RunId::from("a".to_string())));
+        assert!(signals.cancel(&RunId::from("a".to_string())));
+        assert!(tokens[0].is_cancelled());
+        assert!(!tokens[1].is_cancelled());
+    }
+
+    #[test]
+    fn memory_signals_deliver_in_order_and_return_unsent_messages() {
+        let mut signals = HashMap::new();
+        let run_id = RunId::from("run".to_string());
+        let (inject, mut receiver) = mpsc::unbounded_channel();
+        signals.insert(
+            run_id.clone(),
+            RunHandle {
+                cancel: CancellationToken::new(),
+                inject,
+            },
+        );
+        let first = message();
+        let mut second = first.clone();
+        second.id = MessageId::from("second".to_string());
+        assert_eq!(
+            signals.inject(&RunId::from("absent".to_string()), first.clone()),
+            Some(first.clone())
+        );
+        assert_eq!(signals.inject(&run_id, first.clone()), None);
+        assert_eq!(signals.inject(&run_id, second.clone()), None);
+        assert_eq!(receiver.try_recv().expect("first message"), first);
+        assert_eq!(receiver.try_recv().expect("second message"), second);
+        drop(receiver);
+        assert_eq!(signals.inject(&run_id, first.clone()), Some(first));
     }
 }

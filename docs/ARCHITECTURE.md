@@ -122,6 +122,22 @@ it (ADR-0001). A Coding Harness runs beside the loop as a guest over ACP
 `waiting_for_user`, `waiting_for_approval`, and then `completed`, `failed`
 or `canceled`. Every step appends to the audit log.
 
+The actor owns an `Admission` value. It holds the queued and running Runs'
+Thread keys, slot pools and caps. Its pure functions select the next Run,
+count free slots, and decide how a Run starts, ends or cancels. A message
+precedes a proactive Run, and each Thread has at most one running Run.
+Arrival Runs and Review Runs use the arrival pool; other Runs use the
+conversation pool. Queued Runs reserve slots when the actor reports free
+capacity. A running Run keeps its slot and Thread until it ends, also when
+it receives a cancel signal.
+
+`RunQueue` keeps the queued Run records in order. `RunSignals` cancels a
+Run and sends a message to a running Run. The daemon keeps the queue in
+the actor's memory and uses each Run's cancellation token and message
+channel for signals. The actor loads the Agent, stores the Run state and
+starts the Run that `Admission::next` selects. Admission tests need no
+task, clock or store.
+
 A conversation keeps its continuity in a Continuation Record when its
 history does not fit one model request, and the complete request has one
 token budget (ADR-0009).
@@ -266,6 +282,12 @@ Each Agent can hold one Agent Mailbox on the Org's mail domain, as its own
 identity (ADR-0019). One set of mail tools serves the Agent's mailbox and
 the Person's own mail accounts. A Standing Mail Rule wakes the Agent on each
 inbound mail.
+
+The Mail Tools use the `Mailbox` operations. `Mailboxes` opens a mailbox from
+an Agent Mailbox record. `MailboxDesk` supplies `ImapMailbox`, which reads
+IMAP ids, selects folders and checks their numbering. The tools treat ids and
+page tokens as opaque strings and enforce the answer caps. The collector
+uses IMAP IDLE directly.
 
 ### Notifications
 

@@ -14,7 +14,7 @@ use std::sync::Arc;
 use axum::Json;
 use axum::extract::{Path, State};
 use pagis_core::AgentMailbox;
-use pagis_mail::{MessageId, TransportError, TransportErrorCode};
+use pagis_mail::{Mailboxes, MessageId, TransportError, TransportErrorCode};
 use serde::Serialize;
 use utoipa::ToSchema;
 
@@ -78,27 +78,13 @@ pub async fn get_mail_message(
     Path((mailbox, message_id)): Path<(String, String)>,
 ) -> Result<Json<MailMessageDto>, ApiError> {
     let record = mailbox_named(&state, &tenant, &mailbox).await?;
-    // An id the daemon cannot read names no message in this mailbox,
-    // which is what a sent message's id is: Pagis sent it and keeps no
-    // copy of it.
-    let id = message_id
-        .parse::<MessageId>()
-        .map_err(|_| gone(MESSAGE_GONE))?;
-    let mut session = state
+    let id = MessageId::new(message_id);
+    let mut mailbox = state
         .mailbox_desk
-        .open_session(&record)
+        .open(&record)
         .await
         .map_err(mailbox_error)?;
-    let folder = session.select(&id.folder).await.map_err(transport_error)?;
-    // A host that renumbers a folder gives every id of it another
-    // message, so an id from the old numbering names nothing (ADR-0019).
-    let renumbered = record.cursor.as_ref().is_some_and(|cursor| {
-        cursor.folder == id.folder && cursor.uid_validity != folder.uid_validity
-    });
-    if renumbered {
-        return Err(gone(MESSAGE_GONE));
-    }
-    let message = session.fetch(&id).await.map_err(transport_error)?;
+    let message = mailbox.message(&id).await.map_err(transport_error)?;
     Ok(Json(MailMessageDto {
         mailbox: record.address,
         message_id: message.summary.id.to_string(),
@@ -151,7 +137,7 @@ fn transport_error(error: TransportError) -> ApiError {
         TransportErrorCode::Unreachable | TransportErrorCode::Unreadable => {
             ApiError::conflict("the mail host did not answer. Try again later.".to_string())
         }
-        TransportErrorCode::Rejected => {
+        TransportErrorCode::InvalidRequest | TransportErrorCode::Rejected => {
             ApiError::conflict("the mail host refused the read.".to_string())
         }
     }

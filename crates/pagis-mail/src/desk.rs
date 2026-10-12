@@ -19,7 +19,7 @@ use std::time::Duration;
 use pagis_core::{
     AgentId, AgentMailbox, AgentMailboxId, AgentMailboxState, AgentMailboxStore, AgentStatus,
     AgentStore, Connection, ConnectionId, ConnectionStore, EventBus, MailboxCursor, NewEvent,
-    SecretStore, StoreError, UnixMillis, WorkspaceId, now_ms,
+    SecretStore, StoreError, WorkspaceId, now_ms,
 };
 use rand::Rng;
 
@@ -630,7 +630,7 @@ impl MailboxDesk {
         Ok(unavailable)
     }
 
-    /// Open one connection to a mailbox, for the mail tools.
+    /// Open one IMAP connection for the collector and ImapMailbox.
     /// The desk owns the credential, so nothing above it reads a
     /// password.
     pub async fn open_session(
@@ -665,18 +665,6 @@ impl MailboxDesk {
             .mailboxes
             .add_allow_rules(workspace_id, id, domains)
             .await?)
-    }
-
-    /// Count one send against today's tally and answer the new count.
-    /// The mail tools call it before they send, so the Outgoing Cap
-    /// holds whatever the host allows.
-    pub async fn note_send(
-        &self,
-        workspace_id: &WorkspaceId,
-        id: &AgentMailboxId,
-        at: UnixMillis,
-    ) -> Result<u32, MailboxError> {
-        Ok(self.mailboxes.note_send(workspace_id, id, at).await?)
     }
 
     /// How many mailboxes of this Workspace that are not deleted point
@@ -951,5 +939,16 @@ pub fn host_message(error: &HostError) -> String {
         }
         HostErrorCode::MailboxUnknown => "the mail host does not hold that mailbox".to_string(),
         code => format!("the mail host did not complete this ({})", code.as_str()),
+    }
+}
+
+#[async_trait::async_trait]
+impl crate::Mailboxes for MailboxDesk {
+    async fn open(&self, mailbox: &AgentMailbox) -> Result<Box<dyn crate::Mailbox>, MailboxError> {
+        let session = self.open_session(mailbox).await?;
+        Ok(Box::new(crate::ImapMailbox::new(
+            session,
+            mailbox.cursor.clone(),
+        )))
     }
 }

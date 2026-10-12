@@ -20,7 +20,9 @@
 //! sleeps and deletes an Agent Mailbox over those seams (ADR-0019).
 //!
 //! [`MailToolRuntime`] executes the `mail__*` tools in the Agent's own
-//! mailbox, with the answer caps the tools carry (ADR-0019).
+//! mailbox through [`Mailbox`] and [`Mailboxes`], with the answer caps
+//! the tools carry (ADR-0019). [`ImapMailbox`] holds the IMAP id and
+//! folder rules. The collector uses [`MailSession`] directly.
 //!
 //! [`MailMessageMatcher`] reads the typed filter of the one mail
 //! Incoming Event kind, whichever mailbox the mail arrived in
@@ -41,6 +43,8 @@ mod collector;
 mod desk;
 mod events;
 mod host;
+mod imap_mailbox;
+mod mailbox;
 mod manual;
 mod migadu;
 mod mime;
@@ -73,6 +77,8 @@ pub use host::{
     Deletion, HostAccount, HostCapabilities, HostError, HostErrorCode, HostedMailbox, MailboxHost,
     MailboxPassword,
 };
+pub use imap_mailbox::{ImapMailbox, ImapMessageId};
+pub use mailbox::{Mailbox, Mailboxes, MessageChange, MessageId, Page, PageRequest};
 pub use manual::ManualHost;
 pub use migadu::MigaduHost;
 pub use mime::{BuiltMessage, build_mime, read_mime};
@@ -98,9 +104,8 @@ pub use tools::{
 };
 pub use transport::{
     ARCHIVE, Attachment, Cursor, Endpoint, FlagChange, FolderState, INBOX, IdleOutcome, MailQuery,
-    MailSession, MailTransport, MailboxCredential, Message, MessageId, MessageIdError,
-    MessageSummary, OutgoingMessage, SentMessage, TransportCapabilities, TransportError,
-    TransportErrorCode,
+    MailSession, MailTransport, MailboxCredential, Message, MessageSummary, OutgoingMessage,
+    SentMessage, TransportCapabilities, TransportError, TransportErrorCode,
 };
 
 /// The provider of a Connection whose mailboxes the daemon makes

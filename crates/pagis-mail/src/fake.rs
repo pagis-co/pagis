@@ -5,6 +5,11 @@
 //! test of the mailbox lifecycle or of the collector starts no process
 //! and reaches no network.
 
+mod memory_mailbox;
+pub use memory_mailbox::MemoryMailbox;
+
+use crate::ImapMessageId;
+use crate::MessageId;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -24,8 +29,8 @@ use crate::standing::{StandingMailRule, StandingRuleError};
 pub use crate::transport::ARCHIVE;
 use crate::transport::{
     Attachment, Cursor, FlagChange, FolderState, INBOX, IdleOutcome, MailQuery, MailSession,
-    MailTransport, MailboxCredential, Message, MessageId, MessageSummary, OutgoingMessage,
-    SentMessage, TransportCapabilities, TransportError, TransportErrorCode,
+    MailTransport, MailboxCredential, Message, MessageSummary, OutgoingMessage, SentMessage,
+    TransportCapabilities, TransportError, TransportErrorCode,
 };
 
 /// What the fake host was asked to do, in order.
@@ -242,6 +247,7 @@ struct Inbox {
     folders: HashMap<String, Folder>,
     sent: Vec<OutgoingMessage>,
     logins: Vec<String>,
+    selected_folders: Vec<String>,
 }
 
 impl Inbox {
@@ -344,7 +350,7 @@ impl FakeMailTransport {
             let folder = inbox.folder(INBOX);
             let uid = folder.next_uid;
             folder.next_uid += 1;
-            let id = MessageId::new(INBOX, uid);
+            let id: MessageId = ImapMessageId::new(INBOX, uid).into();
             let message = read_mime(raw, id.clone()).expect("the test message reads");
             folder.messages.push(StoredMessage {
                 message,
@@ -372,7 +378,7 @@ impl FakeMailTransport {
             let folder = inbox.folder(INBOX);
             let uid = folder.next_uid;
             folder.next_uid += 1;
-            let id = MessageId::new(INBOX, uid);
+            let id: MessageId = ImapMessageId::new(INBOX, uid).into();
             let message_id = format!("<{uid}@fake.invalid>");
             let summary = MessageSummary {
                 id: id.clone(),
@@ -432,11 +438,15 @@ impl FakeMailTransport {
             .collect()
     }
 
+    pub fn selected_folders(&self) -> Vec<String> {
+        self.shared.inbox.lock().unwrap().selected_folders.clone()
+    }
+
     /// The flags one message carries now.
     pub fn flags_of(&self, id: &MessageId) -> Option<StoredFlags> {
         let mut inbox = self.shared.inbox.lock().unwrap();
         inbox
-            .folder(&id.folder)
+            .folder(&id.as_str().parse::<ImapMessageId>().ok()?.folder)
             .messages
             .iter()
             .find(|stored| stored.message.summary.id == *id)
@@ -499,6 +509,7 @@ impl MailSession for FakeMailSession {
         self.refuse()?;
         self.selected = folder.to_string();
         let mut inbox = self.shared.inbox.lock().unwrap();
+        inbox.selected_folders.push(folder.to_string());
         let state = inbox.folder(folder);
         Ok(FolderState {
             folder: folder.to_string(),
@@ -521,12 +532,22 @@ impl MailSession for FakeMailSession {
         let found: Vec<MessageSummary> = folder
             .messages
             .iter()
-            .filter(|stored| stored.message.summary.id.uid > cursor.last_uid)
+            .filter(|stored| {
+                stored
+                    .message
+                    .summary
+                    .id
+                    .as_str()
+                    .parse::<ImapMessageId>()
+                    .unwrap()
+                    .uid
+                    > cursor.last_uid
+            })
             .map(|stored| stored.message.summary.clone())
             .collect();
         let last_uid = found
             .last()
-            .map(|summary| summary.id.uid)
+            .map(|summary| summary.id.as_str().parse::<ImapMessageId>().unwrap().uid)
             .unwrap_or(cursor.last_uid);
         Ok((
             found,
@@ -542,7 +563,7 @@ impl MailSession for FakeMailSession {
         self.refuse()?;
         let mut inbox = self.shared.inbox.lock().unwrap();
         inbox
-            .folder(&id.folder)
+            .folder(&id.as_str().parse::<ImapMessageId>()?.folder)
             .messages
             .iter()
             .find(|stored| stored.message.summary.id == *id)
@@ -622,7 +643,7 @@ impl MailSession for FakeMailSession {
         self.refuse()?;
         let mut inbox = self.shared.inbox.lock().unwrap();
         let stored = inbox
-            .folder(&id.folder)
+            .folder(&id.as_str().parse::<ImapMessageId>()?.folder)
             .messages
             .iter_mut()
             .find(|stored| stored.message.summary.id == *id)
@@ -640,7 +661,7 @@ impl MailSession for FakeMailSession {
         self.refuse()?;
         {
             let mut inbox = self.shared.inbox.lock().unwrap();
-            let folder = inbox.folder(&id.folder);
+            let folder = inbox.folder(&id.as_str().parse::<ImapMessageId>()?.folder);
             let at = folder
                 .messages
                 .iter()
@@ -650,7 +671,7 @@ impl MailSession for FakeMailSession {
             let archive = inbox.folder(ARCHIVE);
             let uid = archive.next_uid;
             archive.next_uid += 1;
-            stored.message.summary.id = MessageId::new(ARCHIVE, uid);
+            stored.message.summary.id = ImapMessageId::new(ARCHIVE, uid).into();
             archive.messages.push(stored);
         }
         self.shared.changes.send_modify(|version| *version += 1);

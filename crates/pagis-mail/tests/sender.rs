@@ -32,7 +32,7 @@ fn check_on(authserv_ids: &[&str], from: &str, results: &[String]) -> SenderVeri
 
 /// The check of one message as its bytes read.
 fn check_raw(authserv_ids: &[&str], raw: &[u8]) -> SenderVerification {
-    let message = read_mime(raw, MessageId::new("INBOX", 1)).expect("the message reads");
+    let message = read_mime(raw, MessageId::new("INBOX:1")).expect("the message reads");
     verify_sender(authserv_ids, &message.summary)
 }
 

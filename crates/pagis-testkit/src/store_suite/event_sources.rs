@@ -95,6 +95,8 @@ fn rule(world: &World, session: &CodingSessionId) -> EventSubscription {
         revision: 1,
         approved_revision: Some(1),
         watermark_at: Some(10),
+        failures: 0,
+        next_attempt_at: 0,
         blocked_reason: None,
         created_at: 10,
         updated_at: 10,
@@ -181,7 +183,13 @@ pub async fn a_rule_and_an_event_of_a_coding_session_read_back_with_their_source
             .unwrap()
             .is_empty()
     );
-    assert!(subscriptions.collector_targets().await.unwrap().is_empty());
+    assert!(
+        subscriptions
+            .collector_targets(&world.workspace.id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
 
     let outcome = ingest(
         backend,
@@ -382,11 +390,118 @@ pub async fn a_collection_pass_that_overlaps_a_block_of_the_rule_adds_no_wakeup(
     assert!(wakeups.is_empty(), "the blocked rule holds no pending work");
 }
 
+pub async fn collector_retry_state_is_shared_by_a_target_and_scoped_to_its_workspace(
+    backend: &Backend,
+) {
+    let world = world(backend).await;
+    let stores = backend.stores();
+    let connection = pagis_core::Connection {
+        id: pagis_core::ConnectionId::generate(),
+        workspace_id: world.workspace.id.clone(),
+        provider: "google".into(),
+        alias: "mail".into(),
+        display_name: "Mail".into(),
+        status: pagis_core::Connection::CONNECTED.into(),
+        authorized_capabilities: vec![],
+        config: serde_json::json!({}),
+        created_at: 0,
+    };
+    stores.connections.create(&connection).await.unwrap();
+    let first = EventSubscription {
+        source: EventSource::connection(connection.id.clone()),
+        failures: 2,
+        next_attempt_at: 1000,
+        ..rule(&world, &world.sessions[0])
+    };
+    let second = EventSubscription {
+        id: EventSubscriptionId::generate(),
+        failures: 0,
+        next_attempt_at: 0,
+        ..first.clone()
+    };
+    stores.subscriptions.create(&first).await.unwrap();
+    stores.subscriptions.create(&second).await.unwrap();
+    let targets = stores
+        .subscriptions
+        .collector_targets(&world.workspace.id)
+        .await
+        .unwrap();
+    assert_eq!(targets.len(), 1, "one Connection costs one poll");
+    let target = &targets[0];
+    assert_eq!(target.failures, 2);
+    assert_eq!(
+        target.next_attempt_at, 1000,
+        "a new rule does not bypass the target's backoff"
+    );
+    let other = pagis_core::WorkspaceId::generate();
+    assert!(
+        stores
+            .subscriptions
+            .collector_targets(&other)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    let wrong = pagis_core::CollectorTarget {
+        workspace_id: other,
+        ..target.clone()
+    };
+    stores
+        .subscriptions
+        .set_collector_backoff(&wrong, 0, 0)
+        .await
+        .unwrap();
+    assert_eq!(
+        stores
+            .subscriptions
+            .get(&world.workspace.id, &first.id)
+            .await
+            .unwrap(),
+        Some(first.clone())
+    );
+    stores
+        .subscriptions
+        .set_collector_backoff(target, 3, 2000)
+        .await
+        .unwrap();
+    // A rule edit keeps the collection state, even from an older snapshot.
+    let edit = EventSubscription {
+        name: "Updated".into(),
+        ..first.clone()
+    };
+    stores.subscriptions.update(&edit).await.unwrap();
+    for id in [&first.id, &second.id] {
+        let stored = stores
+            .subscriptions
+            .get(&world.workspace.id, id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.failures, 3);
+        assert_eq!(stored.next_attempt_at, 2000);
+    }
+    stores
+        .subscriptions
+        .set_collector_backoff(target, 0, 0)
+        .await
+        .unwrap();
+    for row in stores
+        .subscriptions
+        .live_for_source(&world.workspace.id, &first.source, &first.event_kind)
+        .await
+        .unwrap()
+    {
+        assert_eq!(row.failures, 0);
+        assert_eq!(row.next_attempt_at, 0);
+    }
+}
+
 #[macro_export]
 macro_rules! store_suite_event_sources {
     ($emit:path) => {
         $emit!(
             event_sources,
+            collector_retry_state_is_shared_by_a_target_and_scoped_to_its_workspace,
             a_rule_and_an_event_of_a_coding_session_read_back_with_their_source,
             one_event_id_stored_twice_for_one_session_makes_one_event,
             one_event_id_of_two_sessions_makes_two_events,

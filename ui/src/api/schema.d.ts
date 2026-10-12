@@ -306,6 +306,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/administration/sections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The sections this server offers to an Administrator. */
+        get: operations["get_sections"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/administration/sessions": {
         parameters: {
             query?: never;
@@ -3266,6 +3283,10 @@ export interface components {
         };
         AdministrationHostsDto: {
             items: components["schemas"]["AdministrationHostDto"][];
+        };
+        AdministrationSectionsDto: {
+            /** @description The offered sections, in navigation order. Restart has no view. */
+            sections: string[];
         };
         /**
          * @description Adopt a number the carrier account already holds, and give
@@ -8149,6 +8170,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ResourcesDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_sections: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdministrationSectionsDto"];
                 };
             };
             401: {

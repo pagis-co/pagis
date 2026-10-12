@@ -238,6 +238,11 @@ pub const SHARED_ROUTES: &[(&str, &[&str], &str)] = &[
 /// handler takes: the guard is the router's.
 pub const ADMINISTRATION_ROUTES: &[Route] = &[
     Route {
+        path: "/api/v1/administration/sections",
+        methods: &["get"],
+        authenticated: true,
+    },
+    Route {
         path: "/api/v1/administration/people",
         methods: &["get", "post"],
         authenticated: true,

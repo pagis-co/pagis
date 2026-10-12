@@ -6,6 +6,7 @@ mod collector;
 mod desk;
 mod fakes;
 mod greenmail;
+mod imap_mailbox;
 mod live_mail;
 mod live_migadu;
 mod mail_events;

@@ -19,14 +19,14 @@ serde.workspace = true
 sha2.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["io-util", "process"] }
+tokio = { workspace = true, features = ["io-util", "process", "rt"] }
 
 [dev-dependencies]
 axum.workspace = true
 tempfile.workspace = true
 # The collector test checks its metadata against the declaration.
 jsonschema.workspace = true
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread"] }
 
 [[test]]
 name = "main"
