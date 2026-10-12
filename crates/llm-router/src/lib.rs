@@ -29,9 +29,11 @@ mod config;
 mod error;
 mod forward;
 pub mod protocol;
+#[cfg(not(target_arch = "wasm32"))]
 mod realtime;
 mod registry;
 mod router;
+mod rt;
 mod stream_util;
 mod types;
 mod voices;
@@ -43,6 +45,7 @@ pub use config::{
 };
 pub use error::{Error, ErrorKind};
 pub use forward::{ForwardRequest, Forwarded, Metered};
+#[cfg(not(target_arch = "wasm32"))]
 pub use realtime::{
     RealtimeConnection, RealtimeIntent, RealtimeMessage, RealtimeProtocol, RealtimeSocket,
 };

@@ -135,9 +135,9 @@ impl Router {
 
         let (pieces, received) = mpsc::channel(METER_CHANNEL_CAPACITY);
         let (done, metered) = oneshot::channel();
-        tokio::spawn(run_meter(meter, event_stream, received, done));
+        crate::rt::spawn(run_meter(meter, event_stream, received, done));
 
-        let mut upstream = response.bytes_stream();
+        let mut upstream = crate::rt::body(response.bytes_stream());
         let body = async_stream::stream! {
             while let Some(item) = upstream.next().await {
                 match item {

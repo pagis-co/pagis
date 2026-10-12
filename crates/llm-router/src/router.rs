@@ -6,6 +6,7 @@ use rand::Rng;
 use crate::config::{Candidate, ProviderConfig, RouterConfig};
 use crate::error::Error;
 use crate::protocol::{EventStream, Protocol, codec};
+#[cfg(not(target_arch = "wasm32"))]
 use crate::realtime::RealtimeIntent;
 use crate::registry::{self, ListedModel, ListedVoice, ModelInfo, ModelMetadata};
 use crate::stream_util::with_idle_timeout;
@@ -62,11 +63,14 @@ impl Router {
     /// Build a router with its own HTTP client. Fails on invalid provider
     /// configuration (see [`ProviderConfig::base_url`]).
     pub fn new(config: RouterConfig) -> Result<Self, Error> {
-        let http = reqwest::Client::builder()
+        let http = reqwest::Client::builder();
+        #[cfg(not(target_arch = "wasm32"))]
+        let http = http
             .connect_timeout(config.timeouts.connect)
             .http2_keep_alive_interval(std::time::Duration::from_secs(30))
             .http2_keep_alive_while_idle(true)
-            .http2_adaptive_window(true)
+            .http2_adaptive_window(true);
+        let http = http
             .build()
             .map_err(|e| Error::InvalidConfig(format!("failed to build HTTP client: {e}")))?;
         Self::with_client(http, config)
@@ -167,6 +171,7 @@ impl Router {
     /// The wire dialect is the provider's own — OpenAI Realtime events on
     /// openai-chat providers (OpenAI, Azure, Kyutai Unmute). Providers on
     /// other protocols report realtime as unsupported.
+    #[cfg(not(target_arch = "wasm32"))]
     pub async fn realtime_connect(
         &self,
         model: &str,
@@ -182,6 +187,7 @@ impl Router {
     /// `/listen`, with the model and the audio format in the query. The
     /// returned connection's `model` is the candidate that served the
     /// alias, and its `protocol` names the dialect.
+    #[cfg(not(target_arch = "wasm32"))]
     pub async fn realtime_transcription_connect(
         &self,
         model: &str,
@@ -191,6 +197,7 @@ impl Router {
             .await
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     async fn realtime(
         &self,
         model: &str,
@@ -418,7 +425,7 @@ impl Router {
             let mut backoff = retry.initial_backoff;
             for attempt_number in 1..=retry.max_attempts.max(1) {
                 attempts += 1;
-                let started = std::time::Instant::now();
+                let started = web_time::Instant::now();
                 let result = attempt(candidate.clone()).await;
                 if let Some(hook) = &self.on_attempt {
                     hook(AttemptInfo {
@@ -446,7 +453,7 @@ impl Router {
                             } else {
                                 backoff.mul_f64(rand::rng().random_range(0.0..=0.25))
                             };
-                            tokio::time::sleep(backoff.saturating_add(jitter)).await;
+                            crate::rt::sleep(backoff.saturating_add(jitter)).await;
                             backoff = (backoff * 2).min(retry.max_backoff);
                         }
                     }
@@ -613,7 +620,7 @@ impl Router {
         response: reqwest::Response,
         cap: usize,
     ) -> Result<bytes::Bytes, Error> {
-        let mut stream = response.bytes_stream();
+        let mut stream = crate::rt::body(response.bytes_stream());
         let mut buf = Vec::new();
         while let Some(chunk) = stream.next().await {
             let chunk = chunk.map_err(|e| self.transport(provider, e))?;
@@ -656,12 +663,14 @@ impl Router {
                 let body = self.read_capped(&candidate.provider, response).await?;
                 return Err(protocol.parse_error(&candidate.provider, status.as_u16(), &body));
             }
-            let mut events =
-                protocol.stream_events(&candidate.provider, response.bytes_stream().boxed());
+            let mut events = protocol.stream_events(
+                &candidate.provider,
+                crate::rt::body(response.bytes_stream()).boxed(),
+            );
             let first = events.next().await;
             Ok((first, events))
         };
-        let (first, rest) = tokio::time::timeout(self.config.timeouts.first_event, open)
+        let (first, rest) = crate::rt::timeout(self.config.timeouts.first_event, open)
             .await
             .map_err(|_| Error::FirstEventTimeout {
                 provider: candidate.provider.clone(),

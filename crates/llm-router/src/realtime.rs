@@ -157,7 +157,7 @@ pub(crate) async fn connect(
         headers.insert(name, value);
     }
 
-    let (socket, _response) = tokio::time::timeout(timeout, connect_async(request))
+    let (socket, _response) = crate::rt::timeout(timeout, connect_async(request))
         .await
         .map_err(|_| realtime_error(provider_key, "timed out opening the WebSocket"))?
         .map_err(|e| realtime_error(provider_key, e))?;

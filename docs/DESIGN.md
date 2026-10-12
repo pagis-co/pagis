@@ -73,9 +73,10 @@ crates/llm-router/
     config.rs       # RouterConfig: providers (protocol, base_url, api_key),
                     # models (alias -> ordered candidates)
     router.rs       # Router::chat / Router::chat_stream, fallback loop
+    rt.rs           # host tasks, timers and response bodies
     accumulator.rs  # MessageAccumulator: a stream back into a message
     registry.rs     # the model metadata table (models.json)
-    realtime.rs     # realtime WebSocket routing
+    realtime.rs     # native realtime WebSocket routing
     forward.rs      # Router::forward: a provider's own request, metered
     protocol/
       mod.rs        # Protocol trait (sync encode/decode; router owns async I/O)
@@ -89,6 +90,21 @@ crates/llm-router/
 The `Protocol` trait is sync: it builds a `reqwest` request, parses a response
 body, and maps a byte stream to a `StreamEvent` stream. The router owns the shared
 `reqwest::Client`, timeouts, and the candidate loop.
+
+Tasks, timers and response bodies go through `rt`. Native targets use Tokio.
+On `wasm32-unknown-unknown`, timers use Gloo, tasks run on the host's one
+thread, and `SendWrapper` keeps the codecs' `Send` stream contract. Attempt
+timing uses `web-time`. The native HTTP client sets the connect timeout and
+HTTP/2 options. The wasm HTTP client uses the host's fetch defaults.
+Not built: realtime WebSocket routing on `wasm32-unknown-unknown`.
+
+The runtime test runs under Node with `wasm-bindgen-test`. With
+`wasm-bindgen-test-runner` installed at the version of `wasm-bindgen` in
+`Cargo.lock`, run:
+
+```sh
+cargo test -p llm-router --target wasm32-unknown-unknown --test rt
+```
 
 ## What the router carries
 
