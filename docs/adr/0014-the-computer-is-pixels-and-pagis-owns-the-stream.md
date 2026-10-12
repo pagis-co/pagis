@@ -80,8 +80,10 @@ Workspaces. Five things make it one.
   next wake. Each network takes one subnet from the Docker daemon's address
   pools, which set how many Workspaces one host holds.
 - **An authenticated control port.** The daemon makes a secret for each
-  container at each start, gives it as a read-only mount that the entrypoint
-  hands to the `screen` user alone, and sends it on every control request. A
+  container at each start, uploads it to `/etc/pagis/screend-token` before
+  the container starts, and sends it on every control request. The file is
+  owned by `root:screen` with mode 0440. The image owns `/etc/pagis` as
+  `root:screen` with mode 0750, so the Agent cannot read the secret. A
   container that reaches another's port cannot drive it, and nothing on the
   network gets around the daemon's hold of the input switch. Only `/healthz`
   answers without the secret. A Computer is awake when `/healthz` answers and
@@ -108,11 +110,20 @@ Workspaces. Five things make it one.
   deployment installs them. A Local Installation does not, and its
   documentation says what a Computer then reaches.
 
-The secret and the Plugin checkouts reach a container as bind mounts of files
-in the daemon's state directory, and Docker reads a bind source on the Docker
-host. A daemon in a container therefore has its state directory at the same
-path on the host and in its own container: the compose deployment mounts
-`/var/lib/pagis` at `/var/lib/pagis`.
+The screen token reaches the container through the Docker Engine archive
+upload. The daemon keeps its own copy in the State Directory, so it reaches
+an awake Computer after a restart. The token stays out of the container's
+environment, which every `docker exec` inherits. Its path is outside `/run`,
+so a runtime that mounts a tmpfs there does not hide it.
+
+The container gets `/dev/shm` as a tmpfs mount, with the size of the Computer
+limits and mode 1777.
+
+The Plugin checkouts stay bind mounts of files in the State Directory.
+Docker reads a bind source on the Docker host. A daemon in a container
+therefore has its State Directory at the same path on the host and in its
+own container: the compose deployment mounts `/var/lib/pagis` at
+`/var/lib/pagis`.
 
 This is a boundary between colleagues, not strangers. The kernel is shared,
 the seccomp profile allows Chromium's user-namespace calls, and there is no

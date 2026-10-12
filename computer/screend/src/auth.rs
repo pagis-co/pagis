@@ -2,10 +2,10 @@
 //! boundary between tenants, so a caller that reaches the port is not
 //! yet a caller that may drive the screen: every control request
 //! carries `Authorization: Bearer <token>`, and the token is the file
-//! the daemon mounts into this container alone.
+//! the daemon uploads into this container alone.
 //!
 //! The token is read once, at start, from the file named by
-//! `PAGIS_SCREEND_TOKEN_FILE`, or from `/run/pagis/screend-token` when
+//! `PAGIS_SCREEND_TOKEN_FILE`, or from `/etc/pagis/screend-token` when
 //! that variable is absent. It never arrives as a command-line
 //! argument or in the environment: every `docker exec`, the agent's own
 //! shell among them, inherits the container environment and reads the
@@ -14,7 +14,7 @@
 use std::path::{Path, PathBuf};
 
 /// Where the token file is when the environment names no other path.
-const DEFAULT_TOKEN_FILE: &str = "/run/pagis/screend-token";
+const DEFAULT_TOKEN_FILE: &str = "/etc/pagis/screend-token";
 
 /// The one request path that needs no token: it carries nothing of the
 /// person, and both the image's readiness probe and the daemon's boot
@@ -117,6 +117,11 @@ mod tests {
         let guard = Guard::from_file(&path);
         std::fs::remove_file(&path).expect("remove the test token file");
         guard
+    }
+
+    #[test]
+    fn the_default_token_path_is_in_the_image_configuration_directory() {
+        assert_eq!(DEFAULT_TOKEN_FILE, "/etc/pagis/screend-token");
     }
 
     #[test]

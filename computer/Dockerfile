@@ -281,7 +281,9 @@ COPY --from=runtimes /opt/node /usr/local/
 # connections through the Exit Proxy as `computer_shell` does.
 # `pagis-apt` keeps none of them, so apt connects directly.
 RUN useradd -u 1000 -d /data/agent -s /bin/bash agent \
-    && useradd -u 1001 -d /data/screen -s /bin/bash screen
+    && groupadd -g 1001 screen \
+    && useradd -u 1001 -g screen -d /data/screen -s /bin/bash screen \
+    && install -d -o root -g screen -m 0750 /etc/pagis
 RUN printf '%s\n' \
       'Defaults:screen env_keep += "HTTP_PROXY HTTPS_PROXY NO_PROXY http_proxy https_proxy no_proxy"' \
       'screen ALL=(agent) NOPASSWD: /bin/bash' \
@@ -379,8 +381,8 @@ ENV XDG_RUNTIME_DIR=/run/pagis-xdg \
 # port. The Exit Proxy of screend listens on 127.0.0.1:3128 alone, so it
 # publishes no port.
 # Reaching the port is not holding it: every endpoint but
-# /healthz needs the bearer token that entrypoint.sh copies out of the
-# mount at /run/pagis-token/screend.
+# /healthz needs the bearer token that the daemon uploads to
+# /etc/pagis/screend-token before the container starts.
 EXPOSE 7900
 EXPOSE 7901/udp
 ENTRYPOINT ["/entrypoint.sh"]

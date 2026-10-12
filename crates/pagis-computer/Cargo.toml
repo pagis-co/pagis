@@ -26,6 +26,7 @@ sha2.workspace = true
 nix.workspace = true
 # The Media Relay verifies ICE checks with str0m's STUN code.
 str0m = { workspace = true, features = ["sha1"] }
+tar.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["fs", "io-util", "net", "rt"] }
