@@ -143,7 +143,7 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
     );
     let root = workspace_root();
     let cmds = wasm32_commands(&root);
-    assert_eq!(cmds.len(), 11);
+    assert_eq!(cmds.len(), 12);
     assert_eq!(
         cargo_arguments(&cmds[0]),
         [

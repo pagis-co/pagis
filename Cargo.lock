@@ -4697,7 +4697,6 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "deunicode",
- "futures",
  "imap-codec",
  "imap-next",
  "lettre",
