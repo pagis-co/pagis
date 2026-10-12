@@ -290,10 +290,8 @@ use pagis_testkit::{Script, ScriptedBrain};
 
 /// A valid display-size PNG for the fake computer's frame.
 fn display_png() -> Vec<u8> {
-    let image = image::DynamicImage::new_rgb8(
-        pagis_computer::exec::DISPLAY_WIDTH,
-        pagis_computer::exec::DISPLAY_HEIGHT,
-    );
+    let image =
+        image::DynamicImage::new_rgb8(pagis_agent::DISPLAY_WIDTH, pagis_agent::DISPLAY_HEIGHT);
     let mut out = std::io::Cursor::new(Vec::new());
     image.write_to(&mut out, image::ImageFormat::Png).unwrap();
     out.into_inner()
@@ -493,7 +491,7 @@ async fn takeover_denies_the_agent_and_handback_resumes_with_the_note() {
     next_frame_of(&mut socket, "screen.takeover_started").await;
     assert_eq!(
         runtime.holder(&pagis_core::AgentId::from(daemon.agent_id.clone())),
-        pagis_computer::InputHolder::User
+        pagis_core::InputHolder::User
     );
 
     // The agent's turn parks: the lease is denied while the user holds.
@@ -897,7 +895,7 @@ async fn a_sign_out_leaves_an_active_takeover_in_place() {
     daemon.sign_out(&signing_out).await;
 
     let agent = pagis_core::AgentId::from(daemon.agent_id.clone());
-    assert_eq!(runtime.holder(&agent), pagis_computer::InputHolder::User);
+    assert_eq!(runtime.holder(&agent), pagis_core::InputHolder::User);
     let state: serde_json::Value = get(
         &daemon,
         &format!("/api/v1/agents/{}/computer", daemon.agent_id),

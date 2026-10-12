@@ -23,7 +23,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use pagis_computer::exec::InputOp;
 use pagis_computer::fake::{FakeAgents, FakeWorkspaces};
 use pagis_computer::test_docker::TestDocker;
 use pagis_computer::{
@@ -31,6 +30,7 @@ use pagis_computer::{
     ComputerOwner, ComputerRuntime, ComputerState, DockerDiscovery, IMAGE, RuntimeOptions,
     StartedComputer, TEST_LABEL,
 };
+use pagis_core::computer_action::InputOp;
 use pagis_core::{
     AgentId, Event, EventBus, EventId, EventScope, EventStream, NewEvent, StoreError, WorkspaceId,
     now_ms,
@@ -602,7 +602,7 @@ async fn fill(
     secret: &str,
 ) -> Result<(), VaultError> {
     pagis_vault::fill::open_and_fill(
-        &desk.manager,
+        &(desk.manager.clone() as Arc<dyn pagis_core::Computer>),
         &desk.agent_id,
         DOMAIN,
         login_url,
@@ -614,7 +614,13 @@ async fn fill(
 
 /// The code fill of the Credential for `example.com`.
 async fn fill_code(desk: &Desk, code: &str) -> Result<(), VaultError> {
-    pagis_vault::fill::fill_code(&desk.manager, &desk.agent_id, DOMAIN, code).await
+    pagis_vault::fill::fill_code(
+        &(desk.manager.clone() as Arc<dyn pagis_core::Computer>),
+        &desk.agent_id,
+        DOMAIN,
+        code,
+    )
+    .await
 }
 
 fn current_code() -> String {

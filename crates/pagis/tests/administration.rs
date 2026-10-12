@@ -781,8 +781,8 @@ async fn setting_a_way_in_closes_every_socket_of_the_person() {
 async fn the_takeover_of_the_person_ends(action: EverySessionEnds) {
     use std::sync::Arc;
 
-    use pagis_computer::InputHolder;
     use pagis_computer::fake::FakeComputerRuntime;
+    use pagis_core::InputHolder;
 
     let runtime = Arc::new(FakeComputerRuntime::with_image());
     let daemon = TestDaemon::start_with(pagis_testkit::TestDaemonOptions {

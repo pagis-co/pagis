@@ -15,9 +15,9 @@ use std::time::Duration;
 use async_trait::async_trait;
 use pagis_computer::fake::FakeWorkspaces;
 use pagis_computer::{
-    BollardRuntime, ComputerManager, ComputerState, DockerDiscovery, IMAGE, ShellCommand,
-    test_docker::TestDocker,
+    BollardRuntime, ComputerManager, ComputerState, DockerDiscovery, IMAGE, test_docker::TestDocker,
 };
+use pagis_core::ShellCommand;
 use pagis_core::{
     AgentId, Event, EventBus, EventId, EventScope, EventStream, NewEvent, StoreError, WorkspaceId,
     now_ms,
@@ -177,7 +177,7 @@ async fn live() -> Live {
 
 impl Live {
     /// One shell command in the agent's Computer, as the agent.
-    async fn shell(&self, command: &str) -> pagis_computer::ExecOutcome {
+    async fn shell(&self, command: &str) -> pagis_core::ExecOutcome {
         self.manager
             .shell(
                 &self.agent_id,
@@ -368,7 +368,7 @@ async fn a_setup_runs_offline_and_leaves_a_read_only_tree() {
         },
         tar: package_tar(&[("pagis-software.toml", manifest, 0o644)]),
     });
-    let materializer = Materializer::new(Arc::clone(&live.managers), Arc::clone(&source) as _);
+    let materializer = Materializer::new(live.managers.clone(), Arc::clone(&source) as _);
 
     let root = materializer
         .ensure(
@@ -442,11 +442,11 @@ schema = "schemas/add.json"
         ]),
     });
     let materializer = Arc::new(Materializer::new(
-        Arc::clone(&live.managers),
+        live.managers.clone(),
         Arc::clone(&source) as _,
     ));
     let runner = SoftwareRunner::new(
-        Arc::clone(&live.managers),
+        live.managers.clone(),
         materializer,
         Arc::clone(&source) as _,
     );

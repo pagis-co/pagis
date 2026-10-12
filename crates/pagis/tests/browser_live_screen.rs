@@ -16,9 +16,10 @@ use base64::Engine;
 use pagis_computer::test_docker::TestDocker;
 use pagis_computer::{
     BollardRuntime, ComputerLimits, ComputerOwner, ComputerRuntime, DockerDiscovery, IMAGE,
-    InputHolder, RuntimeOptions, StartedComputer,
+    RuntimeOptions, StartedComputer,
 };
 use pagis_core::AgentId;
+use pagis_core::InputHolder;
 use pagis_testkit::browser::{Browser, Tab};
 use pagis_testkit::{TestDaemon, TestDaemonOptions};
 

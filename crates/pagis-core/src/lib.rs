@@ -136,3 +136,12 @@ pub use values::validate_values;
 
 mod forget;
 pub use forget::*;
+
+mod computer;
+pub mod computer_action;
+mod computer_fill;
+pub use computer::{
+    Computer, ComputerError, ComputerLease, Computers, DaemonHold, ExecOutcome, ExitInUse,
+    InputHolder, OutputCap, ShellCommand,
+};
+pub use computer_fill::{FieldKind, FillField};

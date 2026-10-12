@@ -28,10 +28,9 @@ use pagis_coding::{
     ConfigDirectory, ModelRoutes, OpenFailure, OpenFailureCode, OpenRequest, OpenedStream, Place,
     SessionExit, SessionPlace, open_on_host,
 };
-use pagis_computer::{
-    ComputerManager, ComputerManagers, ExecPin, ExecRequest, OutputCap, SHELL_USER, ShellCommand,
-};
+use pagis_computer::{ComputerManager, ComputerManagers, ExecPin, ExecRequest, SHELL_USER};
 use pagis_core::{AgentId, WorkspaceId, harness};
+use pagis_core::{OutputCap, ShellCommand};
 use pagis_server::HarnessModelTokens;
 use tokio::sync::{mpsc, oneshot};
 

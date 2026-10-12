@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use futures::{SinkExt, StreamExt};
 use pagis_computer::fake::FakeComputerRuntime;
-use pagis_computer::{FieldKind, FillField, InputHolder};
+use pagis_core::{FieldKind, FillField, InputHolder};
 use pagis_testkit::{Script, ScriptedBrain, TestDaemon, TestDaemonOptions, TwoTenants};
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;

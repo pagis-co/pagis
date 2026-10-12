@@ -16,7 +16,7 @@ use std::sync::{Arc, RwLock};
 
 use async_trait::async_trait;
 use pagis_broker::CapabilityManifest;
-use pagis_computer::ComputerManagers;
+use pagis_core::Computers;
 use pagis_core::{
     AgentId, AgentStore, EventBus, NewEvent, RunId, SoftwarePackage, SoftwarePackageId,
     SoftwareStore, SoftwareVersion, WorkspaceId, now_ms,
@@ -58,7 +58,7 @@ pub struct SoftwareListDeps {
     pub git: Arc<SoftwareGitStore>,
     /// Every tenant's Computer manager. A publish and a fork
     /// reach the Computer of the tenant the caller names.
-    pub computers: Arc<ComputerManagers>,
+    pub computers: Arc<dyn Computers>,
     pub manifests: Arc<dyn ManifestSink>,
     pub bus: Arc<dyn EventBus>,
     /// Where a publish and a fork are written down.
@@ -407,7 +407,7 @@ impl SoftwareList {
             .get(workspace_id)
             .shell(
                 agent_id,
-                pagis_computer::ShellCommand {
+                pagis_core::ShellCommand {
                     command: format!("mkdir -p {WORKING_COPY_ROOT}"),
                     timeout: std::time::Duration::from_secs(60),
                     cwd: None,

@@ -1240,14 +1240,14 @@ async fn acquire_lease(
     run: &mut Run,
     cancel: &CancellationToken,
     ctx: &mut ComputerCtx,
-) -> Result<tokio::sync::OwnedMutexGuard<()>, ToolFlow> {
+) -> Result<pagis_core::ComputerLease, ToolFlow> {
     let mut parked = false;
     let guard = loop {
         // Subscribe before trying, so no handback can slip past.
         let mut events = deps.bus.subscribe(EventScope::Installation, None).await;
         match deps.computers.get(&run.workspace_id).lease(&agent.id).await {
             Ok(guard) => break guard,
-            Err(pagis_computer::ComputerError::SwitchHeld { holder }) => {
+            Err(pagis_core::ComputerError::SwitchHeld { holder }) => {
                 if !parked {
                     parked = true;
                     let reason = format!("{} has control", holder.as_str());

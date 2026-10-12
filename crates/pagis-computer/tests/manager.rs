@@ -10,12 +10,12 @@ use async_trait::async_trait;
 use pagis_computer::fake::ice_check;
 use pagis_computer::fake::{FakeComputerRuntime, FakeWorkspaces};
 use pagis_computer::{
-    AwakeCaps, AwakeCeiling, BindMount, ComputerError, ComputerExit, ComputerImage,
-    ComputerManager, ComputerManagerDeps, ComputerState, ExecOutcome, ExitInUse, ExitMode,
-    ExitSwitchFailure, HomeExits, IMAGE, IMAGE_VERSION, IceCredentials, ImagePullError,
-    InputHolder, OutputCap, PLUGIN_MOUNT_ROOT, SHELL_HOME, ShellCommand, TakeoverTiming,
+    AwakeCaps, AwakeCeiling, BindMount, ComputerExit, ComputerImage, ComputerManager,
+    ComputerManagerDeps, ComputerState, ExitMode, ExitSwitchFailure, HomeExits, IMAGE,
+    IMAGE_VERSION, IceCredentials, ImagePullError, PLUGIN_MOUNT_ROOT, SHELL_HOME, TakeoverTiming,
     image_repository,
 };
+use pagis_core::{ComputerError, ExecOutcome, ExitInUse, InputHolder, OutputCap, ShellCommand};
 use tokio_util::sync::CancellationToken;
 
 use pagis_core::{
@@ -590,7 +590,7 @@ async fn a_mismatched_image_version_is_refused() {
 
     assert!(matches!(
         error,
-        ComputerError::VersionMismatch { found: Some(ref v) } if v == "0.0.1-dev"
+        ComputerError::VersionMismatch { found: Some(ref v), .. } if v == "0.0.1-dev"
     ));
     assert_eq!(h.manager.state(&h.agent_id).await, ComputerState::Off);
     assert_eq!(h.runtime.starts(), 0);
@@ -1274,7 +1274,7 @@ async fn a_daemon_hold_denies_the_agents_lease_and_its_input() {
     ));
     // The screend end: a batch that speaks for the agent is refused
     // while the daemon holds, so the switch means the same at both.
-    let typed = vec![pagis_computer::exec::InputOp::Text {
+    let typed = vec![pagis_core::computer_action::InputOp::Text {
         text: "hello".to_string(),
     }];
     assert!(h.manager.input(&h.agent_id, &typed).await.is_err());
@@ -1283,7 +1283,7 @@ async fn a_daemon_hold_denies_the_agents_lease_and_its_input() {
     assert_eq!(page, "https://example.com/signin");
     hold.fill(
         "https://example.com",
-        &[pagis_computer::FillField::password("hunter2")],
+        &[pagis_core::FillField::password("hunter2")],
     )
     .await
     .unwrap();
@@ -1295,7 +1295,7 @@ async fn a_daemon_hold_denies_the_agents_lease_and_its_input() {
         h.runtime.browser_fills(),
         vec![(
             "https://example.com".to_string(),
-            vec![pagis_computer::FillField::password("hunter2")]
+            vec![pagis_core::FillField::password("hunter2")]
         )]
     );
     assert!(h.runtime.inputs().is_empty(), "the daemon sent keystrokes");
@@ -2833,4 +2833,19 @@ async fn a_harness_exec_of_a_foreign_agent_is_refused() {
 
     assert!(matches!(refused, Err(ComputerError::ForeignAgent)));
     assert!(h.runtime.exec_streams().is_empty());
+}
+
+#[tokio::test]
+async fn an_opaque_domain_lease_holds_the_batch_until_it_drops() {
+    use pagis_core::{Computer, ComputerLease};
+
+    let h = harness_with(FakeComputerRuntime::with_image(), Duration::from_secs(600));
+    let computer: Arc<dyn Computer> = h.manager.clone();
+    let lease: ComputerLease = computer.lease(&h.agent_id).await.unwrap();
+    let waiting = computer.lease(&h.agent_id);
+    futures::pin_mut!(waiting);
+    assert!(futures::poll!(&mut waiting).is_pending());
+    drop(lease);
+    let next: ComputerLease = waiting.await.unwrap();
+    drop(next);
 }

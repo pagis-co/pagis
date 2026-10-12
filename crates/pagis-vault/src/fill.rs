@@ -37,8 +37,7 @@
 
 use std::sync::Arc;
 
-use pagis_computer::{ComputerError, ComputerManager, DaemonHold, FillField};
-use pagis_core::AgentId;
+use pagis_core::{AgentId, Computer, ComputerError, DaemonHold, FillField};
 
 use crate::{VaultError, domain};
 
@@ -47,7 +46,7 @@ use crate::{VaultError, domain};
 /// is held for the whole fill, and the hold releases also when a step
 /// fails.
 pub async fn open_and_fill(
-    computer: &Arc<ComputerManager>,
+    computer: &Arc<dyn Computer>,
     agent_id: &AgentId,
     domain: &str,
     login_url: &str,
@@ -75,7 +74,7 @@ pub async fn open_and_fill(
 /// took, so this does not navigate: to open `login_url` again would
 /// leave the step that asks for the code.
 pub async fn fill_code(
-    computer: &Arc<ComputerManager>,
+    computer: &Arc<dyn Computer>,
     agent_id: &AgentId,
     domain: &str,
     code: &str,
@@ -95,14 +94,16 @@ pub async fn fill_code(
 
 /// Wake the Computer and take its input switch for the daemon.
 async fn hold(
-    computer: &Arc<ComputerManager>,
+    computer: &Arc<dyn Computer>,
     agent_id: &AgentId,
-) -> Result<DaemonHold, VaultError> {
+) -> Result<Box<dyn DaemonHold>, VaultError> {
     computer
+        .clone()
         .ensure_awake(agent_id)
         .await
         .map_err(|error| VaultError::Computer(error.to_string()))?;
     computer
+        .clone()
         .daemon_hold(agent_id)
         .await
         .map_err(|error| VaultError::Computer(error.to_string()))

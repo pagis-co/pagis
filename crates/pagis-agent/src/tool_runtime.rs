@@ -35,7 +35,7 @@ pub struct ToolRuntimeDeps {
     pub skills: Arc<dyn Skills>,
     /// The agent computers, one manager per tenant: a
     /// `computer_shell` call runs in the caller's own Workspace.
-    pub computers: Arc<pagis_computer::ComputerManagers>,
+    pub computers: Arc<dyn pagis_core::Computers>,
     pub bus: Arc<dyn EventBus>,
     /// The logical now a memory write commits at. It is the clock that
     /// source acquisition and Subject Page updates use, so a write lands
@@ -813,7 +813,7 @@ impl CoreToolRuntime {
             .get(&call.workspace_id)
             .shell(
                 &call.agent_id,
-                pagis_computer::ShellCommand {
+                pagis_core::ShellCommand {
                     command: command.to_string(),
                     timeout: std::time::Duration::from_secs(seconds),
                     cwd: call.arguments["cwd"].as_str().map(str::to_string),

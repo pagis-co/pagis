@@ -32,6 +32,7 @@
 //! effect: every Computer runs in Direct mode, and no exit socket carries
 //! a connection.
 
+use pagis_core::ExitInUse;
 use std::collections::HashMap;
 use std::io;
 use std::pin::Pin;
@@ -165,31 +166,6 @@ pub enum ExitError {
     /// answer in time.
     #[error("the Home Exit did not connect: {0}")]
     Failed(String),
-}
-
-/// Where the connections of a Computer in Home mode leave now. The
-/// Computer's view and the `computer` tool result show its
-/// [`label`](ExitInUse::label), because a change of the address is a
-/// signal that sites read, and the Person sees each change. A Computer in
-/// Direct mode has no exit in use: it leaves from where it runs, as the
-/// Computer of a Person with no Home Exit does.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ExitInUse {
-    /// The Person's Home Exit, by the name of its Host.
-    HomeExit(String),
-    /// The server, while the Home Exit is absent.
-    Server,
-}
-
-impl ExitInUse {
-    /// The one line that names the exit, such as `exit: MacBook Pro` or
-    /// `exit: server`.
-    pub fn label(&self) -> String {
-        match self {
-            ExitInUse::HomeExit(host_name) => format!("exit: {host_name}"),
-            ExitInUse::Server => "exit: server".to_string(),
-        }
-    }
 }
 
 /// The bytes that one Person's Home Exit carried, in the memory of the

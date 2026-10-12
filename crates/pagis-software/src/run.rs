@@ -11,8 +11,9 @@
 use std::sync::Arc;
 
 use pagis_broker::{ToolResult, WIDGET_RESULT};
-use pagis_computer::{ComputerManagers, OutputCap, ShellCommand};
 use pagis_core::AgentId;
+use pagis_core::Computers;
+use pagis_core::{OutputCap, ShellCommand};
 
 use crate::materialize::{Materializer, VersionSource, quote};
 use crate::widget::split_result;
@@ -33,14 +34,14 @@ pub struct SoftwareRunner {
     /// tenant's work: the manager is resolved from the Workspace of the
     /// caller on every call, so a person's tool never runs on another
     /// person's Tenant Network, volume or awake cap.
-    computers: Arc<ComputerManagers>,
+    computers: Arc<dyn Computers>,
     materializer: Arc<Materializer>,
     source: Arc<dyn VersionSource>,
 }
 
 impl SoftwareRunner {
     pub fn new(
-        computers: Arc<ComputerManagers>,
+        computers: Arc<dyn Computers>,
         materializer: Arc<Materializer>,
         source: Arc<dyn VersionSource>,
     ) -> Self {
@@ -199,7 +200,7 @@ impl SoftwareRunner {
 fn failure(
     package: &str,
     tool: &str,
-    outcome: &pagis_computer::ExecOutcome,
+    outcome: &pagis_core::ExecOutcome,
     reason: &str,
 ) -> ToolResult {
     let mut content = format!(

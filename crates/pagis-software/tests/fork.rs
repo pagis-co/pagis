@@ -79,7 +79,7 @@ pub struct Fixture {
     pub notes: Arc<RecordingNotes>,
     pub packages: Arc<MemorySoftwareStore>,
     pub git: Arc<SoftwareGitStore>,
-    pub runtime: Arc<pagis_computer::fake::FakeComputerRuntime>,
+    pub runtime: Arc<pagis_testkit::FakeComputers>,
     pub author: AgentId,
     pub forker: AgentId,
     pub workspace_id: WorkspaceId,
@@ -93,7 +93,6 @@ pub async fn fixture() -> Fixture {
     // Computer the harness woke.
     let workspace_id = harness.workspace_id.clone();
     let forker = AgentId::generate();
-    support::wake(&harness.manager, &forker).await;
     let agents = vec![
         agent(&workspace_id, &harness.agent_id, "Ada"),
         agent(&workspace_id, &forker, "Bo"),
@@ -106,7 +105,7 @@ pub async fn fixture() -> Fixture {
         packages: Arc::clone(&packages) as _,
         agents: MemoryAgents::holding(agents) as _,
         git: Arc::clone(&git),
-        computers: Arc::clone(&harness.managers),
+        computers: harness.managers.clone(),
         manifests: Arc::new(RecordingManifests::default()) as _,
         bus: Arc::new(RecordingBus::default()) as _,
         notes: Arc::clone(&notes) as _,

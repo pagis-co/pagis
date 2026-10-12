@@ -10,7 +10,7 @@
 //! per domain, and that is a stated position.
 //!
 //! The vault drives the Computer through the daemon's browser channel
-//! (`fill`). `pagis-computer` carries each value as a `FillField`, whose
+//! (`fill`). `Computer` carries each value as a `FillField`, whose
 //! debug print never shows the text.
 
 pub mod domain;
@@ -27,7 +27,7 @@ use pagis_broker::{
     AuthorizedCall, CredentialAction, CredentialActionKind, CredentialDirectory, ToolExecutor,
     ToolResult, ToolRoute, VaultTool,
 };
-use pagis_computer::ComputerManagers;
+use pagis_core::Computers;
 use pagis_core::{
     AgentId, Credential, CredentialId, CredentialProvenance, CredentialStore, RunId, StoreError,
     WorkspaceId, now_ms,
@@ -159,7 +159,7 @@ pub struct Vault {
     store: Arc<dyn CredentialStore>,
     /// One Computer manager per tenant: a fill types into the
     /// computer of the Workspace that owns the Credential.
-    computers: Arc<ComputerManagers>,
+    computers: Arc<dyn Computers>,
     /// One Tenant Data Key per Workspace. The vault never holds
     /// a key that is not a named Workspace's. The daemon gives the vault
     /// and the Google broker the same holder.
@@ -169,7 +169,7 @@ pub struct Vault {
 impl Vault {
     pub fn new(
         store: Arc<dyn CredentialStore>,
-        computers: Arc<ComputerManagers>,
+        computers: Arc<dyn Computers>,
         keys: Arc<TenantKeys>,
     ) -> Self {
         Self {

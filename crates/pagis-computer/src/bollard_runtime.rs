@@ -798,7 +798,7 @@ impl ComputerRuntime for BollardRuntime {
         &self,
         computer: &StartedComputer,
         holder: crate::InputHolder,
-        ops: &[crate::exec::InputOp],
+        ops: &[pagis_core::computer_action::InputOp],
     ) -> Result<(), String> {
         let client = reqwest::Client::new();
         let response = client
