@@ -30,9 +30,7 @@ use crate::host::{Deletion, HostAccount, HostError, HostErrorCode, MailboxHost, 
 use crate::manual::ManualHost;
 use crate::provider::{MailboxProvider, authserv_ids, mailbox_provider};
 use crate::standing::{StandingMailRule, StandingRuleError};
-use crate::transport::{
-    INBOX, MailSession, MailTransport, MailboxCredential, TransportCapabilities, TransportError,
-};
+use crate::transport::{INBOX, MailSession, MailTransport, MailboxCredential, TransportError};
 use crate::{
     DEFAULT_OUTGOING_CAP, MANUAL_PROVIDER, host_api_key_secret_name, mailbox_password_secret_name,
 };
@@ -586,13 +584,6 @@ impl MailboxDesk {
             settings.imap.clone(),
             settings.smtp.clone(),
         ))
-    }
-
-    /// What the mail transport of every Connection declares. The
-    /// collector reads it to know whether to wait with IDLE or to poll
-    /// (ADR-0019).
-    pub fn transport_capabilities(&self) -> TransportCapabilities {
-        self.transport.capabilities()
     }
 
     /// Remember where the collector reached (ADR-0019). The cursor is

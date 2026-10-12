@@ -35,9 +35,10 @@ sends it to the host, stores it and never shows it. The first login after a
 create retries with backoff for about three minutes, because hosts propagate
 slowly.
 
-The transport declares its capabilities: idle, an outgoing cap the host
-enforces, mailbox deletion and password reset, and the Connection page shows
-what is absent. Any IMAP and SMTP host works through the manual host. An inbox
+The Mailbox Provider records its display capabilities: idle, an outgoing cap
+the host enforces, mailbox deletion and password reset. The Connection page
+shows what is absent. The logged-in server's CAPABILITY response decides
+whether the session supports IDLE; the provider's display flag does not. Any IMAP and SMTP host works through the manual host. An inbox
 made outside Pagis and assigned to an Agent must be dedicated to it, and the
 collector cursor starts at assignment, so earlier mail never wakes the Agent.
 
@@ -59,12 +60,12 @@ Agent's address in the API is a read-through view of it.
 - **provisioning**: the ledger reserved the address and the host create
   succeeded; login proof runs in the background, and proof that never comes
   moves the mailbox to unavailable with the reason.
-- **active**: IDLE runs, the tools work, and sends count against the Outgoing
+- **active**: mail collection runs, the tools work, and sends count against the Outgoing
   Cap. A transient network failure never leaves active.
 - **unavailable**: the host refused the login or reports the mailbox gone. A
   password reset (typed for a manual host, minted where the transport can)
   runs the login proof again and returns to active with the cursor unchanged.
-- **dormant**: the Agent is archived. IDLE stops and sends are refused; the
+- **dormant**: the Agent is archived. Mail collection stops and sends are refused; the
   host mailbox and its mail stay. A mailbox never returns to the Workspace.
 - **deleted**: a tombstone that keeps the address, the Agent id and the time,
   so the address is never reused; the password and the host mailbox are gone.
@@ -85,7 +86,7 @@ refused.
 
 Deletion is the user's act alone, from the mailbox panel, on an Agent in any
 state, confirmed by typing the address. The daemon deletes the host mailbox
-where it can, destroys the password, stops IDLE and writes the tombstone. Pagis
+where it can, destroys the password, stops mail collection and writes the tombstone. Pagis
 keeps no copy of a message body, so the mail goes with the mailbox, and the
 confirmation says so. Incoming Events and Threads stay.
 
@@ -127,7 +128,7 @@ makes and reads them and decides when an id is stale.
 UID from an IMAP id, selects the folder before each read or modification, and
 checks its UIDVALIDITY against the Agent Mailbox cursor. The product uses
 IMAP and SMTP Mailbox Providers. The collector uses the IMAP session directly
-and watches the INBOX with IDLE. `MemoryMailbox` implements `Mailbox` in
+and reads the INBOX with IDLE or poll cycles. `MemoryMailbox` implements `Mailbox` in
 memory for the Mail Tool tests.
 
 Reads and modification are `Free`, and send is `Outbound`. From the own
@@ -156,15 +157,28 @@ event id is the Message-ID header, or the folder and UID where there is none,
 so a resync never wakes twice. A burst joins one pending Wake-up whose briefing
 lists every message.
 
-One collector task runs for each active own mailbox: IMAP IDLE on the inbox
-with the daemon's own deadline, a full resync from the cursor at each
-reconnect, and a five-minute poll where the transport has no idle. The cursor
-is the folder's UID high-water mark and validity. Reconnect backoff runs from
-one second to five minutes; a refused login makes the mailbox unavailable and
-stops the task. The public `sweep_workspace` function matches the tasks of
-one Workspace to its active Agent Mailboxes. The daemon calls it every
-30 seconds and at once when an Event Bus event changes a mailbox's state.
-A sweep of one Workspace does not stop another Workspace's tasks.
+One collector task runs for each active Agent Mailbox whose server announces
+IDLE after login. It waits on the INBOX with the daemon's deadline and reads
+from the cursor at each reconnect. The session uses `imap-next`, the sans-I/O
+IMAP flows of `imap-codec`. A small driver moves bytes between the client and
+a TCP or TLS stream, with a timeout for each command. Scripted server bytes
+test the exchange without a socket, and GreenMail tests check the transport
+against a server. The lockfile pins the library versions.
+
+A task whose server has no IDLE logs out and ends. The collector remembers
+that mailbox id and starts no IDLE task for it again. `poll_workspace` reads
+each active Agent Mailbox of one Workspace that has no IDLE task, from its
+cursor, and logs out after the pass. No connection stays open between polls.
+A failure names the mailbox id in the log and does not stop the other
+mailboxes. A host that holds no connection open calls only `poll_workspace`.
+
+The cursor is the folder's UID high-water mark and validity. Reconnect backoff
+runs from one second to five minutes. A refused login makes the mailbox
+unavailable. The public `sweep_workspace` function matches one Workspace's
+tasks to its active Agent Mailboxes. The daemon calls it every 30 seconds and
+at once when an Event Bus event changes a mailbox's state. The same sweep loop
+calls `poll_workspace` for each Workspace every five minutes. A sweep or poll
+of one Workspace does not stop another Workspace's tasks.
 
 Provisioning creates one Standing Mail Rule for the Agent: the mail kind, a
 filter of the own mailbox, an instruction to read the mail and act on its job,

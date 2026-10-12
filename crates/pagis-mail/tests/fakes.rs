@@ -9,7 +9,7 @@ use pagis_mail::fake::{ARCHIVE, FakeMailTransport, FakeMailboxHost, HostCall};
 use pagis_mail::{
     Deletion, Endpoint, FlagChange, HostAccount, HostCapabilities, HostErrorCode, INBOX,
     IdleOutcome, ImapMessageId, MailQuery, MailTransport, MailboxCredential, MailboxHost,
-    MailboxPassword, TransportCapabilities, TransportErrorCode,
+    MailboxPassword, TransportErrorCode,
 };
 
 fn account() -> HostAccount {
@@ -204,14 +204,15 @@ async fn an_idle_turn_ends_at_the_deadline() {
     let outcome = session.idle(Duration::from_millis(10)).await.unwrap();
 
     assert_eq!(outcome, IdleOutcome::Deadline);
-    assert!(transport.capabilities().idle);
+    assert!(session.idle_supported());
 }
 
 #[tokio::test]
 async fn a_transport_without_idle_declares_it_absent() {
-    let transport = FakeMailTransport::with_capabilities(TransportCapabilities { idle: false });
+    let transport = FakeMailTransport::with_idle(false);
 
-    assert!(!transport.capabilities().idle);
+    let session = transport.login(&credential()).await.unwrap();
+    assert!(!session.idle_supported());
 }
 
 #[tokio::test]

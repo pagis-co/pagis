@@ -14,9 +14,9 @@ use pagis_core::{
 };
 use pagis_mail::fake::{FakeMailTransport, FakeMailboxHost, FakeStandingRule, HostCall};
 use pagis_mail::{
-    DEFAULT_OUTGOING_CAP, Endpoint, HostCapabilities, MAIL_TRANSPORT, MANUAL_PROVIDER,
-    MIGADU_PROVIDER, MailboxCapabilities, MailboxDesk, MailboxDeskDeps, MailboxError, MailboxHost,
-    MailboxProvider, NewMailbox, ProofTiming, TransportErrorCode, host_api_key_secret_name,
+    DEFAULT_OUTGOING_CAP, Endpoint, HostCapabilities, MANUAL_PROVIDER, MIGADU_PROVIDER,
+    MailboxCapabilities, MailboxDesk, MailboxDeskDeps, MailboxError, MailboxHost, MailboxProvider,
+    NewMailbox, ProofTiming, TransportErrorCode, host_api_key_secret_name,
     mailbox_password_secret_name,
 };
 use pagis_storage_sqlite::{
@@ -82,7 +82,7 @@ impl World {
             MIGADU_PROVIDER,
             MIGADU_ALIAS,
             "example.com",
-            MailboxCapabilities::of(host.capabilities(), MAIL_TRANSPORT),
+            MailboxCapabilities::of(host.capabilities(), true),
         );
         connections.create(&migadu).await.unwrap();
         secrets
@@ -99,7 +99,7 @@ impl World {
                     delete_mailbox: false,
                     reset_password: false,
                 },
-                MAIL_TRANSPORT,
+                true,
             ),
         );
         connections.create(&manual).await.unwrap();

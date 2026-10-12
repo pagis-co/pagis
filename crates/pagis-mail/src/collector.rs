@@ -1,9 +1,9 @@
 //! The inbound mail collector (ADR-0019).
 //!
-//! One task watches one `active` Agent Mailbox. It selects INBOX,
+//! An IDLE task watches one `active` Agent Mailbox. It selects INBOX,
 //! reads everything after the mailbox cursor, hands the pass to the
-//! Trigger module, and then waits: with IMAP IDLE where the transport
-//! declares it, and with a five-minute poll where it does not. Every
+//! Trigger module, and then waits with IMAP IDLE where the server
+//! announces it. Other mailboxes use a five-minute poll cycle. Every
 //! reconnect starts with the same full read from the cursor, so a
 //! session the host dropped loses no message.
 //!
@@ -17,7 +17,7 @@
 //! (ADR-0019). Every other failure is a reconnect with the shared
 //! backoff, one second doubling to five minutes.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -35,7 +35,7 @@ use crate::proof::Backoff;
 use crate::sender::SenderEvidence;
 use crate::transport::{INBOX, MailSession, MessageSummary, TransportError, TransportErrorCode};
 
-/// How often a transport without `idle` reads the folder again
+/// How often the host polls mailboxes whose servers have no IDLE
 /// (ADR-0019).
 pub const POLL_INTERVAL: Duration = Duration::from_secs(300);
 
@@ -79,19 +79,39 @@ pub struct MailCollectorDeps {
     pub ingest: Arc<dyn MailIngest>,
     /// One IDLE turn. The daemon owns the deadline (ADR-0019).
     pub idle_turn: Duration,
-    /// How long a transport without `idle` waits between two reads.
-    pub poll_interval: Duration,
 }
 
-/// One task per `active` own mailbox (ADR-0019).
+/// IDLE tasks and poll cycles for active Agent Mailboxes (ADR-0019).
 pub struct MailCollector {
     desk: Arc<MailboxDesk>,
     sent: Arc<dyn SentMailStore>,
     trust: Arc<dyn SenderTrust>,
     ingest: Arc<dyn MailIngest>,
     idle_turn: Duration,
-    poll_interval: Duration,
-    tasks: Mutex<HashMap<AgentMailboxId, Watcher>>,
+    state: Mutex<CollectorState>,
+}
+
+#[derive(Default)]
+struct CollectorState {
+    tasks: HashMap<AgentMailboxId, Watcher>,
+    no_idle: HashSet<AgentMailboxId>,
+    polling: HashSet<AgentMailboxId>,
+}
+
+/// Release ownership of a poll, including when its caller cancels it.
+struct PollLease<'a> {
+    state: &'a Mutex<CollectorState>,
+    id: AgentMailboxId,
+}
+
+impl Drop for PollLease<'_> {
+    fn drop(&mut self) {
+        self.state
+            .lock()
+            .expect("collector state lock")
+            .polling
+            .remove(&self.id);
+    }
 }
 
 /// One running mailbox task.
@@ -109,8 +129,7 @@ impl MailCollector {
             trust: deps.trust,
             ingest: deps.ingest,
             idle_turn: deps.idle_turn,
-            poll_interval: deps.poll_interval,
-            tasks: Mutex::new(HashMap::new()),
+            state: Mutex::new(CollectorState::default()),
         }
     }
 
@@ -126,7 +145,12 @@ impl MailCollector {
             .into_iter()
             .filter(|mailbox| mailbox.state == AgentMailboxState::Active)
             .collect();
-        let mut tasks = self.tasks.lock().expect("collector task lock");
+        let mut state = self.state.lock().expect("collector state lock");
+        let CollectorState {
+            tasks,
+            no_idle,
+            polling,
+        } = &mut *state;
         let start: Vec<AgentMailbox> = {
             // A mailbox that left `active`, and one whose task ended by
             // itself, both lose their entry. Cancelling is what stops
@@ -144,7 +168,11 @@ impl MailCollector {
             });
             active
                 .into_iter()
-                .filter(|mailbox| !tasks.contains_key(&mailbox.id))
+                .filter(|mailbox| {
+                    !tasks.contains_key(&mailbox.id)
+                        && !no_idle.contains(&mailbox.id)
+                        && !polling.contains(&mailbox.id)
+                })
                 .collect()
         };
         for mailbox in start {
@@ -167,16 +195,72 @@ impl MailCollector {
         Ok(())
     }
 
+    /// Read active Agent Mailboxes without an IDLE task, then log out.
+    /// A failed mailbox does not stop the other mailboxes of this Workspace.
+    pub async fn poll_workspace(&self, workspace_id: &WorkspaceId) -> Result<(), MailboxError> {
+        for mailbox in self.desk.list(workspace_id).await? {
+            if mailbox.state != AgentMailboxState::Active {
+                continue;
+            }
+            let lease = {
+                let mut state = self.state.lock().expect("collector state lock");
+                if state
+                    .tasks
+                    .get(&mailbox.id)
+                    .is_some_and(|watcher| !watcher.handle.is_finished())
+                    || !state.polling.insert(mailbox.id.clone())
+                {
+                    continue;
+                }
+                PollLease {
+                    state: &self.state,
+                    id: mailbox.id.clone(),
+                }
+            };
+            let result = self.poll_mailbox(&mailbox).await;
+            if let Err(error) = result {
+                if let PassError::Mailbox(error) = &error {
+                    if let Some(code) = refusal(error) {
+                        self.unavailable(&mailbox, code).await;
+                    }
+                } else if let PassError::Transport(TransportError(code)) = &error
+                    && is_final(*code)
+                {
+                    self.unavailable(&mailbox, *code).await;
+                }
+                tracing::warn!(mailbox_id = %mailbox.id, %error, "mail poll failed");
+            }
+            drop(lease);
+        }
+        Ok(())
+    }
+
+    async fn poll_mailbox(&self, mailbox: &AgentMailbox) -> Result<(), PassError> {
+        let mut session = self.desk.open_session(mailbox).await?;
+        let mut cursor = mailbox.cursor.clone();
+        let result = self.drain(session.as_mut(), mailbox, &mut cursor).await;
+        let logout = session.logout().await;
+        result?;
+        logout?;
+        Ok(())
+    }
+
     /// Stop every task. The daemon calls it at shutdown.
     pub fn stop(&self) {
-        for (_, watcher) in self.tasks.lock().expect("collector task lock").drain() {
+        for (_, watcher) in self
+            .state
+            .lock()
+            .expect("collector state lock")
+            .tasks
+            .drain()
+        {
             watcher.cancel.cancel();
         }
     }
 
     /// How many mailboxes are watched now.
     pub fn watched(&self) -> usize {
-        self.tasks.lock().expect("collector task lock").len()
+        self.state.lock().expect("collector state lock").tasks.len()
     }
 
     /// One mailbox, until it stops being this Agent's mailbox.
@@ -200,6 +284,18 @@ impl MailCollector {
                 }
             };
             backoff.reset();
+            if !session.idle_supported() {
+                self.state
+                    .lock()
+                    .expect("collector state lock")
+                    .no_idle
+                    .insert(mailbox.id.clone());
+                let mut session = session;
+                if let Err(error) = session.logout().await {
+                    tracing::warn!(mailbox_id = %mailbox.id, %error, "mail logout failed");
+                }
+                return;
+            }
             if let Err(error) = self
                 .watch_session(session, &mailbox, &mut cursor, &cancel)
                 .await
@@ -232,28 +328,28 @@ impl MailCollector {
         cursor: &mut Option<MailboxCursor>,
         cancel: &CancellationToken,
     ) -> Result<(), PassError> {
-        session.select(INBOX).await?;
-        let idle = self.desk.transport_capabilities().idle;
-        loop {
-            // A stopped task reads nothing more. The check comes first
-            // because a wait that ends at the moment the task stops
-            // answers with the change, not with the stop.
-            if cancel.is_cancelled() {
-                return Ok(());
-            }
-            self.drain(session.as_mut(), mailbox, cursor).await?;
-            let waited = match idle {
-                true => cancel
+        let result: Result<(), PassError> = async {
+            session.select(INBOX).await?;
+            loop {
+                if cancel.is_cancelled() {
+                    return Ok(());
+                }
+                self.drain(session.as_mut(), mailbox, cursor).await?;
+                let waited = cancel
                     .run_until_cancelled(session.idle(self.idle_turn))
                     .await
                     .transpose()?
-                    .is_some(),
-                false => self.wait(cancel, self.poll_interval).await,
-            };
-            if !waited {
-                return Ok(());
+                    .is_some();
+                if !waited {
+                    return Ok(());
+                }
             }
         }
+        .await;
+        let logout = session.logout().await;
+        result?;
+        logout?;
+        Ok(())
     }
 
     /// Read every message after the cursor and hand each page to the

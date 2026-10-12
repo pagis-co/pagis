@@ -30,7 +30,7 @@ pub use crate::transport::ARCHIVE;
 use crate::transport::{
     Attachment, Cursor, FlagChange, FolderState, INBOX, IdleOutcome, MailQuery, MailSession,
     MailTransport, MailboxCredential, Message, MessageSummary, OutgoingMessage, SentMessage,
-    TransportCapabilities, TransportError, TransportErrorCode,
+    TransportError, TransportErrorCode,
 };
 
 /// What the fake host was asked to do, in order.
@@ -260,7 +260,7 @@ impl Inbox {
 /// Deliver a message and the session that idles on the folder returns.
 /// Every session it opens shares the one inbox.
 pub struct FakeMailTransport {
-    capabilities: TransportCapabilities,
+    idle_supported: bool,
     /// The state every session of this mailbox shares.
     shared: Arc<Shared>,
 }
@@ -271,22 +271,45 @@ struct Shared {
     /// Bumped once per change, so a session that idles wakes.
     changes: watch::Sender<u64>,
     refuse_login_with: Mutex<Option<TransportErrorCode>>,
+    fail_addresses: Mutex<HashMap<String, TransportErrorCode>>,
+    open_sessions: std::sync::atomic::AtomicUsize,
+    logouts: Mutex<Vec<String>>,
     fail_with: Mutex<Option<TransportErrorCode>>,
 }
 
 impl Default for FakeMailTransport {
     fn default() -> Self {
-        Self::with_capabilities(TransportCapabilities { idle: true })
+        Self::with_idle(true)
     }
 }
 
 impl FakeMailTransport {
-    /// A transport that declares this capability set.
-    pub fn with_capabilities(capabilities: TransportCapabilities) -> Self {
+    /// A transport whose sessions report this IDLE flag.
+    pub fn with_idle(idle_supported: bool) -> Self {
         Self {
-            capabilities,
+            idle_supported,
             shared: Arc::new(Shared::default()),
         }
+    }
+
+    /// Fail the requests of one address, until the failure is cleared.
+    pub fn fail_address_with(&self, address: &str, code: Option<TransportErrorCode>) {
+        let mut failures = self.shared.fail_addresses.lock().unwrap();
+        if let Some(code) = code {
+            failures.insert(address.into(), code);
+        } else {
+            failures.remove(address);
+        }
+    }
+
+    pub fn open_sessions(&self) -> usize {
+        self.shared
+            .open_sessions
+            .load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    pub fn logouts(&self) -> Vec<String> {
+        self.shared.logouts.lock().unwrap().clone()
     }
 
     /// Every later login fails with this code, until it is cleared.
@@ -463,10 +486,6 @@ impl FakeMailTransport {
 
 #[async_trait]
 impl MailTransport for FakeMailTransport {
-    fn capabilities(&self) -> TransportCapabilities {
-        self.capabilities
-    }
-
     async fn login(
         &self,
         credential: &MailboxCredential,
@@ -480,7 +499,13 @@ impl MailTransport for FakeMailTransport {
             .unwrap()
             .logins
             .push(credential.address().to_string());
+        self.shared
+            .open_sessions
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         Ok(Box::new(FakeMailSession {
+            idle_supported: self.idle_supported,
+            address: credential.address().to_string(),
+            closed: false,
             shared: Arc::clone(&self.shared),
             changes: self.shared.changes.subscribe(),
             selected: INBOX.to_string(),
@@ -489,13 +514,43 @@ impl MailTransport for FakeMailTransport {
 }
 
 struct FakeMailSession {
+    idle_supported: bool,
+    address: String,
+    closed: bool,
     shared: Arc<Shared>,
     changes: watch::Receiver<u64>,
     selected: String,
 }
 
+impl Drop for FakeMailSession {
+    fn drop(&mut self) {
+        self.close();
+    }
+}
+
 impl FakeMailSession {
+    fn close(&mut self) {
+        if !self.closed {
+            self.closed = true;
+            self.shared
+                .open_sessions
+                .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
     fn refuse(&self) -> Result<(), TransportError> {
+        if self.closed {
+            return Err(TransportError(TransportErrorCode::Unreachable));
+        }
+        if let Some(code) = self
+            .shared
+            .fail_addresses
+            .lock()
+            .unwrap()
+            .get(&self.address)
+        {
+            return Err(TransportError(*code));
+        }
         match *self.shared.fail_with.lock().unwrap() {
             Some(code) => Err(TransportError(code)),
             None => Ok(()),
@@ -505,6 +560,22 @@ impl FakeMailSession {
 
 #[async_trait]
 impl MailSession for FakeMailSession {
+    fn idle_supported(&self) -> bool {
+        self.idle_supported
+    }
+
+    async fn logout(&mut self) -> Result<(), TransportError> {
+        if !self.closed {
+            self.shared
+                .logouts
+                .lock()
+                .unwrap()
+                .push(self.address.clone());
+            self.close();
+        }
+        Ok(())
+    }
+
     async fn select(&mut self, folder: &str) -> Result<FolderState, TransportError> {
         self.refuse()?;
         self.selected = folder.to_string();

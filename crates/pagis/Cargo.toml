@@ -73,6 +73,7 @@ security-framework = "3"
 keyring = { version = "3", features = ["sync-secret-service", "crypto-rust", "vendored"] }
 
 [dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
 chrono-tz.workspace = true
 audio-codec-algorithms.workspace = true
 hex.workspace = true

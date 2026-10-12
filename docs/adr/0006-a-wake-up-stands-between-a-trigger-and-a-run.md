@@ -184,13 +184,14 @@ reauthorization they reactivate and one catch-up collection runs.
 
 ### Each sweep serves one Workspace
 
-Mail task reconciliation, knowledge change publication, knowledge acquisition,
+Mail task reconciliation, mail polling, knowledge change publication, knowledge acquisition,
 provider collection and Connection catch-up each have a public function that
 serves one Workspace. The function takes its dependencies and runs one pass.
 Another host and a test call the same function as the daemon.
 
 One daemon loop lists the Workspaces and starts their due work independently.
-Mail task reconciliation runs every 30 seconds. Knowledge and provider work
+Mail task reconciliation runs every 30 seconds. Mail polling runs every five
+minutes. Knowledge and provider work
 use the configured collector interval. A failure names its Workspace in the
 log and does not stop the other Workspaces. Knowledge change publication does
 not wait for source acquisition or a model.

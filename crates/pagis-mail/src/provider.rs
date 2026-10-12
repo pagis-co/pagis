@@ -11,7 +11,7 @@ use pagis_core::Connection;
 use serde::{Deserialize, Serialize};
 
 use crate::host::HostCapabilities;
-use crate::transport::{Endpoint, TransportCapabilities};
+use crate::transport::Endpoint;
 
 /// The login the host knows, for a host that has an API. It is the
 /// account the Connection card names, as it is for Google.
@@ -49,18 +49,13 @@ pub fn authserv_ids(provider: &str) -> &'static [&'static str] {
     }
 }
 
-/// What the daemon's mail path offers every Mailbox Provider. One
-/// transport serves every Connection, so a Connection records this
-/// beside what its own host declares.
-pub const MAIL_TRANSPORT: TransportCapabilities = TransportCapabilities { idle: true };
-
 /// What one Mailbox Provider can and cannot do (ADR-0005, ADR-0019):
 /// the mail seam's half and the mailbox seam's half in one set. The
 /// Connection page shows what is absent instead of hiding it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MailboxCapabilities {
-    /// The transport waits for new mail on the connection. Without it
-    /// the collector polls the mailbox.
+    /// The IDLE display flag on the Connection page. The server's
+    /// CAPABILITY response selects IDLE or polling for each session.
     pub idle: bool,
     /// The host applies the Outgoing Cap to the mailbox itself. The
     /// daemon enforces the cap for every host either way.
@@ -75,9 +70,9 @@ pub struct MailboxCapabilities {
 
 impl MailboxCapabilities {
     /// What the two seams of one Connection declare together.
-    pub fn of(host: HostCapabilities, transport: TransportCapabilities) -> Self {
+    pub fn of(host: HostCapabilities, idle: bool) -> Self {
         Self {
-            idle: transport.idle,
+            idle,
             outgoing_cap: host.outgoing_cap,
             delete_mailbox: host.delete_mailbox,
             reset_password: host.reset_password,

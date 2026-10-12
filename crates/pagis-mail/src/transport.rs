@@ -93,14 +93,6 @@ impl fmt::Debug for MailboxCredential {
     }
 }
 
-/// What a transport can and cannot do (ADR-0005, ADR-0019).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct TransportCapabilities {
-    /// Whether the transport waits for new mail on the connection. A
-    /// transport without it is polled instead.
-    pub idle: bool,
-}
-
 /// Where a collector reached in one folder. The Agent Mailbox record
 /// carries it between restarts, so the type is the record's own
 /// (ADR-0019).
@@ -280,10 +272,6 @@ pub struct TransportError(pub TransportErrorCode);
 /// Read and send as one mailbox (ADR-0019).
 #[async_trait]
 pub trait MailTransport: Send + Sync {
-    /// What this transport declares. The daemon reads it and polls the
-    /// mailbox when `idle` is absent.
-    fn capabilities(&self) -> TransportCapabilities;
-
     /// Prove the password and open the connection. A mailbox that
     /// logs in is `active` (ADR-0019).
     async fn login(
@@ -296,6 +284,12 @@ pub trait MailTransport: Send + Sync {
 /// seam: the selected folder is its state, and one task owns it.
 #[async_trait]
 pub trait MailSession: Send {
+    /// Whether the logged-in server announces IDLE.
+    fn idle_supported(&self) -> bool;
+
+    /// End the session and close its connection.
+    async fn logout(&mut self) -> Result<(), TransportError>;
+
     /// Open one folder and read its numbering.
     async fn select(&mut self, folder: &str) -> Result<FolderState, TransportError>;
 

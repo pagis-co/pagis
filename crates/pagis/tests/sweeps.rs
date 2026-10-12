@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use pagis_core::*;
+use pagis_mail::MailboxHost;
 use pagis_testkit::fixture;
 
 struct Connections {
@@ -126,6 +127,9 @@ struct World {
     sweeps: Arc<pagis::sweeps::Sweeps>,
     workspaces: [WorkspaceId; 2],
     rules: [EventSubscription; 2],
+    mail_transport: Arc<pagis_mail::fake::FakeMailTransport>,
+    mail_ingest: Arc<pagis_mail::fake::FakeMailIngest>,
+    secrets: Arc<dyn SecretStore>,
 }
 impl World {
     async fn new() -> Self {
@@ -264,14 +268,16 @@ impl World {
             clock,
             trust: trust.clone(),
         });
+        let mail_transport = Arc::new(pagis_mail::fake::FakeMailTransport::with_idle(false));
+        let mail_ingest = Arc::new(pagis_mail::fake::FakeMailIngest::default());
         let desk = Arc::new(pagis_mail::MailboxDesk::new(pagis_mail::MailboxDeskDeps {
             mailboxes: stores.agent_mailboxes.clone(),
             connections: connections.clone(),
-            org_workspace_id: WorkspaceId::generate(),
+            org_workspace_id: org.workspace_id.clone(),
             agents: stores.agents.clone(),
             host: Arc::new(pagis_mail::fake::FakeMailboxHost::default()),
-            transport: Arc::new(pagis_mail::fake::FakeMailTransport::default()),
-            secrets,
+            transport: mail_transport.clone(),
+            secrets: secrets.clone(),
             bus: bus.clone(),
             standing_rule: Arc::new(pagis_mail::fake::FakeStandingRule::default()),
             proof: pagis_mail::ProofTiming::default(),
@@ -281,9 +287,8 @@ impl World {
                 desk,
                 sent: stores.sent_mail.clone(),
                 trust,
-                ingest: Arc::new(pagis_mail::fake::FakeMailIngest::default()),
+                ingest: mail_ingest.clone(),
                 idle_turn: Duration::from_secs(60),
-                poll_interval: Duration::from_secs(300),
             },
         ));
         let sweeps = Arc::new(pagis::sweeps::Sweeps {
@@ -304,6 +309,9 @@ impl World {
             sweeps,
             workspaces: [first.id, second.id],
             rules: rules.try_into().unwrap(),
+            mail_transport,
+            mail_ingest,
+            secrets,
         }
     }
 }
@@ -677,4 +685,127 @@ async fn an_installation_connection_event_does_not_sweep_the_orgs_workspace() {
             .unwrap()
             .contains(&org.workspace_id)
     );
+}
+
+#[tokio::test]
+async fn mail_poll_cycles_run_for_each_workspace_every_five_minutes() {
+    let world = World::new().await;
+    let org = world.stores.orgs.list().await.unwrap().remove(0);
+    let connection = Connection {
+        id: ConnectionId::generate(),
+        workspace_id: org.workspace_id,
+        provider: pagis_mail::MANUAL_PROVIDER.into(),
+        alias: "own_mail".into(),
+        display_name: "Own mail".into(),
+        status: Connection::CONNECTED.into(),
+        authorized_capabilities: vec![],
+        created_at: now_ms(),
+        config: pagis_mail::MailboxProvider {
+            account: None,
+            domain: "example.test".into(),
+            imap: pagis_mail::Endpoint::new("localhost", 143),
+            smtp: pagis_mail::Endpoint::new("localhost", 25),
+            capabilities: pagis_mail::MailboxCapabilities::of(
+                pagis_mail::ManualHost::new().capabilities(),
+                true,
+            ),
+        }
+        .config(),
+    };
+    world.stores.connections.create(&connection).await.unwrap();
+    for (index, ws) in world.workspaces.iter().enumerate() {
+        let address = format!("agent{index}@example.test");
+        world
+            .secrets
+            .set(
+                &pagis_mail::mailbox_password_secret_name(ws, &address),
+                "password",
+            )
+            .unwrap();
+        world
+            .stores
+            .agent_mailboxes
+            .create(&AgentMailbox {
+                id: AgentMailboxId::generate(),
+                workspace_id: ws.clone(),
+                agent_id: world.rules[index].agent_id.clone(),
+                connection_id: connection.id.clone(),
+                address,
+                state: AgentMailboxState::Active,
+                reason: None,
+                outgoing_cap: 20,
+                allow_rules: vec![],
+                cursor: Some(MailboxCursor {
+                    folder: "INBOX".into(),
+                    uid_validity: 1,
+                    last_uid: 0,
+                }),
+                sends_day: None,
+                sends_today: 0,
+                created_at: now_ms(),
+                deleted_at: None,
+            })
+            .await
+            .unwrap();
+        // Discover that the server has no IDLE before the timer starts.
+        world.sweeps.mail.sweep_workspace(ws).await.unwrap();
+    }
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            for ws in &world.workspaces {
+                world.sweeps.mail.sweep_workspace(ws).await.unwrap();
+            }
+            if world.sweeps.mail.watched() == 0 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    world
+        .mail_transport
+        .deliver("care@example.test", "First", "");
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let task = world.sweeps.spawn(cancel.clone()).await;
+    // Real time bounds this assertion, so a missing timer fails promptly.
+    let events = world.mail_ingest.wait_for(2, Duration::from_secs(2)).await;
+    assert_eq!(events.len(), 2, "the startup poll reads each Workspace");
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while world.mail_transport.open_sessions() != 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    world
+        .mail_transport
+        .deliver("care@example.test", "Next", "");
+    tokio::time::pause();
+    tokio::time::advance(pagis_mail::POLL_INTERVAL - Duration::from_secs(1)).await;
+    for _ in 0..100 {
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(world.mail_ingest.events().len(), 2);
+    tokio::time::advance(Duration::from_secs(1)).await;
+    tokio::time::resume();
+    let events = world.mail_ingest.wait_for(4, Duration::from_secs(2)).await;
+    assert_eq!(events.len(), 4, "the next cycle reads both Workspaces");
+    assert!(
+        world
+            .mail_ingest
+            .passes()
+            .iter()
+            .any(|pass| pass.workspace_id == world.workspaces[0])
+    );
+    assert!(
+        world
+            .mail_ingest
+            .passes()
+            .iter()
+            .any(|pass| pass.workspace_id == world.workspaces[1])
+    );
+    cancel.cancel();
+    task.await.unwrap();
+    assert_eq!(world.mail_transport.open_sessions(), 0);
 }

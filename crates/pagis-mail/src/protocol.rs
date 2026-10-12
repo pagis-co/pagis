@@ -5,12 +5,8 @@
 //! transport. The IMAP half is stateful, so one task owns the session
 //! and the seam takes `&mut self`.
 //!
-//! The daemon, not the crate, owns the IDLE turn: `async-imap` resets
-//! its own timeout on every server keepalive, so a turn that waits on
-//! that timeout can last hours. [`StandardSession`]
-//! therefore holds a wall clock over the turn and answers
-//! [`IdleOutcome::Deadline`] when it passes, and the caller re-issues
-//! IDLE. That is what RFC 2177 asks of a client.
+//! The daemon owns the IDLE deadline. The session ends each turn with
+//! DONE before the next command, as RFC 2177 requires.
 
 use crate::ImapMessageId;
 use crate::MessageId;
@@ -19,11 +15,13 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
-use async_imap::Client;
-use async_imap::extensions::idle::IdleResponse;
-use async_imap::types::Fetch;
+use crate::imap::{COMMAND_TIMEOUT, Driver, timeout};
 use async_trait::async_trait;
-use futures::TryStreamExt;
+use imap_next::imap_types::{
+    command::CommandBody,
+    fetch::MessageDataItem,
+    response::{Capability, Code, Data, Response},
+};
 use lettre::address::Envelope;
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::transport::smtp::response::Severity;
@@ -41,7 +39,7 @@ use crate::mime::{build_mime, read_mime};
 use crate::transport::{
     ARCHIVE, Cursor, Endpoint, FlagChange, FolderState, IdleOutcome, MailQuery, MailSession,
     MailTransport, MailboxCredential, Message, MessageSummary, OutgoingMessage, SentMessage,
-    TransportCapabilities, TransportError, TransportErrorCode,
+    TransportError, TransportErrorCode,
 };
 
 /// IMAP with implicit TLS (RFC 8314).
@@ -57,9 +55,6 @@ pub const SUBMISSION_PORT: u16 = 587;
 /// and to issue it again at least every 29 minutes, because a server
 /// may log an idle client off after its own timeout.
 pub const MAX_IDLE_TURN: Duration = Duration::from_secs(29 * 60);
-
-/// How long one command may take before the host counts as unreachable.
-const COMMAND_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// The most messages one `fetch_since` reads in one pass. The caller
 /// keeps the cursor it gets back and asks again, so a folder with a
@@ -83,60 +78,85 @@ impl StandardTransport {
 
 #[async_trait]
 impl MailTransport for StandardTransport {
-    fn capabilities(&self) -> TransportCapabilities {
-        TransportCapabilities { idle: true }
-    }
-
     async fn login(
         &self,
         credential: &MailboxCredential,
     ) -> Result<Box<dyn MailSession>, TransportError> {
-        let imap = imap_login(credential).await?;
-        let smtp = smtp_transport(credential)?;
-        Ok(Box::new(StandardSession {
-            imap: Some(imap),
-            smtp,
-            address: credential.address().to_string(),
-            selected: None,
-        }))
+        let imap = imap_connect(credential.imap()).await?;
+        Ok(Box::new(
+            StandardSession::authenticated(imap, credential).await?,
+        ))
     }
 }
 
-/// One open connection to one mailbox.
-struct StandardSession {
-    /// The IMAP session. It is absent only while an IDLE turn holds
-    /// it, because `async-imap` moves the session into the IDLE handle
-    /// and gives it back at `done()`.
-    imap: Option<async_imap::Session<MailStream>>,
+/// One IMAP client over the byte stream supplied by its host.
+struct StandardSession<S> {
+    imap: Driver<S>,
     smtp: AsyncSmtpTransport<Tokio1Executor>,
     address: String,
-    /// The folder the last `select` opened.
+    idle_supported: bool,
     selected: Option<String>,
 }
 
-impl StandardSession {
-    fn imap(&mut self) -> Result<&mut async_imap::Session<MailStream>, TransportError> {
-        self.imap
-            .as_mut()
-            .ok_or(TransportError(TransportErrorCode::Unreachable))
+impl<S: AsyncRead + AsyncWrite + Unpin + Send> StandardSession<S> {
+    #[cfg(test)]
+    async fn login(stream: S, credential: &MailboxCredential) -> Result<Self, TransportError> {
+        let mut imap = Driver::new(stream);
+        imap.greeting().await?;
+        Self::authenticated(imap, credential).await
+    }
+
+    async fn authenticated(
+        mut imap: Driver<S>,
+        credential: &MailboxCredential,
+    ) -> Result<Self, TransportError> {
+        let login = CommandBody::login(
+            credential.address().to_string(),
+            credential.expose_password().to_string(),
+        )
+        .map_err(|_| TransportError(TransportErrorCode::Rejected))?;
+        imap.command(login).await?;
+        // Capabilities can change after authentication. Read the server's
+        // current set, rather than the provider's display flag.
+        let responses = imap.command(CommandBody::Capability).await?;
+        let idle_supported = responses.iter().any(|response| matches!(response,
+            Response::Data(Data::Capability(capabilities)) if capabilities.as_ref().contains(&Capability::Idle)));
+        Ok(Self {
+            imap,
+            smtp: smtp_transport(credential)?,
+            address: credential.address().to_string(),
+            idle_supported,
+            selected: None,
+        })
     }
 
     /// Open the folder and read its numbering. Every read selects,
     /// because a folder the host renumbered or new mail that arrived
     /// shows in the `SELECT` answer and nowhere else.
     async fn select_folder(&mut self, folder: &str) -> Result<FolderState, TransportError> {
-        let session = self.imap()?;
-        let mailbox = with_timeout(session.select(folder)).await?;
+        let body = CommandBody::select(folder.to_string())
+            .map_err(|_| TransportError(TransportErrorCode::Rejected))?;
+        let responses = self.imap.command(body).await?;
+        let mut uid_validity = None;
+        let mut next_uid = None;
+        let mut exists = 0;
+        for response in &responses {
+            match response {
+                Response::Data(Data::Exists(count)) => exists = *count,
+                Response::Status(status) => match status.code() {
+                    Some(Code::UidValidity(value)) => uid_validity = Some(value.get()),
+                    Some(Code::UidNext(value)) => next_uid = Some(value.get()),
+                    _ => {}
+                },
+                _ => {}
+            }
+        }
         self.selected = Some(folder.to_string());
         Ok(FolderState {
             folder: folder.to_string(),
-            uid_validity: mailbox
-                .uid_validity
-                .ok_or(TransportError(TransportErrorCode::Unreadable))?,
-            next_uid: mailbox
-                .uid_next
-                .ok_or(TransportError(TransportErrorCode::Unreadable))?,
-            exists: mailbox.exists,
+            uid_validity: uid_validity.ok_or(TransportError(TransportErrorCode::Unreadable))?,
+            next_uid: next_uid.ok_or(TransportError(TransportErrorCode::Unreadable))?,
+            exists,
         })
     }
 
@@ -164,37 +184,74 @@ impl StandardSession {
             .map(u32::to_string)
             .collect::<Vec<_>>()
             .join(",");
-        let session = self.imap()?;
-        let stream = with_timeout(session.uid_fetch(set, FETCH_QUERY)).await?;
-        let fetched: Vec<Fetch> = with_timeout(stream.try_collect()).await?;
-
-        let mut messages = Vec::with_capacity(fetched.len());
-        for uid in uids {
-            let Some(fetch) = fetched.iter().find(|fetch| fetch.uid == Some(*uid)) else {
-                // The message left the folder between the search and
-                // the fetch. It is not an error; it is gone.
-                continue;
-            };
-            let body = fetch
-                .body()
-                .ok_or(TransportError(TransportErrorCode::Unreadable))?;
-            messages.push(read_mime(body, ImapMessageId::new(folder, *uid).into())?);
+        let responses = self
+            .imap
+            .command_text(&format!("UID FETCH {set} {FETCH_QUERY}"))
+            .await?;
+        let mut fetched = Vec::new();
+        for response in responses {
+            if let Response::Data(Data::Fetch { items, .. }) = response {
+                let uid = items.as_ref().iter().find_map(|item| match item {
+                    MessageDataItem::Uid(uid) => Some(uid.get()),
+                    _ => None,
+                });
+                let body = items.as_ref().iter().find_map(|item| match item {
+                    MessageDataItem::BodyExt {
+                        section: None,
+                        origin: None,
+                        data,
+                    } => data.0.as_ref().map(|data| data.as_ref()),
+                    _ => None,
+                });
+                if let Some(uid) = uid {
+                    let body = body.ok_or(TransportError(TransportErrorCode::Unreadable))?;
+                    fetched.push((
+                        uid,
+                        read_mime(body, ImapMessageId::new(folder, uid).into())?,
+                    ));
+                }
+            }
         }
-        Ok(messages)
+        // A message can leave the folder between SEARCH and FETCH.
+        Ok(uids
+            .iter()
+            .filter_map(|uid| {
+                fetched
+                    .iter()
+                    .find(|(found, _)| found == uid)
+                    .map(|(_, message)| message.clone())
+            })
+            .collect())
     }
 
     /// The UIDs of the selected folder that match one search.
     async fn search_uids(&mut self, criteria: &str) -> Result<Vec<u32>, TransportError> {
-        let session = self.imap()?;
-        let found = with_timeout(session.uid_search(criteria)).await?;
-        let mut uids: Vec<u32> = found.into_iter().collect();
+        let responses = self
+            .imap
+            .command_text(&format!("UID SEARCH {criteria}"))
+            .await?;
+        let mut uids = Vec::new();
+        for response in responses {
+            if let Response::Data(Data::Search(found)) = response {
+                uids.extend(found.into_iter().map(|uid| uid.get()));
+            }
+        }
         uids.sort_unstable();
+        uids.dedup();
         Ok(uids)
     }
 }
 
 #[async_trait]
-impl MailSession for StandardSession {
+impl<S: AsyncRead + AsyncWrite + Unpin + Send> MailSession for StandardSession<S> {
+    fn idle_supported(&self) -> bool {
+        self.idle_supported
+    }
+
+    async fn logout(&mut self) -> Result<(), TransportError> {
+        self.imap.logout().await
+    }
+
     async fn select(&mut self, folder: &str) -> Result<FolderState, TransportError> {
         self.select_folder(folder).await
     }
@@ -269,45 +326,10 @@ impl MailSession for StandardSession {
     }
 
     async fn idle(&mut self, deadline: Duration) -> Result<IdleOutcome, TransportError> {
-        let session = self
-            .imap
-            .take()
-            .ok_or(TransportError(TransportErrorCode::Unreachable))?;
-        let turn = deadline.min(MAX_IDLE_TURN);
-        let mut handle = session.idle();
-        if let Err(error) = handle.init().await {
-            // The handle still owns the session; end the turn so the
-            // caller can log out.
-            self.imap = handle.done().await.ok();
-            return Err(map_imap(error));
+        if !self.idle_supported {
+            return Err(TransportError(TransportErrorCode::Rejected));
         }
-
-        let outcome = {
-            // The crate's own timeout restarts on every keepalive, so
-            // the wall clock outside it is what ends the turn.
-            let (waiting, _interrupt) = handle.wait_with_timeout(turn);
-            match tokio::time::timeout(turn, waiting).await {
-                Ok(Ok(IdleResponse::NewData(_))) => Ok(IdleOutcome::Changed),
-                Ok(Ok(IdleResponse::Timeout | IdleResponse::ManualInterrupt)) => {
-                    Ok(IdleOutcome::Deadline)
-                }
-                Ok(Err(error)) => Err(map_imap(error)),
-                Err(_) => Ok(IdleOutcome::Deadline),
-            }
-        };
-
-        let ended = handle.done().await;
-        match (outcome, ended) {
-            (Ok(outcome), Ok(session)) => {
-                self.imap = Some(session);
-                Ok(outcome)
-            }
-            (Err(error), ended) => {
-                self.imap = ended.ok();
-                Err(error)
-            }
-            (Ok(_), Err(error)) => Err(map_imap(error)),
-        }
+        self.imap.idle(deadline.min(MAX_IDLE_TURN)).await
     }
 
     async fn send(&mut self, message: &OutgoingMessage) -> Result<SentMessage, TransportError> {
@@ -337,14 +359,9 @@ impl MailSession for StandardSession {
         for (wanted, flag) in [(flags.seen, "\\Seen"), (flags.flagged, "\\Flagged")] {
             let Some(wanted) = wanted else { continue };
             let sign = if wanted { '+' } else { '-' };
-            let session = self.imap()?;
-            let stream = with_timeout(
-                session.uid_store(id.uid.to_string(), format!("{sign}FLAGS ({flag})")),
-            )
-            .await?;
-            // The answer is a stream of updated messages; it must be
-            // read to the end before the next command goes out.
-            let _: Vec<Fetch> = with_timeout(stream.try_collect()).await?;
+            self.imap
+                .command_text(&format!("UID STORE {} {sign}FLAGS ({flag})", id.uid))
+                .await?;
         }
         Ok(())
     }
@@ -352,12 +369,11 @@ impl MailSession for StandardSession {
     async fn move_to_archive(&mut self, id: &MessageId) -> Result<(), TransportError> {
         let id = id.as_str().parse::<ImapMessageId>()?;
         self.ensure_selected(&id.folder).await?;
-        let session = self.imap()?;
-        // A host that has no archive folder yet gets one. A host that
-        // has it answers `NO`, which is the same outcome.
-        let _ = with_timeout(session.create(ARCHIVE)).await;
-        let session = self.imap()?;
-        with_timeout(session.uid_mv(id.uid.to_string(), ARCHIVE)).await?;
+        // CREATE can answer NO when the archive already exists.
+        let _ = self.imap.command_text(&format!("CREATE {ARCHIVE}")).await;
+        self.imap
+            .command_text(&format!("UID MOVE {} {ARCHIVE}", id.uid))
+            .await?;
         Ok(())
     }
 }
@@ -415,32 +431,6 @@ fn mailbox_address(address: &str) -> Result<Address, TransportError> {
     address
         .parse::<Address>()
         .map_err(|_| TransportError(TransportErrorCode::Rejected))
-}
-
-/// A command the host does not answer inside the timeout leaves the
-/// session in an unknown state, which the caller treats as dead.
-async fn with_timeout<T>(
-    work: impl Future<Output = async_imap::error::Result<T>>,
-) -> Result<T, TransportError> {
-    match tokio::time::timeout(COMMAND_TIMEOUT, work).await {
-        Ok(answer) => answer.map_err(map_imap),
-        Err(_) => Err(TransportError(TransportErrorCode::Unreachable)),
-    }
-}
-
-/// A refused login is a different failure from a network failure: the
-/// first makes the mailbox `unavailable`, the second is the reconnect
-/// loop's business (ADR-0019).
-fn map_imap(error: async_imap::error::Error) -> TransportError {
-    use async_imap::error::Error;
-    let code = match error {
-        Error::No(_) => TransportErrorCode::Unauthorized,
-        Error::Bad(_) | Error::Validate(_) | Error::Append => TransportErrorCode::Rejected,
-        Error::Parse(_) => TransportErrorCode::Unreadable,
-        Error::Io(_) | Error::ConnectionLost => TransportErrorCode::Unreachable,
-        _ => TransportErrorCode::Unreachable,
-    };
-    TransportError(code)
 }
 
 fn map_smtp(error: SmtpError) -> TransportError {
@@ -525,52 +515,34 @@ async fn connect(endpoint: &Endpoint) -> Result<TcpStream, TransportError> {
 async fn upgrade(stream: TcpStream, host: &str) -> Result<MailStream, TransportError> {
     let name = ServerName::try_from(host.to_string())
         .map_err(|_| TransportError(TransportErrorCode::Unreachable))?;
-    let stream = TlsConnector::from(tls_config())
-        .connect(name, stream)
-        .await
-        .map_err(|_| TransportError(TransportErrorCode::Unreachable))?;
+    let stream = timeout(async {
+        TlsConnector::from(tls_config())
+            .connect(name, stream)
+            .await
+            .map_err(|_| TransportError(TransportErrorCode::Unreachable))
+    })
+    .await?;
     Ok(MailStream::Tls(Box::new(stream)))
 }
 
-/// Open the IMAP connection, read the greeting, upgrade where the
-/// endpoint asks for it, and prove the password.
-async fn imap_login(
-    credential: &MailboxCredential,
-) -> Result<async_imap::Session<MailStream>, TransportError> {
-    let endpoint = credential.imap();
+/// Read the greeting and complete the TLS handshake before LOGIN.
+async fn imap_connect(endpoint: &Endpoint) -> Result<Driver<MailStream>, TransportError> {
     let security = security_of(endpoint, IMAPS_PORT);
     let tcp = connect(endpoint).await?;
-
-    let mut client = match security {
-        Security::Implicit => Client::new(upgrade(tcp, &endpoint.host).await?),
-        Security::Plain | Security::StartTls => Client::new(MailStream::Plain(tcp)),
+    let stream = match security {
+        Security::Implicit => upgrade(tcp, &endpoint.host).await?,
+        Security::Plain | Security::StartTls => MailStream::Plain(tcp),
     };
-    // The greeting is the readiness of the host, and it must leave the
-    // stream before the first command.
-    match tokio::time::timeout(COMMAND_TIMEOUT, client.read_response()).await {
-        Ok(Ok(Some(_greeting))) => {}
-        _ => return Err(TransportError(TransportErrorCode::Unreachable)),
-    }
-
+    let mut driver = Driver::new(stream);
+    driver.greeting().await?;
     if security == Security::StartTls {
-        with_timeout(client.run_command_and_check_ok("STARTTLS", None)).await?;
-        let MailStream::Plain(tcp) = client.into_inner() else {
-            unreachable!("STARTTLS runs on a plain stream only");
+        driver.command(CommandBody::StartTLS).await?;
+        let MailStream::Plain(tcp) = driver.stream else {
+            unreachable!("STARTTLS uses a plain stream");
         };
-        // A host sends no greeting after STARTTLS.
-        client = Client::new(upgrade(tcp, &endpoint.host).await?);
+        driver.stream = upgrade(tcp, &endpoint.host).await?;
     }
-
-    match tokio::time::timeout(
-        COMMAND_TIMEOUT,
-        client.login(credential.address(), credential.expose_password()),
-    )
-    .await
-    {
-        Ok(Ok(session)) => Ok(session),
-        Ok(Err((error, _client))) => Err(map_imap(error)),
-        Err(_) => Err(TransportError(TransportErrorCode::Unreachable)),
-    }
+    Ok(driver)
 }
 
 fn smtp_transport(
@@ -645,6 +617,248 @@ impl AsyncWrite for MailStream {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::INBOX;
+
+    use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream};
+
+    fn credential() -> MailboxCredential {
+        MailboxCredential::new(
+            "ada@example.test",
+            "password",
+            Endpoint::new("localhost", 143),
+            Endpoint::new("localhost", 25),
+        )
+    }
+
+    /// Each response follows the complete command. Small writes split
+    /// responses across reads, including the message literal.
+    fn script(turns: Vec<(String, String)>) -> (DuplexStream, tokio::task::JoinHandle<()>) {
+        let (client, mut server) = tokio::io::duplex(64);
+        let handle = tokio::spawn(async move {
+            server.write_all(b"* OK ready\r\n").await.unwrap();
+            for (command, response) in turns {
+                let mut got = vec![0; command.len()];
+                server.read_exact(&mut got).await.unwrap();
+                assert_eq!(got, command.as_bytes());
+                for chunk in response.as_bytes().chunks(7) {
+                    server.write_all(chunk).await.unwrap();
+                }
+            }
+        });
+        (client, handle)
+    }
+
+    fn login_turns(idle: bool) -> Vec<(String, String)> {
+        vec![
+            (
+                "A1 LOGIN ada@example.test password\r\n".into(),
+                "A1 OK logged in\r\n".into(),
+            ),
+            (
+                "A2 CAPABILITY\r\n".into(),
+                format!(
+                    "* CAPABILITY IMAP4rev1{}\r\nA2 OK capabilities\r\n",
+                    if idle { " IDLE" } else { "" }
+                ),
+            ),
+        ]
+    }
+
+    fn select_turn(tag: &str) -> (String, String) {
+        (
+            format!("{tag} SELECT INBOX\r\n"),
+            format!(
+                "* 2 EXISTS\r\n* OK [UIDVALIDITY 7] validity\r\n* OK [UIDNEXT 10] next\r\n{tag} OK [READ-WRITE] selected\r\n"
+            ),
+        )
+    }
+
+    #[tokio::test]
+    async fn scripted_login_select_and_uid_fetch_from_a_cursor() {
+        let raw = b"Message-ID: <nine@example.test>\r\nFrom: care@example.test\r\nSubject: The roof\r\n\r\nHello.\r\n";
+        let mut turns = login_turns(true);
+        turns.push(select_turn("A3"));
+        turns.push(select_turn("A4"));
+        turns.push((
+            "A5 UID SEARCH UID 9:*\r\n".into(),
+            "* SEARCH 8 9\r\nA5 OK searched\r\n".into(),
+        ));
+        turns.push((
+            "A6 UID FETCH 9 (UID BODY.PEEK[])\r\n".into(),
+            format!(
+                "* 2 FETCH (UID 9 BODY[] {{{}}}\r\n{})\r\nA6 OK fetched\r\n",
+                raw.len(),
+                String::from_utf8_lossy(raw)
+            ),
+        ));
+        turns.push((
+            "A7 LOGOUT\r\n".into(),
+            "* BYE closed\r\nA7 OK logout\r\n".into(),
+        ));
+        let (stream, server) = script(turns);
+        let mut session = StandardSession::login(stream, &credential()).await.unwrap();
+        assert!(session.idle_supported());
+        let state = session.select(INBOX).await.unwrap();
+        assert_eq!(
+            (state.uid_validity, state.next_uid, state.exists),
+            (7, 10, 2)
+        );
+        let (messages, next) = session
+            .fetch_since(&Cursor {
+                folder: INBOX.into(),
+                uid_validity: 7,
+                last_uid: 8,
+            })
+            .await
+            .unwrap();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].subject, "The roof");
+        assert_eq!(next.last_uid, 9);
+        session.logout().await.unwrap();
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn scripted_idle_sends_done_before_the_next_command() {
+        let mut turns = login_turns(true);
+        turns.push(select_turn("A3"));
+        turns.push(("A4 IDLE\r\n".into(), "+ idling\r\n* 3 EXISTS\r\n".into()));
+        turns.push(("DONE\r\n".into(), "A4 OK idle ended\r\n".into()));
+        turns.push((
+            "A5 LOGOUT\r\n".into(),
+            "* BYE closed\r\nA5 OK logout\r\n".into(),
+        ));
+        let (stream, server) = script(turns);
+        let mut session = StandardSession::login(stream, &credential()).await.unwrap();
+        session.select(INBOX).await.unwrap();
+        assert_eq!(
+            session.idle(Duration::from_secs(10)).await.unwrap(),
+            IdleOutcome::Changed
+        );
+        session.logout().await.unwrap();
+        server.await.unwrap();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn scripted_idle_deadline_sends_done() {
+        let mut turns = login_turns(true);
+        turns.push(("A3 IDLE\r\n".into(), "+ idling\r\n".into()));
+        turns.push(("DONE\r\n".into(), "A3 OK idle ended\r\n".into()));
+        let (stream, server) = script(turns);
+        let mut session = StandardSession::login(stream, &credential()).await.unwrap();
+        assert_eq!(
+            session.idle(Duration::from_secs(10)).await.unwrap(),
+            IdleOutcome::Deadline
+        );
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn scripted_server_without_idle_sets_the_session_flag() {
+        let (stream, server) = script(login_turns(false));
+        let session = StandardSession::login(stream, &credential()).await.unwrap();
+        assert!(!session.idle_supported());
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn scripted_refused_login_is_unauthorized() {
+        let (stream, server) = script(vec![(
+            "A1 LOGIN ada@example.test password\r\n".into(),
+            "A1 NO wrong password\r\n".into(),
+        )]);
+        let error = StandardSession::login(stream, &credential())
+            .await
+            .err()
+            .unwrap();
+        assert_eq!(error.0, TransportErrorCode::Unauthorized);
+        server.await.unwrap();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn scripted_command_timeout_is_unreachable() {
+        let (stream, mut server) = tokio::io::duplex(128);
+        server.write_all(b"* OK ready\r\n").await.unwrap();
+        let error = StandardSession::login(stream, &credential())
+            .await
+            .err()
+            .unwrap();
+        assert_eq!(error.0, TransportErrorCode::Unreachable);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn scripted_cancelled_idle_logs_out_with_done() {
+        let mut turns = login_turns(true);
+        turns.push(("A3 IDLE\r\n".into(), "+ idling\r\n".into()));
+        turns.push(("DONE\r\n".into(), "A3 OK idle ended\r\n".into()));
+        turns.push((
+            "A4 LOGOUT\r\n".into(),
+            "* BYE closed\r\nA4 OK logout\r\n".into(),
+        ));
+        let (stream, server) = script(turns);
+        let mut session = StandardSession::login(stream, &credential()).await.unwrap();
+        // Cancellation drops the wait, as the collector does at shutdown.
+        assert!(
+            tokio::time::timeout(
+                Duration::from_secs(1),
+                session.idle(Duration::from_secs(10))
+            )
+            .await
+            .is_err()
+        );
+        session.logout().await.unwrap();
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn scripted_bad_login_is_rejected_without_a_password_refusal() {
+        let (stream, server) = script(vec![(
+            "A1 LOGIN ada@example.test password\r\n".into(),
+            "A1 BAD login disabled\r\n".into(),
+        )]);
+        let error = StandardSession::login(stream, &credential())
+            .await
+            .err()
+            .unwrap();
+        assert_eq!(error.0, TransportErrorCode::Rejected);
+        server.await.unwrap();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn scripted_cancelled_partial_idle_write_keeps_the_command_bytes() {
+        let (stream, mut server) = tokio::io::duplex(1);
+        let handle = tokio::spawn(async move {
+            server.write_all(b"* OK ready\r\n").await.unwrap();
+            for (command, response) in login_turns(true) {
+                let mut got = vec![0; command.len()];
+                server.read_exact(&mut got).await.unwrap();
+                assert_eq!(got, command.as_bytes());
+                server.write_all(response.as_bytes()).await.unwrap();
+            }
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            for (command, response) in [
+                ("A3 IDLE\r\n", "+ idling\r\n"),
+                ("DONE\r\n", "A3 OK idle ended\r\n"),
+                ("A4 LOGOUT\r\n", "* BYE closed\r\nA4 OK logout\r\n"),
+            ] {
+                let mut got = vec![0; command.len()];
+                server.read_exact(&mut got).await.unwrap();
+                assert_eq!(got, command.as_bytes());
+                server.write_all(response.as_bytes()).await.unwrap();
+            }
+        });
+        let mut session = StandardSession::login(stream, &credential()).await.unwrap();
+        assert!(
+            tokio::time::timeout(
+                Duration::from_secs(1),
+                session.idle(Duration::from_secs(10))
+            )
+            .await
+            .is_err()
+        );
+        session.logout().await.unwrap();
+        handle.await.unwrap();
+    }
 
     #[test]
     fn a_query_with_no_field_reads_the_whole_folder() {

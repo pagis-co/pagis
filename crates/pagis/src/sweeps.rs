@@ -28,6 +28,7 @@ pub struct Sweeps {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum Job {
     Mail,
+    MailPoll,
     Publish,
     Collect,
     Reauth,
@@ -41,7 +42,7 @@ impl Sweeps {
     pub async fn pass(self: &Arc<Self>) -> Result<(), StoreError> {
         let mut jobs = Jobs::new();
         for workspace in self.workspaces.list().await? {
-            for job in [Job::Mail, Job::Publish, Job::Reauth] {
+            for job in [Job::Mail, Job::MailPoll, Job::Publish, Job::Reauth] {
                 jobs.push(self.job((workspace.id.clone(), job)));
             }
         }
@@ -70,6 +71,11 @@ impl Sweeps {
                 Job::Mail => {
                     if let Err(error) = sweeps.mail.sweep_workspace(workspace_id).await {
                         tracing::warn!(%workspace_id, %error, "mail sweep failed");
+                    }
+                }
+                Job::MailPoll => {
+                    if let Err(error) = sweeps.mail.poll_workspace(workspace_id).await {
+                        tracing::warn!(%workspace_id, %error, "mail poll failed");
                     }
                 }
                 Job::Publish => {
@@ -103,7 +109,9 @@ impl Sweeps {
         let sweeps = self.clone();
         tokio::spawn(async move {
             let mut mail = tokio::time::interval(pagis_mail::SWEEP_INTERVAL);
+            let mut mail_polls = tokio::time::interval(pagis_mail::POLL_INTERVAL);
             let mut collectors = tokio::time::interval(sweeps.collector_interval);
+            mail_polls.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             mail.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             collectors.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             let mut jobs = Jobs::new();
@@ -127,6 +135,7 @@ impl Sweeps {
                         }
                     }
                     _ = mail.tick() => sweeps.enqueue_pass(&[Job::Mail], &mut jobs, &mut running).await,
+                    _ = mail_polls.tick() => sweeps.enqueue_pass(&[Job::MailPoll], &mut jobs, &mut running).await,
                     _ = collectors.tick() => sweeps.enqueue_pass(&[Job::Publish, Job::Reauth], &mut jobs, &mut running).await,
                 }
             }

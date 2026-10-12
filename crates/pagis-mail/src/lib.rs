@@ -43,6 +43,7 @@ mod collector;
 mod desk;
 mod events;
 mod host;
+mod imap;
 mod imap_mailbox;
 mod mailbox;
 mod manual;
@@ -90,9 +91,9 @@ pub use protocol::{
     IMAP_PORT, IMAPS_PORT, MAX_IDLE_TURN, SMTPS_PORT, SUBMISSION_PORT, StandardTransport,
 };
 pub use provider::{
-    ACCOUNT_KEY, CAPABILITIES_KEY, DOMAIN_KEY, IMAP_HOST_KEY, IMAP_PORT_KEY, MAIL_TRANSPORT,
-    MIGADU_IMAP, MIGADU_SMTP, MailboxCapabilities, MailboxProvider, SMTP_HOST_KEY, SMTP_PORT_KEY,
-    authserv_ids, is_mailbox_provider, mailbox_provider,
+    ACCOUNT_KEY, CAPABILITIES_KEY, DOMAIN_KEY, IMAP_HOST_KEY, IMAP_PORT_KEY, MIGADU_IMAP,
+    MIGADU_SMTP, MailboxCapabilities, MailboxProvider, SMTP_HOST_KEY, SMTP_PORT_KEY, authserv_ids,
+    is_mailbox_provider, mailbox_provider,
 };
 pub use sender::{SenderEvidence, SenderVerification, verify_sender};
 pub use standing::{
@@ -105,7 +106,7 @@ pub use tools::{
 pub use transport::{
     ARCHIVE, Attachment, Cursor, Endpoint, FlagChange, FolderState, INBOX, IdleOutcome, MailQuery,
     MailSession, MailTransport, MailboxCredential, Message, MessageSummary, OutgoingMessage,
-    SentMessage, TransportCapabilities, TransportError, TransportErrorCode,
+    SentMessage, TransportError, TransportErrorCode,
 };
 
 /// The provider of a Connection whose mailboxes the daemon makes
