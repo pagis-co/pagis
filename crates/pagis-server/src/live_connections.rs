@@ -26,16 +26,15 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use axum::extract::FromRequestParts;
-use axum::extract::ws::{CloseFrame, Message as WsMessage, close_code};
 use axum::http::request::Parts;
 use futures::{SinkExt, StreamExt};
 use pagis_core::{Clock, SessionId, UnixMillis, UserId};
 use tokio_util::sync::CancellationToken;
 
 use crate::AppState;
-use crate::MessageSocket;
 use crate::auth::Tenant;
 use crate::error::ApiError;
+use crate::{CloseFrame, Message, MessageSocket};
 
 /// How long a socket that the daemon closes waits for the Close of the
 /// client.
@@ -170,7 +169,7 @@ async fn reach(clock: &dyn Clock, at: UnixMillis) {
         }
         let left = Duration::from_millis(u64::try_from(at - now).unwrap_or(0));
         tokio::select! {
-            () = tokio::time::sleep(left) => {}
+            () = pagis_rt::sleep(left) => {}
             () = changed => {}
         }
     }
@@ -211,15 +210,15 @@ impl FromRequestParts<Arc<AppState>> for LiveTenant {
 /// Close a socket whose Session ended, with 1008.
 pub(crate) async fn close_for_ended_session(socket: &mut impl MessageSocket) -> anyhow::Result<()> {
     socket
-        .send(WsMessage::Close(Some(CloseFrame {
-            code: close_code::POLICY,
+        .send(Message::Close(Some(CloseFrame {
+            code: 1008,
             reason: "the session ended".into(),
         })))
         .await?;
     // The client answers with a Close of its own. The daemon reads it
     // before the connection ends, so the client reads the Close and not
     // a reset connection.
-    let _ = tokio::time::timeout(CLOSE_GRACE, async {
+    let _ = pagis_rt::timeout(CLOSE_GRACE, async {
         while let Some(Ok(_)) = socket.next().await {}
     })
     .await;

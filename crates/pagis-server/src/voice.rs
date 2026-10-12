@@ -19,7 +19,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::Json;
-use axum::extract::ws::{Message as WsMessage, WebSocketUpgrade};
+use axum::extract::ws::WebSocketUpgrade;
 use axum::extract::{Path, Query, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
@@ -30,10 +30,11 @@ use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
 use crate::AppState;
-use crate::MessageSocket;
 use crate::auth::Tenant;
+use crate::axum_socket::AxumSocket;
 use crate::error::ApiError;
 use crate::live_connections::{LiveTenant, close_for_ended_session};
+use crate::{Message, MessageSocket};
 
 /// The longest hold. Push-to-talk is one utterance, not a recording.
 const MAX_HOLD: Duration = Duration::from_secs(300);
@@ -75,12 +76,8 @@ impl DictateServerFrame {
         }
     }
 
-    fn to_ws(&self) -> WsMessage {
-        WsMessage::Text(
-            serde_json::to_string(self)
-                .expect("dictation frame serializes")
-                .into(),
-        )
+    fn to_ws(&self) -> Message {
+        Message::Text(serde_json::to_string(self).expect("dictation frame serializes"))
     }
 }
 
@@ -91,7 +88,7 @@ pub async fn dictate(
     ws: WebSocketUpgrade,
 ) -> Response {
     ws.on_upgrade(move |socket| async move {
-        let dictated = serve_dictation(socket, state, live, channel_id).await;
+        let dictated = serve_dictation(AxumSocket(socket), state, live, channel_id).await;
         if let Err(err) = dictated {
             tracing::debug!(error = %err, "dictation socket closed");
         }
@@ -123,7 +120,7 @@ pub async fn serve_dictation(
     let held = tokio::select! {
         biased;
         () = session_ended.cancelled() => return close_for_ended_session(&mut socket).await,
-        held = tokio::time::timeout(MAX_HOLD, dictate_once(&state, &tenant, &mut socket)) => held,
+        held = pagis_rt::timeout(MAX_HOLD, dictate_once(&state, &tenant, &mut socket)) => held,
     };
     match held {
         Ok(result) => result,
@@ -184,8 +181,8 @@ async fn next_held(socket: &mut impl MessageSocket) -> anyhow::Result<Held> {
             return Ok(Held::Gone);
         };
         match frame? {
-            WsMessage::Binary(bytes) => return Ok(Held::Audio(bytes.to_vec())),
-            WsMessage::Text(text) => match serde_json::from_str::<DictateClientFrame>(&text) {
+            Message::Binary(bytes) => return Ok(Held::Audio(bytes.to_vec())),
+            Message::Text(text) => match serde_json::from_str::<DictateClientFrame>(&text) {
                 Ok(DictateClientFrame::Commit) => return Ok(Held::Commit),
                 Err(_) => {
                     socket
@@ -193,8 +190,8 @@ async fn next_held(socket: &mut impl MessageSocket) -> anyhow::Result<Held> {
                         .await?;
                 }
             },
-            WsMessage::Close(_) => return Ok(Held::Gone),
-            WsMessage::Ping(_) | WsMessage::Pong(_) => {}
+            Message::Close(_) => return Ok(Held::Gone),
+            Message::Ping(_) | Message::Pong(_) => {}
         }
     }
 }

@@ -27,9 +27,11 @@ loop survives daily use.
 
 ### Memory rules are separate from storage
 
-`pagis-memory::rules` holds the access rules, Exposure Stamps as values,
+`pagis-core::memory::rules` holds the access rules, Exposure Stamps as values,
 and the Forget selection over history values. It has no git type and no
-C library dependency. The same rules build and run under WebAssembly.
+C library dependency. The same rules build and run under WebAssembly. The
+rules live with the MemoryStore trait, so the in-memory fake and each
+storage backend use them without a dependency cycle.
 
 `pagis-memory-git` implements `MemoryStore` from `pagis-core`. It reads
 and writes git objects, stores Exposure Stamps under `.pagis/exposure/`,
@@ -37,7 +39,7 @@ repacks the repository, and rebuilds it after a Forget. Each stamp file
 has the hexadecimal file path as its name, with a `.json` extension.
 
 `pagis-testkit::memory_suite!` runs the same trait tests on the git store
-and on `FakeMemoryStore`. The fake keeps history and files in memory and
+and on `pagis-core::fake::FakeMemoryStore`. The fake keeps history and files in memory and
 calls the same rules. Tests of git objects, repacks, rebuilds, and
 Workspace locks stay with the git backend.
 

@@ -15,7 +15,6 @@ members = [
     "crates/pagis-google",
     "crates/pagis-mail",
     "crates/pagis-needs-you",
-    "crates/pagis-memory",
     "crates/pagis-memory-git",
     "crates/pagis-knowledge",
     "crates/pagis-plugin",
@@ -57,7 +56,6 @@ pagis-evaluation = { path = "crates/pagis-evaluation" }
 pagis-google = { path = "crates/pagis-google" }
 pagis-mail = { path = "crates/pagis-mail" }
 pagis-needs-you = { path = "crates/pagis-needs-you" }
-pagis-memory = { path = "crates/pagis-memory" }
 pagis-memory-git = { path = "crates/pagis-memory-git" }
 pagis-knowledge = { path = "crates/pagis-knowledge" }
 pagis-plugin = { path = "crates/pagis-plugin" }
@@ -91,6 +89,8 @@ chrono-tz = "0.10"
 # Protocol. The test kit alone uses it.
 chromiumoxide = { version = "0.9", default-features = false }
 croner = "3.0.1"
+# The three-way merge of the in-memory MemoryStore fake.
+diffy = "0.5"
 # The Agent Mailbox local part is ASCII, so an Agent name that is not
 # ASCII is transliterated rather than dropped (ADR-0019).
 deunicode = "1"
@@ -189,8 +189,9 @@ serde-saphyr = { version = "1", default-features = false, features = ["deseriali
 serde_json = { version = "1", features = ["preserve_order"] }
 semver = "1"
 # The SPDX license expressions of the packages that the third-party
-# notices of xtask name, and the standard text of each license.
-spdx = { version = "0.13", features = ["text"] }
+# notices of xtask name, the standard text of each license, and the
+# detection of a license from its text, which cargo-about also uses.
+spdx = { version = "0.13", features = ["text", "detection-inline-cache"] }
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls-ring", "sqlite", "postgres", "migrate", "macros", "json"] }
 tempfile = "3"
 thiserror = "2"

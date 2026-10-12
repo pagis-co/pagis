@@ -124,6 +124,7 @@ fn the_ios_release_lists_each_step_in_order() {
             "deps",
             "build",
             "sync",
+            "notices",
             "archive",
             "export",
             "check-ipa",
@@ -147,6 +148,21 @@ fn the_prepare_phase_builds_the_connect_screen_and_syncs_the_ios_project() {
             "step {name} runs at the root of the workspace"
         );
     }
+}
+
+/// The release writes the acknowledgements of the npm packages and of the
+/// Swift packages into the Settings bundle before the archive copies it
+/// into the app.
+#[test]
+fn the_prepare_phase_writes_the_acknowledgements_into_the_settings_bundle() {
+    let (tmp, steps) = plan(IosPhase::Prepare, &release_env);
+    let notices = step(&steps, "notices");
+    assert_eq!(
+        joined(notices),
+        "cargo run --locked --package xtask -- notices mobile \
+         mobile/ios/App/App/Settings.bundle/Acknowledgements.plist"
+    );
+    assert_eq!(commands(notices)[0].cwd.as_deref(), Some(tmp.path()));
 }
 
 #[test]
@@ -287,6 +303,7 @@ fn the_prepare_phase_checks_the_exact_ipa() {
         "PagisPushRelayOrigin",
         "'https://push.pagis.co'",
         "PrivacyInfo.xcprivacy",
+        "Settings.bundle/Acknowledgements.plist",
         "ITSAppUsesNonExemptEncryption",
         "aps-environment",
         "production",
@@ -306,7 +323,15 @@ fn the_prepared_ipa_waits_for_publication() {
 #[test]
 fn the_publish_phase_uploads_the_prepared_ipa_with_altool_only() {
     let (tmp, steps) = plan(IosPhase::PublishExisting, &release_env);
-    for name in ["deps", "build", "sync", "archive", "export", "check-ipa"] {
+    for name in [
+        "deps",
+        "build",
+        "sync",
+        "notices",
+        "archive",
+        "export",
+        "check-ipa",
+    ] {
         assert!(
             skip_reason(step(&steps, name)).contains("prepared"),
             "step {name} must not run again"

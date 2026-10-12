@@ -13,6 +13,7 @@ pub mod conversation_evidence;
 pub mod domain;
 pub mod event;
 pub mod exposure;
+pub mod fake;
 pub mod harness;
 pub mod honesty;
 pub mod host;

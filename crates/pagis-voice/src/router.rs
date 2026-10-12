@@ -127,7 +127,8 @@ impl RouterVoice {
     }
 }
 
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl VoiceProvider for RouterVoice {
     async fn transcribe(
         &self,
@@ -234,19 +235,17 @@ async fn open_transcription_session(
     ))
     .await
     .map_err(|error| VoiceError::Provider(format!("{provider}: {error}")))?;
-    let transcripts = stream
-        .filter_map(move |frame| {
-            let provider = provider.clone();
-            async move {
-                match frame {
-                    Ok(RealtimeMessage::Text(text)) => transcript_event(&text),
-                    Ok(RealtimeMessage::Close) => None,
-                    Ok(_) => None,
-                    Err(error) => Some(Err(VoiceError::Provider(format!("{provider}: {error}")))),
-                }
+    let transcripts = Box::pin(stream.filter_map(move |frame| {
+        let provider = provider.clone();
+        async move {
+            match frame {
+                Ok(RealtimeMessage::Text(text)) => transcript_event(&text),
+                Ok(RealtimeMessage::Close) => None,
+                Ok(_) => None,
+                Err(error) => Some(Err(VoiceError::Provider(format!("{provider}: {error}")))),
             }
-        })
-        .boxed();
+        }
+    }));
     Ok(DictationSession {
         input: Box::new(OpenAiInput { sink }),
         transcripts,
@@ -288,7 +287,8 @@ impl OpenAiInput {
     }
 }
 
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl DictationInput for OpenAiInput {
     async fn append(&mut self, pcm16: &[u8]) -> Result<(), VoiceError> {
         let audio = base64::engine::general_purpose::STANDARD.encode(pcm16);

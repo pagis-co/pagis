@@ -37,7 +37,7 @@ const ERRORS: &[&str] = &[
 pub(crate) fn open_scribe_session(connection: RealtimeConnection) -> DictationSession {
     let provider = connection.provider.clone();
     let (sink, stream) = connection.socket.split();
-    let transcripts = futures::stream::unfold(Some(stream), move |stream| {
+    let transcripts = Box::pin(futures::stream::unfold(Some(stream), move |stream| {
         let provider = provider.clone();
         async move {
             let mut stream = stream?;
@@ -57,8 +57,7 @@ pub(crate) fn open_scribe_session(connection: RealtimeConnection) -> DictationSe
                 return Some((piece, None));
             }
         }
-    })
-    .boxed();
+    }));
     DictationSession {
         input: Box::new(ScribeInput { sink }),
         transcripts,
@@ -109,7 +108,8 @@ impl ScribeInput {
     }
 }
 
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl DictationInput for ScribeInput {
     async fn append(&mut self, pcm16: &[u8]) -> Result<(), VoiceError> {
         self.send(pcm16, false).await

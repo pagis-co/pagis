@@ -416,4 +416,8 @@ The image builds on the same pinned bases as the Headless Server image:
 digests. The runtime stage upgrades the Debian packages of its base, so
 each build holds the Debian security fixes that are out. The build uses
 the cargo-auditable that `pagis-versions` pins, so Trivy identifies the
-crates of the relay.
+crates of the relay. After the relay, the build writes the third-party
+notices of its crates with `cargo xtask notices relay`, and the image
+holds them in `/usr/local/share/doc/pagis-push-relay/THIRD_PARTY_NOTICES`
+beside the `LICENSE` of Pagis
+([ADR-0037](adr/0037-each-release-ships-the-notices-of-its-third-party-software.md)).

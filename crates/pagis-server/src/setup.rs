@@ -42,17 +42,16 @@
 use std::sync::Arc;
 
 use axum::Json;
-use axum::extract::{ConnectInfo, State};
+use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
 use pagis_core::{ClientKind, Provider, ProviderKeys, SecretStore, User, UserRole};
 use serde::{Deserialize, Serialize};
-use std::net::SocketAddr;
 use utoipa::ToSchema;
 
-use crate::AppState;
 use crate::error::ApiError;
 use crate::sessions::{hash_password, open_session};
+use crate::{AppState, Peer};
 
 /// The address of the first Administrator, read once at the first start
 /// that finds nobody who can sign in.
@@ -207,7 +206,7 @@ pub async fn get_setup(
 )]
 pub async fn complete_setup(
     State(state): State<Arc<AppState>>,
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    Peer(peer): Peer,
     headers: HeaderMap,
     Json(request): Json<CompleteSetupRequest>,
 ) -> Result<Response, ApiError> {

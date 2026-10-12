@@ -3,7 +3,47 @@
 use std::time::Duration;
 
 use futures::future;
-use pagis_rt::{Instant, sleep, spawn, timeout};
+use pagis_rt::{Instant, sleep, spawn, spawn_blocking, timeout};
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+async fn blocking_task_returns_the_value_of_an_owned_closure() {
+    let value = String::from("password");
+    let result = spawn_blocking(move || value.into_bytes()).await.unwrap();
+    assert_eq!(result, b"password");
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[tokio::test]
+async fn native_blocking_task_runs_on_another_thread() {
+    let caller = std::thread::current().id();
+    let worker = spawn_blocking(|| std::thread::current().id())
+        .await
+        .unwrap();
+    assert_ne!(caller, worker);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[tokio::test]
+async fn native_blocking_task_reports_a_panic() {
+    let error = spawn_blocking(|| panic!("the check panics"))
+        .await
+        .unwrap_err();
+    assert!(error.is_panic());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn wasm_blocking_task_runs_in_place_and_accepts_local_values() {
+    let local = std::rc::Rc::new(std::cell::Cell::new(0));
+    let result = spawn_blocking(|| {
+        local.set(local.get() + 1);
+        std::rc::Rc::clone(&local)
+    });
+    assert_eq!(local.get(), 1);
+    assert!(std::rc::Rc::ptr_eq(&result.await.unwrap(), &local));
+    assert_eq!(local.get(), 1);
+}
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]

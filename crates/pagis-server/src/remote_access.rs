@@ -169,7 +169,7 @@ enum TurnOn {
         /// The last page that Tailscale named to turn on HTTPS or Funnel
         /// for the tailnet.
         enable_url: Option<String>,
-        task: tokio::task::AbortHandle,
+        task: futures::future::AbortHandle,
     },
     Failed(String),
 }
@@ -224,16 +224,19 @@ impl RemoteAccessSwitch {
         }
         slot.generation += 1;
         let generation = slot.generation;
-        let task = pagis_rt::spawn(turn_on(
+        let (task, abort) = futures::future::abortable(turn_on(
             Arc::clone(&self.tailscale),
             system,
             targets,
             Arc::clone(&self.slot),
             generation,
         ));
+        pagis_rt::spawn(async move {
+            let _ = task.await;
+        });
         slot.turn_on = TurnOn::Waiting {
             enable_url: None,
-            task: task.abort_handle(),
+            task: abort,
         };
     }
 

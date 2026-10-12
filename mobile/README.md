@@ -174,6 +174,22 @@ make a Request on the server. `adb logcat -s Pagis` shows why a push shows
 "Something needs you" in place of its text, and why the daemon did not take
 an answer from **Approve once** or **Deny**.
 
+## Acknowledgements
+
+The Settings bundle of the iOS app (`ios/App/App/Settings.bundle`) holds
+the child pane **Acknowledgements**, which the Settings app shows under
+the page of the app. It gives the license of each npm package of the app
+and of each Swift package in `Package.resolved`. The iOS release writes
+it to `Settings.bundle/Acknowledgements.plist`, and git ignores that
+file. To see it in a local build, write it before the build:
+
+```bash
+cargo xtask notices mobile mobile/ios/App/App/Settings.bundle/Acknowledgements.plist
+```
+
+[ADR-0037](../docs/adr/0037-each-release-ships-the-notices-of-its-third-party-software.md)
+holds the decisions.
+
 ## Release
 
 A `mobile-v<version>` tag releases the iOS app through TestFlight and the

@@ -10,7 +10,6 @@ pub mod contribution;
 pub use computers::{ComputerCall, FakeComputers, RecordedComputerCall};
 pub mod evaluation;
 pub mod exit_client;
-mod fake_memory;
 pub mod fixture;
 pub mod google;
 pub mod grant;
@@ -19,7 +18,6 @@ pub mod http;
 pub mod memory_suite;
 mod message_socket;
 pub mod migration;
-pub use fake_memory::FakeMemoryStore;
 pub use message_socket::{MemorySocket, Socket, message_socket_pair};
 pub mod plugin;
 pub mod postgres;
@@ -659,23 +657,17 @@ impl TestDaemon {
         let server = listener.map(|listener| {
             let router = product.clone();
             tokio::spawn(async move {
-                axum::serve(
-                    listener,
-                    router.into_make_service_with_connect_info::<SocketAddr>(),
-                )
-                .await
-                .expect("serve");
+                axum::serve(listener, pagis::peer_service(router))
+                    .await
+                    .expect("serve");
             })
         });
         let administration_server = administration_listener.map(|listener| {
             let router = administration.clone();
             tokio::spawn(async move {
-                axum::serve(
-                    listener,
-                    router.into_make_service_with_connect_info::<SocketAddr>(),
-                )
-                .await
-                .expect("serve the administration interface");
+                axum::serve(listener, pagis::peer_service(router))
+                    .await
+                    .expect("serve the administration interface");
             })
         });
 

@@ -124,5 +124,8 @@ policy.
 Pagis is licensed under the [MIT License](LICENSE). Each server package,
 image and Client App carries `THIRD_PARTY_NOTICES`, the license text of
 each piece of third-party software in it, and each server package also
-carries `LICENSE.gog`
+carries `LICENSE.gog`. The iOS app shows the same notices under
+**Acknowledgements** in its page of the Settings app. The Computer Image
+keeps the license of each program in `/usr/share/doc/<program>/`, and
+the source of labwc and wlroots
 ([ADR-0037](docs/adr/0037-each-release-ships-the-notices-of-its-third-party-software.md)).

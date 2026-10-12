@@ -142,13 +142,16 @@ channel for signals. The actor loads the Agent, stores the Run state and
 starts the Run that `Admission::next` selects. Admission tests need no
 task, clock or store.
 
-`pagis-rt` supplies tasks, sleeps, deadlines, intervals, timeouts and
-`Instant` to `pagis-agent`, `pagis-mail`, `pagis-telephony` and
-`pagis-needs-you`.
+`pagis-rt` supplies tasks, blocking calls, sleeps, deadlines, intervals,
+timeouts and `Instant` to `pagis-agent`, `pagis-mail`, `pagis-telephony`,
+`pagis-needs-you` and `pagis-server`.
 Intervals delay missed ticks, so the Media Hub sends no burst to catch
 up. Native targets use Tokio. On `wasm32-unknown-unknown`,
 tasks use `wasm-bindgen-futures::spawn_local`, timers use Gloo, and
-`Instant` uses `web-time`. No caller supplies a runtime. The Brain keeps
+`Instant` uses `web-time`. Blocking calls use Tokio's blocking pool on
+native targets and run in place on the WebAssembly host's one thread.
+The password check holds its verification permit until the call ends.
+No caller supplies a runtime. The Brain keeps
 its router and fetch futures on the wasm host's one thread with
 `SendWrapper`. The Broker stays concrete, and Computers use the
 `pagis-core::Computers` trait.
@@ -208,10 +211,17 @@ Agent and one shared directory for the Workspace. Subject Pages keep the
 arrivals of one matter, and fact files state one thing each. A Page Index
 and a full-text index are derived from the files (ADR-0008).
 
-`pagis-memory` holds the memory rules as values with no git dependency.
+`pagis-core::memory::rules` holds the memory rules as values with no git dependency.
 `pagis-memory-git` implements `MemoryStore` and owns git storage, repacks,
 and the repository rebuild after a Forget. Both it and the in-memory
-`FakeMemoryStore` in `pagis-testkit` run `memory_suite!`.
+`FakeMemoryStore` in `pagis-core::fake` run `memory_suite!`.
+
+`pagis-core::fake` also gives one in-memory implementation of each core
+store trait and an EventBus. `FakeDatabase::stores()` builds related stores
+over shared state, and `FakeDatabase::bus()` publishes to their EventLog.
+Each read names the Workspace beside the record. Installation-wide records
+use their Person, Org, Session or Run key. The resident actor tests use this
+store set on native targets and under WebAssembly.
 
 Memory changes on three paths (ADR-0010). A reply commits the memory change
 it staged, with no second model phase. A compaction proposes memory changes

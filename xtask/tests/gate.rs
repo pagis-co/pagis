@@ -130,14 +130,14 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
     assert_eq!(
         xtask::WASM_CRATES,
         &[
-            ("pagis-core", &["wasm"][..]),
-            ("pagis-memory", &["rules"][..]),
+            ("pagis-core", &["memory_rules", "wasm"][..]),
             ("llm-router", &["rt", "realtime_host"][..]),
             ("pagis-broker", &["rules_wasm"][..]),
             ("pagis-rt", &["rt"][..]),
             ("pagis-agent", &["actor_host"][..]),
             ("pagis-push", &["wasm"][..]),
             ("pagis-needs-you", &["rules"][..]),
+            ("pagis-voice", &["router_host"][..]),
             ("pagis-mail", &["rules"][..]),
         ]
     );
@@ -153,8 +153,6 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
             "-p",
             "pagis-core",
             "-p",
-            "pagis-memory",
-            "-p",
             "llm-router",
             "-p",
             "pagis-broker",
@@ -167,6 +165,8 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
             "-p",
             "pagis-needs-you",
             "-p",
+            "pagis-voice",
+            "-p",
             "pagis-mail",
             "--",
             "-D",
@@ -174,8 +174,8 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
         ]
     );
     let expected = [
+        ("pagis-core", "memory_rules"),
         ("pagis-core", "wasm"),
-        ("pagis-memory", "rules"),
         ("llm-router", "rt"),
         ("llm-router", "realtime_host"),
         ("pagis-broker", "rules_wasm"),
@@ -183,6 +183,7 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
         ("pagis-agent", "actor_host"),
         ("pagis-push", "wasm"),
         ("pagis-needs-you", "rules"),
+        ("pagis-voice", "router_host"),
         ("pagis-mail", "rules"),
     ];
     for (cmd, (package, binary)) in cmds[1..].iter().zip(expected) {
@@ -233,6 +234,7 @@ fn dev_selects_wasm32_for_portable_crates_and_their_dependencies() {
     for path in [
         "crates/pagis-core/src/lib.rs",
         "crates/pagis-push/src/lib.rs",
+        "crates/pagis-voice/src/lib.rs",
         "crates/pagis-mail/src/desk.rs",
     ] {
         let lanes = dev_lanes(&workspace_root(), &[path.into()], false, NO_TOOLCHAINS).unwrap();
@@ -951,18 +953,27 @@ fn dev_plan_tests_screend_for_a_change_to_screend_or_its_dockerfile() {
     assert!(!names("crates/pagis-computer/src/lib.rs").contains(&"screend-test"));
 }
 
-/// The lockfile of screend is under `computer/screend/`, and the Computer
-/// Image copies the stored notices of screend, so a change to either
-/// checks the notices. Each other lockfile selects the full gate.
+/// The lockfiles of screend and of the Coding Harnesses are under
+/// `computer/`, and the Computer Image copies their stored notices, so a
+/// change to either or to the Dockerfile checks the notices. The Push Relay
+/// image writes its notices, and the iOS app pins its Swift packages in
+/// `Package.resolved`, so a change to either also checks the notices. Each
+/// other lockfile selects the full gate.
 #[test]
-fn dev_plan_checks_the_notices_for_a_change_to_screend_or_its_dockerfile() {
+fn dev_plan_checks_the_notices_for_a_change_to_their_inputs() {
     let tmp = tempfile::tempdir().unwrap();
     write_computer_workspace(tmp.path());
     let names = |path: &str| {
         step_names(&dev_lanes(tmp.path(), &[path.into()], true, NO_TOOLCHAINS).unwrap())
     };
 
-    for path in ["computer/screend/Cargo.lock", "computer/Dockerfile"] {
+    for path in [
+        "computer/screend/Cargo.lock",
+        "computer/harnesses/pnpm-lock.yaml",
+        "computer/Dockerfile",
+        "crates/pagis-push-relay/Dockerfile",
+        xtask::notices::SWIFT_PACKAGES,
+    ] {
         assert!(names(path).contains(&"notices"), "{path}");
     }
     assert!(!names("computer/entrypoint.sh").contains(&"notices"));

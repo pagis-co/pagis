@@ -11,6 +11,7 @@
 //! Nothing here stores audio. A clip is transcribed and dropped, and
 //! synthesized speech is handed to the caller and not kept.
 
+mod bounds;
 mod deepgram;
 mod elevenlabs;
 pub mod fake;
@@ -18,7 +19,12 @@ mod router;
 mod wav;
 
 use bytes::Bytes;
+#[cfg(not(target_arch = "wasm32"))]
 use futures::stream::BoxStream;
+#[cfg(target_arch = "wasm32")]
+use futures::stream::LocalBoxStream as BoxStream;
+
+use bounds::{VoiceSend, VoiceSync};
 
 pub use router::RouterVoice;
 pub use wav::pcm16_wav;
@@ -66,9 +72,11 @@ pub enum Transcript {
 }
 
 /// The audio half of a live dictation: the caller appends frames while
-/// the button is held and commits on release.
-#[async_trait::async_trait]
-pub trait DictationInput: Send {
+/// the button is held and commits on release. It is `Send` on native
+/// targets and stays on the host's thread on WebAssembly.
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+pub trait DictationInput: VoiceSend {
     async fn append(&mut self, pcm16: &[u8]) -> Result<(), VoiceError>;
     async fn commit(&mut self) -> Result<(), VoiceError>;
 }
@@ -92,9 +100,11 @@ pub struct Speech {
 }
 
 /// The voice seam. One implementation per provider path; the daemon
-/// holds one.
-#[async_trait::async_trait]
-pub trait VoiceProvider: Send + Sync {
+/// holds one. It is `Send + Sync` on native targets and stays on the
+/// host's thread on WebAssembly.
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+pub trait VoiceProvider: VoiceSend + VoiceSync {
     /// Transcribe a whole clip. Works on every provider the
     /// `transcribe` alias names.
     ///
