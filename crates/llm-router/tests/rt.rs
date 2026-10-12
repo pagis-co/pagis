@@ -13,7 +13,7 @@ use web_time::Instant;
 async fn timeout_returns_elapsed_after_deadline() {
     let deadline = Duration::from_millis(25);
     let started = Instant::now();
-    let error: rt::Elapsed = rt::timeout(deadline, future::pending::<()>())
+    let error: pagis_rt::Elapsed = rt::timeout(deadline, future::pending::<()>())
         .await
         .expect_err("a pending future must time out");
     assert!(started.elapsed() >= deadline);

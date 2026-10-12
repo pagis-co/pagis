@@ -38,11 +38,15 @@ use axum::extract::ws::WebSocketUpgrade;
 use axum::response::Response;
 use futures::{SinkExt, StreamExt};
 use pagis_agent::{DeltaFrame, ProgressFrame};
-use pagis_broker::{
-    HarnessSignIn, HostCommand, HostConnection, HostFrame, HostOutcome, SessionExit, SignInOutcome,
-};
+#[cfg(feature = "native")]
+use pagis_broker::{HarnessSignIn, HostCommand, HostOutcome, SessionExit, SignInOutcome};
+use pagis_broker::{HostConnection, HostFrame};
 use pagis_core::harness::SignInState;
-use pagis_core::{ChannelId, CodingSessionId, Event, EventScope, HarnessSignInId, Host, harness};
+use pagis_core::{ChannelId, Event, EventScope};
+#[cfg(feature = "native")]
+use pagis_core::{CodingSessionId, HarnessSignInId};
+#[cfg(any(feature = "native", test))]
+use pagis_core::{Host, harness};
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use utoipa::ToSchema;
@@ -214,6 +218,7 @@ impl ServerFrame {
     /// harness it finds with a second registration, because the client
     /// is the authority for its capabilities (ADR-0015). The daemon is
     /// the one source of the catalog, so the client ships no copy.
+    #[cfg(any(feature = "native", test))]
     fn host_registered(host: &Host) -> Self {
         let harnesses: Vec<serde_json::Value> = harness::catalog()
             .iter()
@@ -247,6 +252,7 @@ impl ServerFrame {
     /// never replayed. A command is work of this connection, and a client
     /// that reconnects must not receive the commands of the socket it
     /// lost.
+    #[cfg(feature = "native")]
     fn dispatch(command: &HostCommand) -> Self {
         ServerFrame {
             seq: None,
@@ -258,6 +264,7 @@ impl ServerFrame {
 
     /// One Harness Sign-In for the Host this socket registered: no
     /// `seq`, never replayed, as a command.
+    #[cfg(feature = "native")]
     fn harness_sign_in(sign_in: &HarnessSignIn) -> Self {
         ServerFrame {
             seq: None,
@@ -269,6 +276,7 @@ impl ServerFrame {
 
     /// A check of the sign-in state of one harness, for the Host this
     /// socket registered: no `seq`, never replayed, as a command.
+    #[cfg(feature = "native")]
     fn harness_sign_in_check(harness: &str) -> Self {
         ServerFrame {
             seq: None,
@@ -308,8 +316,59 @@ pub async fn upgrade(
 
 /// Serve the live events of one authenticated Session.
 pub async fn serve_events(
-    mut socket: impl MessageSocket,
+    socket: impl MessageSocket,
     state: Arc<AppState>,
+    live: LiveTenant,
+) -> anyhow::Result<()> {
+    serve(socket, EventServices::from(state.as_ref()), live).await
+}
+
+/// The services the event protocol reads. The HTTP state supplies them.
+struct EventServices {
+    bus: Arc<dyn pagis_core::EventBus>,
+    events: Arc<dyn pagis_core::EventLog>,
+    channels: Arc<dyn pagis_core::ChannelStore>,
+    ring: Arc<crate::EventRing>,
+    hub: Arc<pagis_agent::StreamHub>,
+    progress: Arc<pagis_agent::ProgressHub>,
+    person_activity: Arc<pagis_needs_you::PersonActivity>,
+    clock: Arc<dyn pagis_core::Clock>,
+    #[cfg(feature = "native")]
+    hosts: Arc<dyn pagis_core::HostStore>,
+    #[cfg(feature = "native")]
+    host_presence: Arc<pagis_broker::HostPresence>,
+    #[cfg(feature = "native")]
+    host_sessions: Arc<pagis_broker::HostSessions>,
+    #[cfg(feature = "native")]
+    sign_in_reports: Arc<pagis_coding::SignInReports>,
+}
+
+impl From<&AppState> for EventServices {
+    fn from(state: &AppState) -> Self {
+        Self {
+            bus: state.bus.clone(),
+            events: state.events.clone(),
+            channels: state.channels.clone(),
+            ring: state.ring.clone(),
+            hub: state.hub.clone(),
+            progress: state.progress.clone(),
+            person_activity: state.person_activity.clone(),
+            clock: state.clock.clone(),
+            #[cfg(feature = "native")]
+            hosts: state.hosts.clone(),
+            #[cfg(feature = "native")]
+            host_presence: state.host_presence.clone(),
+            #[cfg(feature = "native")]
+            host_sessions: state.host_sessions.clone(),
+            #[cfg(feature = "native")]
+            sign_in_reports: state.native.sign_in_reports.clone(),
+        }
+    }
+}
+
+async fn serve(
+    mut socket: impl MessageSocket,
+    state: EventServices,
     live: LiveTenant,
 ) -> anyhow::Result<()> {
     let LiveTenant {
@@ -352,6 +411,7 @@ pub async fn serve_events(
         tenant,
         socket,
         subscriptions: HashSet::new(),
+        host_frames_logged: false,
         host: None,
         events,
         deltas,
@@ -372,6 +432,7 @@ pub async fn serve_events(
     // host action after the close finds it absent. The record says when
     // the machine was last here, so a list can show "last seen" for a
     // machine that is not connected now.
+    #[cfg(feature = "native")]
     if let Some(RegisteredHost {
         host,
         connection: presence,
@@ -394,13 +455,15 @@ pub async fn serve_events(
 /// answers on, the Channels this client asked for, and the Host it
 /// registered.
 struct Connection<S> {
-    state: Arc<AppState>,
+    state: EventServices,
     /// The Workspace of the Session that opened this socket. Every
     /// frame out belongs to it, and every frame in is read against it.
     tenant: Tenant,
     socket: S,
     /// The Channels this client asked for the ephemeral frames of.
     subscriptions: HashSet<String>,
+    /// A server without Hosts logs the first Host frame of this connection.
+    host_frames_logged: bool,
     /// The Host this client registered, if it registered one. It lives as
     /// long as this socket: dropping it makes the machine absent.
     host: Option<RegisteredHost>,
@@ -416,6 +479,7 @@ struct Connection<S> {
 /// One Host registration of one socket: the record, and the presence
 /// connection that holds the machine present until it is dropped.
 struct RegisteredHost {
+    #[cfg(feature = "native")]
     host: Host,
     connection: HostConnection,
 }
@@ -469,8 +533,9 @@ impl<S: MessageSocket> Connection<S> {
                         Err(broadcast::error::RecvError::Closed) => return Ok(()),
                     }
                 }
-                frame = next_host_frame(&mut self.host) => {
-                    match frame {
+                _frame = next_host_frame(&mut self.host) => {
+                    #[cfg(feature = "native")]
+                    match _frame {
                         Some(HostFrame::Dispatch(command)) => {
                             self.socket.send(ServerFrame::dispatch(&command).to_ws()).await?;
                         }
@@ -499,7 +564,7 @@ impl<S: MessageSocket> Connection<S> {
                         return Ok(());
                     }
                     if let Message::Text(text) = frame {
-                        let action = handle_client_frame(&text, &mut self.subscriptions);
+                        let action = handle_client_frame(&text, &mut self.subscriptions, &mut self.host_frames_logged);
                         if self.act(action).await? {
                             return Ok(());
                         }
@@ -532,6 +597,7 @@ impl<S: MessageSocket> Connection<S> {
                         .await?;
                 }
             }
+            #[cfg(feature = "native")]
             FrameAction::RegisterHost {
                 name,
                 platform,
@@ -563,6 +629,7 @@ impl<S: MessageSocket> Connection<S> {
                     }
                 }
             }
+            #[cfg(feature = "native")]
             FrameAction::HostResult { id, outcome } => {
                 // A result completes a host action only when it comes
                 // from the connection that received the command: the
@@ -578,6 +645,7 @@ impl<S: MessageSocket> Connection<S> {
                         .complete(&registered.connection, &id, outcome);
                 }
             }
+            #[cfg(feature = "native")]
             FrameAction::SignInResult { id, outcome } => {
                 // The rule of a host result: only the connection that
                 // received the sign-in answers it.
@@ -587,6 +655,7 @@ impl<S: MessageSocket> Connection<S> {
                         .complete_sign_in(&registered.connection, &id, outcome);
                 }
             }
+            #[cfg(feature = "native")]
             FrameAction::SignInState { harness, state } => {
                 // A state counts only for a harness of the catalog that
                 // the Host of this socket declares: the client is the
@@ -606,6 +675,7 @@ impl<S: MessageSocket> Connection<S> {
                         .await;
                 }
             }
+            #[cfg(feature = "native")]
             FrameAction::SessionExit { session_id, exit } => {
                 // The exit reaches only a session of the Host that this
                 // socket registered, in the Session's Workspace. A
@@ -640,8 +710,9 @@ impl<S: MessageSocket> Connection<S> {
 /// Register the client on this socket as a Host of the signed-in person,
 /// and make it present. The Workspace comes from the Session, so a
 /// client registers a machine of its own person and of nobody else.
+#[cfg(feature = "native")]
 async fn register_host(
-    state: &Arc<AppState>,
+    state: &EventServices,
     tenant: &Tenant,
     name: &str,
     platform: &str,
@@ -664,7 +735,11 @@ async fn register_host(
 /// Whether the signed-in person may read the Channel: it is a Channel
 /// of their own Workspace. A Channel of another tenant reads as absent,
 /// which is what the REST routes answer too.
-async fn readable(state: &AppState, tenant: &Tenant, channel_id: &str) -> anyhow::Result<bool> {
+async fn readable(
+    state: &EventServices,
+    tenant: &Tenant,
+    channel_id: &str,
+) -> anyhow::Result<bool> {
     Ok(state
         .channels
         .get(
@@ -679,7 +754,7 @@ async fn readable(state: &AppState, tenant: &Tenant, channel_id: &str) -> anyhow
 /// channel as one accumulated `message.delta` frame, and every live
 /// run in it as one `progress.state` frame.
 async fn send_catch_up(
-    state: &AppState,
+    state: &EventServices,
     socket: &mut impl MessageSocket,
     channel_id: &str,
 ) -> anyhow::Result<()> {
@@ -729,6 +804,7 @@ enum FrameAction {
     Subscribe(String),
     /// A register-host frame. The caller writes the record in the
     /// tenant's Workspace and makes the machine present.
+    #[cfg(feature = "native")]
     RegisterHost {
         name: String,
         platform: String,
@@ -736,24 +812,28 @@ enum FrameAction {
     },
     /// What one dispatched command did. The caller hands it on only
     /// from the Host connection this socket registered.
+    #[cfg(feature = "native")]
     HostResult {
         id: String,
         outcome: HostOutcome,
     },
     /// How one Harness Sign-In ended. The caller hands it on only from
     /// the Host connection this socket registered.
+    #[cfg(feature = "native")]
     SignInResult {
         id: HarnessSignInId,
         outcome: SignInOutcome,
     },
     /// What the status command of one harness showed. The caller hands
     /// it on only for a harness that the Host of this socket declares.
+    #[cfg(feature = "native")]
     SignInState {
         harness: String,
         state: SignInState,
     },
     /// How the process of one Coding Session ended. The caller hands it
     /// on only for the Host this socket registered.
+    #[cfg(feature = "native")]
     SessionExit {
         session_id: CodingSessionId,
         exit: SessionExit,
@@ -763,8 +843,26 @@ enum FrameAction {
     Activity,
 }
 
-fn handle_client_frame(text: &str, subscriptions: &mut HashSet<String>) -> FrameAction {
+fn handle_client_frame(
+    text: &str,
+    subscriptions: &mut HashSet<String>,
+    _host_frames_logged: &mut bool,
+) -> FrameAction {
     match serde_json::from_str::<ClientFrame>(text) {
+        #[cfg(not(feature = "native"))]
+        Ok(
+            ClientFrame::RegisterHost { .. }
+            | ClientFrame::Result { .. }
+            | ClientFrame::HarnessSignInResult { .. }
+            | ClientFrame::HarnessSignInState { .. }
+            | ClientFrame::SessionExit { .. },
+        ) => {
+            if !*_host_frames_logged {
+                tracing::warn!("Host frame dropped: this server does not offer Hosts.");
+                *_host_frames_logged = true;
+            }
+            FrameAction::None
+        }
         Ok(ClientFrame::Ping) => FrameAction::Reply(ServerFrame::control("pong")),
         Ok(ClientFrame::Activity) => FrameAction::Activity,
         Ok(ClientFrame::Subscribe { channel_id }) => FrameAction::Subscribe(channel_id),
@@ -772,6 +870,7 @@ fn handle_client_frame(text: &str, subscriptions: &mut HashSet<String>) -> Frame
             subscriptions.remove(&channel_id);
             FrameAction::None
         }
+        #[cfg(feature = "native")]
         Ok(ClientFrame::RegisterHost {
             name,
             platform,
@@ -791,6 +890,7 @@ fn handle_client_frame(text: &str, subscriptions: &mut HashSet<String>) -> Frame
                 capabilities,
             }
         }
+        #[cfg(feature = "native")]
         Ok(ClientFrame::Result {
             id,
             exit_code,
@@ -804,6 +904,7 @@ fn handle_client_frame(text: &str, subscriptions: &mut HashSet<String>) -> Frame
                 stderr,
             },
         },
+        #[cfg(feature = "native")]
         Ok(ClientFrame::HarnessSignInResult {
             id,
             exit_code,
@@ -812,9 +913,11 @@ fn handle_client_frame(text: &str, subscriptions: &mut HashSet<String>) -> Frame
             id: HarnessSignInId::from(id),
             outcome: SignInOutcome { exit_code, error },
         },
+        #[cfg(feature = "native")]
         Ok(ClientFrame::HarnessSignInState { harness, state }) => {
             FrameAction::SignInState { harness, state }
         }
+        #[cfg(feature = "native")]
         Ok(ClientFrame::SessionExit {
             session_id,
             exit_code,
@@ -835,6 +938,27 @@ mod tests {
     use pagis_core::{HostId, WorkspaceId};
 
     use super::*;
+
+    #[cfg(not(feature = "native"))]
+    #[test]
+    fn host_frames_are_dropped_without_native() {
+        for text in [
+            r#"{"type":"register_host","name":"Air","platform":"macos"}"#,
+            r#"{"type":"register_host","name":"","platform":""}"#,
+            r#"{"type":"result","id":"command","exit_code":0}"#,
+            r#"{"type":"harness_sign_in_result","id":"sign-in","exit_code":0}"#,
+            r#"{"type":"harness_sign_in_state","harness":"claude","state":"signed_in"}"#,
+            r#"{"type":"session_exit","session_id":"session","exit_code":0}"#,
+        ] {
+            assert!(
+                matches!(
+                    handle_client_frame(text, &mut HashSet::new(), &mut false),
+                    FrameAction::None
+                ),
+                "{text}"
+            );
+        }
+    }
 
     fn host_on(platform: &str) -> Host {
         Host {
@@ -900,3 +1024,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(all(test, not(feature = "native")))]
+#[path = "ws_portable_tests.rs"]
+mod portable_tests;

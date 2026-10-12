@@ -11,6 +11,7 @@ native = [
     "axum/tokio",
     "axum/ws",
     "dep:pagis-analytics",
+    "dep:pagis-coding",
     "dep:pagis-connect",
     "dep:pagis-google",
     "dep:pagis-plugin",
@@ -38,7 +39,7 @@ pagis-agent.workspace = true
 pagis-analytics = { workspace = true, optional = true }
 llm-router.workspace = true
 pagis-broker.workspace = true
-pagis-coding.workspace = true
+pagis-coding = { workspace = true, optional = true }
 pagis-computer.workspace = true
 pagis-connect = { workspace = true, optional = true }
 pagis-google = { workspace = true, optional = true }
@@ -77,6 +78,7 @@ utoipa.workspace = true
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
+tracing-subscriber.workspace = true
 
 # The contract generator and its test read the utoipa contract of the
 # full build.
