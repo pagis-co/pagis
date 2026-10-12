@@ -39,6 +39,9 @@
 #       The TCP port of the Harness Model Endpoint: `[computer]
 #       model_port` of the daemon, PAGIS_COMPUTER_MODEL_PORT. It is not
 #       the exit port.
+#   PAGIS_TURN_IP, PAGIS_TURN_PORT
+#       The IPv4 address and port of the TURN server. Empty without TURN.
+#       Only this address and port are open, over UDP and TCP.
 #   PAGIS_COMPUTER_ALLOW
 #       The private IPv4 blocks that a Computer reaches, comma-separated,
 #       such as `192.168.1.0/24,10.0.5.7`. Empty by default. The list
@@ -89,6 +92,14 @@ is_port "$model_port" || fail "PAGIS_MODEL_PORT is \"$model_port\"; set it to th
 case $bridges in
   '' | *[!A-Za-z0-9_.+-]*) fail "PAGIS_EGRESS_BRIDGES is \"$bridges\"; set it to an interface name, or to a prefix and +" ;;
 esac
+
+turn_ip=${PAGIS_TURN_IP:-}
+turn_port=${PAGIS_TURN_PORT:-}
+if [ -n "$turn_ip$turn_port" ]; then
+  is_block "$turn_ip" || fail "PAGIS_TURN_IP is not an IPv4 address"
+  case $turn_ip in */*) fail "PAGIS_TURN_IP must name one address" ;; esac
+  is_port "$turn_port" || fail "PAGIS_TURN_PORT is not a port"
+fi
 
 allowed=
 for block in $(echo "${PAGIS_COMPUTER_ALLOW:-}" | tr ',' ' '); do
@@ -142,6 +153,10 @@ earlier_jumps() {
     echo "-A PAGIS-FORWARD -d $resolver/32 -p udp --dport 53 -j RETURN"
     echo "-A PAGIS-FORWARD -d $resolver/32 -p tcp --dport 53 -j RETURN"
   done
+  if [ -n "$turn_ip" ]; then
+    echo "-A PAGIS-FORWARD -d $turn_ip/32 -p udp --dport $turn_port -j RETURN"
+    echo "-A PAGIS-FORWARD -d $turn_ip/32 -p tcp --dport $turn_port -j RETURN"
+  fi
   for block in $allowed; do
     echo "-A PAGIS-FORWARD -d $block -j RETURN"
   done
@@ -155,6 +170,10 @@ earlier_jumps() {
     echo "-A PAGIS-INPUT -d $resolver/32 -p udp --dport 53 -j RETURN"
     echo "-A PAGIS-INPUT -d $resolver/32 -p tcp --dport 53 -j RETURN"
   done
+  if [ -n "$turn_ip" ]; then
+    echo "-A PAGIS-INPUT -d $turn_ip/32 -p udp --dport $turn_port -j RETURN"
+    echo "-A PAGIS-INPUT -d $turn_ip/32 -p tcp --dport $turn_port -j RETURN"
+  fi
   echo "-A PAGIS-INPUT -p udp --dport $first:$last -j RETURN"
   echo "-A PAGIS-INPUT -p tcp --dport $exit_port -j RETURN"
   echo "-A PAGIS-INPUT -p tcp --dport $model_port -j RETURN"

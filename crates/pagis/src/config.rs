@@ -528,7 +528,6 @@ impl Screen {
                     "screen.relay is \"turn\" and screen.turn.secret is empty"
                 );
                 Ok(Arc::new(pagis_computer::TurnRelay::new(
-                    forwarder,
                     pagis_computer::TurnServer {
                         urls,
                         secret: self.turn.secret.trim().to_string(),

@@ -1044,3 +1044,59 @@ fn the_daemon_starts_after_the_egress_rules_are_in_place() {
         config["services"]["pagis"]["depends_on"]
     );
 }
+
+/// A private TURN server opens only its own UDP and TCP port in both chains.
+#[test]
+fn the_turn_exception_names_one_address_and_one_port() {
+    use std::os::unix::fs::PermissionsExt;
+    let directory = tempfile::tempdir().unwrap();
+    for (name, body) in [
+        ("iptables-nft", "#!/bin/sh\nexit 0\n"),
+        (
+            "iptables-nft-restore",
+            "#!/bin/sh\ncat > \"$PAGIS_RULES_FILE\"\n",
+        ),
+    ] {
+        let path = directory.path().join(name);
+        std::fs::write(&path, body).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let rules = directory.path().join("rules");
+    let output = Command::new("sh")
+        .arg(repository().join("deploy/egress.sh"))
+        .env(
+            "PATH",
+            format!(
+                "{}:{}",
+                directory.path().display(),
+                std::env::var("PATH").unwrap()
+            ),
+        )
+        .env("PAGIS_RULES_FILE", &rules)
+        .env("PAGIS_MEDIA_PORT_FIRST", "50000")
+        .env("PAGIS_MEDIA_PORT_LAST", "50019")
+        .env("PAGIS_EXIT_PORT", "4403")
+        .env("PAGIS_MODEL_PORT", "4404")
+        .env("PAGIS_TURN_IP", "10.5.0.7")
+        .env("PAGIS_TURN_PORT", "3478")
+        .env("PAGIS_COMPUTER_ALLOW", "")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let text = std::fs::read_to_string(rules).unwrap();
+    for chain in ["PAGIS-FORWARD", "PAGIS-INPUT"] {
+        for protocol in ["udp", "tcp"] {
+            assert!(
+                text.contains(&format!(
+                    "-A {chain} -d 10.5.0.7/32 -p {protocol} --dport 3478 -j RETURN"
+                )),
+                "{text}"
+            );
+        }
+        assert!(!text.contains(&format!("-A {chain} -d 10.5.0.7/32 -j RETURN")));
+    }
+}

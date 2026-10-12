@@ -25,7 +25,9 @@
 //!                      browser is alive. The one open endpoint.
 //!   GET /frame.png  -> the latest frame, PNG-encoded
 //!   POST /input     -> execute a batch of input operations
-//!   POST /offer     -> WebRTC signaling: {sdp, candidate, relay, token}
+//!   POST /offer     -> answer a viewer offer, or make an offer when sdp is absent
+//!   POST /answer    -> accept the viewer answer: {sdp, token}
+//!   POST /close     -> close a media session: {token}
 //!                      -> {sdp}
 //!   GET /windows    -> [{title, app_id}]: the compositor's window
 //!                      list, through ext-foreign-toplevel-list-v1
@@ -75,7 +77,9 @@ mod exit;
 mod fill;
 mod keymap;
 mod typing;
-mod webrtc;
+#[cfg(test)]
+use pagis_screend::USER_TEXT_LIMIT;
+use pagis_screend::{UserInput, webrtc};
 
 use std::collections::BTreeMap;
 use std::io::Cursor;
@@ -89,14 +93,6 @@ use wayland_client::{
     globals::{GlobalListContents, registry_queue_init},
     protocol::{wl_buffer, wl_output, wl_pointer, wl_registry, wl_seat, wl_shm, wl_shm_pool},
 };
-use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::{
-    zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1,
-    zwp_virtual_keyboard_v1::ZwpVirtualKeyboardV1,
-};
-use wayland_protocols_wlr::virtual_pointer::v1::client::{
-    zwlr_virtual_pointer_manager_v1::ZwlrVirtualPointerManagerV1,
-    zwlr_virtual_pointer_v1::ZwlrVirtualPointerV1,
-};
 use wayland_protocols::ext::foreign_toplevel_list::v1::client::{
     ext_foreign_toplevel_handle_v1::{self, ExtForeignToplevelHandleV1},
     ext_foreign_toplevel_list_v1::{self, ExtForeignToplevelListV1},
@@ -109,6 +105,14 @@ use wayland_protocols::ext::image_copy_capture::v1::client::{
     ext_image_copy_capture_frame_v1::{self, ExtImageCopyCaptureFrameV1},
     ext_image_copy_capture_manager_v1::{ExtImageCopyCaptureManagerV1, Options},
     ext_image_copy_capture_session_v1::{self, ExtImageCopyCaptureSessionV1},
+};
+use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::{
+    zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1,
+    zwp_virtual_keyboard_v1::ZwpVirtualKeyboardV1,
+};
+use wayland_protocols_wlr::virtual_pointer::v1::client::{
+    zwlr_virtual_pointer_manager_v1::ZwlrVirtualPointerManagerV1,
+    zwlr_virtual_pointer_v1::ZwlrVirtualPointerV1,
 };
 
 const PORT: u16 = 7900;
@@ -181,55 +185,6 @@ struct HolderState {
 
 type SharedHolder = Arc<Mutex<HolderState>>;
 
-/// One user input event from a viewer's data channel: `move`,
-/// `button`, `scroll`, `key`, or `text` with at most
-/// [`USER_TEXT_LIMIT`] characters.
-#[derive(Debug, Deserialize)]
-#[serde(tag = "op", rename_all = "snake_case")]
-pub enum UserInput {
-    Move { x: f64, y: f64 },
-    Button { button: String, down: bool },
-    Scroll { dx: f64, dy: f64 },
-    /// One raw key transition, as a browser `KeyboardEvent.code`.
-    Key { code: String, down: bool },
-    /// Text from an on-screen keyboard or an IME, which gives
-    /// characters and no reliable key code: `{"op": "text", "text":
-    /// "hé"}`. screend types it as `InputOp::Text` does.
-    Text { text: UserText },
-}
-
-/// The most characters that one `text` user input holds. The limit
-/// keeps one data channel message small and bounds the work of one
-/// `type_text` call.
-const USER_TEXT_LIMIT: usize = 1024;
-
-/// The text of one `text` user input: at most [`USER_TEXT_LIMIT`]
-/// characters. A longer text does not parse, and the refusal does not
-/// hold the text, because the Person can type a secret.
-#[derive(Debug, Deserialize)]
-#[serde(try_from = "String")]
-pub struct UserText(String);
-
-impl UserText {
-    fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl TryFrom<String> for UserText {
-    type Error = String;
-
-    fn try_from(text: String) -> Result<Self, Self::Error> {
-        let count = text.chars().count();
-        if count > USER_TEXT_LIMIT {
-            return Err(format!(
-                "a text of {count} characters is more than the limit of {USER_TEXT_LIMIT}"
-            ));
-        }
-        Ok(UserText(text))
-    }
-}
-
 /// The switch check of the viewer input: all of it goes through while
 /// the user holds the switch, and none of it while the Agent or the
 /// daemon holds it.
@@ -286,7 +241,7 @@ struct App {
     windows: Windows,
     input: mpsc::Receiver<InputRequest>,
     pipeline: webrtc::Pipeline,
-    offers: mpsc::Receiver<webrtc::OfferRequest>,
+    offers: mpsc::Receiver<webrtc::SignalingRequest>,
 }
 
 impl App {
@@ -368,8 +323,27 @@ impl App {
     /// joined a static screen (no damage, so no capture is coming).
     fn drive_webrtc(&mut self) {
         while let Ok(request) = self.offers.try_recv() {
-            let answer = self.pipeline.accept_offer(&request);
-            let _ = request.reply.send(answer);
+            match request {
+                webrtc::SignalingRequest::Offer(request) => {
+                    let result = if request.sdp.is_empty() {
+                        self.pipeline.make_offer(&request)
+                    } else {
+                        self.pipeline.accept_offer(&request)
+                    };
+                    let _ = request.reply.send(result);
+                }
+                webrtc::SignalingRequest::Answer { token, sdp, reply } => {
+                    let _ = reply.send(
+                        self.pipeline
+                            .accept_answer(&token, &sdp)
+                            .map(|()| String::new()),
+                    );
+                }
+                webrtc::SignalingRequest::Close { token, reply } => {
+                    self.pipeline.close(&token);
+                    let _ = reply.send(Ok(String::new()));
+                }
+            }
         }
         let inputs = self.pipeline.drive();
         self.apply_user_input(inputs);
@@ -563,7 +537,12 @@ impl App {
             .next()
             .map(|(table, _)| table)
             .unwrap_or_default();
-        if table.len() != plain.iter().collect::<std::collections::BTreeSet<_>>().len() {
+        if table.len()
+            != plain
+                .iter()
+                .collect::<std::collections::BTreeSet<_>>()
+                .len()
+        {
             return Err("chord needs more keys than one keymap holds".to_string());
         }
         self.load_typing_keymap(&table);
@@ -628,9 +607,10 @@ fn run_batch(input: &mpsc::Sender<InputRequest>, batch: InputBatch) -> Result<()
 }
 
 /// One signaling request body, the wire shape with the daemon.
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct OfferBody {
-    sdp: String,
+    sdp: Option<String>,
+    ice_servers: Vec<webrtc::IceServer>,
     candidate: String,
     relay: String,
     token: String,
@@ -724,7 +704,7 @@ fn answer_browser(
 fn serve(
     latest: Latest,
     input: mpsc::Sender<InputRequest>,
-    offers: mpsc::Sender<webrtc::OfferRequest>,
+    offers: mpsc::Sender<webrtc::SignalingRequest>,
     holder: SharedHolder,
     windows: Windows,
     guard: auth::Guard,
@@ -739,9 +719,8 @@ fn serve(
         // The token is the boundary between tenants: reaching
         // the port is not holding it. `/healthz` is the one open path.
         if !guard.allows(&url, authorization(&request)) {
-            let _ = request.respond(
-                tiny_http::Response::from_string("unauthorized").with_status_code(401),
-            );
+            let _ = request
+                .respond(tiny_http::Response::from_string("unauthorized").with_status_code(401));
             continue;
         }
         // The daemon's browser channel answers only while the daemon
@@ -765,35 +744,64 @@ fn serve(
             std::thread::spawn(move || answer_browser(request, &url, &browser, &tab));
             continue;
         }
-        if url == "/offer" && request.method() == &tiny_http::Method::Post {
+        if matches!(url.as_str(), "/offer" | "/answer" | "/close")
+            && request.method() == &tiny_http::Method::Post
+        {
             let mut body = String::new();
             let _ = request.as_reader().read_to_string(&mut body);
-            let answer = serde_json::from_str::<OfferBody>(&body)
-                .map_err(|err| format!("bad offer body: {err}"))
-                .and_then(|offer| {
-                    let (reply, answered) = mpsc::channel();
-                    offers
-                        .send(webrtc::OfferRequest {
-                            sdp: offer.sdp,
-                            candidate: offer.candidate,
-                            relay: offer.relay,
-                            token: offer.token,
+            let answer = (|| {
+                let (reply, answered) = mpsc::channel();
+                let command = if url == "/offer" {
+                    let offer: OfferBody =
+                        serde_json::from_str(&body).map_err(|e| format!("bad offer body: {e}"))?;
+                    webrtc::SignalingRequest::Offer(webrtc::OfferRequest {
+                        sdp: offer.sdp.unwrap_or_default(),
+                        candidate: offer.candidate,
+                        relay: offer.relay,
+                        token: offer.token,
+                        ice_servers: offer.ice_servers,
+                        reply,
+                    })
+                } else {
+                    #[derive(Deserialize)]
+                    struct SessionBody {
+                        token: String,
+                        sdp: Option<String>,
+                    }
+                    let session: SessionBody = serde_json::from_str(&body)
+                        .map_err(|e| format!("bad session body: {e}"))?;
+                    if url == "/answer" {
+                        webrtc::SignalingRequest::Answer {
+                            token: session.token,
+                            sdp: session.sdp.ok_or("an answer needs SDP")?,
                             reply,
-                        })
-                        .map_err(|_| "wayland thread is gone".to_string())?;
-                    answered
-                        .recv_timeout(Duration::from_secs(5))
-                        .map_err(|_| "signaling timed out".to_string())?
-                });
+                        }
+                    } else {
+                        webrtc::SignalingRequest::Close {
+                            token: session.token,
+                            reply,
+                        }
+                    }
+                };
+                offers
+                    .send(command)
+                    .map_err(|_| "wayland thread is gone".to_string())?;
+                answered
+                    .recv_timeout(Duration::from_secs(15))
+                    .map_err(|_| "signaling timed out".to_string())?
+            })();
             let response = match answer {
-                Ok(sdp) => tiny_http::Response::from_string(
-                    serde_json::json!({ "sdp": sdp }).to_string(),
-                )
-                .with_status_code(200)
-                .with_header(
-                    tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
-                        .expect("static header"),
-                ),
+                Ok(sdp) => {
+                    tiny_http::Response::from_string(serde_json::json!({ "sdp": sdp }).to_string())
+                        .with_status_code(200)
+                        .with_header(
+                            tiny_http::Header::from_bytes(
+                                &b"Content-Type"[..],
+                                &b"application/json"[..],
+                            )
+                            .expect("static header"),
+                        )
+                }
                 Err(error) => tiny_http::Response::from_string(error).with_status_code(500),
             };
             let _ = request.respond(response);
@@ -941,11 +949,8 @@ fn serve(
                     tiny_http::Response::from_data(png)
                         .with_status_code(200)
                         .with_header(
-                            tiny_http::Header::from_bytes(
-                                &b"Content-Type"[..],
-                                &b"image/png"[..],
-                            )
-                            .expect("static header"),
+                            tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"image/png"[..])
+                                .expect("static header"),
                         )
                 }
                 None => tiny_http::Response::from_string("no frame yet").with_status_code(503),
@@ -995,9 +1000,9 @@ fn browser_running() -> bool {
     };
     entries.flatten().any(|entry| {
         let name = entry.file_name();
-        let is_pid = name.to_str().is_some_and(|name| {
-            !name.is_empty() && name.bytes().all(|byte| byte.is_ascii_digit())
-        });
+        let is_pid = name
+            .to_str()
+            .is_some_and(|name| !name.is_empty() && name.bytes().all(|byte| byte.is_ascii_digit()));
         is_pid
             && std::fs::read_to_string(entry.path().join("comm"))
                 .is_ok_and(|comm| comm.trim() == "chromium")
@@ -1012,7 +1017,7 @@ fn main() {
     }));
     let windows: Windows = Arc::new(Mutex::new(BTreeMap::new()));
     let (input_tx, input_rx) = mpsc::channel::<InputRequest>();
-    let (offer_tx, offer_rx) = mpsc::channel::<webrtc::OfferRequest>();
+    let (offer_tx, offer_rx) = mpsc::channel::<webrtc::SignalingRequest>();
     let guard = auth::Guard::from_env();
     if guard.is_closed() {
         eprintln!(
@@ -1065,13 +1070,15 @@ fn main() {
 
     let shm: wl_shm::WlShm = globals.bind(&qh, 1..=1, ()).expect("wl_shm");
     let output: wl_output::WlOutput = globals.bind(&qh, 1..=4, ()).expect("wl_output");
-    let source_mgr: ExtOutputImageCaptureSourceManagerV1 =
-        globals.bind(&qh, 1..=1, ()).expect("capture source manager");
+    let source_mgr: ExtOutputImageCaptureSourceManagerV1 = globals
+        .bind(&qh, 1..=1, ())
+        .expect("capture source manager");
     let capture_mgr: ExtImageCopyCaptureManagerV1 =
         globals.bind(&qh, 1..=1, ()).expect("capture manager");
     let source = source_mgr.create_source(&output, &qh, ());
-    let vpointer_mgr: ZwlrVirtualPointerManagerV1 =
-        globals.bind(&qh, 1..=2, ()).expect("virtual pointer manager");
+    let vpointer_mgr: ZwlrVirtualPointerManagerV1 = globals
+        .bind(&qh, 1..=2, ())
+        .expect("virtual pointer manager");
     let vpointer = vpointer_mgr.create_virtual_pointer(None, &qh, ());
     let seat: wl_seat::WlSeat = globals.bind(&qh, 1..=7, ()).expect("wl_seat");
     let vkeyboard_mgr: ZwpVirtualKeyboardManagerV1 = globals

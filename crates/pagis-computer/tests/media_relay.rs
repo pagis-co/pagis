@@ -1,18 +1,6 @@
-//! The Media Relay suite: one set of test bodies, both relays.
-//!
-//! [`MediaRelay`] is the contract between the screen path and the media
-//! path. Two implementations satisfy it, so one suite proves both: a
-//! body written here runs against the `daemon` relay and against the
-//! `turn` relay, and an implementation that behaves differently fails
-//! the suite. The store suite of the storage crates is the same
-//! arrangement.
-//!
-//! A body takes an [`Implementation`], which builds one relay over a
-//! port range and a silence limit the body chooses. It never names a
-//! concrete relay type, so a body cannot be written for one
-//! implementation only. [`relay_suite`] turns every body into a test of
-//! each implementation, and the guard test at the bottom fails while a
-//! body is missing from the list.
+//! The daemon relay and its MediaForwarder pass the same packet suite.
+//! Every assertion runs through both entry points. TURN paths have no
+//! forwarder and have separate credential and allocation tests.
 
 use std::net::SocketAddr;
 use std::ops::RangeInclusive;
@@ -47,15 +35,30 @@ impl Implementation for Daemon {
 struct Turn;
 
 impl Implementation for Turn {
+    fn relay(&self, _ports: RangeInclusive<u16>, _idle: Duration) -> Arc<dyn MediaRelay> {
+        Arc::new(TurnRelay::new(TurnServer {
+            urls: vec!["turn:relay.example.net:3478?transport=udp".to_string()],
+            secret: "shared".to_string(),
+            ttl: Duration::from_secs(600),
+        }))
+    }
+}
+
+/// The packet suite also tests the forwarder directly. TURN uses no forwarder.
+struct Forwarder;
+struct ForwarderRelay(MediaForwarder);
+#[async_trait::async_trait]
+impl MediaRelay for ForwarderRelay {
+    async fn open(&self, closed: CancellationToken) -> Result<OpenPath, String> {
+        self.0.open(closed).await
+    }
+    fn ice_servers(&self) -> Vec<pagis_computer::IceServer> {
+        Vec::new()
+    }
+}
+impl Implementation for Forwarder {
     fn relay(&self, ports: RangeInclusive<u16>, idle: Duration) -> Arc<dyn MediaRelay> {
-        Arc::new(TurnRelay::new(
-            forwarder(ports, idle),
-            TurnServer {
-                urls: vec!["turn:relay.example.net:3478?transport=udp".to_string()],
-                secret: "shared".to_string(),
-                ttl: Duration::from_secs(600),
-            },
-        ))
+        Arc::new(ForwarderRelay(forwarder(ports, idle)))
     }
 }
 
@@ -855,11 +858,11 @@ macro_rules! relay_suite {
             )*
         }
 
-        mod on_turn {
+        mod on_forwarder {
             $(
                 #[tokio::test]
                 async fn $name() {
-                    super::$name(&super::Turn).await;
+                    super::$name(&super::Forwarder).await;
                 }
             )*
         }
@@ -956,4 +959,19 @@ fn the_turn_relay_mints_a_credential_for_each_session() {
     assert!(expiry > pagis_core::now_ms() / 1000);
     assert!(!first[0].credential.is_empty());
     assert_ne!(first[0].username, second[0].username);
+}
+
+/// TURN paths do not bind a daemon UDP port, even when the range is occupied.
+#[tokio::test]
+async fn a_turn_path_uses_no_daemon_forwarder() {
+    let held = socket().await;
+    let port = held.local_addr().unwrap().port();
+    let relay = Turn.relay(port..=port, Duration::from_secs(5));
+    let path = relay
+        .open(CancellationToken::new())
+        .await
+        .expect("TURN needs no daemon port");
+    assert_eq!(path.port, 0);
+    assert!(!path.ice_servers.is_empty());
+    assert!(path.candidate.is_empty());
 }

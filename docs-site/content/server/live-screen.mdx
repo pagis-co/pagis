@@ -6,10 +6,11 @@ icon: ScreenShare
 
 A browser watches an Agent's Computer through the Media Relay. A Computer
 publishes no media port at all, so a browser never sends media to a container.
-It sends media to the relay, and the relay copies the packets to the Computer
-and back. The Computer registers outbound with the relay for each viewer
-session, from inside its Tenant Network, so the relay learns the Computer's
-address from the Computer itself.
+The `daemon` relay copies packets between the browser and the Computer.
+The Computer registers outbound from its Tenant Network. With the `turn`
+relay, the Computer runs a full ICE agent and allocates its own TURN
+candidate. The TURN server carries the screen, and the daemon carries
+no media packet.
 
 The `[screen]` section of `config.toml` names the relay. [ADR-0014](https://github.com/pagis-co/pagis/blob/main/docs/adr/0014-the-computer-is-pixels-and-pagis-owns-the-stream.md) holds the
 decision behind it.
@@ -80,15 +81,12 @@ deployment states them there once and publishes exactly that range; see [Deploy 
 ## A server behind an external TURN server
 
 Use this where the firewall or the load makes a daemon-owned public UDP range
-wrong. The browser reaches the relay through the TURN server, so the public UDP
-address and ports belong to that server.
+wrong. Both the browser and the Computer reach the TURN server outbound.
+The daemon gives the Computer a session credential over its authenticated
+control port. It opens no UDP forwarder for this relay.
 
 ```toml
 [screen]
-# The address the TURN server reaches this daemon at.
-advertise_ip = "10.0.1.7"
-media_port_first = 50000
-media_port_last = 50099
 relay = "turn"
 
 [screen.turn]
@@ -110,6 +108,23 @@ use-auth-secret
 static-auth-secret=the-shared-secret
 realm=relay.example.net
 ```
+
+The Computer gathers host and server-reflexive candidates and allocates a
+relay candidate. str0m runs the connectivity checks and selects the pair.
+The control port can answer a viewer offer or make an offer for a viewer
+that answers. Session cancellation closes the allocation through control.
+
+The egress rules open only the TURN server's address and port. In the
+compose deployment, set these to the IPv4 address and port of the server
+in `screen.turn.urls`:
+
+```sh
+PAGIS_TURN_IP=10.0.1.7
+PAGIS_TURN_PORT=3478
+```
+
+The exception opens UDP and TCP on that port. It opens no other private
+address or port. The `daemon` relay still uses its UDP range.
 
 ## What the daemon refuses at boot
 
