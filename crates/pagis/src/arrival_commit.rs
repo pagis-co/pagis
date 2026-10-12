@@ -244,6 +244,7 @@ mod tests {
             _: &MemoryAccess,
         ) -> Result<MemoryIndexes, MemoryError> {
             Ok(MemoryIndexes {
+                exposures: Vec::new(),
                 shared: String::new(),
                 private: String::new(),
                 revision: Some(format!("revision-{}", self.commits())),

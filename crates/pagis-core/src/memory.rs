@@ -178,6 +178,8 @@ impl MemoryChangeset {
 /// The two indexes a run's context embeds verbatim.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MemoryIndexes {
+    /// Exposure Stamps of the index content returned at this revision.
+    pub exposures: Vec<MemoryExposure>,
     pub shared: String,
     pub private: String,
     /// Repository HEAD used as the base for a later whole-file write.

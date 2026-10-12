@@ -125,11 +125,13 @@ function ModelRequestCard({
   runError,
   runId,
   capture,
+  isAdministrator,
 }: {
   request: ModelRequest
   runError: string | null | undefined
   runId: string
   capture: RunModelRequestCaptureDto | undefined
+  isAdministrator: boolean
 }) {
   const [open, setOpen] = useState(false)
   return (
@@ -142,6 +144,9 @@ function ModelRequestCard({
       {/* The error of the Run reads once, in the footer. */}
       {request.error !== null && request.error !== runError && (
         <p className="runs-request-error">{request.error}</p>
+      )}
+      {isAdministrator && capture === undefined && request.holdsGoogleData && (
+        <p>Not captured: this Run read Google data.</p>
       )}
       {capture !== undefined && (
         <>
@@ -346,6 +351,7 @@ export function RunTimeline({
               runError={run.error}
               runId={run.id}
               capture={captureOf.get(request.key)}
+              isAdministrator={isAdministrator}
             />
           ))}
         </section>

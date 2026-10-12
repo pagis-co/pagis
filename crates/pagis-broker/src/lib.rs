@@ -2929,6 +2929,15 @@ impl Broker {
                 &result.content,
             );
         }
+        // The broker owns the route. Executor metadata cannot select
+        // whether this result holds Google data.
+        if !result.metadata.is_object() {
+            *result.metadata = serde_json::json!({});
+        }
+        result.metadata["holds_google_data"] = serde_json::json!(matches!(
+            context.entry.manifest.route,
+            ToolRoute::Connection { ref provider } if provider == "google"
+        ));
         if result.is_error {
             return Ok(InvokeOutcome::Rejected(result));
         }

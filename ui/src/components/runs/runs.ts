@@ -318,6 +318,7 @@ export function runSteps(events: readonly RunEventDto[]): RunStep[] {
 
 /** One model request of the run: its size, and the error when it failed. */
 export interface ModelRequest {
+  holdsGoogleData: boolean
   event: RunEventDto
   /** `phase:phase_request`, the key that joins the request to its
    *  completion and to its capture. */
@@ -394,6 +395,7 @@ export function modelRequests(events: readonly RunEventDto[]): ModelRequest[] {
       const completed = completions.get(key) ?? null
       return {
         event,
+        holdsGoogleData: payload.holds_google_data === true,
         key,
         label: `${PHASE_LABEL[phase] ?? phase} ${number}`,
         summary: requestSummary(payload, completed),
