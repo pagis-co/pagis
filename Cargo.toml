@@ -214,6 +214,7 @@ tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 ulid = "1"
+web-time = "1"
 url = "2"
 # The mail transport (ADR-0019). `async-imap` defaults
 # to async-std, so the Tokio runtime feature is selected by hand and

@@ -4,8 +4,8 @@ pub type UnixMillis = i64;
 
 /// Current wall-clock time as unix milliseconds.
 pub fn now_ms() -> UnixMillis {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
+    web_time::SystemTime::now()
+        .duration_since(web_time::UNIX_EPOCH)
         .expect("system clock before unix epoch")
         .as_millis() as UnixMillis
 }
