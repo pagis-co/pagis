@@ -1,14 +1,12 @@
 //! Agent Mailbox rules over mail fakes, on native and wasm targets.
 
-#[path = "rules/stores.rs"]
-mod stores;
-
 use std::sync::Arc;
 use std::time::Duration;
 
+use pagis_core::fake::{FakeDatabase, MemorySecretStore};
 use pagis_core::{
-    Agent, AgentId, AgentMailbox, AgentMailboxState, AgentMailboxStore, AgentStatus, AgentStore,
-    Connection, ConnectionId, ConnectionStore, MemorySecretStore, SecretStore, WorkspaceId,
+    Agent, AgentId, AgentMailbox, AgentMailboxState, AgentStatus, Connection, ConnectionId,
+    SecretStore, Stores, WorkspaceId,
 };
 use pagis_mail::fake::{FakeMailTransport, FakeMailboxHost, FakeStandingRule, HostCall};
 use pagis_mail::{
@@ -16,11 +14,9 @@ use pagis_mail::{
     MailboxDesk, MailboxDeskDeps, MailboxError, MailboxHost, MailboxProvider, NewMailbox,
     ProofTiming, TransportErrorCode, host_api_key_secret_name, mailbox_password_secret_name,
 };
-use stores::Records;
-
 struct World {
     desk: Arc<MailboxDesk>,
-    records: Arc<Records>,
+    stores: Stores,
     host: Arc<FakeMailboxHost>,
     transport: Arc<FakeMailTransport>,
     secrets: Arc<MemorySecretStore>,
@@ -32,7 +28,8 @@ struct World {
 
 impl World {
     async fn new() -> Self {
-        let records = Arc::new(Records::default());
+        let database = FakeDatabase::default();
+        let stores = database.stores();
         let workspace = WorkspaceId::from("person".to_string());
         let org_workspace = WorkspaceId::from("org".to_string());
         let agent = Agent {
@@ -50,7 +47,7 @@ impl World {
             created_at: 0,
             updated_at: 0,
         };
-        AgentStore::create(records.as_ref(), &agent).await.unwrap();
+        stores.agents.create(&agent).await.unwrap();
         let host = Arc::new(FakeMailboxHost::default());
         let settings = MailboxProvider {
             account: None,
@@ -70,9 +67,7 @@ impl World {
             config: settings.config(),
             created_at: 0,
         };
-        ConnectionStore::create(records.as_ref(), &connection)
-            .await
-            .unwrap();
+        stores.connections.create(&connection).await.unwrap();
         let secrets = Arc::new(MemorySecretStore::default());
         secrets
             .set(&host_api_key_secret_name("mail"), "host-key")
@@ -80,14 +75,14 @@ impl World {
         let transport = Arc::new(FakeMailTransport::default());
         let standing = Arc::new(FakeStandingRule::default());
         let desk = Arc::new(MailboxDesk::new(MailboxDeskDeps {
-            mailboxes: records.clone(),
-            connections: records.clone(),
+            mailboxes: stores.agent_mailboxes.clone(),
+            connections: stores.connections.clone(),
             org_workspace_id: org_workspace,
-            agents: records.clone(),
+            agents: stores.agents.clone(),
             host: host.clone(),
             transport: transport.clone(),
             secrets: secrets.clone(),
-            bus: records.clone(),
+            bus: Arc::new(database.bus()),
             standing_rule: standing.clone(),
             proof: ProofTiming {
                 first_wait: Duration::from_millis(1),
@@ -97,7 +92,7 @@ impl World {
         }));
         Self {
             desk,
-            records,
+            stores,
             host,
             transport,
             secrets,
@@ -128,11 +123,13 @@ impl World {
         // The same wait runs on both hosts and gives the proof task time to run.
         pagis_rt::timeout(Duration::from_secs(5), async {
             loop {
-                let record =
-                    AgentMailboxStore::get(self.records.as_ref(), &self.workspace, &mailbox.id)
-                        .await
-                        .unwrap()
-                        .unwrap();
+                let record = self
+                    .stores
+                    .agent_mailboxes
+                    .get(&self.workspace, &mailbox.id)
+                    .await
+                    .unwrap()
+                    .unwrap();
                 if record.state != AgentMailboxState::Provisioning {
                     return record;
                 }
@@ -141,6 +138,17 @@ impl World {
         })
         .await
         .expect("the proof task ends")
+    }
+
+    async fn event_types(&self) -> Vec<String> {
+        self.stores
+            .events
+            .list_after(Some(&self.workspace), 0, 100)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|event| event.event_type)
+            .collect()
     }
 }
 
@@ -176,7 +184,7 @@ async fn make_reserves_the_address_keeps_the_password_and_proves_the_login() {
     assert!(active.cursor.is_some());
     assert_eq!(world.transport.logins(), [mailbox.address]);
     assert_eq!(
-        world.records.event_types(),
+        world.event_types().await,
         ["agent_mailbox.provisioned", "agent_mailbox.active"]
     );
     assert_eq!(
@@ -205,7 +213,7 @@ async fn make_frees_the_address_when_the_host_refuses_it() {
     assert!(!world.desk.address_taken("ada@example.com").await.unwrap());
     assert!(world.desk.list(&world.workspace).await.unwrap().is_empty());
     assert!(world.standing.created().is_empty());
-    assert!(world.records.event_types().is_empty());
+    assert!(world.event_types().await.is_empty());
 }
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -274,7 +282,7 @@ async fn sleep_keeps_the_host_mailbox_and_password_and_publishes_its_state() {
         secret
     );
     assert_eq!(
-        world.records.event_types(),
+        world.event_types().await,
         [
             "agent_mailbox.provisioned",
             "agent_mailbox.active",
@@ -356,7 +364,7 @@ async fn the_proof_task_retries_with_the_host_timer_then_marks_the_mailbox_unava
     assert_eq!(unavailable.state, AgentMailboxState::Unavailable);
     assert!(unavailable.reason.unwrap().contains("unauthorized"));
     assert_eq!(
-        world.records.event_types(),
+        world.event_types().await,
         ["agent_mailbox.provisioned", "agent_mailbox.unavailable"]
     );
 }
