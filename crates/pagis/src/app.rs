@@ -1537,6 +1537,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         ),
         remote_access_turn,
         administration: options.administration,
+        product_app_links: booted.config.product_app.links.clone(),
         administration_sections: pagis_server::AdministrationSections::without(
             &booted.config.administration.hide,
         ),

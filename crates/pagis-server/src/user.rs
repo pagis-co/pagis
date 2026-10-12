@@ -9,7 +9,7 @@ use std::sync::Arc;
 use axum::Json;
 use axum::extract::State;
 use pagis_core::{User, UserRole};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::AppState;
@@ -50,6 +50,8 @@ pub struct UserDto {
     /// while it is off. Every Person learns it, because the copy holds
     /// their own requests.
     pub model_request_capture_days: Option<u32>,
+    /// The links the operator names in the Server configuration.
+    pub product_app_links: Vec<ProductAppLink>,
 }
 
 impl UserDto {
@@ -59,6 +61,7 @@ impl UserDto {
         user: &User,
         administration: &AdministrationAddress,
         capture: &pagis_core::CaptureSetting,
+        product_app_links: &[ProductAppLink],
     ) -> Self {
         UserDto {
             id: user.id.to_string(),
@@ -67,8 +70,19 @@ impl UserDto {
             role: user.role.as_str().to_string(),
             administration: (user.role == UserRole::Administrator).then(|| administration.clone()),
             model_request_capture_days: capture.is_enabled().then(|| capture.retention_days()),
+            product_app_links: product_app_links.to_vec(),
         }
     }
+}
+
+/// One link the operator names for the Product App.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct ProductAppLink {
+    /// The text in the account menu, at most 40 characters.
+    #[schema(max_length = 40)]
+    pub label: String,
+    /// A valid https URL. The link opens in the same tab.
+    pub url: String,
 }
 
 /// Where a browser reaches the Administration Interface (ADR-0024).
@@ -121,6 +135,7 @@ pub async fn get_user(
         &user,
         &state.administration,
         &state.capture,
+        &state.product_app_links,
     )))
 }
 
@@ -158,12 +173,24 @@ mod tests {
             0,
         );
         assert_eq!(
-            UserDto::new(&person, &address, &pagis_core::CaptureSetting::default()).administration,
+            UserDto::new(
+                &person,
+                &address,
+                &pagis_core::CaptureSetting::default(),
+                &[]
+            )
+            .administration,
             Some(address.clone())
         );
         person.role = UserRole::Member;
         assert_eq!(
-            UserDto::new(&person, &address, &pagis_core::CaptureSetting::default()).administration,
+            UserDto::new(
+                &person,
+                &address,
+                &pagis_core::CaptureSetting::default(),
+                &[]
+            )
+            .administration,
             None
         );
     }

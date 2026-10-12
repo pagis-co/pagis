@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="780" height="1688" viewBox="0 0 390 844">
+  <rect width="390" height="844" fill="#f8f7f4"/>
+  <g font-family="Inter, Helvetica, Arial, sans-serif" fill="#272521">
+    <circle cx="44" cy="91" r="28" fill="#fbfaf8" stroke="#dedbd5"/>
+    <text x="44" y="100" text-anchor="middle" font-size="24" font-weight="600">A</text>
+    <text x="86" y="89" font-size="26" font-weight="700">Ajay</text>
+    <text x="86" y="111" font-size="13" fill="#625d55">pagis.example.ts.net</text>
+    <rect x="16" y="139" width="358" height="248" rx="12" fill="#fff" stroke="#dedbd5"/>
+    <text x="65" y="166" font-size="15">Memory</text>
+    <text x="65" y="186" font-size="13" fill="#625d55">What your sprites know</text>
+    <path d="M346 166l4 4-4 4" fill="none" stroke="#625d55" stroke-width="1.5"/>
+    <path d="M16 201H374" stroke="#dedbd5"/>
+    <text x="65" y="228" font-size="15">Automations</text>
+    <text x="65" y="248" font-size="13" fill="#625d55">Next: Pixie’s brief, tomorrow 07:30</text>
+    <path d="M346 228l4 4-4 4" fill="none" stroke="#625d55" stroke-width="1.5"/>
+    <path d="M16 263H374" stroke="#dedbd5"/>
+    <text x="65" y="290" font-size="15">Software</text>
+    <text x="65" y="310" font-size="13" fill="#625d55">Small programs your sprites wrote</text>
+    <path d="M346 290l4 4-4 4" fill="none" stroke="#625d55" stroke-width="1.5"/>
+    <path d="M16 325H374" stroke="#dedbd5"/>
+    <text x="65" y="352" font-size="15">Settings</text>
+    <text x="65" y="372" font-size="13" fill="#625d55">Connections, sessions and the vault</text>
+    <path d="M346 352l4 4-4 4" fill="none" stroke="#625d55" stroke-width="1.5"/>
+    <g fill="none" stroke="#625d55" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M35 162h6q2 0 2 2q0-2 2-2h6v14h-6q-2 0-2 2q0-2-2-2h-6z M43 164v14"/>
+      <path d="M35 235v-3q0-4 4-4h12m-4-4 4 4-4 4 M51 237v3q0 4-4 4H35m4-4-4 4 4 4"/>
+      <path d="M35 294l8-5 8 5v10l-8 5-8-5z M35 294l8 5 8-5 M43 299v10"/>
+      <path d="M35 360h16 M35 368h16"/><circle cx="39" cy="360" r="3" fill="#fff"/><circle cx="47" cy="368" r="3" fill="#fff"/>
+    </g>
+    <rect x="16" y="411" width="358" height="132" rx="12" fill="#fff" stroke="#dedbd5"/>
+    <path d="M16 455H374 M16 499H374" stroke="#dedbd5"/>
+    <g font-size="15" fill="#272521">
+      <text x="32" y="439">Servers</text>
+      <text x="32" y="483">Help</text>
+      <text x="32" y="527">Account</text>
+    </g>
+    <text x="16" y="571" font-size="12" font-weight="600" fill="#625d55">THIS PHONE</text>
+    <rect x="16" y="584" width="358" height="153" rx="12" fill="#fff" stroke="#dedbd5"/>
+    <path d="M16 638H374 M16 692H374 M195 692V737" stroke="#dedbd5"/>
+    <text x="32" y="606" font-size="15">Notifications</text>
+    <text x="32" y="625" font-size="13" fill="#625d55">Tell me when something needs me.</text>
+    <text x="32" y="660" font-size="15">Answer on the lock screen</text>
+    <text x="32" y="679" font-size="13" fill="#625d55">Approve once or deny from a notification.</text>
+    <rect x="314" y="598" width="44" height="26" rx="13" fill="#5b49c0"/>
+    <circle cx="345" cy="611" r="10" fill="#fff"/>
+    <rect x="314" y="652" width="44" height="26" rx="13" fill="#5b49c0"/>
+    <circle cx="345" cy="665" r="10" fill="#fff"/>
+    <text x="106" y="721" text-anchor="middle" font-size="15" fill="#5b49c0">Change server</text>
+    <text x="284" y="721" text-anchor="middle" font-size="15" fill="#bb2424">Sign out</text>
+    <rect y="758" width="390" height="86" fill="#fbfaf8"/>
+    <path d="M0 758H390" stroke="#dedbd5"/>
+    <g fill="none" stroke="#272521" stroke-width="1.6" stroke-linejoin="round">
+      <path d="M44 779l7-7 7 7v9H44z M49 788v-6h4v6"/>
+      <path d="M140 773h15v12h-11l-4 4z"/>
+      <circle cx="242" cy="777" r="4"/><path d="M235 788v-3q0-5 7-5t7 5v3 M249 773q5 3 0 7 M251 782q3 0 3 6"/>
+    </g>
+    <circle cx="338" cy="780" r="11" fill="#5b49c0"/>
+    <text x="338" y="785" text-anchor="middle" font-size="15" fill="#fff">A</text>
+    <g font-size="12" text-anchor="middle">
+      <text x="51" y="805">Home</text><text x="147" y="805">Conversations</text>
+      <text x="242" y="805">Sprites</text><text x="338" y="805" fill="#5b49c0">You</text>
+    </g>
+  </g>
+</svg>

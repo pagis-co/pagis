@@ -842,7 +842,12 @@ pub(crate) async fn open_session(
     Ok((
         StatusCode::OK,
         [(header::SET_COOKIE, session_cookie(&secret, secure))],
-        Json(UserDto::new(&user, &state.administration, &state.capture)),
+        Json(UserDto::new(
+            &user,
+            &state.administration,
+            &state.capture,
+            &state.product_app_links,
+        )),
     )
         .into_response())
 }

@@ -7,7 +7,7 @@
 // conversation row in a thread, a place elsewhere. On a phone the same
 // column is replaced by the phone layout at 760 px and below.
 
-import { LogOut, Plus, Search } from 'lucide-react'
+import { Ellipsis, LogOut, Plus, Search } from 'lucide-react'
 import { useState } from 'react'
 
 import type { ApiClient } from '../../api/client'
@@ -16,6 +16,7 @@ import {
   cx,
   IconButton,
   LogoMark,
+  Menu,
   OwnerAvatar,
   Sidebar as SidebarShell,
 } from '../../primitives'
@@ -57,7 +58,9 @@ export function Sidebar({
   const roster = useAgents(api)
   const workspace = useWorkspace(api)
   const userName = useUserName(api)
-  const captureDays = useUser(api).data?.model_request_capture_days ?? null
+  const user = useUser(api).data
+  const captureDays = user?.model_request_capture_days ?? null
+  const links = user?.product_app_links ?? []
   const needsYou = useNeedsYou(api).data?.count ?? 0
   const [creating, setCreating] = useState(false)
   // A conversation holds the mark, so no place does.
@@ -148,6 +151,13 @@ export function Sidebar({
           <OwnerAvatar name={userName} size="md" />
           <span>{userName}</span>
         </Button>
+        {links.length > 0 && (
+          <Menu
+            label="Account menu"
+            trigger={<IconButton icon={Ellipsis} label="Account menu" variant="ghost" size="sm" />}
+            items={links.map((link) => ({ label: link.label, href: link.url }))}
+          />
+        )}
         <IconButton
           icon={LogOut}
           label="Sign out"

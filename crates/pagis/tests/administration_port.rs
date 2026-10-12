@@ -780,3 +780,25 @@ fn the_exceptions_are_the_documented_two() {
         .collect();
     assert_eq!(paths, vec!["/api/v1/setup", "/api/v1/sessions"]);
 }
+
+#[tokio::test]
+async fn product_app_links_reach_a_member() {
+    let daemon = TestDaemon::start().await;
+    let path = daemon.booted.home.join("config.toml");
+    let links = serde_json::json!([{"label": "Help", "url": "https://team.example.com/help"}]);
+    let mut config: toml::Value = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    config["product_app"] = toml::Value::try_from(serde_json::json!({"links": links})).unwrap();
+    std::fs::write(&path, toml::to_string(&config).unwrap()).unwrap();
+    let daemon = daemon.restart(Default::default()).await;
+    let (_, cookie) = member(&daemon).await;
+    let response = client()
+        .get(format!("{}/api/v1/user", daemon.base_url))
+        .header("cookie", cookie)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(body["role"], "member");
+    assert_eq!(body["product_app_links"], links);
+}

@@ -5852,6 +5852,13 @@ export interface components {
         PreviewForget: {
             target: components["schemas"]["ForgetTarget"];
         };
+        /** @description One link the operator names for the Product App. */
+        ProductAppLink: {
+            /** @description The text in the account menu, at most 40 characters. */
+            label: string;
+            /** @description A valid https URL. The link opens in the same tab. */
+            url: string;
+        };
         /**
          * @description One `progress.state` WS payload: the whole current text, never a
          *     delta. A client applies a frame only when `seq` is newer than the
@@ -7245,6 +7252,8 @@ export interface components {
              *     records one.
              */
             name?: string | null;
+            /** @description The links the operator names in the Server configuration. */
+            product_app_links: components["schemas"]["ProductAppLink"][];
             /** @description `administrator` or `member`. */
             role: string;
         };

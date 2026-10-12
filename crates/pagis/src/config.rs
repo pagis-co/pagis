@@ -89,6 +89,8 @@ pub struct Config {
     pub remote_access: RemoteAccess,
     /// The Administration Interface's own listener.
     pub administration: Administration,
+    /// The links the operator names for the Product App.
+    pub product_app: ProductApp,
     /// The artifact upload size cap, 50 MB by default.
     pub artifact_max_bytes: u64,
     /// What one agent computer may take, and how many may be awake.
@@ -147,6 +149,33 @@ fn capture_retention_days<'de, D: serde::Deserializer<'de>>(
 #[serde(default)]
 pub struct RemoteAccess {
     pub enabled: bool,
+}
+
+/// The links a signed-in Person sees in the Product App.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ProductApp {
+    pub links: Vec<pagis_server::ProductAppLink>,
+}
+
+impl ProductApp {
+    fn validate(&self) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.links.len() <= 3,
+            "product_app.links accepts at most 3 links"
+        );
+        for (index, link) in self.links.iter().enumerate() {
+            anyhow::ensure!(
+                link.label.chars().count() <= 40,
+                "product_app.links[{index}].label accepts at most 40 characters"
+            );
+            anyhow::ensure!(
+                url::Url::parse(&link.url).is_ok_and(|url| url.scheme() == "https"),
+                "product_app.links[{index}].url must be a valid https URL"
+            );
+        }
+        Ok(())
+    }
 }
 
 /// The Administration Interface's own listener.
@@ -592,6 +621,7 @@ impl Default for Config {
             trusted_proxy: String::new(),
             remote_access: RemoteAccess::default(),
             administration: Administration::default(),
+            product_app: ProductApp::default(),
             artifact_max_bytes: DEFAULT_ARTIFACT_MAX_BYTES,
             computer: Computer::default(),
             docker_endpoint: String::new(),
@@ -750,7 +780,9 @@ impl Config {
         if !path.exists() {
             std::fs::write(path, toml::to_string_pretty(&Config::default())?)?;
         }
-        Ok(toml::from_str(&std::fs::read_to_string(path)?)?)
+        let config: Config = toml::from_str(&std::fs::read_to_string(path)?)?;
+        config.product_app.validate()?;
+        Ok(config)
     }
 
     /// The interface the listener binds. An empty entry is
@@ -1607,6 +1639,101 @@ mod tests {
             blank.trusted_proxy().unwrap(),
             pagis_server::TrustedProxy::none()
         );
+    }
+
+    #[test]
+    fn product_app_links_refuse_other_schemes_and_invalid_urls() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        for url in [
+            "http://example.com",
+            "javascript:alert(1)",
+            "ftp://example.com",
+            "/help",
+            "https://",
+            "not a URL",
+        ] {
+            std::fs::write(
+                &path,
+                format!("[product_app]\nlinks = [{{ label = \"Help\", url = \"{url}\" }}]\n"),
+            )
+            .unwrap();
+            let error = Config::read_file(&path)
+                .expect_err("an invalid Product App link")
+                .to_string();
+            assert!(error.contains("product_app.links"), "{error}");
+        }
+    }
+
+    #[test]
+    fn product_app_links_refuse_labels_longer_than_forty_characters() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        for label in ["a".repeat(41), "é".repeat(41)] {
+            std::fs::write(&path, format!("[product_app]\nlinks = [{{ label = \"{label}\", url = \"https://example.com/help\" }}]\n")).unwrap();
+            let error = Config::read_file(&path)
+                .expect_err("a long label")
+                .to_string();
+            assert!(error.contains("product_app.links"), "{error}");
+            assert!(error.contains("40"), "{error}");
+        }
+    }
+
+    #[test]
+    fn product_app_links_refuse_more_than_three_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        let link = "{ label = \"Help\", url = \"https://example.com/help\" }";
+        std::fs::write(
+            &path,
+            format!("[product_app]\nlinks = [{}]\n", [link; 4].join(", ")),
+        )
+        .unwrap();
+        let error = Config::read_file(&path)
+            .expect_err("too many links")
+            .to_string();
+        assert!(error.contains("product_app.links"), "{error}");
+        assert!(error.contains("3"), "{error}");
+    }
+
+    #[test]
+    fn product_app_links_keep_three_entries_and_count_label_characters() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        let label = "é".repeat(40);
+        let links = serde_json::json!([
+            {"label": label, "url": "https://example.com/servers"},
+            {"label": "Help", "url": "https://example.com/help?team=one#contact"},
+            {"label": "Account", "url": "https://example.com/account"},
+        ]);
+        std::fs::write(
+            &path,
+            toml::to_string(&serde_json::json!({"product_app": {"links": links}})).unwrap(),
+        )
+        .unwrap();
+        let config = Config::read_file(&path).unwrap();
+        assert_eq!(
+            serde_json::to_value(&config).unwrap()["product_app"]["links"],
+            links
+        );
+        config.save(&path).unwrap();
+        assert_eq!(
+            serde_json::to_value(Config::read_file(&path).unwrap()).unwrap()["product_app"]["links"],
+            links
+        );
+    }
+
+    #[test]
+    fn product_app_links_default_to_an_empty_list() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        for text in ["", "[product_app]\n", "[product_app]\nlinks = []\n"] {
+            std::fs::write(&path, text).unwrap();
+            assert_eq!(
+                serde_json::to_value(Config::read_file(&path).unwrap()).unwrap()["product_app"]["links"],
+                serde_json::json!([])
+            );
+        }
     }
 
     #[test]

@@ -157,7 +157,10 @@ _Avoid_: wizard
 ### Product App
 The web application every server serves: the Workspace experience of one
 Person. It holds no Client App privilege and no installation-wide route
-(ADR-0025, ADR-0024).
+(ADR-0025, ADR-0024). The operator can name up to three links in
+`[product_app] links` of the configuration. A signed-in Person sees the
+links in the account menu, or in You on a phone. Each link opens in the
+same tab.
 _Avoid_: product interface, web UI
 
 ### Public Origin
