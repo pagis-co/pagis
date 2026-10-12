@@ -1,10 +1,10 @@
 //! Access, Exposure Stamps, and Forget selection over memory values.
-use pagis_core::subject_page::{BriefEntry, FrontMatter, SubjectPage};
-use pagis_core::{
+use crate::subject_page::{BriefEntry, FrontMatter, SubjectPage};
+use crate::{
     BriefEntries, MemoryPageCounts, MemoryPageEntry, MemoryPageList, MemoryScope, PageCursor,
     PageIndexHead, PageListQuery, ScopedPath,
 };
-use pagis_core::{
+use crate::{
     ForgetStore, GrantId, IndexedPage, MemoryAccess, MemoryContentKind, MemoryError,
     MemoryExposure, WorkspaceId,
 };
@@ -159,7 +159,7 @@ pub async fn excluded_scopes(
     forget: &dyn ForgetStore,
     workspace: &WorkspaceId,
     stamps: &[FileStamp],
-    target: Option<&pagis_core::ForgetTarget>,
+    target: Option<&crate::ForgetTarget>,
 ) -> Result<HashSet<usize>, MemoryError> {
     let mut excluded = HashSet::new();
     for (index, metadata) in stamps.iter().enumerate() {

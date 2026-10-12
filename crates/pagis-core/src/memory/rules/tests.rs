@@ -2,7 +2,7 @@ use super::{
     FileStamp, HistoryFile, HistoryRevision, changeset_stamp, require_readable, require_revision,
     select_forget, withheld_paths,
 };
-use pagis_core::{AgentId, GrantId, MemoryAccess, MemoryContentKind, MemoryExposure};
+use crate::{AgentId, GrantId, MemoryAccess, MemoryContentKind, MemoryExposure};
 use std::collections::HashSet;
 
 fn exposure(revision: i64) -> MemoryExposure {

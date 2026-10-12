@@ -21,7 +21,7 @@ use pagis_core::{
     RunId, ScopedPath, WorkspaceId, validate_content,
 };
 
-use pagis_memory::rules::{self, FileStamp, seed_index};
+use pagis_core::memory::rules::{self, FileStamp, seed_index};
 
 mod purge;
 

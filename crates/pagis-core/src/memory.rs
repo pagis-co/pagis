@@ -4,6 +4,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+pub mod rules;
+
 use async_trait::async_trait;
 
 use crate::id::{AgentId, GrantId, RunId, WorkspaceId};

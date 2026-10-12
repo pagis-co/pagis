@@ -1,17 +1,13 @@
 //! The resident actor on native targets and under Node.
 
-#[path = "actor_host/stores.rs"]
-mod stores;
-
 #[cfg(target_arch = "wasm32")]
 #[path = "actor_host/brain_wasm.rs"]
 mod brain_wasm;
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
-use futures::StreamExt;
 use pagis_agent::{
     AgentDeps, AgentLoopConfig, AgentSystem, CoreToolRuntime, ProgressHub, StreamHub,
     ToolRuntimeDeps,
@@ -20,34 +16,95 @@ use pagis_broker::{
     AuthorizedCall, Broker, BrokerDeps, HostPresence, NoCredentialDirectory, NoSessionStarts,
     ToolExecutor, ToolResult,
 };
+use pagis_core::fake::{FakeDatabase, FakeEventBus, FakeMemoryStore};
 use pagis_core::*;
 use tokio::sync::Notify;
 
 struct ActorHost {
     agent: Agent,
-    states: Mutex<Vec<(RunId, RunState)>>,
-    journal: Mutex<HashMap<RunId, RunJournalEntry>>,
-    messages: Mutex<Vec<Message>>,
-    events: Mutex<Vec<Event>>,
+    stores: Stores,
+    bus: Arc<FakeEventBus>,
+    memory: Arc<FakeMemoryStore>,
     entered: [Notify; 2],
     release: [Notify; 2],
-    updated: Notify,
 }
 
 impl ActorHost {
-    fn new() -> Arc<Self> {
+    async fn new() -> Arc<Self> {
+        let database = FakeDatabase::default();
+        let stores = database.stores();
+        let agent: Agent = serde_json::from_value(serde_json::json!({
+            "id": "agent", "workspace_id": "workspace", "name": "Agent", "job": "", "description": "", "personality": "", "model_alias": "default", "avatar": AvatarAppearance::default(), "status": "active", "created_at": 0, "updated_at": 0,
+        })).unwrap();
+        let person =
+            seed_org_and_administrator(stores.orgs.as_ref(), stores.users.as_ref(), "Org", 0)
+                .await
+                .unwrap();
+        stores
+            .workspaces
+            .create(&Workspace {
+                id: agent.workspace_id.clone(),
+                user_id: person.id,
+                name: "Desk".into(),
+                timezone: "UTC".into(),
+                created_at: 0,
+                onboarded_at: None,
+                chief_of_staff_agent_id: None,
+                report_schedule_id: None,
+                home_exit_host_id: None,
+            })
+            .await
+            .unwrap();
+        stores.agents.create(&agent).await.unwrap();
+        stores
+            .model_aliases
+            .create(&ModelAlias {
+                id: ModelAliasId::generate(),
+                workspace_id: agent.workspace_id.clone(),
+                alias: "default".into(),
+                candidates: vec!["anthropic/claude-sonnet-4-6".into()],
+                created_at: 0,
+                updated_at: 0,
+            })
+            .await
+            .unwrap();
+        stores
+            .channels
+            .create(&Channel {
+                id: ChannelId::from("channel".to_string()),
+                workspace_id: agent.workspace_id.clone(),
+                kind: ChannelKind::Dm,
+                title: None,
+                created_at: 0,
+                updated_at: 0,
+            })
+            .await
+            .unwrap();
         Arc::new(Self {
-            agent: serde_json::from_value(serde_json::json!({
-                "id": "agent", "workspace_id": "workspace", "name": "Agent", "job": "", "description": "", "personality": "", "model_alias": "default", "avatar": AvatarAppearance::default(), "status": "active", "created_at": 0, "updated_at": 0,
-            })).unwrap(),
-            states: Mutex::new(Vec::new()),
-            journal: Mutex::new(HashMap::new()),
-            messages: Mutex::new(Vec::new()),
-            events: Mutex::new(Vec::new()),
+            agent,
+            memory: Arc::new(FakeMemoryStore::new(stores.forget.clone())),
+            stores,
+            bus: Arc::new(database.bus()),
             entered: [Notify::new(), Notify::new()],
             release: [Notify::new(), Notify::new()],
-            updated: Notify::new(),
         })
+    }
+
+    async fn states(&self) -> Vec<(RunId, RunState)> {
+        self.stores
+            .events
+            .list_after(Some(&self.agent.workspace_id), 0, u32::MAX)
+            .await
+            .unwrap()
+            .into_iter()
+            .filter(|event| event.event_type == "run.state_changed")
+            .map(|event| {
+                (
+                    event.run_id.unwrap(),
+                    serde_json::from_value(event.payload["to"].clone()).unwrap(),
+                )
+            })
+            .collect()
     }
 
     fn deps(self: &Arc<Self>, config: AgentLoopConfig) -> AgentDeps {
@@ -55,37 +112,37 @@ impl ActorHost {
         let skills = Arc::new(NoSkills);
         let clock = Arc::new(SystemClock);
         let runtime = Arc::new(CoreToolRuntime::new(ToolRuntimeDeps {
-            agents: self.clone(),
-            channels: self.clone(),
-            messages: self.clone(),
-            runs: self.clone(),
-            participants: self.clone(),
-            memory: self.clone(),
-            pending_evidence: self.clone(),
-            conversation_evidence: self.clone(),
-            grants: self.clone(),
+            agents: self.stores.agents.clone(),
+            channels: self.stores.channels.clone(),
+            messages: self.stores.messages.clone(),
+            runs: self.stores.runs.clone(),
+            participants: self.stores.participants.clone(),
+            memory: self.memory.clone(),
+            pending_evidence: self.stores.pending_evidence.clone(),
+            conversation_evidence: self.stores.conversation_evidence.clone(),
+            grants: self.stores.grants.clone(),
             skills: skills.clone(),
             computers: self.clone(),
-            bus: self.clone(),
+            bus: self.bus.clone(),
             clock: clock.clone(),
             context_messages: config.context_messages,
             presence: presence.clone(),
         }));
         let broker = Arc::new(Broker::new(BrokerDeps {
-            run_journal: self.clone(),
-            forget: self.clone(),
-            grants: self.clone(),
+            run_journal: self.stores.run_journal.clone(),
+            forget: self.stores.forget.clone(),
+            grants: self.stores.grants.clone(),
             credentials: Arc::new(NoCredentialDirectory),
-            connections: self.clone(),
-            requests: self.clone(),
-            snapshots: self.clone(),
-            runs: self.clone(),
-            conversation_evidence: self.clone(),
-            bus: self.clone(),
+            connections: self.stores.connections.clone(),
+            requests: self.stores.requests.clone(),
+            snapshots: self.stores.capability_snapshots.clone(),
+            runs: self.stores.runs.clone(),
+            conversation_evidence: self.stores.conversation_evidence.clone(),
+            bus: self.bus.clone(),
             executor: self.clone(),
-            phone_numbers: self.clone(),
-            mailboxes: self.clone(),
-            hosts: self.clone(),
+            phone_numbers: self.stores.phone_numbers.clone(),
+            mailboxes: self.stores.agent_mailboxes.clone(),
+            hosts: self.stores.hosts.clone(),
             presence,
             session_starts: Arc::new(NoSessionStarts),
             computer: false,
@@ -96,32 +153,32 @@ impl ActorHost {
             Arc::new(MemorySecretStore::default()),
         ));
         AgentDeps {
-            run_journal: self.clone(),
-            forget: self.clone(),
-            workspaces: self.clone(),
-            users: self.clone(),
-            agents: self.clone(),
-            channels: self.clone(),
-            messages: self.clone(),
-            runs: self.clone(),
-            model_aliases: self.clone(),
-            usage: self.clone(),
+            run_journal: self.stores.run_journal.clone(),
+            forget: self.stores.forget.clone(),
+            workspaces: self.stores.workspaces.clone(),
+            users: self.stores.users.clone(),
+            agents: self.stores.agents.clone(),
+            channels: self.stores.channels.clone(),
+            messages: self.stores.messages.clone(),
+            runs: self.stores.runs.clone(),
+            model_aliases: self.stores.model_aliases.clone(),
+            usage: self.stores.usage.clone(),
             capture: Arc::new(CaptureSetting::default()),
-            model_request_captures: self.clone(),
-            participants: self.clone(),
-            requests: self.clone(),
-            grants: self.clone(),
-            connections: self.clone(),
-            artifacts: self.clone(),
+            model_request_captures: self.stores.model_request_captures.clone(),
+            participants: self.stores.participants.clone(),
+            requests: self.stores.requests.clone(),
+            grants: self.stores.grants.clone(),
+            connections: self.stores.connections.clone(),
+            artifacts: self.stores.artifacts.clone(),
             blobs: Arc::new(object_store::memory::InMemory::new()),
-            memory: self.clone(),
-            pending_evidence: self.clone(),
-            continuations: self.clone(),
-            briefs: self.clone(),
-            schedules: self.clone(),
+            memory: self.memory.clone(),
+            pending_evidence: self.stores.pending_evidence.clone(),
+            continuations: self.stores.continuations.clone(),
+            briefs: self.stores.briefs.clone(),
+            schedules: self.stores.schedules.clone(),
             skills,
             computers: self.clone(),
-            bus: self.clone(),
+            bus: self.bus.clone(),
             brain: self.clone(),
             gate: self.clone(),
             models: Arc::new(pagis_agent::ModelCatalog::new(keys)),
@@ -129,7 +186,7 @@ impl ActorHost {
             tool_runtime: runtime,
             hub: Arc::new(StreamHub::default()),
             progress: Arc::new(ProgressHub::default()),
-            triggers: self.clone(),
+            triggers: self.stores.triggers.clone(),
             clock,
             config,
         }
@@ -155,39 +212,26 @@ impl pagis_agent::Brain for ActorHost {
         &self,
         _: pagis_agent::TurnRequest,
     ) -> Result<pagis_agent::TurnStream, pagis_agent::BrainError> {
-        panic!("Forget stops the Run before a model call")
+        panic!("the ModelCallGate stops the Run before a model call")
     }
 }
 
 #[async_trait::async_trait]
 impl pagis_agent::ModelCallGate for ActorHost {
-    async fn before_call(&self, _: &Run, _: &[String]) -> Result<(), pagis_agent::GateStop> {
-        panic!("Forget stops the Run before the ModelCallGate")
-    }
-}
-
-#[async_trait::async_trait]
-impl EventBus for ActorHost {
-    async fn publish(&self, event: NewEvent) -> Result<Event, StoreError> {
-        let mut events = self.events.lock().unwrap();
-        let event = Event {
-            id: EventId::generate(),
-            seq: events.len() as i64 + 1,
-            workspace_id: event.workspace_id,
-            event_type: event.event_type,
-            agent_id: event.agent_id,
-            run_id: event.run_id,
-            channel_id: event.channel_id,
-            payload: event.payload,
-            created_at: now_ms(),
+    async fn before_call(&self, run: &Run, _: &[String]) -> Result<(), pagis_agent::GateStop> {
+        assert_eq!(run.workspace_id, self.agent.workspace_id);
+        let index = if run.id.as_str() == "first" {
+            0
+        } else {
+            assert_eq!(run.id.as_str(), "second");
+            1
         };
-        events.push(event.clone());
-        Ok(event)
-    }
-
-    async fn subscribe(&self, _: EventScope, _: Option<i64>) -> EventStream {
-        // Runs enter through enqueue_proactive. No event triggers another Run.
-        futures::stream::empty().boxed()
+        self.entered[index].notify_one();
+        self.release[index].notified().await;
+        Err(pagis_agent::GateStop {
+            note: "The test stops the Run.".into(),
+            failure_kind: FailureKind::AccessChanged,
+        })
     }
 }
 
@@ -206,17 +250,18 @@ async fn actor_serializes_one_thread_and_ends_when_idle() {
         computer: false,
         ..AgentLoopConfig::default()
     };
-    let host = ActorHost::new();
+    let host = ActorHost::new().await;
     let system = AgentSystem::start(host.deps(config)).await;
     let runs = [run("first"), run("second")];
     for run in &runs {
+        host.stores.runs.create(run).await.unwrap();
         system.enqueue_proactive(run.clone());
     }
-    pagis_rt::timeout(Duration::from_secs(3), async {
+    let result = pagis_rt::timeout(Duration::from_secs(3), async {
         host.entered[0].notified().await;
         pagis_rt::sleep(config.idle_timeout * 2).await;
         assert_eq!(
-            *host.states.lock().unwrap(),
+            host.states().await,
             [(runs[0].id.clone(), RunState::Running)]
         );
         assert_eq!(
@@ -232,7 +277,7 @@ async fn actor_serializes_one_thread_and_ends_when_idle() {
         host.release[0].notify_one();
         host.entered[1].notified().await;
         assert_eq!(
-            *host.states.lock().unwrap(),
+            host.states().await,
             [
                 (runs[0].id.clone(), RunState::Running),
                 (runs[0].id.clone(), RunState::Failed),
@@ -244,18 +289,17 @@ async fn actor_serializes_one_thread_and_ends_when_idle() {
         let ended = pagis_rt::Instant::now();
         host.release[1].notify_one();
         loop {
-            let changed = host.updated.notified();
-            if host.states.lock().unwrap().len() == 4 {
+            if host.states().await.len() == 4 {
                 break;
             }
-            changed.await;
+            pagis_rt::sleep(Duration::from_millis(5)).await;
         }
         while system.resident_agents() != 0 {
             pagis_rt::sleep(Duration::from_millis(5)).await;
         }
         assert!(ended.elapsed() >= config.idle_timeout);
         assert_eq!(
-            *host.states.lock().unwrap(),
+            host.states().await,
             [
                 (runs[0].id.clone(), RunState::Running),
                 (runs[0].id.clone(), RunState::Failed),
@@ -264,6 +308,15 @@ async fn actor_serializes_one_thread_and_ends_when_idle() {
             ]
         );
     })
-    .await
-    .expect("the actor ends after both Runs");
+    .await;
+    assert!(
+        result.is_ok(),
+        "the actor ends after both Runs: {result:?}; records: {:?}; states: {:?}",
+        host.stores
+            .runs
+            .list(&host.agent.workspace_id, None, None, &[], None, 10)
+            .await
+            .unwrap(),
+        host.states().await
+    );
 }

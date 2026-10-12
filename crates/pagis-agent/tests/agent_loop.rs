@@ -477,7 +477,7 @@ where
             )),
         ))
     } else {
-        Arc::new(pagis_testkit::FakeMemoryStore::new(forget))
+        Arc::new(pagis_core::fake::FakeMemoryStore::new(forget))
     };
     let computer_runtime = Arc::new(pagis_computer::fake::FakeComputerRuntime::with_image());
     let skills = Arc::new(ScriptedSkills::default());
