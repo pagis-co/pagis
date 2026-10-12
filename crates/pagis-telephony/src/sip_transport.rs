@@ -124,7 +124,7 @@ impl CallTransport for SipCallTransport {
             ])
             .build();
         let serving = endpoint.inner.clone();
-        tokio::spawn(async move {
+        pagis_rt::spawn(async move {
             if let Err(error) = serving.serve().await {
                 tracing::warn!(%error, "the SIP endpoint stopped");
             }
@@ -157,7 +157,7 @@ impl CallTransport for SipCallTransport {
             TransportError(TransportErrorCode::Unreachable)
         })?;
         let (incoming_tx, incoming) = mpsc::channel(INCOMING_DEPTH);
-        tokio::spawn(serve_incoming(
+        pagis_rt::spawn(serve_incoming(
             transactions,
             Arc::clone(&dialog_layer),
             credential.username().to_string(),
@@ -362,7 +362,7 @@ async fn offer_call(
     let dialed_e164 = dialed_e164(&tx.original, username);
     let from_e164 = caller_e164(&tx.original);
     let mut driven = dialog.clone();
-    tokio::spawn(async move {
+    pagis_rt::spawn(async move {
         if let Err(error) = driven.handle(&mut tx).await {
             tracing::debug!(%error, "the INVITE transaction ended badly");
         }

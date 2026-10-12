@@ -10,6 +10,7 @@ fn tone(codec: Codec, sample: i16) -> Frame {
     let byte = match codec {
         Codec::Pcmu => audio_codec_algorithms::encode_ulaw(sample),
         Codec::Pcma => audio_codec_algorithms::encode_alaw(sample),
+        Codec::Pcm16 => return Frame::from_samples(codec, vec![sample; FRAME_BYTES]),
     };
     Frame::new(codec, vec![byte; FRAME_BYTES])
 }
@@ -18,6 +19,7 @@ fn first_sample(frame: &Frame) -> i16 {
     match frame.codec() {
         Codec::Pcmu => audio_codec_algorithms::decode_ulaw(frame.payload()[0]),
         Codec::Pcma => audio_codec_algorithms::decode_alaw(frame.payload()[0]),
+        Codec::Pcm16 => i16::from_le_bytes([frame.payload()[0], frame.payload()[1]]),
     }
 }
 
@@ -92,4 +94,38 @@ fn one_direction_alone_passes_through() {
         first_sample(&uplink),
         first_sample(&tone(Codec::Pcmu, 1000))
     );
+}
+
+#[test]
+fn pcm16_mix_sums_samples_with_a_g711_frame_and_clips() {
+    let pcm = Frame::new(
+        Codec::Pcm16,
+        [1000i16, 32000]
+            .into_iter()
+            .flat_map(i16::to_le_bytes)
+            .collect::<Vec<_>>(),
+    );
+    let law = Frame::new(
+        Codec::Pcmu,
+        vec![audio_codec_algorithms::encode_ulaw(2000); 2],
+    );
+    let mixed = mix(&pcm, &law);
+    assert_eq!(mixed.codec(), Codec::Pcm16);
+    let samples = mixed
+        .payload()
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|bytes| i16::from_le_bytes([bytes[0], bytes[1]]))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        samples,
+        vec![
+            1000 + audio_codec_algorithms::decode_ulaw(law.payload()[0]),
+            i16::MAX
+        ]
+    );
+    let mixed = mix(&law, &pcm);
+    assert_eq!(mixed.codec(), Codec::Pcmu);
+    assert_eq!(mixed.payload().len(), 2);
 }

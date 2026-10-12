@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use tokio::sync::mpsc;
 
-use crate::audio::Codec;
+use crate::audio::{Codec, Frame};
 
 /// Why the audio stopped. Every Call ends with one (ADR-0020), and the
 /// codes are stable: they land on the Call record.
@@ -25,7 +25,7 @@ pub enum EndedReason {
     NoAnswer,
     /// The carrier refused the call.
     Refused,
-    /// No inbound RTP for the timeout and no `BYE`.
+    /// No inbound audio for the timeout after the answer.
     MediaTimeout,
     /// The media never started: the far side answered cleartext, or
     /// the SRTP session did not come up. The carrier's SIP Connection
@@ -63,11 +63,12 @@ pub struct RtpPacket {
 }
 
 /// What arrives from the far side, in the order it happened. Signaling
-/// and packets share one stream, so a typed event keeps its place among
+/// and audio share one stream, so a typed event keeps its place among
 /// the audio.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LegEvent {
     Rtp(RtpPacket),
+    Frame(Frame),
     /// The far side rings (outbound only).
     Ringing,
     /// Media may flow in both directions.
@@ -88,15 +89,49 @@ pub trait PacketSink: Send + Sync {
     async fn hangup(&self);
 }
 
+/// The half of a frame leg the hub writes to. Frames have no RTP header.
+#[async_trait]
+pub trait FrameSink: Send + Sync {
+    async fn send(&self, frame: Frame);
+
+    /// End the Call. The leg answers with [`LegEvent::Ended`].
+    async fn hangup(&self);
+}
+
+/// Where the hub sends audio. Only a packet leg has RTP metadata.
+pub enum LegSink {
+    Packet {
+        sink: Arc<dyn PacketSink>,
+        /// The SSRC the transport advertises for Pagis's stream.
+        ssrc: u32,
+        /// The accepted telephone-event payload type, or none.
+        dtmf_payload_type: Option<u8>,
+    },
+    Frame(Arc<dyn FrameSink>),
+}
+
+impl LegSink {
+    pub fn dtmf_payload_type(&self) -> Option<u8> {
+        match self {
+            Self::Packet {
+                dtmf_payload_type, ..
+            } => *dtmf_payload_type,
+            Self::Frame(_) => None,
+        }
+    }
+
+    pub async fn hangup(&self) {
+        match self {
+            Self::Packet { sink, .. } => sink.hangup().await,
+            Self::Frame(sink) => sink.hangup().await,
+        }
+    }
+}
+
 /// One call's leg, ready for a hub.
 pub struct MediaLeg {
     /// The codec the answer settled on.
     pub codec: Codec,
-    /// The payload type the far side accepted for telephone events, or
-    /// `None` when it accepted none: then no digit can be sent.
-    pub dtmf_payload_type: Option<u8>,
-    /// The SSRC the transport advertised for Pagis's own stream.
-    pub ssrc: u32,
     pub inbound: mpsc::Receiver<LegEvent>,
-    pub sink: Arc<dyn PacketSink>,
+    pub sink: LegSink,
 }

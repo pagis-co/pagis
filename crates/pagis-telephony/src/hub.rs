@@ -4,18 +4,19 @@
 //!
 //! Subscribers are lossy, so a slow browser cannot stall an RTP write.
 //! The recorder has a bounded queue and its own writer task. Typed
-//! events travel with the audio and keep their order. The uplink has a
+//! events travel with the audio and keep their order. The RTP uplink has a
 //! reorder window of about 40 ms and no playout buffer. The downlink
 //! has a 20 ms pacer and stays 60 ms deep or less. RTP goes out for the
 //! full call, and silence is G.711 silence, so the NAT binding and the
-//! RTP latch stay alive.
+//! RTP latch stay alive. A frame leg passes inbound frames directly and
+//! sends downlink frames through the same pacer. It has no RTP state.
 //!
 //! Keypad digits go both ways as RFC 4733 telephone events.
 //! One press takes the place of the audio for its length: the packets
 //! keep one timestamp, the duration grows, and three end packets
 //! repeat the final duration. Two presses of one [`MediaHub::send_digits`]
 //! have a gap between them. A leg that negotiated no telephone-event
-//! payload type declares the digits absent in both directions
+//! payload type, or a frame leg, declares the digits absent in both directions
 //! (ADR-0005): Pagis sends no in-band tone and detects none.
 
 use std::collections::VecDeque;
@@ -24,12 +25,12 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use pagis_rt::Instant;
 use tokio::sync::{Semaphore, broadcast, mpsc, watch};
-use tokio::time::Instant;
 
 use crate::audio::{Codec, FRAME_TIMESTAMP_STEP, Frame};
 use crate::dtmf;
-use crate::leg::{EndedReason, LegEvent, MediaLeg, PacketSink, RtpPacket};
+use crate::leg::{EndedReason, LegEvent, LegSink, MediaLeg, RtpPacket};
 use crate::reorder::Reorder;
 
 /// How long an early packet waits for the gap before it.
@@ -41,7 +42,7 @@ pub const REORDER_WINDOW: Duration = Duration::from_millis(40);
 pub const INTER_DIGIT_FRAMES: u16 = 2;
 /// How many frames the downlink holds: three, so 60 ms.
 pub const DOWNLINK_DEPTH: usize = 3;
-/// Inbound RTP silent for this long with no `BYE` ends the call.
+/// Inbound audio silent for this long after the answer ends the Call.
 pub const MEDIA_TIMEOUT: Duration = Duration::from_secs(10);
 /// How far a subscriber may fall behind before it loses frames.
 const SUBSCRIBER_DEPTH: usize = 64;
@@ -101,9 +102,7 @@ pub trait RecordingSink: Send + Sync {
 
 struct Shared {
     codec: Codec,
-    dtmf_payload_type: Option<u8>,
-    ssrc: u32,
-    sink: Arc<dyn PacketSink>,
+    sink: LegSink,
     events: broadcast::Sender<HubEvent>,
     /// Both directions, for the listeners. Lossy, like the
     /// other subscribers: a slow browser cannot stall an RTP write.
@@ -176,8 +175,6 @@ impl MediaHub {
         let (ended, _) = watch::channel(None);
         let shared = Arc::new(Shared {
             codec: leg.codec,
-            dtmf_payload_type: leg.dtmf_payload_type,
-            ssrc: leg.ssrc,
             sink: leg.sink,
             events,
             listeners,
@@ -189,8 +186,8 @@ impl MediaHub {
             downlink_sent: AtomicU64::new(0),
             ended,
         });
-        let uplink = tokio::spawn(run_uplink(Arc::clone(&shared), leg.inbound));
-        let downlink = tokio::spawn(run_downlink(Arc::clone(&shared)));
+        let uplink = pagis_rt::spawn(run_uplink(Arc::clone(&shared), leg.inbound));
+        let downlink = pagis_rt::spawn(run_downlink(Arc::clone(&shared)));
         Arc::new(Self {
             shared,
             uplink,
@@ -219,7 +216,7 @@ impl MediaHub {
     pub fn record(&self, sink: Box<dyn RecordingSink>) -> tokio::task::JoinHandle<()> {
         let (tx, mut rx) = mpsc::channel(RECORDER_DEPTH);
         self.shared.recorders.lock().expect("lock").push(tx);
-        tokio::spawn(async move {
+        pagis_rt::spawn(async move {
             while let Some(recorded) = rx.recv().await {
                 sink.write(recorded).await;
             }
@@ -262,7 +259,7 @@ impl MediaHub {
         dropped
     }
 
-    /// How many audio packets went out. Times 20 ms, this is how much
+    /// How many audio frames went out. Times 20 ms, this is how much
     /// the Remote Party heard.
     pub fn downlink_packets_sent(&self) -> u64 {
         self.shared.downlink_sent.load(Ordering::Relaxed)
@@ -271,7 +268,7 @@ impl MediaHub {
     /// What this call does with keypad digits. The fact belongs to the
     /// negotiated leg, not to the transport.
     pub fn dtmf(&self) -> DtmfPresence {
-        let negotiated = self.shared.dtmf_payload_type.is_some();
+        let negotiated = self.shared.sink.dtmf_payload_type().is_some();
         DtmfPresence {
             send_dtmf: negotiated,
             receive_dtmf: negotiated,
@@ -291,7 +288,7 @@ impl MediaHub {
     /// A leg that negotiated no telephone events refuses: the digit is
     /// absent, and no tone takes its place (ADR-0005).
     pub async fn send_digits(&self, digits: &str) -> Result<(), DtmfAbsent> {
-        if self.shared.dtmf_payload_type.is_none() {
+        if self.shared.sink.dtmf_payload_type().is_none() {
             return Err(DtmfAbsent);
         }
         let mut presses = self.shared.presses.lock().expect("lock");
@@ -334,57 +331,85 @@ impl Drop for MediaHub {
     }
 }
 
-/// The uplink: reorder, pass on, and keep the events in their place.
+/// Receive state for a packet leg. A frame leg has none.
+struct RtpUplink {
+    reorder: Reorder,
+    dtmf: DtmfReader,
+}
+
+impl RtpUplink {
+    fn flush(&mut self, shared: &Shared) {
+        for packet in self.reorder.flush() {
+            deliver(shared, &mut self.dtmf, packet);
+        }
+    }
+}
+
+/// The uplink keeps signaling and audio in order. Only RTP is reordered.
 async fn run_uplink(shared: Arc<Shared>, mut inbound: mpsc::Receiver<LegEvent>) {
-    let mut reorder = Reorder::new(REORDER_WINDOW);
-    let mut dtmf = DtmfReader::default();
-    let mut answered_at: Option<Instant> = None;
-    let mut last_rtp = Instant::now();
+    let mut rtp = match &shared.sink {
+        LegSink::Packet { .. } => Some(RtpUplink {
+            reorder: Reorder::new(REORDER_WINDOW),
+            dtmf: DtmfReader::default(),
+        }),
+        LegSink::Frame(_) => None,
+    };
+    let mut answered = false;
+    let mut last_media = Instant::now();
     loop {
-        let reorder_deadline = reorder.deadline();
-        let media_deadline = answered_at.map(|_| last_rtp + MEDIA_TIMEOUT);
+        let reorder_deadline = rtp.as_ref().and_then(|rtp| rtp.reorder.deadline());
+        let media_deadline = answered.then_some(last_media + MEDIA_TIMEOUT);
         tokio::select! {
             event = inbound.recv() => match event {
                 Some(LegEvent::Rtp(packet)) => {
-                    last_rtp = Instant::now();
-                    for packet in reorder.push(last_rtp, packet) {
-                        deliver(&shared, &mut dtmf, packet);
+                    if let Some(rtp) = &mut rtp {
+                        last_media = Instant::now();
+                        for packet in rtp.reorder.push(last_media, packet) {
+                            deliver(&shared, &mut rtp.dtmf, packet);
+                        }
+                    }
+                }
+                Some(LegEvent::Frame(frame)) => {
+                    if rtp.is_none() {
+                        last_media = Instant::now();
+                        deliver_frame(&shared, frame);
                     }
                 }
                 Some(other) => {
-                    for packet in reorder.flush() {
-                        deliver(&shared, &mut dtmf, packet);
+                    if let Some(rtp) = &mut rtp {
+                        rtp.flush(&shared);
                     }
                     match other {
                         LegEvent::Ringing => shared.publish(HubEvent::Ringing),
                         LegEvent::Answered => {
-                            let now = Instant::now();
-                            answered_at = Some(now);
-                            last_rtp = now;
+                            answered = true;
+                            last_media = Instant::now();
                             shared.publish(HubEvent::Answered);
                         }
                         LegEvent::Ended(reason) => {
                             shared.end(reason);
                             return;
                         }
-                        LegEvent::Rtp(_) => unreachable!("handled above"),
+                        LegEvent::Rtp(_) | LegEvent::Frame(_) => unreachable!("handled above"),
                     }
                 }
                 None => {
-                    for packet in reorder.flush() {
-                        deliver(&shared, &mut dtmf, packet);
+                    if let Some(rtp) = &mut rtp {
+                        rtp.flush(&shared);
                     }
                     shared.end(EndedReason::TransportLost);
                     return;
                 }
             },
             () = sleep_until_or_never(reorder_deadline) => {
-                for packet in reorder.expire(Instant::now()) {
-                    deliver(&shared, &mut dtmf, packet);
+                if let Some(rtp) = &mut rtp {
+                    for packet in rtp.reorder.expire(Instant::now()) {
+                        deliver(&shared, &mut rtp.dtmf, packet);
+                    }
                 }
             }
             () = sleep_until_or_never(media_deadline) => {
-                tracing::warn!("no inbound RTP for {MEDIA_TIMEOUT:?}; ending the call");
+                tracing::warn!("no inbound audio for {MEDIA_TIMEOUT:?}; ending the Call");
                 if shared.end(EndedReason::MediaTimeout) {
                     shared.sink.hangup().await;
                 }
@@ -396,7 +421,7 @@ async fn run_uplink(shared: Arc<Shared>, mut inbound: mpsc::Receiver<LegEvent>) 
 
 async fn sleep_until_or_never(deadline: Option<Instant>) {
     match deadline {
-        Some(deadline) => tokio::time::sleep_until(deadline).await,
+        Some(deadline) => pagis_rt::sleep_until(deadline).await,
         None => std::future::pending().await,
     }
 }
@@ -419,7 +444,7 @@ impl DtmfReader {
 }
 
 fn deliver(shared: &Shared, dtmf: &mut DtmfReader, packet: RtpPacket) {
-    if Some(packet.payload_type) == shared.dtmf_payload_type {
+    if Some(packet.payload_type) == shared.sink.dtmf_payload_type() {
         if let Some(digit) = dtmf.read(&packet) {
             shared.publish(HubEvent::Dtmf(digit));
         }
@@ -432,7 +457,10 @@ fn deliver(shared: &Shared, dtmf: &mut DtmfReader, packet: RtpPacket) {
         );
         return;
     };
-    let frame = Frame::new(codec, packet.payload);
+    deliver_frame(shared, Frame::new(codec, packet.payload));
+}
+
+fn deliver_frame(shared: &Shared, frame: Frame) {
     shared.record(Recorded {
         direction: Direction::Uplink,
         frame: frame.clone(),
@@ -448,18 +476,14 @@ struct Press {
     ends_sent: usize,
 }
 
-/// The downlink: one packet every 20 ms, from the queue or silence,
-/// with a press taking the place of the audio while it lasts.
+/// The downlink sends one frame each tick. Only a packet leg packs RTP.
 async fn run_downlink(shared: Arc<Shared>) {
-    let mut ticks = tokio::time::interval(PACER_TICK);
-    ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let mut ticks = pagis_rt::interval(PACER_TICK);
     let mut ended = shared.ended.subscribe();
-    let mut sequence: u16 = rand_start() as u16;
-    let mut timestamp: u32 = rand_start();
-    let mut first = true;
-    let mut press: Option<Press> = None;
-    // How many frames of gap are still owed to the press before.
-    let mut gap: u16 = 0;
+    let mut rtp = match &shared.sink {
+        LegSink::Packet { .. } => Some(RtpDownlink::new()),
+        LegSink::Frame(_) => None,
+    };
     loop {
         tokio::select! {
             _ = ended.changed() => return,
@@ -468,27 +492,77 @@ async fn run_downlink(shared: Arc<Shared>) {
         if shared.is_ended() {
             return;
         }
-        if press.is_none() && gap > 0 {
-            gap -= 1;
-        } else if press.is_none() {
-            press = shared
+        match &shared.sink {
+            LegSink::Packet { sink, ssrc, .. } => {
+                let packet = rtp
+                    .as_mut()
+                    .expect("a packet leg has RTP state")
+                    .next(&shared, *ssrc);
+                sink.send(packet).await;
+            }
+            LegSink::Frame(sink) => sink.send(downlink_frame(&shared)).await,
+        }
+    }
+}
+
+fn downlink_frame(shared: &Shared) -> Frame {
+    let frame = shared
+        .downlink
+        .lock()
+        .expect("lock")
+        .pop_front()
+        .inspect(|_| shared.downlink_space.add_permits(1))
+        .unwrap_or_else(|| Frame::silence(shared.codec));
+    shared.record(Recorded {
+        direction: Direction::Downlink,
+        frame: frame.clone(),
+    });
+    shared.downlink_sent.fetch_add(1, Ordering::Relaxed);
+    frame
+}
+
+/// Send state for a packet leg. A frame leg has none.
+struct RtpDownlink {
+    sequence: u16,
+    timestamp: u32,
+    first: bool,
+    press: Option<Press>,
+    gap: u16,
+}
+
+impl RtpDownlink {
+    fn new() -> Self {
+        Self {
+            sequence: rand_start() as u16,
+            timestamp: rand_start(),
+            first: true,
+            press: None,
+            gap: 0,
+        }
+    }
+
+    fn next(&mut self, shared: &Shared, ssrc: u32) -> RtpPacket {
+        if self.press.is_none() && self.gap > 0 {
+            self.gap -= 1;
+        } else if self.press.is_none() {
+            self.press = shared
                 .presses
                 .lock()
                 .expect("lock")
                 .pop_front()
                 .map(|code| Press {
                     code,
-                    timestamp,
+                    timestamp: self.timestamp,
                     frames_sent: 0,
                     ends_sent: 0,
                 });
         }
-        let packet = match press.as_mut() {
+        let packet = match self.press.as_mut() {
             Some(active) => {
-                let (packet, done) = press_packet(&shared, active, sequence);
+                let (packet, done) = press_packet(shared, active, self.sequence, ssrc);
                 if done {
-                    press = None;
-                    gap = INTER_DIGIT_FRAMES;
+                    self.press = None;
+                    self.gap = INTER_DIGIT_FRAMES;
                 }
                 shared.record(Recorded {
                     direction: Direction::Downlink,
@@ -497,39 +571,29 @@ async fn run_downlink(shared: Arc<Shared>) {
                 packet
             }
             None => {
-                let frame = shared
-                    .downlink
-                    .lock()
-                    .expect("lock")
-                    .pop_front()
-                    .inspect(|_| shared.downlink_space.add_permits(1))
-                    .unwrap_or_else(|| Frame::silence(shared.codec));
-                shared.record(Recorded {
-                    direction: Direction::Downlink,
-                    frame: frame.clone(),
-                });
-                shared.downlink_sent.fetch_add(1, Ordering::Relaxed);
+                let frame = downlink_frame(shared);
                 RtpPacket {
-                    ssrc: shared.ssrc,
+                    ssrc,
                     payload_type: shared.codec.payload_type(),
-                    sequence,
-                    timestamp,
-                    marker: first,
+                    sequence: self.sequence,
+                    timestamp: self.timestamp,
+                    marker: self.first,
                     payload: frame.payload().clone(),
                 }
             }
         };
-        first = false;
-        sequence = sequence.wrapping_add(1);
-        timestamp = timestamp.wrapping_add(FRAME_TIMESTAMP_STEP);
-        shared.sink.send(packet).await;
+        self.first = false;
+        self.sequence = self.sequence.wrapping_add(1);
+        self.timestamp = self.timestamp.wrapping_add(FRAME_TIMESTAMP_STEP);
+        packet
     }
 }
 
 /// The next packet of a press, and whether it was the last one.
-fn press_packet(shared: &Shared, press: &mut Press, sequence: u16) -> (RtpPacket, bool) {
+fn press_packet(shared: &Shared, press: &mut Press, sequence: u16, ssrc: u32) -> (RtpPacket, bool) {
     let payload_type = shared
-        .dtmf_payload_type
+        .sink
+        .dtmf_payload_type()
         .expect("a press is queued only when the far side accepts events");
     let marker = press.frames_sent == 0 && press.ends_sent == 0;
     let end = press.frames_sent >= dtmf::PRESS_FRAMES;
@@ -544,7 +608,7 @@ fn press_packet(shared: &Shared, press: &mut Press, sequence: u16) -> (RtpPacket
         duration: press.frames_sent * FRAME_TIMESTAMP_STEP as u16,
     };
     let packet = RtpPacket {
-        ssrc: shared.ssrc,
+        ssrc,
         payload_type,
         sequence,
         timestamp: press.timestamp,

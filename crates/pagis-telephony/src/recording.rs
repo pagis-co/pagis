@@ -1,8 +1,8 @@
-//! Recording (ADR-0020). Pagis holds the RTP, so the recording
+//! Recording (ADR-0020). Pagis holds the audio, so the recording
 //! is ours: no provider records the call.
 //!
 //! While the call runs, each direction is appended raw to its own file,
-//! exactly as the G.711 bytes arrived. Nothing is muxed, buffered or
+//! in the recorder codec: G.711 or PCM16 at 8 kHz. Nothing is muxed or
 //! rewritten, so a daemon that is killed mid-call leaves two files that
 //! the same [`mux`] step reads. The codec is in the file name, because
 //! the mux step runs after a restart and has no other memory of it.
@@ -19,7 +19,7 @@ use pagis_core::CallId;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 
-use crate::audio::{Codec, SAMPLE_RATE};
+use crate::audio::{Codec, Frame, SAMPLE_RATE};
 use crate::hub::{Direction, Recorded, RecordingSink};
 
 /// What the muxed recording is.
@@ -44,7 +44,7 @@ fn leg_path(dir: &Path, call_id: &CallId, leg: &str, codec: Codec) -> PathBuf {
 
 /// The leg file of one call, whatever codec it was recorded in.
 fn find_leg(dir: &Path, call_id: &CallId, leg: &str) -> Option<(PathBuf, Codec)> {
-    [Codec::Pcmu, Codec::Pcma]
+    [Codec::Pcmu, Codec::Pcma, Codec::Pcm16]
         .into_iter()
         .map(|codec| (leg_path(dir, call_id, leg, codec), codec))
         .find(|(path, _)| path.is_file())
@@ -54,6 +54,7 @@ fn find_leg(dir: &Path, call_id: &CallId, leg: &str) -> Option<(PathBuf, Codec)>
 pub struct CallRecorder {
     remote: Mutex<tokio::fs::File>,
     agent: Mutex<tokio::fs::File>,
+    codec: Codec,
 }
 
 impl CallRecorder {
@@ -66,6 +67,7 @@ impl CallRecorder {
     ) -> Result<Self, std::io::Error> {
         tokio::fs::create_dir_all(dir).await?;
         Ok(Self {
+            codec,
             remote: Mutex::new(create(&leg_path(dir, call_id, REMOTE_LEG, codec)).await?),
             agent: Mutex::new(create(&leg_path(dir, call_id, AGENT_LEG, codec)).await?),
         })
@@ -90,7 +92,8 @@ impl RecordingSink for CallRecorder {
         };
         // A disk that refuses the frame loses that frame and not the
         // call: the audio matters more than the recording.
-        if let Err(error) = leg.lock().await.write_all(recorded.frame.payload()).await {
+        let frame = recorded.frame.into_codec(self.codec);
+        if let Err(error) = leg.lock().await.write_all(frame.payload()).await {
             tracing::warn!(%error, "a recorded frame did not reach the disk");
         }
     }
@@ -133,7 +136,7 @@ pub async fn mux(dir: &Path, call_id: &CallId) -> Result<Option<Vec<u8>>, std::i
 }
 
 /// Delete the raw legs of one call. The WAV is the recording from here
-/// on, so the G.711 files are not kept twice.
+/// on, so the raw audio files are not kept twice.
 pub async fn discard(dir: &Path, call_id: &CallId) {
     for leg in [REMOTE_LEG, AGENT_LEG] {
         if let Some((path, _)) = find_leg(dir, call_id, leg)
@@ -150,14 +153,7 @@ async fn read_leg(dir: &Path, call_id: &CallId, leg: &str) -> Result<Vec<i16>, s
         return Ok(Vec::new());
     };
     let bytes = tokio::fs::read(&path).await?;
-    Ok(bytes.iter().map(|byte| decode(codec, *byte)).collect())
-}
-
-fn decode(codec: Codec, byte: u8) -> i16 {
-    match codec {
-        Codec::Pcmu => audio_codec_algorithms::decode_ulaw(byte),
-        Codec::Pcma => audio_codec_algorithms::decode_alaw(byte),
-    }
+    Ok(Frame::new(codec, bytes).samples())
 }
 
 fn wav_error(step: &str, error: hound::Error) -> std::io::Error {

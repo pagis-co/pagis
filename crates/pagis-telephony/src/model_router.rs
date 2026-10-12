@@ -15,8 +15,8 @@ use llm_router::{
     RealtimeTransport, Router, RouterConfig,
 };
 use pagis_core::{ModelAliasStore, Provider, ProviderKeys, ProviderUse, WorkspaceId};
+use pagis_rt::Instant;
 use serde_json::{Value, json};
-use tokio::time::Instant;
 
 use crate::brief::REPORT_ANSWER;
 use crate::model::{
@@ -509,7 +509,7 @@ impl RouterSession {
             let incoming = if let Some(deadline) = self.transcript_deadline {
                 tokio::select! {
                     event = self.receive_json() => event,
-                    () = tokio::time::sleep_until(deadline) => return self.flush_transcript().map(Ok),
+                    () = pagis_rt::sleep_until(deadline) => return self.flush_transcript().map(Ok),
                 }
             } else {
                 self.receive_json().await
@@ -549,7 +549,7 @@ impl RouterSession {
                 .await
                 .is_ok()
         {
-            let finalized = tokio::time::timeout(Duration::from_secs(15), async {
+            let finalized = pagis_rt::timeout(Duration::from_secs(15), async {
                 while let Some(event) = self.receive_json().await {
                     if matches!(
                         event,
