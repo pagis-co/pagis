@@ -17,7 +17,7 @@ pub(crate) fn with_idle_timeout(
     stream! {
         let mut events = events;
         loop {
-            match tokio::time::timeout(idle, events.next()).await {
+            match crate::rt::timeout(idle, events.next()).await {
                 Ok(Some(item)) => yield item,
                 Ok(None) => return,
                 Err(_) => {
