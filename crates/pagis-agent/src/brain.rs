@@ -258,7 +258,12 @@ pub trait Brain: Send + Sync {
 /// The cached router build: the router plus the candidates it serves,
 /// in route order. Each one decides its own computer tool's shape and
 /// whether that model carries the tool at all.
-type RouterEntry = (Arc<Router>, Vec<(Provider, String)>);
+#[cfg(not(target_arch = "wasm32"))]
+type HostRouter = Router;
+#[cfg(target_arch = "wasm32")]
+type HostRouter = send_wrapper::SendWrapper<Router>;
+
+type RouterEntry = (Arc<HostRouter>, Vec<(Provider, String)>);
 
 pub struct RouterBrain {
     end_user_key: pagis_core::ModelEndUserKey,
@@ -375,8 +380,11 @@ impl RouterBrain {
         config = config.model(alias, candidates);
         // Building the local route makes no provider attempt. Keep that
         // distinct from a provider error returned after `Router::run` starts.
-        let router =
-            Arc::new(Router::new(config).map_err(|error| BrainError::new(error.to_string()))?);
+        let router = Router::new(config).map_err(|error| BrainError::new(error.to_string()))?;
+        // The cached router stays on the wasm host's one thread.
+        #[cfg(target_arch = "wasm32")]
+        let router = send_wrapper::SendWrapper::new(router);
+        let router = Arc::new(router);
         let entry = (Arc::clone(&router), served);
         *cache = Some((fingerprint, entry.clone()));
         Ok(entry)
@@ -791,7 +799,11 @@ impl Brain for RouterBrain {
             if !request.allow_tool_calls && !chat.tools.is_empty() {
                 chat.tool_choice = Some(ToolChoice::None);
             }
-            match router.chat_stream(&chat).await {
+            let response = router.chat_stream(&chat);
+            // The fetch future stays on the wasm host's one thread.
+            #[cfg(target_arch = "wasm32")]
+            let response = send_wrapper::SendWrapper::new(response);
+            match response.await {
                 Ok(stream) => break stream,
                 Err(error) if request.computer && !refused => {
                     let Some(candidate) = refused_computer_model(&error, &served) else {

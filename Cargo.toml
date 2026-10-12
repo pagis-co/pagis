@@ -22,6 +22,7 @@ members = [
     "crates/pagis-mcp-fixture",
     "crates/pagis-push",
     "crates/pagis-push-relay",
+    "crates/pagis-rt",
     "crates/pagis-storage-postgres",
     "crates/pagis-storage-sqlite",
     "crates/pagis-telephony",
@@ -59,6 +60,7 @@ pagis-knowledge = { path = "crates/pagis-knowledge" }
 pagis-plugin = { path = "crates/pagis-plugin" }
 pagis-plugins = { path = "crates/pagis-plugins" }
 pagis-push = { path = "crates/pagis-push" }
+pagis-rt = { path = "crates/pagis-rt" }
 pagis-mcp-fixture = { path = "crates/pagis-mcp-fixture" }
 pagis-storage-postgres = { path = "crates/pagis-storage-postgres" }
 pagis-storage-sqlite = { path = "crates/pagis-storage-sqlite" }

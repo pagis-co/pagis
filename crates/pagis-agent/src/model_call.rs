@@ -13,7 +13,7 @@
 //! phase, so the limit the summary records is the limit the provider
 //! gets.
 
-use std::time::Instant;
+use pagis_rt::Instant;
 
 use pagis_core::{ModelRequestCapture, ModelRequestCaptureId, Run};
 use serde_json::{Value, json};
