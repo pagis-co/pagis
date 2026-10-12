@@ -495,6 +495,7 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         sign_in_links::SignInLinkDto,
         sign_in_links::ClientLinkRequest,
         user::UserDto,
+        user::ProductAppLink,
         user::AdministrationAddress,
         workspace::WorkspaceDto,
         workspace::SetChiefOfStaffRequest,

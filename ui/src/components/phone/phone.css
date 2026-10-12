@@ -504,6 +504,9 @@
   margin-top: var(--space-1);
   overflow-wrap: anywhere;
 }
+.you-phone a.ui-row {
+  overflow-wrap: anywhere;
+}
 .you-phone-session-actions {
   display: flex;
 }

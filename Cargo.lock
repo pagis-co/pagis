@@ -4432,6 +4432,7 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
+ "url",
  "web-push-native",
  "wiremock",
 ]

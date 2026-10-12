@@ -106,7 +106,7 @@ pub use system::{
     MediaRelayKind, RESTART_EXIT_CODE, RestartSwitch, ScreenRelay, SystemConfig, SystemConfigFile,
     origin_host_is_loopback,
 };
-pub use user::AdministrationAddress;
+pub use user::{AdministrationAddress, ProductAppLink};
 
 /// The daemon's version. `/api/v1/health` reports it so the desktop
 /// shell knows whether it may attach to a daemon it did not start
@@ -341,6 +341,8 @@ pub struct AppState {
     /// Administration Port refuses a browser request from any other
     /// origin.
     pub administration: user::AdministrationAddress,
+    /// The links the Server configuration names for the Product App.
+    pub product_app_links: Vec<ProductAppLink>,
     /// The optional sections this server offers on the Administration Port.
     pub administration_sections: AdministrationSections,
     /// The one address whose `X-Forwarded-*` headers the daemon believes.

@@ -26,6 +26,7 @@ count of the Needs-You Queue.
 | Conversations | [conversations.png](conversations.png) |
 | Sprites | [sprites.png](sprites.png) |
 | You | [you.png](you.png) |
+| You, with configured Server links | [you-links.png](you-links.png) ([source](you-links.svg)) |
 
 ## Answer what needs you
 

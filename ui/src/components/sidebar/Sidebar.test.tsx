@@ -4,6 +4,7 @@
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ApiClient } from '../../api/client'
@@ -82,7 +83,7 @@ const needsYou = {
   count: 2,
 }
 
-function stubApi(userName: string | null, captureDays: number | null = null) {
+function stubApi(userName: string | null, captureDays: number | null = null, links: { label: string; url: string }[] = []) {
   return {
     GET: vi.fn(async (path: string) => {
       if (path === '/api/v1/channels') return { data: { items: channels } }
@@ -98,7 +99,7 @@ function stubApi(userName: string | null, captureDays: number | null = null) {
         }
       }
       if (path === '/api/v1/user') {
-        return { data: { name: userName, model_request_capture_days: captureDays } }
+        return { data: { name: userName, model_request_capture_days: captureDays, product_app_links: links } }
       }
       if (path === '/api/v1/needs-you') return { data: needsYou }
       return { data: { items: [] } }
@@ -125,6 +126,7 @@ function mount(props: {
   userName?: string | null
   /** The retention of Model Request Capture, or `null` while it is off. */
   captureDays?: number | null
+  links?: { label: string; url: string }[]
 }) {
   const onSelectPlace = vi.fn()
   const onSelectChannel = vi.fn()
@@ -134,7 +136,7 @@ function mount(props: {
   render(
     <QueryClientProvider client={queryClient}>
       <Sidebar
-        api={stubApi(props.userName ?? null, props.captureDays ?? null) as unknown as ApiClient}
+        api={stubApi(props.userName ?? null, props.captureDays ?? null, props.links ?? []) as unknown as ApiClient}
         pathname={props.pathname}
         selectedId={props.selectedId}
         onSelectPlace={onSelectPlace}
@@ -363,5 +365,36 @@ describe('Sidebar', () => {
     const { onSelectPlace } = mount({ pathname: '/', selectedId: null, userName: 'Ada' })
     fireEvent.click(await screen.findByRole('button', { name: 'Ada' }))
     expect(onSelectPlace).toHaveBeenCalledWith('settings')
+  })
+})
+
+describe('the account menu', () => {
+  const links = [
+    { label: 'Servers', url: 'https://team.example.com/servers' },
+    { label: 'Help', url: 'https://team.example.com/help' },
+    { label: 'Account', url: 'https://team.example.com/account' },
+  ]
+
+  it('shows each configured link in order and opens it in the same tab', async () => {
+    const user = userEvent.setup()
+    mount({ pathname: '/', selectedId: null, userName: 'Ada', links })
+    await user.click(await screen.findByRole('button', { name: 'Account menu' }))
+    const menu = screen.getByRole('menu', { name: 'Account menu' })
+    const entries = within(menu).getAllByRole('menuitem')
+    expect(entries.map((entry) => entry.textContent)).toEqual(links.map((link) => link.label))
+    for (const link of links) {
+      const entry = within(menu).getByRole('menuitem', { name: link.label })
+      expect(entry.tagName).toBe('A')
+      expect(entry.getAttribute('href')).toBe(link.url)
+      expect(entry.getAttribute('target')).toBeNull()
+    }
+  })
+
+  it('shows no extra entry when the list is empty', async () => {
+    mount({ pathname: '/', selectedId: null, userName: 'Ada', links: [] })
+    await screen.findByRole('button', { name: 'Ada' })
+    expect(screen.queryByRole('button', { name: 'Account menu' })).toBeNull()
+    expect(screen.queryByRole('menuitem')).toBeNull()
+    for (const link of links) expect(screen.queryByText(link.label)).toBeNull()
   })
 })

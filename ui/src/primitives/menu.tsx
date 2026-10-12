@@ -3,13 +3,12 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 
 import './menu.css'
 
-export interface MenuItem {
+export type MenuItem = {
   label: string
-  onSelect: () => void
   disabled?: boolean
   /** A destructive item is drawn in the failed hue. */
   danger?: boolean
-}
+} & ({ onSelect: () => void; href?: never } | { href: string; onSelect?: never })
 
 export interface MenuProps {
   /** The control that opens the menu. It must accept a ref. */
@@ -26,14 +25,15 @@ export function Menu({ trigger, items, label }: MenuProps) {
       <DropdownMenu.Trigger asChild>{trigger}</DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content className="ui-menu" aria-label={label} sideOffset={4} align="start">
-          {items.map((item) => (
+          {items.map((item, index) => (
             <DropdownMenu.Item
-              key={item.label}
+              key={index}
+              asChild={item.href !== undefined}
               disabled={item.disabled}
               onSelect={item.onSelect}
               className={item.danger ? 'ui-menu-item ui-menu-item-danger' : 'ui-menu-item'}
             >
-              {item.label}
+              {item.href !== undefined ? <a href={item.href}>{item.label}</a> : item.label}
             </DropdownMenu.Item>
           ))}
         </DropdownMenu.Content>

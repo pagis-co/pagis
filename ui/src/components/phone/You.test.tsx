@@ -24,10 +24,10 @@ vi.mock('../../mobileShell', async () => ({
 
 const DAY = 86_400_000
 
-function stubApi(schedules: unknown[] = []) {
+function stubApi(schedules: unknown[] = [], links: { label: string; url: string }[] = []) {
   return {
     GET: vi.fn(async (path: string) => {
-      if (path === '/api/v1/user') return { data: { id: 'u1', name: 'Ajay', email: 'a@example.com' } }
+      if (path === '/api/v1/user') return { data: { id: 'u1', name: 'Ajay', email: 'a@example.com', product_app_links: links } }
       if (path === '/api/v1/schedules') return { data: { items: schedules } }
       return { data: { items: [] } }
     }),
@@ -115,5 +115,29 @@ describe('in the Mobile App', () => {
     expect(shell.changeServer).not.toHaveBeenCalled()
     fireEvent.click(within(sheet).getByRole('button', { name: 'Change server' }))
     await waitFor(() => expect(shell.changeServer).toHaveBeenCalled())
+  })
+})
+
+describe('the Server links in You', () => {
+  it('shows each link in the same tab', async () => {
+    const links = [
+      { label: 'Servers', url: 'https://team.example.com/servers' },
+      { label: 'Help', url: 'https://team.example.com/help' },
+      { label: 'Account', url: 'https://team.example.com/account' },
+    ]
+    mount(stubApi([], links))
+    const menu = await screen.findByRole('navigation', { name: 'Server links' })
+    for (const link of links) {
+      const entry = within(menu).getByRole('link', { name: link.label })
+      expect(entry.getAttribute('href')).toBe(link.url)
+      expect(entry.getAttribute('target')).toBeNull()
+    }
+  })
+
+  it('shows no Server links when the list is empty', async () => {
+    mount(stubApi())
+    await screen.findByRole('heading', { name: 'Ajay' })
+    expect(screen.queryByRole('navigation', { name: 'Server links' })).toBeNull()
+    expect(screen.queryByRole('link')).toBeNull()
   })
 })

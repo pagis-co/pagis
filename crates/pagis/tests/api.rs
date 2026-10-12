@@ -118,3 +118,44 @@ async fn unknown_api_route_stays_a_json_404() {
     let body: serde_json::Value = response.json().await.unwrap();
     assert_eq!(body["error"]["code"], "not_found");
 }
+
+#[tokio::test]
+async fn product_app_links_reach_a_signed_in_person_only() {
+    let daemon = TestDaemon::start().await;
+    let path = daemon.booted.home.join("config.toml");
+    let links = serde_json::json!([
+        {"label": "Servers", "url": "https://team.example.com/servers"},
+        {"label": "Help", "url": "https://team.example.com/help"},
+        {"label": "Account", "url": "https://team.example.com/account"},
+    ]);
+    let mut config: toml::Value = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    config["product_app"] = toml::Value::try_from(serde_json::json!({"links": links})).unwrap();
+    std::fs::write(&path, toml::to_string(&config).unwrap()).unwrap();
+    let daemon = daemon.restart(Default::default()).await;
+    let client = reqwest::Client::new();
+    let url = format!("{}/api/v1/user", daemon.base_url);
+    assert_eq!(client.get(&url).send().await.unwrap().status(), 401);
+    let response = client
+        .get(&url)
+        .header("cookie", daemon.cookie())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(body["product_app_links"], links);
+}
+
+#[tokio::test]
+async fn product_app_links_are_empty_without_configuration() {
+    let daemon = TestDaemon::start().await;
+    let response = reqwest::Client::new()
+        .get(format!("{}/api/v1/user", daemon.base_url))
+        .header("cookie", daemon.cookie())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(body["product_app_links"], serde_json::json!([]));
+}

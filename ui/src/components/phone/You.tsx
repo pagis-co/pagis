@@ -12,13 +12,14 @@ import {
   SectionLabel,
   Switch,
 } from '../../primitives'
-import { errorMessage, useSchedules, useSignOut, useUserName } from '../../queries'
+import { errorMessage, useSchedules, useSignOut, useUser, useUserName } from '../../queries'
 import { PagisShell } from '../../mobileShell'
 import { NotificationSwitch } from '../settings/Notifications'
 import { nearMoment } from '../when'
 
 export function You({ api }: { api: ApiClient }) {
   const name = useUserName(api)
+  const links = useUser(api).data?.product_app_links ?? []
   const navigate = useNavigate()
   const schedules = useSchedules(api)
   const signOut = useSignOut(api)
@@ -85,6 +86,15 @@ export function You({ api }: { api: ApiClient }) {
           </Row>
         ))}
       </Frame>
+      {links.length > 0 && (
+        <Frame role="navigation" aria-label="Server links">
+          {links.map((link, index) => (
+            <a key={index} className="ui-row ui-row-interactive" href={link.url}>
+              {link.label}
+            </a>
+          ))}
+        </Frame>
+      )}
       <section className="phone-section">
         <SectionLabel>This phone</SectionLabel>
         <Frame>
