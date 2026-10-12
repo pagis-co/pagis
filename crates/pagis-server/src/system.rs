@@ -707,7 +707,7 @@ mod tests {
     #[tokio::test]
     async fn the_switch_wakes_a_waiter() {
         let switch = Arc::new(RestartSwitch::default());
-        let waiting = tokio::spawn({
+        let waiting = pagis_rt::spawn({
             let switch = Arc::clone(&switch);
             async move { switch.asked().await }
         });

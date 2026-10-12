@@ -141,7 +141,7 @@ pub(crate) fn spawn(state: &AppState, workspace_id: &WorkspaceId, operation: For
         forget: Arc::clone(&state.forget),
         memory: Arc::clone(&state.memory),
     };
-    tokio::spawn(async move {
+    pagis_rt::spawn(async move {
         if let Err(error) = process(&state, &operation).await {
             tracing::error!(operation_id=%operation.id,%error,"forget purge failed");
             // Error details may contain paths or source text; persist only the safe action.

@@ -26,12 +26,14 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use axum::extract::FromRequestParts;
-use axum::extract::ws::{CloseFrame, Message as WsMessage, WebSocket, close_code};
+use axum::extract::ws::{CloseFrame, Message as WsMessage, close_code};
 use axum::http::request::Parts;
+use futures::{SinkExt, StreamExt};
 use pagis_core::{Clock, SessionId, UnixMillis, UserId};
 use tokio_util::sync::CancellationToken;
 
 use crate::AppState;
+use crate::MessageSocket;
 use crate::auth::Tenant;
 use crate::error::ApiError;
 
@@ -91,7 +93,7 @@ impl LiveConnections {
         let connections = Arc::clone(self);
         let session_id = tenant.session_id.clone();
         let signal = ended.clone();
-        tokio::spawn(async move {
+        pagis_rt::spawn(async move {
             tokio::select! {
                 () = signal.cancelled() => {}
                 () = reach_expiry(connections.clock.as_ref(), &expires_at) => {
@@ -207,7 +209,7 @@ impl FromRequestParts<Arc<AppState>> for LiveTenant {
 }
 
 /// Close a socket whose Session ended, with 1008.
-pub(crate) async fn close_for_ended_session(socket: &mut WebSocket) -> anyhow::Result<()> {
+pub(crate) async fn close_for_ended_session(socket: &mut impl MessageSocket) -> anyhow::Result<()> {
     socket
         .send(WsMessage::Close(Some(CloseFrame {
             code: close_code::POLICY,
@@ -218,7 +220,7 @@ pub(crate) async fn close_for_ended_session(socket: &mut WebSocket) -> anyhow::R
     // before the connection ends, so the client reads the Close and not
     // a reset connection.
     let _ = tokio::time::timeout(CLOSE_GRACE, async {
-        while let Some(Ok(_)) = socket.recv().await {}
+        while let Some(Ok(_)) = socket.next().await {}
     })
     .await;
     Ok(())

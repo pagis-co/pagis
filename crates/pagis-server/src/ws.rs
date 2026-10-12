@@ -31,9 +31,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::State;
-use axum::extract::ws::{Message as WsMessage, WebSocket, WebSocketUpgrade};
+use axum::extract::ws::{Message as WsMessage, WebSocketUpgrade};
 use axum::response::Response;
-use futures::StreamExt;
+use futures::{SinkExt, StreamExt};
 use pagis_agent::{DeltaFrame, ProgressFrame};
 use pagis_broker::{
     HarnessSignIn, HostCommand, HostConnection, HostFrame, HostOutcome, SessionExit, SignInOutcome,
@@ -42,10 +42,10 @@ use pagis_core::harness::SignInState;
 use pagis_core::{ChannelId, CodingSessionId, Event, EventScope, HarnessSignInId, Host, harness};
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
-use tokio_util::sync::CancellationToken;
 use utoipa::ToSchema;
 
 use crate::AppState;
+use crate::MessageSocket;
 use crate::auth::Tenant;
 use crate::live_connections::{LiveTenant, close_for_ended_session};
 
@@ -298,18 +298,22 @@ pub async fn upgrade(
     ws: WebSocketUpgrade,
 ) -> Response {
     ws.on_upgrade(move |socket| async move {
-        if let Err(err) = handle(state, live.tenant, live.session_ended, socket).await {
+        if let Err(err) = serve_events(socket, state, live).await {
             tracing::debug!(error = %err, "websocket closed");
         }
     })
 }
 
-async fn handle(
+/// Serve the live events of one authenticated Session.
+pub async fn serve_events(
+    mut socket: impl MessageSocket,
     state: Arc<AppState>,
-    tenant: Tenant,
-    session_ended: CancellationToken,
-    mut socket: WebSocket,
+    live: LiveTenant,
 ) -> anyhow::Result<()> {
+    let LiveTenant {
+        tenant,
+        session_ended,
+    } = live;
     // First frame: auth, within the timeout.
     let last_seq = match authenticate(&mut socket).await? {
         Some(last_seq) => last_seq,
@@ -387,12 +391,12 @@ async fn handle(
 /// than nine arguments: the streams it selects over, the socket it
 /// answers on, the Channels this client asked for, and the Host it
 /// registered.
-struct Connection {
+struct Connection<S> {
     state: Arc<AppState>,
     /// The Workspace of the Session that opened this socket. Every
     /// frame out belongs to it, and every frame in is read against it.
     tenant: Tenant,
-    socket: WebSocket,
+    socket: S,
     /// The Channels this client asked for the ephemeral frames of.
     subscriptions: HashSet<String>,
     /// The Host this client registered, if it registered one. It lives as
@@ -423,7 +427,7 @@ async fn next_host_frame(host: &mut Option<RegisteredHost>) -> Option<HostFrame>
     }
 }
 
-impl Connection {
+impl<S: MessageSocket> Connection<S> {
     /// The frame loop of one authenticated socket: the firehose out, the
     /// ephemeral streams out, a dispatched host command or a Harness
     /// Sign-In out, and the client's own frames in.
@@ -483,11 +487,15 @@ impl Connection {
                         None => self.host = None,
                     }
                 }
-                incoming = self.socket.recv() => {
+                incoming = self.socket.next() => {
                     let frame = match incoming {
                         None => return Ok(()),
                         Some(frame) => frame?,
                     };
+                    if let WsMessage::Close(_) = frame {
+                        MessageSocket::close(&mut self.socket).await?;
+                        return Ok(());
+                    }
                     if let WsMessage::Text(text) = frame {
                         let action = handle_client_frame(&text, &mut self.subscriptions);
                         if self.act(action).await? {
@@ -670,7 +678,7 @@ async fn readable(state: &AppState, tenant: &Tenant, channel_id: &str) -> anyhow
 /// run in it as one `progress.state` frame.
 async fn send_catch_up(
     state: &AppState,
-    socket: &mut WebSocket,
+    socket: &mut impl MessageSocket,
     channel_id: &str,
 ) -> anyhow::Result<()> {
     for frame in state.hub.snapshot(channel_id) {
@@ -685,8 +693,8 @@ async fn send_catch_up(
 /// Wait for the auth frame. Returns `Some(last_seq)` when accepted,
 /// `None` when the first frame is not one (an error frame is sent and
 /// the socket closed). The cookie already proved who the client is.
-async fn authenticate(socket: &mut WebSocket) -> anyhow::Result<Option<Option<String>>> {
-    let first = tokio::time::timeout(AUTH_TIMEOUT, socket.recv()).await;
+async fn authenticate(socket: &mut impl MessageSocket) -> anyhow::Result<Option<Option<String>>> {
+    let first = tokio::time::timeout(AUTH_TIMEOUT, socket.next()).await;
     let frame = match first {
         Err(_) | Ok(None) => return Ok(None),
         Ok(Some(frame)) => frame?,
@@ -700,7 +708,7 @@ async fn authenticate(socket: &mut WebSocket) -> anyhow::Result<Option<Option<St
     }
 }
 
-async fn reject(socket: &mut WebSocket) -> anyhow::Result<Option<Option<String>>> {
+async fn reject(socket: &mut impl MessageSocket) -> anyhow::Result<Option<Option<String>>> {
     socket
         .send(
             ServerFrame::error("unauthorized", "the first frame must be a valid auth frame")

@@ -9,11 +9,10 @@ use std::time::Duration;
 use futures::{SinkExt, StreamExt};
 use pagis_server::RingConfig;
 use pagis_testkit::{Script, ScriptedBrain, TestDaemon, TestDaemonOptions, TwoTenants};
-use tokio::net::TcpStream;
+use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
 
-type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
+type Socket = pagis_testkit::Socket;
 
 async fn connect(daemon: &TestDaemon) -> Socket {
     connect_as(daemon, daemon.cookie()).await
@@ -21,10 +20,10 @@ async fn connect(daemon: &TestDaemon) -> Socket {
 
 /// A socket of one person's Session.
 async fn connect_as(daemon: &TestDaemon, cookie: &str) -> Socket {
-    let (socket, _) = connect_async(daemon.ws_request_as(&daemon.ws_url(), cookie))
+    daemon
+        .open_socket("/api/v1/ws", cookie)
         .await
-        .expect("ws connect");
-    socket
+        .expect("message socket opens")
 }
 
 async fn send_json(socket: &mut Socket, frame: serde_json::Value) {
@@ -81,7 +80,8 @@ async fn rest_send_as(
     pending_id: &str,
     text: &str,
 ) -> String {
-    let response = reqwest::Client::new()
+    let response = daemon
+        .client()
         .post(format!(
             "{}/api/v1/channels/{channel_id}/messages",
             daemon.base_url
@@ -101,7 +101,8 @@ async fn rest_create_channel(daemon: &TestDaemon) -> String {
 }
 
 async fn rest_create_channel_as(daemon: &TestDaemon, cookie: &str) -> String {
-    let response = reqwest::Client::new()
+    let response = daemon
+        .client()
         .post(format!("{}/api/v1/channels", daemon.base_url))
         .header("cookie", cookie)
         .json(&serde_json::json!({ "title": "general" }))
@@ -133,7 +134,7 @@ async fn a_socket_without_a_session_is_refused_at_the_upgrade() {
 /// without one.
 #[tokio::test]
 async fn a_first_frame_that_is_not_auth_is_rejected_with_an_error_frame() {
-    let daemon = TestDaemon::start().await;
+    let daemon = TestDaemon::start_in_memory().await;
     let mut socket = connect(&daemon).await;
 
     send_json(&mut socket, serde_json::json!({ "type": "hello" })).await;
@@ -145,7 +146,7 @@ async fn a_first_frame_that_is_not_auth_is_rejected_with_an_error_frame() {
 
 #[tokio::test]
 async fn the_firehose_delivers_domain_events_with_the_envelope() {
-    let daemon = TestDaemon::start().await;
+    let daemon = TestDaemon::start_in_memory().await;
     let (mut socket, ready) = authed_socket(&daemon, None).await;
     assert_eq!(ready["type"], "ready");
 
@@ -166,7 +167,7 @@ async fn the_firehose_delivers_domain_events_with_the_envelope() {
 
 #[tokio::test]
 async fn ping_answers_pong() {
-    let daemon = TestDaemon::start().await;
+    let daemon = TestDaemon::start_in_memory().await;
     let (mut socket, ready) = authed_socket(&daemon, None).await;
     assert_eq!(ready["type"], "ready");
 
@@ -176,7 +177,7 @@ async fn ping_answers_pong() {
 
 #[tokio::test]
 async fn resume_within_the_buffer_replays_exactly_the_gap() {
-    let daemon = TestDaemon::start().await;
+    let daemon = TestDaemon::start_in_memory().await;
     let channel_id = rest_create_channel(&daemon).await;
 
     let (mut socket, ready) = authed_socket(&daemon, None).await;
@@ -209,9 +210,12 @@ async fn resume_within_the_buffer_replays_exactly_the_gap() {
 
 #[tokio::test]
 async fn a_gap_beyond_the_buffer_sends_resync() {
-    let daemon = TestDaemon::start_with_ring(RingConfig {
-        capacity: 2,
-        min_age: Duration::ZERO,
+    let daemon = TestDaemon::start_in_memory_with(TestDaemonOptions {
+        ring: RingConfig {
+            capacity: 2,
+            min_age: Duration::ZERO,
+        },
+        ..TestDaemonOptions::default()
     })
     .await;
     let channel_id = rest_create_channel(&daemon).await;
@@ -251,7 +255,7 @@ async fn stays_silent(socket: &mut Socket) {
 /// other's Workspace: not live, and not on `last_seq` replay.
 #[tokio::test]
 async fn neither_socket_receives_an_event_of_the_other_workspace() {
-    let world = TwoTenants::start().await;
+    let world = TwoTenants::on(TestDaemon::start_in_memory().await).await;
     let daemon = &world.daemon;
 
     let (mut a_socket, ready) = authed_socket_as(daemon, &world.a.cookie, None).await;
@@ -300,7 +304,7 @@ async fn a_subscribe_to_another_persons_channel_is_refused_and_sends_no_in_fligh
     // flight while person B asks for it.
     brain.push(Script::hang(&["A's draft nobody else may read"]));
     let world = TwoTenants::on(
-        TestDaemon::start_with(TestDaemonOptions {
+        TestDaemon::start_in_memory_with(TestDaemonOptions {
             brain: Arc::clone(&brain) as _,
             ..TestDaemonOptions::default()
         })

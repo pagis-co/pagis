@@ -16,11 +16,10 @@ use pagis_testkit::fixture;
 use pagis_testkit::{TestDaemon, TestDaemonOptions, test_provider_keys};
 use pagis_voice::fake::{FakeVoice, VoiceCall};
 use reqwest::StatusCode;
-use tokio::net::TcpStream;
+use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
 
-type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
+type Socket = pagis_testkit::Socket;
 
 struct Desk {
     daemon: TestDaemon,
@@ -43,7 +42,7 @@ impl Desk {
 
     async fn start_with(voice: FakeVoice, options: TestDaemonOptions) -> Self {
         let voice = Arc::new(voice);
-        let daemon = TestDaemon::start_with(TestDaemonOptions {
+        let daemon = TestDaemon::start_in_memory_with(TestDaemonOptions {
             voice: Arc::clone(&voice) as _,
             ..options
         })
@@ -56,7 +55,8 @@ impl Desk {
     }
 
     async fn get(&self, path: &str) -> reqwest::Response {
-        reqwest::Client::new()
+        self.daemon
+            .client()
             .get(self.url(path))
             .header("cookie", self.daemon.cookie())
             .send()
@@ -65,7 +65,9 @@ impl Desk {
     }
 
     async fn post_json(&self, path: &str, body: serde_json::Value) -> (u16, serde_json::Value) {
-        let response = reqwest::Client::new()
+        let response = self
+            .daemon
+            .client()
             .post(self.url(path))
             .header("cookie", self.daemon.cookie())
             .json(&body)
@@ -80,7 +82,9 @@ impl Desk {
     }
 
     async fn put_json(&self, path: &str, body: serde_json::Value) -> (u16, serde_json::Value) {
-        let response = reqwest::Client::new()
+        let response = self
+            .daemon
+            .client()
             .put(self.url(path))
             .header("cookie", self.daemon.cookie())
             .json(&body)
@@ -102,14 +106,10 @@ impl Desk {
 
     /// The same, for the Session of `cookie`.
     async fn dictate_as(&self, channel_id: &str, cookie: &str) -> Socket {
-        let url = format!(
-            "ws://{}/api/v1/channels/{channel_id}/dictate",
-            self.daemon.addr
-        );
-        let (socket, _) = connect_async(self.daemon.ws_request_as(&url, cookie))
+        self.daemon
+            .open_socket(&format!("/api/v1/channels/{channel_id}/dictate"), cookie)
             .await
-            .expect("ws connect");
-        socket
+            .expect("message socket opens")
     }
 
     /// Open the dictation socket with no cookie at all.
@@ -279,7 +279,13 @@ async fn a_release_with_nothing_said_is_an_empty_draft() {
 
 #[tokio::test]
 async fn the_dictation_socket_refuses_no_session_and_an_unknown_channel() {
-    let desk = Desk::start(FakeVoice::default()).await;
+    let voice = Arc::new(FakeVoice::default());
+    let daemon = TestDaemon::start_with(TestDaemonOptions {
+        voice: voice.clone(),
+        ..TestDaemonOptions::default()
+    })
+    .await;
+    let desk = Desk { daemon, voice };
 
     assert_eq!(
         desk.dictate_unsigned(&desk.daemon.dm_channel_id).await,

@@ -396,7 +396,7 @@ impl Endpoint {
         let usage_store = Arc::clone(&self.deps.usage);
         let models = Arc::clone(&self.deps.models);
         let clock = Arc::clone(&self.deps.clock);
-        tokio::spawn(async move {
+        pagis_rt::spawn(async move {
             let Ok(metered) = metered.await else {
                 return;
             };

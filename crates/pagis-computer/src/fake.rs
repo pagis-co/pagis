@@ -1595,6 +1595,8 @@ pub fn exit_socket_pair() -> (
 /// What the fake Home Exit does with one destination.
 #[derive(Debug, Clone)]
 pub enum FakeExitAnswer {
+    /// Send back each byte in memory, with no TCP target.
+    Echo,
     /// Connect to this address and carry the bytes.
     Connect(std::net::SocketAddr),
     /// Answer `refused` with this reason.
@@ -1675,6 +1677,16 @@ impl FakeHomeExit {
         };
         let status = |status: crate::home_exit::Status| status.line();
         match answer {
+            FakeExitAnswer::Echo => {
+                if stream
+                    .write_all(status(crate::home_exit::Status::Ok).as_bytes())
+                    .await
+                    .is_ok()
+                {
+                    let (mut reader, mut writer) = tokio::io::split(&mut stream);
+                    let _ = tokio::io::copy(&mut reader, &mut writer).await;
+                }
+            }
             FakeExitAnswer::Connect(target) => match tokio::net::TcpStream::connect(target).await {
                 Ok(mut upstream) => {
                     if stream

@@ -17,7 +17,6 @@ use std::time::Duration;
 use futures::{SinkExt, StreamExt};
 use pagis_broker::HarnessSignIn;
 use tokio::sync::{mpsc, oneshot};
-use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::TestDaemon;
@@ -111,7 +110,8 @@ impl HostClient {
         capabilities: &[&str],
         answer: HostAnswer,
     ) -> Self {
-        let (mut socket, _) = connect_async(daemon.ws_request_as(&daemon.ws_url(), cookie))
+        let mut socket = daemon
+            .open_socket("/api/v1/ws", cookie)
             .await
             .expect("the host client connects");
         let send = async |socket: &mut _, frame: serde_json::Value| {
