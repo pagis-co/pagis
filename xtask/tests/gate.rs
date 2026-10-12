@@ -130,20 +130,61 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
     assert_eq!(
         xtask::WASM_CRATES,
         &[
-            ("pagis-core", &["memory_rules", "wasm"][..]),
-            ("llm-router", &["rt", "realtime_host"][..]),
-            ("pagis-broker", &["rules_wasm"][..]),
-            ("pagis-rt", &["rt"][..]),
-            ("pagis-agent", &["actor_host"][..]),
-            ("pagis-push", &["wasm"][..]),
-            ("pagis-needs-you", &["rules"][..]),
-            ("pagis-voice", &["router_host"][..]),
-            ("pagis-mail", &["rules"][..]),
+            xtask::WasmCrate {
+                package: "pagis-core",
+                args: &[],
+                tests: &["memory_rules", "wasm"]
+            },
+            xtask::WasmCrate {
+                package: "llm-router",
+                args: &[],
+                tests: &["rt", "realtime_host"]
+            },
+            xtask::WasmCrate {
+                package: "pagis-broker",
+                args: &[],
+                tests: &["rules_wasm"]
+            },
+            xtask::WasmCrate {
+                package: "pagis-rt",
+                args: &[],
+                tests: &["rt"]
+            },
+            xtask::WasmCrate {
+                package: "pagis-agent",
+                args: &[],
+                tests: &["actor_host"]
+            },
+            xtask::WasmCrate {
+                package: "pagis-push",
+                args: &[],
+                tests: &["wasm"]
+            },
+            xtask::WasmCrate {
+                package: "pagis-needs-you",
+                args: &[],
+                tests: &["rules"]
+            },
+            xtask::WasmCrate {
+                package: "pagis-voice",
+                args: &[],
+                tests: &["router_host"]
+            },
+            xtask::WasmCrate {
+                package: "pagis-mail",
+                args: &[],
+                tests: &["rules"]
+            },
+            xtask::WasmCrate {
+                package: "pagis-server",
+                args: &["--no-default-features"],
+                tests: &["agents_wasm"]
+            },
         ]
     );
     let root = workspace_root();
     let cmds = wasm32_commands(&root);
-    assert_eq!(cmds.len(), 12);
+    assert_eq!(cmds.len(), 14);
     assert_eq!(
         cargo_arguments(&cmds[0]),
         [
@@ -173,6 +214,33 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
             "warnings",
         ]
     );
+    assert_eq!(
+        cargo_arguments(&cmds[1]),
+        [
+            "clippy",
+            "--target",
+            "wasm32-unknown-unknown",
+            "-p",
+            "pagis-server",
+            "--no-default-features",
+            "--",
+            "-D",
+            "warnings"
+        ]
+    );
+    assert_eq!(
+        cargo_arguments(&cmds[13]),
+        [
+            "test",
+            "-p",
+            "pagis-server",
+            "--target",
+            "wasm32-unknown-unknown",
+            "--test",
+            "agents_wasm",
+            "--no-default-features"
+        ]
+    );
     let expected = [
         ("pagis-core", "memory_rules"),
         ("pagis-core", "wasm"),
@@ -186,7 +254,7 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
         ("pagis-voice", "router_host"),
         ("pagis-mail", "rules"),
     ];
-    for (cmd, (package, binary)) in cmds[1..].iter().zip(expected) {
+    for (cmd, (package, binary)) in cmds[2..13].iter().zip(expected) {
         assert_eq!(
             cargo_arguments(cmd),
             [
@@ -208,6 +276,33 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
                 .any(|(key, _)| key == "CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER")
         );
     }
+}
+
+#[test]
+fn wasm32_builds_and_tests_the_server_without_native() {
+    let commands = wasm32_commands(&workspace_root());
+    for subcommand in ["clippy", "test"] {
+        let args = commands
+            .iter()
+            .map(cargo_arguments)
+            .find(|args| args[0] == subcommand && args.iter().any(|arg| arg == "pagis-server"))
+            .expect("the wasm32 gate includes pagis-server");
+        assert!(args.iter().any(|arg| arg == "--no-default-features"));
+        if subcommand == "test" {
+            assert!(
+                args.windows(2)
+                    .any(|args| args == ["--test", "agents_wasm"])
+            );
+        }
+    }
+    let lanes = dev_lanes(
+        &workspace_root(),
+        &["crates/pagis-server/src/agents.rs".into()],
+        false,
+        NO_TOOLCHAINS,
+    )
+    .unwrap();
+    assert!(step_names(&lanes).contains(&"wasm32"));
 }
 
 #[test]

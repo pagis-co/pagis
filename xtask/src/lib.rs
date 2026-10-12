@@ -46,7 +46,7 @@ pub use release::{ReleaseContext, ReleaseStage, gog_asset_name, release_plan};
 pub use server_image::{
     SERVER_IMAGE_REPOSITORY, server_image, server_image_plan, server_image_steps,
 };
-pub use wasm32::WASM_CRATES;
+pub use wasm32::{WASM_CRATES, WasmCrate};
 
 /// One command a step runs.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -587,7 +587,7 @@ pub fn dev_lanes(
         });
         if affected
             .iter()
-            .any(|name| WASM_CRATES.iter().any(|(package, _)| name == package))
+            .any(|name| WASM_CRATES.iter().any(|entry| name == entry.package))
         {
             cargo_steps.push(wasm32::step(root));
         }

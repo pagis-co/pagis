@@ -131,7 +131,7 @@ async fn keyed_lists(keys: &ProviderKeys, models: &ModelCatalog) -> Result<Keyed
         {
             continue;
         }
-        let list = match models.models(provider).await {
+        let list = match crate::rt::on_thread(models.models(provider)).await {
             Ok(list) => Some(list),
             Err(error) => {
                 tracing::warn!(provider = provider.id(), %error, "the provider did not list its models");
@@ -348,7 +348,7 @@ pub fn key_changed(models: &Arc<ModelCatalog>, provider: Provider) {
     models.forget(provider);
     let models = Arc::clone(models);
     pagis_rt::spawn(async move {
-        match models.models(provider).await {
+        match crate::rt::on_thread(models.models(provider)).await {
             Ok(_) | Err(ModelListError::NoKey(_)) => {}
             Err(error) => {
                 tracing::warn!(provider = provider.id(), %error, "the model list of the new key was not fetched");
@@ -395,7 +395,7 @@ pub async fn list_models(
     let mut providers = Vec::new();
     let mut lists = KeyedLists::new();
     for provider in PROVIDERS {
-        match state.models.models(provider).await {
+        match crate::rt::on_thread(state.models.models(provider)).await {
             Ok(listed) => {
                 providers.push(provider_dto(provider, &listed));
                 lists.push((provider, Some(listed)));

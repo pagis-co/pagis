@@ -94,7 +94,7 @@ pub async fn speaking_voices(
             .map(|voice| ListedVoice::named_by_id(*voice))
             .collect(),
         Provider::Anthropic | Provider::OpenRouter | Provider::Deepgram | Provider::ElevenLabs => {
-            match state.models.models(provider).await {
+            match crate::rt::on_thread(state.models.models(provider)).await {
                 Ok(listed) => listed
                     .iter()
                     .find(|listed| listed.id == model)

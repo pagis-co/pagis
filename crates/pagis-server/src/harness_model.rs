@@ -117,11 +117,17 @@ pub fn router(deps: HarnessModelDeps) -> axum::Router {
         .with_state(endpoint)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+type ProviderRouter = Router;
+// The provider router stays on the WebAssembly host's one thread.
+#[cfg(target_arch = "wasm32")]
+type ProviderRouter = send_wrapper::SendWrapper<Router>;
+
 struct Endpoint {
     deps: HarnessModelDeps,
     /// The router of each provider's key, and a hash of that key. A new
     /// key builds a new router, as `RouterBrain` does.
-    providers: Mutex<HashMap<Provider, (u64, Arc<Router>)>>,
+    providers: Mutex<HashMap<Provider, (u64, Arc<ProviderRouter>)>>,
 }
 
 /// One route of the endpoint: the provider whose Org key the request
@@ -240,7 +246,7 @@ async fn serve(State(endpoint): State<Arc<Endpoint>>, request: Request) -> Respo
     let Some(route) = route(request.uri().path()) else {
         return not_found(request).await;
     };
-    let (session, response) = endpoint.answer(route, request).await;
+    let (session, response) = crate::rt::on_thread(endpoint.answer(route, request)).await;
     let status = response.status().as_u16();
     match session {
         Some(session) => {
@@ -434,7 +440,7 @@ impl Endpoint {
     /// The router of the provider's current key, or `None` when the
     /// installation has none. It holds the provider's own headers alone:
     /// the harness sends its own `anthropic-beta`.
-    fn provider_router(&self, provider: Provider) -> Result<Option<Arc<Router>>, String> {
+    fn provider_router(&self, provider: Provider) -> Result<Option<Arc<ProviderRouter>>, String> {
         let Some((key, _)) = self
             .deps
             .keys
@@ -466,10 +472,11 @@ impl Endpoint {
         if let Some(base_url) = self.deps.provider_base_urls.get(&provider) {
             config.base_url = base_url.clone();
         }
-        let router = Arc::new(
-            Router::new(RouterConfig::new().provider(provider.id(), config))
-                .map_err(|error| error.to_string())?,
-        );
+        let router = Router::new(RouterConfig::new().provider(provider.id(), config))
+            .map_err(|error| error.to_string())?;
+        #[cfg(target_arch = "wasm32")]
+        let router = send_wrapper::SendWrapper::new(router);
+        let router = Arc::new(router);
         cached.insert(provider, (fingerprint, Arc::clone(&router)));
         Ok(Some(router))
     }

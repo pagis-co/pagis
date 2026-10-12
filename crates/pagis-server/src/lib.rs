@@ -66,6 +66,7 @@ use unavailable::{
 mod requests;
 mod ring;
 pub mod routes;
+mod rt;
 mod run_steps;
 mod runs;
 mod schedules;
@@ -208,7 +209,12 @@ pub struct AppState {
     pub needs_you: Arc<NeedsYou>,
     /// The voice seam (ADR-0020): dictation in, spoken blocks
     /// out. Nothing it handles is stored.
+    #[cfg(not(target_arch = "wasm32"))]
     pub voice: Arc<dyn pagis_voice::VoiceProvider>,
+    /// Axum requires shared state to be `Send + Sync`. The voice provider
+    /// stays on the WebAssembly host's one thread; the wrapper checks it.
+    #[cfg(target_arch = "wasm32")]
+    pub voice: send_wrapper::SendWrapper<Arc<dyn pagis_voice::VoiceProvider>>,
     pub artifacts: Arc<dyn ArtifactStore>,
     pub blobs: Arc<dyn ObjectStore>,
     /// The upload size cap; larger uploads get 413.

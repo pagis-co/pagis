@@ -1156,9 +1156,7 @@ pub async fn check_provider_model(
         )));
     };
     let proof = model_proof(provider, source, &key);
-    let listed = state
-        .models
-        .refresh(provider)
+    let listed = crate::rt::on_thread(state.models.refresh(provider))
         .await
         .map_err(model_list_error)?;
     record_model_check(&state, &tenant, provider, &proof, listed.len())
@@ -1198,9 +1196,7 @@ pub async fn check_onboarding_provider_key(
     if key.is_empty() {
         return Err(ApiError::validation("key must not be empty"));
     }
-    let listed = state
-        .models
-        .check(provider, key)
+    let listed = crate::rt::on_thread(state.models.check(provider, key))
         .await
         .map_err(model_list_error)?;
     // The list is cached for this key, so the key goes in with no
