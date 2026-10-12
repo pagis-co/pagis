@@ -138,6 +138,21 @@ channel for signals. The actor loads the Agent, stores the Run state and
 starts the Run that `Admission::next` selects. Admission tests need no
 task, clock or store.
 
+`pagis-rt` supplies tasks, sleeps, timeouts and `Instant` to
+`pagis-agent`. Native targets use Tokio. On `wasm32-unknown-unknown`,
+tasks use `wasm-bindgen-futures::spawn_local`, timers use Gloo, and
+`Instant` uses `web-time`. No caller supplies a runtime. The Brain keeps
+its router and fetch futures on the wasm host's one thread with
+`SendWrapper`. The Broker stays concrete, and Computers use the
+`pagis-core::Computers` trait.
+
+The native test dependencies of `pagis-agent`, including the Computer
+runtime and SQLite stores, apply only to native targets. The Node actor
+test uses store adapters in memory and runs the same resident actor.
+It checks that two Runs of one Thread start in order and that the actor
+ends after its idle timeout. `cargo xtask step wasm32` checks the portable
+crates and runs their Node tests.
+
 A conversation keeps its continuity in a Continuation Record when its
 history does not fit one model request, and the complete request has one
 token budget (ADR-0009).

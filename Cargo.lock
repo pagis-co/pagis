@@ -4442,8 +4442,10 @@ dependencies = [
  "pagis-core",
  "pagis-knowledge",
  "pagis-memory",
+ "pagis-rt",
  "pagis-storage-sqlite",
  "pagis-testkit",
+ "send_wrapper",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -4454,6 +4456,8 @@ dependencies = [
  "tokio-util",
  "tracing",
  "utoipa",
+ "wasm-bindgen",
+ "wasm-bindgen-test",
  "wiremock",
 ]
 
@@ -4842,6 +4846,20 @@ dependencies = [
  "url",
  "web-push-native",
  "wiremock",
+]
+
+[[package]]
+name = "pagis-rt"
+version = "0.3.0"
+dependencies = [
+ "futures",
+ "gloo-timers",
+ "send_wrapper",
+ "thiserror 2.0.20",
+ "tokio",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test",
+ "web-time",
 ]
 
 [[package]]

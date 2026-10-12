@@ -20,7 +20,7 @@ use std::time::Duration;
 
 use llm_router::{ListedModel, ModelMetadata, Router, RouterConfig};
 use pagis_core::{PROVIDERS, Provider, ProviderKeys};
-use tokio::time::Instant;
+use pagis_rt::Instant;
 use tokio_util::sync::CancellationToken;
 
 use crate::brain::provider_config;
@@ -129,7 +129,7 @@ impl ModelCatalog {
     /// logged and the old list stays until the next round.
     pub fn spawn_refresher(self: &Arc<Self>, cancel: CancellationToken) {
         let catalog = Arc::clone(self);
-        tokio::spawn(async move {
+        pagis_rt::spawn(async move {
             loop {
                 for provider in PROVIDERS {
                     match catalog.models(provider).await {
@@ -141,7 +141,7 @@ impl ModelCatalog {
                 }
                 tokio::select! {
                     () = cancel.cancelled() => return,
-                    () = tokio::time::sleep(MODEL_LIST_REFRESH) => {}
+                    () = pagis_rt::sleep(MODEL_LIST_REFRESH) => {}
                 }
             }
         });

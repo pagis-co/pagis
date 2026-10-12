@@ -3,6 +3,8 @@
 //! cross-thread concurrency, mid-run injection, restart recovery, and
 //! actor residency.
 
+#![cfg(not(target_arch = "wasm32"))]
+
 use std::sync::Arc;
 use std::time::Duration;
 

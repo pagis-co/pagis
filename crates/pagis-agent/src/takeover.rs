@@ -15,7 +15,7 @@ use crate::system::AgentDeps;
 /// Subscribe to the bus and post the system block for every
 /// `screen.takeover_ended`. Runs for the daemon's lifetime.
 pub(crate) fn spawn_notes(deps: Arc<AgentDeps>) {
-    tokio::spawn(async move {
+    pagis_rt::spawn(async move {
         let mut events = deps.bus.subscribe(EventScope::Installation, None).await;
         while let Some(event) = events.next().await {
             if event.event_type != "screen.takeover_ended" {
