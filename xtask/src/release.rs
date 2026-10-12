@@ -1092,10 +1092,16 @@ fn build_action(root: &Path, target: &Target, cx: &ReleaseContext) -> Action {
     ])
 }
 
-/// Put each built binary, the pinned gog binary, and the license files
-/// into one package tree per target.
+/// Put each built binary, the pinned gog binary, the license files and
+/// the third-party notices into one package tree per target. The notices
+/// name the crates of every release target and the npm packages of the
+/// Product App build of the `ui-build` step, so one file serves each
+/// package (see [`crate::notices`]).
 fn package_action(root: &Path, built: &[&Target], cx: &ReleaseContext) -> Action {
-    let mut script = format!("set -eu\nrm -rf {DIST_DIR}/package-*\nmkdir -p {DIST_DIR}\n");
+    let mut script = format!(
+        "set -eu\nrm -rf {DIST_DIR}/package-*\nmkdir -p {DIST_DIR}\n\
+         cargo run --quiet -p xtask -- notices server {DIST_DIR}/THIRD_PARTY_NOTICES\n"
+    );
     for target in built {
         let gog_asset = gog_asset_name(target.triple);
         let package_dir = format!("{DIST_DIR}/package-{}", target.triple);
@@ -1108,7 +1114,7 @@ fn package_action(root: &Path, built: &[&Target], cx: &ReleaseContext) -> Action
             target.gog_checksum,
         ));
         script.push_str(&format!(
-            "test -f ui/dist/index.html || {{ echo 'the Product App build is missing' >&2; exit 1; }}\nif find ui/dist -type f -newer \"$CARGO_TARGET_DIR/{}/release/pagis\" -print -quit | grep -q .; then echo 'the server binary contains a stale embedded Product App' >&2; exit 1; fi\nmkdir -p {package_dir}\ncp \"$CARGO_TARGET_DIR/{}/release/pagis\" {package_dir}/pagis\ntar -xzf {DIST_DIR}/{gog_asset} -C {package_dir} ./gog\ncp LICENSE {package_dir}/LICENSE\ncp third_party/gog/LICENSE {package_dir}/LICENSE.gog\ncp third_party/THIRD_PARTY_NOTICES {package_dir}/THIRD_PARTY_NOTICES\nchmod 755 {package_dir}/pagis {package_dir}/gog\nchmod 644 {package_dir}/LICENSE {package_dir}/LICENSE.gog {package_dir}/THIRD_PARTY_NOTICES\n",
+            "test -f ui/dist/index.html || {{ echo 'the Product App build is missing' >&2; exit 1; }}\nif find ui/dist -type f -newer \"$CARGO_TARGET_DIR/{}/release/pagis\" -print -quit | grep -q .; then echo 'the server binary contains a stale embedded Product App' >&2; exit 1; fi\nmkdir -p {package_dir}\ncp \"$CARGO_TARGET_DIR/{}/release/pagis\" {package_dir}/pagis\ntar -xzf {DIST_DIR}/{gog_asset} -C {package_dir} ./gog\ncp LICENSE {package_dir}/LICENSE\ncp third_party/gog/LICENSE {package_dir}/LICENSE.gog\ncp {DIST_DIR}/THIRD_PARTY_NOTICES {package_dir}/THIRD_PARTY_NOTICES\nchmod 755 {package_dir}/pagis {package_dir}/gog\nchmod 644 {package_dir}/LICENSE {package_dir}/LICENSE.gog {package_dir}/THIRD_PARTY_NOTICES\n",
             target.triple,
             target.triple,
         ));

@@ -121,6 +121,8 @@ policy.
 
 ## License
 
-Pagis is licensed under the [MIT License](LICENSE). Each server package
-also carries `LICENSE.gog` and `THIRD_PARTY_NOTICES` for the third-party
-programs that it ships.
+Pagis is licensed under the [MIT License](LICENSE). Each server package,
+image and Client App carries `THIRD_PARTY_NOTICES`, the license text of
+each piece of third-party software in it, and each server package also
+carries `LICENSE.gog`
+([ADR-0037](docs/adr/0037-each-release-ships-the-notices-of-its-third-party-software.md)).

@@ -70,6 +70,29 @@ pub const CARGO_DENY_SHA256: [(&str, &str); 3] = [
     ),
 ];
 
+/// cargo-about, which reads the license of each crate that a program
+/// links for the third-party notices of the Server Package, the Headless
+/// Server image and the Computer Image (`cargo xtask notices`).
+pub const CARGO_ABOUT_VERSION: &str = "0.9.2";
+/// The SHA-256 of the cargo-about release archive of each host platform
+/// that runs the gate, the release or the image build, from the `.sha256`
+/// file of each archive of the cargo-about release. The platform name is
+/// the target triple in the archive name.
+pub const CARGO_ABOUT_SHA256: [(&str, &str); 3] = [
+    (
+        "aarch64-apple-darwin",
+        "ae72f0df0c399a1e96336f696fa55b1b28679fd725632eba8cf8e4568467cc3e",
+    ),
+    (
+        "x86_64-unknown-linux-musl",
+        "9099a59e820c38a68b9d65f300662a567d56562f9a10f6aa4c7e86c17c2566af",
+    ),
+    (
+        "aarch64-unknown-linux-musl",
+        "af5169282fb6f84e13471493f405437e43ac517744c9ae12fbe2cdf0a6f0e5a8",
+    ),
+];
+
 /// cargo-auditable, which writes the list of the crates of an executable
 /// into it, so Trivy identifies them: `pagis` in the Headless Server image
 /// and in each Server Package, and `pagis-screend` in the Computer Image.

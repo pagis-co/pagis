@@ -114,6 +114,30 @@ pub fn check_tag(tag: &str, version: &str) -> Result<()> {
     Ok(())
 }
 
+/// The notices of the npm packages that the Client App ships, which
+/// electron-builder puts into the app as `THIRD_PARTY_NOTICES`
+/// ([`crate::notices`]). The packages are the ones that the `deps` step
+/// installed.
+pub(crate) fn client_notices_cmd(root: &Path) -> Cmd {
+    Cmd::new(
+        "cargo",
+        &[
+            "run",
+            "--quiet",
+            "-p",
+            "xtask",
+            "--",
+            "notices",
+            "client",
+            CLIENT_NOTICES,
+        ],
+    )
+    .in_dir(root)
+}
+
+/// The notices of the Client App, which electron-builder reads.
+pub const CLIENT_NOTICES: &str = "dist/client/THIRD_PARTY_NOTICES";
+
 /// Plan the packaging steps for the workspace at `root`.
 pub fn desktop_plan(root: &Path, cx: &DesktopContext) -> Vec<Step> {
     match cx.platform {
@@ -171,6 +195,14 @@ fn mac_plan(root: &Path, cx: &DesktopContext) -> Vec<Step> {
                     )
                     .in_dir(root),
                 ])
+            },
+        },
+        Step {
+            name: "notices",
+            action: if cx.publish_existing {
+                Action::Skip("publishing the exact package that was prepared".into())
+            } else {
+                Action::Run(vec![client_notices_cmd(root)])
             },
         },
         Step {

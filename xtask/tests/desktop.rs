@@ -62,6 +62,7 @@ fn plan_lists_every_desktop_step_in_order() {
             "credentials",
             "runtime-lock",
             "deps",
+            "notices",
             "pack",
             "finalize-dmg",
             "inventory",
@@ -103,6 +104,47 @@ fn the_app_packs_from_the_pnpm_workspace() {
         joined(step(&steps, "pack")),
         "pnpm --filter ./desktop run pack"
     );
+}
+
+/// The Client App holds the notices of the npm packages that it ships,
+/// beside the notices of Electron and Chromium that electron-builder puts
+/// into the same directory.
+#[test]
+fn the_app_holds_the_notices_of_its_npm_packages() {
+    let steps = desktop_plan(Path::new("/repo"), &context(None, &[]));
+    let notices = step(&steps, "notices");
+    assert_eq!(
+        joined(notices),
+        "cargo run --quiet -p xtask -- notices client dist/client/THIRD_PARTY_NOTICES"
+    );
+    assert_eq!(
+        commands(notices)[0].cwd.as_deref(),
+        Some(Path::new("/repo"))
+    );
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+    let config: serde_json::Value = serde_saphyr::from_str(
+        &std::fs::read_to_string(root.join("desktop/electron-builder.yml")).unwrap(),
+    )
+    .unwrap();
+    for platform in ["mac", "linux"] {
+        let resources = config[platform]["extraResources"].as_array().unwrap();
+        assert!(
+            resources.iter().any(|resource| {
+                resource["from"].as_str() == Some("../dist/client/THIRD_PARTY_NOTICES")
+                    && resource["to"].as_str() == Some("THIRD_PARTY_NOTICES")
+            }),
+            "{platform} does not hold the notices"
+        );
+    }
+}
+
+#[test]
+fn publishing_the_prepared_app_writes_no_notices() {
+    let mut cx = context(Some("v1.2.3"), &[]);
+    cx.publish_existing = true;
+    let steps = desktop_plan(Path::new("/repo"), &cx);
+    assert!(skip_reason(step(&steps, "notices")).contains("prepared"));
 }
 
 #[test]

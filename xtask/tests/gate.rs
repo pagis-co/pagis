@@ -946,6 +946,24 @@ fn dev_plan_tests_screend_for_a_change_to_screend_or_its_dockerfile() {
     assert!(!names("crates/pagis-computer/src/lib.rs").contains(&"screend-test"));
 }
 
+/// The lockfile of screend is under `computer/screend/`, and the Computer
+/// Image copies the stored notices of screend, so a change to either
+/// checks the notices. Each other lockfile selects the full gate.
+#[test]
+fn dev_plan_checks_the_notices_for_a_change_to_screend_or_its_dockerfile() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_computer_workspace(tmp.path());
+    let names = |path: &str| {
+        step_names(&dev_lanes(tmp.path(), &[path.into()], true, NO_TOOLCHAINS).unwrap())
+    };
+
+    for path in ["computer/screend/Cargo.lock", "computer/Dockerfile"] {
+        assert!(names(path).contains(&"notices"), "{path}");
+    }
+    assert!(!names("computer/entrypoint.sh").contains(&"notices"));
+    assert!(!names("crates/pagis-computer/src/lib.rs").contains(&"notices"));
+}
+
 /// A workspace with the Google adapter, a package that the adapter
 /// depends on, a package that depends on the adapter, and one apart.
 fn write_google_workspace(root: &Path) {
@@ -1119,6 +1137,7 @@ fn plan_lists_every_gate_step_in_order() {
             "emergency-drift",
             "pins",
             "contract-drift",
+            "notices",
             "pagis-apt",
             "ui-deps",
             "ui-typecheck",
@@ -1742,6 +1761,7 @@ fn full_lanes_keep_every_cargo_consumer_in_one_lane() {
                     "emergency-drift",
                     "pins",
                     "contract-drift",
+                    "notices",
                 ]
             ),
             (
@@ -1835,8 +1855,11 @@ fn contract_check_shares_the_cargo_lane_and_compiles_incrementally() {
     write_package_json(tmp.path(), "ui", &["api:check"]);
     let lanes = full_lanes(tmp.path(), false, NO_TOOLCHAINS);
     let cargo = lanes.iter().find(|lane| lane.name == "cargo").unwrap();
-    let contract = cargo.steps.last().unwrap();
-    assert_eq!(contract.name, "contract-drift");
+    let contract = cargo
+        .steps
+        .iter()
+        .find(|step| step.name == "contract-drift")
+        .unwrap();
     let Action::Run(cmds) = &contract.action else {
         panic!("contract check must run");
     };

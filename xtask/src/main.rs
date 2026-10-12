@@ -73,6 +73,7 @@ fn main() -> Result<()> {
         Some("emergency-numbers") => {
             xtask::emergency::run(&workspace_root(), args.iter().any(|a| a == "--check"))
         }
+        Some("notices") => run_notices(&workspace_root(), &args),
         Some("pins") if args.get(1).map(String::as_str) == Some("--check") => {
             xtask::pins::run(&workspace_root())
         }
@@ -80,7 +81,8 @@ fn main() -> Result<()> {
             "usage: cargo xtask <dev | full | step <name>... | advisories [<name>...] | image [--dry-run] | \
              server-image [--dry-run] | relay-image [--platform <amd64 | arm64> | --manifest] [--tag <tag>] [--dry-run] | release <advisories | computer-image | computer-manifest | server-image | server-manifest | linux | macos | draft> \
              [--platform <amd64 | arm64>] [--tag <tag>] [--dry-run] | desktop [--linux] [--tag <tag>] [--prepare | --publish-existing] [--dry-run] | \
-             mobile --ios --tag <tag> <--prepare | --publish-existing> [--dry-run] | emergency-numbers [--check] | pins --check>"
+             mobile --ios --tag <tag> <--prepare | --publish-existing> [--dry-run] | emergency-numbers [--check] | \
+             notices <server <output> | client <output> | screend [--check]> | pins --check>"
         ),
     }
 }
@@ -91,6 +93,27 @@ fn exit_on_red(green: bool) -> Result<()> {
         std::process::exit(1);
     }
     Ok(())
+}
+
+fn run_notices(root: &Path, args: &[String]) -> Result<()> {
+    match (
+        args.get(1).map(String::as_str),
+        args.get(2).map(String::as_str),
+    ) {
+        (Some("server"), Some(output)) if args.len() == 3 => {
+            xtask::notices::write_server(root, Path::new(output))
+        }
+        (Some("client"), Some(output)) if args.len() == 3 => {
+            xtask::notices::write_client(root, Path::new(output))
+        }
+        (Some("screend"), None) => xtask::notices::write_screend(root, false),
+        (Some("screend"), Some("--check")) if args.len() == 3 => {
+            xtask::notices::write_screend(root, true)
+        }
+        _ => bail!(
+            "usage: cargo xtask notices <server <output> | client <output> | screend [--check]>"
+        ),
+    }
 }
 
 fn run_runtime_lock(args: &[String]) -> Result<()> {

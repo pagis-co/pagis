@@ -62,6 +62,7 @@ fn the_linux_plan_lists_every_step_in_order() {
             "credentials",
             "runtime-locks",
             "deps",
+            "notices",
             "pack",
             "inventory",
             "packaged-runtime",
@@ -101,7 +102,11 @@ fn the_packages_build_for_both_architectures_from_the_pnpm_workspace() {
         joined(step(&steps, "pack")),
         "pnpm --filter ./desktop run pack:linux"
     );
-    for name in ["deps", "pack"] {
+    assert_eq!(
+        joined(step(&steps, "notices")),
+        "cargo run --quiet -p xtask -- notices client dist/client/THIRD_PARTY_NOTICES"
+    );
+    for name in ["deps", "notices", "pack"] {
         assert_eq!(
             commands(step(&steps, name))[0].cwd.as_deref(),
             Some(Path::new("/repo")),

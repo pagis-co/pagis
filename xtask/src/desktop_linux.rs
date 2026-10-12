@@ -141,6 +141,10 @@ pub fn linux_plan(root: &Path, cx: &DesktopContext) -> Vec<Step> {
             ),
         },
         Step {
+            name: "notices",
+            action: build(crate::desktop::client_notices_cmd(root)),
+        },
+        Step {
             name: "pack",
             action: build(
                 Cmd::new("pnpm", &["--filter", "./desktop", "run", "pack:linux"]).in_dir(root),

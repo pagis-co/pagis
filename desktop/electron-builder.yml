@@ -48,6 +48,10 @@ mac:
   extraResources:
     - from: ../dist/runtime-lock-darwin-arm64.json
       to: runtime-lock.json
+    # The notices of the npm packages of the app (`cargo xtask notices
+    # client`), beside the notices of Electron and Chromium.
+    - from: ../dist/client/THIRD_PARTY_NOTICES
+      to: THIRD_PARTY_NOTICES
   hardenedRuntime: true
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
@@ -93,6 +97,8 @@ linux:
       to: runtime-lock.json
     - from: ../docs/update-key.pem
       to: update-key.pem
+    - from: ../dist/client/THIRD_PARTY_NOTICES
+      to: THIRD_PARTY_NOTICES
   # `pagis` is the server's own command, so the client has another name.
   executableName: pagis-client
   category: Office

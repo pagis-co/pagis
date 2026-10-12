@@ -6,6 +6,8 @@
 name = "pagis-screend"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
+publish = false
 
 # Standalone on purpose: Linux-only Wayland code must not enter the
 # cross-platform daemon workspace build.
