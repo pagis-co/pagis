@@ -1365,3 +1365,61 @@ async fn the_realtime_bridge_pumps_audio_and_transcripts_over_a_memory_transport
     assert!(render_transcript(&report.transcript).contains("caller: Is that Robin?"));
     assert!(render_transcript(&report.transcript).contains("agent: It is."));
 }
+
+#[tokio::test(start_paused = true)]
+async fn frame_legs_convert_at_the_model_edge_and_have_no_send_digits_tool() {
+    use base64::Engine as _;
+    use pagis_telephony::fake::FakeFrameLeg;
+    use pagis_telephony::leg::LegEvent;
+    for codec in [Codec::Pcmu, Codec::Pcma, Codec::Pcm16] {
+        let (leg, far) = FakeFrameLeg::new(codec);
+        let hub = MediaHub::start(leg);
+        let call = placed(brief(CallDirection::Inbound, TrustTier::Trusted));
+        let bus = Arc::new(RecordingBus::default());
+        let log = CallLog::new(bus, &call);
+        let sessions = Arc::new(FakeModelSessions::new());
+        let session = CallSession::open(CallSessionDeps {
+            workspace_id: call.workspace_id.clone(),
+            brief: call.brief.clone(),
+            gate: None,
+            run_id: call.run_id.clone(),
+            capabilities: TransportCapabilities {
+                send_dtmf: false,
+                answering_machine_detection: false,
+                wideband_audio: false,
+                public_ingress_required: false,
+            },
+            sessions: Arc::clone(&sessions) as _,
+            tools: Arc::new(RecordingTools::default()),
+            cancel: CancellationToken::new(),
+        })
+        .await
+        .unwrap();
+        let report = tokio::spawn(async move { session.run(hub, &log).await });
+        let peer = sessions.peer();
+        let update = peer.wait_for("session.update").await;
+        assert_eq!(bound_tools(&update), vec![HANG_UP, "memory_read"]);
+        for _ in 0..8 {
+            tokio::task::yield_now().await;
+        }
+        let frame = Frame::from_samples(codec, vec![8000; FRAME_BYTES]);
+        far.feed(LegEvent::Answered);
+        far.speak(frame.clone());
+        let append = peer.wait_for("input_audio_buffer.append").await;
+        assert_eq!(
+            base64::engine::general_purpose::STANDARD
+                .decode(append["audio"].as_str().unwrap())
+                .unwrap(),
+            frame.into_codec(Codec::Pcmu).payload().as_ref()
+        );
+        peer.speak("speech", &[0xfe; FRAME_BYTES]);
+        tokio::time::sleep(Duration::from_millis(60)).await;
+        let expected = Frame::new(Codec::Pcmu, vec![0xfe; FRAME_BYTES]).into_codec(codec);
+        eventually("the frame sink receives the model audio", || {
+            far.heard().contains(&expected)
+        })
+        .await;
+        far.hangup();
+        assert_eq!(report.await.unwrap().ended_reason, "remote_hangup");
+    }
+}

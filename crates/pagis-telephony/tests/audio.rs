@@ -48,3 +48,65 @@ fn converting_to_the_same_codec_changes_nothing() {
     let frame = Frame::new(Codec::Pcma, vec![1, 2, 3]);
     assert_eq!(frame.clone().into_codec(Codec::Pcma), frame);
 }
+
+#[test]
+fn pcm16_silence_has_160_little_endian_samples() {
+    let frame = Frame::silence(Codec::Pcm16);
+    assert_eq!(frame.payload().len(), FRAME_BYTES * 2);
+    assert!(frame.payload().iter().all(|byte| *byte == 0));
+}
+
+#[test]
+fn pcm16_converts_to_each_law_and_back_at_eight_kilohertz() {
+    let samples = [0i16, 1000, -1000, 8000, -8000, i16::MAX, i16::MIN];
+    let pcm = Frame::new(
+        Codec::Pcm16,
+        samples
+            .iter()
+            .flat_map(|sample| sample.to_le_bytes())
+            .collect::<Vec<_>>(),
+    );
+    for (codec, encode, decode) in [
+        (
+            Codec::Pcmu,
+            audio_codec_algorithms::encode_ulaw as fn(i16) -> u8,
+            audio_codec_algorithms::decode_ulaw as fn(u8) -> i16,
+        ),
+        (
+            Codec::Pcma,
+            audio_codec_algorithms::encode_alaw as fn(i16) -> u8,
+            audio_codec_algorithms::decode_alaw as fn(u8) -> i16,
+        ),
+    ] {
+        let law = pcm.clone().into_codec(codec);
+        let expected = samples
+            .iter()
+            .map(|sample| encode(*sample))
+            .collect::<Vec<_>>();
+        assert_eq!(law.payload().as_ref(), expected);
+        let decoded = law.into_codec(Codec::Pcm16);
+        let expected = expected
+            .iter()
+            .flat_map(|byte| decode(*byte).to_le_bytes())
+            .collect::<Vec<_>>();
+        assert_eq!(decoded.payload().as_ref(), expected);
+    }
+    assert_eq!(pcm.clone().into_codec(Codec::Pcm16), pcm);
+}
+
+#[test]
+fn the_keypad_prompt_has_pcm16_frames_at_the_call_rate() {
+    let frames = pagis_telephony::keypad::prompt_frames(Codec::Pcm16);
+    assert!(!frames.is_empty());
+    assert!(
+        frames
+            .iter()
+            .all(|frame| frame.codec() == Codec::Pcm16 && frame.payload().len() == FRAME_BYTES * 2)
+    );
+    assert!(
+        frames
+            .iter()
+            .flat_map(Frame::samples)
+            .any(|sample| sample != 0)
+    );
+}

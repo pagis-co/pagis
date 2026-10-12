@@ -605,3 +605,53 @@ async fn a_killed_daemon_settles_its_calls_at_the_next_start(pool: SqlitePool) {
     assert!(settled.recording_artifact_id.is_none());
     assert!(world.calls.list_unsettled().await.unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn pcm16_recordings_keep_samples_and_convert_other_codecs_at_the_writer() {
+    let dir = tempfile::tempdir().unwrap();
+    let call_id = CallId::generate();
+    let recorder = CallRecorder::create(dir.path(), &call_id, Codec::Pcm16)
+        .await
+        .unwrap();
+    let samples = [0i16, 1000, -1000, i16::MAX, i16::MIN];
+    recorder
+        .write(Recorded {
+            direction: Direction::Uplink,
+            frame: Frame::new(
+                Codec::Pcm16,
+                samples
+                    .iter()
+                    .flat_map(|sample| sample.to_le_bytes())
+                    .collect::<Vec<_>>(),
+            ),
+        })
+        .await;
+    let byte = audio_codec_algorithms::encode_ulaw(8000);
+    recorder
+        .write(Recorded {
+            direction: Direction::Downlink,
+            frame: tone(Codec::Pcmu, byte),
+        })
+        .await;
+    drop(recorder);
+    let wav = recording::mux(dir.path(), &call_id).await.unwrap().unwrap();
+    assert_eq!(&channel(&wav, 0)[..samples.len()], &samples);
+    assert_eq!(channel(&wav, 0).len(), FRAME_BYTES);
+    assert!(
+        channel(&wav, 0)[samples.len()..]
+            .iter()
+            .all(|sample| *sample == 0)
+    );
+    assert!(
+        channel(&wav, 1)
+            .iter()
+            .all(|sample| *sample == audio_codec_algorithms::decode_ulaw(byte))
+    );
+    recording::discard(dir.path(), &call_id).await;
+    assert!(
+        recording::mux(dir.path(), &call_id)
+            .await
+            .unwrap()
+            .is_none()
+    );
+}

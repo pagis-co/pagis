@@ -230,7 +230,7 @@ impl TierGate {
         }
         let mut events = hub.subscribe();
         keypad::play_prompt(hub).await;
-        let _ = tokio::time::timeout(CHALLENGE_TIMEOUT, async {
+        let _ = pagis_rt::timeout(CHALLENGE_TIMEOUT, async {
             while !self.pinned() {
                 match keypad::read_entry(&mut events).await {
                     Typed::Entry(digits) => match self.check(&digits).await {

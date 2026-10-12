@@ -37,8 +37,8 @@ use pagis_core::{
     Connection, ConnectionId, ConnectionStore, EventBus, NewEvent, PhoneNumber, PhoneNumberId,
     PhoneNumberStatus, PhoneNumberStore, SecretStore, StoreError, WorkspaceId,
 };
+use pagis_rt::Instant;
 use tokio::sync::{mpsc, oneshot, watch};
-use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use crate::hub::MediaHub;
@@ -272,7 +272,7 @@ impl EndpointTask {
         let (commands, command_rx) = mpsc::channel(1);
         let slots = Arc::new(CallSlots::default());
         let cancel = CancellationToken::new();
-        let task = tokio::spawn(run(
+        let task = pagis_rt::spawn(run(
             Runner {
                 transport,
                 numbers,
@@ -370,7 +370,7 @@ async fn run(mut runner: Runner, credential: Option<SipCredential>) {
     loop {
         tokio::select! {
             () = runner.cancel.cancelled() => break,
-            () = tokio::time::sleep_until(next_attempt) => {
+            () = pagis_rt::sleep_until(next_attempt) => {
                 let wait = attempt(&mut runner, &credential, &mut line, &mut backoff).await;
                 next_attempt = Instant::now() + wait;
             }
@@ -391,8 +391,7 @@ async fn run(mut runner: Runner, credential: Option<SipCredential>) {
     }
     if let Some(mut opened) = line {
         // Best effort: the registrar drops the binding at expiry anyway.
-        if let Ok(Err(error)) =
-            tokio::time::timeout(REGISTER_TIMEOUT, opened.line.unregister()).await
+        if let Ok(Err(error)) = pagis_rt::timeout(REGISTER_TIMEOUT, opened.line.unregister()).await
         {
             tracing::warn!(
                 username = credential.username(),
@@ -417,7 +416,7 @@ async fn attempt(
         // expiry.
         runner.state.send_replace(RegistrationState::Registering);
     }
-    let outcome = tokio::time::timeout(
+    let outcome = pagis_rt::timeout(
         REGISTER_TIMEOUT,
         register(&*runner.transport, credential, line),
     )
@@ -690,7 +689,7 @@ impl Endpoints {
             Arc::new(StoredNumbers(Arc::clone(&self.numbers))),
             self.answered.clone(),
         );
-        let watcher = tokio::spawn(publish_changes(
+        let watcher = pagis_rt::spawn(publish_changes(
             Arc::clone(&self.bus),
             self.org_workspace_id.clone(),
             connection.id.clone(),

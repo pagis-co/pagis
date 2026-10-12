@@ -29,7 +29,7 @@ use rustrtc::{
 use tokio::sync::mpsc;
 
 use crate::audio::{Codec, FRAME_DURATION, Frame};
-use crate::leg::{EndedReason, LegEvent, MediaLeg, PacketSink, RtpPacket};
+use crate::leg::{EndedReason, LegEvent, LegSink, MediaLeg, PacketSink, RtpPacket};
 use crate::transport::{TransportError, TransportErrorCode};
 
 /// The telephone-event payload type the offer carries. The far side may
@@ -368,13 +368,15 @@ impl SipLeg {
             negotiated: Mutex::new(negotiated),
             send_failed: AtomicBool::new(false),
         });
-        tokio::spawn(Arc::clone(&leg).follow(states, invite));
+        pagis_rt::spawn(Arc::clone(&leg).follow(states, invite));
         MediaLeg {
             codec: negotiated.map_or(PREFERRED, |negotiated| negotiated.codec),
-            dtmf_payload_type: Some(DTMF_PAYLOAD_TYPE),
-            ssrc,
             inbound,
-            sink: leg,
+            sink: LegSink::Packet {
+                sink: leg,
+                ssrc,
+                dtmf_payload_type: Some(DTMF_PAYLOAD_TYPE),
+            },
         }
     }
 

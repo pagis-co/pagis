@@ -114,7 +114,7 @@ impl RealtimeBridge {
         // The recorder's writer task drains its queue when the hub
         // ends, so the mux waits for it and the tail is not lost.
         if let Some(recorder) = recorder
-            && let Err(error) = tokio::time::timeout(RECORDER_DRAIN, recorder).await
+            && let Err(error) = pagis_rt::timeout(RECORDER_DRAIN, recorder).await
         {
             tracing::warn!(%error, "the recorder did not finish; the tail may be short");
         }

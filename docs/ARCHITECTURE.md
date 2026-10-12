@@ -138,8 +138,10 @@ channel for signals. The actor loads the Agent, stores the Run state and
 starts the Run that `Admission::next` selects. Admission tests need no
 task, clock or store.
 
-`pagis-rt` supplies tasks, sleeps, timeouts and `Instant` to
-`pagis-agent`. Native targets use Tokio. On `wasm32-unknown-unknown`,
+`pagis-rt` supplies tasks, sleeps, deadlines, intervals, timeouts and
+`Instant` to `pagis-agent` and `pagis-telephony`. Intervals delay missed
+ticks, so the Media Hub sends no burst to catch up. Native targets use
+Tokio. On `wasm32-unknown-unknown`,
 tasks use `wasm-bindgen-futures::spawn_local`, timers use Gloo, and
 `Instant` uses `web-time`. No caller supplies a runtime. The Brain keeps
 its router and fetch futures on the wasm host's one thread with

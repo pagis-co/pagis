@@ -26,9 +26,9 @@ use pagis_core::{
     CallOutcome, Classification, RunId, Speaker, TranscriptLine, TrustTier, UnixMillis, now_ms,
     render_transcript,
 };
+use pagis_rt::Instant;
 use serde_json::Value;
 use tokio::sync::mpsc;
-use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use crate::audio::{Codec, Frame};
@@ -218,7 +218,7 @@ struct Pump<'a> {
 impl<'a> Pump<'a> {
     fn new(session: CallSession, hub: Arc<MediaHub>, log: &'a CallLog) -> Self {
         let (downlink, queue) = mpsc::unbounded_channel();
-        let writer = tokio::spawn(write_downlink(Arc::clone(&hub), queue));
+        let writer = pagis_rt::spawn(write_downlink(Arc::clone(&hub), queue));
         let inbound = session.deps.brief.direction == pagis_core::CallDirection::Inbound;
         Self {
             deps: session.deps,
@@ -649,9 +649,9 @@ impl<'a> Pump<'a> {
         }
         let ended = self.hub.watch_ended();
         tokio::select! {
-            _ = wait => tokio::time::sleep(PACER_DEPTH).await,
+            _ = wait => pagis_rt::sleep(PACER_DEPTH).await,
             () = hub_ended(ended) => {}
-            () = tokio::time::sleep(LAST_WORDS_CAP) => {}
+            () = pagis_rt::sleep(LAST_WORDS_CAP) => {}
         }
     }
 
@@ -782,7 +782,7 @@ async fn hub_ended(mut ended: tokio::sync::watch::Receiver<Option<EndedReason>>)
 
 async fn sleep_until_or_never(deadline: Option<Instant>) {
     match deadline {
-        Some(deadline) => tokio::time::sleep_until(deadline).await,
+        Some(deadline) => pagis_rt::sleep_until(deadline).await,
         None => std::future::pending().await,
     }
 }

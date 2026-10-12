@@ -16,7 +16,7 @@ use pagis_telephony::hub::{
     DOWNLINK_DEPTH, Direction, DtmfAbsent, DtmfPresence, HubEvent, INTER_DIGIT_FRAMES,
     MEDIA_TIMEOUT, MediaHub, REORDER_WINDOW, Recorded, RecordingSink,
 };
-use pagis_telephony::leg::{EndedReason, LegEvent, MediaLeg, PacketSink, RtpPacket};
+use pagis_telephony::leg::{EndedReason, LegEvent, LegSink, MediaLeg, PacketSink, RtpPacket};
 use tokio::sync::{broadcast, mpsc};
 
 const PT_DTMF: u8 = 101;
@@ -101,10 +101,12 @@ fn start_with_dtmf(dtmf_payload_type: Option<u8>) -> (Arc<MediaHub>, Arc<FarSide
     });
     let leg = MediaLeg {
         codec: Codec::Pcmu,
-        dtmf_payload_type,
-        ssrc: SSRC,
         inbound,
-        sink: Arc::clone(&far) as _,
+        sink: LegSink::Packet {
+            dtmf_payload_type,
+            ssrc: SSRC,
+            sink: Arc::clone(&far) as _,
+        },
     };
     (MediaHub::start(leg), far)
 }
@@ -863,4 +865,211 @@ async fn a_leg_with_no_telephone_event_declares_both_directions_absent() {
     // Nothing was emulated: only audio went out.
     assert!(far.sent().iter().all(|packet| packet.payload_type == 0));
     hub.hangup().await;
+}
+
+fn frame_start(codec: Codec) -> (Arc<MediaHub>, Arc<pagis_telephony::fake::FakeFrameLeg>) {
+    let (leg, far) = pagis_telephony::fake::FakeFrameLeg::new(codec);
+    (MediaHub::start(leg), far)
+}
+
+#[tokio::test(start_paused = true)]
+async fn frame_uplink_keeps_frame_and_event_order_without_waiting() {
+    for codec in [Codec::Pcmu, Codec::Pcma, Codec::Pcm16] {
+        let (hub, far) = frame_start(codec);
+        let mut rx = hub.subscribe();
+        let started = tokio::time::Instant::now();
+        let frames = [3, 1, 3]
+            .map(|byte| Frame::new(codec, vec![byte; Frame::silence(codec).payload().len()]));
+        far.feed(LegEvent::Ringing);
+        far.feed(LegEvent::Answered);
+        for frame in &frames {
+            far.speak(frame.clone());
+        }
+        far.hangup();
+        settle().await;
+        assert_eq!(tokio::time::Instant::now(), started);
+        assert_eq!(
+            drain(&mut rx),
+            vec![
+                HubEvent::Ringing,
+                HubEvent::Answered,
+                HubEvent::Uplink(frames[0].clone()),
+                HubEvent::Uplink(frames[1].clone()),
+                HubEvent::Uplink(frames[2].clone()),
+                HubEvent::Ended(EndedReason::RemoteHangup),
+            ]
+        );
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn frame_downlink_paces_each_twenty_milliseconds_and_holds_at_most_three_frames() {
+    for codec in [Codec::Pcmu, Codec::Pcma, Codec::Pcm16] {
+        let (hub, far) = frame_start(codec);
+        let mut rx = hub.subscribe();
+        settle().await;
+        assert_eq!(far.heard(), vec![Frame::silence(codec)]);
+        let frames = [1, 2, 3, 4].map(|byte| Frame::new(Codec::Pcmu, vec![byte; FRAME_BYTES]));
+        for frame in &frames[..3] {
+            hub.send_downlink(frame.clone()).await;
+        }
+        let fourth = hub.send_downlink(frames[3].clone());
+        tokio::pin!(fourth);
+        assert!(futures::poll!(&mut fourth).is_pending());
+        tokio::time::advance(Duration::from_millis(19)).await;
+        settle().await;
+        assert_eq!(far.heard().len(), 1);
+        assert!(futures::poll!(&mut fourth).is_pending());
+        tokio::time::advance(Duration::from_millis(1)).await;
+        settle().await;
+        assert!(futures::poll!(&mut fourth).is_ready());
+        assert_eq!(far.heard().len(), 2);
+        for count in 3..=5 {
+            tokio::time::advance(Duration::from_millis(20)).await;
+            settle().await;
+            assert_eq!(far.heard().len(), count);
+        }
+        let expected = std::iter::once(Frame::silence(codec))
+            .chain(frames.into_iter().map(|frame| frame.into_codec(codec)))
+            .collect::<Vec<_>>();
+        assert_eq!(far.heard(), expected);
+        assert_eq!(hub.downlink_packets_sent(), 5);
+        assert!(drain(&mut rx).is_empty());
+        hub.hangup().await;
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn frame_clear_downlink_empties_the_queue_and_releases_a_waiting_writer() {
+    let (hub, far) = frame_start(Codec::Pcm16);
+    settle().await;
+    for _ in 0..DOWNLINK_DEPTH {
+        hub.send_downlink(Frame::new(Codec::Pcmu, vec![1; FRAME_BYTES]))
+            .await;
+    }
+    let pending = hub.send_downlink(Frame::silence(Codec::Pcm16));
+    tokio::pin!(pending);
+    assert!(futures::poll!(&mut pending).is_pending());
+    assert_eq!(hub.clear_downlink(), DOWNLINK_DEPTH);
+    assert_eq!(hub.clear_downlink(), 0);
+    assert!(futures::poll!(&mut pending).is_ready());
+    tokio::time::sleep(Duration::from_millis(80)).await;
+    assert!(
+        far.heard()
+            .iter()
+            .all(|frame| *frame == Frame::silence(Codec::Pcm16))
+    );
+    hub.hangup().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn frame_keypad_digits_are_absent_in_both_directions() {
+    let (hub, far) = frame_start(Codec::Pcmu);
+    let mut rx = hub.subscribe();
+    assert_eq!(
+        hub.dtmf(),
+        DtmfPresence {
+            send_dtmf: false,
+            receive_dtmf: false
+        }
+    );
+    assert_eq!(hub.send_digits("12#").await, Err(DtmfAbsent));
+    hub.send_dtmf('5').await;
+    far.feed(LegEvent::Rtp(event_packet(1, 8000, 5, true, 160)));
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(drain(&mut rx).is_empty());
+    assert!(
+        far.heard()
+            .iter()
+            .all(|frame| *frame == Frame::silence(Codec::Pcmu))
+    );
+    hub.hangup().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn frame_listeners_and_recorders_get_both_directions_and_the_hub_stops_at_the_end() {
+    let (hub, far) = frame_start(Codec::Pcm16);
+    let mut listener = hub.listen();
+    let frames = Arc::new(Mutex::new(Vec::new()));
+    let writer = hub.record(Box::new(MemorySink {
+        frames: Arc::clone(&frames),
+        hold: Arc::new(tokio::sync::Semaphore::new(1)),
+    }));
+    let uplink = Frame::new(Codec::Pcm16, vec![1; FRAME_BYTES * 2]);
+    let downlink = Frame::new(Codec::Pcma, vec![2; FRAME_BYTES]);
+    far.speak(uplink.clone());
+    hub.send_downlink(downlink.clone()).await;
+    settle().await;
+    let heard = drain_recorded(&mut listener);
+    assert!(heard.contains(&Recorded {
+        direction: Direction::Uplink,
+        frame: uplink
+    }));
+    assert!(heard.contains(&Recorded {
+        direction: Direction::Downlink,
+        frame: downlink.into_codec(Codec::Pcm16)
+    }));
+    assert_eq!(*frames.lock().unwrap(), heard);
+    hub.hangup().await;
+    settle().await;
+    writer.await.unwrap();
+    assert_eq!(hub.ended(), Some(EndedReason::LocalHangup));
+    let sent = far.heard().len();
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert_eq!(far.heard().len(), sent);
+}
+
+#[tokio::test(start_paused = true)]
+async fn frame_media_timeout_tracks_inbound_frames_after_the_answer() {
+    let (hub, far) = frame_start(Codec::Pcm16);
+    tokio::time::sleep(MEDIA_TIMEOUT * 2).await;
+    assert_eq!(hub.ended(), None);
+    far.feed(LegEvent::Answered);
+    tokio::time::sleep(MEDIA_TIMEOUT - Duration::from_millis(100)).await;
+    far.speak(Frame::silence(Codec::Pcm16));
+    tokio::time::sleep(MEDIA_TIMEOUT - Duration::from_millis(100)).await;
+    assert_eq!(hub.ended(), None);
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(hub.ended(), Some(EndedReason::MediaTimeout));
+}
+
+#[tokio::test(start_paused = true)]
+async fn frame_slow_subscribers_and_recorders_do_not_stop_the_pacer() {
+    let (hub, far) = frame_start(Codec::Pcm16);
+    let mut slow = hub.subscribe();
+    let _listener = hub.listen();
+    let hold = Arc::new(tokio::sync::Semaphore::new(0));
+    let writer = hub.record(Box::new(MemorySink {
+        frames: Arc::new(Mutex::new(Vec::new())),
+        hold: Arc::clone(&hold),
+    }));
+    far.feed(LegEvent::Answered);
+    for _ in 0..600 {
+        far.speak(Frame::silence(Codec::Pcm16));
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(matches!(
+        slow.try_recv(),
+        Err(broadcast::error::TryRecvError::Lagged(_))
+    ));
+    assert!(far.heard().len() >= 590);
+    assert!(hub.recorder_dropped() > 0);
+    assert_eq!(hub.ended(), None);
+    hub.hangup().await;
+    settle().await;
+    hold.add_permits(1);
+    writer.await.unwrap();
+}
+
+#[tokio::test(start_paused = true)]
+async fn frame_disconnect_ends_the_call_with_transport_lost() {
+    let (hub, far) = frame_start(Codec::Pcmu);
+    let mut rx = hub.subscribe();
+    far.disconnect();
+    settle().await;
+    assert_eq!(hub.ended(), Some(EndedReason::TransportLost));
+    assert_eq!(
+        drain(&mut rx),
+        vec![HubEvent::Ended(EndedReason::TransportLost)]
+    );
 }

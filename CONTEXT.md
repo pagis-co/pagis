@@ -1256,7 +1256,14 @@ it (ADR-0020).
 
 ### Media Hub
 The audio plane of one Call, which fans the frames of both directions out
-to the model, the recorder and the Listen-Live subscribers (ADR-0020).
+to the model, the recorder and the Listen-Live subscribers. It takes a
+Media Leg with RTP packets or audio frames (ADR-0020).
+
+### Media Leg
+The audio and signaling of one Call at the transport boundary. A packet
+leg carries RTP and can carry keypad digits as telephone events. A frame
+leg carries G.711 µ-law, G.711 A-law, or PCM16 frames at 8 kHz, with no RTP
+state and no keypad digits (ADR-0020).
 
 ### Realtime Bridge
 The task that joins one Call's Media Hub to a live voice model session
