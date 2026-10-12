@@ -13,10 +13,9 @@
 //! the answer to that request hands the browser the same cookie again
 //! with a new `Max-Age`, so the cookie lives as long as the Session.
 
-use std::net::SocketAddr;
 use std::sync::Arc;
 
-use axum::extract::{ConnectInfo, FromRequestParts, Request, State};
+use axum::extract::{FromRequestParts, Request, State};
 use axum::http::request::Parts;
 use axum::http::{HeaderMap, HeaderValue, header};
 use axum::middleware::Next;
@@ -24,8 +23,8 @@ use axum::response::Response;
 use pagis_core::{SESSION_LIFETIME_MS, SessionId, UnixMillis, UserId, UserRole, WorkspaceId};
 use sha2::{Digest, Sha256};
 
-use crate::AppState;
 use crate::error::ApiError;
+use crate::{AppState, Peer};
 
 /// The cookie that carries a Session.
 pub const SESSION_COOKIE: &str = "pagis_session";
@@ -146,7 +145,7 @@ fn secure_attribute(secure: bool) -> &'static str {
 /// same cookie again with a full `Max-Age`.
 pub async fn authenticate(
     State(state): State<Arc<AppState>>,
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    Peer(peer): Peer,
     mut request: Request,
     next: Next,
 ) -> Result<Response, ApiError> {

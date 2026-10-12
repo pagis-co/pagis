@@ -659,23 +659,17 @@ impl TestDaemon {
         let server = listener.map(|listener| {
             let router = product.clone();
             tokio::spawn(async move {
-                axum::serve(
-                    listener,
-                    router.into_make_service_with_connect_info::<SocketAddr>(),
-                )
-                .await
-                .expect("serve");
+                axum::serve(listener, pagis::peer_service(router))
+                    .await
+                    .expect("serve");
             })
         });
         let administration_server = administration_listener.map(|listener| {
             let router = administration.clone();
             tokio::spawn(async move {
-                axum::serve(
-                    listener,
-                    router.into_make_service_with_connect_info::<SocketAddr>(),
-                )
-                .await
-                .expect("serve the administration interface");
+                axum::serve(listener, pagis::peer_service(router))
+                    .await
+                    .expect("serve the administration interface");
             })
         });
 

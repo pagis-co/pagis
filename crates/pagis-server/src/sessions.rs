@@ -72,7 +72,7 @@ use argon2::Argon2;
 use argon2::password_hash::rand_core::OsRng;
 use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier as _, SaltString};
 use axum::Json;
-use axum::extract::{ConnectInfo, Path, State};
+use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use pagis_core::{
@@ -83,12 +83,12 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::Semaphore;
 use utoipa::ToSchema;
 
-use crate::AppState;
 use crate::auth::{Tenant, cleared_session_cookie, hash_secret, session_cookie};
 use crate::client_name::browser_session_name;
 use crate::error::ApiError;
 use crate::remote_access::SignInMethod;
 use crate::user::UserDto;
+use crate::{AppState, Peer};
 
 /// How many attempts that do not sign in one account or one address may
 /// make inside the window before it is locked. An attempt counts from
@@ -425,7 +425,7 @@ fn session_client(
 )]
 pub async fn sign_in_with_password(
     State(state): State<Arc<AppState>>,
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    Peer(peer): Peer,
     headers: HeaderMap,
     Json(body): Json<PasswordSignInRequest>,
 ) -> Result<Response, ApiError> {
@@ -499,7 +499,7 @@ pub struct ClientCredentialRequest {
 )]
 pub async fn sign_in_with_client_credential(
     State(state): State<Arc<AppState>>,
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    Peer(peer): Peer,
     headers: HeaderMap,
     Json(body): Json<ClientCredentialRequest>,
 ) -> Result<Response, ApiError> {
@@ -563,7 +563,7 @@ pub struct LinkSignInRequest {
 )]
 pub async fn sign_in_with_link(
     State(state): State<Arc<AppState>>,
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    Peer(peer): Peer,
     headers: HeaderMap,
     Json(body): Json<LinkSignInRequest>,
 ) -> Result<Response, ApiError> {
@@ -623,7 +623,7 @@ pub async fn sign_in_with_link(
 )]
 pub async fn sign_in_with_start_link(
     State(state): State<Arc<AppState>>,
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    Peer(peer): Peer,
     headers: HeaderMap,
     Path(code): Path<String>,
 ) -> Result<Response, ApiError> {
@@ -670,7 +670,7 @@ pub async fn sign_in_with_start_link(
 )]
 pub async fn sign_out(
     State(state): State<Arc<AppState>>,
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    Peer(peer): Peer,
     headers: HeaderMap,
     tenant: Tenant,
 ) -> Result<Response, ApiError> {
@@ -758,7 +758,7 @@ pub async fn list_my_sessions(
 )]
 pub async fn end_my_session(
     State(state): State<Arc<AppState>>,
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    Peer(peer): Peer,
     headers: HeaderMap,
     tenant: Tenant,
     Path(session_id): Path<String>,

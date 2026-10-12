@@ -34,6 +34,7 @@ pub mod model_lists;
 pub mod model_preference;
 mod needs_you;
 mod openapi;
+mod peer;
 mod phone_numbers;
 mod plugins;
 mod providers;
@@ -65,7 +66,7 @@ pub mod ws;
 
 use std::sync::Arc;
 
-use axum::extract::{ConnectInfo, DefaultBodyLimit, Query, State};
+use axum::extract::{DefaultBodyLimit, Query, State};
 use axum::routing::{delete, get, post, put};
 use axum::{Json, Router, middleware};
 use object_store::ObjectStore;
@@ -87,6 +88,7 @@ pub use harness_model::{HarnessModelDeps, HarnessModelTokens};
 pub use live_connections::{LiveConnections, LiveTenant};
 pub use message_socket::{CloseFrame, Message, MessageSocket};
 pub use openapi::ApiDoc;
+pub use peer::Peer;
 pub use remote_access::{
     FUNNEL_PROXY, FUNNEL_TURN_PORT, FunnelPort, FunnelTargets, RemoteAccessSwitch, Tailscale,
     TailscaleState, serves_this_machine_only,
@@ -945,7 +947,7 @@ pub struct HealthDto {
 #[utoipa::path(get, path = "/api/v1/health", responses((status = 200, body = HealthDto)))]
 async fn health(
     State(state): State<Arc<AppState>>,
-    ConnectInfo(peer): ConnectInfo<std::net::SocketAddr>,
+    Peer(peer): Peer,
     headers: axum::http::HeaderMap,
 ) -> Json<HealthDto> {
     Json(HealthDto {
@@ -986,7 +988,7 @@ pub struct RuntimeIdentityDto {
 )]
 async fn runtime_identity(
     State(state): State<Arc<AppState>>,
-    ConnectInfo(peer): ConnectInfo<std::net::SocketAddr>,
+    Peer(peer): Peer,
     headers: axum::http::HeaderMap,
     Query(query): Query<RuntimeIdentityQuery>,
 ) -> Result<Json<RuntimeIdentityDto>, axum::http::StatusCode> {
