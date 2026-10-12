@@ -919,7 +919,7 @@ async fn make_live(daemon: &TestDaemon, call: &Call, number: &PhoneNumber) -> Ar
         id: call.id.clone(),
         workspace_id: call.workspace_id.clone(),
         run_id: call.run_id.clone(),
-        brief: CallBrief::outbound(&agent, number, &arguments, call.tier, Vec::new()),
+        brief: CallBrief::outbound(&agent, "Sam", number, &arguments, call.tier, Vec::new()),
         tools: Vec::new(),
     };
     let bus = Arc::new(AuditEventBus::new(daemon.stores().events.clone()));

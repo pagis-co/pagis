@@ -4,7 +4,7 @@
 // Creation does not come through here: creating is four steps of its own
 // (`NewSprite.tsx`), and it carries the Mailbox section (ADR-0019).
 
-import { useState } from "react";
+import { useId, useState } from "react";
 
 import type { ApiClient } from "../../api/client";
 import { Button, Input } from "../../primitives";
@@ -43,6 +43,7 @@ export function AgentForm({
   onSubmit: (fields: AgentFields) => void;
   onCancel?: () => void;
 }) {
+  const personalityHintId = useId();
   const [name, setName] = useState(initial.name);
   const [job, setJob] = useState(initial.job);
   const [description, setDescription] = useState(initial.description);
@@ -83,10 +84,14 @@ export function AgentForm({
       />
       <Input
         aria-label="Sprite personality"
+        aria-describedby={personalityHintId}
         placeholder="Personality"
         value={personality}
         onChange={(e) => setPersonality(e.target.value)}
       />
+      <p id={personalityHintId} className="settings-hint">
+        Your sprite always says that it is an AI when someone asks.
+      </p>
       <VoicePicker api={api} value={voice} onChange={setVoice} />
       {failure != null && (
         <p className="settings-error" role="alert">

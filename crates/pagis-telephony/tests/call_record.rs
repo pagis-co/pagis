@@ -263,6 +263,8 @@ async fn desk(pool: SqlitePool) -> Desk {
             direction: CallDirection::Inbound,
             agent_id: agent.id.clone(),
             agent_name: agent.name.clone(),
+            person_name: "Sam".to_string(),
+            personality: "warm".to_string(),
             voice: agent.voice.clone(),
             phone_number_id: number.id.clone(),
             own_e164: OWN.to_string(),

@@ -997,6 +997,8 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         pagis_telephony::PhoneToolDeps {
             desk: Arc::clone(&numbers),
             agents: Arc::clone(&agent_store) as _,
+            workspaces: Arc::clone(&workspaces) as _,
+            users: Arc::clone(&stores.users) as _,
             runs: Arc::new(crate::tools::BrokerRunTools(Arc::clone(&broker))),
             run_records: Arc::clone(&runs) as _,
             messages: Arc::clone(&messages) as _,
@@ -1019,6 +1021,8 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         pagis_telephony::InboundCallsDeps {
             numbers: Arc::clone(&phone_numbers) as _,
             agents: Arc::clone(&agent_store) as _,
+            workspaces: Arc::clone(&workspaces) as _,
+            users: Arc::clone(&stores.users) as _,
             runs: Arc::new(crate::tools::BrokerInboundRuns {
                 runs: Arc::clone(&runs) as _,
                 channels: Arc::clone(&channels) as _,

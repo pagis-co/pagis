@@ -16,3 +16,9 @@ tokio = { workspace = true, features = ["rt-multi-thread"] }
 
 [dev-dependencies]
 tempfile.workspace = true
+pagis-agent.workspace = true
+pagis-core.workspace = true
+pagis-mail.workspace = true
+pagis-server.workspace = true
+pagis-testkit.workspace = true
+reqwest.workspace = true

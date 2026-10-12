@@ -14,6 +14,7 @@ pub mod domain;
 pub mod event;
 pub mod exposure;
 pub mod harness;
+pub mod honesty;
 pub mod host;
 pub mod id;
 pub mod identity;

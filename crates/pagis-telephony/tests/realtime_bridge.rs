@@ -133,6 +133,8 @@ fn brief(direction: CallDirection, tier: TrustTier) -> CallBrief {
         direction,
         agent_id: AgentId::generate(),
         agent_name: "Robin".to_string(),
+        person_name: "Sam".to_string(),
+        personality: "warm".to_string(),
         voice: Some("marin".to_string()),
         phone_number_id: PhoneNumberId::generate(),
         own_e164: OWN.to_string(),

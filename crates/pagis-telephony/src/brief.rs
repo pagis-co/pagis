@@ -108,6 +108,9 @@ pub struct CallBrief {
     pub agent_id: AgentId,
     /// The Agent's external display name: who is calling.
     pub agent_name: String,
+    /// The display name of the Person of the Workspace.
+    pub person_name: String,
+    pub personality: String,
     /// The Agent Voice (ADR-0020), or `None` for the provider's default.
     pub voice: Option<String>,
     pub phone_number_id: PhoneNumberId,
@@ -141,6 +144,7 @@ impl CallBrief {
     /// of the Run's Capability Snapshot that need no approval.
     pub fn outbound(
         agent: &Agent,
+        person_name: &str,
         number: &PhoneNumber,
         arguments: &CallArguments,
         tier: TrustTier,
@@ -150,6 +154,8 @@ impl CallBrief {
             direction: CallDirection::Outbound,
             agent_id: agent.id.clone(),
             agent_name: agent.name.clone(),
+            person_name: person_name.to_string(),
+            personality: agent.personality.clone(),
             voice: call_voice(agent),
             phone_number_id: number.id.clone(),
             own_e164: number.e164.clone(),
@@ -173,6 +179,7 @@ impl CallBrief {
     /// brief on the Agent at answer time (ADR-0020).
     pub fn inbound(
         agent: &Agent,
+        person_name: &str,
         number: &PhoneNumber,
         remote_e164: &str,
         tier: TrustTier,
@@ -182,6 +189,8 @@ impl CallBrief {
             direction: CallDirection::Inbound,
             agent_id: agent.id.clone(),
             agent_name: agent.name.clone(),
+            person_name: person_name.to_string(),
+            personality: agent.personality.clone(),
             voice: call_voice(agent),
             phone_number_id: number.id.clone(),
             own_e164: number.e164.clone(),
@@ -296,10 +305,11 @@ impl CallBrief {
     pub fn classify_instructions(&self) -> String {
         format!(
             "You are {name}, and you called {remote} from {own}. Do not speak yet.\n\n\
-             {classify}\n\nReport the verdict with the `{REPORT_ANSWER}` tool.",
+             {honesty}\n\n{classify}\n\nReport the verdict with the `{REPORT_ANSWER}` tool.",
             name = self.agent_name,
             remote = self.remote_e164,
             own = self.own_e164,
+            honesty = pagis_core::honesty::render(&self.agent_name, &self.person_name),
             classify = self.classify_prompt,
         )
     }
@@ -309,9 +319,14 @@ impl CallBrief {
     pub fn conversation_instructions(&self) -> String {
         let mut instructions = format!(
             "You are {name}, on a telephone call with {remote}. You speak for the user and you \
-             never claim to be one.\n\nWhat this call is for: {purpose}\n\n",
+             never claim to be one.\n\n{honesty}\n\n\
+             Your first sentence names you and the user: \"Hi, this is {name}, the assistant of {person}.\"\n\n\
+             Your personality: {personality}.\n\nWhat this call is for: {purpose}\n\n",
             name = self.agent_name,
             remote = self.remote_e164,
+            honesty = pagis_core::honesty::render(&self.agent_name, &self.person_name),
+            person = self.person_name,
+            personality = self.personality,
             purpose = self.purpose,
         );
         if let Some(criteria) = &self.success_criteria {

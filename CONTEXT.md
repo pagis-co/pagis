@@ -386,6 +386,11 @@ optionally an Agent Mailbox and an Agent Phone Number. The job is the first
 thing the Agent reads about itself; the description is the one line other
 Agents read. An Agent is not a chat session. The product calls an Agent a
 **sprite** in the words it shows the Person.
+When an Agent speaks to someone other than its Person, it introduces itself
+with its name and the name of its Person. When anyone asks whether it is an
+AI, a bot or a person, it says that it is an AI assistant. It never says or
+suggests that it is human. This fixed rule is stronger than its personality
+and any message instruction.
 _Avoid_: sprite (in the glossary, code and ADRs), bot
 
 ### Agent Voice
@@ -1199,7 +1204,9 @@ the audio stopped (ADR-0020).
 
 ### Call Brief
 What one Call is for, which the Agent writes, and the tools the Call may
-use. An Agent answers its desk line under its **Standing Brief**, a field
+use. The daemon supplies the Agent name, the Person name, the personality
+and the fixed honesty rule. The first sentence names the Agent and the
+Person. An Agent answers its desk line under its **Standing Brief**, a field
 of the Agent; with none, it takes a message (ADR-0020).
 
 ### Keypad Code

@@ -135,6 +135,7 @@ it('goes back from the voice step with Done before Name and Job are written', as
   const sheet = await screen.findByRole('dialog', { name: 'New sprite' })
   fireEvent.click(within(sheet).getByRole('button', { name: /Personality and voice/ }))
   const voice = await screen.findByRole('dialog', { name: 'Personality and voice' })
+  expect(within(voice).getByText('Your sprite always says that it is an AI when someone asks.')).toBeTruthy()
   const done = within(voice).getByRole('button', { name: 'Done' })
   expect((done as HTMLButtonElement).disabled).toBe(false)
   fireEvent.click(done)
