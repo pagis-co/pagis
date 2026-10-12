@@ -54,3 +54,4 @@ records that touch an area before you change it.
 - [0034](0034-the-product-app-has-a-phone-layout.md): The Product App has a phone layout
 - [0035](0035-the-javascript-projects-are-one-pnpm-workspace.md): The JavaScript projects are one pnpm workspace
 - [0037](0037-each-release-ships-the-notices-of-its-third-party-software.md): Each release ships the notices of its third-party software
+- [0038](0038-the-routers-build-without-the-native-parts.md): The routers build without the Native Parts

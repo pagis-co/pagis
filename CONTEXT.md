@@ -90,6 +90,13 @@ version number of its own, and each release pins one digest of it
 Code, Codex, OpenCode and pi, at the pins of the Harness Catalog
 (ADR-0033).
 
+### Embedder
+A program that builds the routers of `pagis-server` over its own stores
+and services, and gives them requests. A test with no port and a process
+on `wasm32-unknown-unknown` are Embedders. A native program can also be an
+Embedder (ADR-0038).
+_Avoid_: host
+
 ### Headless Server
 The Pagis server as a Linux container image, for a team that runs it on
 its own VM, or a household on a Linux machine at home: the same daemon and
@@ -129,6 +136,16 @@ and **Deny** for an Approval. It connects to a Server, or to a Local
 Installation in Remote Access, over `https://`. It installs nothing, and it
 is not a Host (ADR-0032).
 _Avoid_: phone app, mobile client, native app
+
+### Native Part
+A group of routes whose services need sockets, processes, Docker or git:
+Computers, Calls, Hosts and Coding Sessions, Plugins and Software,
+Connections, Remote Access, and the System tab with Analytics. The
+`native` Cargo feature of `pagis-server` holds these parts. Without it,
+each route stays in the route table and answers `501 Not Implemented`
+with the code `not_available`. A part leaves `native` when it becomes
+portable and does not come back. Not built: the feature and the build
+without it (ADR-0038).
 
 ### Onboarding
 The first steps the Product App shows a new Local Installation: welcome,
