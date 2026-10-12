@@ -909,7 +909,8 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     // The mail tool route for runs that pass the broker's authority and
     // effect reservation checks.
     let mail_tools = Arc::new(pagis_mail::MailToolRuntime::new(pagis_mail::MailToolDeps {
-        desk: Arc::clone(&mailbox_desk),
+        mailboxes: Arc::clone(&mailbox_desk) as _,
+        records: Arc::clone(&mailbox_store) as _,
         runs: Arc::clone(&runs) as _,
         sent: Arc::clone(&sent_mail) as _,
         blocks: Arc::clone(&mail_blocks),

@@ -948,3 +948,20 @@ async fn a_mailbox_whose_standing_rule_fails_is_not_made(pool: SqlitePool) {
         "the Agent may try again"
     );
 }
+
+#[sqlx::test(migrations = "./../pagis-storage-sqlite/migrations")]
+async fn the_desk_opens_an_imap_mailbox_with_its_cursor(pool: SqlitePool) {
+    let world = World::new(pool).await;
+    let record = world.provision_active(&world.agent_id, "ada").await;
+    let id = world
+        .transport
+        .deliver("bob@example.test", "Invoice", "text");
+    let mailboxes: Arc<dyn pagis_mail::Mailboxes> = world.desk.clone();
+    let mut mailbox = mailboxes.open(&record).await.unwrap();
+    assert_eq!(mailbox.message(&id).await.unwrap().summary.id, id);
+    world.transport.renumber("INBOX");
+    assert_eq!(
+        mailbox.message(&id).await.unwrap_err().0,
+        TransportErrorCode::StaleId
+    );
+}

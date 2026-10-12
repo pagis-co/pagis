@@ -5,7 +5,7 @@
 use pagis_mail::{Message, MessageId, OutgoingMessage, TransportErrorCode, build_mime, read_mime};
 
 fn read(raw: &str) -> Message {
-    read_mime(raw.as_bytes(), MessageId::new("INBOX", 7)).expect("the message reads")
+    read_mime(raw.as_bytes(), MessageId::new("INBOX:7")).expect("the message reads")
 }
 
 const PLAIN: &str = concat!(
@@ -21,7 +21,7 @@ const PLAIN: &str = concat!(
 #[test]
 fn a_plain_message_reads_as_its_summary_and_its_text() {
     let message = read(PLAIN);
-    assert_eq!(message.summary.id, MessageId::new("INBOX", 7));
+    assert_eq!(message.summary.id, MessageId::new("INBOX:7"));
     assert_eq!(message.summary.from, "ada@example.test");
     assert_eq!(
         message.summary.to,
@@ -171,7 +171,7 @@ fn a_long_body_gives_a_snippet_of_two_hundred_characters() {
 
 #[test]
 fn an_answer_with_no_message_in_it_is_unreadable() {
-    let error = read_mime(&[], MessageId::new("INBOX", 1))
+    let error = read_mime(&[], MessageId::new("INBOX:1"))
         .err()
         .map(|error| error.0);
     assert_eq!(error, Some(TransportErrorCode::Unreadable));

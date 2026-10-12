@@ -6,13 +6,13 @@
 //! size only: the bytes stay at the host, so a tool answer cannot grow
 //! with a file the model never asked for.
 
+use crate::MessageId;
 use mail_builder::MessageBuilder;
 use mail_parser::{Address, HeaderName, MessageParser, MimeHeaders};
 
 use crate::sender::AUTHENTICATION_RESULTS;
 use crate::transport::{
-    Attachment, Message, MessageId, MessageSummary, OutgoingMessage, TransportError,
-    TransportErrorCode,
+    Attachment, Message, MessageSummary, OutgoingMessage, TransportError, TransportErrorCode,
 };
 
 /// How much of the text body one summary carries (ADR-0019).

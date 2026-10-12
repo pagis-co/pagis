@@ -8,8 +8,8 @@
 //! and the reconnect (ADR-0019), so `idle` returns at the deadline and
 //! says nothing arrived.
 
+use crate::mailbox::MessageId;
 use std::fmt;
-use std::str::FromStr;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -99,50 +99,6 @@ pub struct TransportCapabilities {
     /// Whether the transport waits for new mail on the connection. A
     /// transport without it is polled instead.
     pub idle: bool,
-}
-
-/// One message in one folder: the folder and the IMAP UID. It reads as
-/// `INBOX:1234` (ADR-0019) and stays stable while UIDVALIDITY holds.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct MessageId {
-    pub folder: String,
-    pub uid: u32,
-}
-
-impl MessageId {
-    pub fn new(folder: impl Into<String>, uid: u32) -> Self {
-        Self {
-            folder: folder.into(),
-            uid,
-        }
-    }
-}
-
-impl fmt::Display for MessageId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}:{}", self.folder, self.uid)
-    }
-}
-
-/// The one shape a message id has. Anything else is an id from another
-/// mailbox or a typing mistake, and the tools answer `stale_id`.
-#[derive(Debug, thiserror::Error)]
-#[error("a message id reads as folder:uid, for example INBOX:1234")]
-pub struct MessageIdError;
-
-impl FromStr for MessageId {
-    type Err = MessageIdError;
-
-    fn from_str(text: &str) -> Result<Self, Self::Err> {
-        let (folder, uid) = text.rsplit_once(':').ok_or(MessageIdError)?;
-        if folder.is_empty() {
-            return Err(MessageIdError);
-        }
-        Ok(Self {
-            folder: folder.to_string(),
-            uid: uid.parse().map_err(|_| MessageIdError)?,
-        })
-    }
 }
 
 /// Where a collector reached in one folder. The Agent Mailbox record
@@ -287,6 +243,8 @@ pub struct FlagChange {
 /// because they reach the user and the tests.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransportErrorCode {
+    /// The page token is not valid for this Mailbox.
+    InvalidRequest,
     /// The host refused the mailbox password.
     Unauthorized,
     /// The host did not answer: DNS, the socket or a timeout.
@@ -304,6 +262,7 @@ pub enum TransportErrorCode {
 impl TransportErrorCode {
     pub fn as_str(self) -> &'static str {
         match self {
+            TransportErrorCode::InvalidRequest => "invalid_request",
             TransportErrorCode::Unauthorized => "unauthorized",
             TransportErrorCode::Unreachable => "unreachable",
             TransportErrorCode::MailboxGone => "mailbox_gone",
