@@ -18,12 +18,14 @@
 //! and twenty sign-ins lock the address until its window ends, so a
 //! right password does not lift the bound.
 //!
-//! The Argon2 check runs on the blocking pool, never on an async worker,
-//! and holds a verification permit while it runs. There is one permit
+//! The Argon2 check uses `pagis_rt::spawn_blocking`: the blocking pool
+//! on a native target, or the host's one thread on WebAssembly.
+//! It holds a verification permit while it runs. There is one permit
 //! for each core, as `std::thread::available_parallelism` counts them.
 //! A sign-in that gets no permit within `PERMIT_WAIT`, half a second,
 //! gets `429` and does not queue. So a burst of sign-ins holds at most
-//! one thread for each core, and every other request still answers.
+//! one thread for each core on a native target. On WebAssembly, each
+//! check holds the host's one thread until it ends.
 //!
 //! **Sign-In Link of the Public Origin**, on every installation:
 //! `POST /api/v1/sessions/link` takes the secret of a link that a
@@ -148,10 +150,9 @@ enum Verdict {
 /// `check(password, hash)`: argon2id in the daemon.
 type PasswordCheck = dyn Fn(&str, &str) -> bool + Send + Sync;
 
-/// The password checks of the daemon. A check runs on the blocking pool
-/// and holds one verification permit until it ends, so the checks never
-/// occupy an async worker, and never more threads than there are
-/// permits.
+/// The password checks of the daemon. A check holds one verification
+/// permit until it ends. It runs on the native blocking pool or in place
+/// on the WebAssembly host's one thread.
 pub struct PasswordVerifier {
     permits: Arc<Semaphore>,
     check: Arc<PasswordCheck>,
@@ -178,17 +179,13 @@ impl PasswordVerifier {
     /// the dummy hash, which matches nothing, so its refusal takes the
     /// time of a wrong password.
     async fn verify(&self, stored: Option<String>, password: String) -> Result<Verdict, ApiError> {
-        let permit = match tokio::time::timeout(
-            PERMIT_WAIT,
-            Arc::clone(&self.permits).acquire_owned(),
-        )
-        .await
-        {
-            Ok(permit) => permit.expect("nothing closes the verification permits"),
-            Err(_) => return Ok(Verdict::NoPermit),
-        };
+        let permit =
+            match pagis_rt::timeout(PERMIT_WAIT, Arc::clone(&self.permits).acquire_owned()).await {
+                Ok(permit) => permit.expect("nothing closes the verification permits"),
+                Err(_) => return Ok(Verdict::NoPermit),
+            };
         let check = Arc::clone(&self.check);
-        tokio::task::spawn_blocking(move || {
+        pagis_rt::spawn_blocking(move || {
             // The permit ends with the check, also when the sign-in that
             // asked for it went away.
             let _permit = permit;

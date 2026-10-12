@@ -694,7 +694,7 @@ async fn send_catch_up(
 /// `None` when the first frame is not one (an error frame is sent and
 /// the socket closed). The cookie already proved who the client is.
 async fn authenticate(socket: &mut impl MessageSocket) -> anyhow::Result<Option<Option<String>>> {
-    let first = tokio::time::timeout(AUTH_TIMEOUT, socket.next()).await;
+    let first = pagis_rt::timeout(AUTH_TIMEOUT, socket.next()).await;
     let frame = match first {
         Err(_) | Ok(None) => return Ok(None),
         Ok(Some(frame)) => frame?,

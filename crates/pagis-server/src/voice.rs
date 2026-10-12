@@ -123,7 +123,7 @@ pub async fn serve_dictation(
     let held = tokio::select! {
         biased;
         () = session_ended.cancelled() => return close_for_ended_session(&mut socket).await,
-        held = tokio::time::timeout(MAX_HOLD, dictate_once(&state, &tenant, &mut socket)) => held,
+        held = pagis_rt::timeout(MAX_HOLD, dictate_once(&state, &tenant, &mut socket)) => held,
     };
     match held {
         Ok(result) => result,
