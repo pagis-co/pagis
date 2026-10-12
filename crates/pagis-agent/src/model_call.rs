@@ -3,8 +3,9 @@
 //! A request publishes `model.requested` before the call and
 //! `model.completed` after it, with the same phase and request number
 //! (ADR-0010). The answer also writes the Usage Record of the call and,
-//! while the Model Request Capture setting is on, the capture of the
-//! request and its answer (ADR-0031). Every exit path of a call goes
+//! when the Run has no Google data and Model Request Capture is on,
+//! the capture of the request and its answer (ADR-0031). Every exit
+//! path of a call goes
 //! through [`ModelCall::finish`], so none of the three is left out.
 //!
 //! The request asks for the output reserve of its route as its output
@@ -50,6 +51,7 @@ pub(crate) struct ModelCall<'a> {
     phase_request: usize,
     request: TurnRequest,
     started: Instant,
+    capture_permitted: bool,
 }
 
 impl<'a> ModelCall<'a> {
@@ -69,6 +71,23 @@ impl<'a> ModelCall<'a> {
                 .map(|budget| u32::try_from(budget.output_reserve).unwrap_or(u32::MAX));
         let mut payload = serde_json::to_value(RequestSummary::of(&request, &deps.models))
             .expect("a request summary serializes");
+        let overlay = deps.tool_runtime.overlay(&run.id);
+        let privacy = overlay
+            .lock()
+            .await
+            .holds_google_data(
+                &run.workspace_id,
+                deps.grants.as_ref(),
+                deps.connections.as_ref(),
+            )
+            .await;
+        let capture_permitted = matches!(privacy, Ok(false));
+        match privacy {
+            Ok(holds_google_data) => payload["holds_google_data"] = holds_google_data.into(),
+            Err(error) => {
+                tracing::error!(%error, run_id = %run.id, "the request source could not be checked for capture");
+            }
+        }
         payload["phase"] = phase.into();
         payload["phase_request"] = phase_request.into();
         crate::run::publish(deps, run, "model.requested", payload).await;
@@ -79,6 +98,7 @@ impl<'a> ModelCall<'a> {
             phase_request,
             request,
             started: Instant::now(),
+            capture_permitted,
         }
     }
 
@@ -104,7 +124,7 @@ impl<'a> ModelCall<'a> {
         if let Some(end) = end {
             crate::spend::record(self.deps, self.run, end).await;
         }
-        if self.deps.capture.is_enabled() {
+        if self.capture_permitted && self.deps.capture.is_enabled() {
             self.capture(outcome, end, error).await;
         }
         crate::run::publish(

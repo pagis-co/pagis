@@ -367,6 +367,29 @@ describe('the run timeline', () => {
     expect(within(request).getByRole('button', { name: 'Download JSON' })).toBeTruthy()
   })
 
+  it('shows an Administrator why a Google request has no capture', async () => {
+    const googleEvents = modelRequestEvents.map((event) =>
+      event.event_type === 'model.requested'
+        ? { ...event, payload: { ...(event.payload as object), holds_google_data: true } }
+        : event,
+    )
+    const api = stubApi(run, googleEvents, null, { role: 'administrator' })
+    mount(api)
+    expect(await screen.findByText('Not captured: this Run read Google data.')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Show request' })).toBeNull()
+  })
+
+  it('shows a Member no Google capture reason', async () => {
+    const googleEvents = modelRequestEvents.map((event) =>
+      event.event_type === 'model.requested'
+        ? { ...event, payload: { ...(event.payload as object), holds_google_data: true } }
+        : event,
+    )
+    mount(stubApi(run, googleEvents))
+    await screen.findByTestId('model-request')
+    expect(screen.queryByText('Not captured: this Run read Google data.')).toBeNull()
+  })
+
   it('shows a Member no captured request, and does not ask for one', async () => {
     const api = stubApi(run, modelRequestEvents)
     mount(api)

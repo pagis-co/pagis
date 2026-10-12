@@ -1069,6 +1069,11 @@ async fn execute_pending_review(
         .await
         .observe(&access)
         .ok();
+    deps.tool_runtime
+        .overlay(&run.id)
+        .lock()
+        .await
+        .observe_read(&pending.exposures);
     let briefing = format!(
         "Pending evidence review. Subject: {}. Source range: ({}, {}]. Reconcile only this work. Reason:\n{}",
         pending.subject,
@@ -1344,6 +1349,12 @@ async fn run_tool(ctx: &mut TurnCtx<'_, '_>, run: &mut Run, call: &ToolInvocatio
     }
     match outcome {
         InvokeOutcome::Completed(result) | InvokeOutcome::Rejected(result) => {
+            ctx.deps
+                .tool_runtime
+                .overlay(&run.id)
+                .lock()
+                .await
+                .observe_tool_result(&result);
             ToolFlow::BrokerResult(
                 result.content,
                 result.metadata.get("conversation_evidence").cloned(),
@@ -1377,6 +1388,12 @@ async fn run_tool(ctx: &mut TurnCtx<'_, '_>, run: &mut Run, call: &ToolInvocatio
                         .await
                     {
                         Ok(InvokeOutcome::Completed(result) | InvokeOutcome::Rejected(result)) => {
+                            ctx.deps
+                                .tool_runtime
+                                .overlay(&run.id)
+                                .lock()
+                                .await
+                                .observe_tool_result(&result);
                             ToolFlow::BrokerResult(
                                 result.content,
                                 result.metadata.get("conversation_evidence").cloned(),
@@ -1926,6 +1943,11 @@ async fn subject_pages_brief(
         let Ok(file) = deps.memory.read(&run.workspace_id, &access, &path).await else {
             continue;
         };
+        deps.tool_runtime
+            .overlay(&run.id)
+            .lock()
+            .await
+            .observe_read(&file.exposures);
         let mut parsed = pagis_core::subject_page::SubjectPage::parse(&file.content);
         if !parsed.layout_valid {
             continue;
@@ -2081,6 +2103,7 @@ async fn reflect_and_commit(
                 .await
             {
                 Ok(InvokeOutcome::Completed(result) | InvokeOutcome::Rejected(result)) => {
+                    overlay.lock().await.observe_tool_result(&result);
                     result.content
                 }
                 Ok(InvokeOutcome::Waiting(_)) => {
@@ -5588,7 +5611,7 @@ async fn system_prompt(
         }
     };
     let brief = if ctx.include_brief {
-        memory_brief(deps, ctx, &access).await
+        memory_brief(deps, ctx, &access, overlay).await
     } else {
         String::new()
     };
@@ -5649,6 +5672,7 @@ async fn memory_brief(
     deps: &AgentDeps,
     ctx: &RunContext<'_>,
     access: &pagis_core::MemoryAccess,
+    overlay: &mut MemoryOverlay,
 ) -> String {
     let Some(channel_id) = ctx.run.channel_id.as_ref() else {
         return String::new();
@@ -5719,6 +5743,7 @@ async fn memory_brief(
                 continue;
             }
         };
+        overlay.observe_read(&file.exposures);
         // A file with no Subject Page layout is a fact file: the Brief
         // shows the text it holds, and it carries no Schedule.
         let mut parsed = pagis_core::subject_page::SubjectPage::parse(&file.content);
@@ -6128,6 +6153,7 @@ mod commit_rebase_tests {
             _access: &MemoryAccess,
         ) -> Result<MemoryIndexes, MemoryError> {
             Ok(MemoryIndexes {
+                exposures: Vec::new(),
                 shared: String::new(),
                 private: String::new(),
                 revision: Some("second".into()),
