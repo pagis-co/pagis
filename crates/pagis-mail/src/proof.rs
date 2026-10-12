@@ -80,7 +80,7 @@ pub async fn prove_login(
     credential: &MailboxCredential,
     window: Duration,
 ) -> Result<Box<dyn MailSession>, TransportError> {
-    let deadline = tokio::time::Instant::now() + window;
+    let deadline = pagis_rt::Instant::now() + window;
     let mut backoff = Backoff::reconnect();
     loop {
         let error = match transport.login(credential).await {
@@ -88,7 +88,7 @@ pub async fn prove_login(
             Err(error) => error,
         };
         let wait = backoff.wait();
-        if !is_worth_retrying(error.0) || tokio::time::Instant::now() + wait >= deadline {
+        if !is_worth_retrying(error.0) || pagis_rt::Instant::now() + wait >= deadline {
             return Err(error);
         }
         tracing::debug!(
@@ -97,6 +97,6 @@ pub async fn prove_login(
             wait_ms = wait.as_millis(),
             "the first login of a mailbox failed; trying again"
         );
-        tokio::time::sleep(wait).await;
+        pagis_rt::sleep(wait).await;
     }
 }
