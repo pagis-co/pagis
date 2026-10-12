@@ -26,7 +26,7 @@ use crate::catalog::{
 };
 use crate::dtmf;
 use crate::endpoint::NumberDirectory;
-use crate::leg::{EndedReason, LegEvent, MediaLeg, PacketSink, RtpPacket};
+use crate::leg::{EndedReason, FrameSink, LegEvent, LegSink, MediaLeg, PacketSink, RtpPacket};
 use crate::text::{InboundText, Prepared, SentText, TextCapabilities, TextError, TextTransport};
 use crate::transport::{
     Answer, CallTransport, IncomingCall, Line, Opened, Refusal, SipCredential,
@@ -265,15 +265,15 @@ impl NumberCatalog for FakeNumberCatalog {
 /// [`FakeCallTransport`] forgets a binding by this clock, so a test on
 /// paused tokio time drives an expiry without waiting for one.
 pub trait Clock: Send + Sync {
-    fn now(&self) -> tokio::time::Instant;
+    fn now(&self) -> pagis_rt::Instant;
 }
 
 /// Tokio's clock, which `start_paused` tests control.
 pub struct TokioClock;
 
 impl Clock for TokioClock {
-    fn now(&self) -> tokio::time::Instant {
-        tokio::time::Instant::now()
+    fn now(&self) -> pagis_rt::Instant {
+        pagis_rt::Instant::now()
     }
 }
 
@@ -324,7 +324,7 @@ pub enum LineCall {
         username: String,
         expires: Duration,
         /// When the registrar saw it, by the fake's clock.
-        at: tokio::time::Instant,
+        at: pagis_rt::Instant,
     },
     Unregister {
         username: String,
@@ -527,12 +527,14 @@ impl RemoteParty {
         *self.feed.lock().unwrap() = Some(feed);
         MediaLeg {
             codec: FAKE_CODEC,
-            dtmf_payload_type: Some(FAKE_DTMF),
-            ssrc: rand::random::<u32>(),
             inbound,
-            sink: Arc::new(FakeSink {
-                party: Arc::clone(self),
-            }),
+            sink: LegSink::Packet {
+                ssrc: rand::random::<u32>(),
+                dtmf_payload_type: Some(FAKE_DTMF),
+                sink: Arc::new(FakeSink {
+                    party: Arc::clone(self),
+                }),
+            },
         }
     }
 }
@@ -575,7 +577,7 @@ impl Answer for FakeAnswer {
 struct FakeRegistrar {
     clock: Arc<dyn Clock>,
     /// Each registered SIP username and when its binding expires.
-    bindings: Mutex<HashMap<String, tokio::time::Instant>>,
+    bindings: Mutex<HashMap<String, pagis_rt::Instant>>,
     /// The line that registered last, and where it takes the calls.
     /// The account has one address of record, and this registrar keeps
     /// one contact on it, as a carrier does: every `INVITE` goes to the
@@ -1164,5 +1166,62 @@ impl crate::events::StandingCallRule for FakeStandingCallRule {
             .unwrap()
             .push((number.e164.clone(), agent_id.clone()));
         Ok(())
+    }
+}
+
+/// A frame leg for tests. The test feeds events and reads sent frames.
+pub struct FakeFrameLeg {
+    feed: Mutex<Option<mpsc::Sender<LegEvent>>>,
+    heard: Mutex<Vec<Frame>>,
+}
+
+impl FakeFrameLeg {
+    pub fn new(codec: Codec) -> (MediaLeg, Arc<Self>) {
+        let (feed, inbound) = mpsc::channel(PARTY_DEPTH);
+        let far = Arc::new(Self {
+            feed: Mutex::new(Some(feed)),
+            heard: Mutex::new(Vec::new()),
+        });
+        let leg = MediaLeg {
+            codec,
+            inbound,
+            sink: LegSink::Frame(Arc::clone(&far) as _),
+        };
+        (leg, far)
+    }
+
+    pub fn feed(&self, event: LegEvent) {
+        if let Some(feed) = self.feed.lock().unwrap().as_ref() {
+            feed.try_send(event).expect("the frame leg fell behind");
+        }
+    }
+
+    pub fn speak(&self, frame: Frame) {
+        self.feed(LegEvent::Frame(frame));
+    }
+
+    pub fn heard(&self) -> Vec<Frame> {
+        self.heard.lock().unwrap().clone()
+    }
+
+    pub fn hangup(&self) {
+        self.feed(LegEvent::Ended(EndedReason::RemoteHangup));
+        self.disconnect();
+    }
+
+    pub fn disconnect(&self) {
+        self.feed.lock().unwrap().take();
+    }
+}
+
+#[async_trait]
+impl FrameSink for FakeFrameLeg {
+    async fn send(&self, frame: Frame) {
+        self.heard.lock().unwrap().push(frame);
+    }
+
+    async fn hangup(&self) {
+        self.feed(LegEvent::Ended(EndedReason::LocalHangup));
+        self.disconnect();
     }
 }

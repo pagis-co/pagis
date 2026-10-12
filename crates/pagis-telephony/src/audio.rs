@@ -1,25 +1,26 @@
-//! G.711 audio (ADR-0020). The media path is G.711 at 8 kHz from the
-//! carrier to the model and back, so a frame is bytes that nothing
-//! decodes. One frame is 20 ms: 160 samples, one byte each.
+//! Audio frames at 8 kHz (ADR-0020). One frame is 20 ms: 160 samples.
+//! G.711 uses one byte per sample. PCM16 uses two bytes per sample,
+//! signed and little-endian. The SIP media path uses G.711.
 
 use std::time::Duration;
 
 use bytes::Bytes;
 
-/// Samples per second. Both laws run at this rate.
+/// Samples per second. All frame codecs run at this rate.
 pub const SAMPLE_RATE: u32 = 8000;
 /// How long one frame plays: `ptime=20` in the offer.
 pub const FRAME_DURATION: Duration = Duration::from_millis(20);
-/// The samples, and so the bytes, in one frame.
+/// The samples in one frame, and the bytes in one G.711 frame.
 pub const FRAME_BYTES: usize = 160;
 /// How far the RTP timestamp moves per frame.
 pub const FRAME_TIMESTAMP_STEP: u32 = FRAME_BYTES as u32;
 
-/// The two codecs the offer carries, by their RFC 3551 numbers.
+/// The frame codecs. The SIP offer carries only the two G.711 laws.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Codec {
     Pcmu,
     Pcma,
+    Pcm16,
 }
 
 impl Codec {
@@ -27,6 +28,7 @@ impl Codec {
         match self {
             Codec::Pcmu => 0,
             Codec::Pcma => 8,
+            Codec::Pcm16 => panic!("PCM16 frames have no RTP payload type"),
         }
     }
 
@@ -38,11 +40,12 @@ impl Codec {
         }
     }
 
-    /// The SDP encoding name.
+    /// The codec name. PCM16 is a frame codec, absent from the SDP offer.
     pub fn name(self) -> &'static str {
         match self {
             Codec::Pcmu => "PCMU",
             Codec::Pcma => "PCMA",
+            Codec::Pcm16 => "PCM16",
         }
     }
 
@@ -51,11 +54,12 @@ impl Codec {
         match self {
             Codec::Pcmu => audio_codec_algorithms::encode_ulaw(0),
             Codec::Pcma => audio_codec_algorithms::encode_alaw(0),
+            Codec::Pcm16 => 0,
         }
     }
 }
 
-/// One packet's worth of G.711 audio in one codec.
+/// One frame of audio in one codec.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Frame {
     codec: Codec,
@@ -72,7 +76,12 @@ impl Frame {
 
     /// 20 ms of silence in this codec.
     pub fn silence(codec: Codec) -> Self {
-        Self::new(codec, vec![codec.silence_byte(); FRAME_BYTES])
+        let bytes = if codec == Codec::Pcm16 {
+            FRAME_BYTES * 2
+        } else {
+            FRAME_BYTES
+        };
+        Self::new(codec, vec![codec.silence_byte(); bytes])
     }
 
     pub fn codec(&self) -> Codec {
@@ -83,16 +92,57 @@ impl Frame {
         &self.payload
     }
 
-    /// The same audio in the other law, or this frame unchanged when it
-    /// is in that law already. Nothing resamples: both laws are one byte
-    /// per sample at the same rate.
+    /// Decode the frame to signed samples at 8 kHz.
+    pub fn samples(&self) -> Vec<i16> {
+        match self.codec {
+            Codec::Pcmu => self
+                .payload
+                .iter()
+                .map(|byte| audio_codec_algorithms::decode_ulaw(*byte))
+                .collect(),
+            Codec::Pcma => self
+                .payload
+                .iter()
+                .map(|byte| audio_codec_algorithms::decode_alaw(*byte))
+                .collect(),
+            Codec::Pcm16 => self
+                .payload
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|bytes| i16::from_le_bytes([bytes[0], bytes[1]]))
+                .collect(),
+        }
+    }
+
+    /// Encode signed samples in this codec, with no resampling.
+    pub fn from_samples(codec: Codec, samples: impl IntoIterator<Item = i16>) -> Self {
+        let payload = match codec {
+            Codec::Pcmu => samples
+                .into_iter()
+                .map(audio_codec_algorithms::encode_ulaw)
+                .collect::<Vec<_>>(),
+            Codec::Pcma => samples
+                .into_iter()
+                .map(audio_codec_algorithms::encode_alaw)
+                .collect::<Vec<_>>(),
+            Codec::Pcm16 => samples
+                .into_iter()
+                .flat_map(i16::to_le_bytes)
+                .collect::<Vec<_>>(),
+        };
+        Self::new(codec, payload)
+    }
+
+    /// The same audio in the requested codec. All codecs use 8 kHz.
     pub fn into_codec(self, codec: Codec) -> Self {
         if self.codec == codec {
             return self;
         }
-        let convert = match codec {
-            Codec::Pcmu => audio_codec_algorithms::convert_alaw_to_ulaw,
-            Codec::Pcma => audio_codec_algorithms::convert_ulaw_to_alaw,
+        let convert = match (self.codec, codec) {
+            (Codec::Pcma, Codec::Pcmu) => audio_codec_algorithms::convert_alaw_to_ulaw,
+            (Codec::Pcmu, Codec::Pcma) => audio_codec_algorithms::convert_ulaw_to_alaw,
+            _ => return Self::from_samples(codec, self.samples()),
         };
         let payload: Vec<u8> = self.payload.iter().map(|byte| convert(*byte)).collect();
         Self::new(codec, payload)

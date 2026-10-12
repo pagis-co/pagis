@@ -213,7 +213,7 @@ impl NumberCatalog for TelnyxNumberCatalog {
         // answer, and the number carries the id Pagis stores.
         for attempt in 0..ORDER_POLLS {
             if attempt > 0 {
-                tokio::time::sleep(self.order_poll_delay).await;
+                pagis_rt::sleep(self.order_poll_delay).await;
             }
             if let Some(purchased) = self.find_purchased(key, e164).await? {
                 return Ok(purchased);

@@ -126,29 +126,20 @@ pub async fn play_prompt(hub: &MediaHub) {
     }
 }
 
-/// The prompt tone as frames of G.711. It is a plain sine burst: the
+/// The prompt tone as audio frames. It is a plain sine burst: the
 /// caller needs one signal that the line waits for digits.
 pub fn prompt_frames(codec: Codec) -> Vec<Frame> {
     let samples = (PROMPT_DURATION.as_millis() as usize * SAMPLE_RATE as usize) / 1000;
     let step = std::f32::consts::TAU * PROMPT_HERTZ / SAMPLE_RATE as f32;
     (0..samples / FRAME_BYTES)
         .map(|index| {
-            let payload: Vec<u8> = (0..FRAME_BYTES)
-                .map(|offset| {
-                    let sample = ((index * FRAME_BYTES + offset) as f32 * step).sin() * 8000.0;
-                    encode(codec, sample as i16)
-                })
-                .collect();
-            Frame::new(codec, payload)
+            let samples = (0..FRAME_BYTES).map(|offset| {
+                let sample = ((index * FRAME_BYTES + offset) as f32 * step).sin() * 8000.0;
+                sample as i16
+            });
+            Frame::from_samples(codec, samples)
         })
         .collect()
-}
-
-fn encode(codec: Codec, sample: i16) -> u8 {
-    match codec {
-        Codec::Pcmu => audio_codec_algorithms::encode_ulaw(sample),
-        Codec::Pcma => audio_codec_algorithms::encode_alaw(sample),
-    }
 }
 
 /// What the caller typed, or why the entry ended without digits.
@@ -164,7 +155,7 @@ pub enum Typed {
 pub async fn read_entry(events: &mut tokio::sync::broadcast::Receiver<HubEvent>) -> Typed {
     let mut entry = Entry::default();
     loop {
-        match tokio::time::timeout(DIGIT_GAP, events.recv()).await {
+        match pagis_rt::timeout(DIGIT_GAP, events.recv()).await {
             Err(_) => {
                 return match entry.timed_out() {
                     Some(digits) => Typed::Entry(digits),

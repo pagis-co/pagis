@@ -19,6 +19,7 @@ object_store.workspace = true
 llm-router.workspace = true
 pagis-broker.workspace = true
 pagis-core.workspace = true
+pagis-rt.workspace = true
 # The one length rule of the Keypad Code (ADR-0021).
 pagis-vault.workspace = true
 rand.workspace = true

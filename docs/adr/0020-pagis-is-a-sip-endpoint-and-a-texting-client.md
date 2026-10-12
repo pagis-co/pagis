@@ -93,8 +93,15 @@ by the installation, held by no Agent, or matches more than one record.
   signaling with SRTP media. There is no cleartext path.
 - The daemon sends RTP for the whole call, filling silence, to keep the NAT
   binding and the RTP latch alive.
-- The uplink has a reorder window of about 40 ms and no playout buffer. The
-  downlink has a 20 ms pacer and stays 60 ms deep or less.
+- The RTP uplink has a reorder window of about 40 ms and no playout buffer.
+  A frame leg passes inbound audio frames in order with no reorder window
+  or RTP state. It carries G.711 µ-law, G.711 A-law, or signed little-endian
+  PCM16 at 8 kHz, and declares keypad digits absent in both directions.
+  The SIP endpoint uses a packet leg. No carrier media stream adapter is
+  built.
+- Both legs use a 20 ms downlink pacer and stay 60 ms deep or less. Audio
+  converts at the model and recorder boundaries when their codecs differ.
+  Tasks and timers come from `pagis-rt`.
 
 Where the provider emits a speech-start event, it is the only voice activity
 detection: the bridge clears the pending downlink and truncates the model's

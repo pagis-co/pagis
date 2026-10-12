@@ -5012,6 +5012,7 @@ dependencies = [
  "pagis-audit",
  "pagis-broker",
  "pagis-core",
+ "pagis-rt",
  "pagis-storage-sqlite",
  "pagis-vault",
  "rand 0.9.5",

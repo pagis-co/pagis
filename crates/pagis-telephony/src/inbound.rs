@@ -88,7 +88,7 @@ impl InboundCalls {
         mut answered: mpsc::Receiver<IncomingHub>,
         cancel: CancellationToken,
     ) -> tokio::task::JoinHandle<()> {
-        tokio::spawn(async move {
+        pagis_rt::spawn(async move {
             loop {
                 let incoming = tokio::select! {
                     incoming = answered.recv() => incoming,
@@ -96,7 +96,7 @@ impl InboundCalls {
                 };
                 let Some(incoming) = incoming else { return };
                 let runner = Arc::clone(&self);
-                tokio::spawn(async move {
+                pagis_rt::spawn(async move {
                     if let Err(error) = runner.answer(incoming).await {
                         tracing::error!(%error, "an answered call did not run");
                     }
