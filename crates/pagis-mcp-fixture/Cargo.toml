@@ -7,7 +7,7 @@ publish.workspace = true
 autotests = false
 
 [dependencies]
-axum.workspace = true
+axum = { workspace = true, features = ["tokio", "http1"] }
 http.workspace = true
 rmcp = { workspace = true, features = [
     "server",

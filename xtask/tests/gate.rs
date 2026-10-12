@@ -1138,6 +1138,7 @@ fn plan_lists_every_gate_step_in_order() {
             "fmt",
             "clippy",
             "members-alone",
+            "server-portable",
             "wasm32",
             "computer-image",
             "screend-test",
@@ -1206,6 +1207,7 @@ fn plan_runs_cargo_steps_unconditionally() {
         "fmt",
         "clippy",
         "members-alone",
+        "server-portable",
         "wasm32",
         "computer-image",
         "test",
@@ -1762,6 +1764,7 @@ fn full_lanes_keep_every_cargo_consumer_in_one_lane() {
                     "fmt",
                     "clippy",
                     "members-alone",
+                    "server-portable",
                     "wasm32",
                     "computer-image",
                     "screend-test",
@@ -1908,7 +1911,7 @@ fn a_name_that_is_not_a_gate_step_is_refused_with_the_step_names() {
     .to_string();
     assert!(error.contains("no step `lint`"), "{error}");
     assert!(
-        error.contains("fmt, clippy, members-alone, wasm32, computer-image, screend-test, test"),
+        error.contains("fmt, clippy, members-alone, server-portable, wasm32, computer-image, screend-test, test"),
         "{error}"
     );
 }
@@ -2129,5 +2132,68 @@ fn the_server_release_does_not_ship_the_mobile_app() {
     assert!(
         !workflow.contains("cargo xtask mobile"),
         "release.yml ships the Mobile App"
+    );
+}
+
+#[test]
+fn the_full_gate_checks_and_tests_the_server_without_native() {
+    let steps = plan(&workspace_root(), false);
+    let step = steps
+        .iter()
+        .find(|step| step.name == "server-portable")
+        .expect("the build without native has a gate step");
+    let Action::Run(cmds) = &step.action else {
+        panic!("the step runs Cargo");
+    };
+    assert_eq!(cmds.len(), 2);
+    assert_eq!(cmds[0].program, "cargo");
+    assert_eq!(
+        cmds[0].args,
+        [
+            "clippy",
+            "-p",
+            "pagis-server",
+            "--all-targets",
+            "--no-default-features",
+            "--",
+            "-D",
+            "warnings"
+        ]
+    );
+    assert_eq!(
+        cmds[1].args,
+        [
+            "nextest",
+            "run",
+            "-p",
+            "pagis-server",
+            "--no-default-features"
+        ]
+    );
+    let dev = dev_lanes(
+        &workspace_root(),
+        &["crates/pagis-server/src/lib.rs".into()],
+        false,
+        NO_TOOLCHAINS,
+    )
+    .unwrap();
+    assert!(step_names(&dev).contains(&"server-portable"));
+}
+
+#[test]
+fn the_ci_server_portable_job_installs_nextest() {
+    let workflow =
+        std::fs::read_to_string(workspace_root().join(".github/workflows/ci.yml")).unwrap();
+    let jobs = workflow_jobs(&workflow);
+    let (_, job) = jobs
+        .iter()
+        .find(|(_, job)| {
+            job.lines()
+                .any(|line| line.contains("cargo xtask step") && line.contains("server-portable"))
+        })
+        .expect("CI runs the build without native");
+    assert!(
+        job.contains("tool: nextest"),
+        "the job installs the test runner"
     );
 }

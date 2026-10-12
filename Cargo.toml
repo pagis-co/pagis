@@ -94,7 +94,7 @@ croner = "3.0.1"
 # The Agent Mailbox local part is ASCII, so an Agent name that is not
 # ASCII is transliterated rather than dropped (ADR-0019).
 deunicode = "1"
-axum = { version = "0.8", features = ["ws", "multipart"] }
+axum = { version = "0.8", default-features = false, features = ["json", "query", "form", "matched-path", "original-uri", "multipart", "tracing"] }
 base64 = "0.22"
 bollard = "0.19"
 bytes = "1"

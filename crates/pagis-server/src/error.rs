@@ -45,6 +45,15 @@ impl ApiError {
         }
     }
 
+    /// The answer for a route of an absent Native Part.
+    pub fn not_available(part: &str) -> Self {
+        Self {
+            status: StatusCode::NOT_IMPLEMENTED,
+            code: "not_available",
+            message: format!("This server does not offer {part}."),
+        }
+    }
+
     pub fn not_found(what: &str) -> Self {
         ApiError {
             status: StatusCode::NOT_FOUND,

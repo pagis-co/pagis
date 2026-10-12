@@ -7,7 +7,8 @@ use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::{Path, State};
-use axum::http::{HeaderMap, StatusCode, header};
+use axum::http::HeaderMap;
+use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use pagis_core::{
     Agent, AgentId, AgentStatus, AvatarAppearance, Channel, ChannelId, ChannelKind,
@@ -16,10 +17,11 @@ use pagis_core::{
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use crate::AppState;
+use crate::Peer;
 use crate::auth::Tenant;
 use crate::error::ApiError;
 use crate::live_connections::LiveTenant;
-use crate::{AppState, Peer};
 use pagis_computer::{ComputerImageState, ComputerState};
 use pagis_core::{ComputerError, InputHolder};
 
@@ -907,27 +909,35 @@ pub struct ScreenIceBody {
         (status = 401, body = crate::error::ErrorBody),
     )
 )]
+#[cfg_attr(not(feature = "native"), allow(unused_variables, dead_code))]
 pub async fn screen_ice(
     State(state): State<Arc<AppState>>,
     Peer(peer): Peer,
     headers: HeaderMap,
     _tenant: Tenant,
 ) -> Result<Json<ScreenIceBody>, ApiError> {
-    Ok(Json(ScreenIceBody {
-        ice_servers: state
-            .computers
-            .ice_servers()
-            .into_iter()
-            .chain(crate::remote_access::turn_ice_server(
-                &state, peer, &headers,
-            ))
-            .map(|server| IceServerDto {
-                urls: server.urls,
-                username: server.username,
-                credential: server.credential,
-            })
-            .collect(),
-    }))
+    #[cfg(not(feature = "native"))]
+    {
+        Err(ApiError::not_available("Remote Access"))
+    }
+    #[cfg(feature = "native")]
+    {
+        Ok(Json(ScreenIceBody {
+            ice_servers: state
+                .computers
+                .ice_servers()
+                .into_iter()
+                .chain(crate::remote_access_native::turn_ice_server(
+                    &state, peer, &headers,
+                ))
+                .map(|server| IceServerDto {
+                    urls: server.urls,
+                    username: server.username,
+                    credential: server.credential,
+                })
+                .collect(),
+        }))
+    }
 }
 
 #[utoipa::path(

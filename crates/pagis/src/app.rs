@@ -1445,6 +1445,16 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     };
 
     let state = AppState {
+        native: pagis_server::NativeState {
+            analytics_blocked,
+            remote_access_switch: pagis_server::RemoteAccessSwitch::new(
+                options.tailscale,
+                options.remote_access_turn_port,
+            ),
+            remote_access_turn,
+            system: options.system,
+            restart: options.restart,
+        },
         bus,
         channels,
         participants,
@@ -1521,7 +1531,6 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         port_override: options.port_override,
         supervised: options.supervised,
         started_at: pagis_core::now_ms(),
-        analytics_blocked,
         public_origin: options.public_origin,
         // The owner's Client App and the Sign-In Link open a local
         // installation at this origin, whatever the Public Origin names
@@ -1531,11 +1540,6 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
             .is_some()
             .then(|| booted.config.local_origin(options.runtime_port)),
         remote_access: options.remote_access,
-        remote_access_switch: pagis_server::RemoteAccessSwitch::new(
-            options.tailscale,
-            options.remote_access_turn_port,
-        ),
-        remote_access_turn,
         administration: options.administration,
         administration_sections: pagis_server::AdministrationSections::without(
             &booted.config.administration.hide,
@@ -1555,8 +1559,6 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
             Some(_) => "postgres".to_string(),
             None => "sqlite".to_string(),
         },
-        system: options.system,
-        restart: options.restart,
         clock: options.clock,
     };
     // A local installation with Remote Access off serves this machine

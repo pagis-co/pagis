@@ -42,9 +42,11 @@ use crate::error::ApiError;
 pub const RESTART_EXIT_CODE: i32 = 75;
 
 /// The log levels the daemon accepts, lowest first.
+#[cfg(feature = "native")]
 const LOG_LEVELS: [&str; 5] = ["trace", "debug", "info", "warn", "error"];
 
 /// The lowest port the daemon binds. Ports under 1024 need root.
+#[cfg(feature = "native")]
 const MIN_PORT: u16 = 1024;
 
 /// The System Settings that live in the config file.
@@ -101,6 +103,7 @@ pub trait SystemConfigFile: Send + Sync {
     /// (ADR-0031): whether it is on, and its retention in days.
     fn model_request_capture(&self) -> Result<(bool, u32), String>;
     /// Write the Model Request Capture setting.
+    #[cfg(feature = "native")]
     fn set_model_request_capture(&self, enabled: bool, retention_days: u32) -> Result<(), String>;
     /// The data directory. The user reads it and never sets it.
     fn data_directory(&self) -> PathBuf;
@@ -219,6 +222,7 @@ pub enum AnalyticsBlockedDto {
     DoNotTrack,
 }
 
+#[cfg(feature = "native")]
 impl From<pagis_analytics::Blocked> for AnalyticsBlockedDto {
     fn from(blocked: pagis_analytics::Blocked) -> Self {
         match blocked {
@@ -357,6 +361,7 @@ pub(crate) fn is_local(state: &AppState) -> bool {
     state.client_credential.is_some()
 }
 
+#[cfg(feature = "native")]
 fn settings_dto(state: &AppState, config: SystemConfig, report: DockerReport) -> SystemSettingsDto {
     SystemSettingsDto {
         port: config.port,
@@ -366,13 +371,13 @@ fn settings_dto(state: &AppState, config: SystemConfig, report: DockerReport) ->
         started_at: state.started_at,
         docker_endpoint: config.docker_endpoint,
         log_level: config.log_level,
-        data_directory: state.system.data_directory().display().to_string(),
+        data_directory: state.native.system.data_directory().display().to_string(),
         version: crate::VERSION.to_string(),
         docker: report.into(),
         screen: (&state.screen).into(),
         analytics: AnalyticsDto {
             enabled: config.analytics,
-            blocked: state.analytics_blocked.map(Into::into),
+            blocked: state.native.analytics_blocked.map(Into::into),
         },
         model_request_capture: ModelRequestCaptureSettingDto {
             enabled: state.capture.is_enabled(),
@@ -393,16 +398,24 @@ fn settings_dto(state: &AppState, config: SystemConfig, report: DockerReport) ->
         (status = 403, body = crate::error::ErrorBody),
     )
 )]
+#[cfg_attr(not(feature = "native"), allow(unused_variables))]
 pub async fn get_system_settings(
     State(state): State<Arc<AppState>>,
     _administrator: Administrator,
 ) -> Result<Json<SystemSettingsDto>, ApiError> {
-    let config = state.system.read().map_err(|error| {
-        tracing::error!(%error, "cannot read the config file");
-        ApiError::internal()
-    })?;
-    let report = state.docker_discovery.probe().await;
-    Ok(Json(settings_dto(&state, config, report)))
+    #[cfg(not(feature = "native"))]
+    {
+        Err(ApiError::not_available("System Settings"))
+    }
+    #[cfg(feature = "native")]
+    {
+        let config = state.native.system.read().map_err(|error| {
+            tracing::error!(%error, "cannot read the config file");
+            ApiError::internal()
+        })?;
+        let report = state.docker_discovery.probe().await;
+        Ok(Json(settings_dto(&state, config, report)))
+    }
 }
 
 #[utoipa::path(
@@ -416,58 +429,67 @@ pub async fn get_system_settings(
         (status = 422, body = crate::error::ErrorBody),
     )
 )]
+#[cfg_attr(not(feature = "native"), allow(unused_variables))]
 pub async fn set_system_settings(
     State(state): State<Arc<AppState>>,
     _administrator: Administrator,
     Json(request): Json<UpdateSystemSettingsRequest>,
 ) -> Result<Json<SavedSystemSettingsDto>, ApiError> {
-    if request.port < MIN_PORT {
-        return Err(ApiError::validation(format!(
-            "the port must be {MIN_PORT} or higher"
-        )));
+    #[cfg(not(feature = "native"))]
+    {
+        Err(ApiError::not_available("System Settings"))
     }
-    let log_level = request.log_level.trim().to_lowercase();
-    if !LOG_LEVELS.contains(&log_level.as_str()) {
-        return Err(ApiError::validation(format!(
-            "the log level must be one of {}",
-            LOG_LEVELS.join(", ")
-        )));
-    }
-    let docker_endpoint =
-        checked_docker_endpoint(&state, request.docker_endpoint.as_deref()).await?;
+    #[cfg(feature = "native")]
+    {
+        if request.port < MIN_PORT {
+            return Err(ApiError::validation(format!(
+                "the port must be {MIN_PORT} or higher"
+            )));
+        }
+        let log_level = request.log_level.trim().to_lowercase();
+        if !LOG_LEVELS.contains(&log_level.as_str()) {
+            return Err(ApiError::validation(format!(
+                "the log level must be one of {}",
+                LOG_LEVELS.join(", ")
+            )));
+        }
+        let docker_endpoint =
+            checked_docker_endpoint(&state, request.docker_endpoint.as_deref()).await?;
 
-    let current = state.system.read().map_err(|error| {
-        tracing::error!(%error, "cannot read the config file");
-        ApiError::internal()
-    })?;
-    let config = SystemConfig {
-        port: request.port,
-        docker_endpoint,
-        log_level,
-        analytics: current.analytics,
-        home_exit: current.home_exit,
-    };
-    state.system.write(&config).map_err(|error| {
-        tracing::error!(%error, "cannot write the config file");
-        ApiError::internal()
-    })?;
-    // The endpoint takes effect on the runtime's next connect, with no
-    // restart (ADR-0024).
-    state
-        .docker_discovery
-        .set_override(config.docker_endpoint.clone());
-    let restart_required = config.port != current.port || config.log_level != current.log_level;
-    let report = state.docker_discovery.probe().await;
-    Ok(Json(SavedSystemSettingsDto {
-        settings: settings_dto(&state, config, report),
-        restart_required,
-    }))
+        let current = state.native.system.read().map_err(|error| {
+            tracing::error!(%error, "cannot read the config file");
+            ApiError::internal()
+        })?;
+        let config = SystemConfig {
+            port: request.port,
+            docker_endpoint,
+            log_level,
+            analytics: current.analytics,
+            home_exit: current.home_exit,
+        };
+        state.native.system.write(&config).map_err(|error| {
+            tracing::error!(%error, "cannot write the config file");
+            ApiError::internal()
+        })?;
+        // The endpoint takes effect on the runtime's next connect, with no
+        // restart (ADR-0024).
+        state
+            .docker_discovery
+            .set_override(config.docker_endpoint.clone());
+        let restart_required = config.port != current.port || config.log_level != current.log_level;
+        let report = state.docker_discovery.probe().await;
+        Ok(Json(SavedSystemSettingsDto {
+            settings: settings_dto(&state, config, report),
+            restart_required,
+        }))
+    }
 }
 
 /// The Docker endpoint a person typed, parsed and pinged. An override
 /// is pinged before it is saved (ADR-0024), so a typing mistake never
 /// leaves the computers unreachable. An empty entry gives discovery the
 /// choice back.
+#[cfg(feature = "native")]
 pub(crate) async fn checked_docker_endpoint(
     state: &AppState,
     raw: Option<&str>,
@@ -493,16 +515,17 @@ pub(crate) async fn checked_docker_endpoint(
 /// Save the Docker endpoint and keep every other System Setting. The
 /// endpoint takes effect on the runtime's next connect, with no restart
 /// (ADR-0024).
+#[cfg(feature = "native")]
 pub(crate) fn save_docker_endpoint(
     state: &AppState,
     endpoint: Option<String>,
 ) -> Result<(), ApiError> {
-    let mut config = state.system.read().map_err(|error| {
+    let mut config = state.native.system.read().map_err(|error| {
         tracing::error!(%error, "cannot read the config file");
         ApiError::internal()
     })?;
     config.docker_endpoint = endpoint;
-    state.system.write(&config).map_err(|error| {
+    state.native.system.write(&config).map_err(|error| {
         tracing::error!(%error, "cannot write the config file");
         ApiError::internal()
     })?;
@@ -538,29 +561,37 @@ pub fn origin_host_is_loopback(origin: &str) -> bool {
 /// Turn the anonymous analytics of the installation on or off
 /// (ADR-0026). The analytics task reads the setting at each check, so
 /// the change needs no restart.
+#[cfg_attr(not(feature = "native"), allow(unused_variables))]
 pub async fn set_analytics(
     State(state): State<Arc<AppState>>,
     _administrator: Administrator,
     Json(request): Json<SetAnalyticsRequest>,
 ) -> Result<Json<SavedSystemSettingsDto>, ApiError> {
-    let mut config = state.system.read().map_err(|error| {
-        tracing::error!(%error, "cannot read the config file");
-        ApiError::internal()
-    })?;
-    config.analytics = request.enabled;
-    state.system.write(&config).map_err(|error| {
-        tracing::error!(%error, "cannot write the config file");
-        ApiError::internal()
-    })?;
-    tracing::info!(
-        enabled = request.enabled,
-        "the administrator switched the analytics"
-    );
-    let report = state.docker_discovery.probe().await;
-    Ok(Json(SavedSystemSettingsDto {
-        settings: settings_dto(&state, config, report),
-        restart_required: false,
-    }))
+    #[cfg(not(feature = "native"))]
+    {
+        Err(ApiError::not_available("System Settings"))
+    }
+    #[cfg(feature = "native")]
+    {
+        let mut config = state.native.system.read().map_err(|error| {
+            tracing::error!(%error, "cannot read the config file");
+            ApiError::internal()
+        })?;
+        config.analytics = request.enabled;
+        state.native.system.write(&config).map_err(|error| {
+            tracing::error!(%error, "cannot write the config file");
+            ApiError::internal()
+        })?;
+        tracing::info!(
+            enabled = request.enabled,
+            "the administrator switched the analytics"
+        );
+        let report = state.docker_discovery.probe().await;
+        Ok(Json(SavedSystemSettingsDto {
+            settings: settings_dto(&state, config, report),
+            restart_required: false,
+        }))
+    }
 }
 
 #[utoipa::path(
@@ -578,44 +609,53 @@ pub async fn set_analytics(
 /// (ADR-0031). The agent loop reads the live setting at each model
 /// request, so the change needs no restart. Turning it off deletes every
 /// capture of the installation.
+#[cfg_attr(not(feature = "native"), allow(unused_variables))]
 pub async fn set_model_request_capture(
     State(state): State<Arc<AppState>>,
     _administrator: Administrator,
     Json(request): Json<SetModelRequestCaptureRequest>,
 ) -> Result<Json<SavedSystemSettingsDto>, ApiError> {
-    let days = request.retention_days;
-    if !(1..=pagis_core::MAX_CAPTURE_RETENTION_DAYS).contains(&days) {
-        return Err(ApiError::validation(format!(
-            "the retention must be from 1 to {} days",
-            pagis_core::MAX_CAPTURE_RETENTION_DAYS
-        )));
+    #[cfg(not(feature = "native"))]
+    {
+        Err(ApiError::not_available("System Settings"))
     }
-    state
-        .system
-        .set_model_request_capture(request.enabled, days)
-        .map_err(|error| {
-            tracing::error!(%error, "cannot write the config file");
+    #[cfg(feature = "native")]
+    {
+        let days = request.retention_days;
+        if !(1..=pagis_core::MAX_CAPTURE_RETENTION_DAYS).contains(&days) {
+            return Err(ApiError::validation(format!(
+                "the retention must be from 1 to {} days",
+                pagis_core::MAX_CAPTURE_RETENTION_DAYS
+            )));
+        }
+        state
+            .native
+            .system
+            .set_model_request_capture(request.enabled, days)
+            .map_err(|error| {
+                tracing::error!(%error, "cannot write the config file");
+                ApiError::internal()
+            })?;
+        state.capture.set(request.enabled, days);
+        if !request.enabled {
+            let deleted = state.model_request_captures.delete_all().await?;
+            tracing::info!(deleted, "turning the capture off deleted every capture");
+        }
+        tracing::info!(
+            enabled = request.enabled,
+            retention_days = days,
+            "the administrator switched the model request capture"
+        );
+        let config = state.native.system.read().map_err(|error| {
+            tracing::error!(%error, "cannot read the config file");
             ApiError::internal()
         })?;
-    state.capture.set(request.enabled, days);
-    if !request.enabled {
-        let deleted = state.model_request_captures.delete_all().await?;
-        tracing::info!(deleted, "turning the capture off deleted every capture");
+        let report = state.docker_discovery.probe().await;
+        Ok(Json(SavedSystemSettingsDto {
+            settings: settings_dto(&state, config, report),
+            restart_required: false,
+        }))
     }
-    tracing::info!(
-        enabled = request.enabled,
-        retention_days = days,
-        "the administrator switched the model request capture"
-    );
-    let config = state.system.read().map_err(|error| {
-        tracing::error!(%error, "cannot read the config file");
-        ApiError::internal()
-    })?;
-    let report = state.docker_discovery.probe().await;
-    Ok(Json(SavedSystemSettingsDto {
-        settings: settings_dto(&state, config, report),
-        restart_required: false,
-    }))
 }
 
 #[utoipa::path(
@@ -632,36 +672,44 @@ pub async fn set_model_request_capture(
 /// Turn the Home Exit off or on for every Person of a Server
 /// (ADR-0029). The daemon writes the setting, and each awake Computer
 /// whose mode changes switches at once, with no restart.
+#[cfg_attr(not(feature = "native"), allow(unused_variables))]
 pub async fn set_home_exit_setting(
     State(state): State<Arc<AppState>>,
     _administrator: Administrator,
     Json(request): Json<SetHomeExitSettingRequest>,
 ) -> Result<Json<SwitchedHomeExitSettingDto>, ApiError> {
-    if is_local(&state) {
-        return Err(ApiError::conflict(
-            "a Local Installation has no Home Exit: its Computers reach the internet from this              machine's own connection",
-        ));
+    #[cfg(not(feature = "native"))]
+    {
+        Err(ApiError::not_available("System Settings"))
     }
-    let mut config = state.system.read().map_err(|error| {
-        tracing::error!(%error, "cannot read the config file");
-        ApiError::internal()
-    })?;
-    config.home_exit = request.enabled;
-    state.system.write(&config).map_err(|error| {
-        tracing::error!(%error, "cannot write the config file");
-        ApiError::internal()
-    })?;
-    state.home_exits.set_enabled(request.enabled);
-    tracing::info!(
-        enabled = request.enabled,
-        "the administrator switched the Home Exit"
-    );
-    let not_switched = state.computers.settle_exits().await.len();
-    let report = state.docker_discovery.probe().await;
-    Ok(Json(SwitchedHomeExitSettingDto {
-        settings: settings_dto(&state, config, report),
-        not_switched: u32::try_from(not_switched).unwrap_or(u32::MAX),
-    }))
+    #[cfg(feature = "native")]
+    {
+        if is_local(&state) {
+            return Err(ApiError::conflict(
+                "a Local Installation has no Home Exit: its Computers reach the internet from this              machine's own connection",
+            ));
+        }
+        let mut config = state.native.system.read().map_err(|error| {
+            tracing::error!(%error, "cannot read the config file");
+            ApiError::internal()
+        })?;
+        config.home_exit = request.enabled;
+        state.native.system.write(&config).map_err(|error| {
+            tracing::error!(%error, "cannot write the config file");
+            ApiError::internal()
+        })?;
+        state.home_exits.set_enabled(request.enabled);
+        tracing::info!(
+            enabled = request.enabled,
+            "the administrator switched the Home Exit"
+        );
+        let not_switched = state.computers.settle_exits().await.len();
+        let report = state.docker_discovery.probe().await;
+        Ok(Json(SwitchedHomeExitSettingDto {
+            settings: settings_dto(&state, config, report),
+            not_switched: u32::try_from(not_switched).unwrap_or(u32::MAX),
+        }))
+    }
 }
 
 #[utoipa::path(
@@ -673,11 +721,19 @@ pub async fn set_home_exit_setting(
         (status = 403, body = crate::error::ErrorBody),
     )
 )]
+#[cfg_attr(not(feature = "native"), allow(unused_variables))]
 pub async fn probe_docker(
     State(state): State<Arc<AppState>>,
     _administrator: Administrator,
 ) -> Result<Json<DockerReportDto>, ApiError> {
-    Ok(Json(state.docker_discovery.probe().await.into()))
+    #[cfg(not(feature = "native"))]
+    {
+        Err(ApiError::not_available("System Settings"))
+    }
+    #[cfg(feature = "native")]
+    {
+        Ok(Json(state.docker_discovery.probe().await.into()))
+    }
 }
 
 #[utoipa::path(
@@ -689,15 +745,23 @@ pub async fn probe_docker(
         (status = 403, body = crate::error::ErrorBody),
     )
 )]
+#[cfg_attr(not(feature = "native"), allow(unused_variables))]
 pub async fn restart(
     State(state): State<Arc<AppState>>,
     _administrator: Administrator,
-) -> Json<RestartDto> {
-    tracing::info!("the user asked for a restart");
-    state.restart.ask();
-    Json(RestartDto {
-        exit_code: RESTART_EXIT_CODE,
-    })
+) -> Result<Json<RestartDto>, ApiError> {
+    #[cfg(not(feature = "native"))]
+    {
+        Err(ApiError::not_available("System Settings"))
+    }
+    #[cfg(feature = "native")]
+    {
+        tracing::info!("the user asked for a restart");
+        state.native.restart.ask();
+        Ok(Json(RestartDto {
+            exit_code: RESTART_EXIT_CODE,
+        }))
+    }
 }
 
 #[cfg(test)]

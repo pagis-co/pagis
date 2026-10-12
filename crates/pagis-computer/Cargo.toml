@@ -43,7 +43,7 @@ yamux.workspace = true
 webrtc-util.workspace = true
 
 [dev-dependencies]
-axum.workspace = true
+axum = { workspace = true, features = ["tokio", "http1"] }
 pagis-audit.workspace = true
 # The docker-real tests start each harness on the model route that the
 # daemon gives it.

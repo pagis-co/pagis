@@ -30,8 +30,11 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
+#[cfg(feature = "native")]
 use axum::extract::State;
+#[cfg(feature = "native")]
 use axum::extract::ws::WebSocketUpgrade;
+#[cfg(feature = "native")]
 use axum::response::Response;
 use futures::{SinkExt, StreamExt};
 use pagis_agent::{DeltaFrame, ProgressFrame};
@@ -46,6 +49,7 @@ use utoipa::ToSchema;
 
 use crate::AppState;
 use crate::auth::Tenant;
+#[cfg(feature = "native")]
 use crate::axum_socket::AxumSocket;
 use crate::live_connections::{LiveTenant, close_for_ended_session};
 use crate::{Message, MessageSocket};
@@ -289,6 +293,7 @@ impl ServerFrame {
     }
 }
 
+#[cfg(feature = "native")]
 pub async fn upgrade(
     State(state): State<Arc<AppState>>,
     live: LiveTenant,

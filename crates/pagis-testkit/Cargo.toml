@@ -9,7 +9,7 @@ publish.workspace = true
 async-trait.workspace = true
 # The fake uses line diffs and three-way merges, as git does.
 diffy = "0.5"
-axum.workspace = true
+axum = { workspace = true, features = ["tokio", "http1", "ws"] }
 base64.workspace = true
 chrono.workspace = true
 chrono-tz.workspace = true

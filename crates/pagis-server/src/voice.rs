@@ -19,6 +19,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::Json;
+#[cfg(feature = "native")]
 use axum::extract::ws::WebSocketUpgrade;
 use axum::extract::{Path, Query, State};
 use axum::http::{StatusCode, header};
@@ -31,6 +32,7 @@ use utoipa::{IntoParams, ToSchema};
 
 use crate::AppState;
 use crate::auth::Tenant;
+#[cfg(feature = "native")]
 use crate::axum_socket::AxumSocket;
 use crate::error::ApiError;
 use crate::live_connections::{LiveTenant, close_for_ended_session};
@@ -81,6 +83,7 @@ impl DictateServerFrame {
     }
 }
 
+#[cfg(feature = "native")]
 pub async fn dictate(
     State(state): State<Arc<AppState>>,
     live: LiveTenant,

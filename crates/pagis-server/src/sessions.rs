@@ -432,7 +432,9 @@ pub async fn sign_in_with_password(
     // The public name of Remote Access faces the internet, so a password
     // never crosses it. The refusal comes before any check of the
     // address or the password, so it says nothing about either.
-    if crate::remote_access::sign_in_method(&state, peer, &headers) == SignInMethod::Link {
+    if crate::remote_access::sign_in_method(state.remote_access, peer, &headers)
+        == SignInMethod::Link
+    {
         return Err(ApiError::forbidden(PASSWORD_FROM_ANOTHER_MACHINE));
     }
     let now = state.clock.now_ms();

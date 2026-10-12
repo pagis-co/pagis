@@ -28,7 +28,7 @@ use crate::phone_numbers;
 use crate::plugins;
 use crate::providers;
 use crate::push_subscriptions;
-use crate::remote_access;
+use crate::remote_access_native as remote_access;
 use crate::requests;
 use crate::run_steps;
 use crate::runs;
@@ -509,7 +509,7 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         remote_access::TurningOnDto,
         remote_access::TailscaleState,
         remote_access::FunnelPort,
-        remote_access::SignInMethod,
+        crate::remote_access::SignInMethod,
         system::AnalyticsDto,
         system::AnalyticsBlockedDto,
         system::SetAnalyticsRequest,

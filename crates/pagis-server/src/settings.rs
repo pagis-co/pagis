@@ -49,6 +49,7 @@ pub struct OnboardingDto {
     pub docker: crate::system::DockerReportDto,
     /// The Docker endpoint an Administrator typed, or `null` for
     /// discovery. It is `null` for a Member.
+    #[cfg_attr(not(feature = "native"), allow(dead_code))]
     pub docker_endpoint: Option<String>,
 }
 
@@ -57,6 +58,7 @@ pub struct SetOnboardingDockerEndpointRequest {
     /// A socket path, a `unix://` or a `tcp://` endpoint. Null gives
     /// discovery the choice back. Pagis pings the endpoint before it
     /// saves.
+    #[cfg_attr(not(feature = "native"), allow(dead_code))]
     pub docker_endpoint: Option<String>,
 }
 
@@ -86,6 +88,7 @@ fn model_proof(provider: Provider, source: pagis_core::KeySource, key: &str) -> 
 
 /// The key checks whose credential still resolves: a check proves the
 /// key it read the list with, and no other.
+#[cfg(feature = "native")]
 async fn current_checks(state: &AppState, tenant: &Tenant) -> Result<Vec<ModelCheckDto>, ApiError> {
     let mut checks = Vec::new();
     for saved in state
@@ -1398,49 +1401,58 @@ pub(crate) fn secret_error(err: pagis_core::SecretError) -> ApiError {
         (status = 401, body = crate::error::ErrorBody),
     )
 )]
+#[cfg_attr(not(feature = "native"), allow(unused_variables, dead_code))]
 pub async fn onboarding_status(
     State(state): State<Arc<AppState>>,
     tenant: Tenant,
 ) -> Result<Json<OnboardingDto>, ApiError> {
-    let workspace = state
-        .workspaces
-        .get(&tenant.workspace_id)
-        .await?
-        .ok_or_else(|| ApiError::not_found("workspace"))?;
-    let docker = state.docker_discovery.probe().await;
-    Ok(Json(OnboardingDto {
-        completed: workspace.onboarded_at.is_some(),
-        // The provider keys are the installation's. A Member
-        // reads none of them: on a server the Administrator supplies
-        // them and a person connecting to one takes no key at all.
-        // A local installation's one person is the
-        // administrator, so their wizard is unchanged.
-        providers: match tenant.role {
-            pagis_core::UserRole::Administrator => provider_statuses(&state.keys)?,
-            pagis_core::UserRole::Member => Vec::new(),
-        },
-        checks: current_checks(&state, &tenant).await?,
-        docker: match tenant.role {
-            pagis_core::UserRole::Administrator => docker.into(),
-            pagis_core::UserRole::Member => crate::system::DockerReportDto {
-                endpoint: docker.endpoint,
-                candidates: Vec::new(),
+    #[cfg(not(feature = "native"))]
+    {
+        Err(ApiError::not_available("System Settings"))
+    }
+    #[cfg(feature = "native")]
+    {
+        let workspace = state
+            .workspaces
+            .get(&tenant.workspace_id)
+            .await?
+            .ok_or_else(|| ApiError::not_found("workspace"))?;
+        let docker = state.docker_discovery.probe().await;
+        Ok(Json(OnboardingDto {
+            completed: workspace.onboarded_at.is_some(),
+            // The provider keys are the installation's. A Member
+            // reads none of them: on a server the Administrator supplies
+            // them and a person connecting to one takes no key at all.
+            // A local installation's one person is the
+            // administrator, so their wizard is unchanged.
+            providers: match tenant.role {
+                pagis_core::UserRole::Administrator => provider_statuses(&state.keys)?,
+                pagis_core::UserRole::Member => Vec::new(),
             },
-        },
-        docker_endpoint: match tenant.role {
-            pagis_core::UserRole::Administrator => {
-                state
-                    .system
-                    .read()
-                    .map_err(|error| {
-                        tracing::error!(%error, "cannot read the config file");
-                        ApiError::internal()
-                    })?
-                    .docker_endpoint
-            }
-            pagis_core::UserRole::Member => None,
-        },
-    }))
+            checks: current_checks(&state, &tenant).await?,
+            docker: match tenant.role {
+                pagis_core::UserRole::Administrator => docker.into(),
+                pagis_core::UserRole::Member => crate::system::DockerReportDto {
+                    endpoint: docker.endpoint,
+                    candidates: Vec::new(),
+                },
+            },
+            docker_endpoint: match tenant.role {
+                pagis_core::UserRole::Administrator => {
+                    state
+                        .native
+                        .system
+                        .read()
+                        .map_err(|error| {
+                            tracing::error!(%error, "cannot read the config file");
+                            ApiError::internal()
+                        })?
+                        .docker_endpoint
+                }
+                pagis_core::UserRole::Member => None,
+            },
+        }))
+    }
 }
 
 /// Refuse a first-run write once the Workspace finished onboarding.
@@ -1510,16 +1522,25 @@ pub async fn set_onboarding_provider_key(
 /// The computer step's Docker endpoint. It answers an Administrator
 /// while their Workspace has not finished onboarding, and `409`
 /// afterwards.
+#[cfg_attr(not(feature = "native"), allow(unused_variables, dead_code))]
 pub async fn set_onboarding_docker_endpoint(
     State(state): State<Arc<AppState>>,
     Administrator(tenant): Administrator,
     Json(request): Json<SetOnboardingDockerEndpointRequest>,
 ) -> Result<StatusCode, ApiError> {
-    refuse_after_onboarding(&state, &tenant).await?;
-    let endpoint =
-        crate::system::checked_docker_endpoint(&state, request.docker_endpoint.as_deref()).await?;
-    crate::system::save_docker_endpoint(&state, endpoint)?;
-    Ok(StatusCode::NO_CONTENT)
+    #[cfg(not(feature = "native"))]
+    {
+        Err(ApiError::not_available("System Settings"))
+    }
+    #[cfg(feature = "native")]
+    {
+        refuse_after_onboarding(&state, &tenant).await?;
+        let endpoint =
+            crate::system::checked_docker_endpoint(&state, request.docker_endpoint.as_deref())
+                .await?;
+        crate::system::save_docker_endpoint(&state, endpoint)?;
+        Ok(StatusCode::NO_CONTENT)
+    }
 }
 
 #[utoipa::path(

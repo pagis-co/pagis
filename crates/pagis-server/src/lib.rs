@@ -6,6 +6,7 @@ mod administration;
 mod agents;
 mod artifacts;
 mod auth;
+#[cfg(feature = "native")]
 mod axum_socket;
 mod byte_socket;
 pub mod calls;
@@ -32,6 +33,8 @@ mod memory;
 mod message_socket;
 pub mod model_lists;
 pub mod model_preference;
+#[cfg(feature = "native")]
+mod native;
 mod needs_you;
 mod openapi;
 mod peer;
@@ -41,6 +44,15 @@ mod providers;
 pub mod provisioning;
 mod push_subscriptions;
 pub mod remote_access;
+mod remote_access_native;
+#[cfg(not(feature = "native"))]
+mod unavailable;
+#[cfg(feature = "native")]
+pub use native::NativeState;
+#[cfg(feature = "native")]
+use native::product_routes as native_product_routes;
+#[cfg(not(feature = "native"))]
+use unavailable::product_routes as native_product_routes;
 mod requests;
 mod ring;
 pub mod routes;
@@ -89,10 +101,12 @@ pub use live_connections::{LiveConnections, LiveTenant};
 pub use message_socket::{CloseFrame, Message, MessageSocket};
 pub use openapi::ApiDoc;
 pub use peer::Peer;
-pub use remote_access::{
-    FUNNEL_PROXY, FUNNEL_TURN_PORT, FunnelPort, FunnelTargets, RemoteAccessSwitch, Tailscale,
-    TailscaleState, serves_this_machine_only,
+pub use remote_access::serves_this_machine_only;
+#[cfg(feature = "native")]
+pub use remote_access_native::{
+    FUNNEL_PROXY, FUNNEL_TURN_PORT, FunnelTargets, RemoteAccessSwitch, Tailscale,
 };
+pub use remote_access_native::{FunnelPort, TailscaleState};
 pub use ring::{EventRing, RingConfig, RingedBus};
 pub use routes::{
     ADMINISTRATION_PUBLIC_ROUTES, ADMINISTRATION_ROUTES, PUBLIC_ROUTES, ROUTES, Route,
@@ -117,6 +131,8 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// behind the storage seams. The bus must already be ring-wrapped
 /// (`RingedBus`) so every published event is resumable over `last_seq`.
 pub struct AppState {
+    #[cfg(feature = "native")]
+    pub native: NativeState,
     pub bus: Arc<dyn EventBus>,
     pub channels: Arc<dyn ChannelStore>,
     pub participants: Arc<dyn ParticipantStore>,
@@ -308,9 +324,6 @@ pub struct AppState {
     /// restart changes it, so a page that asked for one knows when the
     /// new process answers.
     pub started_at: i64,
-    /// Why this daemon sends no analytics whatever the System Setting
-    /// says (ADR-0026), or `None` for a release build that can send.
-    pub analytics_blocked: Option<pagis_analytics::Blocked>,
     /// The origin a browser reaches this installation at: the
     /// reverse proxy's on a server, loopback on a local installation. The
     /// CORS answer names it and no other, and the product port refuses a
@@ -328,13 +341,6 @@ pub struct AppState {
     /// Sign-In Link and never with a password, and a local installation
     /// serves other machines.
     pub remote_access: bool,
-    /// The Remote Access switch of a local installation, over the
-    /// Tailscale of this machine.
-    pub remote_access_switch: RemoteAccessSwitch,
-    /// The TURN server of Remote Access, which carries the live screen to
-    /// a browser on another machine over the Funnel (ADR-0028). `Some`
-    /// while the daemon runs in Remote Access, and `None` otherwise.
-    pub remote_access_turn: Option<Arc<pagis_computer::RemoteAccessTurn>>,
     /// Where a browser reaches the Administration Interface. The
     /// product answers it to an Administrator, so the page can link to
     /// the port it draws no installation setting of its own for. The
@@ -364,10 +370,6 @@ pub struct AppState {
     /// The Administration Interface reports it; nothing branches
     /// on it.
     pub database_backend: String,
-    /// The config file the System tab reads and writes.
-    pub system: Arc<dyn SystemConfigFile>,
-    /// The restart the System tab asks for.
-    pub restart: Arc<RestartSwitch>,
     /// The daemon's logical time for owner messages and scheduled work.
     pub clock: Arc<dyn Clock>,
 }
@@ -508,7 +510,6 @@ fn product_router(state: Arc<AppState>) -> Router {
             post(agents::sleep_computer),
         )
         .route("/api/v1/computers/disk", get(agents::computer_disk))
-        .route("/api/v1/screen/ice", get(agents::screen_ice))
         .route(
             "/api/v1/agents/{agent_id}/screen/preview.png",
             get(agents::screen_preview),
@@ -660,10 +661,6 @@ fn product_router(state: Arc<AppState>) -> Router {
         .route("/api/v1/workspace/timezone", put(workspace::put_timezone))
         .route("/api/v1/workspace/report", get(workspace::get_report))
         .route(
-            "/api/v1/settings/onboarding",
-            get(settings::onboarding_status),
-        )
-        .route(
             "/api/v1/settings/onboarding/complete",
             post(settings::complete_onboarding),
         )
@@ -676,10 +673,6 @@ fn product_router(state: Arc<AppState>) -> Router {
         .route(
             "/api/v1/settings/onboarding/providers/{provider}/key/check",
             post(settings::check_onboarding_provider_key),
-        )
-        .route(
-            "/api/v1/settings/onboarding/docker-endpoint",
-            put(settings::set_onboarding_docker_endpoint),
         )
         .route(
             "/api/v1/settings/onboarding/default-model",
@@ -858,15 +851,7 @@ fn product_router(state: Arc<AppState>) -> Router {
         // first frame carries no credential. The origin check that
         // `routers` puts around the product router refuses an upgrade
         // that a page at another origin starts.
-        .route("/api/v1/ws", get(ws::upgrade))
-        .route("/api/v1/hosts/{host_id}/exit", get(exit_socket::upgrade))
-        .route(
-            "/api/v1/hosts/{host_id}/sessions",
-            get(session_socket::upgrade),
-        )
-        .route("/api/v1/channels/{channel_id}/dictate", get(voice::dictate))
-        // Listen-Live (ADR-0020).
-        .route("/api/v1/calls/{call_id}/listen", get(calls::listen))
+        .merge(native_product_routes())
         .layer(middleware::from_fn_with_state(
             Arc::clone(&state),
             auth::authenticate,
@@ -953,7 +938,7 @@ async fn health(
     Json(HealthDto {
         status: "ok".to_string(),
         version: VERSION.to_string(),
-        sign_in: remote_access::sign_in_method(&state, peer, &headers),
+        sign_in: remote_access::sign_in_method(state.remote_access, peer, &headers),
     })
 }
 
