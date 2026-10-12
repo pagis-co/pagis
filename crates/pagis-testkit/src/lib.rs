@@ -581,6 +581,7 @@ impl TestDaemon {
                 media_relay: pagis_computer::fake::loopback_relay(),
                 screen: options.screen,
                 secrets: Arc::clone(&options.secrets),
+                model_end_user_key: pagis_core::ModelEndUserKey::from_installation_key(&[7; 32]),
                 connection_providers: options.connection_providers,
                 connection_call_timeout: options.connection_call_timeout,
                 // No test reaches Google: without an endpoint of its own,

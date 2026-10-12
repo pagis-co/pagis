@@ -50,7 +50,7 @@ pub fn platform_secret_store(
     home: &Path,
     config: &Config,
     installation: Installation,
-) -> anyhow::Result<Arc<dyn SecretStore>> {
+) -> anyhow::Result<Arc<EncryptedFileSecretStore>> {
     let (key, source) = match installation {
         #[cfg(target_os = "macos")]
         Installation::Server => {
@@ -439,6 +439,10 @@ impl EncryptedFileSecretStore {
             key,
             write_lock: Mutex::new(()),
         }
+    }
+
+    pub fn model_end_user_key(&self) -> pagis_core::ModelEndUserKey {
+        pagis_core::ModelEndUserKey::from_installation_key(&self.key)
     }
 
     fn read_all(&self) -> Result<serde_json::Map<String, Value>, SecretError> {

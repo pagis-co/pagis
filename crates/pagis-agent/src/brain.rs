@@ -184,6 +184,8 @@ impl TurnMessage {
 /// One model turn: the rebuilt context for one streaming call.
 #[derive(Debug, Clone)]
 pub struct TurnRequest {
+    /// The Person of the Run. ModelCall resolves it from the Workspace.
+    pub person_id: Option<pagis_core::UserId>,
     pub model_alias: String,
     /// Ordered `provider/model` candidates resolved for this run.
     pub model_candidates: Vec<String>,
@@ -259,6 +261,7 @@ pub trait Brain: Send + Sync {
 type RouterEntry = (Arc<Router>, Vec<(Provider, String)>);
 
 pub struct RouterBrain {
+    end_user_key: pagis_core::ModelEndUserKey,
     keys: Arc<ProviderKeys>,
     /// The Provider Model Lists, which price a model the table does not
     /// know.
@@ -273,10 +276,15 @@ pub struct RouterBrain {
 }
 
 impl RouterBrain {
-    pub fn new(keys: Arc<ProviderKeys>, models: Arc<crate::ModelCatalog>) -> Self {
+    pub fn new(
+        keys: Arc<ProviderKeys>,
+        models: Arc<crate::ModelCatalog>,
+        end_user_key: pagis_core::ModelEndUserKey,
+    ) -> Self {
         Self {
             keys,
             models,
+            end_user_key,
             cache: Mutex::new(None),
             base_urls: HashMap::new(),
             refused_native_computer: Mutex::new(HashSet::new()),
@@ -742,6 +750,14 @@ impl Brain for RouterBrain {
         let mut messages = vec![Message::system(request.system)];
         messages.extend(request.messages.into_iter().map(to_router_message));
         let mut chat = ChatRequest::new(request.model_alias, messages);
+        chat.end_user = Some(
+            self.end_user_key.for_person(
+                request
+                    .person_id
+                    .as_ref()
+                    .ok_or_else(|| BrainError::new("model request has no Person"))?,
+            ),
+        );
         chat.max_tokens = request.max_output_tokens;
         chat.output_schema = request.output_schema;
         chat.tools = request
@@ -839,6 +855,7 @@ mod tests {
 
     fn request() -> TurnRequest {
         TurnRequest {
+            person_id: Some(pagis_core::UserId::from("person-one".to_string())),
             model_alias: "default".to_string(),
             model_candidates: vec!["anthropic/claude-sonnet-4-6".to_string()],
             system: "system".to_string(),
@@ -852,8 +869,96 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn turns_of_one_person_send_the_same_opaque_id_and_other_people_send_other_ids() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/responses"))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(
+                "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\"}}\n\n",
+                "text/event-stream",
+            ))
+            .expect(4).mount(&server).await;
+        let keys = keys();
+        keys.set(Provider::OpenRouter, "key").unwrap();
+        let brain = RouterBrain::new(
+            Arc::clone(&keys),
+            catalog(),
+            pagis_core::ModelEndUserKey::from_installation_key(&[7; 32]),
+        )
+        .with_base_url(Provider::OpenRouter, server.uri());
+        for person in ["person-one", "person-one", "person-two"] {
+            let mut turn = request();
+            turn.person_id = Some(pagis_core::UserId::from(person.to_string()));
+            turn.model_candidates = vec!["openrouter/openai/gpt-6-astra".into()];
+            let events: Vec<_> = brain.turn(turn).await.unwrap().collect().await;
+            assert!(events.iter().all(Result::is_ok));
+        }
+        let other_installation = RouterBrain::new(
+            keys,
+            catalog(),
+            pagis_core::ModelEndUserKey::from_installation_key(&[8; 32]),
+        )
+        .with_base_url(Provider::OpenRouter, server.uri());
+        let mut turn = request();
+        turn.person_id = Some(pagis_core::UserId::from("person-one".to_string()));
+        turn.model_candidates = vec!["openrouter/openai/gpt-6-astra".into()];
+        let events: Vec<_> = other_installation.turn(turn).await.unwrap().collect().await;
+        assert!(events.iter().all(Result::is_ok));
+        let sent: Vec<Value> = server
+            .received_requests()
+            .await
+            .unwrap()
+            .iter()
+            .map(|request| request.body_json().unwrap())
+            .collect();
+        assert_eq!(sent[0]["user"], sent[1]["user"]);
+        assert_ne!(sent[0]["user"], sent[2]["user"]);
+        assert_ne!(sent[0]["user"], sent[3]["user"]);
+        assert_eq!(
+            sent[0]["user"],
+            "fd6cd0a5d13d50b151cfb0597d895b5ecd3429f502331fc4fa6c1d21a0dfd7a1"
+        );
+        for body in sent {
+            assert_eq!(
+                body["provider"],
+                json!({"data_collection": "deny", "zdr": true})
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn an_openrouter_privacy_refusal_keeps_the_rule_in_the_model_error() {
+        let server = MockServer::start().await;
+        let body = json!({"error": {"message": "No endpoints found that match your data policy (Zero data retention).", "code": 404}});
+        Mock::given(method("POST"))
+            .and(path("/responses"))
+            .respond_with(ResponseTemplate::new(404).set_body_json(body.clone()))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let keys = keys();
+        keys.set(Provider::OpenRouter, "key").unwrap();
+        let brain = RouterBrain::new(
+            keys,
+            catalog(),
+            pagis_core::ModelEndUserKey::from_installation_key(&[7; 32]),
+        )
+        .with_base_url(Provider::OpenRouter, server.uri());
+        let mut turn = request();
+        turn.model_candidates = vec!["openrouter/openai/gpt-6-astra".into()];
+        let error = brain.turn(turn).await.err().expect("privacy refusal");
+        assert_eq!(error.provider_status(), Some(404));
+        assert_eq!(error.provider_body(), Some(&body));
+        assert!(error.message.contains("Zero data retention"));
+    }
+
+    #[tokio::test]
     async fn a_turn_without_messages_fails_before_provider_setup() {
-        let brain = RouterBrain::new(keys(), catalog());
+        let brain = RouterBrain::new(
+            keys(),
+            catalog(),
+            pagis_core::ModelEndUserKey::from_installation_key(&[7; 32]),
+        );
         let mut request = request();
         request.messages.clear();
 
@@ -864,7 +969,11 @@ mod tests {
 
     #[tokio::test]
     async fn turn_without_keys_fails_with_a_clear_error() {
-        let brain = RouterBrain::new(keys(), catalog());
+        let brain = RouterBrain::new(
+            keys(),
+            catalog(),
+            pagis_core::ModelEndUserKey::from_installation_key(&[7; 32]),
+        );
 
         let err = brain.turn(request()).await.err().expect("turn fails");
 
@@ -877,7 +986,11 @@ mod tests {
     #[tokio::test]
     async fn a_stored_key_makes_the_router_available() {
         let keys = keys();
-        let brain = RouterBrain::new(Arc::clone(&keys), catalog());
+        let brain = RouterBrain::new(
+            Arc::clone(&keys),
+            catalog(),
+            pagis_core::ModelEndUserKey::from_installation_key(&[7; 32]),
+        );
         assert!(
             brain
                 .current_router("default", &request().model_candidates)
@@ -915,8 +1028,12 @@ mod tests {
 
         let keys = keys();
         keys.set(Provider::OpenRouter, "sk-openrouter").unwrap();
-        let brain =
-            RouterBrain::new(keys, catalog()).with_base_url(Provider::OpenRouter, server.uri());
+        let brain = RouterBrain::new(
+            keys,
+            catalog(),
+            pagis_core::ModelEndUserKey::from_installation_key(&[7; 32]),
+        )
+        .with_base_url(Provider::OpenRouter, server.uri());
         let mut request = request();
         request.model_candidates = vec!["openrouter/openai/gpt-6-astra".to_string()];
         request.computer = true;
@@ -961,7 +1078,12 @@ mod tests {
             .await;
         let keys = keys();
         keys.set(Provider::OpenAi, "sk-openai").unwrap();
-        let brain = RouterBrain::new(keys, catalog()).with_base_url(Provider::OpenAi, server.uri());
+        let brain = RouterBrain::new(
+            keys,
+            catalog(),
+            pagis_core::ModelEndUserKey::from_installation_key(&[7; 32]),
+        )
+        .with_base_url(Provider::OpenAi, server.uri());
         let mut request = request();
         request.model_candidates = vec!["openai/gpt-6-luna".to_string()];
 
@@ -973,7 +1095,11 @@ mod tests {
 
     #[tokio::test]
     async fn an_error_before_any_provider_answer_has_no_status() {
-        let brain = RouterBrain::new(keys(), catalog());
+        let brain = RouterBrain::new(
+            keys(),
+            catalog(),
+            pagis_core::ModelEndUserKey::from_installation_key(&[7; 32]),
+        );
 
         let err = brain.turn(request()).await.err().expect("turn fails");
 
@@ -1000,7 +1126,12 @@ mod tests {
             .await;
         let keys = keys();
         keys.set(Provider::OpenAi, "sk-openai").unwrap();
-        let brain = RouterBrain::new(keys, catalog()).with_base_url(Provider::OpenAi, server.uri());
+        let brain = RouterBrain::new(
+            keys,
+            catalog(),
+            pagis_core::ModelEndUserKey::from_installation_key(&[7; 32]),
+        )
+        .with_base_url(Provider::OpenAi, server.uri());
         let mut request = request();
         request.model_candidates = vec!["openai/gpt-6-luna".to_string()];
         request.computer = true;
@@ -1034,7 +1165,12 @@ mod tests {
             .await;
         let keys = keys();
         keys.set(Provider::OpenAi, "sk-openai").unwrap();
-        let brain = RouterBrain::new(keys, catalog()).with_base_url(Provider::OpenAi, server.uri());
+        let brain = RouterBrain::new(
+            keys,
+            catalog(),
+            pagis_core::ModelEndUserKey::from_installation_key(&[7; 32]),
+        )
+        .with_base_url(Provider::OpenAi, server.uri());
         let mut request = request();
         request.model_candidates = vec!["openai/gpt-6-luna".to_string()];
         request.computer = true;
@@ -1079,9 +1215,13 @@ mod tests {
         let keys = keys();
         keys.set(Provider::Anthropic, "sk-anthropic").unwrap();
         keys.set(Provider::OpenAi, "sk-openai").unwrap();
-        let brain = RouterBrain::new(keys, catalog())
-            .with_base_url(Provider::Anthropic, anthropic.uri())
-            .with_base_url(Provider::OpenAi, openai.uri());
+        let brain = RouterBrain::new(
+            keys,
+            catalog(),
+            pagis_core::ModelEndUserKey::from_installation_key(&[7; 32]),
+        )
+        .with_base_url(Provider::Anthropic, anthropic.uri())
+        .with_base_url(Provider::OpenAi, openai.uri());
         let mut request = request();
         request.model_candidates = vec![
             "anthropic/claude-sonnet-4-6".to_string(),
@@ -1159,8 +1299,12 @@ mod tests {
                 .with_base_url(Provider::OpenRouter, server.uri()),
         );
         models.models(Provider::OpenRouter).await.unwrap();
-        let brain =
-            RouterBrain::new(keys, models).with_base_url(Provider::OpenRouter, server.uri());
+        let brain = RouterBrain::new(
+            keys,
+            models,
+            pagis_core::ModelEndUserKey::from_installation_key(&[7; 32]),
+        )
+        .with_base_url(Provider::OpenRouter, server.uri());
         let mut request = request();
         request.model_candidates = vec!["openrouter/vendor/new-model".to_string()];
 
@@ -1249,8 +1393,12 @@ mod tests {
             .await;
         let keys = keys();
         keys.set(Provider::OpenRouter, "sk-openrouter").unwrap();
-        let brain =
-            RouterBrain::new(keys, catalog()).with_base_url(Provider::OpenRouter, server.uri());
+        let brain = RouterBrain::new(
+            keys,
+            catalog(),
+            pagis_core::ModelEndUserKey::from_installation_key(&[7; 32]),
+        )
+        .with_base_url(Provider::OpenRouter, server.uri());
         let mut request = request();
         request.model_candidates = vec!["openrouter/anthropic/claude-sonnet-4.6".to_string()];
         request.max_output_tokens = Some(16_384);
@@ -1284,8 +1432,12 @@ mod tests {
 
         let keys = keys();
         keys.set(Provider::OpenRouter, "sk-openrouter").unwrap();
-        let brain =
-            RouterBrain::new(keys, catalog()).with_base_url(Provider::OpenRouter, server.uri());
+        let brain = RouterBrain::new(
+            keys,
+            catalog(),
+            pagis_core::ModelEndUserKey::from_installation_key(&[7; 32]),
+        )
+        .with_base_url(Provider::OpenRouter, server.uri());
         let mut request = request();
         request.model_candidates = vec!["openrouter/anthropic/claude-sonnet-4.6".to_string()];
         request.computer = true;
@@ -1441,7 +1593,12 @@ mod tests {
             .await;
         let keys = keys();
         keys.set(Provider::OpenAi, "sk-openai").unwrap();
-        let brain = RouterBrain::new(keys, catalog()).with_base_url(Provider::OpenAi, openai.uri());
+        let brain = RouterBrain::new(
+            keys,
+            catalog(),
+            pagis_core::ModelEndUserKey::from_installation_key(&[7; 32]),
+        )
+        .with_base_url(Provider::OpenAi, openai.uri());
         let mut request = request();
         request.model_candidates = vec![format!("openai/{model}")];
         request.computer = true;
@@ -1503,7 +1660,12 @@ mod tests {
             .await;
         let keys = keys();
         keys.set(Provider::OpenAi, "sk-openai").unwrap();
-        let brain = RouterBrain::new(keys, catalog()).with_base_url(Provider::OpenAi, openai.uri());
+        let brain = RouterBrain::new(
+            keys,
+            catalog(),
+            pagis_core::ModelEndUserKey::from_installation_key(&[7; 32]),
+        )
+        .with_base_url(Provider::OpenAi, openai.uri());
         let mut request = request();
         request.model_candidates = vec!["openai/gpt-4.1".to_string()];
         request.computer = true;
@@ -1545,7 +1707,12 @@ mod tests {
             .await;
         let keys = keys();
         keys.set(Provider::OpenAi, "sk-openai").unwrap();
-        let brain = RouterBrain::new(keys, catalog()).with_base_url(Provider::OpenAi, openai.uri());
+        let brain = RouterBrain::new(
+            keys,
+            catalog(),
+            pagis_core::ModelEndUserKey::from_installation_key(&[7; 32]),
+        )
+        .with_base_url(Provider::OpenAi, openai.uri());
         let mut request = request();
         request.model_candidates = vec!["openai/gpt-4.1".to_string()];
         request.computer = true;
@@ -1587,8 +1754,12 @@ mod tests {
             .await;
         let keys = keys();
         keys.set(Provider::Anthropic, "sk-anthropic").unwrap();
-        let brain =
-            RouterBrain::new(keys, catalog()).with_base_url(Provider::Anthropic, anthropic.uri());
+        let brain = RouterBrain::new(
+            keys,
+            catalog(),
+            pagis_core::ModelEndUserKey::from_installation_key(&[7; 32]),
+        )
+        .with_base_url(Provider::Anthropic, anthropic.uri());
 
         let deltas: Vec<_> = brain
             .turn(anthropic_computer_request("claude-sonnet-5-5"))
@@ -1637,8 +1808,12 @@ mod tests {
             .await;
         let keys = keys();
         keys.set(Provider::Anthropic, "sk-anthropic").unwrap();
-        let brain =
-            RouterBrain::new(keys, catalog()).with_base_url(Provider::Anthropic, anthropic.uri());
+        let brain = RouterBrain::new(
+            keys,
+            catalog(),
+            pagis_core::ModelEndUserKey::from_installation_key(&[7; 32]),
+        )
+        .with_base_url(Provider::Anthropic, anthropic.uri());
         let request = anthropic_computer_request("claude-opus-4-7");
 
         let first: Vec<_> = brain.turn(request.clone()).await.unwrap().collect().await;
@@ -1680,8 +1855,12 @@ mod tests {
             .await;
         let keys = keys();
         keys.set(Provider::Anthropic, "sk-anthropic").unwrap();
-        let brain =
-            RouterBrain::new(keys, catalog()).with_base_url(Provider::Anthropic, anthropic.uri());
+        let brain = RouterBrain::new(
+            keys,
+            catalog(),
+            pagis_core::ModelEndUserKey::from_installation_key(&[7; 32]),
+        )
+        .with_base_url(Provider::Anthropic, anthropic.uri());
 
         assert!(
             brain

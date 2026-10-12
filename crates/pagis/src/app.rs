@@ -111,6 +111,8 @@ pub struct AppOptions {
     /// the Tenant Data Key of each Workspace; nothing else opens a
     /// sealed secret.
     pub secrets: Arc<dyn pagis_core::SecretStore>,
+    /// The key for opaque Person ids, derived from the Installation Key.
+    pub model_end_user_key: pagis_core::ModelEndUserKey,
     /// How a Connection becomes a live provider; `None` builds
     /// the Google provider over the distributed `gog`. Tests inject a
     /// fake so no process runs.
@@ -199,6 +201,8 @@ impl AppOptions {
             &booted.config,
             booted.installation(),
         )?;
+        let model_end_user_key = secrets.model_end_user_key();
+        let secrets: Arc<dyn pagis_core::SecretStore> = secrets;
         let docker_discovery = Arc::new(pagis_computer::DockerDiscovery::production(
             booted.config.docker_endpoint(),
         ));
@@ -241,6 +245,7 @@ impl AppOptions {
             media_relay: booted.config.screen.media_relay()?,
             screen: booted.config.screen.screen_relay()?,
             secrets,
+            model_end_user_key,
             connection_providers: None,
             connection_call_timeout: crate::connections::DEFAULT_CALL_TIMEOUT,
             google_oauth: None,
@@ -387,6 +392,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         Arc::new(pagis_agent::RouterBrain::new(
             Arc::clone(&keys),
             Arc::clone(&models),
+            options.model_end_user_key,
         ))
     });
 

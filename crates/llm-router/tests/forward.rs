@@ -610,3 +610,82 @@ async fn forward_of_a_dropped_responses_stream_is_not_complete() {
         }
     );
 }
+
+#[tokio::test]
+async fn openrouter_forwards_apply_the_provider_data_rules_and_keep_other_fields() {
+    for wire in [ProtocolKind::OpenAiChat, ProtocolKind::OpenAiResponses] {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let mut provider = ProviderConfig::openrouter("key");
+        provider.base_url = server.uri();
+        let router = Router::new(RouterConfig::new().provider("p", provider)).unwrap();
+        let body = json!({"model": "openai/model", "input": "private context", "provider": {"order": ["chosen"], "data_collection": "allow", "zdr": false}}).to_string();
+        let mut headers = HeaderMap::new();
+        headers.insert("content-type", HeaderValue::from_static("application/json"));
+        headers.insert(
+            "content-length",
+            HeaderValue::from_str(&body.len().to_string()).unwrap(),
+        );
+        let forwarded = router
+            .forward(
+                "p",
+                ForwardRequest {
+                    wire,
+                    path: if wire == ProtocolKind::OpenAiChat {
+                        "/chat/completions"
+                    } else {
+                        "/responses"
+                    }
+                    .into(),
+                    headers,
+                    body: Bytes::from(body),
+                },
+            )
+            .await
+            .unwrap();
+        read_all(forwarded.body).await;
+        let sent = server.received_requests().await.unwrap();
+        let body: serde_json::Value = sent[0].body_json().unwrap();
+        assert_eq!(
+            body["provider"],
+            json!({"order": ["chosen"], "data_collection": "deny", "zdr": true})
+        );
+        assert_eq!(body["input"], "private context");
+        assert_eq!(body["model"], "openai/model");
+        assert_eq!(
+            sent[0].headers["content-length"]
+                .to_str()
+                .unwrap()
+                .parse::<usize>()
+                .unwrap(),
+            sent[0].body.len()
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_forward_with_routing_refuses_a_body_that_cannot_hold_the_rules() {
+    let mut provider = ProviderConfig::openrouter("key");
+    provider.base_url = "http://localhost:1".into();
+    let router = Router::new(RouterConfig::new().provider("p", provider)).unwrap();
+    for body in ["not JSON", "[]"] {
+        let error = router
+            .forward(
+                "p",
+                ForwardRequest {
+                    wire: ProtocolKind::OpenAiResponses,
+                    path: "/responses".into(),
+                    headers: HeaderMap::new(),
+                    body: Bytes::from_static(body.as_bytes()),
+                },
+            )
+            .await
+            .err()
+            .expect("the request is refused");
+        assert!(matches!(error, Error::InvalidConfig(_)), "{error}");
+    }
+}

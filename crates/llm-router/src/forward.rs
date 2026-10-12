@@ -8,7 +8,9 @@ use bytes::Bytes;
 use eventsource_stream::Eventsource;
 use futures::StreamExt;
 use reqwest::StatusCode;
-use reqwest::header::{ACCEPT_ENCODING, AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderName};
+use reqwest::header::{
+    ACCEPT_ENCODING, AUTHORIZATION, CONTENT_LENGTH, CONTENT_TYPE, HeaderMap, HeaderName,
+};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::config::ProtocolKind;
@@ -67,7 +69,7 @@ impl Router {
     /// then each provider `headers` entry whose name the caller did not set,
     /// then the provider key as the provider's codec sends it. The caller's
     /// own credential (`authorization`, `x-api-key`) never reaches the
-    /// provider. The body goes unchanged.
+    /// provider. The body receives the configured provider routing rules.
     ///
     /// One attempt, with no fallback, no retry and no stream timeouts: the
     /// client of the forward owns its retries. Every HTTP status answers
@@ -117,11 +119,31 @@ impl Router {
         }
         protocol.forward(provider_key, provider, req.wire, &mut headers)?;
 
+        let body = if provider.routing.is_some() {
+            let mut body: serde_json::Value =
+                serde_json::from_slice(&req.body).map_err(|error| {
+                    Error::InvalidConfig(format!(
+                        "provider `{provider_key}` routing requires a JSON request: {error}"
+                    ))
+                })?;
+            let object = body.as_object_mut().ok_or_else(|| {
+                Error::InvalidConfig(format!(
+                    "provider `{provider_key}` routing requires a request object"
+                ))
+            })?;
+            provider.apply_routing(object)?;
+            // A changed body has a new length. The HTTP client sets it.
+            headers.remove(CONTENT_LENGTH);
+            Bytes::from(serde_json::to_vec(&body).expect("a request object serializes"))
+        } else {
+            req.body
+        };
+
         let response = self
             .http
             .post(format!("{}{}", provider.base_url, req.path))
             .headers(headers)
-            .body(req.body)
+            .body(body)
             .send()
             .await
             .map_err(|e| self.transport(provider_key, e))?;

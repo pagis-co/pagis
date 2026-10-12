@@ -718,10 +718,11 @@ async fn a_streamed_chat_completions_call_asks_for_its_usage_and_is_recorded() {
     assert_eq!(sent.url.path(), "/chat/completions");
     let mut asked: serde_json::Value = serde_json::from_str(CHAT_BODY).unwrap();
     asked["stream_options"] = serde_json::json!({ "include_usage": true });
+    asked["provider"] = serde_json::json!({ "data_collection": "deny", "zdr": true });
     assert_eq!(
         serde_json::from_slice::<serde_json::Value>(&sent.body).unwrap(),
         asked,
-        "the body asks for the usage chunk and changes no other field"
+        "the body asks for the usage chunk and applies the provider data rules"
     );
 
     let total = wait_for_usage(&daemon, &daemon.workspace_id).await;

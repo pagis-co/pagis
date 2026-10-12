@@ -539,6 +539,7 @@ pub(crate) async fn execute(
         };
         let recent_turns = brief_input(&transcript);
         let request = TurnRequest {
+            person_id: None,
             model_alias: agent.model_alias.clone(),
             model_candidates: model_candidates.to_vec(),
             system: {
@@ -2055,6 +2056,7 @@ async fn reflect_and_commit(
     let mut model_failure = None;
     for phase_request in 0..REFLECTION_MAX_TURNS {
         let request = TurnRequest {
+            person_id: None,
             model_alias: agent.model_alias.clone(),
             model_candidates: model_candidates.to_vec(),
             system: {
@@ -2745,7 +2747,9 @@ async fn call_model<'a>(
         result = deps.gate.before_call(run, &request.model_candidates) => result.map_err(TurnError::Gate)?,
         _ = cancel.cancelled() => return Err(TurnError::Canceled),
     }
-    let call = ModelCall::start(deps, run, phase, phase_request, request).await;
+    let call = ModelCall::start(deps, run, phase, phase_request, request)
+        .await
+        .map_err(TurnError::Brain)?;
     if let Some(error) = request_budget_error(call.request(), &deps.models) {
         call.finish(Outcome::Rejected, Some(0), None, Some(&error))
             .await;
@@ -3803,6 +3807,7 @@ async fn compact_durable_history(
     let expected_memory_revision = memory_indexes.revision.as_deref().unwrap_or("missing");
     let schema = compaction_schema();
     let compaction_request = TurnRequest {
+        person_id: None,
         model_alias: reply_request.model_alias.clone(),
         model_candidates: reply_request.model_candidates.clone(),
         system: format!(
@@ -4639,6 +4644,7 @@ mod retained_tool_compaction_tests {
 
     fn request(messages: Vec<TurnMessage>) -> TurnRequest {
         TurnRequest {
+            person_id: None,
             model_alias: "default".into(),
             model_candidates: vec!["anthropic/claude-haiku-4-5".into()],
             system: "system".into(),

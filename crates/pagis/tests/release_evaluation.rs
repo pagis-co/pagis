@@ -343,7 +343,11 @@ async fn the_configured_model_runs_the_release_suite() {
         {
             let keys = provider_keys();
             let models = Arc::new(pagis_agent::ModelCatalog::new(Arc::clone(&keys)));
-            Arc::new(RouterBrain::new(keys, models)) as Arc<dyn Brain>
+            Arc::new(RouterBrain::new(
+                keys,
+                models,
+                pagis_core::ModelEndUserKey::from_installation_key(&[7; 32]),
+            )) as Arc<dyn Brain>
         },
         route.clone(),
         routes.clone(),

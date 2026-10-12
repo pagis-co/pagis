@@ -15,6 +15,9 @@ pub struct ChatRequest {
     /// A model alias from the router config, or a direct `provider/model` id.
     pub model: String,
     pub messages: Vec<Message>,
+    /// An opaque id of the Person whose request this is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_user: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -50,7 +53,7 @@ pub struct ChatRequest {
     /// Provider-specific params the neutral fields do not cover
     /// (`response_format`, `seed`, `parallel_tool_calls`, `top_k`, ...).
     /// Codecs merge them into the wire body last, so they also override
-    /// encoded fields.
+    /// encoded fields, except the end-user id and provider routing rules.
     #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
     pub extra: serde_json::Map<String, Value>,
 }

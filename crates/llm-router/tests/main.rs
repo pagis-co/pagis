@@ -10,6 +10,7 @@ mod forward;
 mod modalities;
 mod models;
 mod openai;
+mod privacy;
 mod realtime;
 mod registry;
 mod router;

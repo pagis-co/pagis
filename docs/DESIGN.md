@@ -177,9 +177,10 @@ cargo xtask step wasm32
   `docs/MODALITIES.md` states the rules these follow.
 - **Forward.** `Router::forward` sends a request that a client wrote in
   the provider's own format, with the provider key, and meters the usage
-  of the answer. The body goes unchanged, with the caller's headers, then
-  each provider `headers` entry that the caller did not set, then the
-  provider key as the provider's codec sends it. The caller's own
+  of the answer. The body receives the provider routing rules. The headers
+  are the caller's headers, then each provider `headers` entry that the
+  caller did not set, then the provider key as the provider's codec sends
+  it. The caller's own
   `authorization` and `x-api-key` never reach the provider. The router
   makes one attempt with no fallback, no retry and no stream timeouts,
   because the client of the forward owns its retries. Every HTTP status

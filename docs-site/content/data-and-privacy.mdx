@@ -174,8 +174,30 @@ provider reads the content of each request:
 
 No tool returns a Credential secret, and the model gets no screenshot while
 the daemon fills a Credential ([ADR-0013](https://github.com/pagis-co/pagis/blob/main/docs/adr/0013-the-daemon-types-secrets-the-model-never-sees.md)). The Keypad Code does not go to the
-model ([ADR-0021](https://github.com/pagis-co/pagis/blob/main/docs/adr/0021-caller-id-proposes-a-tier-and-a-keypad-code-confirms-it.md)). The provider decides what it keeps from a request, and
-for how long.
+model ([ADR-0021](https://github.com/pagis-co/pagis/blob/main/docs/adr/0021-caller-id-proposes-a-tier-and-a-keypad-code-confirms-it.md)).
+
+Each model request of a Run carries an opaque id of its Person:
+
+| Provider | Field |
+| --- | --- |
+| Anthropic Messages | `metadata.user_id` |
+| OpenAI Chat Completions and Responses | `safety_identifier` |
+| OpenRouter | `user` |
+
+The id is the hex of HMAC-SHA256 over the Person id. Its key comes from the
+Installation Key through HKDF-SHA256 with a fixed label. The id is stable
+for one Person in one installation, and differs between installations.
+It contains no name, email address or phone number. Providers use it to
+check abuse by one Person without limiting the shared key of the Org.
+
+Every OpenRouter model request sets `provider.data_collection` to `deny`
+and `provider.zdr` to `true`. OpenRouter routes only to providers that do
+not keep the data or train on it and that support zero data retention.
+If no provider meets these rules, the request fails. The Run shows the
+OpenRouter error as a model error, with the rule that refused the request.
+An Administrator reads that error on the page of the Run. Pagis does not
+relax the rules or send the request without them. The direct providers
+Anthropic and OpenAI each decide what they keep and for how long.
 
 Pagis keeps the size of each model request on its Run, and not the
 content. The record holds the Model Alias and its models, the estimated
