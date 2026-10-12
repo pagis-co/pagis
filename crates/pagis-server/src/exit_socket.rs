@@ -21,6 +21,7 @@ use axum::response::Response;
 use pagis_core::{EXIT_CAPABILITY, Host, HostId};
 
 use crate::auth::Tenant;
+use crate::axum_socket::AxumSocket;
 use crate::byte_socket;
 use crate::error::ApiError;
 use crate::live_connections::LiveTenant;
@@ -34,7 +35,7 @@ pub async fn upgrade(
     ws: WebSocketUpgrade,
 ) -> Result<Response, ApiError> {
     let host = check_host(&state, &live.tenant, &HostId::from(host_id)).await?;
-    Ok(ws.on_upgrade(move |socket| serve_exit(socket, state, live, host)))
+    Ok(ws.on_upgrade(move |socket| serve_exit(AxumSocket(socket), state, live, host)))
 }
 
 /// Check the Workspace and the capability before a host serves frames.

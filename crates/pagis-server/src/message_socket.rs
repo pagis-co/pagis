@@ -3,9 +3,25 @@
 use std::error::Error;
 use std::future::Future;
 
-use axum::extract::ws::WebSocket;
-pub use axum::extract::ws::{CloseFrame, Message};
+use bytes::Bytes;
 use futures::{Sink, SinkExt, Stream};
+
+/// One frame of a message protocol.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Message {
+    Text(String),
+    Binary(Bytes),
+    Ping(Bytes),
+    Pong(Bytes),
+    Close(Option<CloseFrame>),
+}
+
+/// The code and reason that end a message protocol.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CloseFrame {
+    pub code: u16,
+    pub reason: String,
+}
 
 /// A bidirectional message transport. Text and binary frames keep their
 /// boundaries. Close, Ping and Pong frames have the WebSocket meanings.
@@ -25,8 +41,4 @@ pub trait MessageSocket:
     {
         SinkExt::close(self)
     }
-}
-
-impl MessageSocket for WebSocket {
-    type SocketError = axum::Error;
 }

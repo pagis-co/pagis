@@ -6,7 +6,7 @@ use std::task::{Context, Poll};
 
 use futures::channel::mpsc;
 use futures::{Sink, SinkExt, Stream, StreamExt};
-use pagis_server::{Message, MessageSocket};
+use pagis_server::{CloseFrame, Message, MessageSocket};
 use tokio_tungstenite::tungstenite::{self, Message as ClientMessage};
 
 /// One end of an in-memory pair. Each direction holds at most 32 frames
@@ -119,12 +119,10 @@ fn server_frame(frame: ClientMessage) -> Result<Message, tungstenite::Error> {
         ClientMessage::Binary(bytes) => Message::Binary(bytes),
         ClientMessage::Ping(bytes) => Message::Ping(bytes),
         ClientMessage::Pong(bytes) => Message::Pong(bytes),
-        ClientMessage::Close(frame) => {
-            Message::Close(frame.map(|frame| axum::extract::ws::CloseFrame {
-                code: frame.code.into(),
-                reason: frame.reason.as_str().into(),
-            }))
-        }
+        ClientMessage::Close(frame) => Message::Close(frame.map(|frame| CloseFrame {
+            code: frame.code.into(),
+            reason: frame.reason.as_str().into(),
+        })),
         ClientMessage::Frame(_) => {
             return Err(tungstenite::Error::Io(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
