@@ -82,7 +82,7 @@ fn main() -> Result<()> {
              server-image [--dry-run] | relay-image [--platform <amd64 | arm64> | --manifest] [--tag <tag>] [--dry-run] | release <advisories | computer-image | computer-manifest | server-image | server-manifest | linux | macos | draft> \
              [--platform <amd64 | arm64>] [--tag <tag>] [--dry-run] | desktop [--linux] [--tag <tag>] [--prepare | --publish-existing] [--dry-run] | \
              mobile --ios --tag <tag> <--prepare | --publish-existing> [--dry-run] | emergency-numbers [--check] | \
-             notices <server <output> | client <output> | screend [--check]> | pins --check>"
+             notices <server <output> | client <output> | relay <output> | mobile <output> | screend [--check]> | pins --check>"
         ),
     }
 }
@@ -106,12 +106,18 @@ fn run_notices(root: &Path, args: &[String]) -> Result<()> {
         (Some("client"), Some(output)) if args.len() == 3 => {
             xtask::notices::write_client(root, Path::new(output))
         }
+        (Some("relay"), Some(output)) if args.len() == 3 => {
+            xtask::notices::write_relay(root, Path::new(output))
+        }
+        (Some("mobile"), Some(output)) if args.len() == 3 => {
+            xtask::notices::write_mobile(root, Path::new(output))
+        }
         (Some("screend"), None) => xtask::notices::write_screend(root, false),
         (Some("screend"), Some("--check")) if args.len() == 3 => {
             xtask::notices::write_screend(root, true)
         }
         _ => bail!(
-            "usage: cargo xtask notices <server <output> | client <output> | screend [--check]>"
+            "usage: cargo xtask notices <server <output> | client <output> | relay <output> | mobile <output> | screend [--check]>"
         ),
     }
 }

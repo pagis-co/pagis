@@ -8,8 +8,10 @@ use std::path::Path;
 
 use pagis_versions::{CARGO_ABOUT_SHA256, CARGO_ABOUT_VERSION};
 use xtask::notices::{
-    ABOUT_CONFIG, Notice, Part, SCREEND_NOTICES, accepted_licenses, cargo_about_cmd,
-    client_notices, crate_notices, notices_step, pnpm_packages, render, screend_notices,
+    ABOUT_CONFIG, IOS_ACKNOWLEDGEMENTS, LINUX_TARGETS, Notice, Part, RELAY_MANIFEST,
+    SCREEND_NOTICES, SWIFT_PACKAGES, SwiftPin, accepted_licenses, acknowledgements,
+    cargo_about_cmd, client_notices, crate_notices, license_file_name, mobile_parts, notices_step,
+    pnpm_packages, relay_notices, render, screend_notices, swift_package, swift_pins,
     vite_packages,
 };
 use xtask::{Action, tools};
@@ -583,11 +585,12 @@ fn the_cargo_about_pin_names_the_release_archive_of_the_host() {
 // --- the gate step ---
 
 /// The gate builds the Product App for its license list, writes the
-/// notices of the Server Package and of the Client App, and checks the
-/// stored notices of screend. Each part fails on a license that the configuration does not
-/// accept, and on a package that has no notice.
+/// notices of the Server Package, of the Client App, of the Push Relay
+/// image and of the iOS app, and checks the stored notices of screend.
+/// Each part fails on a license that the configuration does not accept,
+/// and on a package that has no notice.
 #[test]
-fn the_gate_step_writes_the_server_notices_and_checks_the_screend_notices() {
+fn the_gate_step_writes_the_notices_of_each_release_and_checks_the_screend_notices() {
     let tmp = tempfile::tempdir().unwrap();
     let step = notices_step(tmp.path());
     assert_eq!(step.name, "notices");
@@ -598,24 +601,377 @@ fn the_gate_step_writes_the_server_notices_and_checks_the_screend_notices() {
         .iter()
         .map(|cmd| format!("{} {}", cmd.program, cmd.args.join(" ")))
         .collect();
-    let output = xtask::target_dir(tmp.path()).join("notices/THIRD_PARTY_NOTICES");
-    let client = xtask::target_dir(tmp.path()).join("notices/client/THIRD_PARTY_NOTICES");
+    let notices = xtask::target_dir(tmp.path()).join("notices");
+    let xtask = |args: String| format!("cargo run --package xtask -- notices {args}");
     assert_eq!(
         lines,
         [
             "pnpm --filter ./ui run build".to_string(),
-            format!(
-                "cargo run --package xtask -- notices server {}",
-                output.display()
-            ),
-            format!(
-                "cargo run --package xtask -- notices client {}",
-                client.display()
-            ),
-            "cargo run --package xtask -- notices screend --check".to_string(),
+            xtask(format!(
+                "server {}",
+                notices.join("THIRD_PARTY_NOTICES").display()
+            )),
+            xtask(format!(
+                "client {}",
+                notices.join("client/THIRD_PARTY_NOTICES").display()
+            )),
+            xtask(format!(
+                "relay {}",
+                notices.join("relay/THIRD_PARTY_NOTICES").display()
+            )),
+            xtask(format!(
+                "mobile {}",
+                notices.join("mobile/Acknowledgements.plist").display()
+            )),
+            xtask("screend --check".to_string()),
         ]
     );
     for cmd in cmds {
         assert_eq!(cmd.cwd.as_deref(), Some(tmp.path()));
     }
+}
+
+// --- the Push Relay image ---
+
+#[test]
+fn the_notices_of_the_push_relay_name_its_crates() {
+    let tmp = tempfile::tempdir().unwrap();
+    let p256 = crate_dir(tmp.path(), "p256", &[]);
+    let json = serde_json::json!({
+        "licenses": [{
+            "name": "MIT License",
+            "id": "MIT",
+            "text": "MIT text",
+            "used_by": [{ "crate": about_crate("p256", "0.13.2", &p256) }],
+        }],
+        "crates": [{ "package": about_crate("p256", "0.13.2", &p256) }],
+    });
+
+    let text = relay_notices(&json.to_string()).unwrap();
+
+    assert!(
+        text.starts_with("Third-party notices of the Pagis Push Relay image\n"),
+        "{text}"
+    );
+    assert!(
+        text.contains("The Rust crates of the pagis-push-relay program"),
+        "{text}"
+    );
+    assert!(text.contains("p256 0.13.2"), "{text}");
+}
+
+/// The image runs on Linux amd64 and arm64, as the Computer Image does.
+#[test]
+fn the_push_relay_notices_name_the_crates_of_the_linux_targets() {
+    assert_eq!(RELAY_MANIFEST, "crates/pagis-push-relay/Cargo.toml");
+    assert_eq!(
+        LINUX_TARGETS,
+        ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"]
+    );
+}
+
+// --- the Mobile App ---
+
+const PACKAGE_RESOLVED: &str = r#"{
+  "originHash" : "3e52",
+  "pins" : [
+    {
+      "identity" : "capacitor-swift-pm",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/ionic-team/capacitor-swift-pm.git",
+      "state" : { "revision" : "0b6882e9", "version" : "8.5.2" }
+    },
+    {
+      "identity" : "osbarcodelib-ios",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/OutSystems/OSBarcodeLib-iOS.git",
+      "state" : { "branch" : "main", "revision" : "7f9d1662" }
+    }
+  ],
+  "version" : 3
+}"#;
+
+const MIT_TEXT: &str = "MIT License
+
+Copyright (c) 2022 OutSystems
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the \"Software\"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+";
+
+fn swift_pin(location: &str, version: Option<&str>) -> SwiftPin {
+    SwiftPin {
+        location: location.into(),
+        revision: "0b6882e9".into(),
+        version: version.map(String::from),
+    }
+}
+
+#[test]
+fn the_swift_packages_are_the_pins_of_package_resolved() {
+    let pins = swift_pins(PACKAGE_RESOLVED).unwrap();
+
+    assert_eq!(
+        pins,
+        [
+            SwiftPin {
+                location: "https://github.com/ionic-team/capacitor-swift-pm.git".into(),
+                revision: "0b6882e9".into(),
+                version: Some("8.5.2".into()),
+            },
+            SwiftPin {
+                location: "https://github.com/OutSystems/OSBarcodeLib-iOS.git".into(),
+                revision: "7f9d1662".into(),
+                version: None,
+            },
+        ]
+    );
+}
+
+/// Xcode resolves the Swift packages of the app into the `Package.resolved`
+/// of its project, and the repository holds it.
+#[test]
+fn the_ios_app_pins_its_swift_packages() {
+    let resolved = std::fs::read_to_string(workspace_root().join(SWIFT_PACKAGES)).unwrap();
+    let pins = swift_pins(&resolved).unwrap();
+    assert!(
+        pins.iter()
+            .any(|pin| pin.location == "https://github.com/ionic-team/capacitor-swift-pm.git"),
+        "{pins:?}"
+    );
+}
+
+#[test]
+fn a_package_resolved_with_no_pins_is_an_error() {
+    let error = swift_pins("{ \"version\": 3 }").unwrap_err();
+    assert!(
+        format!("{error:#}").contains("Package.resolved"),
+        "{error:#}"
+    );
+}
+
+/// A Swift package names no license, so its license comes from its
+/// license text, as cargo-about finds the license of a crate that names
+/// none. Text after the license, such as a pointer to other notices, does
+/// not stop the detection.
+#[test]
+fn the_license_of_a_swift_package_comes_from_its_license_text() {
+    let pin = swift_pin("https://github.com/OutSystems/OSBarcodeLib-iOS.git", None);
+    let text =
+        format!("{MIT_TEXT}\nThird-party components are included under their own licenses.\n");
+
+    let package = swift_package(&pin, Some(text.clone())).unwrap();
+
+    assert_eq!(
+        package.name,
+        "https://github.com/OutSystems/OSBarcodeLib-iOS.git"
+    );
+    assert_eq!(package.version, "0b6882e9");
+    assert_eq!(package.identifier.as_deref(), Some("MIT"));
+    assert_eq!(package.text.as_deref(), Some(text.as_str()));
+}
+
+#[test]
+fn a_swift_package_is_named_by_its_version_when_it_has_one() {
+    let pin = swift_pin(
+        "https://github.com/ionic-team/capacitor-swift-pm.git",
+        Some("8.5.2"),
+    );
+    let package = swift_package(&pin, Some(MIT_TEXT.into())).unwrap();
+    assert_eq!(package.version, "8.5.2");
+}
+
+#[test]
+fn a_swift_package_with_no_license_file_is_an_error() {
+    let pin = swift_pin("https://example.com/a.git", Some("1.0.0"));
+    let error = swift_package(&pin, None).unwrap_err();
+    assert!(
+        format!("{error:#}").contains("https://example.com/a.git 1.0.0 has no license file"),
+        "{error:#}"
+    );
+}
+
+#[test]
+fn a_swift_package_whose_license_text_is_unknown_is_an_error() {
+    let pin = swift_pin("https://example.com/a.git", Some("1.0.0"));
+    let error = swift_package(&pin, Some("You may use this on Tuesdays.".into())).unwrap_err();
+    assert!(
+        format!("{error:#}").contains("no known license"),
+        "{error:#}"
+    );
+}
+
+/// A Swift package is found as an npm package: the first file whose name
+/// starts with `license`, `licence` or `copying` in any case.
+#[test]
+fn the_license_file_of_a_swift_package_is_found_as_vite_finds_it() {
+    let names = ["Package.swift", "README.md", "LICENSE.md", "Sources"].map(String::from);
+    assert_eq!(license_file_name(&names), Some("LICENSE.md"));
+    assert_eq!(license_file_name(&["README.md".to_string()]), None);
+}
+
+#[test]
+fn the_mobile_notices_hold_the_npm_packages_and_the_swift_packages() {
+    let tmp = tempfile::tempdir().unwrap();
+    let core = tmp.path().join("core");
+    std::fs::create_dir_all(&core).unwrap();
+    std::fs::write(core.join("LICENSE"), "core license").unwrap();
+    let list = serde_json::json!({
+        "MIT": [{
+            "name": "@capacitor/core",
+            "versions": ["8.5.2"],
+            "paths": [core],
+            "license": "MIT",
+        }],
+    });
+    let pin = swift_pin(
+        "https://github.com/ionic-team/capacitor-swift-pm.git",
+        Some("8.5.2"),
+    );
+    let swift = vec![swift_package(&pin, Some(MIT_TEXT.into())).unwrap()];
+
+    let parts = mobile_parts(&list.to_string(), swift, &accepted()).unwrap();
+
+    assert_eq!(parts.len(), 2);
+    assert!(
+        parts[0]
+            .title
+            .starts_with("The npm packages of the Mobile App")
+    );
+    assert_eq!(parts[0].notices[0].users, ["@capacitor/core 8.5.2"]);
+    assert!(
+        parts[1]
+            .title
+            .starts_with("The Swift packages of the iOS app")
+    );
+    assert_eq!(
+        parts[1].notices[0].users,
+        ["https://github.com/ionic-team/capacitor-swift-pm.git 8.5.2"]
+    );
+}
+
+#[test]
+fn a_swift_package_license_that_the_configuration_does_not_accept_is_an_error() {
+    let pin = swift_pin("https://example.com/a.git", Some("1.0.0"));
+    let swift = vec![swift_package(&pin, Some(MIT_TEXT.into())).unwrap()];
+    let error = mobile_parts("{}", swift, &["Apache-2.0".to_string()]).unwrap_err();
+    assert!(
+        format!("{error:#}").contains("does not accept the license MIT"),
+        "{error:#}"
+    );
+}
+
+/// The iOS convention: a Settings bundle holds the acknowledgements as a
+/// child pane, and the Settings app shows them under the app. CocoaPods
+/// and LicensePlist write the same property list.
+#[test]
+fn the_acknowledgements_are_a_settings_pane_with_one_group_for_each_notice() {
+    let plist = acknowledgements(&[Part {
+        title: "The npm packages & <more>".into(),
+        notices: vec![
+            Notice {
+                license: "MIT".into(),
+                users: vec!["b 1".into(), "a 1".into()],
+                text: "Copyright <a> & b".into(),
+            },
+            Notice {
+                license: "Apache-2.0".into(),
+                users: vec!["c 2".into()],
+                text: "apache".into(),
+            },
+        ],
+    }]);
+
+    let doc = roxmltree::Document::parse_with_options(
+        &plist,
+        roxmltree::ParsingOptions {
+            allow_dtd: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let strings: Vec<&str> = doc
+        .descendants()
+        .filter(|node| node.has_tag_name("string"))
+        .filter_map(|node| node.text())
+        .collect();
+    let at = |value: &str| {
+        strings
+            .iter()
+            .position(|text| *text == value)
+            .unwrap_or_else(|| panic!("no {value:?} in {strings:?}"))
+    };
+    assert!(strings.contains(&"PSGroupSpecifier"), "{strings:?}");
+    assert_eq!(
+        strings.last(),
+        Some(&"Acknowledgements"),
+        "the title of the pane"
+    );
+    let part = at("The npm packages & <more>");
+    let apache = at("Apache-2.0");
+    let mit = at("MIT");
+    assert!(part < apache && apache < mit, "{strings:?}");
+    assert_eq!(strings[apache + 1], "Used by: c 2\n\napache");
+    assert_eq!(strings[mit + 1], "Used by: b 1, a 1\n\nCopyright <a> & b");
+    assert!(
+        strings
+            .iter()
+            .any(|text| text.contains("Pagis itself is distributed under the MIT License")),
+        "{strings:?}"
+    );
+}
+
+/// The Settings bundle of the app opens the acknowledgements that the
+/// release writes into it. The repository does not hold them.
+#[test]
+fn the_ios_app_shows_the_acknowledgements_in_its_settings() {
+    let root = workspace_root();
+    assert_eq!(
+        IOS_ACKNOWLEDGEMENTS,
+        "mobile/ios/App/App/Settings.bundle/Acknowledgements.plist"
+    );
+    let settings =
+        std::fs::read_to_string(root.join("mobile/ios/App/App/Settings.bundle/Root.plist"))
+            .unwrap();
+    for expected in [
+        "<string>PSChildPaneSpecifier</string>",
+        "<key>File</key>\n\t\t\t<string>Acknowledgements</string>",
+    ] {
+        assert!(settings.contains(expected), "no {expected}: {settings}");
+    }
+    let project =
+        std::fs::read_to_string(root.join("mobile/ios/App/App.xcodeproj/project.pbxproj")).unwrap();
+    assert!(
+        project.contains("/* Settings.bundle in Resources */"),
+        "the app target copies the Settings bundle"
+    );
+    let ignored = std::process::Command::new("git")
+        .args([
+            "check-ignore",
+            "--no-index",
+            "--quiet",
+            IOS_ACKNOWLEDGEMENTS,
+        ])
+        .current_dir(&root)
+        .status()
+        .unwrap();
+    assert!(
+        ignored.success(),
+        "git ignores the written acknowledgements"
+    );
 }

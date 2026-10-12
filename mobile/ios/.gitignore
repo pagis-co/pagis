@@ -14,3 +14,7 @@ App/App/config.xml
 
 # The build settings of one checkout, such as PUSH_RELAY_ORIGIN
 /local.xcconfig
+
+# The acknowledgements of the third-party software, which the iOS release
+# writes (`cargo xtask notices mobile`)
+App/App/Settings.bundle/Acknowledgements.plist

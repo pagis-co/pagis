@@ -948,16 +948,24 @@ fn dev_plan_tests_screend_for_a_change_to_screend_or_its_dockerfile() {
 
 /// The lockfile of screend is under `computer/screend/`, and the Computer
 /// Image copies the stored notices of screend, so a change to either
-/// checks the notices. Each other lockfile selects the full gate.
+/// checks the notices. The Push Relay image writes its notices, and the
+/// iOS app pins its Swift packages in `Package.resolved`, so a change to
+/// either also checks the notices. Each other lockfile selects the full
+/// gate.
 #[test]
-fn dev_plan_checks_the_notices_for_a_change_to_screend_or_its_dockerfile() {
+fn dev_plan_checks_the_notices_for_a_change_to_their_inputs() {
     let tmp = tempfile::tempdir().unwrap();
     write_computer_workspace(tmp.path());
     let names = |path: &str| {
         step_names(&dev_lanes(tmp.path(), &[path.into()], true, NO_TOOLCHAINS).unwrap())
     };
 
-    for path in ["computer/screend/Cargo.lock", "computer/Dockerfile"] {
+    for path in [
+        "computer/screend/Cargo.lock",
+        "computer/Dockerfile",
+        "crates/pagis-push-relay/Dockerfile",
+        xtask::notices::SWIFT_PACKAGES,
+    ] {
         assert!(names(path).contains(&"notices"), "{path}");
     }
     assert!(!names("computer/entrypoint.sh").contains(&"notices"));

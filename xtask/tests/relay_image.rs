@@ -462,3 +462,25 @@ fn the_tag_workflow_runs_the_gate_before_the_image_jobs() {
         "{manifest}"
     );
 }
+
+/// The image holds the notices of the crates of the relay, which its build
+/// writes after the relay from the lockfile, and not a stored file.
+#[test]
+fn the_image_holds_the_third_party_notices_that_its_build_writes() {
+    let dockerfile = dockerfile();
+    let built = dockerfile
+        .find("cargo auditable build --release -p pagis-push-relay")
+        .expect("the relay build");
+    let written = dockerfile
+        .find(
+            "cargo run --locked -p xtask -- notices relay \
+             /usr/local/share/doc/pagis-push-relay/THIRD_PARTY_NOTICES",
+        )
+        .expect("the notices are written");
+    assert!(built < written);
+    assert!(dockerfile.contains(
+        "COPY --from=build --chown=root:root \
+         /usr/local/share/doc/pagis-push-relay/THIRD_PARTY_NOTICES \
+         /usr/local/share/doc/pagis-push-relay/THIRD_PARTY_NOTICES"
+    ));
+}
