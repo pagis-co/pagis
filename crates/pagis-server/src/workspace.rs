@@ -119,13 +119,10 @@ async fn load(state: &AppState, tenant: &Tenant) -> Result<Workspace, ApiError> 
 /// The active Agents of the Workspace, oldest first. ADR-0022 names the
 /// oldest active Agent when the designation must move by itself.
 pub async fn active_agents_oldest_first(
-    state: &AppState,
+    agents: &dyn pagis_core::AgentStore,
     tenant: &Tenant,
 ) -> Result<Vec<Agent>, ApiError> {
-    let mut agents = state
-        .agent_store
-        .list_by_workspace(&tenant.workspace_id)
-        .await?;
+    let mut agents = agents.list_by_workspace(&tenant.workspace_id).await?;
     agents.retain(|agent| agent.status == AgentStatus::Active);
     agents.sort_by(|left, right| {
         left.created_at
@@ -137,27 +134,25 @@ pub async fn active_agents_oldest_first(
 
 /// Write the designation and tell the shell (ADR-0022).
 pub async fn designate(
-    state: &AppState,
+    workspaces: &dyn pagis_core::WorkspaceStore,
+    bus: &dyn pagis_core::EventBus,
     tenant: &Tenant,
     agent_id: Option<&AgentId>,
 ) -> Result<(), ApiError> {
-    state
-        .workspaces
+    workspaces
         .set_chief_of_staff(&tenant.workspace_id, agent_id)
         .await?;
-    state
-        .bus
-        .publish(NewEvent {
-            workspace_id: tenant.workspace_id.clone(),
-            event_type: "workspace.updated".to_string(),
-            agent_id: agent_id.cloned(),
-            run_id: None,
-            channel_id: None,
-            payload: serde_json::json!({
-                "chief_of_staff_agent_id": agent_id.map(AgentId::as_str),
-            }),
-        })
-        .await?;
+    bus.publish(NewEvent {
+        workspace_id: tenant.workspace_id.clone(),
+        event_type: "workspace.updated".to_string(),
+        agent_id: agent_id.cloned(),
+        run_id: None,
+        channel_id: None,
+        payload: serde_json::json!({
+            "chief_of_staff_agent_id": agent_id.map(AgentId::as_str),
+        }),
+    })
+    .await?;
     Ok(())
 }
 
@@ -204,7 +199,13 @@ pub async fn set_chief_of_staff(
             "an archived agent cannot be the chief of staff",
         ));
     }
-    designate(&state, &tenant, Some(&agent.id)).await?;
+    designate(
+        state.workspaces.as_ref(),
+        state.bus.as_ref(),
+        &tenant,
+        Some(&agent.id),
+    )
+    .await?;
     Ok(Json(workspace_dto(load(&state, &tenant).await?)))
 }
 

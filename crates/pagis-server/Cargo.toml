@@ -14,6 +14,7 @@ native = [
     "dep:pagis-plugin",
     "dep:pagis-plugins",
     "dep:pagis-software",
+    "dep:pagis-telephony",
 ]
 
 [dependencies]
@@ -48,7 +49,7 @@ pagis-push.workspace = true
 pagis-rt.workspace = true
 pagis-software = { workspace = true, optional = true }
 pagis-mail.workspace = true
-pagis-telephony.workspace = true
+pagis-telephony = { workspace = true, optional = true }
 pagis-trigger.workspace = true
 pagis-vault.workspace = true
 pagis-voice.workspace = true
@@ -74,3 +75,15 @@ utoipa.workspace = true
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
+
+# The contract generator and its test read the utoipa contract of the
+# full build.
+[[bin]]
+name = "openapi"
+path = "src/bin/openapi.rs"
+required-features = ["native"]
+
+[[test]]
+name = "openapi"
+path = "tests/openapi.rs"
+required-features = ["native"]

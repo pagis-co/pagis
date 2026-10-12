@@ -9,6 +9,7 @@ mod auth;
 #[cfg(feature = "native")]
 mod axum_socket;
 mod byte_socket;
+#[cfg(feature = "native")]
 pub mod calls;
 mod channels;
 mod client_name;
@@ -36,8 +37,10 @@ pub mod model_preference;
 #[cfg(feature = "native")]
 mod native;
 mod needs_you;
+#[cfg(feature = "native")]
 mod openapi;
 mod peer;
+#[cfg(feature = "native")]
 mod phone_numbers;
 mod plugins;
 mod providers;
@@ -105,6 +108,7 @@ pub use forwarded::TrustedProxy;
 pub use harness_model::{HarnessModelDeps, HarnessModelTokens};
 pub use live_connections::{LiveConnections, LiveTenant};
 pub use message_socket::{CloseFrame, Message, MessageSocket};
+#[cfg(feature = "native")]
 pub use openapi::ApiDoc;
 pub use peer::Peer;
 pub use remote_access::serves_this_machine_only;
@@ -192,9 +196,6 @@ pub struct AppState {
     pub broker: Arc<pagis_broker::Broker>,
     /// The agent profiles, for names on the grants page.
     pub agent_store: Arc<dyn AgentStore>,
-    /// The calls that run right now. Listen-Live and hang up find the
-    /// media hub of a live call here, under the Person's own Workspace.
-    pub live_calls: Arc<pagis_telephony::LiveCalls>,
     /// The Call records. The strip, the call inspector and the
     /// settled block read them: the record is the one source of truth.
     pub calls: Arc<dyn pagis_core::CallStore>,
@@ -203,24 +204,14 @@ pub struct AppState {
     /// record is the one source of truth for a text, and a Text
     /// Conversation is grouped from these rows.
     pub texts: Arc<dyn pagis_core::TextRecordStore>,
-    /// The text half of every carrier (ADR-0020), one per provider.
-    /// The number surfaces and the text tools read it to learn whether
-    /// the carrier that carries the number carries a text.
-    pub text_transports: Arc<pagis_telephony::TextTransports>,
     /// The mailbox desk (ADR-0019): the one path that makes,
     /// proves, recovers, sleeps and deletes an Agent Mailbox. Removing
     /// a Mailbox Provider Connection also reads the count of the
     /// mailboxes that still point at it here.
     pub mailbox_desk: Arc<pagis_mail::MailboxDesk>,
-    /// The number desk: the one path that buys, assigns,
-    /// unassigns and releases an Agent Phone Number.
-    pub numbers: Arc<pagis_telephony::NumberDesk>,
     /// The Trust List (ADR-0021, ADR-0019). Only this
     /// surface writes it.
     pub trust_list: Arc<dyn pagis_core::TrustListStore>,
-    /// The tier gate of every call that runs now, so the user can drop
-    /// a live call of their own Workspace to Unknown.
-    pub live_tiers: Arc<pagis_telephony::LiveTiers>,
     /// The daemon's secret store. It holds the hash of the Keypad Code.
     pub secrets: Arc<dyn pagis_core::SecretStore>,
     /// The failed-attempt count of each Workspace's Keypad Code
@@ -553,7 +544,6 @@ fn product_router(state: Arc<AppState>) -> Router {
             "/api/v1/artifacts/{artifact_id}",
             get(artifacts::download_artifact),
         )
-        .route("/api/v1/calls/{call_id}/control", post(calls::control))
         .route("/api/v1/runs/{run_id}/cancel", post(runs::cancel_run))
         .route("/api/v1/runs/{run_id}/dismiss", post(runs::dismiss_run))
         .route("/api/v1/runs/{run_id}/retry", post(runs::retry_review))
@@ -727,11 +717,6 @@ fn product_router(state: Arc<AppState>) -> Router {
             "/api/v1/settings/keypad-code/failures",
             delete(trust_list::clear_keypad_failures),
         )
-        .route("/api/v1/calls", get(calls::list_calls))
-        .route("/api/v1/calls/{call_id}", get(calls::get_call))
-        .route("/api/v1/calls/{call_id}/dismiss", post(calls::dismiss_call))
-        .route("/api/v1/calls/{call_id}/hangup", post(calls::hang_up))
-        .route("/api/v1/calls/{call_id}/tier", post(calls::drop_call_tier))
         .route(
             "/api/v1/coding-sessions",
             get(coding_sessions::list_coding_sessions),
@@ -747,30 +732,6 @@ fn product_router(state: Arc<AppState>) -> Router {
         .route(
             "/api/v1/coding-sessions/{coding_session_id}/stop",
             post(coding_sessions::stop_coding_session),
-        )
-        .route(
-            "/api/v1/settings/phone-numbers",
-            get(phone_numbers::list_phone_numbers).post(phone_numbers::buy_phone_number),
-        )
-        .route(
-            "/api/v1/settings/phone-numbers/adopt",
-            post(phone_numbers::adopt_phone_number),
-        )
-        .route(
-            "/api/v1/settings/phone-numbers/available",
-            get(phone_numbers::search_phone_numbers),
-        )
-        .route(
-            "/api/v1/settings/phone-numbers/{phone_number_id}/assign",
-            post(phone_numbers::assign_phone_number),
-        )
-        .route(
-            "/api/v1/settings/phone-numbers/{phone_number_id}/unassign",
-            post(phone_numbers::unassign_phone_number),
-        )
-        .route(
-            "/api/v1/settings/phone-numbers/{phone_number_id}/release",
-            post(phone_numbers::release_phone_number),
         )
         .route(
             "/api/v1/settings/credentials",
@@ -1014,9 +975,32 @@ fn runtime_identity_proof(
     hex::encode(mac.finalize().into_bytes())
 }
 
+#[cfg(feature = "native")]
 async fn openapi_json() -> Json<serde_json::Value> {
     use utoipa::OpenApi;
     Json(serde_json::to_value(ApiDoc::openapi()).expect("spec serializes"))
+}
+
+/// The contract of the full build, which a build without `native` serves
+/// too (ADR-0038). The `contract-drift` step keeps `ui/openapi.json`
+/// equal to what the full build generates.
+#[cfg(not(feature = "native"))]
+const FULL_CONTRACT: &str = include_str!("../../../ui/openapi.json");
+
+#[cfg(not(feature = "native"))]
+async fn openapi_json() -> Json<serde_json::Value> {
+    Json(serde_json::from_str(FULL_CONTRACT).expect("the full contract is JSON"))
+}
+
+#[cfg(all(test, not(feature = "native")))]
+mod full_contract_tests {
+    #[tokio::test]
+    async fn a_build_without_native_serves_the_full_contract() {
+        let served = super::openapi_json().await.0;
+        let expected: serde_json::Value = serde_json::from_str(super::FULL_CONTRACT).unwrap();
+        assert_eq!(served, expected);
+        assert!(served["paths"]["/api/v1/calls/{call_id}/hangup"].is_object());
+    }
 }
 
 #[cfg(test)]
@@ -1038,3 +1022,6 @@ mod runtime_identity_tests {
         );
     }
 }
+
+#[cfg(all(test, not(feature = "native")))]
+mod calls_portable_tests;

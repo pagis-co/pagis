@@ -1446,6 +1446,10 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
 
     let state = AppState {
         native: pagis_server::NativeState {
+            live_calls,
+            text_transports,
+            numbers,
+            live_tiers,
             versions: Arc::clone(&software) as _,
             plugins: Arc::clone(&plugins),
             plugin_hosts: Arc::clone(&plugin_hosts),
@@ -1489,16 +1493,12 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         broker,
         agent_store,
         mailbox_desk,
-        numbers,
         trust_list: Arc::clone(&trust_list) as _,
-        live_tiers,
         secrets: Arc::clone(&options.secrets),
         keypad_failures: stores.keypad_failures.clone(),
         needs_you,
-        live_calls,
         calls: calls as _,
         texts: texts as _,
-        text_transports,
         voice,
         artifacts,
         blobs,

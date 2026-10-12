@@ -49,7 +49,7 @@ pub struct PhoneNumberDto {
 /// The record plus the live state of its carrier's line, which the
 /// desk holds and the record does not (ADR-0018).
 fn phone_number_dto(state: &AppState, number: pagis_core::PhoneNumber) -> PhoneNumberDto {
-    let registration = state.numbers.registration(&number);
+    let registration = state.native.numbers.registration(&number);
     PhoneNumberDto {
         id: number.id.to_string(),
         e164: number.e164,
@@ -136,6 +136,7 @@ pub async fn list_phone_numbers(
     tenant: Tenant,
 ) -> Result<Json<PhoneNumberPage>, ApiError> {
     let items = state
+        .native
         .numbers
         .list(&tenant.workspace_id)
         .await
@@ -144,6 +145,7 @@ pub async fn list_phone_numbers(
         .map(|number| phone_number_dto(&state, number))
         .collect();
     let carrier = state
+        .native
         .numbers
         .carrier()
         .await
@@ -172,6 +174,7 @@ pub async fn search_phone_numbers(
     Query(query): Query<SearchNumbersQuery>,
 ) -> Result<Json<AvailableNumberPage>, ApiError> {
     let items = state
+        .native
         .numbers
         .search(
             &query.country,
@@ -209,6 +212,7 @@ pub async fn buy_phone_number(
 ) -> Result<(StatusCode, Json<PhoneNumberDto>), ApiError> {
     let agent_id = request.agent_id.map(AgentId::from);
     let number = state
+        .native
         .numbers
         .buy(&tenant.workspace_id, &request.e164, agent_id.as_ref())
         .await
@@ -234,6 +238,7 @@ pub async fn adopt_phone_number(
 ) -> Result<(StatusCode, Json<PhoneNumberDto>), ApiError> {
     let agent_id = request.agent_id.map(AgentId::from);
     let number = state
+        .native
         .numbers
         .adopt(&tenant.workspace_id, &request.e164, agent_id.as_ref())
         .await
@@ -257,6 +262,7 @@ pub async fn assign_phone_number(
     Json(request): Json<AssignNumberRequest>,
 ) -> Result<Json<PhoneNumberDto>, ApiError> {
     let number = state
+        .native
         .numbers
         .assign(
             &tenant.workspace_id,
@@ -284,6 +290,7 @@ pub async fn unassign_phone_number(
     Path(phone_number_id): Path<String>,
 ) -> Result<Json<PhoneNumberDto>, ApiError> {
     let number = state
+        .native
         .numbers
         .unassign(&tenant.workspace_id, &PhoneNumberId::from(phone_number_id))
         .await
@@ -308,6 +315,7 @@ pub async fn release_phone_number(
     Path(phone_number_id): Path<String>,
 ) -> Result<Json<PhoneNumberDto>, ApiError> {
     let number = state
+        .native
         .numbers
         .release(&tenant.workspace_id, &PhoneNumberId::from(phone_number_id))
         .await
