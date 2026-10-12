@@ -10,6 +10,9 @@ export default defineConfig({
   publicDir: false,
   build: {
     emptyOutDir: false,
+    // The npm packages of the worker, for the third-party notices
+    // (ADR-0037).
+    license: { fileName: '.vite/license-sw.json' },
     lib: {
       entry: fileURLToPath(new URL('sw/sw.ts', import.meta.url)),
       // An `iife` build names its global. The worker exports nothing.

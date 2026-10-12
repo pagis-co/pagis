@@ -10,6 +10,7 @@ mod gate;
 mod gog;
 mod image;
 mod mobile;
+mod notices;
 mod pins;
 mod relay_image;
 mod release;

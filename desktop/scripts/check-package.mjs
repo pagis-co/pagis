@@ -20,7 +20,11 @@ const resources = mac ? path.join(app, 'Contents', 'Resources') : path.join(app,
 // On Linux the public Update Key checks the signed checksum list of an
 // Update (ADR-0027). electron-updater reads the name of its download cache
 // from app-update.yml. The Client App sets the feed itself at each check.
-const required = ['app.asar', 'runtime-lock.json', 'app-update.yml', ...(mac ? [] : ['update-key.pem'])]
+// The third-party notices are the notices of the npm packages of the app
+// (`cargo xtask notices client`), and the notices of Electron and Chromium
+// that electron-builder copies.
+const notices = ['THIRD_PARTY_NOTICES', 'LICENSE.electron.txt', 'LICENSES.chromium.html']
+const required = ['app.asar', 'runtime-lock.json', 'app-update.yml', ...notices, ...(mac ? [] : ['update-key.pem'])]
 for (const name of required) {
   if (!fs.statSync(path.join(resources, name), { throwIfNoEntry: false })?.isFile()) {
     throw new Error(`the client package has no ${name}`)
@@ -64,8 +68,8 @@ for (const name of trayIcons) {
   if (!archived.has(`/static/${name}`)) throw new Error(`the client app archive has no static/${name}`)
 }
 // The setup and status pages load the design system from the package,
-// with no network.
-for (const name of ['tokens.css', 'inter.woff2', 'pagis-mark.svg', 'pagis-mark-dark.svg']) {
+// with no network. The license of the Inter font goes with the font.
+for (const name of ['tokens.css', 'inter.woff2', 'inter.LICENSE', 'pagis-mark.svg', 'pagis-mark-dark.svg']) {
   if (!archived.has(`/dist/design/${name}`)) throw new Error(`the client app archive has no dist/design/${name}`)
 }
 for (const entry of archived) {

@@ -3,6 +3,7 @@ name = "pagis-telephony"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+publish.workspace = true
 autotests = false
 
 [dependencies]

@@ -1,5 +1,5 @@
 //! The pinned tools of the checks and the release: gitleaks, cargo-deny,
-//! Trivy, gog and cargo-auditable.
+//! cargo-about, Trivy, gog and cargo-auditable.
 //!
 //! `pagis-versions` pins the version of each tool and the SHA-256 of its
 //! release archive for each host that runs the gate or the release, and
@@ -13,8 +13,9 @@
 //! no global install.
 
 use pagis_versions::{
-    CARGO_AUDITABLE_VERSION, CARGO_DENY_SHA256, CARGO_DENY_VERSION, GITLEAKS_SHA256,
-    GITLEAKS_VERSION, GOG_SHA256, GOG_VERSION, TRIVY_SHA256, TRIVY_VERSION,
+    CARGO_ABOUT_SHA256, CARGO_ABOUT_VERSION, CARGO_AUDITABLE_VERSION, CARGO_DENY_SHA256,
+    CARGO_DENY_VERSION, GITLEAKS_SHA256, GITLEAKS_VERSION, GOG_SHA256, GOG_VERSION, TRIVY_SHA256,
+    TRIVY_VERSION,
 };
 use std::path::Path;
 
@@ -56,6 +57,20 @@ pub fn cargo_deny() -> Result<Pin, String> {
         ),
         sha256,
         member: format!("cargo-deny-{version}-{triple}/cargo-deny"),
+    })
+}
+
+/// The pinned cargo-about archive of this host, or why there is none.
+pub fn cargo_about() -> Result<Pin, String> {
+    let (version, triple, sha256) =
+        host_archive("cargo-about", CARGO_ABOUT_VERSION, &CARGO_ABOUT_SHA256)?;
+    Ok(Pin {
+        tool: "cargo-about",
+        url: format!(
+            "https://github.com/EmbarkStudios/cargo-about/releases/download/{version}/cargo-about-{version}-{triple}.tar.gz"
+        ),
+        sha256,
+        member: format!("cargo-about-{version}-{triple}/cargo-about"),
     })
 }
 

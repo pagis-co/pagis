@@ -78,6 +78,9 @@ ARG PAGIS_COMPUTER_IMAGE=""
 ARG PAGIS_POSTHOG_PROJECT_ID=""
 ARG PAGIS_POSTHOG_TOKEN=""
 ENV CARGO_INCREMENTAL=0
+# The build also writes the third-party notices: the license texts of gog,
+# of the crates that `pagis` links and of the npm packages of the Product
+# App, which the bundle above lists (`cargo xtask notices server`).
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/src/target,sharing=locked \
     set -eux; \
@@ -85,7 +88,8 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     if [ -z "$PAGIS_POSTHOG_PROJECT_ID" ]; then unset PAGIS_POSTHOG_PROJECT_ID; fi; \
     if [ -z "$PAGIS_POSTHOG_TOKEN" ]; then unset PAGIS_POSTHOG_TOKEN; fi; \
     cargo auditable build --release -p pagis; \
-    cp target/release/pagis /usr/local/bin/pagis
+    cp target/release/pagis /usr/local/bin/pagis; \
+    cargo run --locked -p xtask -- notices server /usr/local/share/pagis/THIRD_PARTY_NOTICES
 
 # `gog` is the Google Connection runner, and the daemon starts it as a
 # sibling of its own executable (ADR-0024). The release downloads the
@@ -144,7 +148,7 @@ COPY --from=build --chown=root:root /usr/local/bin/pagis /usr/local/lib/pagis/pa
 COPY --from=gog --chown=root:root /out/gog /usr/local/lib/pagis/gog
 COPY LICENSE /usr/local/lib/pagis/LICENSE
 COPY third_party/gog/LICENSE /usr/local/lib/pagis/LICENSE.gog
-COPY third_party/THIRD_PARTY_NOTICES /usr/local/lib/pagis/THIRD_PARTY_NOTICES
+COPY --from=build --chown=root:root /usr/local/share/pagis/THIRD_PARTY_NOTICES /usr/local/lib/pagis/THIRD_PARTY_NOTICES
 RUN ln -s /usr/local/lib/pagis/pagis /usr/local/bin/pagis
 
 # The state directory: the sealed secrets, the memory repositories, the

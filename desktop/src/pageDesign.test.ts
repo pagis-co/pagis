@@ -35,7 +35,9 @@ function withoutComments(css: string): string {
 }
 
 describe('the design of the Client App pages', () => {
-  it('copies the tokens, the font and the mark from their sources in the build', () => {
+  // The SIL Open Font License asks that each copy of the font carries the
+  // license text, so the license of Inter travels beside the font.
+  it('copies the tokens, the font with its license and the mark from their sources in the build', () => {
     const output = fs.mkdtempSync(path.join(os.tmpdir(), 'pagis-design-'))
     roots.push(output)
 
@@ -44,6 +46,7 @@ describe('the design of the Client App pages', () => {
     const copied: Record<string, string> = {
       'tokens.css': path.join(repository, 'ui', 'src', 'tokens.css'),
       'inter.woff2': path.join(desktop, 'node_modules', '@fontsource-variable', 'inter', 'files', 'inter-latin-wght-normal.woff2'),
+      'inter.LICENSE': path.join(desktop, 'node_modules', '@fontsource-variable', 'inter', 'LICENSE'),
       'pagis-mark.svg': path.join(repository, 'assets', 'brand', 'pagis-mark.svg'),
       'pagis-mark-dark.svg': path.join(repository, 'assets', 'brand', 'pagis-mark-dark.svg'),
     }

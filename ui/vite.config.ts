@@ -14,6 +14,10 @@ export default defineConfig({
   // both share the built assets, so every component they have in common
   // is one component.
   build: {
+    // The license and the license text of each npm package that the
+    // bundle holds, which the third-party notices of the server read
+    // (`cargo xtask notices server`, ADR-0037).
+    license: { fileName: '.vite/license.json' },
     rollupOptions: {
       input: {
         index: fileURLToPath(new URL('index.html', import.meta.url)),

@@ -700,6 +700,34 @@ fn packaging_archives_the_linux_server_packages_only() {
     );
 }
 
+/// Each server package holds the notices of gog, of the crates that
+/// `pagis` links and of the npm packages of the Product App, which the
+/// release writes after the Product App build and not from a stored file.
+#[test]
+fn each_server_package_holds_the_written_third_party_notices() {
+    for stage in [ReleaseStage::Linux, ReleaseStage::Macos] {
+        let steps = plan(stage);
+        let names: Vec<&str> = steps.iter().map(|step| step.name).collect();
+        let assemble = joined(step(&steps, "assemble-server"));
+        let write = "cargo run --quiet -p xtask -- notices server dist/THIRD_PARTY_NOTICES\n";
+        let written = assemble.find(write).unwrap_or_else(|| panic!("{assemble}"));
+        let copied = assemble
+            .find("cp dist/THIRD_PARTY_NOTICES dist/package-")
+            .unwrap_or_else(|| panic!("{assemble}"));
+        assert!(written < copied, "{assemble}");
+        assert!(
+            !assemble.contains("third_party/THIRD_PARTY_NOTICES"),
+            "{assemble}"
+        );
+        let ui = names.iter().position(|name| *name == "ui-build").unwrap();
+        let at = names
+            .iter()
+            .position(|name| *name == "assemble-server")
+            .unwrap();
+        assert!(ui < at, "{names:?}");
+    }
+}
+
 #[test]
 fn each_stage_assembles_only_the_packages_that_it_built() {
     let linux = joined(step(&plan(ReleaseStage::Linux), "assemble-server"));

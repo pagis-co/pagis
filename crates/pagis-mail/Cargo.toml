@@ -3,6 +3,7 @@ name = "pagis-mail"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+publish.workspace = true
 autotests = false
 
 [package.metadata.cargo-machete]

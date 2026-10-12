@@ -258,6 +258,10 @@ RUN apt-get update && apt-get upgrade -y \
 COPY --from=compositor /usr/local /usr/local
 RUN ldconfig /usr/local/lib || ldconfig
 COPY --from=screend /src/screend/target/release/pagis-screend /usr/local/bin/pagis-screend
+# The license texts of the crates that pagis-screend links. The file is
+# stored beside screend, because this build has only `computer/`, and the
+# gate checks it against the lockfile (`cargo xtask notices screend`).
+COPY screend/THIRD_PARTY_NOTICES /usr/share/doc/pagis-screend/THIRD_PARTY_NOTICES
 
 # The runtimes the agent scripts with: python3 above, uv for Python
 # environments, and Node 24 LTS with npm and pnpm. The pnpm package is

@@ -171,7 +171,7 @@ jobs:
           PAGIS_IMAGE_CACHE_TO: ${{ github.ref == 'refs/heads/main' && 'type=gha,scope=computer-image,mode=max' || '' }}
 
   contract:
-    name: contract drift
+    name: contract drift and notices
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -200,8 +200,10 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
 
-      # The generated API types need the packages of the UI.
-      - run: cargo xtask step ui-deps contract-drift gog-contract
+      # The generated API types need the packages of the UI. The
+      # third-party notices read the licenses of the packages of the UI and
+      # of the Client App.
+      - run: cargo xtask step ui-deps desktop-deps contract-drift gog-contract notices
 
   ui:
     name: UI

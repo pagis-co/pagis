@@ -27,6 +27,7 @@ pub mod emergency;
 pub mod gog;
 pub mod image;
 pub mod mobile;
+pub mod notices;
 pub mod pins;
 pub mod relay_image;
 pub mod release;
@@ -222,6 +223,7 @@ fn gate_lanes(
             name: "contract-drift",
             action: pnpm_script_action(root, "ui", "api:check"),
         },
+        notices::notices_step(root),
     ];
     let mut node = vec![
         Step {
@@ -592,6 +594,11 @@ pub fn dev_lanes(
                 name: "contract-drift",
                 action: pnpm_script_action(root, "ui", "api:check"),
             });
+        }
+        // The lockfile of screend is under `computer/screend/`. Each other
+        // lockfile selects the full gate.
+        if screend_changed {
+            cargo_steps.push(notices::notices_step(root));
         }
     }
 

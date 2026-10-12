@@ -121,7 +121,8 @@ repository as its context:
 3. The `gog` stage fetches the pinned Google Connection runner and
    checks the same upstream hash the macOS package checks.
 4. The final stage carries the daemon, `gog` beside it, the upstream
-   licenses and notices, and every program the daemon starts. It starts the
+   licenses, the third-party notices that the build stage writes, and
+   every program the daemon starts. It starts the
    daemon without `--local` and sets `PAGIS_REQUIRE_PUBLIC_ORIGIN`, so the
    daemon refuses to start with `--local` or without a Public Origin whose
    host is not loopback. It upgrades the Debian packages of its base
@@ -294,6 +295,15 @@ license under `third_party/`: `gog` (MIT), the Google provider in every
 server package, and uBlock Origin Lite (GPL-3.0-only), the content blocker
 that the Chromium of the Computer Image loads.
 
+Each server package and the Headless Server image hold
+`THIRD_PARTY_NOTICES`: the license texts of gog, of the crates that
+`pagis` links and of the npm packages of the Product App. The assembly
+writes it with `cargo xtask notices server` after the Product App build,
+and the image build writes it after `pagis`. The Computer Image holds the
+stored notices of the crates of `pagis-screend`. `about.toml` holds the
+licenses that a release can ship
+([ADR-0037](adr/0037-each-release-ships-the-notices-of-its-third-party-software.md)).
+
 ## What the workflow needs
 
 The repository administrator sets these once. `scripts/signing-secrets.sh`
@@ -372,7 +382,8 @@ The workflow runs these jobs in this order, and ADR-0025 holds why:
    exact image reference, after the computer-manifest job and beside the
    server image jobs. Each builds the Product App, then `pagis` with
    the pinned, hash-checked cargo-auditable, assembles each target with its
-   pinned, hash-checked `gog` and the notices, and scans each package tree
+   pinned, hash-checked `gog` and the third-party notices that it writes,
+   and scans each package tree
    for known vulnerabilities.
    - `cargo xtask release linux --platform <platform>` (Linux) builds the
      server package of one Linux architecture, and the workflow runs one

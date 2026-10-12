@@ -42,6 +42,7 @@ members = [
 version = "0.3.0"
 edition = "2024"
 license = "MIT"
+publish = false
 
 [workspace.dependencies]
 pagis = { path = "crates/pagis" }
@@ -187,6 +188,9 @@ serde-saphyr = { version = "1", default-features = false, features = ["deseriali
 # keeps the order it was written in.
 serde_json = { version = "1", features = ["preserve_order"] }
 semver = "1"
+# The SPDX license expressions of the packages that the third-party
+# notices of xtask name, and the standard text of each license.
+spdx = { version = "0.13", features = ["text"] }
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls-ring", "sqlite", "postgres", "migrate", "macros", "json"] }
 tempfile = "3"
 thiserror = "2"

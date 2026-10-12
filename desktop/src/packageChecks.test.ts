@@ -260,7 +260,8 @@ describe('the inventory of the packaged app', () => {
     const root = temporary()
     const source = path.join(root, 'source')
     for (const name of ['static/trayTemplate.png', 'static/trayTemplate@2x.png', 'dist/design/tokens.css',
-      'dist/design/inter.woff2', 'dist/design/pagis-mark.svg', 'dist/design/pagis-mark-dark.svg']) {
+      'dist/design/inter.woff2', 'dist/design/inter.LICENSE', 'dist/design/pagis-mark.svg',
+      'dist/design/pagis-mark-dark.svg']) {
       fs.mkdirSync(path.dirname(path.join(source, name)), { recursive: true })
       fs.writeFileSync(path.join(source, name), name)
     }
@@ -270,6 +271,7 @@ describe('the inventory of the packaged app', () => {
     fs.mkdirSync(resources, { recursive: true })
     await createPackage(source, path.join(resources, 'app.asar'))
     fs.writeFileSync(path.join(resources, 'runtime-lock.json'), '{}')
+    writeNotices(resources)
     if (updateConfig !== null) fs.writeFileSync(path.join(resources, 'app-update.yml'), updateConfig)
     const dmg = path.join(root, 'Pagis-1.2.3-arm64.dmg')
     fs.writeFileSync(dmg, 'dmg')
@@ -282,7 +284,7 @@ describe('the inventory of the packaged app', () => {
     const root = temporary()
     const source = path.join(root, 'source')
     for (const name of ['static/tray.png', 'dist/design/tokens.css', 'dist/design/inter.woff2',
-      'dist/design/pagis-mark.svg', 'dist/design/pagis-mark-dark.svg']) {
+      'dist/design/inter.LICENSE', 'dist/design/pagis-mark.svg', 'dist/design/pagis-mark-dark.svg']) {
       fs.mkdirSync(path.dirname(path.join(source, name)), { recursive: true })
       fs.writeFileSync(path.join(source, name), name)
     }
@@ -293,13 +295,31 @@ describe('the inventory of the packaged app', () => {
     await createPackage(source, path.join(resources, 'app.asar'))
     fs.writeFileSync(path.join(resources, 'runtime-lock.json'), '{}')
     fs.writeFileSync(path.join(resources, 'app-update.yml'), 'owner: pagis-co\nrepo: pagis\nprovider: github\n')
+    writeNotices(resources)
     if (updateKey !== null) fs.writeFileSync(path.join(resources, 'update-key.pem'), updateKey)
     const packages = ['Pagis-1.2.3-x86_64.AppImage', 'Pagis-1.2.3-amd64.deb'].map((name) => path.join(root, name))
     for (const file of packages) fs.writeFileSync(file, 'package')
     return [app, ...packages]
   }
 
+  /** The notices of the npm packages, and the notices of Electron and
+   *  Chromium that electron-builder copies beside them. */
+  function writeNotices(resources: string) {
+    for (const name of NOTICES) fs.writeFileSync(path.join(resources, name), name)
+  }
+
+  const NOTICES = ['THIRD_PARTY_NOTICES', 'LICENSE.electron.txt', 'LICENSES.chromium.html']
+
   const CONFIG = 'owner: pagis-co\nrepo: pagis\nprovider: github\nupdaterCacheDirName: pagis-desktop-updater\n'
+
+  it('refuses an app with no third-party notices', async () => {
+    for (const name of NOTICES) {
+      const [app, dmg] = await packagedApp(CONFIG)
+      fs.rmSync(path.join(app, 'Contents', 'Resources', name))
+
+      expect(check('check-package.mjs', [app, dmg], SCRIPTS, pnpmEnvironment()), name).toContain(name)
+    }
+  })
 
   it('accepts an app with its app-update.yml and its production dependencies', async () => {
     expect(check('check-package.mjs', await packagedApp(CONFIG), SCRIPTS, pnpmEnvironment())).toBeNull()

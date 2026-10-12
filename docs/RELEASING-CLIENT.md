@@ -89,6 +89,10 @@ in the DMG that a Person installs, and in a ZIP that electron-updater
 installs as an Update (ADR-0027). It also writes the blockmap of the ZIP and
 the feed `latest-mac.yml`, which names the ZIP with its SHA-512 and size.
 The pack passes `--publish never`, so electron-builder uploads nothing.
+Before the pack, `cargo xtask notices client` writes the notices of the
+npm packages of the app to `dist/client/THIRD_PARTY_NOTICES`, and
+electron-builder puts them in the resources of the app, beside the
+notices of Electron and of Chromium (ADR-0037).
 
 `--prepare` signs the outer DMG, submits it for notarization, and staples the
 accepted ticket. It then mounts that exact DMG. The mounted app must contain
@@ -97,7 +101,7 @@ team, stapled ticket, Gatekeeper, package inventory, compiled installer, and iso
 smoke checks. It unpacks the exact ZIP with `ditto` and checks that app in
 the same way, but for the compiled installer and the smoke. The package
 inventory requires `app-update.yml`, which names the GitHub releases of
-`pagis-co/pagis`. Last, it checks that `latest-mac.yml` names the ZIP alone,
+`pagis-co/pagis`, and the third-party notices. Last, it checks that `latest-mac.yml` names the ZIP alone,
 with its true SHA-512 and size. It does not publish.
 
 ### Publish the prepared bytes

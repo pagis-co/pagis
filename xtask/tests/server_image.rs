@@ -213,6 +213,28 @@ fn the_image_builds_pagis_with_the_pinned_cargo_auditable() {
 /// The image installs the pnpm that the workspace names in the
 /// `packageManager` of the root `package.json`, so the image and a
 /// developer's checkout install the lockfile with the same pnpm.
+/// The image holds the notices that the build writes after `pagis`,
+/// from the crates of its lockfile and the Product App of its bundle, and
+/// not a stored file.
+#[test]
+fn the_image_holds_the_third_party_notices_that_its_build_writes() {
+    let dockerfile = dockerfile();
+    let built = dockerfile
+        .find("cargo auditable build --release -p pagis")
+        .expect("the pagis build");
+    let written = dockerfile
+        .find(
+            "cargo run --locked -p xtask -- notices server /usr/local/share/pagis/THIRD_PARTY_NOTICES",
+        )
+        .expect("the notices are written");
+    assert!(built < written);
+    assert!(dockerfile.contains(
+        "COPY --from=build --chown=root:root /usr/local/share/pagis/THIRD_PARTY_NOTICES \
+         /usr/local/lib/pagis/THIRD_PARTY_NOTICES"
+    ));
+    assert!(!dockerfile.contains("third_party/THIRD_PARTY_NOTICES"));
+}
+
 #[test]
 fn the_image_installs_the_pnpm_of_the_workspace() {
     let package: serde_json::Value = serde_json::from_str(
