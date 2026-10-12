@@ -8,24 +8,25 @@
 //! the item, never the content of a message, a tool input or a
 //! Credential.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use futures::StreamExt;
 use pagis_core::{
-    AgentId, AgentStore, Clock, EventBus, EventScope, EventStream, PushSubscription,
-    PushSubscriptionStore, Request, SecretStore, UnixMillis, WorkspaceId,
+    AgentId, AgentStore, Clock, PushSubscription, PushSubscriptionStore, Request, WorkspaceId,
 };
-use pagis_push::{MAX_PLAINTEXT, Options, Outcome, Policy, Subscription, Topic, Urgency, WebPush};
+use pagis_push::{MAX_PLAINTEXT, Options, Outcome, Subscription, Topic, Urgency};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 use tokio_util::sync::CancellationToken;
 
-use crate::needs_you::{NEEDS_YOU_ADDED, NEEDS_YOU_REMOVED, NeedsYou, NeedsYouItem};
+use crate::NotificationSender;
+#[cfg(test)]
+use crate::needs_you::{NEEDS_YOU_ADDED, NEEDS_YOU_REMOVED};
+use crate::needs_you::{NeedsYou, NeedsYouItem};
+#[cfg(test)]
 use crate::person_activity::PersonActivity;
 
 /// The version of the payload format. A change that breaks the format
@@ -221,44 +222,39 @@ impl Message<'_> {
 /// with the VAPID Key, and the records that a Notification reads and
 /// changes.
 pub struct Notifications {
-    web_push: WebPush,
+    sender: Arc<dyn NotificationSender>,
     public_origin: String,
     push_subscriptions: Arc<dyn PushSubscriptionStore>,
     agents: Arc<dyn AgentStore>,
     /// The Needs-You Queue, which a held item reads again before it goes.
     needs_you: Arc<NeedsYou>,
-    clock: Arc<dyn Clock>,
+    pub(crate) clock: Arc<dyn Clock>,
 }
 
 impl Notifications {
-    /// The sender that signs with the VAPID Key of `secrets`, which it
-    /// makes at this first need, and that sends to the endpoints that
-    /// `policy` allows.
+    /// A sender and the records that a Notification reads and changes.
     pub fn new(
-        secrets: &dyn SecretStore,
+        sender: Arc<dyn NotificationSender>,
         public_origin: String,
-        policy: Policy,
         push_subscriptions: Arc<dyn PushSubscriptionStore>,
         agents: Arc<dyn AgentStore>,
         needs_you: Arc<NeedsYou>,
         clock: Arc<dyn Clock>,
-    ) -> anyhow::Result<Self> {
-        let vapid_key = crate::push_subscriptions::vapid_key(secrets)?;
-        let web_push = WebPush::new(&vapid_key, &public_origin, policy)?;
-        Ok(Self {
-            web_push,
+    ) -> Self {
+        Self {
+            sender,
             public_origin,
             push_subscriptions,
             agents,
             needs_you,
             clock,
-        })
+        }
     }
 
     /// Send the test Notification to one Push Subscription, and answer
     /// what the push service answered. A `429` gets no second send: the
     /// Person sees it and tries again.
-    pub(crate) async fn send_test(&self, row: &PushSubscription) -> Outcome {
+    pub async fn send_test(&self, row: &PushSubscription) -> Outcome {
         self.send(row, &test_payload(&self.public_origin), test_options())
             .await
     }
@@ -287,7 +283,7 @@ impl Notifications {
             return;
         };
         let delay = retry_after.map_or(MAX_RETRY_DELAY, |delay| delay.min(MAX_RETRY_DELAY));
-        tokio::time::sleep(delay).await;
+        pagis_rt::sleep(delay).await;
         self.send(row, plaintext, options).await;
     }
 
@@ -301,7 +297,7 @@ impl Notifications {
             p256dh: row.p256dh.clone(),
             auth: row.auth.clone(),
         };
-        let outcome = self.web_push.send(&subscription, plaintext, options).await;
+        let outcome = self.sender.send(&subscription, plaintext, options).await;
         let id = &row.id;
         match &outcome {
             Outcome::Delivered => {
@@ -351,16 +347,10 @@ impl Notifications {
 /// An item as the Needs-You Queue holds it, with the count of the
 /// queue: the payload of `needs_you.added`, and the answer of
 /// [`Notifier::queued`].
-#[derive(Deserialize)]
-pub(crate) struct QueuedItem {
-    item: NeedsYouItem,
-    count: usize,
-}
-
-/// The payload of `needs_you.removed`.
-#[derive(Deserialize)]
-struct Removed {
-    item_id: String,
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct QueuedItem {
+    pub item: NeedsYouItem,
+    pub count: usize,
 }
 
 /// What the Notification task reads and does: the item as the Needs-You
@@ -445,141 +435,6 @@ impl Notifier for Notifications {
                     .await;
             });
         }
-    }
-}
-
-/// Start the task that sends a Notification for each item that enters
-/// the Needs-You Queue: on each `needs_you.added`, to each Push
-/// Subscription of the Workspace of the item. A new item waits while the
-/// Person is active in a client, by the rule of
-/// [`crate::person_activity::hold_until`]. No push goes when an item
-/// leaves the queue. The task subscribes before it answers, so no event
-/// after the start is lost, and it stops on `cancel`.
-pub async fn spawn_notifications(
-    notifications: Arc<Notifications>,
-    activity: Arc<PersonActivity>,
-    bus: Arc<dyn EventBus>,
-    cancel: CancellationToken,
-) {
-    let events = bus.subscribe(EventScope::Installation, None).await;
-    let clock = Arc::clone(&notifications.clock);
-    pagis_rt::spawn(serve(notifications, activity, clock, events, cancel));
-}
-
-/// The loop of the Notification task over the events of the
-/// installation. A `needs_you.added` sends at once, or starts a hold of
-/// its item when the Person is active. A `needs_you.removed` ends the
-/// hold of its item.
-async fn serve<N: Notifier>(
-    notifier: Arc<N>,
-    activity: Arc<PersonActivity>,
-    clock: Arc<dyn Clock>,
-    mut events: EventStream,
-    cancel: CancellationToken,
-) {
-    // The hold of each held item, by Workspace and item id. A hold that
-    // ended cancels its own token, and the loop then forgets it.
-    let mut holds: HashMap<(WorkspaceId, String), CancellationToken> = HashMap::new();
-    loop {
-        let event = tokio::select! {
-            () = cancel.cancelled() => return,
-            event = events.next() => match event {
-                Some(event) => event,
-                None => return,
-            },
-        };
-        holds.retain(|_, hold| !hold.is_cancelled());
-        let workspace_id = event.workspace_id;
-        match event.event_type.as_str() {
-            NEEDS_YOU_ADDED => {
-                let added = match serde_json::from_value::<QueuedItem>(event.payload) {
-                    Ok(added) => added,
-                    Err(error) => {
-                        tracing::error!(%error, %workspace_id, "a needs_you.added event was not read");
-                        continue;
-                    }
-                };
-                let Some(until) = activity.hold_until(&workspace_id, clock.now_ms()) else {
-                    notifier
-                        .notify(&workspace_id, &added.item, added.count, &cancel)
-                        .await;
-                    continue;
-                };
-                let item_id = added.item.id().to_string();
-                let hold = cancel.child_token();
-                holds.insert((workspace_id.clone(), item_id.clone()), hold.clone());
-                pagis_rt::spawn(release(
-                    Arc::clone(&notifier),
-                    Arc::clone(&activity),
-                    Arc::clone(&clock),
-                    Held {
-                        workspace_id,
-                        item_id,
-                        until,
-                    },
-                    hold,
-                    cancel.clone(),
-                ));
-            }
-            NEEDS_YOU_REMOVED => match serde_json::from_value::<Removed>(event.payload) {
-                Ok(removed) => {
-                    if let Some(hold) = holds.remove(&(workspace_id, removed.item_id)) {
-                        hold.cancel();
-                    }
-                }
-                Err(error) => {
-                    tracing::error!(%error, %workspace_id, "a needs_you.removed event was not read");
-                }
-            },
-            _ => {}
-        }
-    }
-}
-
-/// One item that waits, and until when.
-struct Held {
-    workspace_id: WorkspaceId,
-    item_id: String,
-    until: UnixMillis,
-}
-
-/// Wait until the hold of one item ends, and then check again: the
-/// Person was active again, so the item waits again by the same rule;
-/// the item left the queue, so nothing goes; else the item goes, as the
-/// queue holds it now. `hold` ends the wait at once, and the end of the
-/// wait cancels `hold`.
-async fn release<N: Notifier>(
-    notifier: Arc<N>,
-    activity: Arc<PersonActivity>,
-    clock: Arc<dyn Clock>,
-    held: Held,
-    hold: CancellationToken,
-    cancel: CancellationToken,
-) {
-    let _ended = hold.clone().drop_guard();
-    let Held {
-        workspace_id,
-        item_id,
-        mut until,
-    } = held;
-    loop {
-        let wait = u64::try_from(until - clock.now_ms()).unwrap_or(0);
-        let waited = hold
-            .run_until_cancelled(tokio::time::sleep(Duration::from_millis(wait)))
-            .await;
-        if waited.is_none() {
-            return;
-        }
-        if let Some(next) = activity.hold_until(&workspace_id, clock.now_ms()) {
-            until = next;
-            continue;
-        }
-        if let Some(queued) = notifier.queued(&workspace_id, &item_id).await {
-            notifier
-                .notify(&workspace_id, &queued.item, queued.count, &cancel)
-                .await;
-        }
-        return;
     }
 }
 
@@ -903,14 +758,16 @@ mod tests {
     }
 
     /// The Notification task on paused tokio time: the hold of ADR-0030.
+    #[cfg(not(target_arch = "wasm32"))]
     mod task {
         use std::sync::Mutex;
 
-        use futures::channel::mpsc;
+        use futures::{StreamExt, channel::mpsc};
         use pagis_core::{Event, EventId, UnixMillis};
         use tokio::time::Instant;
 
         use super::*;
+        use crate::loops::serve;
 
         /// 2026-09-25 12:00 UTC.
         const NOW: UnixMillis = 1_790_337_600_000;

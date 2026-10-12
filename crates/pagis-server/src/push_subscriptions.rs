@@ -18,19 +18,17 @@ use axum::http::StatusCode;
 use base64::Engine;
 use base64::alphabet;
 use base64::engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig};
+use p256::PublicKey;
 use p256::elliptic_curve::sec1::ToEncodedPoint;
-use p256::{PublicKey, SecretKey};
-use pagis_core::{PushSubscription, PushSubscriptionId, SecretError, SecretStore};
-use rand::RngCore;
+use pagis_core::{PushSubscription, PushSubscriptionId};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
+
+use pagis_needs_you::vapid_key;
 
 use crate::AppState;
 use crate::auth::Tenant;
 use crate::error::ApiError;
-
-/// The name of the private half of the VAPID Key in `secrets.enc`.
-const VAPID_KEY_SECRET: &str = "vapid_private_key";
 
 /// The longest endpoint the daemon keeps, in characters.
 const MAX_ENDPOINT_CHARS: usize = 2048;
@@ -50,38 +48,6 @@ const BASE64URL: GeneralPurpose = GeneralPurpose::new(
         .with_encode_padding(false)
         .with_decode_padding_mode(DecodePaddingMode::Indifferent),
 );
-
-/// The VAPID Key of the installation, made at the first need.
-///
-/// A new key goes in only through the create-if-absent operation of the
-/// store, and the answer is the key that the store holds. Two first
-/// needs that race therefore agree on one key.
-pub(crate) fn vapid_key(secrets: &dyn SecretStore) -> Result<SecretKey, SecretError> {
-    let minted = BASE64URL.encode(random_secret_key().to_bytes());
-    let stored = secrets.get_or_insert(VAPID_KEY_SECRET, &minted)?;
-    BASE64URL
-        .decode(&stored)
-        .ok()
-        .and_then(|bytes| SecretKey::from_slice(&bytes).ok())
-        .ok_or_else(|| {
-            SecretError(format!(
-                "the {VAPID_KEY_SECRET} entry of secrets.enc is not a P-256 secret key"
-            ))
-        })
-}
-
-/// A random P-256 secret key. A random 32-byte value is a valid scalar
-/// except when it is zero or not less than the order of the curve, which
-/// happens with a chance of about 2^-32; such a value is drawn again.
-fn random_secret_key() -> SecretKey {
-    loop {
-        let mut bytes = [0u8; 32];
-        rand::rng().fill_bytes(&mut bytes);
-        if let Ok(key) = SecretKey::from_slice(&bytes) {
-            return key;
-        }
-    }
-}
 
 /// The public half of the VAPID Key.
 #[derive(Debug, Serialize, ToSchema)]
@@ -396,6 +362,8 @@ fn checked_auth(auth: &str) -> Result<String, ApiError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pagis_core::SecretStore;
+    use pagis_needs_you::VAPID_KEY_SECRET;
 
     /// The receiver public key of RFC 8291, Appendix A.
     const P256DH: &str =

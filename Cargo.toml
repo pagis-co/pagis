@@ -14,6 +14,7 @@ members = [
     "crates/pagis-core",
     "crates/pagis-google",
     "crates/pagis-mail",
+    "crates/pagis-needs-you",
     "crates/pagis-memory",
     "crates/pagis-memory-git",
     "crates/pagis-knowledge",
@@ -54,6 +55,7 @@ pagis-core = { path = "crates/pagis-core" }
 pagis-evaluation = { path = "crates/pagis-evaluation" }
 pagis-google = { path = "crates/pagis-google" }
 pagis-mail = { path = "crates/pagis-mail" }
+pagis-needs-you = { path = "crates/pagis-needs-you" }
 pagis-memory = { path = "crates/pagis-memory" }
 pagis-memory-git = { path = "crates/pagis-memory-git" }
 pagis-knowledge = { path = "crates/pagis-knowledge" }

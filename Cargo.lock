@@ -4398,6 +4398,7 @@ dependencies = [
  "pagis-mail",
  "pagis-mcp-fixture",
  "pagis-memory-git",
+ "pagis-needs-you",
  "pagis-plugin",
  "pagis-plugins",
  "pagis-push",
@@ -4777,6 +4778,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "pagis-needs-you"
+version = "0.3.0"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "futures",
+ "p256",
+ "pagis-core",
+ "pagis-push",
+ "pagis-rt",
+ "rand 0.9.5",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "utoipa",
+ "wasm-bindgen-test",
+]
+
+[[package]]
 name = "pagis-plugin"
 version = "0.3.0"
 dependencies = [
@@ -4909,6 +4932,7 @@ dependencies = [
  "pagis-core",
  "pagis-google",
  "pagis-mail",
+ "pagis-needs-you",
  "pagis-plugin",
  "pagis-plugins",
  "pagis-push",

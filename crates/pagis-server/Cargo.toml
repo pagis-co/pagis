@@ -27,6 +27,7 @@ pagis-computer.workspace = true
 pagis-connect.workspace = true
 pagis-google.workspace = true
 pagis-core.workspace = true
+pagis-needs-you.workspace = true
 pagis-plugin.workspace = true
 pagis-plugins.workspace = true
 # The Web Push of each Notification (ADR-0030).
@@ -57,8 +58,3 @@ tracing.workspace = true
 # The Public Origin an Administrator types.
 url.workspace = true
 utoipa.workspace = true
-
-[dev-dependencies]
-# `test-util` pauses the clock, so the tests of the hold of a
-# Notification drive 120 s without waiting for them.
-tokio = { workspace = true, features = ["test-util"] }

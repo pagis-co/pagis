@@ -108,7 +108,11 @@ derives the Needs-You Queue on each read from the records, and stores no
 copy of it. A daemon-lifetime task derives the queue again after each
 event that can change it, and publishes `needs_you.added` or
 `needs_you.removed` for each item that enters or leaves it (ADR-0022,
-ADR-0030).
+ADR-0030). `pagis-needs-you` holds the queue reader and its items.
+`QueueChanges` holds the last item ids of one Workspace. Its baseline
+publishes nothing, and `on_event` gives the events for items that enter
+or leave. The rule starts no task. `run_needs_you` subscribes to the
+Event Bus and publishes those events.
 
 ### Runtime
 
@@ -139,9 +143,9 @@ starts the Run that `Admission::next` selects. Admission tests need no
 task, clock or store.
 
 `pagis-rt` supplies tasks, sleeps, deadlines, intervals, timeouts and
-`Instant` to `pagis-agent` and `pagis-telephony`. Intervals delay missed
-ticks, so the Media Hub sends no burst to catch up. Native targets use
-Tokio. On `wasm32-unknown-unknown`,
+`Instant` to `pagis-agent`, `pagis-telephony` and `pagis-needs-you`.
+Intervals delay missed ticks, so the Media Hub sends no burst to catch
+up. Native targets use Tokio. On `wasm32-unknown-unknown`,
 tasks use `wasm-bindgen-futures::spawn_local`, timers use Gloo, and
 `Instant` uses `web-time`. No caller supplies a runtime. The Brain keeps
 its router and fetch futures on the wasm host's one thread with
@@ -318,7 +322,16 @@ the Person, when an item enters the Needs-You Queue (ADR-0030). It goes
 through the push service of a browser, or through the Push Relay to the
 Mobile App, and only the client decrypts it.
 
-A daemon-lifetime task reads each `needs_you.added` event and sends the
+`pagis-needs-you` holds the payload, delivery options, activity hold
+and `Notifications` sender. `NotificationRule` reads an event or the
+end of a hold, with the current queue item and the time of the caller.
+It gives `Send`, `Hold` or `EndHold` actions for one Workspace.
+It reads no clock and starts no
+task. `run_notifications` subscribes to the Event Bus and applies the
+actions with `pagis-rt` tasks and timers. Before sending a held item, it
+reads the queue again for the current item and count.
+
+The loop reads each `needs_you.added` event and sends the
 Notification of its item to each Push Subscription of that Workspace,
 each in a task of its own. No push goes when an item leaves the queue.
 The plaintext is the Declarative Web Push JSON: the name of the Agent,
@@ -343,6 +356,14 @@ and the daemon deletes it. A `429` gets one more send after its
 `Retry-After`, at most 300 s later. A delivery keeps the time of the
 send. The Person sends a test Notification to one Push Subscription from
 Settings, and the route answers what the push service answered.
+
+`pagis-server` keeps the queue route, the test Notification route and
+the `activity` frame. The daemon starts both loops from `pagis-needs-you`.
+The crate builds on `wasm32-unknown-unknown`, and Node tests run the
+Workspace rules with no runtime or timer. `NotificationSender` supplies
+the host transport. On native targets, `pagis-push::WebPush` implements
+it. A wasm host uses `WebPush::request` and `Outcome::of` under the
+endpoint guard and timeout rules of `pagis-push`.
 
 ### Audit
 
