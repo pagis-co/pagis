@@ -661,7 +661,7 @@ pub const ROUTES: &[Route] = &[
         path: "/api/v1/calls/{call_id}/control",
         methods: &["post"],
         authenticated: true,
-        part: None,
+        part: Some("Calls"),
     },
     Route {
         path: "/api/v1/runs/{run_id}/cancel",
@@ -1045,31 +1045,31 @@ pub const ROUTES: &[Route] = &[
         path: "/api/v1/calls",
         methods: &["get"],
         authenticated: true,
-        part: None,
+        part: Some("Calls"),
     },
     Route {
         path: "/api/v1/calls/{call_id}",
         methods: &["get"],
         authenticated: true,
-        part: None,
+        part: Some("Calls"),
     },
     Route {
         path: "/api/v1/calls/{call_id}/dismiss",
         methods: &["post"],
         authenticated: true,
-        part: None,
+        part: Some("Calls"),
     },
     Route {
         path: "/api/v1/calls/{call_id}/hangup",
         methods: &["post"],
         authenticated: true,
-        part: None,
+        part: Some("Calls"),
     },
     Route {
         path: "/api/v1/calls/{call_id}/tier",
         methods: &["post"],
         authenticated: true,
-        part: None,
+        part: Some("Calls"),
     },
     Route {
         path: "/api/v1/coding-sessions",
@@ -1099,37 +1099,37 @@ pub const ROUTES: &[Route] = &[
         path: "/api/v1/settings/phone-numbers",
         methods: &["get", "post"],
         authenticated: true,
-        part: None,
+        part: Some("Calls"),
     },
     Route {
         path: "/api/v1/settings/phone-numbers/adopt",
         methods: &["post"],
         authenticated: true,
-        part: None,
+        part: Some("Calls"),
     },
     Route {
         path: "/api/v1/settings/phone-numbers/available",
         methods: &["get"],
         authenticated: true,
-        part: None,
+        part: Some("Calls"),
     },
     Route {
         path: "/api/v1/settings/phone-numbers/{phone_number_id}/assign",
         methods: &["post"],
         authenticated: true,
-        part: None,
+        part: Some("Calls"),
     },
     Route {
         path: "/api/v1/settings/phone-numbers/{phone_number_id}/unassign",
         methods: &["post"],
         authenticated: true,
-        part: None,
+        part: Some("Calls"),
     },
     Route {
         path: "/api/v1/settings/phone-numbers/{phone_number_id}/release",
         methods: &["post"],
         authenticated: true,
-        part: None,
+        part: Some("Calls"),
     },
     Route {
         path: "/api/v1/settings/credentials",
@@ -1421,6 +1421,59 @@ mod tests {
             }
         }
         assert!(count >= 6, "the table names the native product routes");
+    }
+
+    #[cfg(not(feature = "native"))]
+    #[tokio::test]
+    async fn every_calls_route_answers_not_available() {
+        use axum::body::{Body, to_bytes};
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+
+        let router = crate::native_product_routes();
+        let routes: Vec<_> = ROUTES
+            .iter()
+            .filter(|route| {
+                route.path.starts_with("/api/v1/calls")
+                    || route.path.starts_with("/api/v1/settings/phone-numbers")
+            })
+            .collect();
+        assert_eq!(routes.len(), 13);
+        for route in routes {
+            assert_eq!(route.part, Some("Calls"), "{}", route.path);
+            let path = route
+                .path
+                .replace("{call_id}", "call")
+                .replace("{phone_number_id}", "number");
+            for method in route.methods {
+                let response = router
+                    .clone()
+                    .oneshot(
+                        Request::builder()
+                            .method(method.to_uppercase().as_str())
+                            .uri(&path)
+                            .body(Body::empty())
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    response.status(),
+                    StatusCode::NOT_IMPLEMENTED,
+                    "{method} {path}"
+                );
+                let body: serde_json::Value = serde_json::from_slice(
+                    &to_bytes(response.into_body(), usize::MAX).await.unwrap(),
+                )
+                .unwrap();
+                assert_eq!(
+                    body,
+                    serde_json::json!({"error": {
+                        "code": "not_available", "message": "This server does not offer Calls."
+                    }})
+                );
+            }
+        }
     }
 
     /// Every `.route(...)` of one router, read out of its source: the

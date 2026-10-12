@@ -101,7 +101,7 @@ answer.
 
 ## Not built
 
-The separation of the other services and routes of Computers, Calls,
+The separation of the other services and routes of Computers,
 Hosts and Coding Sessions, Plugins and Software, and Connections into
 Native Parts is not built. The `wasm32-unknown-unknown` build of
 `pagis-server` is not built.
