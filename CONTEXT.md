@@ -448,6 +448,15 @@ the daemon keeps while an Administrator has the Model Request Capture
 System Setting on. Each image in it is a hash and a size. Only an
 Administrator reads it, and it expires after the retention of the setting.
 Forget deletes it, and a Backup leaves it out (ADR-0031).
+
+A Run that reads Google data keeps no capture from that read onward,
+even when the setting is on. Google
+data enters through a Google Connection tool result, a Source Item in
+an Arrival Run or Review Run briefing, or a memory read whose Exposure
+Stamps name a Grant on a Google Connection. The flag stays through
+Compaction and the rest of the Run. Earlier captures stay under the
+retention rules. The request summary stays, and the Run page tells an
+Administrator why the request has no capture.
 _Avoid_: request log, trace, prompt log
 
 ### Model Preference

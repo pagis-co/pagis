@@ -187,8 +187,8 @@ when the request failed.
 The content of a model request stays out of the records unless an
 Administrator turns on **Model Request Capture** in the Settings view of
 the Administration Interface. While it is on, the daemon keeps a copy of
-each model request of a Run: the system prompt, the messages, the memory
-and the tool results that the request sent, and the answer or the error
+each permitted model request of a Run: the system prompt, the messages,
+the memory and the tool results that the request sent, and the answer or the error
 of the provider. Each image in the copy is its type, its size and its
 SHA-256. Each Person sees in the sidebar that Pagis keeps their requests,
 and for how many days. Only an Administrator reads a copy, on the page of
@@ -197,6 +197,22 @@ days by default and 30 days at most. Turning the setting off deletes every
 copy, Forget deletes the copies of a Run that read the forgotten source,
 and a Backup holds none
 ([ADR-0031](https://github.com/pagis-co/pagis/blob/main/docs/adr/0031-an-administrator-can-capture-the-model-requests-of-a-run.md)).
+
+A Run that reads Google data keeps no Model Request Capture from that
+read onward. This includes a Google Connection tool result, a Source Item
+in an Arrival Run or Review Run briefing, and a memory read whose Exposure
+Stamps name a Grant on a Google Connection. The rule applies while the
+setting is on and stays through Compaction and the rest of the Run.
+Captures from before the read keep their retention. The request summary
+stays. On each such request with no capture, the Run page tells an
+Administrator: "Not captured: this Run read Google data."
+
+There is no setting that permits these captures.
+[Google's API Services User Data Policy](https://developers.google.com/terms/api-services-user-data-policy),
+under Limited Use, limits human access to Google user data. The
+Installation OAuth Client belongs to one Google project for all People
+of the installation. The capture rule keeps this debug tool within the
+policy of that client.
 
 On a server, and on a local installation in Remote Access, the
 Administrator stores the provider keys for the whole Org. The providers of

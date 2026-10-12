@@ -16,7 +16,7 @@ function note(capture: ModelRequestCaptureSettingDto): string {
     `Pagis keeps a copy of each model request for ${capture.retention_days} days: the ` +
     'messages, the memory and the tool results that the request sent, and the answer of the ' +
     'provider. Only an Administrator reads it, on the page of a Run. Turn this off to delete ' +
-    'every copy.'
+    'every copy. No copy is kept after a Run reads Google data.'
   )
 }
 

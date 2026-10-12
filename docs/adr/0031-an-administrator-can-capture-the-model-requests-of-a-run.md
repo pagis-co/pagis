@@ -38,8 +38,8 @@ model requests, and for how many days.
 
 ### What a capture holds
 
-The daemon takes one capture for each model request of a Run, beside the
-`model.completed` event of the same request:
+The daemon takes one capture for each permitted model request of a Run,
+beside the `model.completed` event of the same request:
 
 - **The request**, as the Agent sends it after Compaction: the Model Alias
   and its candidates, the system prompt, the messages with their tool calls
@@ -55,6 +55,38 @@ The daemon takes one capture for each model request of a Run, beside the
 A capture holds no secret. The model never sees a Credential secret
 (ADR-0013), and the provider key goes in a header that the capture does not
 hold.
+
+### A Run that holds Google data is not captured
+
+The Run sets a flag when its context first holds any of these:
+
+- A tool result of a Connection whose provider is `google`.
+- A Source Item from a Google Connection in the briefing of an Arrival Run
+  or a Review Run.
+- A memory read whose Exposure Stamps name a Grant on a Google Connection.
+  This includes the memory indexes and the Brief.
+
+The flag stays for the whole Run, through all Turns, Compaction and
+Reflection. Model Request Capture keeps no request or answer after the
+flag is set, even when the setting is on. Captures from before the read
+stay under the retention rules. The Run still records the summary of each
+request in `model.requested`. The Run page shows an Administrator
+"Not captured: this Run read Google data." on each such request with no
+capture.
+
+Each installation uses its own Installation OAuth Client. The Google
+project of that client is one OAuth app for every Person of the
+installation (ADR-0012). Gmail read uses a restricted scope.
+[Google's API Services User Data Policy](https://developers.google.com/terms/api-services-user-data-policy),
+under Limited Use, permits a human to read the specific data in a capture
+only with the user's agreement, for security, or for the law. An
+Administrator who reads a capture can be a different Person from the
+owner of that data. Google verification checks the OAuth app against this
+policy.
+
+The rule applies to Google data only. There is no Administrator setting
+that permits a capture of it. A capture is a debug copy, and the rule
+keeps the installation within the policy of its registered client.
 
 ### Only an Administrator reads a capture
 
@@ -76,7 +108,7 @@ a Member, as it does for a Run that does not exist.
 
 ## Consequences
 
-- The provider's HTTP status and error body now travel with a model
+- The provider's HTTP status and error body travel with a model
   failure from the router to the Run.
 - A capture is a copy of Person data. While the setting is on, the database
   holds that copy for the retention of the setting.

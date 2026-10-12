@@ -2032,6 +2032,383 @@ async fn with_the_setting_off_a_run_keeps_no_model_request_capture(pool: SqliteP
     assert!(captures.is_empty());
 }
 
+/// Check both the kept requests and the reason on each request summary.
+async fn check_google_capture(harness: &Loop, run_id: &pagis_core::RunId, captured: usize) {
+    let captures = pagis_core::ModelRequestCaptureStore::list_for_run(
+        harness.captures.as_ref(),
+        &harness.workspace.id,
+        run_id,
+    )
+    .await
+    .unwrap();
+    assert_eq!(captures.len(), captured);
+    let events = harness
+        .bus
+        .subscribe(EventScope::Installation, Some(0))
+        .await;
+    tokio::pin!(events);
+    for index in 0..harness.brain.requests().len() {
+        let requested = next_event(&mut events, "model.requested").await;
+        assert_eq!(requested.run_id.as_ref(), Some(run_id));
+        assert_eq!(requested.payload["holds_google_data"], index >= captured);
+    }
+}
+
+async fn seed_source_page(harness: &Loop, grant: &Grant, path: &str) {
+    let access = pagis_core::MemoryAccess::agent(
+        harness.agent.id.clone(),
+        [pagis_core::MemoryExposure {
+            grant_id: grant.id.clone(),
+            revision: grant.revision,
+        }],
+    );
+    let mut changes = pagis_core::MemoryChangeset::default();
+    changes.writes.insert(
+        pagis_core::ScopedPath::parse(path).unwrap(),
+        pagis_core::subject_page::SubjectPage {
+            truth: "Project Finch starts Monday.".into(),
+            timeline: vec![pagis_core::subject_page::TimelineEntry {
+                source_reference: "gmail:work:finch-message".into(),
+                source_time: 1000,
+                words: "Project Finch starts Monday.".into(),
+            }],
+            ..Default::default()
+        }
+        .render(),
+    );
+    harness
+        .memory
+        .commit(
+            &harness.workspace.id,
+            &harness.agent.id,
+            &access,
+            &pagis_core::MemoryAuthor {
+                name: "Sage".into(),
+                email: "sage@local".into(),
+            },
+            &changes,
+            None,
+            "Record the source",
+            None,
+        )
+        .await
+        .unwrap();
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn google_capture_stops_after_a_connection_result(pool: SqlitePool) {
+    let (harness, _) = source_harness(pool).await;
+    harness.capture.set(true, 7);
+    harness.brain.push(Script::tool_call(
+        &[],
+        pagis_broker::MAIL_GET_MESSAGE,
+        serde_json::json!({"mailbox": "work", "message_id": "finch"}),
+    ));
+    harness
+        .brain
+        .push(Script::tool_call(&[], "memory_list", serde_json::json!({})));
+    harness.brain.push(Script::reply(&["Done."]));
+    let mut events = harness
+        .bus
+        .subscribe(EventScope::Installation, Some(0))
+        .await;
+    harness.send("Read the mail").await;
+    let ended = next_state(&mut events, "completed").await;
+    assert_eq!(harness.source_executor.calls.lock().unwrap().len(), 1);
+    check_google_capture(&harness, &ended.run_id.unwrap(), 1).await;
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn google_capture_stops_after_a_stamped_memory_read(pool: SqlitePool) {
+    let (harness, grant) = source_harness(pool).await;
+    harness.capture.set(true, 7);
+    let entered = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Notify::new());
+    harness.brain.push(Script::gate_tool_call(
+        "memory_read",
+        serde_json::json!({"path": "private/subjects/gmail/finch-thread.md"}),
+        Arc::clone(&entered),
+        Arc::clone(&release),
+    ));
+    harness
+        .brain
+        .push(Script::tool_call(&[], "memory_list", serde_json::json!({})));
+    harness.brain.push(Script::reply(&["Done."]));
+    let mut events = harness
+        .bus
+        .subscribe(EventScope::Installation, Some(0))
+        .await;
+    harness.send("Read the page").await;
+    entered.notified().await;
+    seed_source_page(&harness, &grant, "private/subjects/gmail/finch-thread.md").await;
+    release.notify_one();
+    let ended = next_state(&mut events, "completed").await;
+    assert!(
+        harness.brain.requests()[1]
+            .messages
+            .last()
+            .unwrap()
+            .text
+            .contains("Project Finch")
+    );
+    check_google_capture(&harness, &ended.run_id.unwrap(), 1).await;
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn google_capture_stays_off_after_compaction(pool: SqlitePool) {
+    let (harness, _) = source_harness(pool).await;
+    harness.capture.set(true, 7);
+    // Durable history gives Compaction a range to replace. The first
+    // request fits; injected updates take the next request over its limit.
+    for index in 0..20 {
+        harness
+            .seed_root(&format!("Earlier update {index}: {}", "x".repeat(2_700)))
+            .await;
+    }
+    let entered = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Notify::new());
+    harness.brain.push(Script::gate_tool_call(
+        pagis_broker::MAIL_GET_MESSAGE,
+        serde_json::json!({"mailbox": "work", "message_id": "finch"}),
+        Arc::clone(&entered),
+        Arc::clone(&release),
+    ));
+    harness.brain.push(Script::reply(&[&compaction_json(
+        "Track Finch.",
+        "Keep the source facts.",
+        "Answer.",
+    )]));
+    harness.brain.push(Script::reply(&["Done."]));
+    let mut events = harness
+        .bus
+        .subscribe(EventScope::Installation, Some(0))
+        .await;
+    harness.send("Read the mail").await;
+    entered.notified().await;
+    for index in 0..20 {
+        harness
+            .send(&format!("Update {index}: {}", "x".repeat(2_700)))
+            .await;
+    }
+    for _ in 0..20 {
+        next_event(&mut events, "run.message_injected").await;
+    }
+    release.notify_one();
+    let compacted = next_event(&mut events, "context.compacted").await;
+    let ended = next_state(&mut events, "completed").await;
+    assert_eq!(compacted.run_id, ended.run_id);
+    assert!(
+        harness
+            .brain
+            .requests()
+            .iter()
+            .any(|request| request.output_schema.is_some())
+    );
+    check_google_capture(&harness, &ended.run_id.unwrap(), 1).await;
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn google_capture_keeps_no_review_request(pool: SqlitePool) {
+    let (harness, grant) = source_harness(pool).await;
+    harness.capture.set(true, 7);
+    let source = fixture::agent_message(
+        &harness.workspace.id,
+        &harness.dm.id,
+        &harness.agent.id,
+        "Project Finch starts Monday.",
+    );
+    let exposures = vec![pagis_core::MemoryExposure {
+        grant_id: grant.id.clone(),
+        revision: grant.revision,
+    }];
+    harness
+        .messages
+        .insert_stamped(&source, &exposures)
+        .await
+        .unwrap();
+    harness
+        .pending_evidence
+        .record(PendingEvidence {
+            workspace_id: harness.workspace.id.clone(),
+            agent_id: harness.agent.id.clone(),
+            channel_id: harness.dm.id.clone(),
+            root_message_id: None,
+            subject: "Project Finch".into(),
+            after_exclusive: None,
+            through_inclusive: source.id.clone(),
+            source_message_ids: vec![source.id],
+            exposures,
+            reason: "Review the source facts.".into(),
+            urgency: PendingUrgency::Urgent,
+            created_at: 1,
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    let claim = harness
+        .pending_evidence
+        .claim(&harness.workspace.id, &harness.agent.id, 1, i64::MAX / 2)
+        .await
+        .unwrap()
+        .remove(0);
+    harness.brain.push(Script::reply(&["nothing to record"]));
+    let mut events = harness
+        .bus
+        .subscribe(EventScope::Installation, Some(0))
+        .await;
+    harness.system.enqueue_proactive(claim.run);
+    let ended = next_state(&mut events, "completed").await;
+    assert!(
+        harness.brain.requests()[0]
+            .messages
+            .iter()
+            .any(|message| message.text.contains("Project Finch"))
+    );
+    check_google_capture(&harness, &ended.run_id.unwrap(), 0).await;
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn google_capture_keeps_no_index_request(pool: SqlitePool) {
+    let (harness, grant) = source_harness(pool).await;
+    harness.capture.set(true, 7);
+    seed_source_page(&harness, &grant, "shared/MEMORY.md").await;
+    harness.brain.push(Script::reply(&["Done."]));
+    let mut events = harness
+        .bus
+        .subscribe(EventScope::Installation, Some(0))
+        .await;
+    harness.send("Read the index").await;
+    let ended = next_state(&mut events, "completed").await;
+    assert!(harness.brain.requests()[0].system.contains("Project Finch"));
+    check_google_capture(&harness, &ended.run_id.unwrap(), 0).await;
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn google_capture_keeps_no_memory_brief_request(pool: SqlitePool) {
+    let (harness, grant) = source_harness(pool).await;
+    harness.capture.set(true, 7);
+    seed_source_page(&harness, &grant, "private/subjects/gmail/finch-thread.md").await;
+    harness.brain.push(Script::reply(&["Done."]));
+    let mut events = harness
+        .bus
+        .subscribe(EventScope::Installation, Some(0))
+        .await;
+    harness.send("Check the facts").await;
+    let ended = next_state(&mut events, "completed").await;
+    assert!(harness.brain.requests()[0].system.contains("Project Finch"));
+    check_google_capture(&harness, &ended.run_id.unwrap(), 0).await;
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn google_capture_keeps_other_provider_memory_requests(pool: SqlitePool) {
+    let (harness, grant) = source_harness_of(pool, "other").await;
+    harness.capture.set(true, 7);
+    seed_source_page(&harness, &grant, "private/subjects/source/finch.md").await;
+    harness.brain.push(Script::tool_call(
+        &[],
+        "memory_read",
+        serde_json::json!({"path": "private/subjects/source/finch.md"}),
+    ));
+    harness.brain.push(Script::reply(&["Done."]));
+    let mut events = harness
+        .bus
+        .subscribe(EventScope::Installation, Some(0))
+        .await;
+    harness.send("Read the page").await;
+    let ended = next_state(&mut events, "completed").await;
+    assert!(
+        harness.brain.requests()[1]
+            .messages
+            .last()
+            .unwrap()
+            .text
+            .contains("Project Finch")
+    );
+    check_google_capture(&harness, &ended.run_id.unwrap(), 2).await;
+}
+
+struct NoEventMatch;
+impl pagis_core::EventMatcher for NoEventMatch {
+    fn matches(&self, _: &serde_json::Value, _: &serde_json::Value) -> bool {
+        false
+    }
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn google_capture_keeps_no_arrival_request(pool: SqlitePool) {
+    use pagis_core::TriggerStore;
+    let (harness, grant, _) = knowledge_harness(pool.clone()).await;
+    seed_source_page(&harness, &grant, "private/subjects/gmail/finch-thread.md").await;
+    harness.capture.set(true, 7);
+    harness.brain.push(Script::reply(&["nothing to record"]));
+    let triggers = SqliteTriggerStore::new(pool);
+    triggers
+        .ingest(
+            pagis_core::IngestBatch {
+                workspace_id: harness.workspace.id.clone(),
+                source: pagis_core::EventSource::connection(
+                    grant.resource_id.clone().unwrap().into(),
+                ),
+                agent_id: None,
+                event_kind: "mail.message_received".into(),
+                cursor: None,
+                events: vec![],
+                received_at: now_ms(),
+                baseline: false,
+            },
+            &[],
+            &NoEventMatch,
+            Some(&pagis_core::ArrivalRun {
+                agent_id: harness.agent.id.clone(),
+                subject_paths: vec!["private/subjects/gmail/finch-thread.md".into()],
+                historical: true,
+            }),
+            Some("gmail"),
+            &tenant_keys(),
+        )
+        .await
+        .unwrap();
+    let claim = triggers
+        .claim_wakeups(
+            &harness.workspace.id,
+            &harness.agent.id,
+            pagis_core::RunSlots {
+                conversation: 1,
+                arrival: 1,
+            },
+            now_ms(),
+        )
+        .await
+        .unwrap()
+        .remove(0);
+    let mut events = harness
+        .bus
+        .subscribe(EventScope::Installation, Some(0))
+        .await;
+    harness.system.enqueue_proactive(claim.run);
+    let ended = next_state(&mut events, "completed").await;
+    assert!(harness.brain.requests()[0].system.contains("Project Finch"));
+    check_google_capture(&harness, &ended.run_id.unwrap(), 0).await;
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn google_capture_keeps_every_request_without_google_data(pool: SqlitePool) {
+    // Permission to read Google is not a read of Google data.
+    let (harness, _) = source_harness(pool).await;
+    harness.capture.set(true, 7);
+    harness
+        .brain
+        .push(Script::tool_call(&[], "memory_list", serde_json::json!({})));
+    harness.brain.push(Script::reply(&["Done."]));
+    let mut events = harness
+        .bus
+        .subscribe(EventScope::Installation, Some(0))
+        .await;
+    harness.send("List memory").await;
+    let ended = next_state(&mut events, "completed").await;
+    check_google_capture(&harness, &ended.run_id.unwrap(), 2).await;
+}
+
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
 async fn with_the_setting_on_a_run_keeps_each_request_and_its_answer(pool: SqlitePool) {
     let harness = boot(pool, AgentLoopConfig::default()).await;
@@ -6715,12 +7092,16 @@ async fn conversation_tools_reject_another_agent_and_multi_origin_review(pool: S
 }
 
 async fn source_harness(pool: SqlitePool) -> (Loop, Grant) {
+    source_harness_of(pool, "google").await
+}
+
+async fn source_harness_of(pool: SqlitePool, provider: &str) -> (Loop, Grant) {
     let harness = boot(pool.clone(), AgentLoopConfig::default()).await;
     use pagis_core::ConnectionStore;
     let connection = pagis_core::Connection {
         id: pagis_core::ConnectionId::generate(),
         workspace_id: harness.workspace.id.clone(),
-        provider: "google".into(),
+        provider: provider.into(),
         alias: "work".into(),
         display_name: "Work mail".into(),
         status: "connected".into(),

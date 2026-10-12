@@ -20,9 +20,59 @@ pub(crate) struct MemoryOverlay {
     deletes: BTreeSet<ScopedPath>,
     base_revision: Option<Option<String>>,
     exposures: Vec<pagis_core::MemoryExposure>,
+    /// Stamps of data read into the context, separate from held permissions.
+    read_exposures: Vec<pagis_core::MemoryExposure>,
+    /// Once Google data enters the context, Compaction cannot clear it.
+    holds_google_data: bool,
 }
 
 impl MemoryOverlay {
+    pub fn observe_read(&mut self, exposures: &[pagis_core::MemoryExposure]) {
+        for exposure in exposures {
+            if !self.read_exposures.contains(exposure) {
+                self.read_exposures.push(exposure.clone());
+            }
+        }
+    }
+
+    pub fn observe_tool_result(&mut self, result: &pagis_broker::ToolResult) {
+        self.holds_google_data |= result.metadata["holds_google_data"] == true;
+    }
+
+    /// Resolve the source of each read before a request can be captured.
+    /// An unavailable source prevents capture.
+    pub async fn holds_google_data(
+        &mut self,
+        workspace_id: &WorkspaceId,
+        grants: &dyn pagis_core::GrantStore,
+        connections: &dyn pagis_core::ConnectionStore,
+    ) -> Result<bool, pagis_core::StoreError> {
+        if self.holds_google_data {
+            return Ok(true);
+        }
+        for exposure in &self.read_exposures {
+            let grant = grants
+                .get(workspace_id, &exposure.grant_id)
+                .await?
+                .ok_or_else(|| pagis_core::StoreError::Corrupt("read Grant".into()))?;
+            if grant.resource_kind != pagis_core::Grant::CONNECTION_KIND {
+                continue;
+            }
+            let id = grant
+                .resource_id
+                .ok_or_else(|| pagis_core::StoreError::Corrupt("read Connection".into()))?;
+            let connection = connections
+                .get(workspace_id, &id.into())
+                .await?
+                .ok_or_else(|| pagis_core::StoreError::Corrupt("read Connection".into()))?;
+            if connection.provider == "google" {
+                self.holds_google_data = true;
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     pub fn is_empty(&self) -> bool {
         self.writes.is_empty() && self.deletes.is_empty()
     }
@@ -69,6 +119,7 @@ impl MemoryOverlay {
             return Ok(content.clone());
         }
         let file = store.read(workspace_id, access, path).await?;
+        self.observe_read(&file.exposures);
         Ok(file.content)
     }
 
@@ -82,6 +133,7 @@ impl MemoryOverlay {
         self.observe(access)?;
         let mut indexes = store.load_indexes(workspace_id, access).await?;
         self.base_revision.get_or_insert(indexes.revision.clone());
+        self.observe_read(&indexes.exposures);
         let index_path = |scope| ScopedPath {
             scope,
             rel: MEMORY_INDEX_FILE.to_string(),

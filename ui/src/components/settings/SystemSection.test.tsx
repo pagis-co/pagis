@@ -197,6 +197,7 @@ describe('SystemSection', () => {
       }),
     )
     expect(await screen.findByText(/keeps a copy of each model request for 7 days/)).toBeTruthy()
+    expect(screen.getByText(/No copy is kept after a Run reads Google data./)).toBeTruthy()
   })
 
   it('saves a new retention of the model request capture', async () => {

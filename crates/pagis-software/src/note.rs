@@ -213,6 +213,7 @@ mod tests {
             _access: &MemoryAccess,
         ) -> Result<MemoryIndexes, MemoryError> {
             Ok(MemoryIndexes {
+                exposures: Vec::new(),
                 shared: String::new(),
                 private: String::new(),
                 revision: None,

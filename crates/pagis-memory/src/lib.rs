@@ -1126,6 +1126,7 @@ impl MemoryStore for GitMemoryStore {
         .map_err(|error| MemoryError::Storage(error.to_string()))?
         .map_err(|error| error.0)?;
         let mut contents = Vec::new();
+        let mut exposures = Vec::new();
         for (file, title) in [(shared, "Shared memory"), (private, "Private memory")] {
             if let Some(file) = file
                 && self
@@ -1134,6 +1135,11 @@ impl MemoryStore for GitMemoryStore {
                     .await
                     .map_err(|error| MemoryError::Storage(error.to_string()))?
             {
+                for exposure in file.exposures {
+                    if !exposures.contains(&exposure) {
+                        exposures.push(exposure);
+                    }
+                }
                 contents.push(file.content);
             } else {
                 contents.push(seed_index(title));
@@ -1142,6 +1148,7 @@ impl MemoryStore for GitMemoryStore {
         let private = contents.pop().expect("private index");
         let shared = contents.pop().expect("shared index");
         Ok(MemoryIndexes {
+            exposures,
             shared,
             private,
             revision,

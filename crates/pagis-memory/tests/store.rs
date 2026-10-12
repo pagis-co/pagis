@@ -758,6 +758,10 @@ async fn source_exposed_files_and_indexes_are_invisible_without_current_access()
         .await
         .unwrap();
     assert!(allowed.shared.contains("Account note"));
+    assert_eq!(
+        allowed.exposures.as_slice(),
+        std::slice::from_ref(&exposure)
+    );
     let file = h
         .store
         .read(
@@ -787,6 +791,7 @@ async fn source_exposed_files_and_indexes_are_invisible_without_current_access()
             .await
             .unwrap();
         assert!(!indexes.shared.contains("Account note"));
+        assert!(indexes.exposures.is_empty());
         assert!(matches!(
             h.store
                 .read(
