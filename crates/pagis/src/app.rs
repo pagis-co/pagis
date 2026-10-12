@@ -1244,6 +1244,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     let agents = AgentSystem::start(AgentDeps {
         forget: stores.forget.clone(),
         workspaces: Arc::clone(&workspaces) as _,
+        users: stores.users.clone(),
         agents: Arc::clone(&agent_store) as _,
         channels: Arc::clone(&channels) as _,
         messages: Arc::clone(&messages) as _,
