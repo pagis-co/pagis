@@ -136,11 +136,12 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
             ("pagis-broker", &["rules_wasm"][..]),
             ("pagis-rt", &["rt"][..]),
             ("pagis-agent", &["actor_host"][..]),
+            ("pagis-push", &["wasm"][..]),
         ]
     );
     let root = workspace_root();
     let cmds = wasm32_commands(&root);
-    assert_eq!(cmds.len(), 8);
+    assert_eq!(cmds.len(), 9);
     assert_eq!(
         cargo_arguments(&cmds[0]),
         [
@@ -159,6 +160,8 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
             "pagis-rt",
             "-p",
             "pagis-agent",
+            "-p",
+            "pagis-push",
             "--",
             "-D",
             "warnings",
@@ -172,6 +175,7 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
         ("pagis-broker", "rules_wasm"),
         ("pagis-rt", "rt"),
         ("pagis-agent", "actor_host"),
+        ("pagis-push", "wasm"),
     ];
     for (cmd, (package, binary)) in cmds[1..].iter().zip(expected) {
         assert_eq!(
@@ -218,14 +222,13 @@ fn dev_selects_wasm32_for_portable_crates_and_their_dependencies() {
     )
     .unwrap();
     assert!(!step_names(&lanes).contains(&"wasm32"));
-    let lanes = dev_lanes(
-        &workspace_root(),
-        &["crates/pagis-core/src/lib.rs".into()],
-        false,
-        NO_TOOLCHAINS,
-    )
-    .unwrap();
-    assert!(step_names(&lanes).contains(&"wasm32"));
+    for path in [
+        "crates/pagis-core/src/lib.rs",
+        "crates/pagis-push/src/lib.rs",
+    ] {
+        let lanes = dev_lanes(&workspace_root(), &[path.into()], false, NO_TOOLCHAINS).unwrap();
+        assert!(step_names(&lanes).contains(&"wasm32"), "{path}");
+    }
 }
 
 #[cfg(unix)]

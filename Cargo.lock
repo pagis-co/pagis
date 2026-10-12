@@ -4826,6 +4826,9 @@ name = "pagis-push"
 version = "0.3.0"
 dependencies = [
  "base64 0.22.1",
+ "getrandom 0.2.17",
+ "getrandom 0.4.3",
+ "http 1.5.0",
  "httpdate",
  "p256",
  "pagis-core",
@@ -4835,6 +4838,7 @@ dependencies = [
  "thiserror 2.0.20",
  "tokio",
  "url",
+ "wasm-bindgen-test",
  "web-push-native",
  "wiremock",
 ]

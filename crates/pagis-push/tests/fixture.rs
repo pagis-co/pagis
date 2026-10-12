@@ -15,6 +15,8 @@
 //! and writes nothing, so a gate that runs the ignored tests leaves the
 //! committed file as it is.
 
+#![cfg(not(target_arch = "wasm32"))]
+
 use std::path::PathBuf;
 use std::time::Duration;
 
