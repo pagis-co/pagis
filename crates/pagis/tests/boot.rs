@@ -149,11 +149,7 @@ async fn boot_adds_new_well_known_aliases_without_replacing_a_user_choice() {
     );
 }
 
-/// A second daemon on the same data directory must fail fast, before it
-/// touches the database: on a real restart, the boot recovery further
-/// down fails every unfinished run and expires pending requests, so a
-/// second daemon that ran recovery and then crashed on the port bind
-/// would corrupt the first daemon's in-flight runs out from under it.
+/// A second daemon must stop before recovery changes the live daemon's Runs.
 #[tokio::test]
 async fn a_second_boot_while_the_first_is_still_running_fails_fast() {
     let dir = tempfile::tempdir().unwrap();

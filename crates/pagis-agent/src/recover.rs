@@ -1,39 +1,50 @@
-//! Boot recovery: the daemon has no durable mid-turn resume,
-//! so a restart marks every non-terminal run `failed`, settles orphaned
-//! streaming messages, and expires the requests of parked runs.
+//! Boot recovery of queued and interrupted Runs.
 
 use pagis_core::{
     AuthorKind, Block, EventLog, Message, MessageId, MessageStatus, MessageStore, NewEvent,
     RequestStore, Run, RunState, RunStore, StoreError, blocks_text, now_ms,
 };
 
-/// The reason on every run a restart failed. A restart is whole-server,
-/// so the message says so rather than reading as this run's own fault.
-pub const RESTART_ERROR: &str = "the daemon restarted, which ends every run on the server";
+/// The reason on a Run that cannot resume after a restart.
+pub const RESTART_ERROR: &str = "the daemon restarted, which interrupted this run";
 
 /// The note posted into a parked run's channel; the next trigger's
 /// context tells the agent what happened.
-const RESTART_NOTE: &str = "A daemon restart interrupted this run while it waited for an \
-     request. The daemon restart ends every run on the server, so this one was not singled \
-     out. The pending request expired; ask again if the action is still needed.";
+const RESTART_NOTE: &str = "A daemon restart interrupted this run while it waited for a \
+     request. The Run cannot resume from its journal. The pending request expired; ask again if the action is still needed.";
 
-/// Mark every unfinished run `failed` (with [`RESTART_ERROR`]), fail
-/// orphaned streaming messages, and expire the pending requests of
-/// runs parked in `waiting_for_approval` — posting a system note into
-/// their channel so the agent learns of it on its next trigger.
-/// Returns the count of failed runs.
-pub async fn fail_unfinished_runs(
+/// Resume a Run with a checkpoint once per Turn. Fail a Run that cannot resume.
+/// Queued Runs keep their place. Return the count of failed Runs.
+pub async fn resume_unfinished_runs(
     runs: &dyn RunStore,
     messages: &dyn MessageStore,
     requests: &dyn RequestStore,
     events: &dyn EventLog,
+    journal: &dyn pagis_core::RunJournal,
 ) -> Result<usize, StoreError> {
     let unfinished = runs.list_unfinished().await?;
     // Boot recovery settles the runs of the process that died with the
     // machine, so the wall clock is the time they ended. It runs before
     // the daemon has an injected clock.
     let now = now_ms();
+    let mut failed = 0;
     for mut run in unfinished.iter().cloned() {
+        if run.state == RunState::Queued {
+            continue;
+        }
+        if journal.mark_resumed(&run.id).await? {
+            let from = run.state;
+            run.state = RunState::Queued;
+            runs.update(&run).await?;
+            events.append(NewEvent {
+                workspace_id: run.workspace_id.clone(), event_type: "run.state_changed".into(),
+                agent_id: Some(run.agent_id.clone()), run_id: Some(run.id.clone()), channel_id: run.channel_id.clone(),
+                payload: serde_json::json!({"from": from, "to": RunState::Queued, "reason": "Resumed after a restart"}),
+            }).await?;
+            continue;
+        }
+        failed += 1;
+        journal.delete(&run.id).await?;
         let from = run.state;
         run.state = RunState::Failed;
         run.failure_kind = Some(pagis_core::FailureKind::DaemonRestarted);
@@ -66,7 +77,7 @@ pub async fn fail_unfinished_runs(
         }
     }
     messages.fail_streaming(now).await?;
-    Ok(unfinished.len())
+    Ok(failed)
 }
 
 /// Post the restart note as a system message where the run was bound.

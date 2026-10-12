@@ -84,13 +84,9 @@ pub async fn boot(home: &Path, installation: Installation) -> anyhow::Result<Boo
     create_state_directory(home)?;
     make_state_directory_private(home)?;
 
-    // One daemon per data directory: recovery below fails every
-    // unfinished run and expires pending requests, which is safe for
-    // the daemon that actually owns them but corrupts a live sibling's
-    // in-memory runs if a second `pagis` starts against the same home
-    // (it would run recovery, then fail to bind the port and exit,
-    // having already yanked state out from under the real daemon).
-    // Fail fast here instead, before recovery or migrations run.
+    // One daemon owns each State Directory. Recovery reads and changes
+    // unfinished Runs, so a second process must stop before recovery
+    // or migrations touch the first process's records.
     let instance_lock = std::fs::OpenOptions::new()
         .create(true)
         .write(true)
@@ -346,26 +342,16 @@ fn remove_client_credential(path: &Path) -> anyhow::Result<()> {
     }
 }
 
-/// Boot recovery: a restart fails every unfinished run,
-/// fails every orphaned streaming message, and expires the pending
-/// requests of parked runs and every pending Harness Permission.
-///
-/// It is server-wide, and on a server that serves many people it stays
-/// server-wide. One daemon owns every run of the installation and
-/// holds each one's mid-turn state in its own memory, so a restart ends
-/// the work of everybody, not of the person who asked for it. Scoping
-/// recovery to one tenant would leave another tenant's run marked
-/// `running` with no process behind it, which is worse than a failure
-/// that says what happened. Every failed run carries its own reason, so
-/// each person reads why their run ended;
-/// https://docs.pagis.co/server/upgrade#a-restart-is-the-whole-servers
-/// says who a restart reaches.
+/// Resume each unfinished Run that has a checkpoint and a resume attempt.
+/// Fail Runs that cannot resume, settle orphaned streaming messages, and
+/// expire every pending Harness Permission. Recovery covers the installation.
 async fn recover(stores: &pagis_core::Stores) -> anyhow::Result<()> {
-    let failed = pagis_agent::fail_unfinished_runs(
+    let failed = pagis_agent::resume_unfinished_runs(
         stores.runs.as_ref(),
         stores.messages.as_ref(),
         stores.requests.as_ref(),
         stores.events.as_ref(),
+        stores.run_journal.as_ref(),
     )
     .await?;
     if failed > 0 {

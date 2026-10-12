@@ -94,7 +94,7 @@ impl BrainError {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum TurnRole {
     User,
     Assistant,
@@ -103,7 +103,7 @@ pub enum TurnRole {
 }
 
 /// One tool call the model made.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ToolInvocation {
     pub id: String,
     pub name: String,
@@ -114,7 +114,7 @@ pub struct ToolInvocation {
 /// One message in the turn context: prior history flattened to text
 /// plus the images the model must see as `data:` URIs, and the
 /// in-run transcript of tool calls and their results.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TurnMessage {
     pub role: TurnRole,
     pub text: String,

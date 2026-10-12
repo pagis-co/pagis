@@ -27,7 +27,7 @@ const UNKNOWN_AGENT_LABEL: &str = "An agent";
 
 /// The speaker names of one run's context. Names resolve once per
 /// agent and stay cached for the life of the run.
-#[derive(Default)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 pub struct Speakers {
     names: HashMap<AgentId, String>,
 }

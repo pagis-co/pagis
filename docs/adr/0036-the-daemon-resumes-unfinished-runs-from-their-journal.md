@@ -4,24 +4,11 @@ Status: accepted.
 
 ## Context
 
-Durable resume inside a Run is not built. The daemon keeps the state of an
-active Turn in memory. `fail_unfinished_runs` in
-`crates/pagis-agent/src/recover.rs` marks each unfinished Run `failed` with
-`FailureKind::DaemonRestarted` and the reason "the daemon restarted, which
-ends every run on the server". Boot calls this function before the daemon
-starts (`crates/pagis/src/boot.rs`).
-
-A Run that waits for an approval also fails. Its Request expires, and a
-note goes to its Channel: "ask again if the action is still needed".
-The restart failure rule this decision replaces in ADR-0006 also fails a
-Run that a Wake-up starts; Pagis does not start another Run. No other ADR
-records how a Run keeps its progress between Turns.
-
-An Update, an Upgrade or a crash of the daemon thus ends every Run of
-every Person. The daemon, a Server and the Client App restart for Updates
-and Upgrades. A long Run, such as one that supervises a Coding Session or
-waits for an approval overnight, starts from the beginning only when the
-Person asks again.
+A Run keeps its transcript, Loaded Set and Turn state in its Run journal.
+The daemon and the Client App restart for Updates and Upgrades. A restart
+must keep completed work and must not repeat an outside effect whose
+outcome is unknown. The Continuation Record keeps context across Runs;
+it is not the checkpoint of an active Run (ADR-0009).
 
 Established products keep durable execution state:
 
@@ -46,6 +33,8 @@ the Run writes what the next Turn needs: the Turn number, the transcript
 that the Turn added, the Loaded Set and the state of the Run. A Turn is
 one model call and the tool calls it asks for (CONTEXT.md, Turn).
 
+The journal keeps the model answer and its call ids before tool dispatch.
+This record preserves the identity of each call; it is not a completed Turn.
 A Turn that does not end has no checkpoint. Resume restores the last
 checkpoint and starts that Turn again. A checkpoint belongs to a Turn,
 not to each tool call. Only tool calls with an outside effect have their
@@ -122,5 +111,5 @@ has its own single resume attempt.
   so Forget and a Backup treat it as they treat the conversation that
   holds the same tool results (ADR-0008). A checkpoint that the Run does
   not need after it ends is deleted when the Run ends.
-- The restart note in `crates/pagis-agent/src/recover.rs` applies only to a
-  Run that has no checkpoint.
+- The restart note in `crates/pagis-agent/src/recover.rs` applies to a Run
+  that cannot resume.

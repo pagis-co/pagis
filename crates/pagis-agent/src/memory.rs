@@ -27,6 +27,50 @@ pub(crate) struct MemoryOverlay {
 }
 
 impl MemoryOverlay {
+    pub fn journal_state(&self) -> serde_json::Value {
+        serde_json::json!({
+            "writes": self.writes.iter().map(|(path, text)| (path.display(), text)).collect::<Vec<_>>(),
+            "deletes": self.deletes.iter().map(ScopedPath::display).collect::<Vec<_>>(),
+            "base_revision": self.base_revision.as_ref().and_then(|revision| revision.as_ref()),
+            "base_loaded": self.base_revision.is_some(),
+            "exposures": self.exposures,
+            "read_exposures": self.read_exposures,
+            "holds_google_data": self.holds_google_data,
+        })
+    }
+
+    pub fn from_journal(state: serde_json::Value) -> Result<Self, String> {
+        #[derive(serde::Deserialize)]
+        struct State {
+            writes: Vec<(String, String)>,
+            deletes: Vec<String>,
+            base_revision: Option<String>,
+            base_loaded: bool,
+            exposures: Vec<pagis_core::MemoryExposure>,
+            read_exposures: Vec<pagis_core::MemoryExposure>,
+            holds_google_data: bool,
+        }
+        let state: State = serde_json::from_value(state).map_err(|error| error.to_string())?;
+        Ok(Self {
+            writes: state
+                .writes
+                .into_iter()
+                .map(|(path, text)| ScopedPath::parse(&path).map(|path| (path, text)))
+                .collect::<Result<_, _>>()
+                .map_err(|error| error.to_string())?,
+            deletes: state
+                .deletes
+                .into_iter()
+                .map(|path| ScopedPath::parse(&path))
+                .collect::<Result<_, _>>()
+                .map_err(|error| error.to_string())?,
+            base_revision: state.base_loaded.then_some(state.base_revision),
+            exposures: state.exposures,
+            read_exposures: state.read_exposures,
+            holds_google_data: state.holds_google_data,
+        })
+    }
+
     pub fn observe_read(&mut self, exposures: &[pagis_core::MemoryExposure]) {
         for exposure in exposures {
             if !self.read_exposures.contains(exposure) {
@@ -249,5 +293,27 @@ mod tests {
         foreground.write(path("shared/preference.md"), "tea\n".to_string());
 
         assert!(foreground.changes_after(&foreground).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod journal_tests {
+    use super::*;
+
+    #[test]
+    fn a_journal_round_trip_keeps_an_empty_base_revision() {
+        let mut overlay = MemoryOverlay {
+            base_revision: Some(None),
+            holds_google_data: true,
+            ..Default::default()
+        };
+        overlay.writes.insert(
+            ScopedPath::parse("shared/MEMORY.md").unwrap(),
+            "staged text".into(),
+        );
+        let restored = MemoryOverlay::from_journal(overlay.journal_state()).unwrap();
+        assert_eq!(restored.base_revision, overlay.base_revision);
+        assert_eq!(restored.writes, overlay.writes);
+        assert!(restored.holds_google_data);
     }
 }

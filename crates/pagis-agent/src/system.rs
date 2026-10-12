@@ -84,7 +84,9 @@ impl Default for AgentLoopConfig {
 }
 
 /// Everything the loop reads and writes, behind the storage seams.
+#[derive(Clone)]
 pub struct AgentDeps {
+    pub run_journal: Arc<dyn pagis_core::RunJournal>,
     pub forget: Arc<dyn pagis_core::ForgetStore>,
     pub workspaces: Arc<dyn WorkspaceStore>,
     pub users: Arc<dyn pagis_core::UserStore>,
@@ -189,6 +191,14 @@ impl AgentSystem {
         pagis_rt::spawn(async move { dispatcher.dispatch(events).await });
         // The takeover audit block posts from its own subscriber.
         crate::takeover::spawn_notes(Arc::clone(&system.deps));
+        match system.deps.runs.list_unfinished().await {
+            Ok(runs) => {
+                for run in runs.into_iter().filter(|run| run.state == RunState::Queued) {
+                    system.enqueue_proactive(run);
+                }
+            }
+            Err(error) => tracing::error!(%error, "Run queue load failed"),
+        }
         system
     }
 

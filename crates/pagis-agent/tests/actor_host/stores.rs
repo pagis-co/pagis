@@ -310,7 +310,7 @@ impl RunStore for ActorHost {
         Ok(())
     }
     async fn list_unfinished(&self) -> Result<Vec<Run>, StoreError> {
-        panic!("unexpected RunStore::list_unfinished")
+        Ok(Vec::new())
     }
     async fn list(
         &self,
@@ -1483,5 +1483,93 @@ impl HostStore for ActorHost {
     }
     async fn touch(&self, _id: &HostId, _at: UnixMillis) -> Result<bool, StoreError> {
         panic!("unexpected HostStore::touch")
+    }
+}
+
+#[async_trait::async_trait]
+impl RunJournal for ActorHost {
+    async fn checkpoint(
+        &self,
+        run: &RunId,
+        turn: usize,
+        state: &serde_json::Value,
+    ) -> Result<(), StoreError> {
+        self.journal.lock().unwrap().insert(
+            run.clone(),
+            RunJournalEntry {
+                checkpoint: Some(RunCheckpoint {
+                    turn,
+                    state: state.clone(),
+                }),
+                pending_turn: None,
+                calls: vec![],
+                resumed: false,
+            },
+        );
+        Ok(())
+    }
+    async fn turn_started(&self, run: &RunId, state: &serde_json::Value) -> Result<(), StoreError> {
+        self.journal
+            .lock()
+            .unwrap()
+            .entry(run.clone())
+            .or_insert(RunJournalEntry {
+                checkpoint: None,
+                pending_turn: None,
+                calls: vec![],
+                resumed: false,
+            })
+            .pending_turn = Some(state.clone());
+        Ok(())
+    }
+    async fn tool_started(&self, run: &RunId, call: &str, effect: &str) -> Result<(), StoreError> {
+        self.journal
+            .lock()
+            .unwrap()
+            .get_mut(run)
+            .unwrap()
+            .calls
+            .push(JournalCall {
+                call_id: call.into(),
+                effect_class: effect.into(),
+                result: None,
+            });
+        Ok(())
+    }
+    async fn tool_ended(
+        &self,
+        run: &RunId,
+        call: &str,
+        result: &serde_json::Value,
+    ) -> Result<(), StoreError> {
+        self.journal
+            .lock()
+            .unwrap()
+            .get_mut(run)
+            .unwrap()
+            .calls
+            .iter_mut()
+            .find(|held| held.call_id == call)
+            .unwrap()
+            .result = Some(result.clone());
+        Ok(())
+    }
+    async fn last(&self, run: &RunId) -> Result<Option<RunJournalEntry>, StoreError> {
+        Ok(self.journal.lock().unwrap().get(run).cloned())
+    }
+    async fn mark_resumed(&self, run: &RunId) -> Result<bool, StoreError> {
+        let mut journal = self.journal.lock().unwrap();
+        let Some(entry) = journal.get_mut(run) else {
+            return Ok(false);
+        };
+        if entry.resumed || entry.checkpoint.is_none() {
+            return Ok(false);
+        }
+        entry.resumed = true;
+        Ok(true)
+    }
+    async fn delete(&self, run: &RunId) -> Result<(), StoreError> {
+        self.journal.lock().unwrap().remove(run);
+        Ok(())
     }
 }

@@ -112,6 +112,13 @@ pub fn capability_manifest(
                         .then_some(AllowRuleBuilder::PluginTool),
                 }),
                 route: ToolRoute::Plugin {
+                    on_computer: package
+                        .mcp
+                        .as_ref()
+                        .and_then(|config| config.servers.get(&tool.server))
+                        .is_some_and(|server| {
+                            matches!(server, pagis_plugin::McpServer::Stdio { .. })
+                        }),
                     plugin: plugin_id.to_string(),
                     server: tool.server.clone(),
                     tool: tool.name.clone(),

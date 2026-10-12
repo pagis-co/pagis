@@ -216,6 +216,7 @@ impl PluginHost {
             plugin,
             server,
             tool,
+            ..
         } = &call.route
         else {
             return ToolResult::error("invalid_request", "this is not a plugin tool");

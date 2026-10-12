@@ -2677,6 +2677,24 @@ pub async fn a_forget_deletes_the_model_request_captures_of_a_run_that_read_it(b
         .await
         .unwrap();
 
+    backend
+        .stores()
+        .run_journal
+        .checkpoint(&run_id, 2, &serde_json::json!({"transcript": words}))
+        .await
+        .unwrap();
+    backend
+        .stores()
+        .run_journal
+        .tool_started(&run_id, "send", "outbound")
+        .await
+        .unwrap();
+    backend
+        .stores()
+        .run_journal
+        .tool_ended(&run_id, "send", &serde_json::json!({"text": words}))
+        .await
+        .unwrap();
     let forget = &backend.stores().forget;
     let target = ForgetTarget::Account {
         connection_id: key.connection_id.clone(),
@@ -2706,6 +2724,15 @@ pub async fn a_forget_deletes_the_model_request_captures_of_a_run_that_read_it(b
             .unwrap()
             .is_empty(),
         "a capture of the Run that read the account stays"
+    );
+    assert!(
+        backend
+            .stores()
+            .run_journal
+            .last(&run_id)
+            .await
+            .unwrap()
+            .is_none()
     );
     assert_eq!(
         holding(backend, FORGOTTEN_WORD).await,

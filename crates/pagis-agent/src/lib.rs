@@ -41,10 +41,12 @@ pub use mention::is_mentioned;
 pub use model_call_gate::{GateStop, ModelCallGate};
 pub use model_catalog::{MODEL_LIST_REFRESH, ModelCatalog, ModelListError};
 pub use progress::{ProgressFrame, ProgressHub};
-pub use recover::{RESTART_ERROR, fail_unfinished_runs};
+pub use recover::{RESTART_ERROR, resume_unfinished_runs};
 pub use run_queue::RunQueue;
 pub use run_signals::RunSignals;
 pub use spend::{CapReads, CapStop, SpendCapGate, cap_stop};
 pub use system::{AgentDeps, AgentLoopConfig, AgentSystem, CancelOutcome};
 pub use tool_runtime::{CoreToolRuntime, ToolRuntimeDeps};
 pub use ui::{MAX_BLOCKS, MAX_BLOCKS_BYTES, MAX_TABLE_ROWS};
+
+pub use run::UNKNOWN_OUTCOME;

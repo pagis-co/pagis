@@ -47,6 +47,7 @@ mod push_subscription_store;
 mod request_store;
 mod resource_store;
 mod retention_policy_store;
+mod run_journal;
 mod run_store;
 mod schedule_store;
 mod sent_mail_store;
@@ -94,6 +95,7 @@ pub use push_subscription_store::PostgresPushSubscriptionStore;
 pub use request_store::PostgresRequestStore;
 pub use resource_store::{PostgresConnectionStore, PostgresCredentialStore};
 pub use retention_policy_store::PostgresRetentionPolicyStore;
+pub use run_journal::PostgresRunJournal;
 pub use run_store::PostgresRunStore;
 pub use schedule_store::PostgresScheduleStore;
 pub use sent_mail_store::PostgresSentMailStore;
@@ -124,6 +126,7 @@ pub async fn open(url: &str) -> Result<pagis_core::Stores, sqlx::Error> {
 /// Every store of this backend, over one pool.
 pub fn stores(pool: PgPool) -> pagis_core::Stores {
     pagis_core::Stores {
+        run_journal: std::sync::Arc::new(PostgresRunJournal::new(pool.clone())),
         agent_mailboxes: Arc::new(PostgresAgentMailboxStore::new(pool.clone())),
         agents: Arc::new(PostgresAgentStore::new(pool.clone())),
         artifacts: Arc::new(PostgresArtifactStore::new(pool.clone())),

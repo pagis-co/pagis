@@ -143,6 +143,7 @@ impl World {
         let mailboxes = Arc::new(SqliteAgentMailboxStore::new(pool.clone()));
         let requests = Arc::new(SqliteRequestStore::new(pool.clone()));
         let broker = Broker::new(BrokerDeps {
+            run_journal: Arc::new(pagis_storage_sqlite::SqliteRunJournal::new(pool.clone())),
             hosts: Arc::new(pagis_storage_sqlite::SqliteHostStore::new(pool.clone())),
             presence: Arc::new(pagis_broker::HostPresence::new()),
             forget: Arc::new(pagis_storage_sqlite::SqliteForgetStore::new(pool.clone())),

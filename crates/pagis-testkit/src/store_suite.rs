@@ -212,6 +212,7 @@ pub mod memory_pages;
 pub mod model_request_captures;
 pub mod pending_reviews;
 pub mod push_subscriptions;
+pub mod run_journal;
 pub mod sign_in;
 pub mod stores;
 pub mod text_records;
@@ -244,6 +245,7 @@ macro_rules! store_suite {
         $crate::store_suite_model_request_captures!($crate::__store_suite_emit);
         $crate::store_suite_pending_reviews!($crate::__store_suite_emit);
         $crate::store_suite_push_subscriptions!($crate::__store_suite_emit);
+        $crate::store_suite_run_journal!($crate::__store_suite_emit);
         $crate::store_suite_sign_in!($crate::__store_suite_emit);
         $crate::store_suite_stores!($crate::__store_suite_emit);
         $crate::store_suite_text_records!($crate::__store_suite_emit);
@@ -286,6 +288,11 @@ macro_rules! __store_suite_emit {
 /// bodies. The guard test reads both.
 #[cfg(test)]
 const MODULES: &[(&str, &str, &str)] = &[
+    (
+        "run_journal",
+        include_str!("store_suite/run_journal.rs"),
+        "macro_rules! store_suite_run_journal",
+    ),
     (
         "coding_sessions",
         include_str!("store_suite/coding_sessions.rs"),
