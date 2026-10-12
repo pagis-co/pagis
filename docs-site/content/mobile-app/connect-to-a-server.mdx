@@ -46,23 +46,33 @@ sequence:
    it. The app accepts every newer release.
 3. It reads `GET /api/v1/setup`. When the server has no Administrator yet,
    the message names the administration page that finishes the setup.
-4. When the server signs in this app with a sign-in link only, as an
-   installation in Remote Access does, and you typed an address, the message
-   asks for a sign-in link.
 
 Each message shows under the field. Each request goes to the origin of the
 server, follows no redirect, and holds no secret of a link.
 
 When the checks pass, the app keeps the origin of the server, and nothing
-more. The secret of a link goes to no storage of the app. The app then opens
-the Product App of the server:
+more. The secret of a link goes to no storage of the app. The app then signs you in:
 
-- For an address, the Product App shows its own sign-in page. You sign in
-  there.
+- For an address, the app opens the server's sign-in page in the system
+  browser. The browser shows the origin and TLS state, and the password
+  manager matches the saved password to that server. You give your
+  password, or paste a sign-in link when Remote Access requires one.
+  The page returns to Pagis with a one-use sign-in link. Select **Return
+  to the app** if the browser does not open Pagis. The app spends that
+  link in its web view and opens the Product App. The browser keeps no
+  Session of the server.
 - For a sign-in link, the app opens the link. The page of the link posts the
   secret to the server and gets the Session. A link signs in one client, one
   time. Get a link as [Connect with a sign-in link](/client-app/connect-to-a-server#connect-with-a-sign-in-link)
   shows.
+
+The return link lives five minutes. It is bound to a verifier that the app
+keeps in memory. The app checks the callback state, and the server accepts
+the link only with the correct verifier. A wrong callback or a closed
+browser signs nobody in. Select **Connect** again to start a new sign-in.
+On iOS, the browser Session is ephemeral and leaves no cookie in Safari.
+On Android, the Custom Tab requests ephemeral browsing. The sign-in page ends the Session of its Custom Tab before
+it returns to the app.
 
 The Sessions list names the Session "Pagis on iPhone", "Pagis on iPad" or
 "Pagis on Android". Remove a Session of the app in **Settings → Sessions**,
@@ -86,7 +96,7 @@ browser, which signs in the browser and not the app.
 The app keeps a copy of the Session, encrypted, for the notifications of
 the app. The copy follows the Session in the app. When you sign out, or when
 the server ends the Session, the app deletes the copy and opens the Connect
-screen. Scan a new sign-in link to sign in again.
+screen. Connect to the server or scan a new sign-in link to sign in again.
 
 ## Start the app again
 

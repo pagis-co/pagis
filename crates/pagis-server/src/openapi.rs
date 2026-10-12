@@ -493,6 +493,7 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         sessions::MySessionDto,
         sessions::MySessionsDto,
         sign_in_links::SignInLinkDto,
+        sign_in_links::ClientLinkRequest,
         user::UserDto,
         user::AdministrationAddress,
         workspace::WorkspaceDto,

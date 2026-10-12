@@ -32,6 +32,11 @@
 	<string>$(AppIdentifierPrefix)co.pagis.mobile</string>
 	<key>PagisPushRelayOrigin</key>
 	<string>$(PUSH_RELAY_ORIGIN)</string>
+    <key>CFBundleURLTypes</key>
+    <array><dict>
+        <key>CFBundleURLSchemes</key><array><string>pagis-app</string></array>
+        <key>CFBundleURLName</key><string>co.pagis.mobile.sign-in</string>
+    </dict></array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>

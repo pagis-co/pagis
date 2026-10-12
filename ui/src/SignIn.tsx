@@ -151,7 +151,7 @@ function LinkForm({
         event.preventDefault()
         // The answer set the cookie, and the person it names opens the
         // app at the address this page opened at.
-        signIn.mutate(secret, {
+        signIn.mutate({ secret }, {
           onSuccess: (user) => queryClient.setQueryData(userKey, user),
         })
       }}

@@ -106,14 +106,44 @@ in the product window of the Client App (ADR-0025).
 ### The Mobile App signs in with a Sign-In Link
 
 The Connect screen scans the QR code of a Sign-In Link. It also takes a
-pasted link or a server address. With a link, the web view opens the
-server's own `/sign-in#<secret>` page, and that page posts the secret to
-the daemon, as in the Client App (ADR-0025, ADR-0028). With an address
-alone, the web view opens the server's own sign-in page. The shell sends
-no secret itself.
+pasted link or a server address. A scanned or pasted link opens
+`/sign-in#<secret>` in the web view, where the page trades it for a Session.
 
-The Session is a `browser` Session. The Mobile App adds no `ClientKind`,
-no sign-in route and no new trade. The shell appends `Pagis/<version>` to
+With an address alone, the shell makes a random verifier and state. It
+opens `/sign-in?app=<platform>&state=<state>&challenge=<challenge>` in the
+system browser. The challenge is base64url of SHA-256 of the verifier,
+without padding, as in [RFC 7636](https://www.rfc-editor.org/rfc/rfc7636). On iOS, `ASWebAuthenticationSession` uses
+`prefersEphemeralWebBrowserSession` and the callback scheme `pagis-app`.
+On Android, a Custom Tab requests ephemeral browsing and opens the page.
+An intent filter receives
+`pagis-app://signed-in`.
+
+The page takes a password or a pasted link, as the server permits. It
+makes a five-minute, one-use Sign-In Link bound to the challenge. It ends
+the browser Session and opens `pagis-app://signed-in?state=<state>#<secret>`.
+It shows **Return to the app** if the redirect does not open the app.
+The shell checks the state, then opens `/sign-in#<secret>` in its web view.
+The native bridge gives the page the verifier once. The page posts the
+secret and verifier to the existing trade. The daemon checks the verifier
+before the store spends the link. The stored token hash covers the secret and challenge together. A changed or
+removed challenge names no stored link. A missing or wrong verifier leaves
+the link unspent. The browser keeps no Session of the server.
+
+The system browser lets the phone's password manager match the server's
+origin. A self-hosted Server cannot be an associated domain of the Mobile
+App, so a web view cannot offer that match. The browser shows the origin
+and TLS state; a web view has no address bar.
+[RFC 8252](https://www.rfc-editor.org/rfc/rfc8252) requires an external
+browser for native sign-in. Google refuses sign-in in an embedded web
+view with `disallowed_useragent`. Apple and Google supply browser sign-in
+through `ASWebAuthenticationSession` and Custom Tabs.
+
+The one-time code is a Sign-In Link. The verifier binding prevents another
+app that catches the callback from spending it. A custom scheme serves
+self-hosted origins, which cannot be associated domains of the Mobile App.
+The Session belongs to the web view. The Mobile App adds no `ClientKind`
+and no sign-in route. The Session is a `browser` Session.
+The shell appends `Pagis/<version>` to
 the User-Agent, through `appendedUserAgentString`. The daemon reads the
 `Pagis/` token first (`crates/pagis-server/src/client_name.rs`), so the
 Sessions list names the Session "Pagis on iPhone", "Pagis on iPad" or

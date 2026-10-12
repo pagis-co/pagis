@@ -1,5 +1,8 @@
 package co.pagis.mobile;
 
+import android.content.Intent;
+import android.net.Uri;
+import androidx.browser.customtabs.CustomTabsIntent;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -13,6 +16,73 @@ import com.getcapacitor.annotation.CapacitorPlugin;
  */
 @CapacitorPlugin(name = "PagisShell")
 public class PagisShellPlugin extends Plugin {
+    private PluginCall authentication;
+    private boolean browserOpened;
+
+    static CustomTabsIntent signInTab() {
+        return new CustomTabsIntent.Builder().setEphemeralBrowsingEnabled(true).build();
+    }
+
+    /** Open the sign-in page in a Custom Tab. */
+    @PluginMethod
+    public void authenticate(PluginCall call) {
+        String text = call.getString("url");
+        Uri url = text == null ? null : Uri.parse(text);
+        ServerOrigin origin = url == null ? null : ServerOrigin.parse(url.getScheme() + "://" + url.getEncodedAuthority(), BuildConfig.DEBUG);
+        if (origin == null || !"/sign-in".equals(url.getPath()) || url.getFragment() != null) {
+            call.reject("This is not a sign-in page of a trusted server.");
+            return;
+        }
+        getActivity().runOnUiThread(() -> {
+            if (authentication != null) authentication.reject("Sign-in was replaced. Connect again.");
+            authentication = call;
+            browserOpened = false;
+            try {
+                signInTab().launchUrl(getActivity(), url);
+            } catch (android.content.ActivityNotFoundException error) {
+                authentication = null;
+                call.reject("No system browser opens sign-in. Install a browser, then connect again.");
+            }
+        });
+    }
+
+    @Override
+    protected void handleOnNewIntent(Intent intent) {
+        Uri url = intent.getData();
+        if (url == null || !"pagis-app".equals(url.getScheme()) || !"signed-in".equals(url.getHost())) return;
+        if (authentication == null) return;
+        PluginCall call = authentication;
+        authentication = null;
+        JSObject answer = new JSObject();
+        answer.put("url", url.toString());
+        call.resolve(answer);
+    }
+
+    @Override
+    protected void handleOnPause() {
+        if (authentication != null) browserOpened = true;
+    }
+
+    @Override
+    protected void handleOnResume() {
+        if (authentication != null && browserOpened) {
+            PluginCall call = authentication;
+            authentication = null;
+            browserOpened = false;
+            call.reject("Sign-in was closed. Connect again.");
+        }
+    }
+
+    /** Give the verifier only to the bridge on its server and for its secret. */
+    @PluginMethod
+    public void takeSignInVerifier(PluginCall call) {
+        ServerOrigin server = ServerOrigin.parse(getBridge().getConfig().getServerUrl(), BuildConfig.DEBUG);
+        String value = SignInVerifier.take(server == null ? null : server.serverUrl(), call.getString("secret", ""));
+        JSObject result = new JSObject();
+        if (value != null) result.put("verifier", value);
+        call.resolve(result);
+    }
+
 
     /**
      * Change server of the You screen. The app forgets the server and the
@@ -20,6 +90,7 @@ public class PagisShellPlugin extends Plugin {
      */
     @PluginMethod
     public void changeServer(PluginCall call) {
+        SignInVerifier.clear();
         call.resolve();
         MainActivity activity = (MainActivity) getActivity();
         activity.runOnUiThread(activity::changeServer);
@@ -69,6 +140,12 @@ public class PagisShellPlugin extends Plugin {
             call.reject("The first page is not on the origin of the server.");
             return;
         }
+        SignInVerifier.clear();
+        String verifier = call.getString("verifier");
+        Uri page = Uri.parse(opens);
+        if (verifier != null && "/sign-in".equals(page.getPath()) && page.getFragment() != null) {
+            SignInVerifier.keep(server.serverUrl(), page.getFragment(), verifier);
+        }
         call.resolve();
         MainActivity activity = (MainActivity) getActivity();
         activity.runOnUiThread(() -> activity.open(server, opens));
@@ -92,6 +169,7 @@ public class PagisShellPlugin extends Plugin {
      */
     @PluginMethod
     public void sessionEnded(PluginCall call) {
+        SignInVerifier.clear();
         call.resolve();
         MainActivity activity = (MainActivity) getActivity();
         activity.runOnUiThread(activity::sessionEnded);

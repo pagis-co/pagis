@@ -16,6 +16,7 @@ interface ShellNavigateEvent {
 }
 
 interface PagisShellPlugin {
+  takeSignInVerifier(options: { secret: string }): Promise<{ verifier?: string }>
   changeServer(): Promise<void>
   setLockScreenAnswers(options: { on: boolean }): Promise<void>
   getLockScreenAnswers(): Promise<{ on: boolean }>
@@ -29,6 +30,12 @@ interface PagisShellPlugin {
 }
 
 export const PagisShell = registerPlugin<PagisShellPlugin>('PagisShell')
+
+/** Take the verifier once from native memory, on its server and for its secret. */
+export async function takeSignInVerifier(secret: string): Promise<string | undefined> {
+  if (!Capacitor.isNativePlatform()) return undefined
+  return (await PagisShell.takeSignInVerifier({ secret })).verifier
+}
 
 /** The origin that `appPath` resolves a value against. No page has it,
  *  so a value that leaves it names a place on another site. */

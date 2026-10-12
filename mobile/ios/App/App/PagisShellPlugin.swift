@@ -1,3 +1,5 @@
+import AuthenticationServices
+import UIKit
 import Capacitor
 import Foundation
 import UserNotifications
@@ -24,6 +26,8 @@ final class PagisShellPlugin: CAPPlugin, CAPBridgedPlugin {
     let jsName = "PagisShell"
     let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "buildType", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "authenticate", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "takeSignInVerifier", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "open", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "changeServer", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getLockScreenAnswers", returnType: CAPPluginReturnPromise),
@@ -33,6 +37,7 @@ final class PagisShellPlugin: CAPPlugin, CAPBridgedPlugin {
 
     /// The bridge that shows the plugin.
     weak var shell: ServerShell?
+    private let signInBrowser = SystemSignInBrowser()
     /// The store of the setting **Answer on the lock screen**.
     var servers = ServerStore()
     /// The categories that the app registers again when the setting
@@ -43,11 +48,43 @@ final class PagisShellPlugin: CAPPlugin, CAPBridgedPlugin {
         call.resolve(["debug": AppBuild.isDebug])
     }
 
+    /// Open sign-in in a browser with its own cookie store.
+    @objc func authenticate(_ call: CAPPluginCall) {
+        guard let url = URL(string: call.getString("url") ?? ""),
+              let origin = WebOrigin(url: url),
+              WebOrigin.server(origin.serverURL, debug: AppBuild.isDebug) != nil,
+              url.user == nil, url.password == nil, url.path == "/sign-in", url.fragment == nil
+        else {
+            call.reject("This is not a sign-in page of a trusted server.")
+            return
+        }
+        DispatchQueue.main.async { [self] in
+            signInBrowser.window = bridge?.viewController?.view.window
+            signInBrowser.open(url: url) { callback, error in
+                guard let callback, error == nil else {
+                    call.reject("Sign-in was closed. Connect again.")
+                    return
+                }
+                call.resolve(["url": callback.absoluteString])
+            }
+        }
+    }
+
+    /// Give the verifier only to the bridge on its server and for its secret.
+    @objc func takeSignInVerifier(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [self] in
+            let server = bridge.flatMap { WebOrigin(url: $0.config.serverURL) }
+            let verifier = SignInVerifier.take(server: server, secret: call.getString("secret") ?? "")
+            call.resolve(verifier.map { ["verifier": $0] } ?? [:])
+        }
+    }
+
     /// **Change server** of the You screen. The app forgets the server and
     /// the copy of the Session, and shows the Connect screen.
     @objc func changeServer(_ call: CAPPluginCall) {
         call.resolve()
         DispatchQueue.main.async { [weak self] in
+            SignInVerifier.clear()
             self?.shell?.changeServer()
         }
     }
@@ -83,8 +120,12 @@ final class PagisShellPlugin: CAPPlugin, CAPBridgedPlugin {
             call.reject("The first page is not on the origin of the server.")
             return
         }
-        call.resolve()
         DispatchQueue.main.async { [weak self] in
+            SignInVerifier.clear()
+            if let verifier = call.getString("verifier"), let secret = firstPage.fragment, firstPage.path == "/sign-in" {
+                SignInVerifier.keep(server: server, secret: secret, verifier: verifier)
+            }
+            call.resolve()
             self?.shell?.open(server: server, firstPage: firstPage)
         }
     }
@@ -102,7 +143,60 @@ final class PagisShellPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func sessionEnded(_ call: CAPPluginCall) {
         call.resolve()
         DispatchQueue.main.async { [weak self] in
+            SignInVerifier.clear()
             self?.shell?.sessionEnded()
         }
+    }
+}
+
+
+/// A verifier stays in memory across the replacement of the bridge.
+@MainActor
+enum SignInVerifier {
+    private static var pending: (server: WebOrigin, secret: String, verifier: String)?
+
+    static func keep(server: WebOrigin, secret: String, verifier: String) {
+        pending = (server, secret, verifier)
+    }
+
+    static func clear() { pending = nil }
+
+    static func take(server: WebOrigin?, secret: String) -> String? {
+        guard let value = pending, value.server == server, value.secret == secret else { return nil }
+        pending = nil
+        return value.verifier
+    }
+}
+
+/// The authentication session is separate from Safari's cookie store.
+final class SystemSignInBrowser: NSObject, ASWebAuthenticationPresentationContextProviding {
+    var window: UIWindow?
+    private var session: ASWebAuthenticationSession?
+
+    func makeSession(url: URL, completion: @escaping ASWebAuthenticationSession.CompletionHandler) -> ASWebAuthenticationSession {
+        let session = ASWebAuthenticationSession(url: url, callbackURLScheme: "pagis-app", completionHandler: completion)
+        session.prefersEphemeralWebBrowserSession = true
+        session.presentationContextProvider = self
+        return session
+    }
+
+    func open(url: URL, completion: @escaping ASWebAuthenticationSession.CompletionHandler) {
+        guard session == nil else {
+            completion(nil, NSError(domain: "PagisSignIn", code: 1))
+            return
+        }
+        let next = makeSession(url: url) { [weak self] callback, error in
+            self?.session = nil
+            completion(callback, error)
+        }
+        session = next
+        if !next.start() {
+            session = nil
+            completion(nil, NSError(domain: "PagisSignIn", code: 2))
+        }
+    }
+
+    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        window ?? ASPresentationAnchor()
     }
 }

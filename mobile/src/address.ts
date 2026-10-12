@@ -27,10 +27,9 @@ const SIGN_IN_PATH = '/sign-in'
 export interface ServerAddress {
   /** The origin of the server. The app keeps it, and nothing more. */
   origin: string
-  /** Where the web view opens: the Sign-In Link on that origin, or else
-   *  the origin. The page of the Product App at `/sign-in` trades the
-   *  secret for a Session. Nothing keeps this address, because a link
-   *  holds a secret. */
+  /** A Sign-In Link opens in the web view. An origin starts sign-in in
+   *  the system browser. The page at `/sign-in` trades the secret for a
+   *  Session. Nothing keeps this address, because a link holds a secret. */
   opens: string
 }
 

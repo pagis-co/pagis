@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { ApiClient } from './api/client'
 import { LogoMark } from './primitives'
 import { useLinkSignIn } from './queries'
+import { takeSignInVerifier } from './mobileShell'
 
 import './sign-in.css'
 
@@ -32,6 +33,7 @@ export function SignInLinkPage({
   onSignedIn?: () => void
 }) {
   const signIn = useLinkSignIn(api)
+  const [bridgeFailure, setBridgeFailure] = useState<string | null>(null)
   const [missing, setMissing] = useState(false)
   const started = useRef(false)
 
@@ -48,18 +50,21 @@ export function SignInLinkPage({
       setMissing(true)
       return
     }
-    signIn.mutate(secret)
+    void takeSignInVerifier(secret).then(
+      (verifier) => signIn.mutate({ secret, verifier }),
+      () => setBridgeFailure('Pagis could not read the sign-in verifier. Connect again in the app.'),
+    )
   }, [signIn])
 
   useEffect(() => {
     if (signIn.isSuccess) onSignedIn()
   }, [signIn.isSuccess, onSignedIn])
 
-  const failure = missing
+  const failure = bridgeFailure ?? (missing
     ? 'This address holds no sign-in link. Open the whole link again.'
     : signIn.isError
       ? signIn.error.message
-      : null
+      : null)
 
   return (
     <div className="sign-in">

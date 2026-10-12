@@ -7,6 +7,9 @@ import { render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { ApiClient } from './api/client'
+import { takeSignInVerifier } from './mobileShell'
+vi.mock('./mobileShell', () => ({ takeSignInVerifier: vi.fn(async () => undefined) }))
+
 import { SignInLinkPage } from './SignInLinkPage'
 
 function mount(post: ReturnType<typeof vi.fn>, onSignedIn = vi.fn()) {
@@ -27,6 +30,18 @@ function open(address: string) {
 afterEach(() => open('/'))
 
 describe('SignInLinkPage', () => {
+  it('posts the bound secret and the verifier from the native bridge', async () => {
+    open('/sign-in#bound-secret')
+    vi.mocked(takeSignInVerifier).mockResolvedValueOnce('native-verifier')
+    const post = vi.fn(async () => ({ data: { id: 'person' }, response: new Response(null, { status: 200 }) }))
+    const signedIn = mount(post)
+    await waitFor(() => expect(signedIn).toHaveBeenCalledOnce())
+    expect(takeSignInVerifier).toHaveBeenCalledWith('bound-secret')
+    expect(post).toHaveBeenCalledWith('/api/v1/sessions/link', {
+      body: { secret: 'bound-secret', verifier: 'native-verifier', timezone: expect.any(String) },
+    })
+  })
+
   it('posts the secret, clears it from the address and opens the app', async () => {
     open('/sign-in#s3cret-value')
     const post = vi.fn(async () => ({
