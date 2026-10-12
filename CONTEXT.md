@@ -357,9 +357,11 @@ _Avoid_: pairing code, magic link, invite token
 
 ### Spend Cap
 What one Person may spend on model calls in a calendar month of their own
-timezone, in US dollars, set by an Administrator. A Run that would start
-over the cap, or on a model with no known price, stops before it asks a
-model anything. A Person under no cap is never stopped (ADR-0023).
+timezone, in US dollars, set by an Administrator. A Run checks the cap
+before each model call, in its first Turn and in each later Turn. It stops
+before the call that would go over the cap, or use a model with no known
+price. Its earlier replies stay in the conversation, and a note says why
+it stopped. A Person under no cap is never stopped (ADR-0023).
 _Avoid_: quota, spend limit
 
 ### Usage Record

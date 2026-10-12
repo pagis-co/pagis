@@ -12,6 +12,8 @@ use pagis_agent::{Brain, BrainError, ToolInvocation, TurnDelta, TurnEnd, TurnReq
 /// One scripted turn outcome, consumed in push order.
 #[derive(Debug, Clone)]
 pub enum Script {
+    /// Report this cost when the scripted Turn finishes.
+    WithCost(Box<Script>, f64),
     /// Stream these deltas, then finish the turn.
     Reply(Vec<String>),
     /// Stream these deltas with explicit provider accounting, then finish.
@@ -49,6 +51,9 @@ pub enum Script {
 }
 
 impl Script {
+    pub fn costing(self, cost_usd: f64) -> Self {
+        Self::WithCost(Box::new(self), cost_usd)
+    }
     pub fn reply(deltas: &[&str]) -> Self {
         Script::Reply(deltas.iter().map(|d| d.to_string()).collect())
     }
@@ -215,81 +220,32 @@ impl Brain for ScriptedBrain {
             return Err(BrainError::new("scripted brain has no script"));
         };
 
-        let deltas = |texts: Vec<String>| {
-            stream::iter(
-                texts
-                    .into_iter()
-                    .map(|text| Ok(TurnDelta::Text(text)))
-                    .collect::<Vec<_>>(),
-            )
-        };
-        Ok(match script {
-            Script::Reply(texts) => deltas(texts)
-                .chain(stream::iter([Ok(TurnDelta::Finish(TurnEnd {
-                    stop_reason: "stop".to_string(),
-                    provider: Some("scripted".to_string()),
-                    model: Some("test".to_string()),
-                    usage: Some(pagis_agent::Usage {
-                        input_tokens: 7,
-                        output_tokens: 11,
-                        ..Default::default()
-                    }),
-                    estimated_cost_usd: None,
-                }))]))
-                .boxed(),
-            Script::ReplyAccounted(texts, retries, usage) => deltas(texts)
-                .chain(stream::iter(
-                    (retries > 0).then_some(Ok(TurnDelta::ModelRetries(retries))),
-                ))
-                .chain(stream::iter([Ok(TurnDelta::Finish(TurnEnd {
-                    stop_reason: "stop".to_string(),
-                    provider: Some("scripted".to_string()),
-                    model: Some("test".to_string()),
-                    usage,
-                    estimated_cost_usd: None,
-                }))]))
-                .boxed(),
-            Script::ReplyCosted(texts, usage, cost_usd) => deltas(texts)
-                .chain(stream::iter([Ok(TurnDelta::Finish(TurnEnd {
-                    stop_reason: "stop".to_string(),
-                    provider: Some("scripted".to_string()),
-                    model: Some("test".to_string()),
-                    usage: Some(usage),
-                    estimated_cost_usd: Some(cost_usd),
-                }))]))
-                .boxed(),
-            Script::ToolCalls(texts, calls) => deltas(texts)
-                .chain(stream::iter(
-                    calls
-                        .into_iter()
-                        .map(|call| Ok(TurnDelta::ToolCall(call)))
-                        .collect::<Vec<_>>(),
-                ))
-                .chain(stream::iter([Ok(TurnDelta::Finish(TurnEnd {
-                    stop_reason: "tool_calls".to_string(),
-                    provider: Some("scripted".to_string()),
-                    model: Some("test".to_string()),
-                    usage: Some(pagis_agent::Usage {
-                        input_tokens: 7,
-                        output_tokens: 11,
-                        ..Default::default()
-                    }),
-                    estimated_cost_usd: None,
-                }))]))
-                .boxed(),
-            Script::FailAfter(texts, error) => deltas(texts)
-                .chain(stream::iter([Err(BrainError::new(error))]))
-                .boxed(),
-            Script::RefuseKey(error) => stream::iter([Err(BrainError::refused_key(error))]).boxed(),
-            Script::ProviderError(status, body, message) => {
-                stream::iter([Err(BrainError::provider(message, status, Some(body)))]).boxed()
-            }
-            Script::Hang(texts) => deltas(texts).chain(stream::pending()).boxed(),
-            Script::GateReply(texts, entered, release) => stream::once(async move {
-                entered.notify_one();
-                release.notified().await;
-                Ok(TurnDelta::Text(texts.concat()))
+        Ok(play(script))
+    }
+}
+
+fn play(script: Script) -> TurnStream {
+    let deltas = |texts: Vec<String>| {
+        stream::iter(
+            texts
+                .into_iter()
+                .map(|text| Ok(TurnDelta::Text(text)))
+                .collect::<Vec<_>>(),
+        )
+    };
+    match script {
+        Script::WithCost(script, cost_usd) => play(*script)
+            .map(move |delta| {
+                delta.map(|delta| match delta {
+                    TurnDelta::Finish(mut end) => {
+                        end.estimated_cost_usd = Some(cost_usd);
+                        TurnDelta::Finish(end)
+                    }
+                    delta => delta,
+                })
             })
+            .boxed(),
+        Script::Reply(texts) => deltas(texts)
             .chain(stream::iter([Ok(TurnDelta::Finish(TurnEnd {
                 stop_reason: "stop".to_string(),
                 provider: Some("scripted".to_string()),
@@ -302,11 +258,34 @@ impl Brain for ScriptedBrain {
                 estimated_cost_usd: None,
             }))]))
             .boxed(),
-            Script::GateToolCall(call, entered, release) => stream::once(async move {
-                entered.notify_one();
-                release.notified().await;
-                Ok(TurnDelta::ToolCall(call))
-            })
+        Script::ReplyAccounted(texts, retries, usage) => deltas(texts)
+            .chain(stream::iter(
+                (retries > 0).then_some(Ok(TurnDelta::ModelRetries(retries))),
+            ))
+            .chain(stream::iter([Ok(TurnDelta::Finish(TurnEnd {
+                stop_reason: "stop".to_string(),
+                provider: Some("scripted".to_string()),
+                model: Some("test".to_string()),
+                usage,
+                estimated_cost_usd: None,
+            }))]))
+            .boxed(),
+        Script::ReplyCosted(texts, usage, cost_usd) => deltas(texts)
+            .chain(stream::iter([Ok(TurnDelta::Finish(TurnEnd {
+                stop_reason: "stop".to_string(),
+                provider: Some("scripted".to_string()),
+                model: Some("test".to_string()),
+                usage: Some(usage),
+                estimated_cost_usd: Some(cost_usd),
+            }))]))
+            .boxed(),
+        Script::ToolCalls(texts, calls) => deltas(texts)
+            .chain(stream::iter(
+                calls
+                    .into_iter()
+                    .map(|call| Ok(TurnDelta::ToolCall(call)))
+                    .collect::<Vec<_>>(),
+            ))
             .chain(stream::iter([Ok(TurnDelta::Finish(TurnEnd {
                 stop_reason: "tool_calls".to_string(),
                 provider: Some("scripted".to_string()),
@@ -319,6 +298,47 @@ impl Brain for ScriptedBrain {
                 estimated_cost_usd: None,
             }))]))
             .boxed(),
+        Script::FailAfter(texts, error) => deltas(texts)
+            .chain(stream::iter([Err(BrainError::new(error))]))
+            .boxed(),
+        Script::RefuseKey(error) => stream::iter([Err(BrainError::refused_key(error))]).boxed(),
+        Script::ProviderError(status, body, message) => {
+            stream::iter([Err(BrainError::provider(message, status, Some(body)))]).boxed()
+        }
+        Script::Hang(texts) => deltas(texts).chain(stream::pending()).boxed(),
+        Script::GateReply(texts, entered, release) => stream::once(async move {
+            entered.notify_one();
+            release.notified().await;
+            Ok(TurnDelta::Text(texts.concat()))
         })
+        .chain(stream::iter([Ok(TurnDelta::Finish(TurnEnd {
+            stop_reason: "stop".to_string(),
+            provider: Some("scripted".to_string()),
+            model: Some("test".to_string()),
+            usage: Some(pagis_agent::Usage {
+                input_tokens: 7,
+                output_tokens: 11,
+                ..Default::default()
+            }),
+            estimated_cost_usd: None,
+        }))]))
+        .boxed(),
+        Script::GateToolCall(call, entered, release) => stream::once(async move {
+            entered.notify_one();
+            release.notified().await;
+            Ok(TurnDelta::ToolCall(call))
+        })
+        .chain(stream::iter([Ok(TurnDelta::Finish(TurnEnd {
+            stop_reason: "tool_calls".to_string(),
+            provider: Some("scripted".to_string()),
+            model: Some("test".to_string()),
+            usage: Some(pagis_agent::Usage {
+                input_tokens: 7,
+                output_tokens: 11,
+                ..Default::default()
+            }),
+            estimated_cost_usd: None,
+        }))]))
+        .boxed(),
     }
 }
