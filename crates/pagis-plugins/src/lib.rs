@@ -1,6 +1,6 @@
 //! The MCP host of the installed Plugins (ADR-0017).
 //!
-//! One supervised `rmcp` client per declared server of a Plugin runs in
+//! One supervised MCP client per declared server of a Plugin runs in
 //! the daemon and serves every Agent of one tenant that holds the
 //! Plugin Grant. The client is in the daemon; the server process is
 //! not: it runs inside that tenant's Plugin Computer, behind
@@ -20,6 +20,7 @@
 pub mod freeze;
 pub mod host;
 pub mod hosts;
+pub mod http;
 pub mod log;
 pub mod process;
 pub mod substitute;
@@ -30,6 +31,7 @@ pub use host::{
     ConnectionTokens, HostError, Manifests, NoConnectionTokens, PluginHost, PluginHostDeps,
 };
 pub use hosts::{PluginHosts, PluginHostsDeps, spawn_idle_reaper};
+pub use http::{HttpBody, McpHttp, ReqwestMcpHttp};
 pub use log::{LOG_FULL_MARKER, MAX_LOG_BYTES, PluginLog, PluginLogs, tail_of};
 pub use process::{
     CONTAINER_PLUGIN_DATA, CONTAINER_PLUGIN_ROOT, ServerIo, ServerProcesses, container_paths,

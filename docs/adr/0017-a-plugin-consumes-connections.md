@@ -87,6 +87,17 @@ An HTTP or SSE server is an outbound request of the daemon.
   Agent with the Plugin Grant, and the broker is the only caller. There is one
   supervisor for each (Workspace, plugin id, server name). Sampling,
   elicitation, resources and prompts are refused or ignored.
+- **HTTP.** The streamable HTTP client uses `rmcp::model` messages and
+  `eventsource-stream` over `McpHttp`. An Embedder supplies one request
+  transport; the daemon uses the workspace's reqwest. The client initializes
+  the session, sends `notifications/initialized`, and carries the session id
+  and negotiated protocol version in each request. A POST answer is JSON or
+  SSE. A session that answers `404` initializes again. The client opens no
+  GET notification stream: a tool list change arrives in a POST answer or
+  shows in the list at the next start. It answers `ping` and refuses every
+  other server request. A stop sends DELETE for the session. HTTP answer
+  bodies and SSE events have the same 4 MiB cap as stdio frames. The HTTP
+  client uses `pagis-rt` for deadlines and starts no tasks.
 - **Names.** A tool is `<plugin>__<tool>`. Two servers of one plugin that
   declare the same tool fail install. Plugin names follow the Software name
   rules and may not collide with an installed namespace.

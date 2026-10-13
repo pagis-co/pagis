@@ -33,10 +33,9 @@ use rmcp::service::{
     NotificationContext, PeerRequestOptions, RequestContext, RoleClient, RunningService,
     RxJsonRpcMessage, TxJsonRpcMessage,
 };
+use rmcp::transport::Transport;
 use rmcp::transport::async_rw::{JsonRpcMessageCodec, JsonRpcMessageCodecError};
 use rmcp::transport::sink_stream::SinkStreamTransport;
-use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
-use rmcp::transport::{StreamableHttpClientTransport, Transport};
 use rmcp::{ClientHandler, ErrorData as McpError, ServiceError, ServiceExt};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{Mutex, Semaphore};
@@ -45,6 +44,7 @@ use tokio_util::codec::{Decoder, FramedRead, FramedWrite};
 
 use pagis_core::WorkspaceId;
 
+use crate::http::{HttpClient, McpHttp, ReqwestMcpHttp};
 use crate::log::PluginLog;
 use crate::process::{ServerIo, ServerProcesses};
 use crate::substitute::{Endpoint, Spawn};
@@ -128,9 +128,8 @@ pub enum Launch {
 
 /// What the daemon does when a running server says that its tool list
 /// changed. The host marks the Plugin, and the frozen list stays in
-/// force (ADR-0017). The mark comes from the notification itself, so it
-/// does not wait for a call to end, and a server that says so while no
-/// call runs is marked all the same.
+/// force (ADR-0017). The mark comes from the notification itself.
+/// HTTP notifications arrive in POST answers; no GET stream opens.
 #[async_trait]
 pub trait ToolListChanged: Send + Sync {
     async fn tool_list_changed(&self);
@@ -160,13 +159,13 @@ impl std::fmt::Debug for PluginClient {
 /// stdout stream sets it when it ends the session. The supervisor
 /// counts it once, however many calls the session lost.
 #[derive(Debug, Default)]
-struct Overrun {
-    happened: AtomicBool,
+pub(crate) struct Overrun {
+    pub(crate) happened: AtomicBool,
     counted: AtomicBool,
 }
 
 impl Overrun {
-    fn happened(&self) -> bool {
+    pub(crate) fn happened(&self) -> bool {
         self.happened.load(Ordering::SeqCst)
     }
 
@@ -201,8 +200,35 @@ impl ClientHandler for PluginClient {
     }
 }
 
-/// One connected client of one plugin server.
-pub type Client = RunningService<RoleClient, PluginClient>;
+/// One connected MCP session of one Plugin server.
+#[derive(Debug)]
+pub enum Client {
+    Stdio(Box<RunningService<RoleClient, PluginClient>>),
+    Http(Box<HttpClient>),
+}
+
+impl Client {
+    fn is_closed(&self) -> bool {
+        match self {
+            Self::Stdio(client) => client.is_closed() || client.is_transport_closed(),
+            Self::Http(client) => client.is_closed(),
+        }
+    }
+
+    fn overrun(&self) -> &Overrun {
+        match self {
+            Self::Stdio(client) => &client.service().overrun,
+            Self::Http(client) => &client.overrun,
+        }
+    }
+
+    async fn stop(&self) {
+        match self {
+            Self::Stdio(client) => client.cancellation_token().cancel(),
+            Self::Http(client) => client.stop().await,
+        }
+    }
+}
 
 struct Running {
     client: Arc<Client>,
@@ -234,6 +260,7 @@ pub struct ServerSupervisor {
     /// API; nothing of it reaches the model (ADR-0005).
     log: PluginLog,
     state: Mutex<State>,
+    http: Arc<dyn McpHttp>,
     /// The output overruns in a row. It is not in [`State`], so a call
     /// that counts one never waits for a start that holds the state.
     overruns: AtomicU32,
@@ -256,10 +283,17 @@ impl ServerSupervisor {
             processes,
             log,
             state: Mutex::new(State::default()),
+            http: Arc::new(ReqwestMcpHttp::default()),
             overruns: AtomicU32::new(0),
             changed,
             permits: Arc::new(Semaphore::new(MAX_IN_FLIGHT)),
         }
+    }
+
+    /// Supply the HTTP transport of an Embedder.
+    pub fn with_http(mut self, http: Arc<dyn McpHttp>) -> Self {
+        self.http = http;
+        self
     }
 
     pub fn server(&self) -> &str {
@@ -270,10 +304,14 @@ impl ServerSupervisor {
     /// once at install, and every start compares its answer with the
     /// frozen list.
     pub async fn list_tools(&self, client: &Client) -> Result<Vec<Tool>, ServerError> {
-        client
-            .list_all_tools()
-            .await
-            .map_err(|error| ServerError::Start(format!("tools/list failed: {error}")))
+        match client {
+            Client::Stdio(client) => client
+                .list_all_tools()
+                .await
+                .map_err(|error| error.to_string()),
+            Client::Http(client) => client.list_tools().await,
+        }
+        .map_err(|error| ServerError::Start(format!("tools/list failed: {error}")))
     }
 
     /// The running client, started if it is not running, restarted if
@@ -292,7 +330,7 @@ impl ServerSupervisor {
             // A server that left takes its transport with it: the
             // service is not cancelled, and only the closed transport
             // says that the process is gone.
-            let gone = running.client.is_closed() || running.client.is_transport_closed();
+            let gone = running.client.is_closed();
             if !gone && !stale {
                 running.last_used = now;
                 return Ok((Arc::clone(&running.client), false));
@@ -300,7 +338,7 @@ impl ServerSupervisor {
             // A crashed server and a rotated token both end the same
             // way: the process goes, and a new one starts below.
             let running = state.running.take().expect("the running server is there");
-            running.client.cancellation_token().cancel();
+            running.client.stop().await;
         }
         if state.failures >= MAX_START_FAILURES
             || self.overruns.load(Ordering::SeqCst) >= MAX_OUTPUT_OVERRUNS
@@ -360,15 +398,31 @@ impl ServerSupervisor {
         if let Some(arguments) = arguments.as_object() {
             params = params.with_arguments(arguments.clone());
         }
-        let sent = client
-            .send_cancellable_request(
-                ClientRequest::CallToolRequest(CallToolRequest::new(params)),
-                PeerRequestOptions::with_timeout(deadline.min(MAX_CALL_TIMEOUT)),
-            )
-            .await;
-        let answer = match sent {
-            Ok(handle) => handle.await_response().await,
-            Err(error) => Err(error),
+        let answer = match client {
+            Client::Http(client) => client
+                .call(params, deadline.min(MAX_CALL_TIMEOUT))
+                .await
+                .map(ServerResult::CallToolResult),
+            Client::Stdio(client) => {
+                let sent = client
+                    .send_cancellable_request(
+                        ClientRequest::CallToolRequest(CallToolRequest::new(params)),
+                        PeerRequestOptions::with_timeout(deadline.min(MAX_CALL_TIMEOUT)),
+                    )
+                    .await;
+                let answer = match sent {
+                    Ok(handle) => handle.await_response().await,
+                    Err(error) => Err(error),
+                };
+                match answer {
+                    Ok(result) => Ok(result),
+                    Err(ServiceError::Timeout { timeout }) => Err(format!(
+                        "the call did not answer in {} seconds",
+                        timeout.as_secs()
+                    )),
+                    Err(error) => Err(error.to_string()),
+                }
+            }
         };
         let answer = match answer {
             Ok(answer) => answer,
@@ -386,8 +440,8 @@ impl ServerSupervisor {
     /// Why a sent call has no answer. A session that ended at the frame
     /// cap counts one output overrun toward the failed state, however
     /// many calls it lost (ADR-0017).
-    fn lost(&self, client: &Client, error: ServiceError) -> ServerError {
-        let overrun = &client.service().overrun;
+    fn lost(&self, client: &Client, error: String) -> ServerError {
+        let overrun = client.overrun();
         if overrun.happened() {
             let failed = overrun.count()
                 && self.overruns.fetch_add(1, Ordering::SeqCst) + 1 >= MAX_OUTPUT_OVERRUNS;
@@ -396,13 +450,7 @@ impl ServerSupervisor {
                 failed,
             };
         }
-        match error {
-            ServiceError::Timeout { timeout } => ServerError::Unknown(format!(
-                "the call did not answer in {} seconds",
-                timeout.as_secs()
-            )),
-            error => ServerError::Unknown(error.to_string()),
-        }
+        ServerError::Unknown(error)
     }
 
     /// Stop the server if it is running. The transport closes, which
@@ -411,7 +459,7 @@ impl ServerSupervisor {
     pub async fn stop(&self) {
         let mut state = self.state.lock().await;
         if let Some(running) = state.running.take() {
-            running.client.cancellation_token().cancel();
+            running.client.stop().await;
         }
         state.failures = 0;
         state.retry_at = None;
@@ -427,7 +475,7 @@ impl ServerSupervisor {
             .as_ref()
             .is_some_and(|running| now.duration_since(running.last_used) >= IDLE_SHUTDOWN);
         if idle && let Some(running) = state.running.take() {
-            running.client.cancellation_token().cancel();
+            running.client.stop().await;
             return true;
         }
         false
@@ -449,9 +497,7 @@ impl ServerSupervisor {
             .await
             .running
             .as_ref()
-            .is_some_and(|running| {
-                !running.client.is_closed() && !running.client.is_transport_closed()
-            })
+            .is_some_and(|running| !running.client.is_closed())
     }
 
     async fn start(&self, launch: &Launch) -> Result<Client, ServerError> {
@@ -463,12 +509,25 @@ impl ServerSupervisor {
         let started = match launch {
             Launch::Stdio(spawn) => {
                 let transport = self.start_in_container(spawn, overrun).await?;
-                tokio::time::timeout(STARTUP_TIMEOUT, handler.serve(transport)).await
+                tokio::time::timeout(STARTUP_TIMEOUT, handler.serve(transport))
+                    .await
+                    .map(|result| {
+                        result
+                            .map(|client| Client::Stdio(Box::new(client)))
+                            .map_err(|error| error.to_string())
+                    })
             }
-            Launch::Http(endpoint) => {
-                let transport = http_transport(endpoint)?;
-                tokio::time::timeout(STARTUP_TIMEOUT, handler.serve(transport)).await
-            }
+            Launch::Http(endpoint) => pagis_rt::timeout(
+                STARTUP_TIMEOUT,
+                HttpClient::start(
+                    Arc::clone(&self.http),
+                    endpoint,
+                    overrun,
+                    Arc::clone(&self.changed),
+                ),
+            )
+            .await
+            .map(|result| result.map(|client| Client::Http(Box::new(client)))),
         };
         match started {
             Ok(Ok(client)) => Ok(client),
@@ -602,34 +661,6 @@ fn skip_unreadable(
     }
 }
 
-/// The streamable HTTP transport of one server. An `Authorization`
-/// header becomes the transport's own auth header, which is where
-/// `rmcp` puts a bearer token; every other header travels as it is.
-fn http_transport(
-    endpoint: &Endpoint,
-) -> Result<impl Transport<RoleClient> + 'static, ServerError> {
-    install_crypto_provider();
-    let mut config = StreamableHttpClientTransportConfig::with_uri(endpoint.url.clone())
-        .reinit_on_expired_session(true);
-    let mut custom = std::collections::HashMap::new();
-    for (name, value) in &endpoint.headers {
-        if name.eq_ignore_ascii_case("authorization") {
-            config = config.auth_header(value.trim_start_matches("Bearer ").to_string());
-            continue;
-        }
-        let name = http::HeaderName::try_from(name.as_str())
-            .map_err(|_| ServerError::Start(format!("the header name {name:?} is not one")))?;
-        let value = http::HeaderValue::try_from(value.as_str()).map_err(|_| {
-            ServerError::Start(format!(
-                "the header {name} carries a value a request cannot hold"
-            ))
-        })?;
-        custom.insert(name, value);
-    }
-    config = config.custom_headers(custom);
-    Ok(StreamableHttpClientTransport::from_config(config))
-}
-
 /// A digest of the bound values one server starts with. It carries no
 /// value: it is only long enough to say that something changed.
 pub fn fingerprint(values: &BTreeMap<String, String>) -> String {
@@ -641,18 +672,4 @@ pub fn fingerprint(values: &BTreeMap<String, String>) -> String {
         value.hash(&mut hasher);
     }
     format!("{:016x}", hasher.finish())
-}
-
-/// Install the workspace's `ring` provider as the process-level rustls
-/// provider, once. `rmcp`'s HTTP client is built with no provider of
-/// its own, so that the workspace does not carry two crypto backends
-/// (its second reqwest would otherwise pull in `aws-lc-rs` beside the
-/// mail crates' `ring`, and rustls then refuses to pick one).
-fn install_crypto_provider() {
-    static ONCE: std::sync::Once = std::sync::Once::new();
-    ONCE.call_once(|| {
-        // Another crate may have installed a provider first; that is
-        // fine, there is one and it is `ring`.
-        let _ = tokio_rustls::rustls::crypto::ring::default_provider().install_default();
-    });
 }

@@ -343,5 +343,41 @@ pub fn counting_http_router(calls: Arc<std::sync::atomic::AtomicUsize>) -> axum:
         Arc::new(LocalSessionManager::default()),
         Default::default(),
     );
-    axum::Router::new().route_service("/mcp", service)
+    axum::Router::new()
+        .route_service("/mcp", service)
+        .layer(axum::middleware::from_fn(tool_change_answer))
+}
+
+/// Put the change notification in the answer of `drop_tool`. rmcp sends
+/// tool list notifications only to its standalone GET stream.
+async fn tool_change_answer(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    use futures::StreamExt;
+
+    let (parts, body) = request.into_parts();
+    let Ok(bytes) = axum::body::to_bytes(body, 4 * 1024 * 1024).await else {
+        return axum::response::Response::builder()
+            .status(413)
+            .body(axum::body::Body::empty())
+            .expect("a response");
+    };
+    let message: serde_json::Value = serde_json::from_slice(&bytes).unwrap_or_default();
+    let changes = message["method"] == "tools/call" && message["params"]["name"] == "drop_tool";
+    let response = next
+        .run(axum::extract::Request::from_parts(parts, bytes.into()))
+        .await;
+    if !changes || !response.status().is_success() {
+        return response;
+    }
+    let (parts, body) = response.into_parts();
+    let notification = "event: message\ndata: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/tools/list_changed\"}\n\n";
+    let prefix = futures::stream::once(std::future::ready(Ok::<_, axum::Error>(
+        axum::body::Bytes::from_static(notification.as_bytes()),
+    )));
+    axum::response::Response::from_parts(
+        parts,
+        axum::body::Body::from_stream(prefix.chain(body.into_data_stream())),
+    )
 }

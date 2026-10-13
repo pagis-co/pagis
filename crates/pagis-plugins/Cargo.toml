@@ -10,18 +10,18 @@ autotests = false
 async-trait.workspace = true
 futures.workspace = true
 http.workspace = true
+bytes.workspace = true
+eventsource-stream = "0.2"
+pagis-rt.workspace = true
+reqwest = { workspace = true, features = ["stream"] }
 pagis-broker.workspace = true
 pagis-core.workspace = true
 pagis-plugin.workspace = true
 rmcp = { workspace = true, features = [
     "client",
-    "reqwest-tls-no-provider",
     "transport-async-rw",
-    "transport-streamable-http-client",
-    "transport-streamable-http-client-reqwest",
 ] }
 serde.workspace = true
-tokio-rustls.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["fs", "io-util", "rt"] }
