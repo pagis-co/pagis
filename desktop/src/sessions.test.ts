@@ -35,6 +35,13 @@ const WITH_CHILD = [
   'setInterval(() => {}, 1000)',
 ].join(';')
 
+/** Wait until `assertion` passes. A real process can start and end
+ *  slowly on a loaded machine, so the limit is 10 s and not the 1 s
+ *  default of `vi.waitFor`. The limit only stops a test that fails. */
+function eventually(assertion: () => void): Promise<void> {
+  return vi.waitFor(assertion, { timeout: 10_000 })
+}
+
 const directories: string[] = []
 const pids: number[] = []
 
@@ -54,6 +61,8 @@ function isAlive(pid: number): boolean {
 }
 
 afterEach(() => {
+  vi.useRealTimers()
+  vi.restoreAllMocks()
   for (const pid of pids.splice(0)) {
     if (isAlive(pid)) process.kill(pid, 'SIGKILL')
   }
@@ -97,14 +106,28 @@ function session(deps: Partial<SessionDeps> = {}) {
     ...deps,
   })
   const output = (): string => Buffer.concat(chunks).toString()
+  /** Resolve when `condition` holds. The test checks it at each chunk
+   *  from the client and uses no timer, so a slow process or fake timers
+   *  do not change the result. */
+  const until = (condition: () => boolean): Promise<void> =>
+    new Promise((resolve) => {
+      const check = (): void => {
+        if (!condition()) return
+        daemon.off('data', check)
+        resolve()
+      }
+      daemon.on('data', check)
+      check()
+    })
   return {
     daemon,
     exits,
     done,
     output,
+    until,
     /** The answer line, parsed, once it arrived. */
     answer: async (): Promise<Record<string, unknown>> => {
-      await vi.waitFor(() => expect(output()).toContain('\n'))
+      await until(() => output().includes('\n'))
       return JSON.parse(output().slice(0, output().indexOf('\n'))) as Record<string, unknown>
     },
     /** What the process wrote after the answer. */
@@ -129,9 +152,9 @@ describe('a session stream', () => {
 
     expect(await answer()).toEqual({ ok: true, cwd })
     daemon.write('{"jsonrpc":"2.0","id":0,"method":"initialize"}\n')
-    await vi.waitFor(() => expect(stdout()).toBe('{"jsonrpc":"2.0","id":0,"method":"initialize"}\n'))
+    await eventually(() => expect(stdout()).toBe('{"jsonrpc":"2.0","id":0,"method":"initialize"}\n'))
     daemon.write('{"jsonrpc":"2.0","id":1,"method":"session/new"}\n')
-    await vi.waitFor(() => expect(stdout()).toContain('"id":1'))
+    await eventually(() => expect(stdout()).toContain('"id":1'))
 
     // The FIN of the daemon ends stdin, and the process exits by itself.
     daemon.end()
@@ -152,7 +175,7 @@ describe('a session stream', () => {
     daemon.write('\nthe first bytes\n')
 
     expect(await answer()).toEqual({ ok: true, cwd })
-    await vi.waitFor(() => expect(stdout()).toBe('the first bytes\n'))
+    await eventually(() => expect(stdout()).toBe('the first bytes\n'))
     daemon.end()
   })
 
@@ -167,7 +190,7 @@ describe('a session stream', () => {
     )
 
     expect(await answer()).toMatchObject({ ok: true })
-    await vi.waitFor(() => expect(stdout()).not.toBe(''))
+    await eventually(() => expect(stdout()).not.toBe(''))
     expect(JSON.parse(stdout())).toEqual(['shell', 'daemon', 'daemon'])
   })
 
@@ -182,7 +205,7 @@ describe('a session stream', () => {
 
     expect(await inHome.answer()).toEqual({ ok: true, cwd: home })
     expect(await underHome.answer()).toEqual({ ok: true, cwd: path.join(home, 'code') })
-    await vi.waitFor(() => expect(underHome.stdout()).toBe(path.join(home, 'code')))
+    await eventually(() => expect(underHome.stdout()).toBe(path.join(home, 'code')))
   })
 
   it('answers not_found for a command that is not on the PATH, and for a failed login-shell read', async () => {
@@ -322,19 +345,20 @@ describe('a session stream', () => {
     const { daemon, exits, done, answer, stdout } = session()
     daemon.write(request(directory(), { args: ['-e', WITH_CHILD] }))
     expect(await answer()).toMatchObject({ ok: true })
-    await vi.waitFor(() => expect(stdout()).toMatch(/^\d+ \d+\n$/))
+    await eventually(() => expect(stdout()).toMatch(/^\d+ \d+\n$/))
     const [leader, child] = stdout().trim().split(' ').map(Number)
     pids.push(leader, child)
 
     daemon.destroy()
 
     await done
-    await vi.waitFor(() => expect([isAlive(leader), isAlive(child)]).toEqual([false, false]))
+    await eventually(() => expect([isAlive(leader), isAlive(child)]).toEqual([false, false]))
     expect(exits).toEqual([{ type: 'session_exit', session_id: 'session-1', exit_code: null, stderr_tail: '' }])
   })
 
   it('ends stdin on a FIN, and kills a process that ignores the end after the grace time', async () => {
-    const { daemon, exits, done, answer, stdout } = session({ graceMs: 300 })
+    const graceMs = 300
+    const { daemon, exits, done, answer, stdout, until } = session({ graceMs })
     daemon.write(
       request(directory(), {
         args: [
@@ -348,15 +372,26 @@ describe('a session stream', () => {
       }),
     )
     expect(await answer()).toMatchObject({ ok: true })
+    // Fake timers hold the grace times, so the time that the process
+    // and the test take does not count toward them.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const kill = vi.spyOn(process, 'kill')
+    const signals = (): unknown[] => kill.mock.calls.map(([, signal]) => signal)
 
     daemon.end()
-    await vi.waitFor(() => expect(stdout()).toBe('end\n'))
-    await new Promise((resolve) => setTimeout(resolve, 150))
-    expect(stdout()).toBe('end\n')
+    await until(() => stdout() === 'end\n')
+    await vi.advanceTimersByTimeAsync(graceMs - 1)
+    expect(signals()).toEqual([])
     // After the grace time it gets SIGTERM, which it ignores, and after a
     // second grace time SIGKILL.
-    await vi.waitFor(() => expect(stdout()).toBe('end\nterm\n'))
+    await vi.advanceTimersByTimeAsync(1)
+    expect(signals()).toEqual(['SIGTERM'])
+    await until(() => stdout() === 'end\nterm\n')
+    await vi.advanceTimersByTimeAsync(graceMs - 1)
+    expect(signals()).toEqual(['SIGTERM'])
     expect(exits).toEqual([])
+    await vi.advanceTimersByTimeAsync(1)
+    expect(signals()).toEqual(['SIGTERM', 'SIGKILL'])
 
     await done
     expect(exits).toEqual([{ type: 'session_exit', session_id: 'session-1', exit_code: null, stderr_tail: '' }])
@@ -424,7 +459,7 @@ describe('the link that keeps the session socket open', () => {
 
   /** The pids that the process of stream `streamId` printed. */
   async function pidsOf(socket: FakeSessionSocket, streamId: number): Promise<number[]> {
-    await vi.waitFor(() => expect(streamBytes(socket.received(), streamId)).toMatch(/\n\d+ \d+\n$/))
+    await eventually(() => expect(streamBytes(socket.received(), streamId)).toMatch(/\n\d+ \d+\n$/))
     const printed = streamBytes(socket.received(), streamId).split('\n')[1].split(' ').map(Number)
     pids.push(...printed)
     return printed
@@ -436,7 +471,7 @@ describe('the link that keeps the session socket open', () => {
     const { link, exits } = linkOver(sockets, () => {}, onChange)
     const cwd = directory()
     link.start()
-    await vi.waitFor(() => expect(sockets).toHaveLength(1))
+    await eventually(() => expect(sockets).toHaveLength(1))
 
     sockets[0].deliver(
       Buffer.concat([
@@ -454,7 +489,7 @@ describe('the link that keeps the session socket open', () => {
     // which the system reaps a moment later.
     const [first, firstChild, second, secondChild] = running
     expect([isAlive(first), isAlive(second)]).toEqual([false, false])
-    await vi.waitFor(() => expect([isAlive(firstChild), isAlive(secondChild)]).toEqual([false, false]))
+    await eventually(() => expect([isAlive(firstChild), isAlive(secondChild)]).toEqual([false, false]))
     expect(link.running).toBe(0)
     expect(sockets[0].closed).toBe(true)
     expect(exits.map((exit) => exit.session_id).sort()).toEqual(['session-1', 'session-2'])
@@ -464,15 +499,15 @@ describe('the link that keeps the session socket open', () => {
     const sockets: FakeSessionSocket[] = []
     const { link } = linkOver(sockets)
     link.start()
-    await vi.waitFor(() => expect(sockets).toHaveLength(1))
+    await eventually(() => expect(sockets).toHaveLength(1))
     sockets[0].deliver(openStream(1, request(directory(), { args: ['-e', WITH_CHILD] })))
     const [leader, child] = await pidsOf(sockets[0], 1)
 
     sockets[0].closeWith(1006)
 
-    await vi.waitFor(() => expect([isAlive(leader), isAlive(child)]).toEqual([false, false]))
-    await vi.waitFor(() => expect(sockets).toHaveLength(2))
-    await vi.waitFor(() => expect(link.running).toBe(0))
+    await eventually(() => expect([isAlive(leader), isAlive(child)]).toEqual([false, false]))
+    await eventually(() => expect(sockets).toHaveLength(2))
+    await eventually(() => expect(link.running).toBe(0))
     await link.stop()
   })
 
@@ -481,14 +516,14 @@ describe('the link that keeps the session socket open', () => {
     const sessionEnded = vi.fn()
     const { link } = linkOver(sockets, sessionEnded)
     link.start()
-    await vi.waitFor(() => expect(sockets).toHaveLength(1))
+    await eventually(() => expect(sockets).toHaveLength(1))
 
     sockets[0].closeWith(1006)
-    await vi.waitFor(() => expect(sockets).toHaveLength(2))
+    await eventually(() => expect(sockets).toHaveLength(2))
     expect(sessionEnded).not.toHaveBeenCalled()
 
     sockets[1].closeWith(1008)
-    await vi.waitFor(() => expect(sockets).toHaveLength(3))
+    await eventually(() => expect(sockets).toHaveLength(3))
     expect(sessionEnded).toHaveBeenCalledTimes(1)
     await link.stop()
   })
@@ -505,7 +540,7 @@ describe('the link that keeps the session socket open', () => {
     )
 
     link.start()
-    await vi.waitFor(() => expect(attempts).toBeGreaterThan(2))
+    await eventually(() => expect(attempts).toBeGreaterThan(2))
     await link.stop()
     const settled = attempts
     await new Promise((resolve) => setTimeout(resolve, 20))
@@ -546,7 +581,7 @@ describe('the interop harness of the daemon', () => {
         .filter((frame) => frame.opcode === TEXT)
         .map((frame) => JSON.parse(frame.payload.toString()) as Record<string, unknown>)
 
-    await vi.waitFor(() => expect(texts(0)).toHaveLength(2), { timeout: 10_000 })
+    await eventually(() => expect(texts(0)).toHaveLength(2))
     const [hostEnd] = server.ends
     expect(hostEnd.url).toBe('/api/v1/ws')
     expect(hostEnd.headers.cookie).toBe('pagis_session=secret')
@@ -555,18 +590,18 @@ describe('the interop harness of the daemon', () => {
     hostEnd.text(
       JSON.stringify({ type: 'host.registered', payload: { host_id: 'host-1', capabilities: ['shell', 'harness:claude'] } }),
     )
-    await vi.waitFor(() => expect(output.stdout).toBe('ready host-1\n'))
-    await vi.waitFor(() => expect(server.ends).toHaveLength(2))
+    await eventually(() => expect(output.stdout).toBe('ready host-1\n'))
+    await eventually(() => expect(server.ends).toHaveLength(2))
     const sessionEnd = server.ends[1]
     expect(sessionEnd.url).toBe('/api/v1/hosts/host-1/sessions')
     expect(sessionEnd.headers.cookie).toBe('pagis_session=secret')
 
     sessionEnd.binary(openStream(1, `${request(directory(), { command: 'node' }).trimEnd()}\nhello\n`))
 
-    await vi.waitFor(() => expect(streamBytes(sessionEnd.received(), 1)).toMatch(/^\{"ok":true,"cwd":".*"\}\nhello\n$/))
+    await eventually(() => expect(streamBytes(sessionEnd.received(), 1)).toMatch(/^\{"ok":true,"cwd":".*"\}\nhello\n$/))
     // The daemon ends its side: the process exits at the end of its input.
     sessionEnd.binary(yamuxFrame(DATA, FIN, 1, 0))
-    await vi.waitFor(() =>
+    await eventually(() =>
       expect(texts(0)).toContainEqual({ type: 'session_exit', session_id: 'session-1', exit_code: 0, stderr_tail: '' }),
     )
 
