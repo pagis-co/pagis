@@ -3285,6 +3285,8 @@ export interface components {
             items: components["schemas"]["AdministrationHostDto"][];
         };
         AdministrationSectionsDto: {
+            /** @description The links the Server configuration names, in navigation order. */
+            links: components["schemas"]["ConfiguredLink"][];
             /** @description The offered sections, in navigation order. Restart has no view. */
             sections: string[];
         };
@@ -3954,6 +3956,16 @@ export interface components {
              * @description Earliest source date to import, as Unix milliseconds. Zero imports all history.
              */
             since: number;
+        };
+        /**
+         * @description One link that the Server configuration names: in the account menu of
+         *     the Product App, or in the navigation of the Administration Interface.
+         */
+        ConfiguredLink: {
+            /** @description The text of the link, at most 40 characters. */
+            label: string;
+            /** @description A valid https URL. The link opens in the same tab. */
+            url: string;
         };
         ConfirmForget: {
             preview: components["schemas"]["ForgetPreview"];
@@ -5849,13 +5861,6 @@ export interface components {
         PreviewForget: {
             target: components["schemas"]["ForgetTarget"];
         };
-        /** @description One link the operator names for the Product App. */
-        ProductAppLink: {
-            /** @description The text in the account menu, at most 40 characters. */
-            label: string;
-            /** @description A valid https URL. The link opens in the same tab. */
-            url: string;
-        };
         /**
          * @description One `progress.state` WS payload: the whole current text, never a
          *     delta. A client applies a frame only when `seq` is newer than the
@@ -7250,7 +7255,7 @@ export interface components {
              */
             name?: string | null;
             /** @description The links the operator names in the Server configuration. */
-            product_app_links: components["schemas"]["ProductAppLink"][];
+            product_app_links: components["schemas"]["ConfiguredLink"][];
             /** @description `administrator` or `member`. */
             role: string;
         };

@@ -44,7 +44,7 @@ async fn the_sections_read_names_all_sections_in_navigation_order() {
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(
         response.json::<serde_json::Value>().await.unwrap(),
-        serde_json::json!({ "sections": SECTIONS })
+        serde_json::json!({ "sections": SECTIONS, "links": [] })
     );
 }
 
@@ -111,7 +111,7 @@ async fn hidden_sections_have_no_routes(hidden: &[&str]) {
         .collect();
     assert_eq!(
         response.json::<serde_json::Value>().await.unwrap(),
-        serde_json::json!({ "sections": offered })
+        serde_json::json!({ "sections": offered, "links": [] })
     );
 }
 
@@ -801,4 +801,59 @@ async fn product_app_links_reach_a_member() {
     let body: serde_json::Value = response.json().await.unwrap();
     assert_eq!(body["role"], "member");
     assert_eq!(body["product_app_links"], links);
+}
+
+#[tokio::test]
+async fn administration_links_reach_the_navigation_read() {
+    let daemon = TestDaemon::start().await;
+    let path = daemon.booted.home.join("config.toml");
+    let links = serde_json::json!([
+        {"label": "Servers", "url": "https://team.example.com/servers"},
+        {"label": "Help", "url": "https://team.example.com/help"},
+        {"label": "Account", "url": "https://team.example.com/account"},
+    ]);
+    let mut config: toml::Value = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    config
+        .as_table_mut()
+        .unwrap()
+        .entry("administration")
+        .or_insert_with(|| toml::Value::Table(Default::default()))
+        .as_table_mut()
+        .unwrap()
+        .insert(
+            "links".to_string(),
+            toml::Value::try_from(links.clone()).unwrap(),
+        );
+    std::fs::write(&path, toml::to_string(&config).unwrap()).unwrap();
+    let daemon = daemon.restart(Default::default()).await;
+    let response = client()
+        .get(format!(
+            "{}/api/v1/administration/sections",
+            daemon.administration_base_url
+        ))
+        .header("cookie", daemon.cookie())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(body["links"], links);
+    assert_eq!(body["sections"], serde_json::json!(SECTIONS));
+}
+
+#[tokio::test]
+async fn administration_links_are_empty_without_configuration() {
+    let daemon = TestDaemon::start().await;
+    let response = client()
+        .get(format!(
+            "{}/api/v1/administration/sections",
+            daemon.administration_base_url
+        ))
+        .header("cookie", daemon.cookie())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(body["links"], serde_json::json!([]));
 }

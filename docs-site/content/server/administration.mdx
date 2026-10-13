@@ -43,7 +43,7 @@ before it draws the navigation. The route needs a signed-in Administrator.
 It names the offered sections in navigation order:
 
 ```json
-{"sections":["spend","people","sessions","resources","providers","settings","plugins","health","restart"]}
+{"sections":["spend","people","sessions","resources","providers","settings","plugins","health","restart"],"links":[]}
 ```
 
 All sections are offered by default. A deployment can hide `providers`,
@@ -64,6 +64,24 @@ A hidden section has no routes. An API request to it answers `404`, also
 for an Administrator. An address of a hidden view opens the first offered
 view. With `restart` hidden, Settings shows **Save** and no **Restart now**.
 A saved change that needs a restart applies at the next start of the server.
+
+## Navigation links
+
+The operator can name up to three links in `config.toml`:
+
+```toml
+[administration]
+links = [
+  { label = "Servers", url = "https://team.example.com/servers" },
+  { label = "Help", url = "https://team.example.com/help" },
+]
+```
+
+Each label has at most 40 characters, and each URL uses `https`. An invalid
+link stops the start, and the error names the setting. The Administration
+Interface reads the links with the offered sections and shows them in the
+navigation, in configuration order. Each link opens in the same tab. With
+no links, the navigation shows no extra entry.
 
 ## The first Administrator
 
