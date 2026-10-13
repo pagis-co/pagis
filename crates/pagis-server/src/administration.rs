@@ -6,7 +6,7 @@
 //! (ADR-0028), and makes a new invite when that one expired. An
 //! Administrator disables and re-enables an account, resets a password,
 //! reads the roster with the last sign-in, reads what each person spent,
-//! and sets each person's monthly Spend Cap.
+//! sets each Person's role, and sets each person's monthly Spend Cap.
 //!
 //! Creating an account writes the person's Workspace through the same
 //! seed a local first run uses ([`crate::provisioning`]), so a person
@@ -488,10 +488,11 @@ pub async fn create_account(
     // and the administrator configured the installation for everybody:
     // the person lands in the product, not in the local wizard.
     .run(
+        WorkspaceId::generate(),
         &person.id,
         &name,
         &timezone,
-        crate::provisioning::Onboarding::Done,
+        crate::provisioning::Onboarding::Wizard,
         now,
     )
     .await?;
@@ -514,6 +515,80 @@ pub async fn create_account(
             invite,
         }),
     ))
+}
+
+/// The two roles a Person holds in the Org.
+#[derive(Debug, Clone, Copy, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PersonRole {
+    Administrator,
+    Member,
+}
+
+impl From<PersonRole> for UserRole {
+    fn from(role: PersonRole) -> Self {
+        match role {
+            PersonRole::Administrator => Self::Administrator,
+            PersonRole::Member => Self::Member,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct SetRoleRequest {
+    pub role: PersonRole,
+}
+
+/// Change a Person's role. The Org keeps an enabled Administrator.
+#[utoipa::path(
+    put,
+    path = "/api/v1/administration/people/{user_id}/role",
+    params(("user_id" = String, Path, description = "The Person")),
+    request_body = SetRoleRequest,
+    responses(
+        (status = 200, body = PersonDto),
+        (status = 401, body = crate::error::ErrorBody),
+        (status = 403, body = crate::error::ErrorBody),
+        (status = 404, body = crate::error::ErrorBody),
+        (status = 409, body = crate::error::ErrorBody),
+        (status = 422, body = crate::error::ErrorBody),
+    )
+)]
+pub async fn set_role(
+    State(state): State<Arc<AppState>>,
+    administrator: Administrator,
+    Path(user_id): Path<String>,
+    Json(request): Json<SetRoleRequest>,
+) -> Result<Json<PersonDto>, ApiError> {
+    let person = person_of(&state, &user_id).await?;
+    let role = UserRole::from(request.role);
+    state
+        .users
+        .set_role(&person.id, role, state.clock.now_ms())
+        .await
+        .map_err(|error| match error {
+            pagis_core::StoreError::Conflict(message) => ApiError::conflict(message),
+            other => ApiError::from(other),
+        })?;
+    if person.role != role {
+        state
+            .bus
+            .publish(pagis_core::NewEvent {
+                workspace_id: org(&state).await?.workspace_id,
+                event_type: "person.role_changed".to_string(),
+                agent_id: None,
+                run_id: None,
+                channel_id: None,
+                payload: serde_json::json!({
+                    "administrator_id": administrator.user_id,
+                    "user_id": person.id,
+                    "previous_role": person.role.as_str(),
+                    "role": role.as_str(),
+                }),
+            })
+            .await?;
+    }
+    read_person(&state, &person.id).await
 }
 
 /// Disable an account. Every Session of the person goes with it, so a
@@ -1101,6 +1176,10 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route(
             "/api/v1/administration/people",
             get(list_people).post(create_account),
+        )
+        .route(
+            "/api/v1/administration/people/{user_id}/role",
+            put(set_role),
         )
         .route(
             "/api/v1/administration/people/{user_id}/disable",

@@ -303,6 +303,15 @@ pub trait UserStore: Send + Sync {
         disabled_at: Option<UnixMillis>,
         at: UnixMillis,
     ) -> Result<bool, StoreError>;
+    /// Set the Person's role. The check and write are one transaction.
+    /// A demotion of the last enabled Administrator returns
+    /// [`StoreError::Conflict`]. `false` when the Person is missing.
+    async fn set_role(
+        &self,
+        id: &UserId,
+        role: UserRole,
+        at: UnixMillis,
+    ) -> Result<bool, StoreError>;
     /// Set or clear the Person's monthly Spend Cap. `false` when the
     /// Person is missing.
     async fn set_monthly_spend_cap(

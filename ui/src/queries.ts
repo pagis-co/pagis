@@ -3068,6 +3068,22 @@ export function useResetAccountPassword(api: ApiClient) {
   });
 }
 
+/** Change a Person's role in the Org. */
+export function useSetPersonRole(api: ApiClient) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ userId, role }: { userId: string; role: "administrator" | "member" }) =>
+      unwrap(api.PUT("/api/v1/administration/people/{user_id}/role", {
+        params: { path: { user_id: userId } },
+        body: { role },
+      })),
+    onSuccess: () => {
+      invalidatePeople(queryClient);
+      void queryClient.invalidateQueries({ queryKey: userKey });
+    },
+  });
+}
+
 export function useSetSpendCap(api: ApiClient) {
   const queryClient = useQueryClient();
   return useMutation({

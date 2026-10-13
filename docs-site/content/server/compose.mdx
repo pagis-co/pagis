@@ -126,12 +126,15 @@ Privacy is then a Bind Address rather than a published port:
 
 The state directory is the VM's `/var/lib/pagis`, mounted at
 `/var/lib/pagis` in the daemon's container, and not a named volume. **The
-daemon gives each Computer files from its state directory as bind mounts**:
-the screend token, and the checkout of each Plugin. Docker reads the source
-of a bind mount on the Docker host, not in the container that asks for it.
-The path is therefore the same in both places, or every Computer gets an
-empty directory in place of its token and stops at "did not get its access
-token".
+daemon gives each Computer the Plugin checkouts from its state directory as
+read-only bind mounts.** Docker reads the source of a bind mount on the
+Docker host, not in the container that asks for it. The path is therefore
+the same in both places. If the two paths are different, each Computer gets
+an empty directory in place of each Plugin checkout, and the Computers do
+not see the Skills and the servers of the Plugins.
+
+The access token of a Computer is not a bind mount. At each start, the
+daemon copies the token into the container through the Docker Engine API.
 
 Only the owner of the state directory can read it. The daemon sets the
 directory to mode 700 at start, and the files that it writes give no

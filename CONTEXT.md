@@ -155,7 +155,7 @@ System tab with Analytics, Hosts and Coding Sessions, Plugins with the
 Software List and Widgets, Connections, and the HTTP socket upgrades are
 separated. The Home Exit and the exit socket belong to Computers.
 Without Computers, the Onboarding status holds `docker: null`, and the
-Product App skips its Computer step. The live events drop Host frames
+server omits the Computer step from the offered steps. The live events drop Host frames
 without `native` and keep Channel events. `pagis-server` builds on
 `wasm32-unknown-unknown`. Tests of the Agent and conversation routes give
 the routers requests with no listener on native targets and under Node.
@@ -163,10 +163,14 @@ Live event tests use the in-memory pair of `MessageSocket`s in
 `pagis-server::fake` (ADR-0038).
 
 ### Onboarding
-The first steps the Product App shows a new Local Installation: welcome,
-providers, computer. It takes a key for one provider or more, the default
-model, and an optional Docker endpoint.
-A server, and a Person whom an Administrator creates, skip it (ADR-0025).
+The first steps the Product App shows a new Person: Welcome, Model,
+Profile, then Computer when the server has Computers. The server names the
+steps it offers. Welcome introduces sprites and the Chief of Staff, which
+the Person can rename. Model selects the default model from the installation's
+provider keys. Only an Administrator on a Local Installation enters keys.
+Profile records the Person's name and the Workspace timezone, with the
+browser's timezone as the default. Computer takes an optional Docker endpoint
+on a Local Installation. Completion marks the Workspace as onboarded.
 _Avoid_: wizard
 
 ### Product App

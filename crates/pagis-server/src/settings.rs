@@ -29,6 +29,7 @@ pub(crate) struct OnboardingState {
     workspaces: Arc<dyn pagis_core::WorkspaceStore>,
     onboarding: Arc<dyn pagis_core::OnboardingStore>,
     keys: Arc<ProviderKeys>,
+    local_installation: bool,
     #[cfg(feature = "native")]
     docker_discovery: Arc<pagis_computer::DockerDiscovery>,
     #[cfg(feature = "native")]
@@ -41,6 +42,7 @@ impl FromRef<Arc<AppState>> for OnboardingState {
             workspaces: Arc::clone(&state.workspaces),
             onboarding: Arc::clone(&state.onboarding),
             keys: Arc::clone(&state.keys),
+            local_installation: state.client_credential.is_some(),
             #[cfg(feature = "native")]
             docker_discovery: Arc::clone(&state.native.docker_discovery),
             #[cfg(feature = "native")]
@@ -61,9 +63,22 @@ pub struct ProviderKeyDto {
     pub uses: Vec<String>,
 }
 
+/// One step the server offers, in the order the Person sees it.
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum OnboardingStep {
+    Welcome,
+    Model,
+    Profile,
+    Computer,
+}
+
 /// Everything the onboarding wizard needs in one read.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct OnboardingDto {
+    pub steps: Vec<OnboardingStep>,
+    /// Only an Administrator on a Local Installation enters provider keys.
+    pub can_set_provider_keys: bool,
     pub completed: bool,
     pub providers: Vec<ProviderKeyDto>,
     /// The server-owned key check of each provider that passed one. A
@@ -74,8 +89,8 @@ pub struct OnboardingDto {
     /// own host. Null when this server has no Computers.
     #[schema(required = true)]
     pub docker: Option<crate::system::DockerReportDto>,
-    /// The Docker endpoint an Administrator typed, or `null` for
-    /// discovery. It is `null` for a Member.
+    /// The Docker endpoint an Administrator typed on a Local Installation,
+    /// or `null` for discovery. It is `null` for a Member and on a Server.
     pub docker_endpoint: Option<String>,
 }
 
@@ -981,45 +996,56 @@ pub async fn onboarding_status(
         .get(&tenant.workspace_id)
         .await?
         .ok_or_else(|| ApiError::not_found("workspace"))?;
+    let can_set_provider_keys =
+        state.local_installation && tenant.role == pagis_core::UserRole::Administrator;
     #[cfg(feature = "native")]
-    let docker = state.docker_discovery.probe().await;
-    Ok(Json(OnboardingDto {
-        completed: workspace.onboarded_at.is_some(),
-        // The provider keys are the installation's. A Member
-        // reads none of them: on a server the Administrator supplies
-        // them and a person connecting to one takes no key at all.
-        // A local installation's one person is the
-        // administrator, so their wizard is unchanged.
-        providers: match tenant.role {
-            pagis_core::UserRole::Administrator => provider_statuses(&state.keys)?,
-            pagis_core::UserRole::Member => Vec::new(),
-        },
-        checks: current_checks(&state, &tenant).await?,
-        #[cfg(feature = "native")]
-        docker: Some(match tenant.role {
-            pagis_core::UserRole::Administrator => docker.into(),
+    let docker = {
+        let report = state.docker_discovery.probe().await;
+        Some(match tenant.role {
+            pagis_core::UserRole::Administrator => report.into(),
             pagis_core::UserRole::Member => crate::system::DockerReportDto {
-                endpoint: docker.endpoint,
+                endpoint: report.endpoint,
                 candidates: Vec::new(),
             },
-        }),
-        #[cfg(not(feature = "native"))]
-        docker: None,
+        })
+    };
+    #[cfg(not(feature = "native"))]
+    let docker: Option<crate::system::DockerReportDto> = None;
+    let mut steps = vec![
+        OnboardingStep::Welcome,
+        OnboardingStep::Model,
+        OnboardingStep::Profile,
+    ];
+    if docker.is_some() {
+        steps.push(OnboardingStep::Computer);
+    }
+    let mut providers = provider_statuses(&state.keys)?;
+    if !can_set_provider_keys {
+        for provider in &mut providers {
+            provider.source = None;
+        }
+    }
+    Ok(Json(OnboardingDto {
+        steps,
+        can_set_provider_keys,
+        completed: workspace.onboarded_at.is_some(),
+        providers,
+        checks: current_checks(&state, &tenant).await?,
+        docker,
         #[cfg(not(feature = "native"))]
         docker_endpoint: None,
         #[cfg(feature = "native")]
-        docker_endpoint: match tenant.role {
-            pagis_core::UserRole::Administrator => {
-                state
-                    .system
-                    .read()
-                    .map_err(|error| {
-                        tracing::error!(%error, "cannot read the config file");
-                        ApiError::internal()
-                    })?
-                    .docker_endpoint
-            }
-            pagis_core::UserRole::Member => None,
+        docker_endpoint: if can_set_provider_keys {
+            state
+                .system
+                .read()
+                .map_err(|error| {
+                    tracing::error!(%error, "cannot read the config file");
+                    ApiError::internal()
+                })?
+                .docker_endpoint
+        } else {
+            None
         },
     }))
 }

@@ -113,6 +113,19 @@ Interface reads the links with the offered sections and shows them in the
 navigation, in configuration order. Each link opens in the same tab. With
 no links, the navigation shows no extra entry.
 
+## The role of a Person
+
+The People section has a role control for each Person: **Administrator** or
+**Member**. An Administrator changes the role through
+`PUT /api/v1/administration/people/{user_id}/role` with
+`{"role":"administrator"}` or `{"role":"member"}`.
+
+The Org keeps at least one enabled Administrator. A disabled Administrator
+does not count. An Administrator can demote themselves when another enabled
+Administrator exists. A demotion of the last enabled Administrator answers
+`409` with a message that states this rule. Each role change adds an audit
+event in the Org's Workspace. The next request uses the Person's current role.
+
 ## The first Administrator
 
 A server boots with an Org and a seeded Workspace and nobody who can sign

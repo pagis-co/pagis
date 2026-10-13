@@ -51,6 +51,7 @@ async fn another_person(daemon: &TestDaemon) -> String {
         .expect("write the second person");
     pagis_server::provisioning::WorkspaceSeed::from(daemon.stores())
         .run(
+            pagis_core::WorkspaceId::generate(),
             &person.id,
             "Bo's Workspace",
             "UTC",

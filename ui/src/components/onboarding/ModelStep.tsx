@@ -77,6 +77,7 @@ export function ModelStep({
   api,
   providers,
   checks,
+  canSetProviderKeys,
   onBack,
   onContinue,
   finishing,
@@ -85,6 +86,7 @@ export function ModelStep({
   api: ApiClient
   providers: ProviderStatus[]
   checks: KeyCheck[]
+  canSetProviderKeys: boolean
   onBack: () => void
   onContinue: () => void
   finishing: boolean
@@ -122,7 +124,7 @@ export function ModelStep({
   const finish = async () => {
     setFailure(null)
     for (const entry of providers) {
-      if (!typed(entry.provider)) continue
+      if (!canSetProviderKeys || !typed(entry.provider)) continue
       try {
         await storeKey.mutateAsync({
           provider: entry.provider,
@@ -135,7 +137,7 @@ export function ModelStep({
       }
     }
     try {
-      await setDefaultModel.mutateAsync({ candidate: picked?.trim() || null })
+      await setDefaultModel.mutateAsync({ candidate: canSetProviderKeys ? picked?.trim() || null : model })
       onContinue()
     } catch (error) {
       setFailure(errorMessage(error, 'Cannot save the model. Check the daemon log.'))
@@ -146,59 +148,69 @@ export function ModelStep({
     <StepLayout
       onBack={onBack}
       action={
-        <Button variant="primary" disabled={busy || !thinks} onClick={() => void finish()}>
+        <Button variant="primary" disabled={busy || (canSetProviderKeys ? !thinks : !choices.includes(model))} onClick={() => void finish()}>
           Continue
         </Button>
       }
     >
-      <header className="onboarding-head">
-        <h1>Connect your providers</h1>
-        <p className="onboarding-lead">
-          Use your own provider accounts and API keys. One key that thinks is enough to start,
-          and each key you add gives Pagis more of what its provider does.
-        </p>
-      </header>
-      <p className="onboarding-hint">
-        Pagis seals each key in its secret file on this machine. Requests go straight to the
-        provider, and the provider bills your account. A check is optional: it reads the
-        provider's list of models, which costs nothing.
-      </p>
+      {canSetProviderKeys ? (
+        <>
+          <header className="onboarding-head">
+            <h1>Connect your providers</h1>
+            <p className="onboarding-lead">
+              Use your own provider accounts and API keys. One key that thinks is enough to start,
+              and each key you add gives Pagis more of what its provider does.
+            </p>
+          </header>
+          <p className="onboarding-hint">
+            Pagis seals each key in its secret file on this machine. Requests go straight to the
+            provider, and the provider bills your account. A check is optional: it reads the
+            provider's list of models, which costs nothing.
+          </p>
 
-      <div className="onboarding-provider-rows">
-        {providers.map((entry) => (
-          <ProviderRow
-            key={entry.provider}
-            api={api}
-            entry={entry}
-            available={
-              checks.find((check) => check.provider === entry.provider)?.available ?? null
-            }
-            draft={draftOf(entry.provider)}
-            onDraft={(change) => updateDraft(entry.provider, change)}
-          />
-        ))}
-      </div>
+          <div className="onboarding-provider-rows">
+            {providers.map((entry) => (
+              <ProviderRow
+                key={entry.provider}
+                api={api}
+                entry={entry}
+                available={
+                  checks.find((check) => check.provider === entry.provider)?.available ?? null
+                }
+                draft={draftOf(entry.provider)}
+                onDraft={(change) => updateDraft(entry.provider, change)}
+              />
+            ))}
+          </div>
 
-      <ul className="onboarding-coverage" aria-label="What your keys cover">
-        {USES.map((use) => {
-          const serving = keyed
-            .filter((entry) => entry.uses.includes(use.id))
-            .map((entry) => providerName(entry.provider))
-          const able = providers
-            .filter((entry) => entry.uses.includes(use.id))
-            .map((entry) => entry.provider)
-          const covered = serving.length > 0
-          return (
-            <li key={use.id} className={covered ? 'onboarding-coverage-on' : undefined}>
-              {covered ? <CheckCircle2 size={16} aria-hidden /> : <Circle size={16} aria-hidden />}
-              <span className="onboarding-coverage-name">{use.name}</span>
-              <span className="onboarding-coverage-line">
-                {covered ? serving.join(', ') : `Needs a key for ${providersOr(able)}`}
-              </span>
-            </li>
-          )
-        })}
-      </ul>
+          <ul className="onboarding-coverage" aria-label="What your keys cover">
+            {USES.map((use) => {
+              const serving = keyed
+                .filter((entry) => entry.uses.includes(use.id))
+                .map((entry) => providerName(entry.provider))
+              const able = providers
+                .filter((entry) => entry.uses.includes(use.id))
+                .map((entry) => entry.provider)
+              const covered = serving.length > 0
+              return (
+                <li key={use.id} className={covered ? 'onboarding-coverage-on' : undefined}>
+                  {covered ? <CheckCircle2 size={16} aria-hidden /> : <Circle size={16} aria-hidden />}
+                  <span className="onboarding-coverage-name">{use.name}</span>
+                  <span className="onboarding-coverage-line">
+                    {covered ? serving.join(', ') : `Needs a key for ${providersOr(able)}`}
+                  </span>
+                </li>
+              )
+            })}
+          </ul>
+
+        </>
+      ) : (
+        <header className="onboarding-head">
+          <h1>Choose your model</h1>
+          <p className="onboarding-lead">Your Administrator supplies the provider keys. Choose the model your sprites use.</p>
+        </header>
+      )}
 
       {choices.length === 0 ? null : (
         <div className="onboarding-field">
@@ -211,11 +223,19 @@ export function ModelStep({
             placeholder="provider/model"
           />
           <p className="onboarding-hint">
-            Every sprite thinks on this model. Pagis selects it from the lists of your
-            providers; pick another or type its id. Add fallback models later in Settings under
-            Models.
+            {canSetProviderKeys
+              ? 'Every sprite thinks on this model. Pagis selects it from the lists of your providers; pick another or type its id. Add fallback models later in Settings under Models.'
+              : 'Every sprite thinks on this model. Choose from the models the installation offers.'}
           </p>
         </div>
+      )}
+
+      {!canSetProviderKeys && choices.length === 0 && (
+        <p className="onboarding-hint" role="status">
+          {lists.isFetching
+            ? 'Reading the models…'
+            : 'No models are available. Ask your Administrator to check the provider setup.'}
+        </p>
       )}
 
       {failure === null && finishError === null ? null : (

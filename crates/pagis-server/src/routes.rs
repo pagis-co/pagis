@@ -252,6 +252,12 @@ pub const ADMINISTRATION_ROUTES: &[Route] = &[
         part: None,
     },
     Route {
+        path: "/api/v1/administration/people/{user_id}/role",
+        methods: &["put"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
         path: "/api/v1/administration/people/{user_id}/disable",
         methods: &["post"],
         authenticated: true,

@@ -26,7 +26,11 @@ A Person has a name, a role and one Workspace. The role is `administrator` or
 the Org holds and what other People may do; a Member changes only their own
 Workspace. Every Org has at least one Administrator, its first Person: the
 seeded Person of a local installation, or the one from server setup
-(ADR-0024).
+(ADR-0024). An Administrator changes a Person's role in the
+Administration Interface. A role change keeps at least one enabled
+Administrator in the Org. An Administrator can demote themselves when
+another enabled Administrator exists. Each role change adds an audit event
+in the Org's Workspace, with the Administrator, the Person and both roles.
 
 There is no sign-up. An Administrator creates every account in the
 Administration Interface, and also disables and restores an account, resets a
@@ -34,8 +38,12 @@ password, reads the roster with each last sign-in and each Person's spend, and
 sets each Spend Cap. A disabled account signs in to nothing and keeps what it
 owns. Disabling and resetting a password both end every Session of that Person
 at once. A new Person gets a seeded Workspace with the Administrator's
-timezone until their first sign-in (ADR-0006), and lands in the Product App,
-not in the local onboarding.
+timezone until their first sign-in (ADR-0006), and opens Onboarding in the
+Product App. The server names the steps: Welcome, Model, Profile, and Computer
+when it has Computers. A Person chooses from the models the installation's
+keys reach, enters their name and timezone, and can rename the Chief of Staff.
+A Person on a Server enters no provider key. Completion marks their Workspace
+as onboarded.
 
 ### A Workspace is one Person's private scope
 

@@ -153,6 +153,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/administration/people/{user_id}/role": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Change a Person's role. The Org keeps an enabled Administrator. */
+        put: operations["set_role"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/administration/people/{user_id}/sign-in": {
         parameters: {
             query?: never;
@@ -5551,6 +5568,8 @@ export interface components {
         };
         /** @description Everything the onboarding wizard needs in one read. */
         OnboardingDto: {
+            /** @description Only an Administrator on a Local Installation enters provider keys. */
+            can_set_provider_keys: boolean;
             /**
              * @description The server-owned key check of each provider that passed one. A
              *     check whose credential has changed since is left out.
@@ -5559,12 +5578,18 @@ export interface components {
             completed: boolean;
             docker: null | components["schemas"]["DockerReportDto"];
             /**
-             * @description The Docker endpoint an Administrator typed, or `null` for
-             *     discovery. It is `null` for a Member.
+             * @description The Docker endpoint an Administrator typed on a Local Installation,
+             *     or `null` for discovery. It is `null` for a Member and on a Server.
              */
             docker_endpoint?: string | null;
             providers: components["schemas"]["ProviderKeyDto"][];
+            steps: components["schemas"]["OnboardingStep"][];
         };
+        /**
+         * @description One step the server offers, in the order the Person sees it.
+         * @enum {string}
+         */
+        OnboardingStep: "welcome" | "model" | "profile" | "computer";
         /** @enum {string} */
         Operator: "contains" | "not_contains" | "is" | "is_not" | "starts_with" | "after" | "before" | "within_last" | "older_than" | "at_least" | "at_most" | "in" | "not_in" | "has" | "lacks";
         /**
@@ -5659,6 +5684,11 @@ export interface components {
              */
             volumes: number;
         };
+        /**
+         * @description The two roles a Person holds in the Org.
+         * @enum {string}
+         */
+        PersonRole: "administrator" | "member";
         /** @description What one Person spent over the period, for the Administrator's read. */
         PersonUsageDto: {
             /**
@@ -6584,6 +6614,9 @@ export interface components {
              * @description Whole days to keep the class, or `null` to keep it for ever.
              */
             retain_days?: number | null;
+        };
+        SetRoleRequest: {
+            role: components["schemas"]["PersonRole"];
         };
         SetSessionApprovalModeRequest: {
             /** @description The widest mode that the Agent may use on the machine. */
@@ -7762,6 +7795,72 @@ export interface operations {
                 };
             };
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    set_role: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Person */
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetRoleRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

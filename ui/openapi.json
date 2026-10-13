@@ -500,6 +500,98 @@
         }
       }
     },
+    "/api/v1/administration/people/{user_id}/role": {
+      "put": {
+        "tags": [
+          "administration"
+        ],
+        "summary": "Change a Person's role. The Org keeps an enabled Administrator.",
+        "operationId": "set_role",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "description": "The Person",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetRoleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/administration/people/{user_id}/sign-in": {
       "put": {
         "tags": [
@@ -17213,12 +17305,18 @@
         "type": "object",
         "description": "Everything the onboarding wizard needs in one read.",
         "required": [
+          "steps",
+          "can_set_provider_keys",
           "completed",
           "providers",
           "checks",
           "docker"
         ],
         "properties": {
+          "can_set_provider_keys": {
+            "type": "boolean",
+            "description": "Only an Administrator on a Local Installation enters provider keys."
+          },
           "checks": {
             "type": "array",
             "items": {
@@ -17245,15 +17343,31 @@
               "string",
               "null"
             ],
-            "description": "The Docker endpoint an Administrator typed, or `null` for\ndiscovery. It is `null` for a Member."
+            "description": "The Docker endpoint an Administrator typed on a Local Installation,\nor `null` for discovery. It is `null` for a Member and on a Server."
           },
           "providers": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ProviderKeyDto"
             }
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OnboardingStep"
+            }
           }
         }
+      },
+      "OnboardingStep": {
+        "type": "string",
+        "description": "One step the server offers, in the order the Person sees it.",
+        "enum": [
+          "welcome",
+          "model",
+          "profile",
+          "computer"
+        ]
       },
       "Operator": {
         "type": "string",
@@ -17453,6 +17567,14 @@
             "minimum": 0
           }
         }
+      },
+      "PersonRole": {
+        "type": "string",
+        "description": "The two roles a Person holds in the Org.",
+        "enum": [
+          "administrator",
+          "member"
+        ]
       },
       "PersonUsageDto": {
         "type": "object",
@@ -19933,6 +20055,17 @@
             ],
             "format": "int64",
             "description": "Whole days to keep the class, or `null` to keep it for ever."
+          }
+        }
+      },
+      "SetRoleRequest": {
+        "type": "object",
+        "required": [
+          "role"
+        ],
+        "properties": {
+          "role": {
+            "$ref": "#/components/schemas/PersonRole"
           }
         }
       },
