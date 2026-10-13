@@ -14,7 +14,6 @@ bytes.workspace = true
 futures.workspace = true
 hex.workspace = true
 hmac.workspace = true
-image.workspace = true
 pagis-core.workspace = true
 pagis-versions.workspace = true
 rand.workspace = true
@@ -43,6 +42,7 @@ yamux.workspace = true
 webrtc-util.workspace = true
 
 [dev-dependencies]
+image.workspace = true
 axum = { workspace = true, features = ["tokio", "http1"] }
 pagis-audit.workspace = true
 # The docker-real tests start each harness on the model route that the

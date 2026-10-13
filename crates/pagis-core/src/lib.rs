@@ -1,4 +1,4 @@
-//! I/O-free domain types, ids, event types, errors, and the trait seams
+//! Domain types, ids, event types, errors, portable rules, and the trait seams
 //! (storage repositories, event bus) shared across all daemon modules.
 
 pub mod address;
@@ -143,7 +143,7 @@ pub use values::validate_values;
 mod forget;
 pub use forget::*;
 
-mod computer;
+pub mod computer;
 pub mod computer_action;
 mod computer_fill;
 pub use computer::{

@@ -133,7 +133,7 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
             xtask::WasmCrate {
                 package: "pagis-core",
                 args: &[],
-                tests: &["memory_rules", "wasm"]
+                tests: &["memory_rules", "wasm", "computer_frame"]
             },
             xtask::WasmCrate {
                 package: "llm-router",
@@ -184,7 +184,7 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
     );
     let root = workspace_root();
     let cmds = wasm32_commands(&root);
-    assert_eq!(cmds.len(), 15);
+    assert_eq!(cmds.len(), 16);
     assert_eq!(
         cargo_arguments(&cmds[0]),
         [
@@ -229,7 +229,7 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
         ]
     );
     assert_eq!(
-        cargo_arguments(&cmds[13]),
+        cargo_arguments(&cmds[14]),
         [
             "test",
             "-p",
@@ -242,7 +242,7 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
         ]
     );
     assert_eq!(
-        cargo_arguments(&cmds[14]),
+        cargo_arguments(&cmds[15]),
         [
             "test",
             "-p",
@@ -257,6 +257,7 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
     let expected = [
         ("pagis-core", "memory_rules"),
         ("pagis-core", "wasm"),
+        ("pagis-core", "computer_frame"),
         ("llm-router", "rt"),
         ("llm-router", "realtime_host"),
         ("pagis-broker", "rules_wasm"),
@@ -267,7 +268,7 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
         ("pagis-voice", "router_host"),
         ("pagis-mail", "rules"),
     ];
-    for (cmd, (package, binary)) in cmds[2..13].iter().zip(expected) {
+    for (cmd, (package, binary)) in cmds[2..14].iter().zip(expected) {
         assert_eq!(
             cargo_arguments(cmd),
             [

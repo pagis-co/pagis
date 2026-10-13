@@ -19,7 +19,7 @@ pub const WASM_CRATES: &[WasmCrate] = &[
     WasmCrate {
         package: "pagis-core",
         args: &[],
-        tests: &["memory_rules", "wasm"],
+        tests: &["memory_rules", "wasm", "computer_frame"],
     },
     WasmCrate {
         package: "llm-router",
