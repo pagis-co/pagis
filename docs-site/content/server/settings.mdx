@@ -17,6 +17,7 @@ for the run and is never written back into the file.
 | `[remote_access] enabled` | `PAGIS_REMOTE_ACCESS` | Off | **Remote Access**: another machine signs in with a Sign-In Link alone, and the TURN server of the live screen runs. The compose deployment turns it on with the `tailscale` profile ([Remote Access at home](/server/remote-access)). |
 | `[administration] port` | `PAGIS_ADMINISTRATION_PORT` | `4401` | The Administration Port. |
 | `[administration] bind` | `PAGIS_ADMINISTRATION_BIND` | `127.0.0.1` | Its Bind Address, loopback whatever the product port binds. |
+| `[administration] path_prefix` | None | `""` | The page path prefix under the Public Origin, such as `/admin`. Empty uses the Administration Port origin. API routes keep their root paths. |
 | `[administration] hide` | None | `[]` | The sections the Administration Port does not offer: `providers`, `settings` and `restart`. Each name is optional. An unknown name stops the start and appears in the error. A hidden section has no routes and answers `404`. |
 | `[product_app] links` | None | `[]` | Up to three links in the account menu of the Product App. Each link has a `label` of at most 40 characters and an `https` URL. |
 | `[database] url` | `PAGIS_DATABASE_URL` | None | The `postgres://` URL of the database that holds the records. A server does not start without it. |

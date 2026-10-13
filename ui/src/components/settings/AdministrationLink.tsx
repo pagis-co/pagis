@@ -23,6 +23,7 @@ export function AdministrationLink({ api }: { api: ApiClient }) {
   const address = useUser(api).data?.administration
   if (address === undefined || address === null) return null
   const port = portOf(address.origin)
+  const url = `${address.origin}${address.path_prefix}`
 
   return (
     <SettingsSection
@@ -43,10 +44,10 @@ export function AdministrationLink({ api }: { api: ApiClient }) {
     >
       <Frame>
         <Row>
-          <a href={`${address.origin}/`} target="_blank" rel="noreferrer">
+          <a href={`${url}/`} target="_blank" rel="noreferrer">
             Open the Administration Interface
           </a>
-          <span className="settings-section-lead">{address.origin}</span>
+          <span className="settings-section-lead">{url}</span>
         </Row>
       </Frame>
     </SettingsSection>

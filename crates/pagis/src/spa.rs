@@ -1,6 +1,7 @@
 //! Serve the built pages of `ui/dist`: the product SPA at
-//! `/` on the product port, and the administration SPA at `/` on the
-//! administration port. Both are entry points of the one `ui` package
+//! `/` on the product port, and the Administration Interface under its
+//! configured page path prefix on the Administration Port. Both are entry
+//! points of the one `ui` package
 //! and share its assets, so one build serves both. Release builds embed
 //! the bundle in the binary (rust-embed); debug builds read `ui/dist`
 //! from disk, so the output of `pnpm --filter ./ui run build` shows
@@ -58,15 +59,35 @@ pub async fn serve(uri: Uri) -> Response {
 }
 
 /// The administration port's fallback. It serves the
-/// administration page and never the product one: a browser on this port
-/// reaches the administration SPA at every address.
+/// Administration Interface under its configured page path prefix.
+/// Static assets keep their root paths.
 ///
 /// It holds no data of anybody, which is why it sits outside the
 /// administrator guard: the page it returns is the same for a person
 /// with no Session at all, and the sign-in it shows is the guarded
 /// API's answer.
-pub async fn serve_administration(uri: Uri) -> Response {
-    page(uri, ADMINISTRATION_PAGE)
+pub async fn serve_administration(uri: Uri, path_prefix: &str) -> Response {
+    let path = uri.path();
+    let under_prefix = path == path_prefix
+        || path
+            .strip_prefix(path_prefix)
+            .is_some_and(|rest| rest.starts_with('/'));
+    let asset = !path.ends_with(".html") && Assets::get(path.trim_start_matches('/')).is_some();
+    if under_prefix || asset {
+        page(uri, ADMINISTRATION_PAGE)
+    } else {
+        not_found()
+    }
+}
+
+fn not_found() -> Response {
+    (
+        StatusCode::NOT_FOUND,
+        axum::Json(serde_json::json!({
+            "error": { "code": "not_found", "message": "no such route" }
+        })),
+    )
+        .into_response()
 }
 
 /// Static assets by path, the named page for every other non-API path.
@@ -74,13 +95,7 @@ pub async fn serve_administration(uri: Uri) -> Response {
 fn page(uri: Uri, entry: &str) -> Response {
     let path = uri.path().trim_start_matches('/');
     if path.starts_with("api/") {
-        return (
-            StatusCode::NOT_FOUND,
-            axum::Json(serde_json::json!({
-                "error": { "code": "not_found", "message": "no such route" }
-            })),
-        )
-            .into_response();
+        return not_found();
     }
 
     if let Some(asset) = Assets::get(path) {

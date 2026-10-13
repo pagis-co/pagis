@@ -14,8 +14,9 @@ restart and the health of the daemon. The Administration Port serves it.
 The server names the sections it offers. The deployment can hide the
 provider setup, the System Settings and the restart. A hidden section has
 no routes, and the Administration Interface shows no control for it.
-The Product App carries one link to it, and the Client App opens it from
-its menu (ADR-0024).
+The configuration can name a page path prefix under the Public Origin.
+The API routes keep their root paths. The Product App carries one link to
+the full address, and the Client App opens it from its menu (ADR-0024).
 _Avoid_: admin panel, console, dashboard
 
 ### Administration Port

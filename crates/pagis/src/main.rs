@@ -258,6 +258,12 @@ async fn run(flags: RunFlags) -> anyhow::Result<i32> {
     }
     // `--port` moves the served port, so the origin follows it.
     options.public_origin = public_origin.clone();
+    options.administration = pagis_server::AdministrationAddress::of(
+        administration_addr,
+        &public_origin,
+        &booted.config.administration.path_prefix,
+    );
+    let administration_origin = options.administration.url();
     let interfaces = pagis::app(&booted, options).await?;
     // The banner comes after every part of the daemon started, so it is
     // the last thing a start prints and the one-minute link does not
@@ -291,7 +297,6 @@ async fn run(flags: RunFlags) -> anyhow::Result<i32> {
         }
         None => WayIn::Password,
     };
-    let administration_origin = pagis_server::AdministrationAddress::of(administration_addr).origin;
     for line in banner(&public_origin, &administration_origin, way_in) {
         println!("{line}");
     }

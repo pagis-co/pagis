@@ -284,7 +284,7 @@ describe('Connections', () => {
     expect(screen.queryByLabelText('Delete Telnyx')).toBeNull()
   })
 
-  it("links an administrator to the Administration Interface from the carrier", async () => {
+  it.each(['', '/admin'])("links an administrator to the prefixed Providers view %s", async (prefix) => {
     const api = stubApi([
       connected({
         id: 'conn-2',
@@ -301,7 +301,7 @@ describe('Connections', () => {
         ? {
             data: {
               role: 'administrator',
-              administration: { origin: 'http://127.0.0.1:4401', loopback: true },
+              administration: { origin: 'http://127.0.0.1:4401', path_prefix: prefix, loopback: true },
             },
           }
         : read(path),
@@ -309,7 +309,7 @@ describe('Connections', () => {
     mount(api)
 
     const link = await screen.findByRole('link', { name: 'Open the Administration Interface' })
-    expect(link.getAttribute('href')).toBe('http://127.0.0.1:4401/providers')
+    expect(link.getAttribute('href')).toBe(`http://127.0.0.1:4401${prefix}/providers`)
   })
 
   // A carrier that carries no text says so on its card (ADR-0020), so

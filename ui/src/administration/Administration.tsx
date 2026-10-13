@@ -52,8 +52,9 @@ export const ADMINISTRATION_VIEWS: { value: AdministrationView; label: string }[
 
 /** The view one address opens. Every view is an address of this port, so
  *  a bookmark of one opens it again. */
-export function viewOfPath(path: string): AdministrationView {
-  const name = path.replace(/^\/+/, '').split('/')[0]
+export function viewOfPath(path: string, pathPrefix = ''): AdministrationView {
+  if (pathPrefix !== '' && path !== pathPrefix && !path.startsWith(`${pathPrefix}/`)) return 'spend'
+  const name = path.slice(pathPrefix.length).replace(/^\/+/, '').split('/')[0]
   const view = ADMINISTRATION_VIEWS.find((entry) => entry.value === name)
   return view?.value ?? 'spend'
 }
@@ -61,9 +62,11 @@ export function viewOfPath(path: string): AdministrationView {
 export function AdministrationShell({
   api,
   initialView,
+  pathPrefix,
 }: {
   api: ApiClient
   initialView: AdministrationView
+  pathPrefix: string
 }) {
   const [selected, setView] = useState<AdministrationView>(initialView)
   const sections = useAdministrationSections(api)
@@ -78,9 +81,15 @@ export function AdministrationShell({
   useEffect(() => {
     if (view && view !== selected) {
       setView(view)
-      window.history.replaceState(null, '', `/${view}`)
+      window.history.replaceState(null, '', `${pathPrefix}/${view}`)
     }
-  }, [view, selected])
+  }, [view, selected, pathPrefix])
+
+  useEffect(() => {
+    const readPath = () => setView(viewOfPath(window.location.pathname, pathPrefix))
+    window.addEventListener('popstate', readPath)
+    return () => window.removeEventListener('popstate', readPath)
+  }, [pathPrefix])
 
   if (sections.isPending) return null
   if (sections.isError) return <p role="alert">The administration sections could not be read.</p>
@@ -112,7 +121,7 @@ export function AdministrationShell({
               aria-current={entry.value === view ? 'page' : undefined}
               onClick={() => {
                 setView(entry.value)
-                window.history.pushState(null, '', `/${entry.value}`)
+                window.history.pushState(null, '', `${pathPrefix}/${entry.value}`)
               }}
             >
               {entry.label}
@@ -174,7 +183,12 @@ export function Administration({ api: given }: { api?: ApiClient } = {}) {
     }
     return <SignIn api={api} />
   }
+  const pathPrefix = user.data.administration!.path_prefix
   return (
-    <AdministrationShell api={api} initialView={viewOfPath(window.location.pathname)} />
+    <AdministrationShell
+      api={api}
+      pathPrefix={pathPrefix}
+      initialView={viewOfPath(window.location.pathname, pathPrefix)}
+    />
   )
 }

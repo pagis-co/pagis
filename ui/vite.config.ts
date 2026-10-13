@@ -9,6 +9,8 @@ const apiTarget = process.env.PAGIS_DEV_API_URL ?? 'http://127.0.0.1:4400'
 
 export default defineConfig({
   plugins: [react()],
+  // Both pages use root asset paths, also under an Administration Interface prefix.
+  base: '/',
   // Two entry points, one package: the product page and the
   // administration page. The daemon serves each one on its own port and
   // both share the built assets, so every component they have in common

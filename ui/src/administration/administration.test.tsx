@@ -18,6 +18,7 @@ const ADMINISTRATOR = {
   name: 'Ada',
   email: 'ada@example.com',
   role: 'administrator',
+  administration: { origin: 'http://127.0.0.1:4401', path_prefix: '', loopback: true },
 }
 
 const SECTIONS = ['spend', 'people', 'sessions', 'resources', 'providers', 'settings', 'plugins', 'health', 'restart']
@@ -333,6 +334,41 @@ describe('the administration page', () => {
     await waitFor(() =>
       expect(api.DELETE).toHaveBeenCalledWith('/api/v1/sessions/current'),
     )
+  })
+
+  it.each(['', '/admin', '/team/admin'])('reads and writes section paths under %s', async (prefix) => {
+    window.history.replaceState(null, '', `${prefix}/sessions`)
+    const api = apiOf({
+      '/api/v1/user': { ...ADMINISTRATOR, administration: { ...ADMINISTRATOR.administration, path_prefix: prefix } },
+      '/api/v1/administration/sessions': { items: [] },
+      '/api/v1/administration/hosts': { items: [] },
+    })
+    mount(<Administration api={api} />)
+    expect(await screen.findByRole('heading', { name: 'Sessions' })).toBeTruthy()
+    await userEvent.click(screen.getByRole('button', { name: 'Spend' }))
+    expect(window.location.pathname).toBe(`${prefix}/spend`)
+    window.history.replaceState(null, '', `${prefix}/sessions`)
+    window.dispatchEvent(new PopStateEvent('popstate'))
+    expect(await screen.findByRole('heading', { name: 'Sessions' })).toBeTruthy()
+    expect(api.GET).toHaveBeenCalledWith('/api/v1/administration/sessions')
+  })
+
+  it('replaces a hidden section under the prefix', async () => {
+    window.history.replaceState(null, '', '/admin/settings')
+    const api = apiOf({
+      '/api/v1/user': { ...ADMINISTRATOR, administration: { ...ADMINISTRATOR.administration, path_prefix: '/admin' } },
+      '/api/v1/administration/sections': { sections: ['health', 'spend'] },
+    })
+    mount(<Administration api={api} />)
+    expect(await screen.findByRole('heading', { name: 'Health' })).toBeTruthy()
+    expect(window.location.pathname).toBe('/admin/health')
+  })
+
+  it('reads only paths inside the complete prefix', () => {
+    expect(viewOfPath('/team/admin/resources', '/team/admin')).toBe('resources')
+    expect(viewOfPath('/team/admin/', '/team/admin')).toBe('spend')
+    expect(viewOfPath('/team/administrator/resources', '/team/admin')).toBe('spend')
+    expect(viewOfPath('/resources', '/team/admin')).toBe('spend')
   })
 
   it('opens the view the address names', () => {

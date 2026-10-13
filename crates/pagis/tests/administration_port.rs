@@ -48,6 +48,78 @@ async fn the_sections_read_names_all_sections_in_navigation_order() {
     );
 }
 
+#[tokio::test]
+async fn administration_path_prefix_reaches_the_page_and_the_product_app() {
+    let daemon = TestDaemon::start().await;
+    let path = daemon.booted.home.join("config.toml");
+    let mut config = pagis::Config::read_file(&path).unwrap();
+    config.administration.path_prefix = "/team/admin".to_string();
+    config.save(&path).unwrap();
+    let daemon = daemon.restart(Default::default()).await;
+
+    for origin in [&daemon.base_url, &daemon.administration_base_url] {
+        let response = client()
+            .get(format!("{origin}/api/v1/user"))
+            .header("cookie", daemon.cookie())
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: serde_json::Value = response.json().await.unwrap();
+        assert_eq!(body["administration"]["path_prefix"], "/team/admin");
+        assert_eq!(body["administration"]["origin"], daemon.base_url);
+        assert_eq!(body["administration"]["loopback"], false);
+    }
+    for section in ["", "/", "/sessions", "/providers"] {
+        let response = client()
+            .get(format!(
+                "{}/team/admin{section}",
+                daemon.administration_base_url
+            ))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let page = response.text().await.unwrap();
+        assert!(page.to_lowercase().contains("pagis"));
+    }
+    for old_path in ["/", "/sessions", "/administration.html"] {
+        let response = client()
+            .get(format!("{}{old_path}", daemon.administration_base_url))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND, "{old_path}");
+    }
+    let response = client()
+        .get(format!(
+            "{}/api/v1/administration/sections",
+            daemon.administration_base_url
+        ))
+        .header("cookie", daemon.cookie())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.json::<serde_json::Value>().await.unwrap()["sections"],
+        serde_json::json!(SECTIONS)
+    );
+    let response = client()
+        .get(format!(
+            "{}/api/v1/no-such-route",
+            daemon.administration_base_url
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(
+        response.json::<serde_json::Value>().await.unwrap()["error"]["code"],
+        "not_found"
+    );
+}
+
 async fn hidden_sections_have_no_routes(hidden: &[&str]) {
     let daemon = TestDaemon::start().await;
     let path = daemon.booted.home.join("config.toml");

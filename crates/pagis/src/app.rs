@@ -212,10 +212,14 @@ impl AppOptions {
             supervised: std::env::var(SUPERVISED)
                 .is_ok_and(|value| matches!(value.trim(), "1" | "true")),
             public_origin: booted.config.public_origin(booted.config.port),
-            administration: pagis_server::AdministrationAddress::of(std::net::SocketAddr::new(
-                booted.config.administration.bind_address()?,
-                booted.config.administration.port,
-            )),
+            administration: pagis_server::AdministrationAddress::of(
+                std::net::SocketAddr::new(
+                    booted.config.administration.bind_address()?,
+                    booted.config.administration.port,
+                ),
+                &booted.config.public_origin(booted.config.port),
+                &booted.config.administration.path_prefix,
+            ),
             proxy: booted.config.trusted_proxy()?,
             remote_access: booted.config.remote_access.enabled,
             tailscale: Arc::new(crate::tailscale::TailscaleCommand::of_this_machine()),
@@ -1574,14 +1578,16 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         .await
         .map_err(|error| anyhow::anyhow!("routing the voice aliases failed: {}", error.message))?;
     let routers = pagis_server::routers(state);
+    let administration_path_prefix = booted.config.administration.path_prefix.clone();
     let mut interfaces = Interfaces {
         state: routers.state,
         product: routers.product.fallback(crate::spa::serve),
         // The administration page is the other entry of the same UI
-        // build, served at every address of this port.
-        administration: routers
-            .administration
-            .fallback(crate::spa::serve_administration),
+        // build, served under its configured page path prefix.
+        administration: routers.administration.fallback(move |uri| {
+            let prefix = administration_path_prefix.clone();
+            async move { crate::spa::serve_administration(uri, &prefix).await }
+        }),
         computers,
         home_exits,
         host_sessions,
