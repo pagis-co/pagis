@@ -54,6 +54,8 @@ function isAlive(pid: number): boolean {
 }
 
 afterEach(() => {
+  vi.useRealTimers()
+  vi.restoreAllMocks()
   for (const pid of pids.splice(0)) {
     if (isAlive(pid)) process.kill(pid, 'SIGKILL')
   }
@@ -97,14 +99,28 @@ function session(deps: Partial<SessionDeps> = {}) {
     ...deps,
   })
   const output = (): string => Buffer.concat(chunks).toString()
+  /** Resolve when `condition` holds. The test checks it at each chunk
+   *  from the client and uses no timer, so a slow process or fake timers
+   *  do not change the result. */
+  const until = (condition: () => boolean): Promise<void> =>
+    new Promise((resolve) => {
+      const check = (): void => {
+        if (!condition()) return
+        daemon.off('data', check)
+        resolve()
+      }
+      daemon.on('data', check)
+      check()
+    })
   return {
     daemon,
     exits,
     done,
     output,
+    until,
     /** The answer line, parsed, once it arrived. */
     answer: async (): Promise<Record<string, unknown>> => {
-      await vi.waitFor(() => expect(output()).toContain('\n'))
+      await until(() => output().includes('\n'))
       return JSON.parse(output().slice(0, output().indexOf('\n'))) as Record<string, unknown>
     },
     /** What the process wrote after the answer. */
@@ -334,7 +350,8 @@ describe('a session stream', () => {
   })
 
   it('ends stdin on a FIN, and kills a process that ignores the end after the grace time', async () => {
-    const { daemon, exits, done, answer, stdout } = session({ graceMs: 300 })
+    const graceMs = 300
+    const { daemon, exits, done, answer, stdout, until } = session({ graceMs })
     daemon.write(
       request(directory(), {
         args: [
@@ -348,15 +365,26 @@ describe('a session stream', () => {
       }),
     )
     expect(await answer()).toMatchObject({ ok: true })
+    // Fake timers hold the grace times, so the time that the process
+    // and the test take does not count toward them.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const kill = vi.spyOn(process, 'kill')
+    const signals = (): unknown[] => kill.mock.calls.map(([, signal]) => signal)
 
     daemon.end()
-    await vi.waitFor(() => expect(stdout()).toBe('end\n'))
-    await new Promise((resolve) => setTimeout(resolve, 150))
-    expect(stdout()).toBe('end\n')
+    await until(() => stdout() === 'end\n')
+    await vi.advanceTimersByTimeAsync(graceMs - 1)
+    expect(signals()).toEqual([])
     // After the grace time it gets SIGTERM, which it ignores, and after a
     // second grace time SIGKILL.
-    await vi.waitFor(() => expect(stdout()).toBe('end\nterm\n'))
+    await vi.advanceTimersByTimeAsync(1)
+    expect(signals()).toEqual(['SIGTERM'])
+    await until(() => stdout() === 'end\nterm\n')
+    await vi.advanceTimersByTimeAsync(graceMs - 1)
+    expect(signals()).toEqual(['SIGTERM'])
     expect(exits).toEqual([])
+    await vi.advanceTimersByTimeAsync(1)
+    expect(signals()).toEqual(['SIGTERM', 'SIGKILL'])
 
     await done
     expect(exits).toEqual([{ type: 'session_exit', session_id: 'session-1', exit_code: null, stderr_tail: '' }])
