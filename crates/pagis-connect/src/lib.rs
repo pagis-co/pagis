@@ -312,8 +312,8 @@ impl Connector {
                 let settings = MailboxProvider {
                     account: Some(account.account().to_string()),
                     domain: account.domain().to_string(),
-                    imap: Endpoint::new(MIGADU_IMAP.0, MIGADU_IMAP.1),
-                    smtp: Endpoint::new(MIGADU_SMTP.0, MIGADU_SMTP.1),
+                    imap: Some(Endpoint::new(MIGADU_IMAP.0, MIGADU_IMAP.1)),
+                    smtp: Some(Endpoint::new(MIGADU_SMTP.0, MIGADU_SMTP.1)),
                     capabilities: MailboxCapabilities::of(self.mail_host.capabilities(), true),
                 };
                 let connection = self.mail_connection(
@@ -344,8 +344,8 @@ impl Connector {
                 let settings = MailboxProvider {
                     account: None,
                     domain: mail_domain(&domain)?,
-                    imap: mail_endpoint(imap, "IMAP")?,
-                    smtp: mail_endpoint(smtp, "SMTP")?,
+                    imap: Some(mail_endpoint(imap, "IMAP")?),
+                    smtp: Some(mail_endpoint(smtp, "SMTP")?),
                     capabilities: MailboxCapabilities::of(
                         pagis_mail::ManualHost::new().capabilities(),
                         true,
@@ -489,7 +489,7 @@ impl Connector {
         };
         let account = HostAccount::new(settings.domain, settings.account.unwrap_or_default(), &key);
         if let Err(error) = self.mail_host.list(&account).await {
-            if error.0 == HostErrorCode::Unauthorized {
+            if error.code() == HostErrorCode::Unauthorized {
                 self.set_status(&connection, Connection::UNAVAILABLE)
                     .await?;
             }
@@ -772,7 +772,7 @@ impl Connector {
 /// A mail host refusal the user can fix keeps its words; the rest
 /// report the stable code and nothing from upstream.
 fn mail_error(error: pagis_mail::HostError) -> ConnectError {
-    match error.0 {
+    match error.code() {
         HostErrorCode::Unauthorized => {
             ConnectError::Validation("the mail host refused that API key".to_string())
         }

@@ -34,7 +34,7 @@ impl MigaduHost {
         Ok(Self {
             http: reqwest::Client::builder()
                 .build()
-                .map_err(|_| HostError(HostErrorCode::TemporarilyUnavailable))?,
+                .map_err(|_| HostError::new(HostErrorCode::TemporarilyUnavailable))?,
             base_url: API_BASE.to_string(),
         })
     }
@@ -191,9 +191,9 @@ fn read<T: serde::de::DeserializeOwned>(
     (status, body): (reqwest::StatusCode, String),
 ) -> Result<T, HostError> {
     if !status.is_success() {
-        return Err(HostError(failure_code(status, &body)));
+        return Err(HostError::new(failure_code(status, &body)));
     }
-    serde_json::from_str(&body).map_err(|_| HostError(HostErrorCode::Unreadable))
+    serde_json::from_str(&body).map_err(|_| HostError::new(HostErrorCode::Unreadable))
 }
 
 /// The reason behind one failure. Migadu answers most failures with
@@ -243,5 +243,5 @@ fn failure_message(body: &str) -> String {
 /// A request that never reached the host, or an answer that never
 /// arrived.
 fn transport_error(_error: reqwest::Error) -> HostError {
-    HostError(HostErrorCode::TemporarilyUnavailable)
+    HostError::new(HostErrorCode::TemporarilyUnavailable)
 }

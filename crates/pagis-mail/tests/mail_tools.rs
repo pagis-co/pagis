@@ -52,6 +52,10 @@ struct World {
 
 impl World {
     async fn new(pool: SqlitePool) -> Self {
+        Self::with_endpoints(pool, true).await
+    }
+
+    async fn with_endpoints(pool: SqlitePool, endpoints: bool) -> Self {
         let workspaces = SqliteWorkspaceStore::new(pool.clone());
         let person =
             pagis_storage_sqlite::seed_org_and_administrator(&pool, "Org", pagis_core::now_ms())
@@ -91,10 +95,16 @@ impl World {
         let connections = Arc::new(SqliteConnectionStore::new(pool.clone()));
         let secrets = Arc::new(MemorySecretStore::default());
         let host = Arc::new(FakeMailboxHost::default());
-        let connection = mail_connection(
+        let mut connection = mail_connection(
             &workspace.id,
             MailboxCapabilities::of(host.capabilities(), true),
         );
+        if !endpoints {
+            connection.provider = "embedder-mail".to_string();
+            for key in ["imap_host", "imap_port", "smtp_host", "smtp_port"] {
+                connection.config.as_object_mut().unwrap().remove(key);
+            }
+        }
         connections.create(&connection).await.unwrap();
         secrets
             .set(&host_api_key_secret_name(ALIAS), "migadu-key")
@@ -102,6 +112,9 @@ impl World {
 
         let mailboxes = Arc::new(SqliteAgentMailboxStore::new(pool.clone()));
         let transport = Arc::new(FakeMailTransport::default());
+        if !endpoints {
+            transport.refuse_login_with(Some(pagis_mail::TransportErrorCode::Unreachable));
+        }
         let desk = Arc::new(MailboxDesk::new(MailboxDeskDeps {
             mailboxes: Arc::clone(&mailboxes) as _,
             connections: Arc::clone(&connections) as _,
@@ -251,8 +264,8 @@ fn mail_connection(workspace_id: &WorkspaceId, capabilities: MailboxCapabilities
     let settings = MailboxProvider {
         account: Some("owner@example.com".to_string()),
         domain: "example.com".to_string(),
-        imap: Endpoint::new("imap.example.net", 993),
-        smtp: Endpoint::new("smtp.example.net", 465),
+        imap: Some(Endpoint::new("imap.example.net", 993)),
+        smtp: Some(Endpoint::new("smtp.example.net", 465)),
         capabilities,
     };
     Connection {
@@ -774,4 +787,23 @@ async fn a_thread_orders_messages_by_date_when_they_arrive_out_of_order(pool: Sq
         .await;
     assert_eq!(answer["messages"][0]["text"], "older");
     assert_eq!(answer["messages"][1]["text"], "newer");
+}
+
+#[sqlx::test(migrations = "./../pagis-storage-sqlite/migrations")]
+async fn a_provider_without_endpoints_reads_and_sends_through_mailboxes(pool: SqlitePool) {
+    let world = World::with_endpoints(pool, false).await;
+    let id = world
+        .memory
+        .deliver("bob@other.test", "Invoice", "Please check this invoice.");
+    let read = world
+        .answer(
+            MailTool::GetMessage,
+            serde_json::json!({"mailbox": "own", "message_id": id.to_string()}),
+        )
+        .await;
+    assert_eq!(read["message"]["text"], "Please check this invoice.");
+    let sent = world.answer(MailTool::Send, serde_json::json!({"mailbox": "own", "to": ["bob@other.test"], "subject": "Invoice", "body": "Checked."})).await;
+    assert_eq!(sent["sends_today"], 1);
+    assert_eq!(world.memory.sent().len(), 1);
+    assert_eq!(world.memory.sent()[0].body, "Checked.");
 }

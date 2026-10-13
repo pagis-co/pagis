@@ -236,10 +236,10 @@ pub struct ConnectionDto {
 pub struct MailboxProviderDto {
     /// The domain the mailboxes live on, e.g. `example.com`.
     pub domain: String,
-    pub imap_host: String,
-    pub imap_port: u16,
-    pub smtp_host: String,
-    pub smtp_port: u16,
+    pub imap_host: Option<String>,
+    pub imap_port: Option<u16>,
+    pub smtp_host: Option<String>,
+    pub smtp_port: Option<u16>,
     /// The transport waits for new mail instead of polling.
     pub idle: bool,
     /// The host caps the mailbox's own sends. The daemon enforces the
@@ -258,10 +258,10 @@ impl From<pagis_mail::MailboxProvider> for MailboxProviderDto {
     fn from(provider: pagis_mail::MailboxProvider) -> Self {
         Self {
             domain: provider.domain,
-            imap_host: provider.imap.host,
-            imap_port: provider.imap.port,
-            smtp_host: provider.smtp.host,
-            smtp_port: provider.smtp.port,
+            imap_host: provider.imap.as_ref().map(|endpoint| endpoint.host.clone()),
+            imap_port: provider.imap.map(|endpoint| endpoint.port),
+            smtp_host: provider.smtp.as_ref().map(|endpoint| endpoint.host.clone()),
+            smtp_port: provider.smtp.map(|endpoint| endpoint.port),
             idle: provider.capabilities.idle,
             outgoing_cap: provider.capabilities.outgoing_cap,
             delete_mailbox: provider.capabilities.delete_mailbox,

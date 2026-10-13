@@ -508,6 +508,27 @@ describe('Connections mailbox providers', () => {
     expect(screen.queryByTestId('mailbox-absent-capabilities')).toBeNull()
   })
 
+  it('shows a provider with no IMAP or SMTP endpoints', async () => {
+    const provider = connected({
+      ...migadu,
+      provider: 'embedder-mail',
+      mail: {
+        ...capable,
+        imap_host: null,
+        imap_port: null,
+        smtp_host: null,
+        smtp_port: null,
+      },
+    } as Partial<ConnectionDto>)
+    mount(mailApi({ items: [provider] }))
+
+    const card = await screen.findByTestId('mailbox-provider-card')
+    expect(card.textContent).toContain('example.com')
+    expect(card.textContent).toContain('Connected')
+    expect(card.textContent).not.toContain('IMAP')
+    expect(card.textContent).not.toContain('SMTP')
+  })
+
   it('names the capabilities a manual host does not have', async () => {
     mount(mailApi({ items: [manual] }))
 

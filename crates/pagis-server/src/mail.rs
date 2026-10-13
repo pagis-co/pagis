@@ -14,7 +14,7 @@ use std::sync::Arc;
 use axum::Json;
 use axum::extract::{Path, State};
 use pagis_core::AgentMailbox;
-use pagis_mail::{Mailboxes, MessageId, TransportError, TransportErrorCode};
+use pagis_mail::{MessageId, TransportError, TransportErrorCode};
 use serde::Serialize;
 use utoipa::ToSchema;
 
@@ -47,7 +47,7 @@ pub struct MailAttachmentDto {
 pub struct MailMessageDto {
     /// The mailbox it was read from, as the block names it.
     pub mailbox: String,
-    /// The `folder:uid` id.
+    /// The opaque message id.
     pub message_id: String,
     pub from: String,
     pub to: Vec<String>,
@@ -63,7 +63,7 @@ pub struct MailMessageDto {
 #[utoipa::path(get, path = "/api/v1/mail/{mailbox}/{message_id}",
     params(
         ("mailbox" = String, Path, description = "The mailbox address, as the mail block names it"),
-        ("message_id" = String, Path, description = "The folder:uid id of the message"),
+        ("message_id" = String, Path, description = "The opaque message id"),
     ),
     responses(
         (status = 200, body = MailMessageDto),
@@ -79,11 +79,7 @@ pub async fn get_mail_message(
 ) -> Result<Json<MailMessageDto>, ApiError> {
     let record = mailbox_named(&state, &tenant, &mailbox).await?;
     let id = MessageId::new(message_id);
-    let mut mailbox = state
-        .mailbox_desk
-        .open(&record)
-        .await
-        .map_err(mailbox_error)?;
+    let mut mailbox = state.mailboxes.open(&record).await.map_err(mailbox_error)?;
     let message = mailbox.message(&id).await.map_err(transport_error)?;
     Ok(Json(MailMessageDto {
         mailbox: record.address,

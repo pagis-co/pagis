@@ -324,7 +324,13 @@ The Mail Tools use the `Mailbox` operations. `Mailboxes` opens a mailbox from
 an Agent Mailbox record. `MailboxDesk` supplies `ImapMailbox`, which reads
 IMAP ids, selects folders and checks their numbering. The tools treat ids and
 page tokens as opaque strings and enforce the answer caps. The collector
-uses IMAP IDLE directly.
+uses IMAP IDLE directly. An Embedder names its Mailbox Provider and supplies
+its own `MailboxHost` and `Mailboxes`. Its Connection can omit both IMAP and
+SMTP endpoints. The desk then makes the mailbox active after host creation
+without an IMAP login proof. Reads and sends use the supplied `Mailboxes`.
+`AppState.mailboxes` supplies that service to the mail inspector route.
+Host messages for the Person are bounded to 512 UTF-8 bytes and stay out of
+log output; logs contain the error code only.
 
 `pagis-mail` builds on native and wasm targets. `MailboxDesk` uses the
 same host, transport and store seams on both targets. The `rules` tests

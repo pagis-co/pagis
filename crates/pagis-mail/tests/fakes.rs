@@ -61,7 +61,7 @@ async fn the_fake_host_refuses_an_address_it_holds() {
         .await
         .unwrap_err();
 
-    assert_eq!(refused.0, HostErrorCode::AddressTaken);
+    assert_eq!(refused.code(), HostErrorCode::AddressTaken);
 }
 
 #[tokio::test]
@@ -70,7 +70,7 @@ async fn the_fake_host_fails_with_the_scripted_code() {
     host.fail_with(Some(HostErrorCode::Unauthorized));
 
     assert_eq!(
-        host.list(&account()).await.unwrap_err().0,
+        host.list(&account()).await.unwrap_err().code(),
         HostErrorCode::Unauthorized
     );
 
@@ -109,7 +109,7 @@ async fn the_fake_host_deletes_resets_and_lists() {
         host.reset_password(&account(), "ben@example.com", &MailboxPassword::new("x"))
             .await
             .unwrap_err()
-            .0,
+            .code(),
         HostErrorCode::MailboxUnknown
     );
 }

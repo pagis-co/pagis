@@ -703,8 +703,8 @@ async fn mail_poll_cycles_run_for_each_workspace_every_five_minutes() {
         config: pagis_mail::MailboxProvider {
             account: None,
             domain: "example.test".into(),
-            imap: pagis_mail::Endpoint::new("localhost", 143),
-            smtp: pagis_mail::Endpoint::new("localhost", 25),
+            imap: Some(pagis_mail::Endpoint::new("localhost", 143)),
+            smtp: Some(pagis_mail::Endpoint::new("localhost", 25)),
             capabilities: pagis_mail::MailboxCapabilities::of(
                 pagis_mail::ManualHost::new().capabilities(),
                 true,

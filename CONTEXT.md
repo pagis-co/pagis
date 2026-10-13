@@ -1348,7 +1348,11 @@ own Agent Mailbox or in one of the Person's mail Connections under a Grant
 ### Mailbox Provider
 The Installation Connection through which Agent Mailboxes exist: one
 account at a mail host that owns a domain, or a manual host where the
-Person makes each mailbox (ADR-0019).
+Person makes each mailbox. An Embedder names its provider and can supply
+mail reads and sends through `Mailboxes` with no IMAP or SMTP endpoints.
+The Connection holds the domain and capabilities. Migadu and manual
+providers hold both endpoints. A host refusal can carry a message for the
+Person, bounded to 512 UTF-8 bytes. Logs hold the code only (ADR-0019).
 
 ### Messaging Readiness
 Whether the carrier delivers a text from an Agent Phone Number: `unknown`,

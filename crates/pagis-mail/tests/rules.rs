@@ -52,8 +52,8 @@ impl World {
         let settings = MailboxProvider {
             account: None,
             domain: "example.com".into(),
-            imap: Endpoint::new("imap.example.com", 993),
-            smtp: Endpoint::new("smtp.example.com", 465),
+            imap: Some(Endpoint::new("imap.example.com", 993)),
+            smtp: Some(Endpoint::new("smtp.example.com", 465)),
             capabilities: MailboxCapabilities::of(host.capabilities(), true),
         };
         let connection = Connection {

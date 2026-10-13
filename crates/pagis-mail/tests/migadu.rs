@@ -72,7 +72,7 @@ async fn a_taken_address_is_a_conflict() {
         .await
         .unwrap_err();
 
-    assert_eq!(refused.0, HostErrorCode::AddressTaken);
+    assert_eq!(refused.code(), HostErrorCode::AddressTaken);
 }
 
 #[tokio::test]
@@ -90,7 +90,7 @@ async fn a_refused_key_is_unauthorized() {
         .await
         .unwrap_err();
 
-    assert_eq!(refused.0, HostErrorCode::Unauthorized);
+    assert_eq!(refused.code(), HostErrorCode::Unauthorized);
 }
 
 #[tokio::test]
@@ -110,7 +110,7 @@ async fn an_account_at_its_plan_limit_reports_the_cap() {
         .await
         .unwrap_err();
 
-    assert_eq!(refused.0, HostErrorCode::CapReached);
+    assert_eq!(refused.code(), HostErrorCode::CapReached);
 }
 
 #[tokio::test]
@@ -155,7 +155,7 @@ async fn an_address_on_another_domain_is_not_this_accounts() {
 
     let refused = host.delete(&account(), "ava@other.com").await.unwrap_err();
 
-    assert_eq!(refused.0, HostErrorCode::MailboxUnknown);
+    assert_eq!(refused.code(), HostErrorCode::MailboxUnknown);
     assert_eq!(server.received_requests().await.unwrap().len(), 0);
 }
 
@@ -220,7 +220,7 @@ async fn an_answer_this_client_cannot_read_is_unreadable() {
     let host = MigaduHost::with_base_url(server.uri());
 
     assert_eq!(
-        host.list(&account()).await.unwrap_err().0,
+        host.list(&account()).await.unwrap_err().code(),
         HostErrorCode::Unreadable
     );
 }
@@ -237,7 +237,7 @@ async fn a_host_failure_is_temporary() {
     let host = MigaduHost::with_base_url(server.uri());
 
     assert_eq!(
-        host.list(&account()).await.unwrap_err().0,
+        host.list(&account()).await.unwrap_err().code(),
         HostErrorCode::TemporarilyUnavailable
     );
 }

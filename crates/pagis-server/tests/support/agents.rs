@@ -22,6 +22,10 @@ pub struct Embedder {
     pub other_workspace: WorkspaceId,
     pub cookie: String,
     pub other_cookie: String,
+    #[allow(dead_code)]
+    pub mailbox_host: Arc<pagis_mail::fake::FakeMailboxHost>,
+    #[allow(dead_code)]
+    pub mail: Arc<pagis_mail::fake::MemoryMailbox>,
 }
 
 impl Embedder {
@@ -151,13 +155,14 @@ impl Embedder {
             config,
         };
         let agents = AgentSystem::start(deps.clone()).await;
+        let mailbox_host = Arc::new(pagis_mail::fake::FakeMailboxHost::default());
         let mailbox_desk = Arc::new(pagis_mail::MailboxDesk::new(pagis_mail::MailboxDeskDeps {
             mailboxes: stores.agent_mailboxes.clone(),
             connections: stores.connections.clone(),
             org_workspace_id: org_workspace_id.clone(),
             agents: stores.agents.clone(),
-            host: Arc::new(pagis_mail::fake::FakeMailboxHost::default()),
-            transport: Arc::new(pagis_mail::fake::FakeMailTransport::default()),
+            host: mailbox_host.clone(),
+            transport: Arc::new(pagis_mail::NoMailTransport),
             secrets: secrets.clone(),
             bus: bus.clone(),
             standing_rule: Arc::new(pagis_mail::fake::FakeStandingRule::default()),
@@ -200,6 +205,7 @@ impl Embedder {
             })
             .await
             .unwrap();
+        let mail = Arc::new(pagis_mail::fake::MemoryMailbox::default());
         let state = AppState {
             channels: stores.channels.clone(),
             participants: stores.participants.clone(),
@@ -246,6 +252,7 @@ impl Embedder {
             host_sessions: Arc::new(pagis_broker::HostSessions::default()),
             broker,
             mailbox_desk,
+            mailboxes: mail.clone(),
             secrets: secrets.clone(),
             needs_you,
             #[cfg(not(target_arch = "wasm32"))]
@@ -298,6 +305,8 @@ impl Embedder {
             other_workspace,
             cookie,
             other_cookie,
+            mailbox_host,
+            mail,
         }
     }
 

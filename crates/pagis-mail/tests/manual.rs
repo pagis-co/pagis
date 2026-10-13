@@ -39,7 +39,7 @@ async fn create_without_a_password_is_refused() {
         .await
         .unwrap_err();
 
-    assert_eq!(refused.0, HostErrorCode::Refused);
+    assert_eq!(refused.code(), HostErrorCode::Refused);
 }
 
 #[tokio::test]
@@ -73,7 +73,7 @@ async fn reset_password_takes_the_password_the_user_pasted() {
         .reset_password(&account(), "ava@example.com", &MailboxPassword::new(""))
         .await
         .unwrap_err();
-    assert_eq!(refused.0, HostErrorCode::Refused);
+    assert_eq!(refused.code(), HostErrorCode::Refused);
 }
 
 #[tokio::test]
@@ -84,14 +84,14 @@ async fn an_address_on_another_domain_is_not_this_accounts() {
         host.delete(&account(), "ava@other.com")
             .await
             .unwrap_err()
-            .0,
+            .code(),
         HostErrorCode::MailboxUnknown
     );
     assert_eq!(
         host.reset_password(&account(), "ava@other.com", &MailboxPassword::new("p"))
             .await
             .unwrap_err()
-            .0,
+            .code(),
         HostErrorCode::MailboxUnknown
     );
 }

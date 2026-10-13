@@ -5,6 +5,7 @@
 //! key stays out of the mail path.
 
 use async_trait::async_trait;
+use std::fmt;
 
 /// One mail account at one host: the domain the mailboxes live on, and
 /// the credential that administers it. A manual host has no API
@@ -176,9 +177,54 @@ impl HostErrorCode {
     }
 }
 
-#[derive(Debug, thiserror::Error)]
-#[error("the mail host did not complete this: {}", .0.as_str())]
-pub struct HostError(pub HostErrorCode);
+/// A host failure with an optional message for the Person. The message
+/// is untrusted text. Log output contains only the code.
+#[derive(Clone, thiserror::Error)]
+#[error("the mail host did not complete this: {}", .code.as_str())]
+pub struct HostError {
+    code: HostErrorCode,
+    message: Option<String>,
+}
+
+impl HostError {
+    pub fn new(code: HostErrorCode) -> Self {
+        Self {
+            code,
+            message: None,
+        }
+    }
+
+    /// Keep at most 512 UTF-8 bytes. A blank message uses the code text.
+    pub fn with_message(code: HostErrorCode, message: impl AsRef<str>) -> Self {
+        let message = message.as_ref();
+        let mut end = message.len().min(512);
+        while !message.is_char_boundary(end) {
+            end -= 1;
+        }
+        let message = &message[..end];
+        Self {
+            code,
+            message: (!message.trim().is_empty()).then(|| message.to_string()),
+        }
+    }
+
+    pub fn code(&self) -> HostErrorCode {
+        self.code
+    }
+
+    /// Text for the Person only. Do not put it in a log line.
+    pub fn message(&self) -> Option<&str> {
+        self.message.as_deref()
+    }
+}
+
+impl fmt::Debug for HostError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("HostError")
+            .field("code", &self.code)
+            .finish()
+    }
+}
 
 /// Create, delete, reset and list the mailboxes of one domain
 /// (ADR-0019).
@@ -231,6 +277,6 @@ pub(crate) fn local_part_on(account: &HostAccount, address: &str) -> Result<Stri
         {
             Ok(local_part.to_string())
         }
-        _ => Err(HostError(HostErrorCode::MailboxUnknown)),
+        _ => Err(HostError::new(HostErrorCode::MailboxUnknown)),
     }
 }

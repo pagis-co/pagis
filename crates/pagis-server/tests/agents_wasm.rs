@@ -282,3 +282,6 @@ async fn a_computer_is_not_available_without_the_native_part() {
     assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
     assert_eq!(body["error"]["code"], "not_available");
 }
+
+#[path = "support/mailbox_routes.rs"]
+mod mailbox_routes;

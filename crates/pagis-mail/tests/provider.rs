@@ -3,7 +3,7 @@
 
 use pagis_mail::{
     Endpoint, HostCapabilities, MANUAL_PROVIDER, MIGADU_PROVIDER, MailboxCapabilities,
-    MailboxProvider, authserv_ids, is_mailbox_provider, mailbox_provider,
+    MailboxProvider, authserv_ids, mailbox_provider,
 };
 
 use pagis_core::{Connection, ConnectionId, WorkspaceId};
@@ -26,8 +26,8 @@ fn migadu_settings() -> MailboxProvider {
     MailboxProvider {
         account: Some("owner@example.com".to_string()),
         domain: "example.com".to_string(),
-        imap: Endpoint::new("imap.migadu.com", 993),
-        smtp: Endpoint::new("smtp.migadu.com", 465),
+        imap: Some(Endpoint::new("imap.migadu.com", 993)),
+        smtp: Some(Endpoint::new("smtp.migadu.com", 465)),
         capabilities: MailboxCapabilities {
             idle: true,
             outgoing_cap: true,
@@ -50,8 +50,8 @@ fn a_manual_record_names_its_own_endpoints_and_no_account() {
     let settings = MailboxProvider {
         account: None,
         domain: "example.org".to_string(),
-        imap: Endpoint::new("imap.example.org", 993),
-        smtp: Endpoint::new("smtp.example.org", 587),
+        imap: Some(Endpoint::new("imap.example.org", 993)),
+        smtp: Some(Endpoint::new("smtp.example.org", 587)),
         capabilities: MailboxCapabilities {
             idle: true,
             outgoing_cap: false,
@@ -112,13 +112,18 @@ fn the_capability_set_is_the_two_seams_together() {
 }
 
 #[test]
-fn a_connection_of_another_provider_has_no_mail_settings() {
-    assert!(!is_mailbox_provider("google"));
-    assert!(mailbox_provider(&connection("google", migadu_settings().config())).is_none());
+fn a_connection_without_mail_settings_is_not_a_mailbox_provider() {
+    assert!(
+        mailbox_provider(&connection(
+            "google",
+            serde_json::json!({"account": "owner@example.com"})
+        ))
+        .is_none()
+    );
 }
 
 #[test]
-fn a_record_without_endpoints_reads_as_no_settings() {
+fn a_record_without_capabilities_reads_as_no_settings() {
     let incomplete = serde_json::json!({ "domain": "example.com" });
 
     assert!(mailbox_provider(&connection(MIGADU_PROVIDER, incomplete)).is_none());
@@ -136,4 +141,50 @@ fn a_migadu_connection_trusts_the_results_of_its_two_exchangers_and_a_manual_one
     );
     assert!(authserv_ids(MANUAL_PROVIDER).is_empty());
     assert!(authserv_ids("google").is_empty());
+}
+
+#[test]
+fn an_embedder_names_a_provider_without_endpoints() {
+    let mut config = migadu_settings().config();
+    for key in ["imap_host", "imap_port", "smtp_host", "smtp_port"] {
+        config.as_object_mut().unwrap().remove(key);
+    }
+    let read = mailbox_provider(&connection("embedder-mail", config))
+        .expect("mail settings without endpoints");
+    assert_eq!(read.domain, "example.com");
+    assert_eq!(read.imap, None);
+    assert_eq!(read.smtp, None);
+    assert_eq!(
+        mailbox_provider(&connection("embedder-mail", read.config())),
+        Some(read)
+    );
+}
+
+#[test]
+fn malformed_or_partial_endpoints_are_not_mail_settings() {
+    for (key, value) in [
+        ("imap_host", serde_json::json!(42)),
+        ("imap_port", serde_json::json!(70000)),
+        ("smtp_port", serde_json::json!("465")),
+    ] {
+        let mut config = migadu_settings().config();
+        config[key] = value;
+        assert!(mailbox_provider(&connection("embedder-mail", config)).is_none());
+    }
+    for keys in [vec!["imap_port"], vec!["smtp_host", "smtp_port"]] {
+        let mut config = migadu_settings().config();
+        for key in keys {
+            config.as_object_mut().unwrap().remove(key);
+        }
+        assert!(mailbox_provider(&connection("embedder-mail", config)).is_none());
+    }
+}
+
+#[test]
+fn an_embedder_names_a_provider_with_endpoints() {
+    let settings = migadu_settings();
+    assert_eq!(
+        mailbox_provider(&connection("embedder-mail", settings.config())),
+        Some(settings)
+    );
 }

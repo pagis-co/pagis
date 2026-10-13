@@ -456,8 +456,8 @@ async fn held_mailbox(
         .ok_or_else(|| ApiError::not_found("agent mailbox"))
 }
 
-/// A refusal the user can act on keeps its words. A host failure
-/// reports the stable code and nothing from upstream.
+/// A refusal the Person can act on keeps its words. A host failure
+/// uses the bounded host message when present, and the fixed code text otherwise.
 pub fn mailbox_error(error: MailboxError) -> ApiError {
     match error {
         MailboxError::Store(error) => ApiError::from(error),
