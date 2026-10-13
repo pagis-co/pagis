@@ -225,6 +225,14 @@ revision one, and the Org's mail domain Connection. The user pauses, edits or
 deletes it on the mailbox panel. The Agent may narrow it and never delete it.
 No rule is made for a user's account alias.
 
+`pagis-mail` fills its `StandingMailRule` and `MailIngest` seams with
+`StandingMailRules` and `TriggerIngest` in its `trigger` module. It depends
+on `pagis-trigger`; `pagis-trigger` does not depend on `pagis-mail`. The
+daemon and an Embedder use the same adapters. `DeferredStandingRule` holds
+the rule maker until the Trigger module exists, so the mailbox desk can
+exist before the Trigger module reads the broker catalog. The caller fills
+the slot before it provisions a mailbox. An empty slot returns an error.
+
 Where the reply reference matches a message the Agent sent from a Run bound to
 a Thread, the Wake-up lands in that Thread; otherwise in the Agent's own
 Channel with the user. The daemon keeps each sent message id with its Run's

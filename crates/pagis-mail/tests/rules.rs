@@ -14,7 +14,10 @@ use pagis_mail::{
     MailboxDesk, MailboxDeskDeps, MailboxError, MailboxHost, MailboxProvider, NewMailbox,
     ProofTiming, TransportErrorCode, host_api_key_secret_name, mailbox_password_secret_name,
 };
+mod trigger_rules;
+
 struct World {
+    trigger: Arc<pagis_trigger::Trigger>,
     desk: Arc<MailboxDesk>,
     stores: Stores,
     host: Arc<FakeMailboxHost>,
@@ -28,6 +31,10 @@ struct World {
 
 impl World {
     async fn new() -> Self {
+        Self::with_trigger(false).await
+    }
+
+    async fn with_trigger(real_rule: bool) -> Self {
         let database = FakeDatabase::default();
         let stores = database.stores();
         let workspace = WorkspaceId::from("person".to_string());
@@ -74,6 +81,17 @@ impl World {
             .unwrap();
         let transport = Arc::new(FakeMailTransport::default());
         let standing = Arc::new(FakeStandingRule::default());
+        let trigger = trigger_rules::trigger(&stores, &database, org_workspace.clone());
+        let standing_rule: Arc<dyn pagis_mail::StandingMailRule> = if real_rule {
+            let deferred = Arc::new(pagis_mail::DeferredStandingRule::default());
+            deferred.set(Arc::new(pagis_mail::StandingMailRules::new(
+                trigger.clone(),
+                stores.channels.clone(),
+            )));
+            deferred
+        } else {
+            standing.clone()
+        };
         let desk = Arc::new(MailboxDesk::new(MailboxDeskDeps {
             mailboxes: stores.agent_mailboxes.clone(),
             connections: stores.connections.clone(),
@@ -83,7 +101,7 @@ impl World {
             transport: transport.clone(),
             secrets: secrets.clone(),
             bus: Arc::new(database.bus()),
-            standing_rule: standing.clone(),
+            standing_rule,
             proof: ProofTiming {
                 first_wait: Duration::from_millis(1),
                 max_wait: Duration::from_millis(2),
@@ -91,6 +109,7 @@ impl World {
             },
         }));
         Self {
+            trigger,
             desk,
             stores,
             host,

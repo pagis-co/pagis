@@ -22,6 +22,7 @@ deunicode.workspace = true
 pagis-broker.workspace = true
 pagis-core.workspace = true
 pagis-rt.workspace = true
+pagis-trigger.workspace = true
 psl.workspace = true
 rand.workspace = true
 reqwest.workspace = true
