@@ -293,6 +293,58 @@ impl UserStore for PostgresUserStore {
         Ok(updated.rows_affected() > 0)
     }
 
+    async fn set_role(
+        &self,
+        id: &UserId,
+        role: UserRole,
+        at: UnixMillis,
+    ) -> Result<bool, StoreError> {
+        let mut transaction = crate::begin_write(&self.pool).await.map_err(db_err)?;
+        // The Org row serializes role changes before the next query reads.
+        sqlx::query(
+            "SELECT id FROM orgs WHERE id = (SELECT org_id FROM users WHERE id = $1) FOR UPDATE",
+        )
+        .bind(id.as_str())
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(db_err)?;
+        let row = sqlx::query(&format!("SELECT {USER_COLUMNS} FROM users WHERE id = $1"))
+            .bind(id.as_str())
+            .fetch_optional(&mut *transaction)
+            .await
+            .map_err(db_err)?;
+        let Some(row) = row else {
+            transaction.commit().await.map_err(db_err)?;
+            return Ok(false);
+        };
+        let person = row_to_user(&row)?;
+        if role == UserRole::Member
+            && person.role == UserRole::Administrator
+            && !person.is_disabled()
+        {
+            let other = sqlx::query("SELECT id FROM users WHERE org_id = $1 AND id <> $2 AND role = 'administrator' AND disabled_at IS NULL LIMIT 1")
+                .bind(person.org_id.as_str())
+                .bind(id.as_str())
+                .fetch_optional(&mut *transaction)
+                .await
+                .map_err(db_err)?;
+            if other.is_none() {
+                return Err(StoreError::Conflict(
+                    "The Org must have at least one enabled Administrator.".to_string(),
+                ));
+            }
+        }
+        sqlx::query("UPDATE users SET role = $1, updated_at = $2 WHERE id = $3")
+            .bind(role.as_str())
+            .bind(at)
+            .bind(id.as_str())
+            .execute(&mut *transaction)
+            .await
+            .map_err(db_err)?;
+        transaction.commit().await.map_err(db_err)?;
+        Ok(true)
+    }
+
     async fn set_monthly_spend_cap(
         &self,
         id: &UserId,

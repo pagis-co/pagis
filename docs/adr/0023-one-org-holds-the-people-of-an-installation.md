@@ -26,7 +26,11 @@ A Person has a name, a role and one Workspace. The role is `administrator` or
 the Org holds and what other People may do; a Member changes only their own
 Workspace. Every Org has at least one Administrator, its first Person: the
 seeded Person of a local installation, or the one from server setup
-(ADR-0024).
+(ADR-0024). An Administrator changes a Person's role in the
+Administration Interface. A role change keeps at least one enabled
+Administrator in the Org. An Administrator can demote themselves when
+another enabled Administrator exists. Each role change adds an audit event
+in the Org's Workspace, with the Administrator, the Person and both roles.
 
 There is no sign-up. An Administrator creates every account in the
 Administration Interface, and also disables and restores an account, resets a
