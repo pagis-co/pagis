@@ -11266,9 +11266,18 @@
       "AdministrationSectionsDto": {
         "type": "object",
         "required": [
-          "sections"
+          "sections",
+          "links"
         ],
         "properties": {
+          "links": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConfiguredLink"
+            },
+            "description": "The links the Server configuration names, in navigation order.",
+            "maxItems": 3
+          },
           "sections": {
             "type": "array",
             "items": {
@@ -13132,6 +13141,25 @@
           }
         },
         "additionalProperties": false
+      },
+      "ConfiguredLink": {
+        "type": "object",
+        "description": "One link that the Server configuration names: in the account menu of\nthe Product App, or in the navigation of the Administration Interface.",
+        "required": [
+          "label",
+          "url"
+        ],
+        "properties": {
+          "label": {
+            "type": "string",
+            "description": "The text of the link, at most 40 characters.",
+            "maxLength": 40
+          },
+          "url": {
+            "type": "string",
+            "description": "A valid https URL. The link opens in the same tab."
+          }
+        }
       },
       "ConfirmForget": {
         "type": "object",
@@ -17976,25 +18004,6 @@
         },
         "additionalProperties": false
       },
-      "ProductAppLink": {
-        "type": "object",
-        "description": "One link the operator names for the Product App.",
-        "required": [
-          "label",
-          "url"
-        ],
-        "properties": {
-          "label": {
-            "type": "string",
-            "description": "The text in the account menu, at most 40 characters.",
-            "maxLength": 40
-          },
-          "url": {
-            "type": "string",
-            "description": "A valid https URL. The link opens in the same tab."
-          }
-        }
-      },
       "ProgressFrame": {
         "type": "object",
         "description": "One `progress.state` WS payload: the whole current text, never a\ndelta. A client applies a frame only when `seq` is newer than the\none it holds, so a catch-up never loses to a stale live frame.",
@@ -21784,7 +21793,7 @@
           "product_app_links": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/ProductAppLink"
+              "$ref": "#/components/schemas/ConfiguredLink"
             },
             "description": "The links the operator names in the Server configuration."
           },

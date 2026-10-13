@@ -155,27 +155,30 @@ pub struct RemoteAccess {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ProductApp {
-    pub links: Vec<pagis_server::ProductAppLink>,
+    pub links: Vec<pagis_server::ConfiguredLink>,
 }
 
 impl ProductApp {
     fn validate(&self) -> anyhow::Result<()> {
-        anyhow::ensure!(
-            self.links.len() <= 3,
-            "product_app.links accepts at most 3 links"
-        );
-        for (index, link) in self.links.iter().enumerate() {
-            anyhow::ensure!(
-                link.label.chars().count() <= 40,
-                "product_app.links[{index}].label accepts at most 40 characters"
-            );
-            anyhow::ensure!(
-                url::Url::parse(&link.url).is_ok_and(|url| url.scheme() == "https"),
-                "product_app.links[{index}].url must be a valid https URL"
-            );
-        }
-        Ok(())
+        validate_links("product_app", &self.links)
     }
+}
+
+/// The links of one part of the configuration: at most three, each with
+/// a label of at most 40 characters and an `https` URL.
+fn validate_links(section: &str, links: &[pagis_server::ConfiguredLink]) -> anyhow::Result<()> {
+    anyhow::ensure!(links.len() <= 3, "{section}.links accepts at most 3 links");
+    for (index, link) in links.iter().enumerate() {
+        anyhow::ensure!(
+            link.label.chars().count() <= 40,
+            "{section}.links[{index}].label accepts at most 40 characters"
+        );
+        anyhow::ensure!(
+            url::Url::parse(&link.url).is_ok_and(|url| url.scheme() == "https"),
+            "{section}.links[{index}].url must be a valid https URL"
+        );
+    }
+    Ok(())
 }
 
 /// The Administration Interface's own listener.
@@ -195,6 +198,8 @@ pub struct Administration {
     pub bind: String,
     /// The sections the Administration Port does not offer.
     pub hide: Vec<pagis_server::AdministrationSection>,
+    /// The links in the Administration Interface navigation.
+    pub links: Vec<pagis_server::ConfiguredLink>,
     /// The page path under the Public Origin. Empty uses this listener's origin.
     pub path_prefix: String,
 }
@@ -205,6 +210,7 @@ impl Default for Administration {
             port: DEFAULT_ADMINISTRATION_PORT,
             bind: DEFAULT_ADMINISTRATION_BIND.to_string(),
             hide: Vec::new(),
+            links: Vec::new(),
             path_prefix: String::new(),
         }
     }
@@ -228,7 +234,7 @@ impl Administration {
              no trailing slash, and only letters, digits, '-', '.', '_' or '~'; \
              '.' and '..' segments are not allowed"
         );
-        Ok(())
+        validate_links("administration", &self.links)
     }
 
     /// The interface the administration listener binds. An empty
@@ -1815,6 +1821,102 @@ mod tests {
             std::fs::write(&path, text).unwrap();
             assert_eq!(
                 serde_json::to_value(Config::read_file(&path).unwrap()).unwrap()["product_app"]["links"],
+                serde_json::json!([])
+            );
+        }
+    }
+
+    #[test]
+    fn administration_links_refuse_other_schemes_and_invalid_urls() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        for url in [
+            "http://example.com",
+            "javascript:alert(1)",
+            "ftp://example.com",
+            "/help",
+            "https://",
+            "not a URL",
+        ] {
+            std::fs::write(
+                &path,
+                format!("[administration]\nlinks = [{{ label = \"Help\", url = \"{url}\" }}]\n"),
+            )
+            .unwrap();
+            let error = Config::read_file(&path)
+                .expect_err("an invalid Administration Interface link")
+                .to_string();
+            assert!(error.contains("administration.links"), "{error}");
+        }
+    }
+
+    #[test]
+    fn administration_links_refuse_labels_longer_than_forty_characters() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        for label in ["a".repeat(41), "é".repeat(41)] {
+            std::fs::write(&path, format!("[administration]\nlinks = [{{ label = \"{label}\", url = \"https://example.com/help\" }}]\n")).unwrap();
+            let error = Config::read_file(&path)
+                .expect_err("a long label")
+                .to_string();
+            assert!(error.contains("administration.links"), "{error}");
+            assert!(error.contains("40"), "{error}");
+        }
+    }
+
+    #[test]
+    fn administration_links_refuse_more_than_three_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        let link = "{ label = \"Help\", url = \"https://example.com/help\" }";
+        std::fs::write(
+            &path,
+            format!("[administration]\nlinks = [{}]\n", [link; 4].join(", ")),
+        )
+        .unwrap();
+        let error = Config::read_file(&path)
+            .expect_err("too many links")
+            .to_string();
+        assert!(error.contains("administration.links"), "{error}");
+        assert!(error.contains("3"), "{error}");
+    }
+
+    #[test]
+    fn administration_links_keep_three_entries_and_count_label_characters() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        let label = "é".repeat(40);
+        let links = serde_json::json!([
+            {"label": label, "url": "https://example.com/servers"},
+            {"label": "Help", "url": "https://example.com/help?team=one#contact"},
+            {"label": "Account", "url": "https://example.com/account"},
+        ]);
+        std::fs::write(
+            &path,
+            toml::to_string(&serde_json::json!({"administration": {"links": links}})).unwrap(),
+        )
+        .unwrap();
+        let config = Config::read_file(&path).unwrap();
+        assert_eq!(
+            serde_json::to_value(&config).unwrap()["administration"]["links"],
+            links
+        );
+        config.save(&path).unwrap();
+        assert_eq!(
+            serde_json::to_value(Config::read_file(&path).unwrap()).unwrap()["administration"]["links"],
+            links
+        );
+    }
+
+    #[test]
+    fn administration_links_default_to_an_empty_list() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        for text in ["", "[administration]\n", "[administration]\nlinks = []\n"] {
+            std::fs::write(&path, text).unwrap();
+            assert_eq!(
+                serde_json::to_value(Config::read_file(&path).unwrap()).unwrap()["administration"]
+                    ["links"],
                 serde_json::json!([])
             );
         }

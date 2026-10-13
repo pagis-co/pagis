@@ -26,6 +26,7 @@ async fn sections_name_neither_settings_nor_restart() {
     assert_eq!(response.status(), StatusCode::OK);
     let body: serde_json::Value =
         serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    assert_eq!(body["links"], serde_json::json!([]));
     assert_eq!(
         body["sections"],
         serde_json::json!([

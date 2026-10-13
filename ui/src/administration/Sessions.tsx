@@ -93,7 +93,7 @@ export function Hosts({ api }: { api: ApiClient }) {
   )
 }
 
-export function Sessions({ api }: { api: ApiClient }) {
+export function Sessions({ api, hostsAvailable }: { api: ApiClient; hostsAvailable: boolean }) {
   const sessions = useLiveSessions(api)
   const items = sessions.data ?? []
 
@@ -117,7 +117,7 @@ export function Sessions({ api }: { api: ApiClient }) {
         )}
       </Frame>
       <SectionLabel>{items.length} signed in</SectionLabel>
-      <Hosts api={api} />
+      {hostsAvailable && <Hosts api={api} />}
     </section>
   )
 }

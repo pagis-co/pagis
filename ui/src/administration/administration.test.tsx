@@ -21,7 +21,7 @@ const ADMINISTRATOR = {
   administration: { origin: 'http://127.0.0.1:4401', path_prefix: '', loopback: true },
 }
 
-const SECTIONS = ['spend', 'people', 'sessions', 'resources', 'providers', 'settings', 'plugins', 'health', 'restart']
+const SECTIONS = ['spend', 'people', 'sessions', 'hosts', 'resources', 'providers', 'settings', 'plugins', 'health', 'restart']
 
 const SYSTEM: SystemSettingsDto = {
   port: 4400, listening_port: 4400, port_override: null, supervised: true, started_at: 1,
@@ -62,7 +62,7 @@ function total(costUsd: number) {
  *  throws the daemon's error shape for a path it was given none for. */
 function apiOf(answers: Record<string, unknown>, errors: Record<string, unknown> = {}) {
   answers = {
-    '/api/v1/administration/sections': { sections: SECTIONS },
+    '/api/v1/administration/sections': { sections: SECTIONS, links: [] },
     '/api/v1/administration/usage': { from: 0, to: 1, items: [], total: total(0) },
     ...answers,
   }
@@ -92,11 +92,40 @@ function mount(node: React.ReactElement) {
 
 describe('the administration page', () => {
   afterEach(() => window.history.replaceState(null, '', '/'))
+  it.each([false, true])('shows Hosts in Sessions only when offered: %s', async (offered) => {
+    window.history.replaceState(null, '', '/sessions')
+    const api = apiOf({
+      '/api/v1/user': ADMINISTRATOR,
+      '/api/v1/administration/sections': {
+        sections: offered ? SECTIONS : SECTIONS.filter((section) => section !== 'hosts'),
+        links: [],
+      },
+      '/api/v1/administration/sessions': { items: [] },
+      '/api/v1/administration/hosts': { items: [] },
+    })
+
+    mount(<Administration api={api} />)
+
+    expect(await screen.findByRole('heading', { name: 'Sessions' })).toBeTruthy()
+    const navigation = screen.getByRole('navigation', { name: 'Administration' })
+    expect(within(navigation).queryByRole('button', { name: 'Hosts' })).toBeNull()
+    if (offered) {
+      expect(await screen.findByText('No computer is registered.')).toBeTruthy()
+      expect(screen.getByRole('heading', { name: 'Hosts' })).toBeTruthy()
+      expect(api.GET).toHaveBeenCalledWith('/api/v1/administration/hosts')
+    } else {
+      expect(screen.queryByRole('heading', { name: 'Hosts' })).toBeNull()
+      expect(screen.queryByText('No computer is registered.')).toBeNull()
+      expect(screen.queryByText('The hosts could not be read.')).toBeNull()
+      expect(api.GET).not.toHaveBeenCalledWith('/api/v1/administration/hosts')
+    }
+  })
+
   it('shows only the views the server offers, in the offered order', async () => {
     window.history.replaceState(null, '', '/')
     const api = apiOf({
       '/api/v1/user': ADMINISTRATOR,
-      '/api/v1/administration/sections': { sections: ['spend', 'people', 'sessions', 'resources', 'plugins', 'health'] },
+      '/api/v1/administration/sections': { sections: ['spend', 'people', 'sessions', 'resources', 'plugins', 'health'], links: [] },
     })
     mount(<Administration api={api} />)
     const navigation = await screen.findByRole('navigation', { name: 'Administration' })
@@ -107,11 +136,43 @@ describe('the administration page', () => {
     expect(api.GET).not.toHaveBeenCalledWith('/api/v1/settings/system')
   })
 
+  it('shows each configured link in navigation and opens it in the same tab', async () => {
+    const links = [
+      { label: 'Servers', url: 'https://team.example.com/servers' },
+      { label: 'Help', url: 'https://team.example.com/help?team=one#contact' },
+      { label: 'Account', url: 'https://team.example.com/account' },
+    ]
+    const api = apiOf({
+      '/api/v1/user': ADMINISTRATOR,
+      '/api/v1/administration/sections': { sections: SECTIONS, links },
+    })
+    mount(<Administration api={api} />)
+    const navigation = await screen.findByRole('navigation', { name: 'Administration' })
+    const anchors = within(navigation).getAllByRole('link')
+    expect(anchors.map((anchor) => anchor.textContent)).toEqual(links.map((link) => link.label))
+    for (const [index, anchor] of anchors.entries()) {
+      expect(anchor.getAttribute('href')).toBe(links[index].url)
+      expect(anchor.getAttribute('target')).toBeNull()
+    }
+  })
+
+  it('shows no extra navigation entry when links are empty', async () => {
+    const api = apiOf({
+      '/api/v1/user': ADMINISTRATOR,
+      '/api/v1/administration/sections': { sections: SECTIONS, links: [] },
+    })
+    mount(<Administration api={api} />)
+    const navigation = await screen.findByRole('navigation', { name: 'Administration' })
+    expect(within(navigation).queryAllByRole('link')).toEqual([])
+    expect(within(navigation).getAllByRole('button').map((button) => button.textContent))
+      .toEqual(['Spend', 'People', 'Sessions', 'Resources', 'Providers', 'Settings', 'Plugins', 'Health'])
+  })
+
   it.each(['providers', 'settings'])('opens the first offered view at a hidden %s address', async (view) => {
     window.history.replaceState(null, '', `/${view}`)
     const api = apiOf({
       '/api/v1/user': ADMINISTRATOR,
-      '/api/v1/administration/sections': { sections: ['health', 'spend'] },
+      '/api/v1/administration/sections': { sections: ['health', 'spend'], links: [] },
     })
     mount(<Administration api={api} />)
     expect(await screen.findByRole('heading', { name: 'Health' })).toBeTruthy()
@@ -130,7 +191,7 @@ describe('the administration page', () => {
     await waitFor(() => expect(api.GET).toHaveBeenCalledWith('/api/v1/administration/sections'))
     expect(screen.queryByRole('navigation')).toBeNull()
     expect(api.GET).not.toHaveBeenCalledWith('/api/v1/administration/usage', expect.anything())
-    answer({ data: { sections: SECTIONS } })
+    answer({ data: { sections: SECTIONS, links: [] } })
     expect(await screen.findByRole('navigation')).toBeTruthy()
   })
 
@@ -148,7 +209,7 @@ describe('the administration page', () => {
     window.history.replaceState(null, '', '/settings')
     const api = apiOf({
       '/api/v1/user': ADMINISTRATOR,
-      '/api/v1/administration/sections': { sections: SECTIONS.filter((section) => section !== 'restart') },
+      '/api/v1/administration/sections': { sections: SECTIONS.filter((section) => section !== 'restart'), links: [] },
       '/api/v1/settings/system': SYSTEM,
       '/api/v1/settings/system/remote-access': { enabled: false, switchable: false },
     })
@@ -294,7 +355,7 @@ describe('the administration page', () => {
             ? { data: ADMINISTRATOR }
             : { error: { error: { code: 'unauthorized', message: 'no' } } }
         }
-        if (path === '/api/v1/administration/sections') return { data: { sections: SECTIONS } }
+        if (path === '/api/v1/administration/sections') return { data: { sections: SECTIONS, links: [] } }
         if (path === '/api/v1/administration/usage') return { data: { from: 0, to: 1, items: [], total: total(0) } }
         return { data: {} }
       }),
@@ -357,7 +418,7 @@ describe('the administration page', () => {
     window.history.replaceState(null, '', '/admin/settings')
     const api = apiOf({
       '/api/v1/user': { ...ADMINISTRATOR, administration: { ...ADMINISTRATOR.administration, path_prefix: '/admin' } },
-      '/api/v1/administration/sections': { sections: ['health', 'spend'] },
+      '/api/v1/administration/sections': { sections: ['health', 'spend'], links: [] },
     })
     mount(<Administration api={api} />)
     expect(await screen.findByRole('heading', { name: 'Health' })).toBeTruthy()
@@ -430,7 +491,7 @@ describe('Sessions', () => {
       },
     })
 
-    mount(<Sessions api={api} />)
+    mount(<Sessions api={api} hostsAvailable={true} />)
 
     expect(await screen.findByText('This session')).toBeTruthy()
     expect(screen.getByText('Browser')).toBeTruthy()
@@ -455,7 +516,7 @@ describe('Sessions', () => {
       },
     })
 
-    mount(<Sessions api={api} />)
+    mount(<Sessions api={api} hostsAvailable={true} />)
 
     expect(await screen.findByText('Client App · macbookpro.lan')).toBeTruthy()
     expect(screen.queryByText('Browser')).toBeNull()
@@ -464,7 +525,7 @@ describe('Sessions', () => {
   it('says when nobody is signed in', async () => {
     const api = apiOf({ '/api/v1/administration/sessions': { items: [] } })
 
-    mount(<Sessions api={api} />)
+    mount(<Sessions api={api} hostsAvailable={true} />)
 
     expect(await screen.findByText('Nobody is signed in.')).toBeTruthy()
   })
@@ -498,7 +559,7 @@ describe('Sessions', () => {
       },
     })
 
-    mount(<Sessions api={api} />)
+    mount(<Sessions api={api} hostsAvailable={true} />)
 
     expect(await screen.findByText('Air')).toBeTruthy()
     expect(screen.getByText('Studio')).toBeTruthy()
@@ -513,7 +574,7 @@ describe('Sessions', () => {
       '/api/v1/administration/hosts': { items: [] },
     })
 
-    mount(<Sessions api={api} />)
+    mount(<Sessions api={api} hostsAvailable={true} />)
 
     expect(await screen.findByText('No computer is registered.')).toBeTruthy()
   })
