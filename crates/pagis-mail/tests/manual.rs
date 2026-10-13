@@ -4,13 +4,14 @@
 use pagis_mail::{Deletion, HostAccount, HostErrorCode, MailboxHost, MailboxPassword, ManualHost};
 
 fn account() -> HostAccount {
-    HostAccount::manual("example.com")
+    HostAccount::new("example.com", "", None)
 }
 
 #[test]
 fn the_host_declares_no_delete_and_no_password_reset() {
     let capabilities = ManualHost::new().capabilities();
 
+    assert!(!capabilities.api_key);
     assert!(!capabilities.delete_mailbox);
     assert!(!capabilities.reset_password);
     assert!(!capabilities.outgoing_cap);
@@ -101,4 +102,10 @@ async fn a_manual_host_has_no_directory_to_read() {
     let host = ManualHost::new();
 
     assert!(host.list(&account()).await.unwrap().is_empty());
+}
+
+#[test]
+fn a_host_account_without_a_key_has_none() {
+    let account = HostAccount::new("example.com", "", None);
+    assert_eq!(account.expose_api_key(), None);
 }

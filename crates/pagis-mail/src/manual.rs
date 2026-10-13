@@ -33,6 +33,7 @@ impl ManualHost {
 impl MailboxHost for ManualHost {
     fn capabilities(&self) -> HostCapabilities {
         HostCapabilities {
+            api_key: false,
             outgoing_cap: false,
             delete_mailbox: false,
             reset_password: false,

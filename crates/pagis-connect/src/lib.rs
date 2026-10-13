@@ -81,12 +81,12 @@ pub enum NewCredentials {
         account: String,
         secret: String,
     },
-    /// The Migadu account, its API key and the mail domain the account
-    /// owns (ADR-0019). The key goes to the secret store; the mail path
-    /// never reads it.
+    /// The mail account and domain (ADR-0019). The host capability
+    /// decides whether an API key is required. The key goes to the
+    /// secret store; the mail path never reads it.
     Migadu {
         account: String,
-        api_key: String,
+        api_key: Option<String>,
         domain: String,
     },
     /// A mail host with no API (ADR-0019): the user makes each mailbox
@@ -189,6 +189,7 @@ pub struct Connector {
     connections: Arc<dyn ConnectionStore>,
     catalogs: Arc<NumberCatalogs>,
     mail_host: Arc<dyn MailboxHost>,
+    manual_host: pagis_mail::ManualHost,
     secrets: Arc<dyn SecretStore>,
     google: Arc<GoogleBroker>,
 }
@@ -199,6 +200,7 @@ impl Connector {
             connections: deps.connections,
             catalogs: deps.catalogs,
             mail_host: deps.mail_host,
+            manual_host: pagis_mail::ManualHost::new(),
             secrets: deps.secrets,
             google: deps.google,
         }
@@ -300,21 +302,32 @@ impl Connector {
                 api_key,
                 domain,
             } => {
+                let capabilities = self.mail_host.capabilities();
+                let api_key = if capabilities.api_key {
+                    Some(required(
+                        api_key.as_deref().unwrap_or_default(),
+                        "the mail host API key is required",
+                    )?)
+                } else {
+                    None
+                };
                 let account = HostAccount::new(
                     mail_domain(&domain)?,
                     required(&account, "the mail account is required")?,
-                    required(&api_key, "the mail host API key is required")?,
+                    api_key,
                 );
                 // The key must list the domain's mailboxes before the
                 // row exists: a key the host refuses reaches neither
                 // the record nor the secret store (ADR-0019).
-                self.mail_host.list(&account).await.map_err(mail_error)?;
+                if capabilities.api_key {
+                    self.mail_host.list(&account).await.map_err(mail_error)?;
+                }
                 let settings = MailboxProvider {
                     account: Some(account.account().to_string()),
                     domain: account.domain().to_string(),
                     imap: Some(Endpoint::new(MIGADU_IMAP.0, MIGADU_IMAP.1)),
                     smtp: Some(Endpoint::new(MIGADU_SMTP.0, MIGADU_SMTP.1)),
-                    capabilities: MailboxCapabilities::of(self.mail_host.capabilities(), true),
+                    capabilities: MailboxCapabilities::of(capabilities, true),
                 };
                 let connection = self.mail_connection(
                     &new.workspace_id,
@@ -327,7 +340,9 @@ impl Connector {
                     .create(&connection)
                     .await
                     .map_err(store_error)?;
-                if let Err(error) = self.store_host_key(&connection, account.expose_api_key()) {
+                if let Some(api_key) = account.expose_api_key()
+                    && let Err(error) = self.store_host_key(&connection, api_key)
+                {
                     // A record with no key makes no mailbox, and
                     // leaving it would take the alias for good.
                     self.connections
@@ -346,10 +361,7 @@ impl Connector {
                     domain: mail_domain(&domain)?,
                     imap: Some(mail_endpoint(imap, "IMAP")?),
                     smtp: Some(mail_endpoint(smtp, "SMTP")?),
-                    capabilities: MailboxCapabilities::of(
-                        pagis_mail::ManualHost::new().capabilities(),
-                        true,
-                    ),
+                    capabilities: MailboxCapabilities::of(self.manual_host.capabilities(), true),
                 };
                 let connection = self.mail_connection(
                     &new.workspace_id,
@@ -420,9 +432,9 @@ impl Connector {
         }
     }
 
-    /// One Mailbox Provider record. It lands `connected`: a Migadu key
-    /// is proved before this runs, and a manual host has nothing to
-    /// prove (ADR-0019).
+    /// One Mailbox Provider record. It lands `connected`: a required
+    /// key is proved before this runs. A host that needs no key has
+    /// nothing to prove (ADR-0019).
     fn mail_connection(
         &self,
         workspace_id: &WorkspaceId,
@@ -441,6 +453,15 @@ impl Connector {
             authorized_capabilities: Vec::new(),
             config: settings.config(),
             created_at: now_ms(),
+        }
+    }
+
+    /// Select the mailbox seam. The manual host records the Person's
+    /// mailbox; the injected host manages the other provider's domain.
+    fn mail_host_of(&self, connection: &Connection) -> &dyn MailboxHost {
+        match connection.provider.as_str() {
+            MANUAL_PROVIDER => &self.manual_host,
+            _ => self.mail_host.as_ref(),
         }
     }
 
@@ -465,8 +486,9 @@ impl Connector {
         connection: Connection,
         api_key: Option<&str>,
     ) -> Result<Connection, ConnectError> {
-        if connection.provider == MANUAL_PROVIDER {
-            // There is no key and no host to ask.
+        let host = self.mail_host_of(&connection);
+        if !host.capabilities().api_key {
+            // A host that needs no key has no key to prove.
             self.set_status(&connection, Connection::CONNECTED).await?;
             return Ok(Connection {
                 status: Connection::CONNECTED.to_string(),
@@ -487,8 +509,12 @@ impl Connector {
                     ConnectError::Validation("the mail host API key is required".to_string())
                 })?,
         };
-        let account = HostAccount::new(settings.domain, settings.account.unwrap_or_default(), &key);
-        if let Err(error) = self.mail_host.list(&account).await {
+        let account = HostAccount::new(
+            settings.domain,
+            settings.account.unwrap_or_default(),
+            Some(key.clone()),
+        );
+        if let Err(error) = host.list(&account).await {
             if error.code() == HostErrorCode::Unauthorized {
                 self.set_status(&connection, Connection::UNAVAILABLE)
                     .await?;

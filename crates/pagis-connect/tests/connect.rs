@@ -800,13 +800,40 @@ async fn a_sip_credential_with_a_part_missing_is_refused_before_anything_is_writ
     );
 }
 
+#[derive(Default)]
+struct RecordingMailSecrets {
+    values: MemorySecretStore,
+    reads: Mutex<Vec<String>>,
+    writes: Mutex<Vec<String>>,
+}
+
+impl SecretStore for RecordingMailSecrets {
+    fn get(&self, name: &str) -> Result<Option<String>, pagis_core::SecretError> {
+        self.reads.lock().unwrap().push(name.to_string());
+        self.values.get(name)
+    }
+
+    fn set(&self, name: &str, value: &str) -> Result<(), pagis_core::SecretError> {
+        self.writes.lock().unwrap().push(name.to_string());
+        self.values.set(name, value)
+    }
+
+    fn get_or_insert(&self, name: &str, value: &str) -> Result<String, pagis_core::SecretError> {
+        self.values.get_or_insert(name, value)
+    }
+
+    fn delete(&self, name: &str) -> Result<(), pagis_core::SecretError> {
+        self.values.delete(name)
+    }
+}
+
 /// The Mailbox Provider connection (ADR-0019): a Migadu key that lists
 /// the domain's mailboxes, or a manual host with no key at all.
 fn mail_connector(
     host: Arc<FakeMailboxHost>,
-) -> (Connector, Arc<MemoryConnections>, Arc<MemorySecretStore>) {
+) -> (Connector, Arc<MemoryConnections>, Arc<RecordingMailSecrets>) {
     let connections = Arc::new(MemoryConnections::default());
-    let secrets = Arc::new(MemorySecretStore::default());
+    let secrets = Arc::new(RecordingMailSecrets::default());
     let connector = Connector::new(ConnectorDeps {
         connections: Arc::clone(&connections) as _,
         catalogs: Arc::new(NumberCatalogs::single(
@@ -827,7 +854,7 @@ fn new_migadu(alias: &str, api_key: &str) -> NewConnection {
         display_name: "Migadu".to_string(),
         credentials: NewCredentials::Migadu {
             account: "owner@example.com".to_string(),
-            api_key: api_key.to_string(),
+            api_key: Some(api_key.to_string()),
             domain: "Example.com".to_string(),
         },
     }
@@ -972,7 +999,7 @@ async fn a_mail_domain_that_is_not_a_host_name_is_refused() {
             display_name: "Migadu".to_string(),
             credentials: NewCredentials::Migadu {
                 account: "owner@example.com".to_string(),
-                api_key: "migadu-key".to_string(),
+                api_key: Some("migadu-key".to_string()),
                 domain: "not a domain".to_string(),
             },
         })
@@ -1918,4 +1945,93 @@ mod installation_client {
 
         assert!(matches!(refused, Err(ConnectError::Validation(_))));
     }
+}
+
+#[tokio::test]
+async fn a_host_without_a_key_connects_and_reconnects_without_a_key_in_the_request() {
+    let host = Arc::new(FakeMailboxHost::with_capabilities(
+        pagis_mail::HostCapabilities {
+            api_key: false,
+            outgoing_cap: true,
+            delete_mailbox: true,
+            reset_password: true,
+        },
+    ));
+    // A host call fails, so a successful connect proves that no key is proved.
+    host.fail_with(Some(pagis_mail::HostErrorCode::Unauthorized));
+    let (connector, connections, secrets) = mail_connector(Arc::clone(&host));
+    let fields = std::collections::BTreeMap::from([
+        ("account".into(), "owner@example.com".into()),
+        ("domain".into(), "example.com".into()),
+    ]);
+    let credentials = NewCredentials::from_fields(pagis_mail::MIGADU_PROVIDER, &fields).unwrap();
+    let connection = connector
+        .create(NewConnection {
+            workspace_id: workspace(),
+            alias: "mail".into(),
+            display_name: "Mail".into(),
+            credentials,
+        })
+        .await
+        .expect("connect with no key");
+    assert_eq!(connection.status, Connection::CONNECTED);
+    connections
+        .set_status(&workspace(), &connection.id, Connection::UNAVAILABLE)
+        .await
+        .unwrap();
+    let repaired = connector
+        .authorize(&workspace(), &connection.id, &[], None, &initiator())
+        .await
+        .expect("reconnect with no key");
+    assert_eq!(repaired.connection().status, Connection::CONNECTED);
+    assert!(secrets.reads.lock().unwrap().is_empty());
+    assert!(secrets.writes.lock().unwrap().is_empty());
+    assert!(host.calls().is_empty());
+    assert_eq!(
+        secrets
+            .get(&pagis_mail::host_api_key_secret_name("mail"))
+            .unwrap(),
+        None
+    );
+}
+
+#[tokio::test]
+async fn a_host_that_needs_a_key_refuses_a_request_without_one() {
+    let host = Arc::new(FakeMailboxHost::default());
+    let (connector, connections, _) = mail_connector(Arc::clone(&host));
+    let result = connector.create(new_migadu("mail", "")).await;
+    assert!(matches!(result, Err(ConnectError::Validation(_))));
+    assert!(host.calls().is_empty());
+    assert!(connections.list(&workspace()).await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_host_without_a_key_ignores_a_key_supplied_at_connect_and_reconnect() {
+    let host = Arc::new(FakeMailboxHost::with_capabilities(
+        pagis_mail::HostCapabilities {
+            api_key: false,
+            outgoing_cap: true,
+            delete_mailbox: true,
+            reset_password: true,
+        },
+    ));
+    host.fail_with(Some(pagis_mail::HostErrorCode::Unauthorized));
+    let (connector, _, secrets) = mail_connector(Arc::clone(&host));
+    let connection = connector
+        .create(new_migadu("mail", "unused-key"))
+        .await
+        .unwrap();
+    connector
+        .authorize(
+            &workspace(),
+            &connection.id,
+            &[],
+            Some("unused-new-key"),
+            &initiator(),
+        )
+        .await
+        .unwrap();
+    assert!(secrets.reads.lock().unwrap().is_empty());
+    assert!(secrets.writes.lock().unwrap().is_empty());
+    assert!(host.calls().is_empty());
 }

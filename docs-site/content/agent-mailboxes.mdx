@@ -19,6 +19,11 @@ that the Administrator supplies. The Person makes the mailbox at the host
 and supplies its password to Pagis. When Pagis forgets a manual mailbox, the
 Person must also delete it at the host.
 
+Migadu needs an API key, and Pagis proves it when the Administrator
+connects the provider. The manual host needs no key. A host that needs no
+key reads no host secret. A mailbox password is separate from the host API
+key.
+
 A host refusal can explain a condition that the Person must meet. The
 mailbox form shows the host's message when it has one, and the fixed text of
 the error code otherwise. Pagis keeps at most 512 UTF-8 bytes of the host's

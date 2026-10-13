@@ -652,7 +652,7 @@ impl NewCredentials {
             }),
             MIGADU_PROVIDER => Ok(NewCredentials::Migadu {
                 account: field("account")?,
-                api_key: field("api_key")?,
+                api_key: fields.get("api_key").cloned(),
                 domain: field("domain")?,
             }),
             MANUAL_PROVIDER => Ok(NewCredentials::Manual {

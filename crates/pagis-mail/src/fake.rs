@@ -58,6 +58,7 @@ pub struct FakeMailboxHost {
 impl Default for FakeMailboxHost {
     fn default() -> Self {
         Self::with_capabilities(HostCapabilities {
+            api_key: true,
             outgoing_cap: true,
             delete_mailbox: true,
             reset_password: true,
