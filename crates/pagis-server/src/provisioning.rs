@@ -124,9 +124,12 @@ pub async fn onboard_for_a_server(
 
 impl WorkspaceSeed<'_> {
     /// Give one Person their Workspace and everything in it, and answer
-    /// the Workspace row.
+    /// the Workspace row. The caller names the Workspace, so an embedder
+    /// that knows the id before the Workspace exists seeds it under that
+    /// id.
     pub async fn run(
         &self,
+        workspace_id: WorkspaceId,
         user_id: &UserId,
         name: &str,
         timezone: &str,
@@ -134,7 +137,7 @@ impl WorkspaceSeed<'_> {
         now: UnixMillis,
     ) -> Result<Workspace, StoreError> {
         let workspace = Workspace {
-            id: WorkspaceId::generate(),
+            id: workspace_id,
             user_id: user_id.clone(),
             name: name.to_string(),
             timezone: timezone.to_string(),
@@ -358,5 +361,59 @@ mod tests {
             .find(|(alias, _)| *alias == DEFAULT_MODEL_ALIAS)
             .expect("the default alias is seeded");
         assert_eq!(default, vec![seed_default_model()]);
+    }
+
+    /// The caller names the Workspace, so an embedder that routes by
+    /// Workspace id before the Workspace exists seeds it under that id.
+    #[tokio::test]
+    async fn the_seed_writes_everything_under_the_given_workspace_id() {
+        let database = pagis_core::fake::FakeDatabase::default();
+        let stores = database.stores();
+        let workspace_id = WorkspaceId::generate();
+
+        let workspace = WorkspaceSeed::from(&stores)
+            .run(
+                workspace_id.clone(),
+                &UserId::generate(),
+                "Desk",
+                "UTC",
+                Onboarding::Wizard,
+                pagis_core::now_ms(),
+            )
+            .await
+            .expect("the seed runs");
+
+        assert_eq!(workspace.id, workspace_id);
+        let stored = stores.workspaces.get(&workspace_id).await.unwrap();
+        assert_eq!(stored.map(|row| row.id), Some(workspace_id.clone()));
+
+        let agents = stores
+            .agents
+            .list_by_workspace(&workspace_id)
+            .await
+            .unwrap();
+        assert_eq!(agents.len(), 1, "the first sprite");
+        assert_eq!(
+            workspace.chief_of_staff_agent_id.as_ref(),
+            Some(&agents[0].id)
+        );
+
+        let channels = stores
+            .channels
+            .list_by_workspace(&workspace_id)
+            .await
+            .unwrap();
+        assert_eq!(channels.len(), 1);
+        assert_eq!(channels[0].kind, ChannelKind::Dm);
+
+        let aliases = stores.model_aliases.list(&workspace_id).await.unwrap();
+        assert_eq!(aliases.len(), well_known_aliases().len());
+
+        let report = workspace
+            .report_schedule_id
+            .as_ref()
+            .expect("the Report Schedule is designated");
+        let schedule = stores.schedules.get(&workspace_id, report).await.unwrap();
+        assert_eq!(schedule.map(|row| row.workspace_id), Some(workspace_id));
     }
 }

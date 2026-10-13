@@ -1066,6 +1066,7 @@ async fn a_second_workspaces_memory_search_is_populated_after_a_boot() {
         .expect("write person B");
     let workspace_b = pagis_server::provisioning::WorkspaceSeed::from(daemon.stores())
         .run(
+            pagis_core::WorkspaceId::generate(),
             &person_b.id,
             "B's Workspace",
             "UTC",
