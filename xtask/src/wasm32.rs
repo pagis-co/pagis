@@ -64,7 +64,7 @@ pub const WASM_CRATES: &[WasmCrate] = &[
     WasmCrate {
         package: "pagis-server",
         args: &["--no-default-features"],
-        tests: &["agents_wasm", "conversation_wasm"],
+        tests: &["agents_wasm", "conversation_wasm", "plugins_wasm"],
     },
     WasmCrate {
         package: "pagis-plugin",

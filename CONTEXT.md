@@ -145,20 +145,21 @@ _Avoid_: phone app, mobile client, native app
 
 ### Native Part
 A group of routes whose services need sockets, processes, Docker or git:
-Computers, Calls, Hosts and Coding Sessions, Plugins and Software,
+Computers, Calls, Hosts and Coding Sessions, Software,
 Connections, Remote Access, and the System tab with Analytics. The
 `native` Cargo feature of `pagis-server` holds these parts. Without it,
 each route stays in the route table and answers `501 Not Implemented`
 with the code `not_available`. A part leaves `native` when it becomes
 portable and does not come back. Calls, Computers, Remote Access, the
-System tab with Analytics, Hosts and Coding Sessions, Plugins with the
+System tab with Analytics, Hosts and Coding Sessions, Software with the
 Software List and Widgets, Connections, and the HTTP socket upgrades are
 separated. The Home Exit and the exit socket belong to Computers.
 Without Computers, the Onboarding status holds `docker: null`, and the
 server omits the Computer step from the offered steps. The live events drop Host frames
 without `native` and keep Channel events. `pagis-server` builds on
-`wasm32-unknown-unknown`. Tests of the Agent and conversation routes give
-the routers requests with no listener on native targets and under Node.
+`wasm32-unknown-unknown`. Tests of the Agent, conversation and Plugin
+routes give the routers requests with no listener on native targets and
+under Node.
 Live event tests use the in-memory pair of `MessageSocket`s in
 `pagis-server::fake` (ADR-0038).
 
@@ -964,11 +965,16 @@ Agent's Computer, made at its first call (ADR-0016).
 ### Plugin
 An installed package of Skills and MCP servers in the agent-plugins.org
 format. An Administrator installs it for the Org from git or an upload;
-each installed state is a commit. Each Workspace uses it with its own
-Grants and runs its stdio servers in its own Plugin Computer. An HTTP or
+each installed state has an id that is a commit in the daemon's store.
+Each Workspace uses it with its own Grants and runs its stdio servers
+in its own Plugin Computer. An HTTP or
 SSE server of a Plugin uses `McpHttp`, supplied by the daemon or an
 Embedder. The Supervisor and hosts build on `wasm32-unknown-unknown`.
-Only the stdio sessions, processes and logs need `native`. A Plugin
+The Plugin routes build without `native`. `AppState` holds `Plugins`
+and `PluginHosts`, which retain the Embedder's `PackageSource`,
+`PluginStates`, `McpHttp` and `StdioServers`. Installs belong to the Org;
+Grants and log reads use the Person's own Workspace. Native stdio
+sessions, processes and disk logs need `native`. A Plugin
 consumes Connections and secrets through Plugin Bindings and never exposes
 one (ADR-0017).
 

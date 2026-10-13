@@ -122,7 +122,7 @@ pub async fn list_software(
 ) -> Result<Json<SoftwarePackagePage>, ApiError> {
     #[cfg(not(feature = "native"))]
     {
-        Err(ApiError::not_available("Plugins"))
+        Err(ApiError::not_available("Software"))
     }
     #[cfg(feature = "native")]
     {
@@ -169,7 +169,7 @@ pub async fn get_software(
 ) -> Result<Json<SoftwarePackageDetailDto>, ApiError> {
     #[cfg(not(feature = "native"))]
     {
-        Err(ApiError::not_available("Plugins"))
+        Err(ApiError::not_available("Software"))
     }
     #[cfg(feature = "native")]
     {
@@ -240,7 +240,7 @@ pub async fn get_contribution(
 ) -> Result<Json<ContributionDto>, ApiError> {
     #[cfg(not(feature = "native"))]
     {
-        Err(ApiError::not_available("Plugins"))
+        Err(ApiError::not_available("Software"))
     }
     #[cfg(feature = "native")]
     {

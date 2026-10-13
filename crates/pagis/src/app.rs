@@ -1454,6 +1454,8 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     };
 
     let state = AppState {
+        plugins: Arc::clone(&plugins),
+        plugin_hosts: Arc::clone(&plugin_hosts),
         native: pagis_server::NativeState {
             coding_sessions: Arc::clone(&coding_sessions),
             sign_ins,
@@ -1464,8 +1466,6 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
             numbers,
             live_tiers,
             versions: Arc::clone(&software) as _,
-            plugins: Arc::clone(&plugins),
-            plugin_hosts: Arc::clone(&plugin_hosts),
             home_exits: Arc::clone(&home_exits),
             computers: Arc::clone(&computers),
             screen: options.screen,

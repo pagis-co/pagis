@@ -6,27 +6,18 @@
 //! value, because those are package data the user must see, and the
 //! effect class of every tool the plugin declared.
 
-// The API types and OpenAPI operations exist in every build. Only the
-// handler operations and their services need the native feature.
-#![cfg_attr(not(feature = "native"), allow(dead_code))]
-
-#[cfg(feature = "native")]
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-#[cfg(feature = "native")]
 use object_store::ObjectStoreExt as _;
-#[cfg(feature = "native")]
 use object_store::path::Path as BlobPath;
-#[cfg(feature = "native")]
 use pagis_core::{
     AgentId, ArtifactId, ConnectionId, Plugin, PluginBindingValue, PluginId, PluginSource,
     PluginTools,
 };
-#[cfg(feature = "native")]
 use pagis_plugin::{
     BindingInput, BindingValueInput, ChangeStatus, Installed, McpServer, PluginError, SourceInput,
 };
@@ -240,30 +231,21 @@ pub struct PluginDto {
     (status = 200, body = PluginPage),
     (status = 401, body = crate::error::ErrorBody),
 ))]
-#[cfg_attr(not(feature = "native"), allow(unused_variables, dead_code))]
 pub async fn list_plugins(
     State(state): State<Arc<AppState>>,
     _tenant: Tenant,
 ) -> Result<Json<PluginPage>, ApiError> {
-    #[cfg(not(feature = "native"))]
-    {
-        Err(ApiError::not_available("Plugins"))
-    }
-    #[cfg(feature = "native")]
-    {
-        // The Org owns which plugins are available (ADR-0017), so
-        // everybody in it reads the same list.
-        let items = state
-            .native
-            .plugins
-            .list(&state.org_workspace_id)
-            .await
-            .map_err(plugin_error)?
-            .iter()
-            .map(row_dto)
-            .collect();
-        Ok(Json(PluginPage { items }))
-    }
+    // The Org owns which plugins are available (ADR-0017), so
+    // everybody in it reads the same list.
+    let items = state
+        .plugins
+        .list(&state.org_workspace_id)
+        .await
+        .map_err(plugin_error)?
+        .iter()
+        .map(row_dto)
+        .collect();
+    Ok(Json(PluginPage { items }))
 }
 
 #[utoipa::path(
@@ -278,38 +260,29 @@ pub async fn list_plugins(
         (status = 422, body = crate::error::ErrorBody),
     )
 )]
-#[cfg_attr(not(feature = "native"), allow(unused_variables, dead_code))]
 pub async fn install_plugin(
     State(state): State<Arc<AppState>>,
     Administrator(tenant): Administrator,
     Json(request): Json<InstallPluginRequest>,
 ) -> Result<(StatusCode, Json<PluginDto>), ApiError> {
-    #[cfg(not(feature = "native"))]
-    {
-        Err(ApiError::not_available("Plugins"))
-    }
-    #[cfg(feature = "native")]
-    {
-        let source = read_source(&state, &tenant, request.source).await?;
-        let bindings = read_bindings(request.bindings);
-        // The install is the Org's (ADR-0017): the rows, the Bindings
-        // and the checkout live in the Org's Workspace, and every tenant
-        // runs the Plugin in its own Plugin Computer.
-        let installed = state
-            .native
-            .plugins
-            .install(&state.org_workspace_id, &source, &bindings)
-            .await
-            .map_err(plugin_error)?;
-        Ok((
-            StatusCode::CREATED,
-            Json(detail_dto(
-                &installed,
-                catalog(&state, &tenant, &installed).await,
-                &running(&state, &tenant, &installed).await,
-            )),
-        ))
-    }
+    let source = read_source(&state, &tenant, request.source).await?;
+    let bindings = read_bindings(request.bindings);
+    // The install is the Org's (ADR-0017): the rows, the Bindings
+    // and the checkout live in the Org's Workspace, and every tenant
+    // runs the Plugin in its own Plugin Computer.
+    let installed = state
+        .plugins
+        .install(&state.org_workspace_id, &source, &bindings)
+        .await
+        .map_err(plugin_error)?;
+    Ok((
+        StatusCode::CREATED,
+        Json(detail_dto(
+            &installed,
+            catalog(&state, &tenant, &installed).await,
+            &running(&state, &tenant, &installed).await,
+        )),
+    ))
 }
 
 #[utoipa::path(
@@ -322,30 +295,21 @@ pub async fn install_plugin(
         (status = 404, body = crate::error::ErrorBody),
     )
 )]
-#[cfg_attr(not(feature = "native"), allow(unused_variables, dead_code))]
 pub async fn get_plugin(
     State(state): State<Arc<AppState>>,
     tenant: Tenant,
     Path(plugin_id): Path<String>,
 ) -> Result<Json<PluginDto>, ApiError> {
-    #[cfg(not(feature = "native"))]
-    {
-        Err(ApiError::not_available("Plugins"))
-    }
-    #[cfg(feature = "native")]
-    {
-        let installed = state
-            .native
-            .plugins
-            .installed(&state.org_workspace_id, &PluginId::from(plugin_id))
-            .await
-            .map_err(plugin_error)?;
-        Ok(Json(detail_dto(
-            &installed,
-            catalog(&state, &tenant, &installed).await,
-            &running(&state, &tenant, &installed).await,
-        )))
-    }
+    let installed = state
+        .plugins
+        .installed(&state.org_workspace_id, &PluginId::from(plugin_id))
+        .await
+        .map_err(plugin_error)?;
+    Ok(Json(detail_dto(
+        &installed,
+        catalog(&state, &tenant, &installed).await,
+        &running(&state, &tenant, &installed).await,
+    )))
 }
 
 #[utoipa::path(
@@ -361,35 +325,26 @@ pub async fn get_plugin(
         (status = 422, body = crate::error::ErrorBody),
     )
 )]
-#[cfg_attr(not(feature = "native"), allow(unused_variables, dead_code))]
 pub async fn update_plugin(
     State(state): State<Arc<AppState>>,
     Administrator(tenant): Administrator,
     Path(plugin_id): Path<String>,
     Json(request): Json<UpdatePluginRequest>,
 ) -> Result<Json<PluginDto>, ApiError> {
-    #[cfg(not(feature = "native"))]
-    {
-        Err(ApiError::not_available("Plugins"))
-    }
-    #[cfg(feature = "native")]
-    {
-        let upload = match request.artifact_id {
-            Some(artifact_id) => Some(read_artifact(&state, &tenant, &artifact_id).await?),
-            None => None,
-        };
-        let installed = state
-            .native
-            .plugins
-            .update(&state.org_workspace_id, &PluginId::from(plugin_id), upload)
-            .await
-            .map_err(plugin_error)?;
-        Ok(Json(detail_dto(
-            &installed,
-            catalog(&state, &tenant, &installed).await,
-            &running(&state, &tenant, &installed).await,
-        )))
-    }
+    let upload = match request.artifact_id {
+        Some(artifact_id) => Some(read_artifact(&state, &tenant, &artifact_id).await?),
+        None => None,
+    };
+    let installed = state
+        .plugins
+        .update(&state.org_workspace_id, &PluginId::from(plugin_id), upload)
+        .await
+        .map_err(plugin_error)?;
+    Ok(Json(detail_dto(
+        &installed,
+        catalog(&state, &tenant, &installed).await,
+        &running(&state, &tenant, &installed).await,
+    )))
 }
 
 #[utoipa::path(
@@ -402,26 +357,17 @@ pub async fn update_plugin(
         (status = 404, body = crate::error::ErrorBody),
     )
 )]
-#[cfg_attr(not(feature = "native"), allow(unused_variables, dead_code))]
 pub async fn uninstall_plugin(
     State(state): State<Arc<AppState>>,
     Administrator(_tenant): Administrator,
     Path(plugin_id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
-    #[cfg(not(feature = "native"))]
-    {
-        Err(ApiError::not_available("Plugins"))
-    }
-    #[cfg(feature = "native")]
-    {
-        state
-            .native
-            .plugins
-            .uninstall(&state.org_workspace_id, &PluginId::from(plugin_id))
-            .await
-            .map_err(plugin_error)?;
-        Ok(StatusCode::NO_CONTENT)
-    }
+    state
+        .plugins
+        .uninstall(&state.org_workspace_id, &PluginId::from(plugin_id))
+        .await
+        .map_err(plugin_error)?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[utoipa::path(
@@ -436,7 +382,6 @@ pub async fn uninstall_plugin(
         (status = 422, body = crate::error::ErrorBody),
     )
 )]
-#[cfg_attr(not(feature = "native"), allow(unused_variables, dead_code))]
 pub async fn bind_plugin_field(
     State(state): State<Arc<AppState>>,
     // A Binding belongs to the Org's install, so only an administrator
@@ -446,28 +391,20 @@ pub async fn bind_plugin_field(
     Path((plugin_id, field)): Path<(String, String)>,
     Json(request): Json<BindingValueRequest>,
 ) -> Result<Json<PluginDto>, ApiError> {
-    #[cfg(not(feature = "native"))]
-    {
-        Err(ApiError::not_available("Plugins"))
-    }
-    #[cfg(feature = "native")]
-    {
-        let input = BindingInput {
-            field,
-            value: binding_value(request),
-        };
-        let installed = state
-            .native
-            .plugins
-            .bind(&state.org_workspace_id, &PluginId::from(plugin_id), &input)
-            .await
-            .map_err(plugin_error)?;
-        Ok(Json(detail_dto(
-            &installed,
-            catalog(&state, &tenant, &installed).await,
-            &running(&state, &tenant, &installed).await,
-        )))
-    }
+    let input = BindingInput {
+        field,
+        value: binding_value(request),
+    };
+    let installed = state
+        .plugins
+        .bind(&state.org_workspace_id, &PluginId::from(plugin_id), &input)
+        .await
+        .map_err(plugin_error)?;
+    Ok(Json(detail_dto(
+        &installed,
+        catalog(&state, &tenant, &installed).await,
+        &running(&state, &tenant, &installed).await,
+    )))
 }
 
 #[utoipa::path(
@@ -482,42 +419,33 @@ pub async fn bind_plugin_field(
         (status = 409, body = crate::error::ErrorBody),
     )
 )]
-#[cfg_attr(not(feature = "native"), allow(unused_variables, dead_code))]
 pub async fn grant_plugin(
     State(state): State<Arc<AppState>>,
     tenant: Tenant,
     Path(plugin_id): Path<String>,
     Json(request): Json<GrantPluginRequest>,
 ) -> Result<(StatusCode, Json<crate::grants::GrantDto>), ApiError> {
-    #[cfg(not(feature = "native"))]
-    {
-        Err(ApiError::not_available("Plugins"))
-    }
-    #[cfg(feature = "native")]
-    {
-        let agent_id = AgentId::from(request.agent_id);
-        let agent = state
-            .agent_store
-            .get(&tenant.workspace_id, &agent_id)
-            .await?
-            .ok_or_else(|| ApiError::not_found("agent"))?;
-        let grant = state
-            .native
-            .plugins
-            .grant(
-                &state.org_workspace_id,
-                &tenant.workspace_id,
-                &PluginId::from(plugin_id),
-                &agent_id,
-            )
-            .await
-            .map_err(plugin_error)?;
-        crate::grants::publish_grant_event(&state, &grant, "grant.created").await?;
-        Ok((
-            StatusCode::CREATED,
-            Json(crate::grants::grant_dto(&grant, &agent.name)),
-        ))
-    }
+    let agent_id = AgentId::from(request.agent_id);
+    let agent = state
+        .agent_store
+        .get(&tenant.workspace_id, &agent_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("agent"))?;
+    let grant = state
+        .plugins
+        .grant(
+            &state.org_workspace_id,
+            &tenant.workspace_id,
+            &PluginId::from(plugin_id),
+            &agent_id,
+        )
+        .await
+        .map_err(plugin_error)?;
+    crate::grants::publish_grant_event(&state, &grant, "grant.created").await?;
+    Ok((
+        StatusCode::CREATED,
+        Json(crate::grants::grant_dto(&grant, &agent.name)),
+    ))
 }
 
 #[utoipa::path(
@@ -531,40 +459,30 @@ pub async fn grant_plugin(
         (status = 422, description = "A server did not start", body = crate::error::ErrorBody),
     )
 )]
-#[cfg_attr(not(feature = "native"), allow(unused_variables, dead_code))]
 pub async fn start_plugin(
     State(state): State<Arc<AppState>>,
     Administrator(tenant): Administrator,
     Path(plugin_id): Path<String>,
 ) -> Result<Json<PluginDto>, ApiError> {
-    #[cfg(not(feature = "native"))]
-    {
-        Err(ApiError::not_available("Plugins"))
-    }
-    #[cfg(feature = "native")]
-    {
-        let plugin_id = PluginId::from(plugin_id);
-        // The servers start in the asking person's own Plugin Computer:
-        // an administrator who starts a Plugin again starts theirs.
-        state
-            .native
-            .plugin_hosts
-            .get(&tenant.workspace_id)
-            .start(&plugin_id)
-            .await
-            .map_err(host_error)?;
-        let installed = state
-            .native
-            .plugins
-            .installed(&state.org_workspace_id, &plugin_id)
-            .await
-            .map_err(plugin_error)?;
-        Ok(Json(detail_dto(
-            &installed,
-            catalog(&state, &tenant, &installed).await,
-            &running(&state, &tenant, &installed).await,
-        )))
-    }
+    let plugin_id = PluginId::from(plugin_id);
+    // The servers start in the asking person's own Plugin Computer:
+    // an administrator who starts a Plugin again starts theirs.
+    state
+        .plugin_hosts
+        .get(&tenant.workspace_id)
+        .start(&plugin_id)
+        .await
+        .map_err(host_error)?;
+    let installed = state
+        .plugins
+        .installed(&state.org_workspace_id, &plugin_id)
+        .await
+        .map_err(plugin_error)?;
+    Ok(Json(detail_dto(
+        &installed,
+        catalog(&state, &tenant, &installed).await,
+        &running(&state, &tenant, &installed).await,
+    )))
 }
 
 /// The end of the server log of one Plugin in the asking Person's own
@@ -585,49 +503,36 @@ pub async fn start_plugin(
         (status = 404, body = crate::error::ErrorBody),
     )
 )]
-#[cfg_attr(not(feature = "native"), allow(unused_variables, dead_code))]
 pub async fn plugin_log(
     State(state): State<Arc<AppState>>,
     tenant: Tenant,
     Path(plugin_id): Path<String>,
 ) -> Result<Json<PluginLogDto>, ApiError> {
-    #[cfg(not(feature = "native"))]
-    {
-        Err(ApiError::not_available("Plugins"))
-    }
-    #[cfg(feature = "native")]
-    {
-        let plugin_id = PluginId::from(plugin_id);
-        // The Plugin must be installed: the log of a Plugin that is not
-        // there is not readable through its id.
-        state
-            .native
-            .plugins
-            .installed(&state.org_workspace_id, &plugin_id)
-            .await
-            .map_err(plugin_error)?;
-        // The host of the asking Person's Workspace reads that Workspace's
-        // log and no other.
-        let text = state
-            .native
-            .plugin_hosts
-            .get(&tenant.workspace_id)
-            .read_log(&plugin_id, MAX_LOG_BYTES)
-            .await;
-        Ok(Json(PluginLogDto { text }))
-    }
+    let plugin_id = PluginId::from(plugin_id);
+    // The Plugin must be installed: the log of a Plugin that is not
+    // there is not readable through its id.
+    state
+        .plugins
+        .installed(&state.org_workspace_id, &plugin_id)
+        .await
+        .map_err(plugin_error)?;
+    // The host of the asking Person's Workspace reads that Workspace's
+    // log and no other.
+    let text = state
+        .plugin_hosts
+        .get(&tenant.workspace_id)
+        .read_log(&plugin_id, MAX_LOG_BYTES)
+        .await;
+    Ok(Json(PluginLogDto { text }))
 }
 
 /// How much of one Plugin's server log the desk reads at once.
-#[cfg(feature = "native")]
 const MAX_LOG_BYTES: usize = 64 * 1024;
 
 /// The servers of the Plugin that hold a process in the asking person's
 /// own Plugin Computer now.
-#[cfg(feature = "native")]
 async fn running(state: &AppState, tenant: &Tenant, installed: &Installed) -> BTreeSet<String> {
     state
-        .native
         .plugin_hosts
         .get(&tenant.workspace_id)
         .running_servers(&installed.plugin.id)
@@ -637,10 +542,8 @@ async fn running(state: &AppState, tenant: &Tenant, installed: &Installed) -> BT
 /// The frozen manifest of the installed state, or `None` when the
 /// Plugin has none yet. The catalogue is the Org's, so every tenant
 /// reads the same one.
-#[cfg(feature = "native")]
 async fn catalog(state: &AppState, tenant: &Tenant, installed: &Installed) -> Option<PluginTools> {
     state
-        .native
         .plugin_hosts
         .get(&tenant.workspace_id)
         .catalog(&installed.plugin)
@@ -649,7 +552,6 @@ async fn catalog(state: &AppState, tenant: &Tenant, installed: &Installed) -> Op
 }
 
 /// The upload the request names, read out of its Artifact.
-#[cfg(feature = "native")]
 async fn read_source(
     state: &AppState,
     tenant: &Tenant,
@@ -663,7 +565,6 @@ async fn read_source(
     })
 }
 
-#[cfg(feature = "native")]
 async fn read_artifact(
     state: &AppState,
     tenant: &Tenant,
@@ -688,7 +589,6 @@ async fn read_artifact(
     Ok(bytes.to_vec())
 }
 
-#[cfg(feature = "native")]
 fn read_bindings(requests: Vec<BindingRequest>) -> Vec<BindingInput> {
     requests
         .into_iter()
@@ -699,7 +599,6 @@ fn read_bindings(requests: Vec<BindingRequest>) -> Vec<BindingInput> {
         .collect()
 }
 
-#[cfg(feature = "native")]
 fn binding_value(request: BindingValueRequest) -> BindingValueInput {
     match request {
         BindingValueRequest::Connection { connection_id } => BindingValueInput::Connection {
@@ -710,7 +609,6 @@ fn binding_value(request: BindingValueRequest) -> BindingValueInput {
     }
 }
 
-#[cfg(feature = "native")]
 fn row_dto(plugin: &Plugin) -> PluginRowDto {
     let (source_kind, source_url, source_ref) = match &plugin.source {
         PluginSource::Git { url, reference } => ("git", Some(url.clone()), reference.clone()),
@@ -730,7 +628,6 @@ fn row_dto(plugin: &Plugin) -> PluginRowDto {
     }
 }
 
-#[cfg(feature = "native")]
 fn detail_dto(
     installed: &Installed,
     frozen: Option<PluginTools>,
@@ -842,7 +739,6 @@ fn detail_dto(
     }
 }
 
-#[cfg(feature = "native")]
 fn server_dto(name: &str, server: &McpServer, running: bool) -> PluginServerDto {
     let (transport, command, args, cwd, url) = match server {
         McpServer::Stdio {
@@ -872,7 +768,6 @@ fn server_dto(name: &str, server: &McpServer, running: bool) -> PluginServerDto 
     }
 }
 
-#[cfg(feature = "native")]
 fn named(values: &std::collections::BTreeMap<String, String>) -> Vec<NamedValueDto> {
     values
         .iter()
@@ -883,7 +778,6 @@ fn named(values: &std::collections::BTreeMap<String, String>) -> Vec<NamedValueD
         .collect()
 }
 
-#[cfg(feature = "native")]
 fn effect_name(effect: pagis_broker::EffectClass) -> String {
     serde_json::to_value(effect)
         .ok()
@@ -891,7 +785,6 @@ fn effect_name(effect: pagis_broker::EffectClass) -> String {
         .unwrap_or_else(|| "host".to_string())
 }
 
-#[cfg(feature = "native")]
 fn host_error(error: pagis_plugins::HostError) -> ApiError {
     match error {
         pagis_plugins::HostError::NotFound => ApiError::not_found("plugin"),
@@ -903,7 +796,6 @@ fn host_error(error: pagis_plugins::HostError) -> ApiError {
     }
 }
 
-#[cfg(feature = "native")]
 fn plugin_error(error: PluginError) -> ApiError {
     match error {
         PluginError::NotFound => ApiError::not_found("plugin"),

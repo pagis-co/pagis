@@ -15,8 +15,8 @@ native = [
     "dep:pagis-computer",
     "dep:pagis-connect",
     "dep:pagis-google",
-    "dep:pagis-plugin",
-    "dep:pagis-plugins",
+    "pagis-plugin/native",
+    "pagis-plugins/native",
     "dep:pagis-software",
     "dep:pagis-telephony",
 ]
@@ -46,8 +46,8 @@ pagis-connect = { workspace = true, optional = true }
 pagis-google = { workspace = true, optional = true }
 pagis-core.workspace = true
 pagis-needs-you.workspace = true
-pagis-plugin = { workspace = true, optional = true, features = ["native"] }
-pagis-plugins = { workspace = true, optional = true }
+pagis-plugin.workspace = true
+pagis-plugins.workspace = true
 # The Web Push of each Notification (ADR-0030).
 pagis-push.workspace = true
 pagis-rt.workspace = true
@@ -79,6 +79,7 @@ url.workspace = true
 utoipa.workspace = true
 
 [dev-dependencies]
+tar.workspace = true
 tokio = { workspace = true, features = ["macros", "rt"] }
 tower = { version = "0.5", features = ["util"] }
 tracing-subscriber.workspace = true

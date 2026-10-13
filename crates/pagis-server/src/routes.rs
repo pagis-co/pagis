@@ -429,31 +429,31 @@ pub const ADMINISTRATION_ROUTES: &[Route] = &[
         path: "/api/v1/plugins",
         methods: &["get", "post"],
         authenticated: true,
-        part: Some("Plugins"),
+        part: None,
     },
     Route {
         path: "/api/v1/plugins/{plugin_id}",
         methods: &["get", "delete"],
         authenticated: true,
-        part: Some("Plugins"),
+        part: None,
     },
     Route {
         path: "/api/v1/plugins/{plugin_id}/update",
         methods: &["post"],
         authenticated: true,
-        part: Some("Plugins"),
+        part: None,
     },
     Route {
         path: "/api/v1/plugins/{plugin_id}/bindings/{field}",
         methods: &["put"],
         authenticated: true,
-        part: Some("Plugins"),
+        part: None,
     },
     Route {
         path: "/api/v1/plugins/{plugin_id}/start",
         methods: &["post"],
         authenticated: true,
-        part: Some("Plugins"),
+        part: None,
     },
 ];
 
@@ -1165,61 +1165,61 @@ pub const ROUTES: &[Route] = &[
         path: "/api/v1/plugins",
         methods: &["get"],
         authenticated: true,
-        part: Some("Plugins"),
+        part: None,
     },
     Route {
         path: "/api/v1/plugins/{plugin_id}",
         methods: &["get"],
         authenticated: true,
-        part: Some("Plugins"),
+        part: None,
     },
     Route {
         path: "/api/v1/plugins/{plugin_id}/grants",
         methods: &["post"],
         authenticated: true,
-        part: Some("Plugins"),
+        part: None,
     },
     Route {
         path: "/api/v1/plugins/{plugin_id}/log",
         methods: &["get"],
         authenticated: true,
-        part: Some("Plugins"),
+        part: None,
     },
     Route {
         path: "/api/v1/widgets/{package}/{version}/{widget}",
         methods: &["get"],
         authenticated: true,
-        part: Some("Plugins"),
+        part: Some("Software"),
     },
     Route {
         path: "/api/v1/widgets/{tool_call_id}/view",
         methods: &["get"],
         authenticated: true,
-        part: Some("Plugins"),
+        part: Some("Software"),
     },
     Route {
         path: "/api/v1/widgets/{tool_call_id}/rpc",
         methods: &["post"],
         authenticated: true,
-        part: Some("Plugins"),
+        part: Some("Software"),
     },
     Route {
         path: "/api/v1/software",
         methods: &["get"],
         authenticated: true,
-        part: Some("Plugins"),
+        part: Some("Software"),
     },
     Route {
         path: "/api/v1/software/{name}",
         methods: &["get"],
         authenticated: true,
-        part: Some("Plugins"),
+        part: Some("Software"),
     },
     Route {
         path: "/api/v1/software/{name}/contributions/{contribution_id}",
         methods: &["get"],
         authenticated: true,
-        part: Some("Plugins"),
+        part: Some("Software"),
     },
     Route {
         path: "/api/v1/usage",
@@ -1315,7 +1315,7 @@ pub const ROUTES: &[Route] = &[
         path: "/api/v1/widgets/{workspace_id}/{package}/{version}/{widget}/sandbox",
         methods: &["get"],
         authenticated: false,
-        part: Some("Plugins"),
+        part: Some("Software"),
     },
     Route {
         path: "/api/v1/connections/google/start",
@@ -1556,24 +1556,34 @@ mod tests {
     }
 
     #[test]
-    fn plugins_routes_name_one_native_part() {
-        let belongs = |route: &&Route| {
-            ["/api/v1/plugins", "/api/v1/software", "/api/v1/widgets"]
-                .iter()
-                .any(|prefix| route.path.starts_with(prefix))
-        };
-        let product: Vec<_> = ROUTES.iter().filter(belongs).collect();
-        let administration: Vec<_> = ADMINISTRATION_ROUTES.iter().filter(belongs).collect();
-        assert_eq!(product.len(), 11);
-        assert_eq!(administration.len(), 5);
-        for route in product.into_iter().chain(administration) {
-            assert_eq!(route.part, Some("Plugins"), "{}", route.path);
+    fn plugin_routes_are_portable_and_software_routes_name_the_native_part() {
+        let plugins: Vec<_> = ROUTES
+            .iter()
+            .chain(ADMINISTRATION_ROUTES)
+            .filter(|route| route.path.starts_with("/api/v1/plugins"))
+            .collect();
+        assert_eq!(plugins.len(), 9);
+        for route in plugins {
+            assert_eq!(route.part, None, "{}", route.path);
+        }
+        let software: Vec<_> = ROUTES
+            .iter()
+            .chain(ADMINISTRATION_ROUTES)
+            .filter(|route| {
+                ["/api/v1/software", "/api/v1/widgets"]
+                    .iter()
+                    .any(|prefix| route.path.starts_with(prefix))
+            })
+            .collect();
+        assert_eq!(software.len(), 7);
+        for route in software {
+            assert_eq!(route.part, Some("Software"), "{}", route.path);
         }
     }
 
     #[cfg(not(feature = "native"))]
     #[tokio::test]
-    async fn each_plugins_route_answers_not_available() {
+    async fn each_software_route_answers_not_available() {
         use axum::body::{Body, to_bytes};
         use axum::http::{Request, StatusCode};
         use tower::ServiceExt;
@@ -1585,7 +1595,7 @@ mod tests {
             crate::native_administration_routes(crate::AdministrationSections::default());
         for (router, table) in [(product, ROUTES), (administration, ADMINISTRATION_ROUTES)] {
             for route in table.iter().filter(|route| {
-                ["/api/v1/plugins", "/api/v1/software", "/api/v1/widgets"]
+                ["/api/v1/software", "/api/v1/widgets"]
                     .iter()
                     .any(|prefix| route.path.starts_with(prefix))
             }) {
@@ -1627,7 +1637,7 @@ mod tests {
                         body,
                         serde_json::json!({"error": {
                             "code": "not_available",
-                            "message": "This server does not offer Plugins."
+                            "message": "This server does not offer Software."
                         }})
                     );
                 }

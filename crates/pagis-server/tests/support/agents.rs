@@ -26,18 +26,61 @@ pub struct Embedder {
     pub mailbox_host: Arc<pagis_mail::fake::FakeMailboxHost>,
     #[allow(dead_code)]
     pub mail: Arc<pagis_mail::fake::MemoryMailbox>,
+    #[allow(dead_code)]
+    pub plugin_states: Arc<pagis_plugin::fake::MemoryPluginStates>,
 }
 
 impl Embedder {
+    #[allow(dead_code)]
     pub async fn new() -> Self {
         let services = Arc::new(UnusedServices);
         Self::with_model(services.clone(), services.clone(), services).await
     }
 
+    #[allow(dead_code)]
     pub async fn with_model(
         brain: Arc<dyn pagis_agent::Brain>,
         executor: Arc<dyn ToolExecutor>,
         gate: Arc<dyn pagis_agent::ModelCallGate>,
+    ) -> Self {
+        Self::with_services(
+            brain,
+            executor,
+            gate,
+            Arc::new(pagis_plugin::fake::FixedPackageSource::new(
+                Default::default(),
+            )),
+            Arc::new(pagis_plugins::NoStdioServers),
+            Arc::new(pagis_plugins::ReqwestMcpHttp::default()),
+        )
+        .await
+    }
+
+    #[allow(dead_code)]
+    pub async fn with_plugins(
+        source: Arc<dyn pagis_plugin::PackageSource>,
+        stdio: Arc<dyn pagis_plugins::StdioServers>,
+        http: Arc<dyn pagis_plugins::McpHttp>,
+    ) -> Self {
+        let services = Arc::new(UnusedServices);
+        Self::with_services(
+            services.clone(),
+            services.clone(),
+            services,
+            source,
+            stdio,
+            http,
+        )
+        .await
+    }
+
+    async fn with_services(
+        brain: Arc<dyn pagis_agent::Brain>,
+        executor: Arc<dyn ToolExecutor>,
+        gate: Arc<dyn pagis_agent::ModelCallGate>,
+        source: Arc<dyn pagis_plugin::PackageSource>,
+        stdio: Arc<dyn pagis_plugins::StdioServers>,
+        http: Arc<dyn pagis_plugins::McpHttp>,
     ) -> Self {
         let database = FakeDatabase::default();
         let stores = database.stores();
@@ -206,7 +249,36 @@ impl Embedder {
             .await
             .unwrap();
         let mail = Arc::new(pagis_mail::fake::MemoryMailbox::default());
+        let plugin_states = Arc::new(pagis_plugin::fake::MemoryPluginStates::default());
+        let plugin_hosts = pagis_plugins::PluginHosts::new(pagis_plugins::PluginHostsDeps {
+            org_workspace_id: org_workspace_id.clone(),
+            workspaces: stores.workspaces.clone(),
+            plugins: stores.plugins.clone(),
+            catalogs: stores.plugin_tools.clone(),
+            connections: stores.connections.clone(),
+            grants: stores.grants.clone(),
+            secrets: secrets.clone(),
+            tokens: Arc::new(pagis_plugins::NoConnectionTokens),
+            states: plugin_states.clone(),
+            manifests: broker.clone(),
+            bus: bus.clone(),
+            stdio,
+            http,
+        });
+        let plugins = Arc::new(pagis_plugin::Plugins::new(pagis_plugin::PluginsDeps {
+            plugins: stores.plugins.clone(),
+            connections: stores.connections.clone(),
+            grants: stores.grants.clone(),
+            secrets: secrets.clone(),
+            states: plugin_states.clone(),
+            source,
+            namespaces: broker.clone(),
+            servers: plugin_hosts.clone(),
+            bus: bus.clone(),
+        }));
         let state = AppState {
+            plugins,
+            plugin_hosts,
             channels: stores.channels.clone(),
             participants: stores.participants.clone(),
             messages: stores.messages.clone(),
@@ -307,6 +379,7 @@ impl Embedder {
             other_cookie,
             mailbox_host,
             mail,
+            plugin_states,
         }
     }
 
