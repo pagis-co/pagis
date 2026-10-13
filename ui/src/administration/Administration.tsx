@@ -118,6 +118,15 @@ export function AdministrationShell({
               {entry.label}
             </Button>
           ))}
+          {sections.data.links.map((link, index) => (
+            <a
+              key={index}
+              href={link.url}
+              className="ui-button ui-button-ghost ui-button-md administration-nav-item"
+            >
+              {link.label}
+            </a>
+          ))}
         </nav>
       </header>
       <main className="administration-content">

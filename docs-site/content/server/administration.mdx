@@ -43,7 +43,7 @@ before it draws the navigation. The route needs a signed-in Administrator.
 It names the offered sections in display order:
 
 ```json
-{"sections":["spend","people","sessions","hosts","resources","providers","settings","plugins","health","restart"]}
+{"sections":["spend","people","sessions","hosts","resources","providers","settings","plugins","health","restart"],"links":[]}
 ```
 
 All sections are offered by default with the Native Parts. A deployment can
@@ -70,6 +70,24 @@ A saved change that needs a restart applies at the next start of the server.
 Hosts is a list in Sessions and has no navigation item. Sessions shows
 the list only when the server offers `hosts`. A server built without the
 Native Parts does not offer `hosts`.
+
+## Navigation links
+
+The operator can name up to three links in `config.toml`:
+
+```toml
+[administration]
+links = [
+  { label = "Servers", url = "https://team.example.com/servers" },
+  { label = "Help", url = "https://team.example.com/help" },
+]
+```
+
+Each label has at most 40 characters, and each URL uses `https`. An invalid
+link stops the start, and the error names the setting. The Administration
+Interface reads the links with the offered sections and shows them in the
+navigation, in configuration order. Each link opens in the same tab. With
+no links, the navigation shows no extra entry.
 
 ## The first Administrator
 

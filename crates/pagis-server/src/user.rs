@@ -51,7 +51,7 @@ pub struct UserDto {
     /// their own requests.
     pub model_request_capture_days: Option<u32>,
     /// The links the operator names in the Server configuration.
-    pub product_app_links: Vec<ProductAppLink>,
+    pub product_app_links: Vec<ConfiguredLink>,
 }
 
 impl UserDto {
@@ -61,7 +61,7 @@ impl UserDto {
         user: &User,
         administration: &AdministrationAddress,
         capture: &pagis_core::CaptureSetting,
-        product_app_links: &[ProductAppLink],
+        product_app_links: &[ConfiguredLink],
     ) -> Self {
         UserDto {
             id: user.id.to_string(),
@@ -75,10 +75,11 @@ impl UserDto {
     }
 }
 
-/// One link the operator names for the Product App.
+/// One link that the Server configuration names: in the account menu of
+/// the Product App, or in the navigation of the Administration Interface.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
-pub struct ProductAppLink {
-    /// The text in the account menu, at most 40 characters.
+pub struct ConfiguredLink {
+    /// The text of the link, at most 40 characters.
     #[schema(max_length = 40)]
     pub label: String,
     /// A valid https URL. The link opens in the same tab.

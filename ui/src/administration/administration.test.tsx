@@ -61,7 +61,7 @@ function total(costUsd: number) {
  *  throws the daemon's error shape for a path it was given none for. */
 function apiOf(answers: Record<string, unknown>, errors: Record<string, unknown> = {}) {
   answers = {
-    '/api/v1/administration/sections': { sections: SECTIONS },
+    '/api/v1/administration/sections': { sections: SECTIONS, links: [] },
     '/api/v1/administration/usage': { from: 0, to: 1, items: [], total: total(0) },
     ...answers,
   }
@@ -97,6 +97,7 @@ describe('the administration page', () => {
       '/api/v1/user': ADMINISTRATOR,
       '/api/v1/administration/sections': {
         sections: offered ? SECTIONS : SECTIONS.filter((section) => section !== 'hosts'),
+        links: [],
       },
       '/api/v1/administration/sessions': { items: [] },
       '/api/v1/administration/hosts': { items: [] },
@@ -123,7 +124,7 @@ describe('the administration page', () => {
     window.history.replaceState(null, '', '/')
     const api = apiOf({
       '/api/v1/user': ADMINISTRATOR,
-      '/api/v1/administration/sections': { sections: ['spend', 'people', 'sessions', 'resources', 'plugins', 'health'] },
+      '/api/v1/administration/sections': { sections: ['spend', 'people', 'sessions', 'resources', 'plugins', 'health'], links: [] },
     })
     mount(<Administration api={api} />)
     const navigation = await screen.findByRole('navigation', { name: 'Administration' })
@@ -134,11 +135,43 @@ describe('the administration page', () => {
     expect(api.GET).not.toHaveBeenCalledWith('/api/v1/settings/system')
   })
 
+  it('shows each configured link in navigation and opens it in the same tab', async () => {
+    const links = [
+      { label: 'Servers', url: 'https://team.example.com/servers' },
+      { label: 'Help', url: 'https://team.example.com/help?team=one#contact' },
+      { label: 'Account', url: 'https://team.example.com/account' },
+    ]
+    const api = apiOf({
+      '/api/v1/user': ADMINISTRATOR,
+      '/api/v1/administration/sections': { sections: SECTIONS, links },
+    })
+    mount(<Administration api={api} />)
+    const navigation = await screen.findByRole('navigation', { name: 'Administration' })
+    const anchors = within(navigation).getAllByRole('link')
+    expect(anchors.map((anchor) => anchor.textContent)).toEqual(links.map((link) => link.label))
+    for (const [index, anchor] of anchors.entries()) {
+      expect(anchor.getAttribute('href')).toBe(links[index].url)
+      expect(anchor.getAttribute('target')).toBeNull()
+    }
+  })
+
+  it('shows no extra navigation entry when links are empty', async () => {
+    const api = apiOf({
+      '/api/v1/user': ADMINISTRATOR,
+      '/api/v1/administration/sections': { sections: SECTIONS, links: [] },
+    })
+    mount(<Administration api={api} />)
+    const navigation = await screen.findByRole('navigation', { name: 'Administration' })
+    expect(within(navigation).queryAllByRole('link')).toEqual([])
+    expect(within(navigation).getAllByRole('button').map((button) => button.textContent))
+      .toEqual(['Spend', 'People', 'Sessions', 'Resources', 'Providers', 'Settings', 'Plugins', 'Health'])
+  })
+
   it.each(['providers', 'settings'])('opens the first offered view at a hidden %s address', async (view) => {
     window.history.replaceState(null, '', `/${view}`)
     const api = apiOf({
       '/api/v1/user': ADMINISTRATOR,
-      '/api/v1/administration/sections': { sections: ['health', 'spend'] },
+      '/api/v1/administration/sections': { sections: ['health', 'spend'], links: [] },
     })
     mount(<Administration api={api} />)
     expect(await screen.findByRole('heading', { name: 'Health' })).toBeTruthy()
@@ -157,7 +190,7 @@ describe('the administration page', () => {
     await waitFor(() => expect(api.GET).toHaveBeenCalledWith('/api/v1/administration/sections'))
     expect(screen.queryByRole('navigation')).toBeNull()
     expect(api.GET).not.toHaveBeenCalledWith('/api/v1/administration/usage', expect.anything())
-    answer({ data: { sections: SECTIONS } })
+    answer({ data: { sections: SECTIONS, links: [] } })
     expect(await screen.findByRole('navigation')).toBeTruthy()
   })
 
@@ -175,7 +208,7 @@ describe('the administration page', () => {
     window.history.replaceState(null, '', '/settings')
     const api = apiOf({
       '/api/v1/user': ADMINISTRATOR,
-      '/api/v1/administration/sections': { sections: SECTIONS.filter((section) => section !== 'restart') },
+      '/api/v1/administration/sections': { sections: SECTIONS.filter((section) => section !== 'restart'), links: [] },
       '/api/v1/settings/system': SYSTEM,
       '/api/v1/settings/system/remote-access': { enabled: false, switchable: false },
     })
@@ -321,7 +354,7 @@ describe('the administration page', () => {
             ? { data: ADMINISTRATOR }
             : { error: { error: { code: 'unauthorized', message: 'no' } } }
         }
-        if (path === '/api/v1/administration/sections') return { data: { sections: SECTIONS } }
+        if (path === '/api/v1/administration/sections') return { data: { sections: SECTIONS, links: [] } }
         if (path === '/api/v1/administration/usage') return { data: { from: 0, to: 1, items: [], total: total(0) } }
         return { data: {} }
       }),
