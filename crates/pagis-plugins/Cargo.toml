@@ -12,7 +12,7 @@ futures.workspace = true
 http.workspace = true
 pagis-broker.workspace = true
 pagis-core.workspace = true
-pagis-plugin.workspace = true
+pagis-plugin = { workspace = true, features = ["native"] }
 rmcp = { workspace = true, features = [
     "client",
     "reqwest-tls-no-provider",

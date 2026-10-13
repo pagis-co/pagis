@@ -143,6 +143,22 @@ An HTTP or SSE server is an outbound request of the daemon.
   value. An environment value is readable by every other stdio server of the
   same Plugin Computer.
 
+### Package checks run without native services
+
+`pagis-plugin` checks a Plugin Package held in `PackageFiles`: relative
+paths, file bytes and executable flags. A directory exists when a file is
+under it, as in git. An uploaded tar is read in memory; a path that leaves
+the Plugin Package is refused, and one shared root directory is removed.
+Validation and Skill parsing need no disk and build and run on
+`wasm32-unknown-unknown`.
+
+The default `native` Cargo feature holds the git source fetch, git store,
+install from the disk, Skill catalog and first-party Skill files. Native
+services read a checkout into `PackageFiles` before validation. The
+workspace dependency disables default features, and native consumers turn
+on `native`. The gate builds the portable crate alone with
+`--no-default-features`, so feature unification cannot add native services.
+
 ### Plugin skills are loaded, not copied into memory
 
 - Nothing of a Plugin enters a memory repository. The system prompt lists

@@ -4,5 +4,6 @@
 //! is added or removed.
 
 fn main() {
+    #[cfg(feature = "native")]
     println!("cargo:rerun-if-changed=../../computer/skills");
 }

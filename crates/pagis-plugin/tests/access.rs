@@ -90,7 +90,8 @@ impl Fixture {
     }
 }
 
-#[test]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
 fn both_grants_together_allow_the_call() {
     let fixture = Fixture::new();
 
@@ -106,14 +107,16 @@ fn both_grants_together_allow_the_call() {
     .expect("allowed");
 }
 
-#[test]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
 fn a_plugin_without_bindings_needs_only_the_plugin_grant() {
     let fixture = Fixture::new();
 
     check_access(&fixture.plugin, &[], &[fixture.plugin_grant()], &[]).expect("allowed");
 }
 
-#[test]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
 fn no_plugin_grant_refuses_the_call() {
     let fixture = Fixture::new();
 
@@ -130,7 +133,8 @@ fn no_plugin_grant_refuses_the_call() {
     );
 }
 
-#[test]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
 fn no_connection_grant_refuses_the_call() {
     let fixture = Fixture::new();
 
@@ -147,7 +151,8 @@ fn no_connection_grant_refuses_the_call() {
     );
 }
 
-#[test]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
 fn a_connection_grant_without_the_declared_capability_refuses_the_call() {
     let fixture = Fixture::new();
 
@@ -170,7 +175,8 @@ fn a_connection_grant_without_the_declared_capability_refuses_the_call() {
     );
 }
 
-#[test]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
 fn a_revoked_plugin_grant_refuses_the_call() {
     let fixture = Fixture::new();
     let revoked = Grant {
@@ -186,7 +192,8 @@ fn a_revoked_plugin_grant_refuses_the_call() {
     );
 }
 
-#[test]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
 fn a_connection_that_needs_authorization_again_refuses_the_call() {
     let fixture = Fixture::new();
     let connection = Connection {
@@ -210,7 +217,8 @@ fn a_connection_that_needs_authorization_again_refuses_the_call() {
     );
 }
 
-#[test]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
 fn a_plugin_that_is_not_enabled_refuses_the_call() {
     let fixture = Fixture::new();
     let plugin = Plugin {
@@ -223,5 +231,42 @@ fn a_plugin_that_is_not_enabled_refuses_the_call() {
     assert_eq!(
         refused,
         Err(AccessDenied::NotEnabled("weather".to_string()))
+    );
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+fn a_revoked_connection_grant_refuses_the_call() {
+    let fixture = Fixture::new();
+    let revoked = Grant {
+        revoked_at: Some(now_ms()),
+        ..fixture.connection_grant(&["calendar.read"])
+    };
+    assert_eq!(
+        check_access(
+            &fixture.plugin,
+            &[fixture.binding(&["calendar.read"])],
+            &[fixture.plugin_grant(), revoked],
+            std::slice::from_ref(&fixture.connection)
+        ),
+        Err(AccessDenied::NoConnectionGrant("account".to_string()))
+    );
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+fn a_missing_bound_connection_refuses_the_call() {
+    let fixture = Fixture::new();
+    assert_eq!(
+        check_access(
+            &fixture.plugin,
+            &[fixture.binding(&["calendar.read"])],
+            &[
+                fixture.plugin_grant(),
+                fixture.connection_grant(&["calendar.read"])
+            ],
+            &[]
+        ),
+        Err(AccessDenied::ConnectionUnavailable("account".to_string()))
     );
 }

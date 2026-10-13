@@ -58,7 +58,7 @@ pagis-mail = { path = "crates/pagis-mail" }
 pagis-needs-you = { path = "crates/pagis-needs-you" }
 pagis-memory-git = { path = "crates/pagis-memory-git" }
 pagis-knowledge = { path = "crates/pagis-knowledge" }
-pagis-plugin = { path = "crates/pagis-plugin" }
+pagis-plugin = { path = "crates/pagis-plugin", default-features = false }
 pagis-plugins = { path = "crates/pagis-plugins" }
 pagis-push = { path = "crates/pagis-push" }
 pagis-rt = { path = "crates/pagis-rt" }

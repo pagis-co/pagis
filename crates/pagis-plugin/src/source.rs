@@ -118,61 +118,19 @@ fn check_reference(reference: &str) -> Result<(), SourceError> {
 /// zip of a folder does, is unpacked without it, so the root of the
 /// tree is the plugin root.
 fn unpack(tar: &[u8], into: &Path) -> Result<(), SourceError> {
-    let mut archive = tar::Archive::new(tar);
-    let mut entries = Vec::new();
-    for entry in archive
-        .entries()
-        .map_err(|error| SourceError::Refused(format!("the upload is not a tar: {error}")))?
-    {
-        use std::io::Read;
-        let mut entry = entry
-            .map_err(|error| SourceError::Refused(format!("cannot read the upload: {error}")))?;
-        if !entry.header().entry_type().is_file() {
-            continue;
-        }
-        let path = entry
-            .path()
-            .map_err(|error| SourceError::Refused(format!("an entry has no path: {error}")))?
-            .into_owned();
-        if !crate::validate::stays_inside(&path) {
-            return Err(SourceError::Refused(format!(
-                "the upload carries {}, which leaves the plugin root",
-                path.display()
-            )));
-        }
-        let executable = entry.header().mode().unwrap_or(0o644) & 0o111 != 0;
-        let mut data = Vec::new();
-        entry
-            .read_to_end(&mut data)
-            .map_err(|error| SourceError::Refused(format!("cannot read an entry: {error}")))?;
-        entries.push((path, data, executable));
-    }
-    if entries.is_empty() {
-        return Err(SourceError::Refused("the upload holds no file".to_string()));
-    }
-
-    let strip = shared_root(&entries);
-    for (path, data, executable) in &entries {
-        let path = match strip {
-            Some(root) => match path.strip_prefix(root) {
-                Ok(rest) => rest.to_path_buf(),
-                Err(_) => path.clone(),
-            },
-            None => path.clone(),
-        };
-        if path.as_os_str().is_empty() {
-            continue;
-        }
-        let target = into.join(&path);
+    let files = crate::package::PackageFiles::from_tar(tar)
+        .map_err(|error| SourceError::Refused(error.to_string()))?;
+    for (path, file) in files.iter() {
+        let target = into.join(path);
         if let Some(parent) = target.parent() {
             std::fs::create_dir_all(parent).map_err(|error| {
                 SourceError::Failed(format!("cannot write the upload: {error}"))
             })?;
         }
-        std::fs::write(&target, data)
+        std::fs::write(&target, &file.bytes)
             .map_err(|error| SourceError::Failed(format!("cannot write the upload: {error}")))?;
         #[cfg(unix)]
-        if *executable {
+        if file.executable {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755)).map_err(
                 |error| SourceError::Failed(format!("cannot set the file mode: {error}")),
@@ -180,19 +138,4 @@ fn unpack(tar: &[u8], into: &Path) -> Result<(), SourceError> {
         }
     }
     Ok(())
-}
-
-/// The one top directory every entry is under, when there is one.
-fn shared_root(entries: &[(std::path::PathBuf, Vec<u8>, bool)]) -> Option<&std::ffi::OsStr> {
-    let first = entries
-        .first()?
-        .0
-        .components()
-        .next()
-        .map(|part| part.as_os_str())?;
-    let shared = entries.iter().all(|(path, _, _)| {
-        path.components().count() > 1
-            && path.components().next().map(|part| part.as_os_str()) == Some(first)
-    });
-    shared.then_some(first)
 }

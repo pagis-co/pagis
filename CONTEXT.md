@@ -980,6 +980,13 @@ with one does not pass dispatch (ADR-0017).
 The Grant that lets one Agent use one Plugin: all of it, or none of it
 (ADR-0017).
 
+### Plugin Package
+The files of a Plugin in the agent-plugins.org format: `plugin.json`,
+optional `mcp.json`, and Skills. `PackageFiles` holds each relative path,
+its bytes and its executable flag. A directory exists when a file is under
+it, as in git. Package checks need no disk, process or git access and run
+on native targets and `wasm32-unknown-unknown` (ADR-0017).
+
 ### Plugin Tool
 One tool of an installed Plugin's MCP server, named `<plugin>__<tool>`. A
 stdio tool runs in the Workspace's Plugin Computer, never on the daemon

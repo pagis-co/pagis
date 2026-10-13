@@ -26,7 +26,9 @@ use pagis_core::{
     PluginBindingValue, PluginId, PluginState, PluginStore, PluginTool, PluginToolStore,
     PluginTools, SecretStore, WorkspaceId, now_ms,
 };
-use pagis_plugin::{McpConfig, McpServer, PluginGitStore, PluginPackage, check_access, validate};
+use pagis_plugin::{
+    McpConfig, McpServer, PackageFiles, PluginGitStore, PluginPackage, check_access, validate,
+};
 
 use crate::freeze::{capability_manifest, freeze_tools};
 use crate::log::PluginLogs;
@@ -661,8 +663,10 @@ impl PluginHost {
             .deps
             .git
             .paths(&self.deps.org_workspace_id, plugin.id.as_str());
+        let files = PackageFiles::from_directory(&paths.root)
+            .map_err(|error| HostError::Storage(error.to_string()))?;
         let package =
-            Arc::new(validate(&paths.root).map_err(|error| HostError::Refused(error.to_string()))?);
+            Arc::new(validate(&files).map_err(|error| HostError::Refused(error.to_string()))?);
         self.packages
             .lock()
             .expect("the package cache lock")
