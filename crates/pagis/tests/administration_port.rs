@@ -21,6 +21,7 @@ const SECTIONS: &[&str] = &[
     "spend",
     "people",
     "sessions",
+    "hosts",
     "resources",
     "providers",
     "settings",
@@ -63,6 +64,8 @@ async fn hidden_sections_have_no_routes(hidden: &[&str]) {
             "settings"
         } else if route.path == "/api/v1/system/restart" {
             "restart"
+        } else if route.path == "/api/v1/administration/hosts" {
+            "hosts"
         } else {
             continue;
         };
@@ -131,8 +134,13 @@ async fn hidden_restart_has_no_route() {
 }
 
 #[tokio::test]
+async fn hidden_hosts_have_no_route() {
+    hidden_sections_have_no_routes(&["hosts"]).await;
+}
+
+#[tokio::test]
 async fn all_hidden_sections_have_no_routes() {
-    hidden_sections_have_no_routes(&["providers", "settings", "restart"]).await;
+    hidden_sections_have_no_routes(&["hosts", "providers", "settings", "restart"]).await;
 }
 
 #[tokio::test]
