@@ -115,11 +115,22 @@ the cap, or use a model with no known price. It ends `failed` with
 note says why it stopped. The Harness Model Endpoint makes the same check
 before each model request of a Coding Session.
 
-Each model call of a Run goes through one function that asks the host's
-`ModelCallGate` first. `AgentDeps` holds the gate. The daemon uses
+Each model call of a Run goes through one function that prepares the
+request and checks its budget before it asks the Embedder's
+`ModelCallGate`. The gate receives the Run and a `ModelCallBound`: the
+model candidates, the input token bound that `model.requested` records,
+and the output token limit that the request sends. `AgentDeps` holds the
+gate. The daemon uses
 `SpendCapGate`, which reads the current Spend Cap and Usage Records with
-`cap_stop`. A test or another host supplies its own gate. A gate stop
+`cap_stop`. A test or another Embedder supplies its own gate. A gate stop
 carries the conversation note and the Run's `FailureKind`.
+
+Each permitted call gives the gate one `after_call` outcome: the provider
+usage and the router's cost estimate in USD, or the failure. Cancellation
+is a failure. Missing usage or prices stay unknown. The Run uses the same
+cost for its Usage Record and its usage events. A call that the gate stops
+has no `after_call`. The method has an empty default body; the Spend Cap
+gate uses only the model candidates in the bound.
 
 ### The Session is the only way in
 

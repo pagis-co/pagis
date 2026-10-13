@@ -382,7 +382,11 @@ impl pagis_agent::Brain for UnusedServices {
 }
 #[async_trait::async_trait]
 impl pagis_agent::ModelCallGate for UnusedServices {
-    async fn before_call(&self, _: &Run, _: &[String]) -> Result<(), pagis_agent::GateStop> {
+    async fn before_call(
+        &self,
+        _: &Run,
+        _: &pagis_agent::ModelCallBound,
+    ) -> Result<(), pagis_agent::GateStop> {
         panic!("the route needs no model call")
     }
 }

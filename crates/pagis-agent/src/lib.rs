@@ -38,7 +38,7 @@ pub use brain::{
 };
 pub use hub::{DeltaFrame, StreamHub};
 pub use mention::is_mentioned;
-pub use model_call_gate::{GateStop, ModelCallGate};
+pub use model_call_gate::{GateStop, ModelCallBound, ModelCallGate};
 pub use model_catalog::{MODEL_LIST_REFRESH, ModelCatalog, ModelListError};
 pub use progress::{ProgressFrame, ProgressHub};
 pub use recover::{RESTART_ERROR, resume_unfinished_runs};

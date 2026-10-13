@@ -5,11 +5,11 @@
 //! (ADR-0010). The answer also writes the Usage Record of the call and,
 //! when the Run has no Google data and Model Request Capture is on,
 //! the capture of the request and its answer (ADR-0031). Every exit
-//! path of a call goes
-//! through [`ModelCall::finish`], so none of the three is left out.
+//! path of a call goes through [`ModelCall::finish`], which also gives
+//! the gate one outcome for each permitted call.
 //!
 //! The request asks for the output reserve of its route as its output
-//! limit (ADR-0009). [`ModelCall::start`] sets that limit for every
+//! limit (ADR-0009). [`ModelCall::prepare`] sets that limit for every
 //! phase, so the limit the summary records is the limit the provider
 //! gets.
 
@@ -21,6 +21,7 @@ use sha2::{Digest, Sha256};
 
 use crate::brain::{BrainError, TurnEnd, TurnMessage, TurnRequest, TurnRole};
 use crate::context_budget::{RequestBudget, RequestSummary};
+use crate::model_call_gate::ModelCallBound;
 use crate::system::AgentDeps;
 
 /// How one model request ended.
@@ -50,15 +51,16 @@ pub(crate) struct ModelCall<'a> {
     phase: &'a str,
     phase_request: usize,
     request: TurnRequest,
+    summary: RequestSummary,
     started: Instant,
     capture_permitted: bool,
 }
 
 impl<'a> ModelCall<'a> {
-    /// Set the output limit of the request and publish its summary,
-    /// before the call. A route with no budget sends no limit; the
-    /// budget check then refuses the request before the call.
-    pub async fn start(
+    /// Set the output limit and compute the summary before the gate.
+    /// A route with no budget sends no limit; the budget check then
+    /// refuses the request before the call.
+    pub async fn prepare(
         deps: &'a AgentDeps,
         run: &'a Run,
         phase: &'a str,
@@ -76,37 +78,59 @@ impl<'a> ModelCall<'a> {
             RequestBudget::for_candidates(&request.model_candidates, &deps.models)
                 .ok()
                 .map(|budget| u32::try_from(budget.output_reserve).unwrap_or(u32::MAX));
-        let mut payload = serde_json::to_value(RequestSummary::of(&request, &deps.models))
-            .expect("a request summary serializes");
-        let overlay = deps.tool_runtime.overlay(&run.id);
-        let privacy = overlay
-            .lock()
-            .await
-            .holds_google_data(
-                &run.workspace_id,
-                deps.grants.as_ref(),
-                deps.connections.as_ref(),
-            )
-            .await;
-        let capture_permitted = matches!(privacy, Ok(false));
-        match privacy {
-            Ok(holds_google_data) => payload["holds_google_data"] = holds_google_data.into(),
-            Err(error) => {
-                tracing::error!(%error, run_id = %run.id, "the request source could not be checked for capture");
-            }
-        }
-        payload["phase"] = phase.into();
-        payload["phase_request"] = phase_request.into();
-        crate::run::publish(deps, run, "model.requested", payload).await;
+        let summary = RequestSummary::of(&request, &deps.models);
         Ok(Self {
             deps,
             run,
             phase,
             phase_request,
             request,
+            summary,
             started: Instant::now(),
-            capture_permitted,
+            capture_permitted: false,
         })
+    }
+
+    /// The bound of a request that passed the budget check.
+    pub fn bound(&self) -> ModelCallBound {
+        ModelCallBound {
+            model_candidates: self.summary.model_candidates.clone(),
+            input_tokens: self
+                .summary
+                .estimated_input_tokens
+                .expect("a permitted request has an input bound"),
+            output_limit: self
+                .summary
+                .max_output_tokens
+                .expect("a permitted request has an output limit"),
+        }
+    }
+
+    /// Publish the request summary before the call.
+    pub async fn start(&mut self) {
+        let mut payload =
+            serde_json::to_value(&self.summary).expect("a request summary serializes");
+        let overlay = self.deps.tool_runtime.overlay(&self.run.id);
+        let privacy = overlay
+            .lock()
+            .await
+            .holds_google_data(
+                &self.run.workspace_id,
+                self.deps.grants.as_ref(),
+                self.deps.connections.as_ref(),
+            )
+            .await;
+        self.capture_permitted = matches!(privacy, Ok(false));
+        match privacy {
+            Ok(holds_google_data) => payload["holds_google_data"] = holds_google_data.into(),
+            Err(error) => {
+                tracing::error!(%error, run_id = %self.run.id, "the request source could not be checked for capture");
+            }
+        }
+        payload["phase"] = self.phase.into();
+        payload["phase_request"] = self.phase_request.into();
+        crate::run::publish(self.deps, self.run, "model.requested", payload).await;
+        self.started = Instant::now();
     }
 
     /// The request as it goes to the model.
@@ -114,10 +138,10 @@ impl<'a> ModelCall<'a> {
         &self.request
     }
 
-    /// Record how the request ended: the Usage Record, the capture while
-    /// the setting is on, and the `model.completed` event.
+    /// Record how the request ended and give the gate its outcome.
+    /// A budget rejection has no gate outcome because it precedes the gate.
     pub async fn finish(
-        &self,
+        self,
         outcome: Outcome,
         router_attempts: Option<u32>,
         end: Option<&TurnEnd>,
@@ -158,6 +182,26 @@ impl<'a> ModelCall<'a> {
             }),
         )
         .await;
+        match outcome {
+            Outcome::Rejected => {}
+            Outcome::Canceled => {
+                let error = BrainError::new("model call canceled");
+                self.deps.gate.after_call(self.run, Err(&error)).await;
+            }
+            Outcome::Failed => {
+                self.deps
+                    .gate
+                    .after_call(self.run, Err(error.expect("a failed call has an error")))
+                    .await;
+            }
+            Outcome::Completed => {
+                let unknown = TurnEnd::default();
+                self.deps
+                    .gate
+                    .after_call(self.run, Ok(end.unwrap_or(&unknown)))
+                    .await;
+            }
+        }
     }
 
     /// A capture that is not kept is logged and never fails the Run: it
