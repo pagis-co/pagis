@@ -1,5 +1,9 @@
 //! The Computer operations that the domain calls. Container lifecycle
-//! operations belong to the host implementation.
+//! operations belong to the implementation.
+
+mod frame;
+
+pub use frame::{frames_match, settled_frame};
 
 use crate::computer_action::InputOp;
 use crate::{AgentId, FillField, WorkspaceId};

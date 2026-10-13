@@ -57,9 +57,13 @@ shell commands, archive transfers, frames, input, the daemon's held browser
 channel and the exit in use. The value types belong to `pagis-core` and
 contain no Docker client types. The screen lease is an opaque guard whose
 implementation releases the batch when the guard drops. `pagis-core`
-contains no Tokio or image processing. `pagis-agent` normalizes provider
-actions and fits PNG captures to the model's display space.
-`pagis-computer` compares frames to detect a settled screen.
+holds the settled-frame rule: PNG frame comparison and the settle loop.
+The loop takes an async frame capture and returns the last frame and
+whether the screen settles. Its timers come from `pagis-rt`, so the same
+rule runs on native targets and `wasm32-unknown-unknown`. The `image`
+dependency enables PNG only. `ComputerManager` calls this shared rule
+and logs the result. `pagis-agent` normalizes provider actions and fits
+PNG captures to the model's display space.
 
 `pagis-agent`, `pagis-vault` and `pagis-software` hold this seam.
 `ComputerManagers` and `ComputerManager` implement it in `pagis-computer`.

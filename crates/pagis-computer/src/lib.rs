@@ -8,7 +8,6 @@ pub mod docker;
 mod domain;
 pub mod exit_listener;
 pub mod fake;
-pub mod frame;
 pub mod home_exit;
 mod image;
 mod manager;
