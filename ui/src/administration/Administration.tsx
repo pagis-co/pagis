@@ -132,7 +132,7 @@ export function AdministrationShell({
       <main className="administration-content">
         {view === 'spend' && <Spend api={api} />}
         {view === 'people' && <People api={api} />}
-        {view === 'sessions' && <Sessions api={api} />}
+        {view === 'sessions' && <Sessions api={api} hostsAvailable={sections.data.sections.includes('hosts')} />}
         {view === 'resources' && <Resources api={api} />}
         {view === 'providers' && <Providers api={api} />}
         {view === 'settings' && (

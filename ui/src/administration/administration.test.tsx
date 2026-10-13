@@ -20,7 +20,7 @@ const ADMINISTRATOR = {
   role: 'administrator',
 }
 
-const SECTIONS = ['spend', 'people', 'sessions', 'resources', 'providers', 'settings', 'plugins', 'health', 'restart']
+const SECTIONS = ['spend', 'people', 'sessions', 'hosts', 'resources', 'providers', 'settings', 'plugins', 'health', 'restart']
 
 const SYSTEM: SystemSettingsDto = {
   port: 4400, listening_port: 4400, port_override: null, supervised: true, started_at: 1,
@@ -91,6 +91,35 @@ function mount(node: React.ReactElement) {
 
 describe('the administration page', () => {
   afterEach(() => window.history.replaceState(null, '', '/'))
+  it.each([false, true])('shows Hosts in Sessions only when offered: %s', async (offered) => {
+    window.history.replaceState(null, '', '/sessions')
+    const api = apiOf({
+      '/api/v1/user': ADMINISTRATOR,
+      '/api/v1/administration/sections': {
+        sections: offered ? SECTIONS : SECTIONS.filter((section) => section !== 'hosts'),
+        links: [],
+      },
+      '/api/v1/administration/sessions': { items: [] },
+      '/api/v1/administration/hosts': { items: [] },
+    })
+
+    mount(<Administration api={api} />)
+
+    expect(await screen.findByRole('heading', { name: 'Sessions' })).toBeTruthy()
+    const navigation = screen.getByRole('navigation', { name: 'Administration' })
+    expect(within(navigation).queryByRole('button', { name: 'Hosts' })).toBeNull()
+    if (offered) {
+      expect(await screen.findByText('No computer is registered.')).toBeTruthy()
+      expect(screen.getByRole('heading', { name: 'Hosts' })).toBeTruthy()
+      expect(api.GET).toHaveBeenCalledWith('/api/v1/administration/hosts')
+    } else {
+      expect(screen.queryByRole('heading', { name: 'Hosts' })).toBeNull()
+      expect(screen.queryByText('No computer is registered.')).toBeNull()
+      expect(screen.queryByText('The hosts could not be read.')).toBeNull()
+      expect(api.GET).not.toHaveBeenCalledWith('/api/v1/administration/hosts')
+    }
+  })
+
   it('shows only the views the server offers, in the offered order', async () => {
     window.history.replaceState(null, '', '/')
     const api = apiOf({
@@ -426,7 +455,7 @@ describe('Sessions', () => {
       },
     })
 
-    mount(<Sessions api={api} />)
+    mount(<Sessions api={api} hostsAvailable={true} />)
 
     expect(await screen.findByText('This session')).toBeTruthy()
     expect(screen.getByText('Browser')).toBeTruthy()
@@ -451,7 +480,7 @@ describe('Sessions', () => {
       },
     })
 
-    mount(<Sessions api={api} />)
+    mount(<Sessions api={api} hostsAvailable={true} />)
 
     expect(await screen.findByText('Client App · macbookpro.lan')).toBeTruthy()
     expect(screen.queryByText('Browser')).toBeNull()
@@ -460,7 +489,7 @@ describe('Sessions', () => {
   it('says when nobody is signed in', async () => {
     const api = apiOf({ '/api/v1/administration/sessions': { items: [] } })
 
-    mount(<Sessions api={api} />)
+    mount(<Sessions api={api} hostsAvailable={true} />)
 
     expect(await screen.findByText('Nobody is signed in.')).toBeTruthy()
   })
@@ -494,7 +523,7 @@ describe('Sessions', () => {
       },
     })
 
-    mount(<Sessions api={api} />)
+    mount(<Sessions api={api} hostsAvailable={true} />)
 
     expect(await screen.findByText('Air')).toBeTruthy()
     expect(screen.getByText('Studio')).toBeTruthy()
@@ -509,7 +538,7 @@ describe('Sessions', () => {
       '/api/v1/administration/hosts': { items: [] },
     })
 
-    mount(<Sessions api={api} />)
+    mount(<Sessions api={api} hostsAvailable={true} />)
 
     expect(await screen.findByText('No computer is registered.')).toBeTruthy()
   })

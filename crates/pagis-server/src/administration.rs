@@ -70,6 +70,7 @@ const RUN_PAGE: u32 = 200;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AdministrationSection {
+    Hosts,
     Providers,
     Settings,
     Restart,
@@ -99,6 +100,7 @@ impl AdministrationSections {
     pub fn without(hidden: &[AdministrationSection]) -> Self {
         Self {
             sections: [
+                AdministrationSection::Hosts,
                 AdministrationSection::Providers,
                 AdministrationSection::Settings,
                 AdministrationSection::Restart,
@@ -124,11 +126,12 @@ impl AdministrationSections {
     }
 
     fn offered(&self) -> Vec<&'static str> {
-        use AdministrationSection::{Providers, Restart, Settings};
+        use AdministrationSection::{Hosts, Providers, Restart, Settings};
         [
             ("spend", None),
             ("people", None),
             ("sessions", None),
+            ("hosts", Some(Hosts)),
             ("resources", None),
             ("providers", Some(Providers)),
             ("settings", Some(Settings)),
@@ -1125,7 +1128,6 @@ pub fn router(state: Arc<AppState>) -> Router {
         )
         .route("/api/v1/administration/usage", get(installation_usage))
         .route("/api/v1/administration/sessions", get(list_sessions))
-        .route("/api/v1/administration/hosts", get(list_hosts))
         .route("/api/v1/administration/health", get(installation_health))
         // Who the page serves. A Member who reaches the port gets `403`
         // from the layer here too, so the page says what is wrong
@@ -1196,6 +1198,12 @@ pub fn router(state: Arc<AppState>) -> Router {
     }
     if state
         .administration_sections
+        .contains(AdministrationSection::Hosts)
+    {
+        guarded = guarded.route("/api/v1/administration/hosts", get(list_hosts));
+    }
+    if state
+        .administration_sections
         .contains(AdministrationSection::Restart)
     {
         guarded = guarded.route("/api/v1/system/restart", post(crate::system::restart));
@@ -1258,3 +1266,7 @@ mod tests {
 #[cfg(all(test, not(feature = "native")))]
 #[path = "administration_portable_tests.rs"]
 mod portable_tests;
+
+#[cfg(test)]
+#[path = "administration_sections_tests.rs"]
+mod sections_tests;
