@@ -10,27 +10,18 @@
 //! `/opt/pagis/skills/` are the same files, embedded in the daemon so
 //! it can list and load them without reaching into a container.
 
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use pagis_core::{MAX_SKILL_DESCRIPTION, Skill};
 
-use async_trait::async_trait;
-use pagis_core::{
-    AgentId, FIRST_PARTY_SKILLS, Grant, GrantStore, MAX_SKILL_DESCRIPTION, Plugin, PluginState,
-    PluginStore, Skill, SkillMount, Skills, WorkspaceId,
-};
-use rust_embed::RustEmbed;
-
-use crate::git::PluginGitStore;
 use crate::manifest::SKILLS_DIR;
+use crate::package::PackageFiles;
+
+#[cfg(feature = "native")]
+mod catalog;
+#[cfg(feature = "native")]
+pub use catalog::{SkillCatalog, SkillCatalogDeps, first_party_skills};
 
 /// The one file that makes a directory a Skill.
 pub const SKILL_FILE: &str = "SKILL.md";
-
-/// The first-party Skills, from the same directory the Computer image
-/// copies to `/opt/pagis/skills/`.
-#[derive(RustEmbed)]
-#[folder = "../../computer/skills"]
-struct FirstPartySkills;
 
 /// What one read of a `skills/` directory found: the Skills, and the
 /// problems an install must refuse.
@@ -39,31 +30,32 @@ pub(crate) struct SkillsRead {
     pub problems: Vec<String>,
 }
 
-/// Every Skill under `root/skills/`. Each immediate child that carries
+/// Every Skill under `skills/` in the Plugin Package. Each immediate child that carries
 /// a `SKILL.md` is one Skill; nothing deeper is searched (ADR-0017).
 /// A frontmatter `name` that is not the directory name is a problem,
 /// because the directory alone names the mount and the load.
-pub(crate) fn read_skills(plugin: &str, root: &Path) -> SkillsRead {
+pub(crate) fn read_skills(plugin: &str, root: &PackageFiles) -> SkillsRead {
     let mut skills = Vec::new();
     let mut problems = Vec::new();
-    let Ok(entries) = std::fs::read_dir(root.join(SKILLS_DIR)) else {
-        return SkillsRead { skills, problems };
-    };
-    let mut directories: Vec<PathBuf> = entries
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| path.join(SKILL_FILE).is_file())
-        .collect();
-    directories.sort();
-    for directory in directories {
-        let Some(name) = directory.file_name().and_then(|name| name.to_str()) else {
+    for (path, _) in root.iter() {
+        let Ok(relative) = path.strip_prefix(SKILLS_DIR) else {
             continue;
         };
-        let Ok(text) = std::fs::read_to_string(directory.join(SKILL_FILE)) else {
+        let parts: Vec<_> = relative.components().collect();
+        if parts.len() != 2 || parts[1].as_os_str() != SKILL_FILE {
+            continue;
+        }
+        let Some(name) = parts[0].as_os_str().to_str() else {
+            continue;
+        };
+        let Some(path) = path.to_str() else {
+            continue;
+        };
+        let Ok(text) = root.read_text(path) else {
             problems.push(format!("cannot read {SKILLS_DIR}/{name}/{SKILL_FILE}"));
             continue;
         };
-        let (front, body) = split_frontmatter(&text);
+        let (front, body) = split_frontmatter(text);
         if let Some(declared) = front.and_then(|front| field(front, "name"))
             && declared != name
         {
@@ -166,155 +158,6 @@ fn cap(text: &str, limit: usize) -> String {
     format!("{}…", kept.trim_end())
 }
 
-/// A Skill name from the model, refused unless it is one path segment.
-/// The name reaches the filesystem, so it may not walk out of the
-/// Plugin.
-fn is_one_segment(name: &str) -> bool {
-    !name.is_empty()
-        && name != "."
-        && name != ".."
-        && !name.contains('/')
-        && !name.contains('\\')
-        && !name.contains('\0')
-}
-
-pub struct SkillCatalogDeps {
-    pub plugins: Arc<dyn PluginStore>,
-    pub grants: Arc<dyn GrantStore>,
-    pub git: Arc<PluginGitStore>,
-}
-
-/// The Skills of every Workspace, by tenant and Agent
-/// (ADR-0017). It answers from the installed checkouts, so an update changes
-/// what it says as soon as the checkout changes.
-pub struct SkillCatalog {
-    deps: SkillCatalogDeps,
-}
-
-impl SkillCatalog {
-    pub fn new(deps: SkillCatalogDeps) -> Self {
-        Self { deps }
-    }
-
-    /// The enabled Plugins the Agent holds a live Grant on, in install
-    /// order, with the checkout each one's Skills live in.
-    async fn granted(
-        &self,
-        workspace_id: &WorkspaceId,
-        agent_id: &AgentId,
-    ) -> Vec<(Plugin, PathBuf)> {
-        let grants = self
-            .deps
-            .grants
-            .list_live_for_agent(workspace_id, agent_id)
-            .await
-            .unwrap_or_default();
-        let plugins = self
-            .deps
-            .plugins
-            .list(workspace_id)
-            .await
-            .unwrap_or_default();
-        let mut granted: Vec<Plugin> = plugins
-            .into_iter()
-            .filter(|plugin| plugin.state == PluginState::Enabled && holds(&grants, plugin))
-            .collect();
-        // The listing is in install order (ADR-0017), so the cap drops
-        // the newest Plugins and never reshuffles the older ones.
-        granted.sort_by(|left, right| {
-            left.created_at
-                .cmp(&right.created_at)
-                .then_with(|| left.name.cmp(&right.name))
-        });
-        granted
-            .into_iter()
-            .map(|plugin| {
-                let root = self.deps.git.paths(workspace_id, plugin.id.as_str()).root;
-                (plugin, root)
-            })
-            .collect()
-    }
-}
-
-#[async_trait]
-impl Skills for SkillCatalog {
-    async fn list(&self, workspace_id: &WorkspaceId, agent_id: &AgentId) -> Vec<Skill> {
-        let mut skills = first_party_skills();
-        for (plugin, root) in self.granted(workspace_id, agent_id).await {
-            skills.extend(read_skills(&plugin.name, &root).skills);
-        }
-        skills
-    }
-
-    async fn body(
-        &self,
-        workspace_id: &WorkspaceId,
-        agent_id: &AgentId,
-        plugin: &str,
-        skill: &str,
-    ) -> Option<String> {
-        if !is_one_segment(skill) {
-            return None;
-        }
-        if plugin == FIRST_PARTY_SKILLS {
-            return first_party_body(skill);
-        }
-        let (_, root) = self
-            .granted(workspace_id, agent_id)
-            .await
-            .into_iter()
-            .find(|(held, _)| held.name == plugin)?;
-        std::fs::read_to_string(root.join(SKILLS_DIR).join(skill).join(SKILL_FILE)).ok()
-    }
-
-    async fn mounts(&self, workspace_id: &WorkspaceId, agent_id: &AgentId) -> Vec<SkillMount> {
-        self.granted(workspace_id, agent_id)
-            .await
-            .into_iter()
-            .filter_map(|(plugin, root)| {
-                let skills_dir = root.join(SKILLS_DIR);
-                skills_dir.is_dir().then_some(SkillMount {
-                    plugin: plugin.name,
-                    skills_dir,
-                })
-            })
-            .collect()
-    }
-}
-
-fn holds(grants: &[Grant], plugin: &Plugin) -> bool {
-    grants.iter().any(|grant| {
-        grant.resource_kind == Grant::PLUGIN_KIND
-            && grant.resource_id.as_deref() == Some(plugin.id.as_str())
-    })
-}
-
-/// The first-party Skills, listed for every Agent (ADR-0017).
-pub fn first_party_skills() -> Vec<Skill> {
-    let mut names: Vec<String> = FirstPartySkills::iter()
-        .filter_map(|path| Some(path.strip_suffix(&format!("/{SKILL_FILE}"))?.to_string()))
-        .filter(|name| is_one_segment(name))
-        .collect();
-    names.sort();
-    names
-        .into_iter()
-        .filter_map(|name| {
-            let text = first_party_body(&name)?;
-            let (front, body) = split_frontmatter(&text);
-            Some(Skill {
-                plugin: FIRST_PARTY_SKILLS.to_string(),
-                description: description(front, body),
-                name,
-            })
-        })
-        .collect()
-}
-
-fn first_party_body(skill: &str) -> Option<String> {
-    let file = FirstPartySkills::get(&format!("{skill}/{SKILL_FILE}"))?;
-    String::from_utf8(file.data.into_owned()).ok()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -359,13 +202,5 @@ mod tests {
         assert_eq!(capped.chars().count(), MAX_SKILL_DESCRIPTION);
         assert!(capped.ends_with('…'));
         assert!(!capped.contains('\n'));
-    }
-
-    #[test]
-    fn a_skill_name_that_walks_out_of_the_plugin_is_refused() {
-        assert!(is_one_segment("invoices"));
-        assert!(!is_one_segment(".."));
-        assert!(!is_one_segment("../../etc/passwd"));
-        assert!(!is_one_segment(""));
     }
 }

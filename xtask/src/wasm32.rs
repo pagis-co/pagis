@@ -66,6 +66,11 @@ pub const WASM_CRATES: &[WasmCrate] = &[
         args: &["--no-default-features"],
         tests: &["agents_wasm", "conversation_wasm"],
     },
+    WasmCrate {
+        package: "pagis-plugin",
+        args: &["--no-default-features"],
+        tests: &["wasm"],
+    },
 ];
 
 pub fn step(root: &Path) -> Step {

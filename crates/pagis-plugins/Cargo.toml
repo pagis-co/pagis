@@ -16,7 +16,7 @@ pagis-rt.workspace = true
 reqwest = { workspace = true, features = ["stream"] }
 pagis-broker.workspace = true
 pagis-core.workspace = true
-pagis-plugin.workspace = true
+pagis-plugin = { workspace = true, features = ["native"] }
 rmcp = { workspace = true, features = [
     "client",
     "transport-async-rw",

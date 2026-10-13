@@ -1,5 +1,5 @@
 //! Install validation (ADR-0017). One pass over a
-//! plugin directory collects every problem, because the user must see
+//! Plugin Package collects every problem, because the user must see
 //! all of them at once and not one per attempt.
 //!
 //! Two layers apply. The agent-plugins.org 1.0.0 schemas judge the
@@ -9,7 +9,9 @@
 //! plugin, and a credential reference reaches only an `env` value or a
 //! header.
 
-use std::path::{Component, Path};
+use std::path::Path;
+
+use crate::package::{PackageFiles, stays_inside};
 
 use pagis_broker::{MAX_NAME, is_native_namespace, is_provider_safe_name};
 use url::Url;
@@ -35,9 +37,9 @@ const PATH_PLACEHOLDERS: [&str; 2] = ["${PLUGIN_ROOT}", "${PLUGIN_DATA}"];
 #[error("{}", .0.join("\n"))]
 pub struct ValidationErrors(pub Vec<String>);
 
-/// Read and check the plugin directory at `root`. The package that
+/// Check the Plugin Package held in memory. The package that
 /// comes back is the one the install commits.
-pub fn validate(root: &Path) -> Result<PluginPackage, ValidationErrors> {
+pub fn validate(root: &PackageFiles) -> Result<PluginPackage, ValidationErrors> {
     let mut problems = Vec::new();
 
     let manifest = match read_manifest(root, &mut problems) {
@@ -70,15 +72,15 @@ pub fn validate(root: &Path) -> Result<PluginPackage, ValidationErrors> {
 /// Read `plugin.json` and judge it against the 1.0.0 schema. A
 /// manifest that does not parse stops the pass: nothing below it can
 /// be judged.
-fn read_manifest(root: &Path, problems: &mut Vec<String>) -> Option<PluginManifest> {
-    let text = match std::fs::read_to_string(root.join(PLUGIN_MANIFEST_FILE)) {
+fn read_manifest(root: &PackageFiles, problems: &mut Vec<String>) -> Option<PluginManifest> {
+    let text = match root.read_text(PLUGIN_MANIFEST_FILE) {
         Ok(text) => text,
         Err(error) => {
             problems.push(format!("cannot read {PLUGIN_MANIFEST_FILE}: {error}"));
             return None;
         }
     };
-    let document: serde_json::Value = match serde_json::from_str(&text) {
+    let document: serde_json::Value = match serde_json::from_str(text) {
         Ok(document) => document,
         Err(error) => {
             problems.push(format!("{PLUGIN_MANIFEST_FILE} is not JSON: {error}"));
@@ -179,19 +181,18 @@ fn check_tool_names(pagis: &PagisExtension, problems: &mut Vec<String>) {
 /// Read `mcp.json` when the package carries one. An unreadable file is
 /// a refusal, not a plugin without servers: the user asked to install
 /// what the package declares.
-fn read_mcp(root: &Path, problems: &mut Vec<String>) -> Option<McpConfig> {
-    let path = root.join(MCP_FILE);
-    if !path.is_file() {
+fn read_mcp(root: &PackageFiles, problems: &mut Vec<String>) -> Option<McpConfig> {
+    if !root.is_file(MCP_FILE) {
         return None;
     }
-    let text = match std::fs::read_to_string(&path) {
+    let text = match root.read_text(MCP_FILE) {
         Ok(text) => text,
         Err(error) => {
             problems.push(format!("cannot read {MCP_FILE}: {error}"));
             return None;
         }
     };
-    let document: serde_json::Value = match serde_json::from_str(&text) {
+    let document: serde_json::Value = match serde_json::from_str(text) {
         Ok(document) => document,
         Err(error) => {
             problems.push(format!("{MCP_FILE} is not JSON: {error}"));
@@ -211,7 +212,12 @@ fn read_mcp(root: &Path, problems: &mut Vec<String>) -> Option<McpConfig> {
     }
 }
 
-fn check_servers(root: &Path, mcp: &McpConfig, pagis: &PagisExtension, problems: &mut Vec<String>) {
+fn check_servers(
+    root: &PackageFiles,
+    mcp: &McpConfig,
+    pagis: &PagisExtension,
+    problems: &mut Vec<String>,
+) {
     if mcp.servers.is_empty() {
         problems.push(format!("{MCP_FILE} declares no server"));
     }
@@ -266,7 +272,7 @@ fn check_servers(root: &Path, mcp: &McpConfig, pagis: &PagisExtension, problems:
 /// The command is one executable token: a bare name resolved on PATH,
 /// or a `./` path that stays inside the plugin root. It takes no
 /// placeholder and no reference.
-fn check_command(server: &str, command: &str, root: &Path, problems: &mut Vec<String>) {
+fn check_command(server: &str, command: &str, root: &PackageFiles, problems: &mut Vec<String>) {
     if command.contains("${") {
         problems.push(format!(
             "server {server:?} command {command:?} carries a placeholder; a command is one literal \
@@ -283,7 +289,7 @@ fn check_command(server: &str, command: &str, root: &Path, problems: &mut Vec<St
             problems.push(format!(
                 "server {server:?} command {command:?} leaves the plugin root"
             ));
-        } else if !root.join(relative).is_file() {
+        } else if !root.is_file(relative) {
             problems.push(format!(
                 "server {server:?} command {command:?} is not a file of the plugin"
             ));
@@ -299,7 +305,7 @@ fn check_command(server: &str, command: &str, root: &Path, problems: &mut Vec<St
 
 /// `cwd` is the plugin root, the plugin data directory, or a path
 /// under one of them. Nothing else, and nothing that climbs out.
-fn check_cwd(server: &str, cwd: &str, root: &Path, problems: &mut Vec<String>) {
+fn check_cwd(server: &str, cwd: &str, root: &PackageFiles, problems: &mut Vec<String>) {
     let relative = if let Some(rest) = cwd.strip_prefix("./") {
         rest
     } else if let Some(rest) = cwd
@@ -323,7 +329,7 @@ fn check_cwd(server: &str, cwd: &str, root: &Path, problems: &mut Vec<String>) {
     }
     // A `./` cwd is the plugin's own tree, so it must be there. A
     // `${PLUGIN_DATA}` cwd is made by the daemon at spawn time.
-    if cwd.starts_with("./") && !root.join(relative).is_dir() {
+    if cwd.starts_with("./") && !root.is_dir(relative) {
         problems.push(format!(
             "server {server:?} cwd {cwd:?} is not a directory of the plugin"
         ));
@@ -445,37 +451,9 @@ fn check_schema(
     }
 }
 
-/// Whether a relative path stays where it is rooted, by `..` alone.
-/// A symbolic link is caught when the daemon resolves the path.
-pub(crate) fn stays_inside(path: &Path) -> bool {
-    !path.is_absolute()
-        && !path
-            .components()
-            .any(|part| matches!(part, Component::ParentDir))
-}
-
-/// The size the repository takes. A plugin that is too large is
-/// refused before anything is written.
-fn check_size(root: &Path, problems: &mut Vec<String>) {
-    let mut total: u64 = 0;
-    let mut stack = vec![root.to_path_buf()];
-    while let Some(directory) = stack.pop() {
-        let Ok(entries) = std::fs::read_dir(&directory) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let Ok(kind) = entry.file_type() else {
-                continue;
-            };
-            if kind.is_dir() {
-                stack.push(entry.path());
-            } else if kind.is_file()
-                && let Ok(metadata) = entry.metadata()
-            {
-                total += metadata.len();
-            }
-        }
-    }
+/// The total size of the files that git stores.
+fn check_size(root: &PackageFiles, problems: &mut Vec<String>) {
+    let total: u64 = root.iter().map(|(_, file)| file.bytes.len() as u64).sum();
     if total > MAX_PACKAGE_BYTES {
         problems.push(format!(
             "the plugin is {total} bytes; the limit is {MAX_PACKAGE_BYTES}"

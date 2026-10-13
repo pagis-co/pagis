@@ -17,6 +17,7 @@ use pagis_core::{
 
 use crate::git::{DiffSummary, GitStoreError, PluginGitStore};
 use crate::manifest::{ConfigField, FieldKind, PluginPackage};
+use crate::package::PackageFiles;
 use crate::source::{SourceError, SourceInput, fetch};
 use crate::validate::{ValidationErrors, validate};
 
@@ -160,7 +161,10 @@ impl Plugins {
         let tree = scratch.path().join("plugin");
         std::fs::create_dir(&tree).map_err(|error| PluginError::Storage(error.to_string()))?;
         let recorded = fetch(source, &tree).await?;
-        let package = validate(&tree)?;
+        let package = validate(
+            &PackageFiles::from_directory(&tree)
+                .map_err(|error| PluginError::Storage(error.to_string()))?,
+        )?;
         let name = package.manifest.name.clone();
 
         self.check_name_free(workspace_id, &name).await?;
@@ -248,7 +252,10 @@ impl Plugins {
         let tree = scratch.path().join("plugin");
         std::fs::create_dir(&tree).map_err(|error| PluginError::Storage(error.to_string()))?;
         fetch(&source, &tree).await?;
-        let package = validate(&tree)?;
+        let package = validate(
+            &PackageFiles::from_directory(&tree)
+                .map_err(|error| PluginError::Storage(error.to_string()))?,
+        )?;
         if package.manifest.name != plugin.name {
             return Err(PluginError::Refused(format!(
                 "the update names the plugin {:?}, not {:?}; a renamed plugin is another plugin",
@@ -466,7 +473,10 @@ impl Plugins {
         plugin: &Plugin,
     ) -> Result<PluginPackage, PluginError> {
         let paths = self.deps.git.paths(workspace_id, plugin.id.as_str());
-        Ok(validate(&paths.root)?)
+        Ok(validate(
+            &PackageFiles::from_directory(&paths.root)
+                .map_err(|error| PluginError::Storage(error.to_string()))?,
+        )?)
     }
 
     /// Take back a first install that could not be finished. The

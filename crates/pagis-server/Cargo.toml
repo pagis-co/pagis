@@ -46,7 +46,7 @@ pagis-connect = { workspace = true, optional = true }
 pagis-google = { workspace = true, optional = true }
 pagis-core.workspace = true
 pagis-needs-you.workspace = true
-pagis-plugin = { workspace = true, optional = true }
+pagis-plugin = { workspace = true, optional = true, features = ["native"] }
 pagis-plugins = { workspace = true, optional = true }
 # The Web Push of each Notification (ADR-0030).
 pagis-push.workspace = true

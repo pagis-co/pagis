@@ -180,11 +180,16 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
                 args: &["--no-default-features"],
                 tests: &["agents_wasm", "conversation_wasm"]
             },
+            xtask::WasmCrate {
+                package: "pagis-plugin",
+                args: &["--no-default-features"],
+                tests: &["wasm"]
+            },
         ]
     );
     let root = workspace_root();
     let cmds = wasm32_commands(&root);
-    assert_eq!(cmds.len(), 16);
+    assert_eq!(cmds.len(), 18);
     assert_eq!(
         cargo_arguments(&cmds[0]),
         [
@@ -229,7 +234,7 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
         ]
     );
     assert_eq!(
-        cargo_arguments(&cmds[14]),
+        cargo_arguments(&cmds[15]),
         [
             "test",
             "-p",
@@ -242,7 +247,7 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
         ]
     );
     assert_eq!(
-        cargo_arguments(&cmds[15]),
+        cargo_arguments(&cmds[16]),
         [
             "test",
             "-p",
@@ -251,6 +256,33 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
             "wasm32-unknown-unknown",
             "--test",
             "conversation_wasm",
+            "--no-default-features"
+        ]
+    );
+    assert_eq!(
+        cargo_arguments(&cmds[2]),
+        [
+            "clippy",
+            "--target",
+            "wasm32-unknown-unknown",
+            "-p",
+            "pagis-plugin",
+            "--no-default-features",
+            "--",
+            "-D",
+            "warnings"
+        ]
+    );
+    assert_eq!(
+        cargo_arguments(&cmds[17]),
+        [
+            "test",
+            "-p",
+            "pagis-plugin",
+            "--target",
+            "wasm32-unknown-unknown",
+            "--test",
+            "wasm",
             "--no-default-features"
         ]
     );
@@ -268,7 +300,7 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
         ("pagis-voice", "router_host"),
         ("pagis-mail", "rules"),
     ];
-    for (cmd, (package, binary)) in cmds[2..14].iter().zip(expected) {
+    for (cmd, (package, binary)) in cmds[3..15].iter().zip(expected) {
         assert_eq!(
             cargo_arguments(cmd),
             [
@@ -2312,4 +2344,28 @@ fn the_ci_server_portable_job_installs_nextest() {
         job.contains("tool: nextest"),
         "the job installs the test runner"
     );
+}
+
+#[test]
+fn wasm32_builds_and_tests_the_plugin_without_native() {
+    let commands = wasm32_commands(&workspace_root());
+    for subcommand in ["clippy", "test"] {
+        let args = commands
+            .iter()
+            .map(cargo_arguments)
+            .find(|args| args[0] == subcommand && args.iter().any(|arg| arg == "pagis-plugin"))
+            .expect("the wasm32 gate includes pagis-plugin");
+        assert!(args.iter().any(|arg| arg == "--no-default-features"));
+        if subcommand == "test" {
+            assert!(args.windows(2).any(|args| args == ["--test", "wasm"]));
+        }
+    }
+    let lanes = dev_lanes(
+        &workspace_root(),
+        &["crates/pagis-plugin/src/validate.rs".into()],
+        false,
+        NO_TOOLCHAINS,
+    )
+    .unwrap();
+    assert!(step_names(&lanes).contains(&"wasm32"));
 }

@@ -23,7 +23,7 @@ tower = { version = "0.5", features = ["util"] }
 async-trait.workspace = true
 pagis-broker.workspace = true
 pagis-core.workspace = true
-pagis-plugin.workspace = true
+pagis-plugin = { workspace = true, features = ["native"] }
 pagis-plugins.workspace = true
 pagis-testkit.workspace = true
 serde_json.workspace = true
