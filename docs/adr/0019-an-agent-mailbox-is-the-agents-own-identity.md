@@ -10,7 +10,9 @@ pulled or pushed over a connection the daemon starts. Of the three provider
 shapes (an inbox API with a webhook or vendor socket, a routing service with no
 store, an ordinary mail host with IMAP, SMTP and sometimes a mailbox API), only
 the mail host gives an own identity that works behind NAT without a vendor
-seam.
+seam. The daemon uses this shape. An Embedder can own inbound delivery,
+mail storage and sending, so its Mailbox Provider needs no IMAP or SMTP
+endpoint.
 
 ## Decision
 
@@ -27,8 +29,22 @@ seam.
   the mailbox's own password, under the mailbox's secret name. The API key
   never enters the transport path.
 
-The Connection stores the provider, the domain, the IMAP and SMTP endpoints
-and the alias. An API Connection is connected once its key lists the domain's
+The Connection stores the provider, the domain, the capabilities and the
+alias. It can hold both IMAP and SMTP endpoints or neither. Migadu and manual
+providers hold both endpoints. An Embedder names its provider and supplies
+`MailboxHost` for mailbox creation and deletion, and `Mailboxes` for reads
+and sends. The desk reads the settings from the Connection without a closed
+list of provider names. A mailbox with no endpoints becomes active after the
+host creates it. It has no IMAP login proof. Password reset also returns it
+to active without an IMAP login.
+
+A host failure can carry a message for the Person. `HostError` bounds this
+untrusted text to 512 UTF-8 bytes at a character boundary. A blank message is
+absent. The mailbox routes use the message when present and the fixed text of
+the code otherwise. The status and error body shape stay the same. `Display`
+and `Debug` show the code only, so host messages do not enter log lines.
+
+An API Connection is connected once its key lists the domain's
 mailboxes; a manual one is connected at creation, and each mailbox proves
 itself at its first IMAP login. On create the daemon generates the password,
 sends it to the host, stores it and never shows it. The first login after a
@@ -126,8 +142,11 @@ makes and reads them and decides when an id is stale.
 
 `ImapMailbox` implements `Mailbox` over `MailSession`. It reads the folder and
 UID from an IMAP id, selects the folder before each read or modification, and
-checks its UIDVALIDITY against the Agent Mailbox cursor. The product uses
-IMAP and SMTP Mailbox Providers. The collector uses the IMAP session directly
+checks its UIDVALIDITY against the Agent Mailbox cursor. The daemon uses
+IMAP and SMTP for Migadu and manual Mailbox Providers. An Embedder with no
+endpoints supplies its own `Mailboxes`; the desk does not use `MailTransport`
+for that provider. The mail inspector reads through `AppState.mailboxes`,
+which the Embedder supplies too. The collector uses the IMAP session directly
 and reads the INBOX with IDLE or poll cycles. `MemoryMailbox` implements `Mailbox` in
 memory for the Mail Tool tests.
 

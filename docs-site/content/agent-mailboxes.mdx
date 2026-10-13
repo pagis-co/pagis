@@ -1,0 +1,32 @@
+---
+title: Agent Mailboxes
+description: An Agent's own email address and the Mailbox Provider that holds it.
+---
+
+An Agent Mailbox is the Agent's own email address on the Org's mail domain.
+The Agent reads and sends mail from it with no Grant. Each Agent holds at
+most one mailbox. Its address does not change.
+
+An Administrator sets up the Mailbox Provider in the Administration
+Interface. The Connection holds the domain and the provider's capabilities.
+A Person then makes an Agent Mailbox in the Product App. A Standing Mail
+Rule wakes the Agent on inbound mail, and an Outgoing Cap limits the messages
+it sends each day.
+
+Migadu uses its mailbox API for creation, deletion and password reset, and
+IMAP and SMTP for mail. A manual provider uses the IMAP and SMTP endpoints
+that the Administrator supplies. The Person makes the mailbox at the host
+and supplies its password to Pagis. When Pagis forgets a manual mailbox, the
+Person must also delete it at the host.
+
+A host refusal can explain a condition that the Person must meet. The
+mailbox form shows the host's message when it has one, and the fixed text of
+the error code otherwise. Pagis keeps at most 512 UTF-8 bytes of the host's
+message. Log lines contain only the error code.
+
+## Providers supplied by an Embedder
+
+A product that embeds Pagis can name its own Mailbox Provider. Its
+Connection holds the domain and the capabilities, and it can have no IMAP or
+SMTP endpoint. The embedding product then creates, reads and sends the mail
+itself. The Agent Mailbox becomes active when the host creates it.

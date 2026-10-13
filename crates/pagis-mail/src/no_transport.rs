@@ -1,7 +1,7 @@
 //! The mail seam of a daemon that has no IMAP and SMTP client.
 //!
 //! This is the truth such a daemon runs on: a login never succeeds,
-//! so a mailbox provisions and then becomes `unavailable` with the
+//! so a mailbox with IMAP and SMTP endpoints becomes `unavailable` with the
 //! reason stated, and nothing pretends to read or send mail.
 
 use async_trait::async_trait;

@@ -863,11 +863,11 @@ async fn connecting_migadu_lists_the_domain_and_lands_connected() {
     assert_eq!(settings.account.as_deref(), Some("owner@example.com"));
     assert_eq!(
         settings.imap,
-        pagis_mail::Endpoint::new("imap.migadu.com", 993)
+        Some(pagis_mail::Endpoint::new("imap.migadu.com", 993))
     );
     assert_eq!(
         settings.smtp,
-        pagis_mail::Endpoint::new("smtp.migadu.com", 465)
+        Some(pagis_mail::Endpoint::new("smtp.migadu.com", 465))
     );
     // The key is in the secret store under the alias, and nowhere else.
     assert_eq!(
@@ -942,7 +942,7 @@ async fn a_manual_provider_lands_connected_and_keeps_no_key() {
     assert_eq!(settings.account, None);
     assert_eq!(
         settings.imap,
-        pagis_mail::Endpoint::new("imap.fastmail.com", 993)
+        Some(pagis_mail::Endpoint::new("imap.fastmail.com", 993))
     );
     assert_eq!(
         settings.capabilities,

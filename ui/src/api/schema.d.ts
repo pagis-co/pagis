@@ -4956,7 +4956,7 @@ export interface components {
             headers: components["schemas"]["MailHeaderDto"][];
             /** @description The mailbox it was read from, as the block names it. */
             mailbox: string;
-            /** @description The `folder:uid` id. */
+            /** @description The opaque message id. */
             message_id: string;
             subject: string;
             /** @description The text body. HTML became text at the transport. */
@@ -5078,9 +5078,9 @@ export interface components {
             domain: string;
             /** @description The transport waits for new mail instead of polling. */
             idle: boolean;
-            imap_host: string;
+            imap_host?: string | null;
             /** Format: int32 */
-            imap_port: number;
+            imap_port?: number | null;
             /**
              * @description The host caps the mailbox's own sends. The daemon enforces the
              *     Outgoing Cap for every host either way.
@@ -5091,9 +5091,9 @@ export interface components {
              *     pastes one.
              */
             reset_password: boolean;
-            smtp_host: string;
+            smtp_host?: string | null;
             /** Format: int32 */
-            smtp_port: number;
+            smtp_port?: number | null;
         };
         /**
          * @description Which Media Relay carries the live screen (ADR-0014): `daemon`
@@ -11148,7 +11148,7 @@ export interface operations {
             path: {
                 /** @description The mailbox address, as the mail block names it */
                 mailbox: string;
-                /** @description The folder:uid id of the message */
+                /** @description The opaque message id */
                 message_id: string;
             };
             cookie?: never;

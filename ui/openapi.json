@@ -5117,7 +5117,7 @@
           {
             "name": "message_id",
             "in": "path",
-            "description": "The folder:uid id of the message",
+            "description": "The opaque message id",
             "required": true,
             "schema": {
               "type": "string"
@@ -15777,7 +15777,7 @@
           },
           "message_id": {
             "type": "string",
-            "description": "The `folder:uid` id."
+            "description": "The opaque message id."
           },
           "subject": {
             "type": "string"
@@ -15993,10 +15993,6 @@
         "description": "What one Mailbox Provider holds and what it can do\n(ADR-0019). A capability that is absent is shown as absent, so the\npage says what the user must do by hand.",
         "required": [
           "domain",
-          "imap_host",
-          "imap_port",
-          "smtp_host",
-          "smtp_port",
           "idle",
           "outgoing_cap",
           "delete_mailbox",
@@ -16016,10 +16012,16 @@
             "description": "The transport waits for new mail instead of polling."
           },
           "imap_host": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "imap_port": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
@@ -16032,10 +16034,16 @@
             "description": "The daemon mints a new mailbox password. Without it the user\npastes one."
           },
           "smtp_host": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "smtp_port": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           }

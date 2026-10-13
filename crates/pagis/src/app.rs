@@ -1500,6 +1500,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         coding_session_store: stores.coding_sessions.clone(),
         broker,
         agent_store,
+        mailboxes: Arc::clone(&mailbox_desk) as _,
         mailbox_desk,
         trust_list: Arc::clone(&trust_list) as _,
         secrets: Arc::clone(&options.secrets),

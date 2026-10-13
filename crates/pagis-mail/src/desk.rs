@@ -347,6 +347,9 @@ impl MailboxDesk {
             return Err(MailboxError::StandingRule(error));
         }
         self.audit("agent_mailbox.provisioned", &mailbox).await?;
+        if settings.imap.is_none() {
+            return self.prove_login(workspace_id, &mailbox.id).await;
+        }
         self.spawn_proof(&mailbox);
         Ok(mailbox)
     }
@@ -364,6 +367,16 @@ impl MailboxDesk {
     ) -> Result<AgentMailbox, MailboxError> {
         let mailbox = self.live_mailbox(workspace_id, id).await?;
         let (_, settings) = self.provider_of(&mailbox.connection_id).await?;
+        // The Embedder supplies reads and sends through `Mailboxes`.
+        // There is no IMAP login to prove for this provider.
+        if settings.imap.is_none() {
+            self.mailboxes
+                .set_state(workspace_id, id, AgentMailboxState::Active, None)
+                .await?;
+            let active = self.read(workspace_id, id).await?;
+            self.audit("agent_mailbox.active", &active).await?;
+            return Ok(active);
+        }
         let credential = self.credential_of(&mailbox, &settings)?;
 
         let deadline = pagis_rt::Instant::now() + self.proof.budget;
@@ -479,6 +492,9 @@ impl MailboxDesk {
         let provisioning = self.read(workspace_id, id).await?;
         self.audit("agent_mailbox.password_reset", &provisioning)
             .await?;
+        if settings.imap.is_none() {
+            return self.prove_login(workspace_id, id).await;
+        }
         self.spawn_proof(&provisioning);
         Ok(provisioning)
     }
@@ -565,6 +581,12 @@ impl MailboxDesk {
         mailbox: &AgentMailbox,
         settings: &MailboxProvider,
     ) -> Result<MailboxCredential, MailboxError> {
+        let (Some(imap), Some(smtp)) = (&settings.imap, &settings.smtp) else {
+            return Err(MailboxError::Validation(
+                "this mailbox provider uses the Embedder's Mailboxes for reads and sends"
+                    .to_string(),
+            ));
+        };
         let password = self
             .secrets
             .get(&mailbox_password_secret_name(
@@ -581,8 +603,8 @@ impl MailboxDesk {
         Ok(MailboxCredential::new(
             &mailbox.address,
             password,
-            settings.imap.clone(),
-            settings.smtp.clone(),
+            imap.clone(),
+            smtp.clone(),
         ))
     }
 
@@ -915,10 +937,13 @@ fn store_error(error: StoreError) -> MailboxError {
     }
 }
 
-/// A host refusal the user can act on keeps its words; the rest report
-/// the stable code and nothing from upstream.
+/// Text for the Person: the bounded host message when present, and
+/// the fixed text of the code otherwise. Do not use this in log lines.
 pub fn host_message(error: &HostError) -> String {
-    match error.0 {
+    if let Some(message) = error.message() {
+        return message.to_string();
+    }
+    match error.code() {
         HostErrorCode::AddressTaken => {
             "the mail host already holds that address. Choose another name.".to_string()
         }

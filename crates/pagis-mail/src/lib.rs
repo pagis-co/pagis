@@ -14,7 +14,9 @@
 //! above them.
 //!
 //! [`mailbox_provider`] reads the mail settings a Connection carries:
-//! the domain, the two endpoints, and what the two seams declare.
+//! the domain, the optional endpoints, and what the two seams declare.
+//! An Embedder names its provider and supplies [`Mailboxes`] for reads
+//! and sends when its Connection has no IMAP or SMTP endpoints.
 //!
 //! [`MailboxDesk`] is the one path that makes, proves, recovers,
 //! sleeps and deletes an Agent Mailbox over those seams (ADR-0019).
@@ -97,7 +99,7 @@ pub use protocol::{
 pub use provider::{
     ACCOUNT_KEY, CAPABILITIES_KEY, DOMAIN_KEY, IMAP_HOST_KEY, IMAP_PORT_KEY, MIGADU_IMAP,
     MIGADU_SMTP, MailboxCapabilities, MailboxProvider, SMTP_HOST_KEY, SMTP_PORT_KEY, authserv_ids,
-    is_mailbox_provider, mailbox_provider,
+    mailbox_provider,
 };
 pub use sender::{SenderEvidence, SenderVerification, verify_sender};
 pub use standing::{

@@ -258,8 +258,8 @@ fn mail_connection(
     let settings = MailboxProvider {
         account: Some("owner@example.com".to_string()),
         domain: domain.to_string(),
-        imap: Endpoint::new("imap.example.net", 993),
-        smtp: Endpoint::new("smtp.example.net", 465),
+        imap: Some(Endpoint::new("imap.example.net", 993)),
+        smtp: Some(Endpoint::new("smtp.example.net", 465)),
         capabilities,
     };
     Connection {

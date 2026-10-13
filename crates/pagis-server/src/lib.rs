@@ -197,6 +197,8 @@ pub struct AppState {
     /// a Mailbox Provider Connection also reads the count of the
     /// mailboxes that still point at it here.
     pub mailbox_desk: Arc<pagis_mail::MailboxDesk>,
+    /// Mail reads through the service supplied by the Embedder.
+    pub mailboxes: Arc<dyn pagis_mail::Mailboxes>,
     /// The Trust List (ADR-0021, ADR-0019). Only this
     /// surface writes it.
     pub trust_list: Arc<dyn pagis_core::TrustListStore>,

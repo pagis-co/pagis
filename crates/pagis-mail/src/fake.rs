@@ -52,7 +52,7 @@ pub struct FakeMailboxHost {
     /// Address to password, as the host holds it.
     mailboxes: Mutex<HashMap<String, String>>,
     calls: Mutex<Vec<HostCall>>,
-    fail_with: Mutex<Option<HostErrorCode>>,
+    fail_with: Mutex<Option<HostError>>,
 }
 
 impl Default for FakeMailboxHost {
@@ -79,7 +79,12 @@ impl FakeMailboxHost {
 
     /// Every later request fails with this code, until it is cleared.
     pub fn fail_with(&self, code: Option<HostErrorCode>) {
-        *self.fail_with.lock().unwrap() = code;
+        *self.fail_with.lock().unwrap() = code.map(HostError::new);
+    }
+
+    /// Every later request fails with this error, until it is cleared.
+    pub fn fail_with_error(&self, error: Option<HostError>) {
+        *self.fail_with.lock().unwrap() = error;
     }
 
     /// The addresses the host holds now, sorted.
@@ -99,8 +104,8 @@ impl FakeMailboxHost {
     }
 
     fn refuse(&self) -> Result<(), HostError> {
-        match *self.fail_with.lock().unwrap() {
-            Some(code) => Err(HostError(code)),
+        match self.fail_with.lock().unwrap().clone() {
+            Some(error) => Err(error),
             None => Ok(()),
         }
     }
@@ -131,7 +136,7 @@ impl MailboxHost for FakeMailboxHost {
         let mailbox = HostedMailbox::new(local_part, account.domain());
         let mut mailboxes = self.mailboxes.lock().unwrap();
         if mailboxes.contains_key(&mailbox.address) {
-            return Err(HostError(HostErrorCode::AddressTaken));
+            return Err(HostError::new(HostErrorCode::AddressTaken));
         }
         mailboxes.insert(mailbox.address.clone(), password.expose().to_string());
         Ok(mailbox)
@@ -164,7 +169,7 @@ impl MailboxHost for FakeMailboxHost {
                 *held = password.expose().to_string();
                 Ok(())
             }
-            None => Err(HostError(HostErrorCode::MailboxUnknown)),
+            None => Err(HostError::new(HostErrorCode::MailboxUnknown)),
         }
     }
 

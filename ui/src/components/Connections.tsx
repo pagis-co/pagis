@@ -351,10 +351,12 @@ function MailboxProviderDetail({
 
   return (
     <div className="connection-row-detail">
-      <span className="connection-auth-mode">
-        IMAP {mail.imap_host}:{mail.imap_port} · SMTP {mail.smtp_host}:
-        {mail.smtp_port}
-      </span>
+      {mail.imap_host != null && mail.smtp_host != null && (
+        <span className="connection-auth-mode">
+          IMAP {mail.imap_host}:{mail.imap_port} · SMTP {mail.smtp_host}:
+          {mail.smtp_port}
+        </span>
+      )}
       <AdministratorSetsUp api={api}>
         {mail.domain} is this installation's mail domain.
       </AdministratorSetsUp>

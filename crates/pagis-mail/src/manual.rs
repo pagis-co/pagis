@@ -49,7 +49,7 @@ impl MailboxHost for ManualHost {
         _outgoing_cap: u32,
     ) -> Result<HostedMailbox, HostError> {
         if local_part.is_empty() || password.expose().is_empty() {
-            return Err(HostError(HostErrorCode::Refused));
+            return Err(HostError::new(HostErrorCode::Refused));
         }
         Ok(HostedMailbox::new(local_part, account.domain()))
     }
@@ -71,7 +71,7 @@ impl MailboxHost for ManualHost {
     ) -> Result<(), HostError> {
         local_part_on(account, address)?;
         if password.expose().is_empty() {
-            return Err(HostError(HostErrorCode::Refused));
+            return Err(HostError::new(HostErrorCode::Refused));
         }
         Ok(())
     }

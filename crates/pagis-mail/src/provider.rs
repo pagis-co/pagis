@@ -2,7 +2,7 @@
 //! holds, and what the provider declares it can do.
 //!
 //! The record holds the domain the mailboxes live on, the IMAP and
-//! SMTP endpoints their transport uses, and the capability set of the
+//! SMTP endpoints when it uses that transport, and the capability set of the
 //! two seams. It holds no secret: the host API key is in the secret
 //! store under the Connection alias (ADR-0013), and each mailbox
 //! password is under the mailbox address.
@@ -87,8 +87,10 @@ pub struct MailboxProvider {
     /// email address. A manual host has none.
     pub account: Option<String>,
     pub domain: String,
-    pub imap: Endpoint,
-    pub smtp: Endpoint,
+    /// Absent when the Embedder supplies `Mailboxes`.
+    pub imap: Option<Endpoint>,
+    /// Absent when the Embedder supplies `Mailboxes`.
+    pub smtp: Option<Endpoint>,
     pub capabilities: MailboxCapabilities,
 }
 
@@ -96,42 +98,52 @@ impl MailboxProvider {
     /// The `config` document the Connection record carries. It holds
     /// no secret, so it is safe to read back to the desk.
     pub fn config(&self) -> serde_json::Value {
-        serde_json::json!({
+        let mut config = serde_json::json!({
             ACCOUNT_KEY: self.account,
             DOMAIN_KEY: self.domain,
-            IMAP_HOST_KEY: self.imap.host,
-            IMAP_PORT_KEY: self.imap.port,
-            SMTP_HOST_KEY: self.smtp.host,
-            SMTP_PORT_KEY: self.smtp.port,
             CAPABILITIES_KEY: serde_json::to_value(self.capabilities)
                 .expect("capability flags serialize"),
-        })
+        });
+        if let Some(imap) = &self.imap {
+            config[IMAP_HOST_KEY] = imap.host.clone().into();
+            config[IMAP_PORT_KEY] = imap.port.into();
+        }
+        if let Some(smtp) = &self.smtp {
+            config[SMTP_HOST_KEY] = smtp.host.clone().into();
+            config[SMTP_PORT_KEY] = smtp.port.into();
+        }
+        config
     }
-}
-
-/// True for the Connections whose mailboxes an Agent Mailbox uses.
-pub fn is_mailbox_provider(provider: &str) -> bool {
-    provider == crate::MIGADU_PROVIDER || provider == crate::MANUAL_PROVIDER
 }
 
 /// The mail settings of a Connection, when it is a Mailbox Provider
-/// and its record is complete.
+/// and its record is complete. The settings identify it; the Embedder
+/// names the provider. Both endpoints can be absent.
 pub fn mailbox_provider(connection: &Connection) -> Option<MailboxProvider> {
-    if !is_mailbox_provider(&connection.provider) {
+    let config = &connection.config;
+    let imap = endpoint(config, IMAP_HOST_KEY, IMAP_PORT_KEY)?;
+    let smtp = endpoint(config, SMTP_HOST_KEY, SMTP_PORT_KEY)?;
+    if imap.is_some() != smtp.is_some() {
         return None;
     }
-    let config = &connection.config;
     Some(MailboxProvider {
         account: config[ACCOUNT_KEY].as_str().map(str::to_string),
         domain: config[DOMAIN_KEY].as_str()?.to_string(),
-        imap: endpoint(config, IMAP_HOST_KEY, IMAP_PORT_KEY)?,
-        smtp: endpoint(config, SMTP_HOST_KEY, SMTP_PORT_KEY)?,
+        imap,
+        smtp,
         capabilities: serde_json::from_value(config[CAPABILITIES_KEY].clone()).ok()?,
     })
 }
 
-fn endpoint(config: &serde_json::Value, host_key: &str, port_key: &str) -> Option<Endpoint> {
+fn endpoint(
+    config: &serde_json::Value,
+    host_key: &str,
+    port_key: &str,
+) -> Option<Option<Endpoint>> {
+    if config[host_key].is_null() && config[port_key].is_null() {
+        return Some(None);
+    }
     let host = config[host_key].as_str()?;
     let port = u16::try_from(config[port_key].as_u64()?).ok()?;
-    Some(Endpoint::new(host, port))
+    Some(Some(Endpoint::new(host, port)))
 }
