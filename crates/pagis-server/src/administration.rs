@@ -488,6 +488,7 @@ pub async fn create_account(
     // and the administrator configured the installation for everybody:
     // the person lands in the product, not in the local wizard.
     .run(
+        WorkspaceId::generate(),
         &person.id,
         &name,
         &timezone,

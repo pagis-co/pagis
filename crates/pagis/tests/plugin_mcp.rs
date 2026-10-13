@@ -672,6 +672,7 @@ async fn an_administrators_install_reaches_a_members_sprite() {
         .expect("write the member");
     let workspace_b = pagis_server::provisioning::WorkspaceSeed::from(daemon.stores())
         .run(
+            pagis_core::WorkspaceId::generate(),
             &member.id,
             "Bo's Workspace",
             "UTC",

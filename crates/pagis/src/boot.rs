@@ -425,6 +425,7 @@ async fn seed(stores: &pagis_core::Stores) -> anyhow::Result<bool> {
 
     pagis_server::provisioning::WorkspaceSeed::from(stores)
         .run(
+            pagis_core::WorkspaceId::generate(),
             &user.id,
             pagis_server::provisioning::DEFAULT_WORKSPACE_NAME,
             &iana_time_zone::get_timezone().unwrap_or_else(|_| "UTC".to_string()),
