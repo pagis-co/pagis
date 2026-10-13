@@ -146,7 +146,7 @@ async fn a_server_that_prints_without_end_keeps_its_log_at_the_limit() {
     let harness = Harness::new();
     let directory = stdio_plugin();
     let plugin = harness.install(directory.path(), &api_key("the-key")).await;
-    let log = harness.host.log_path(&plugin.id);
+    let log = harness.logs.path(&plugin.workspace_id, &plugin.id);
 
     let answered = harness
         .dispatch(

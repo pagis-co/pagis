@@ -19,7 +19,7 @@ pub mod validate;
 
 pub use access::{AccessDenied, check_access};
 #[cfg(feature = "native")]
-pub use git::{GitStoreError, PluginGitStore, PluginPaths};
+pub use git::{GitStoreError, PluginGitStore};
 pub use install::{
     BindingInput, BindingValueInput, Installed, Namespaces, PluginError, PluginServers, Plugins,
     PluginsDeps, next_manifest_version,
@@ -36,5 +36,5 @@ pub use skills::{SkillCatalog, SkillCatalogDeps, first_party_skills};
 #[cfg(feature = "native")]
 pub use source::GitPackageSource;
 pub use source::{PackageSource, SourceError, SourceInput};
-pub use states::{ChangeStatus, ChangedFile, DiffSummary, PluginStates};
+pub use states::{ChangeStatus, ChangedFile, DiffSummary, PluginPaths, PluginStates};
 pub use validate::{MAX_PACKAGE_BYTES, ValidationErrors, validate};

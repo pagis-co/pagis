@@ -14,8 +14,9 @@ use http::{HeaderMap, HeaderValue, Method, Request, Response, StatusCode};
 use rmcp::model::*;
 use tokio_util::sync::CancellationToken;
 
+use crate::session::{Overrun, Session, SessionError};
 use crate::substitute::Endpoint;
-use crate::supervisor::{MAX_FRAME_BYTES, Overrun, STARTUP_TIMEOUT, ToolListChanged};
+use crate::supervisor::{MAX_FRAME_BYTES, STARTUP_TIMEOUT, ToolListChanged};
 
 /// The bytes of an HTTP answer, read as they arrive.
 pub type HttpBody = BoxStream<'static, Result<Bytes, String>>;
@@ -33,30 +34,34 @@ pub struct ReqwestMcpHttp(reqwest::Client);
 #[async_trait]
 impl McpHttp for ReqwestMcpHttp {
     async fn send(&self, request: Request<Vec<u8>>) -> Result<Response<HttpBody>, String> {
-        let (parts, body) = request.into_parts();
-        let response = self
-            .0
-            .request(parts.method, parts.uri.to_string())
-            .headers(parts.headers)
-            .body(body)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-        let mut answer = Response::builder().status(response.status());
-        *answer.headers_mut().expect("a response has headers") = response.headers().clone();
-        answer
-            .body(
-                response
-                    .bytes_stream()
-                    .map(|chunk| chunk.map_err(|e| e.to_string()))
-                    .boxed(),
-            )
-            .map_err(|e| e.to_string())
+        let work = async {
+            let (parts, body) = request.into_parts();
+            let response = self
+                .0
+                .request(parts.method, parts.uri.to_string())
+                .headers(parts.headers)
+                .body(body)
+                .send()
+                .await
+                .map_err(|e| e.to_string())?;
+            let mut answer = Response::builder().status(response.status());
+            *answer.headers_mut().expect("a response has headers") = response.headers().clone();
+            let body = response.bytes_stream();
+            #[cfg(target_arch = "wasm32")]
+            let body = send_wrapper::SendWrapper::new(body);
+            answer
+                .body(body.map(|chunk| chunk.map_err(|e| e.to_string())).boxed())
+                .map_err(|e| e.to_string())
+        };
+        // Browser requests and bodies stay on the isolate's one thread.
+        #[cfg(target_arch = "wasm32")]
+        let work = send_wrapper::SendWrapper::new(work);
+        work.await
     }
 }
 
 #[derive(Clone)]
-struct Session {
+struct HttpSession {
     id: Option<HeaderValue>,
     protocol: HeaderValue,
     generation: u32,
@@ -66,7 +71,7 @@ pub struct HttpClient {
     http: Arc<dyn McpHttp>,
     url: String,
     headers: HeaderMap,
-    session: std::sync::Mutex<Option<Session>>,
+    session: std::sync::Mutex<Option<HttpSession>>,
     initializing: Mutex<()>,
     next_id: AtomicU32,
     closed: CancellationToken,
@@ -112,7 +117,7 @@ impl HttpClient {
     }
 
     /// Read the session data without waiting for a handshake.
-    fn current_session(&self) -> Option<Session> {
+    fn current_session(&self) -> Option<HttpSession> {
         self.session
             .lock()
             .expect("the session lock is not poisoned")
@@ -124,7 +129,7 @@ impl HttpClient {
     }
 
     /// Serialize a new handshake when the current session is absent or expired.
-    async fn session(&self, expired: Option<u32>) -> Result<Session, String> {
+    async fn session(&self, expired: Option<u32>) -> Result<HttpSession, String> {
         if let Some(session) = self.current_session()
             && expired != Some(session.generation)
         {
@@ -137,7 +142,7 @@ impl HttpClient {
             return Ok(session);
         }
         let id = self.id();
-        let mut session = Session {
+        let mut session = HttpSession {
             id: None,
             protocol: HeaderValue::from_static("2025-11-25"),
             generation: self.next_id.load(Ordering::SeqCst),
@@ -184,7 +189,7 @@ impl HttpClient {
         &self,
         method: Method,
         body: Vec<u8>,
-        session: &Session,
+        session: &HttpSession,
     ) -> Result<Response<HttpBody>, String> {
         let mut request = Request::builder()
             .method(method)
@@ -210,7 +215,7 @@ impl HttpClient {
     async fn post(
         &self,
         message: &ClientJsonRpcMessage,
-        session: &Session,
+        session: &HttpSession,
     ) -> Result<Response<HttpBody>, String> {
         self.send(
             Method::POST,
@@ -223,7 +228,7 @@ impl HttpClient {
     async fn accept(
         &self,
         message: &ClientJsonRpcMessage,
-        session: &Session,
+        session: &HttpSession,
     ) -> Result<(), String> {
         let response = self.post(message, session).await?;
         if response.status() != StatusCode::ACCEPTED {
@@ -285,7 +290,7 @@ impl HttpClient {
     async fn answer(
         &self,
         response: Response<HttpBody>,
-        session: &Session,
+        session: &HttpSession,
         id: &RequestId,
     ) -> Result<ServerResult, String> {
         if !response.status().is_success() {
@@ -336,7 +341,7 @@ impl HttpClient {
     async fn message(
         &self,
         bytes: &[u8],
-        session: &Session,
+        session: &HttpSession,
         id: &RequestId,
     ) -> Result<Option<ServerResult>, String> {
         let message: ServerJsonRpcMessage =
@@ -460,5 +465,27 @@ impl HttpClient {
             )
             .await;
         }
+    }
+}
+
+#[async_trait]
+impl Session for HttpClient {
+    async fn list_tools(&self) -> Result<Vec<Tool>, String> {
+        self.list_tools().await
+    }
+    async fn call(
+        &self,
+        params: CallToolRequestParams,
+        deadline: Duration,
+    ) -> Result<CallToolResult, SessionError> {
+        self.call(params, deadline)
+            .await
+            .map_err(|error| self.overrun.error(error))
+    }
+    fn is_closed(&self) -> bool {
+        self.is_closed()
+    }
+    async fn close(&self) {
+        self.stop().await;
     }
 }

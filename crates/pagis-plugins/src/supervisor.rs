@@ -9,7 +9,7 @@
 //! stop the daemon from trying at all until the user asks. A stdout
 //! message over 4 MiB ends the session of a stdio server, and three of
 //! them in a row stop the daemon from trying in the same way. The
-//! server's stderr goes to a log of a fixed size ([`crate::log`]). A
+//! server's stderr goes to a bounded log behind [`StdioServers`]. A
 //! `notifications/tools/list_changed` from a running server goes to
 //! [`ToolListChanged`] when it arrives.
 //!
@@ -17,36 +17,19 @@
 //! before the call arrived.
 
 use std::collections::BTreeMap;
-use std::pin::Pin;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::time::{Duration, Instant};
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::time::Duration;
 
 use async_trait::async_trait;
-use futures::StreamExt;
-use rmcp::model::{
-    CallToolRequest, CallToolRequestParams, CallToolResult, ClientCapabilities, ClientInfo,
-    ClientRequest, ElicitRequestParams, ElicitResult, ElicitationCreateRequestMethod,
-    Implementation, ServerResult, Tool,
-};
-use rmcp::service::{
-    NotificationContext, PeerRequestOptions, RequestContext, RoleClient, RunningService,
-    RxJsonRpcMessage, TxJsonRpcMessage,
-};
-use rmcp::transport::Transport;
-use rmcp::transport::async_rw::{JsonRpcMessageCodec, JsonRpcMessageCodecError};
-use rmcp::transport::sink_stream::SinkStreamTransport;
-use rmcp::{ClientHandler, ErrorData as McpError, ServiceError, ServiceExt};
-use tokio::io::{AsyncRead, AsyncWrite};
+use pagis_core::{PluginId, WorkspaceId};
+use pagis_rt::Instant;
+use rmcp::model::{CallToolRequestParams, CallToolResult, Tool};
 use tokio::sync::{Mutex, Semaphore};
-use tokio_util::bytes::BytesMut;
-use tokio_util::codec::{Decoder, FramedRead, FramedWrite};
-
-use pagis_core::WorkspaceId;
 
 use crate::http::{HttpClient, McpHttp, ReqwestMcpHttp};
-use crate::log::PluginLog;
-use crate::process::{ServerIo, ServerProcesses};
+use crate::session::{Overrun, Session, SessionError};
+use crate::stdio::StdioServers;
 use crate::substitute::{Endpoint, Spawn};
 
 /// How long a server has to answer the handshake.
@@ -135,103 +118,8 @@ pub trait ToolListChanged: Send + Sync {
     async fn tool_list_changed(&self);
 }
 
-/// The Pagis side of one MCP connection. It consumes tools and
-/// nothing else: sampling and elicitation are refused, and resources,
-/// prompts and logging are ignored (ADR-0017).
-#[derive(Clone)]
-pub struct PluginClient {
-    /// Told when the server says its tool list changed.
-    changed: Arc<dyn ToolListChanged>,
-    /// Set when the stdout of this session passed [`MAX_FRAME_BYTES`].
-    overrun: Arc<Overrun>,
-}
-
-impl std::fmt::Debug for PluginClient {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("PluginClient")
-            .field("overrun", &self.overrun)
-            .finish_non_exhaustive()
-    }
-}
-
-/// Whether the stdout of one session passed [`MAX_FRAME_BYTES`]. The
-/// stdout stream sets it when it ends the session. The supervisor
-/// counts it once, however many calls the session lost.
-#[derive(Debug, Default)]
-pub(crate) struct Overrun {
-    pub(crate) happened: AtomicBool,
-    counted: AtomicBool,
-}
-
-impl Overrun {
-    pub(crate) fn happened(&self) -> bool {
-        self.happened.load(Ordering::SeqCst)
-    }
-
-    /// True for the first caller that sees the overrun, and false for
-    /// every other caller.
-    fn count(&self) -> bool {
-        self.happened() && !self.counted.swap(true, Ordering::SeqCst)
-    }
-}
-
-impl ClientHandler for PluginClient {
-    fn get_info(&self) -> ClientInfo {
-        ClientInfo::new(
-            ClientCapabilities::default(),
-            Implementation::new("pagis", env!("CARGO_PKG_VERSION")),
-        )
-    }
-
-    async fn create_elicitation(
-        &self,
-        _request: ElicitRequestParams,
-        _context: RequestContext<RoleClient>,
-    ) -> Result<ElicitResult, McpError> {
-        // A plugin server may not interrupt the user. `ask_user`
-        // belongs to the Agent, and a map from one onto the other is
-        // not built (ADR-0017).
-        Err(McpError::method_not_found::<ElicitationCreateRequestMethod>())
-    }
-
-    async fn on_tool_list_changed(&self, _context: NotificationContext<RoleClient>) {
-        self.changed.tool_list_changed().await;
-    }
-}
-
-/// One connected MCP session of one Plugin server.
-#[derive(Debug)]
-pub enum Client {
-    Stdio(Box<RunningService<RoleClient, PluginClient>>),
-    Http(Box<HttpClient>),
-}
-
-impl Client {
-    fn is_closed(&self) -> bool {
-        match self {
-            Self::Stdio(client) => client.is_closed() || client.is_transport_closed(),
-            Self::Http(client) => client.is_closed(),
-        }
-    }
-
-    fn overrun(&self) -> &Overrun {
-        match self {
-            Self::Stdio(client) => &client.service().overrun,
-            Self::Http(client) => &client.overrun,
-        }
-    }
-
-    async fn stop(&self) {
-        match self {
-            Self::Stdio(client) => client.cancellation_token().cancel(),
-            Self::Http(client) => client.stop().await,
-        }
-    }
-}
-
 struct Running {
-    client: Arc<Client>,
+    client: Arc<dyn Session>,
     /// What the bound values were at the start. A rotated Connection
     /// token changes it, and the next call restarts the server
     /// (ADR-0017).
@@ -254,11 +142,8 @@ pub struct ServerSupervisor {
     server: String,
     /// The tenant whose Plugin Computer runs the process.
     workspace_id: WorkspaceId,
-    /// Where a server process runs. It is never the host.
-    processes: Arc<dyn ServerProcesses>,
-    /// Where the server's stderr goes. The desk reads it through the
-    /// API; nothing of it reaches the model (ADR-0005).
-    log: PluginLog,
+    plugin_id: PluginId,
+    stdio: Arc<dyn StdioServers>,
     state: Mutex<State>,
     http: Arc<dyn McpHttp>,
     /// The output overruns in a row. It is not in [`State`], so a call
@@ -273,15 +158,15 @@ impl ServerSupervisor {
     pub fn new(
         server: impl Into<String>,
         workspace_id: WorkspaceId,
-        processes: Arc<dyn ServerProcesses>,
-        log: PluginLog,
+        plugin_id: PluginId,
+        stdio: Arc<dyn StdioServers>,
         changed: Arc<dyn ToolListChanged>,
     ) -> Self {
         Self {
             server: server.into(),
             workspace_id,
-            processes,
-            log,
+            plugin_id,
+            stdio,
             state: Mutex::new(State::default()),
             http: Arc::new(ReqwestMcpHttp::default()),
             overruns: AtomicU32::new(0),
@@ -303,15 +188,11 @@ impl ServerSupervisor {
     /// The tools the running server offers now. The freeze calls it
     /// once at install, and every start compares its answer with the
     /// frozen list.
-    pub async fn list_tools(&self, client: &Client) -> Result<Vec<Tool>, ServerError> {
-        match client {
-            Client::Stdio(client) => client
-                .list_all_tools()
-                .await
-                .map_err(|error| error.to_string()),
-            Client::Http(client) => client.list_tools().await,
-        }
-        .map_err(|error| ServerError::Start(format!("tools/list failed: {error}")))
+    pub async fn list_tools(&self, client: &dyn Session) -> Result<Vec<Tool>, ServerError> {
+        client
+            .list_tools()
+            .await
+            .map_err(|error| ServerError::Start(format!("tools/list failed: {error}")))
     }
 
     /// The running client, started if it is not running, restarted if
@@ -323,7 +204,7 @@ impl ServerSupervisor {
         launch: &Launch,
         fingerprint: &str,
         now: Instant,
-    ) -> Result<(Arc<Client>, bool), ServerError> {
+    ) -> Result<(Arc<dyn Session>, bool), ServerError> {
         let mut state = self.state.lock().await;
         if let Some(running) = &mut state.running {
             let stale = running.fingerprint != fingerprint;
@@ -338,7 +219,7 @@ impl ServerSupervisor {
             // A crashed server and a rotated token both end the same
             // way: the process goes, and a new one starts below.
             let running = state.running.take().expect("the running server is there");
-            running.client.stop().await;
+            running.client.close().await;
         }
         if state.failures >= MAX_START_FAILURES
             || self.overruns.load(Ordering::SeqCst) >= MAX_OUTPUT_OVERRUNS
@@ -355,7 +236,6 @@ impl ServerSupervisor {
         }
         match self.start(launch).await {
             Ok(client) => {
-                let client = Arc::new(client);
                 state.failures = 0;
                 state.retry_at = None;
                 state.running = Some(Running {
@@ -384,7 +264,7 @@ impl ServerSupervisor {
     /// completes within the cap sets the overrun count to zero.
     pub async fn call(
         &self,
-        client: &Client,
+        client: &dyn Session,
         tool: &str,
         arguments: serde_json::Value,
         deadline: Duration,
@@ -398,68 +278,43 @@ impl ServerSupervisor {
         if let Some(arguments) = arguments.as_object() {
             params = params.with_arguments(arguments.clone());
         }
-        let answer = match client {
-            Client::Http(client) => client
-                .call(params, deadline.min(MAX_CALL_TIMEOUT))
-                .await
-                .map(ServerResult::CallToolResult),
-            Client::Stdio(client) => {
-                let sent = client
-                    .send_cancellable_request(
-                        ClientRequest::CallToolRequest(CallToolRequest::new(params)),
-                        PeerRequestOptions::with_timeout(deadline.min(MAX_CALL_TIMEOUT)),
-                    )
-                    .await;
-                let answer = match sent {
-                    Ok(handle) => handle.await_response().await,
-                    Err(error) => Err(error),
-                };
-                match answer {
-                    Ok(result) => Ok(result),
-                    Err(ServiceError::Timeout { timeout }) => Err(format!(
-                        "the call did not answer in {} seconds",
-                        timeout.as_secs()
-                    )),
-                    Err(error) => Err(error.to_string()),
-                }
-            }
-        };
-        let answer = match answer {
-            Ok(answer) => answer,
-            Err(error) => return Err(self.lost(client, error)),
-        };
+        let answer = client
+            .call(params, deadline.min(MAX_CALL_TIMEOUT))
+            .await
+            .map_err(|error| self.lost(error))?;
         // The answer came within the cap, so the overruns before it
         // are not in a row with the next one.
         self.overruns.store(0, Ordering::SeqCst);
-        match answer {
-            ServerResult::CallToolResult(result) => Ok(result),
-            _ => Err(ServerError::Unsupported(self.server.clone())),
-        }
+        Ok(answer)
     }
 
     /// Why a sent call has no answer. A session that ended at the frame
     /// cap counts one output overrun toward the failed state, however
     /// many calls it lost (ADR-0017).
-    fn lost(&self, client: &Client, error: String) -> ServerError {
-        let overrun = client.overrun();
-        if overrun.happened() {
-            let failed = overrun.count()
-                && self.overruns.fetch_add(1, Ordering::SeqCst) + 1 >= MAX_OUTPUT_OVERRUNS;
-            return ServerError::Overrun {
-                server: self.server.clone(),
-                failed,
-            };
+    fn lost(&self, error: SessionError) -> ServerError {
+        match error {
+            SessionError::Overrun { first } => {
+                let failed = first
+                    && self.overruns.fetch_add(1, Ordering::SeqCst) + 1 >= MAX_OUTPUT_OVERRUNS;
+                ServerError::Overrun {
+                    server: self.server.clone(),
+                    failed,
+                }
+            }
+            SessionError::Lost(error) => ServerError::Unknown(error),
+            SessionError::Unsupported => {
+                self.overruns.store(0, Ordering::SeqCst);
+                ServerError::Unsupported(self.server.clone())
+            }
         }
-        ServerError::Unknown(error)
     }
 
-    /// Stop the server if it is running. The transport closes, which
-    /// closes the child's stdin, waits for it and kills it if it
-    /// overruns.
+    /// Close the running session. A stdio session closes the process
+    /// input. An HTTP session sends DELETE when it has a session id.
     pub async fn stop(&self) {
         let mut state = self.state.lock().await;
         if let Some(running) = state.running.take() {
-            running.client.stop().await;
+            running.client.close().await;
         }
         state.failures = 0;
         state.retry_at = None;
@@ -475,7 +330,7 @@ impl ServerSupervisor {
             .as_ref()
             .is_some_and(|running| now.duration_since(running.last_used) >= IDLE_SHUTDOWN);
         if idle && let Some(running) = state.running.take() {
-            running.client.stop().await;
+            running.client.close().await;
             return true;
         }
         false
@@ -500,35 +355,31 @@ impl ServerSupervisor {
             .is_some_and(|running| !running.client.is_closed())
     }
 
-    async fn start(&self, launch: &Launch) -> Result<Client, ServerError> {
-        let overrun = Arc::new(Overrun::default());
-        let handler = PluginClient {
-            changed: Arc::clone(&self.changed),
-            overrun: Arc::clone(&overrun),
-        };
-        let started = match launch {
-            Launch::Stdio(spawn) => {
-                let transport = self.start_in_container(spawn, overrun).await?;
-                tokio::time::timeout(STARTUP_TIMEOUT, handler.serve(transport))
-                    .await
-                    .map(|result| {
-                        result
-                            .map(|client| Client::Stdio(Box::new(client)))
-                            .map_err(|error| error.to_string())
-                    })
-            }
-            Launch::Http(endpoint) => pagis_rt::timeout(
-                STARTUP_TIMEOUT,
-                HttpClient::start(
+    async fn start(&self, launch: &Launch) -> Result<Arc<dyn Session>, ServerError> {
+        let connect = async {
+            match launch {
+                Launch::Stdio(spawn) => {
+                    self.stdio
+                        .connect(
+                            &self.workspace_id,
+                            &self.plugin_id,
+                            &self.server,
+                            spawn,
+                            Arc::clone(&self.changed),
+                        )
+                        .await
+                }
+                Launch::Http(endpoint) => HttpClient::start(
                     Arc::clone(&self.http),
                     endpoint,
-                    overrun,
+                    Arc::new(Overrun::default()),
                     Arc::clone(&self.changed),
-                ),
-            )
-            .await
-            .map(|result| result.map(|client| Client::Http(Box::new(client)))),
+                )
+                .await
+                .map(|client| Arc::new(client) as Arc<dyn Session>),
+            }
         };
+        let started = pagis_rt::timeout(STARTUP_TIMEOUT, connect).await;
         match started {
             Ok(Ok(client)) => Ok(client),
             Ok(Err(error)) => Err(ServerError::Start(format!(
@@ -542,40 +393,6 @@ impl ServerSupervisor {
             ))),
         }
     }
-
-    /// Start the server inside the tenant's Plugin Computer and
-    /// speak the stdio protocol over the exec's streams. The
-    /// environment the package asked for travels in that exec and
-    /// nowhere else, and the server's stderr goes to the Plugin's log.
-    /// A stdout message over [`MAX_FRAME_BYTES`] sets `overrun` and
-    /// ends the session.
-    ///
-    /// Nothing here kills the process: the Engine API cannot stop a
-    /// running exec. An MCP server ends when its stdin closes, which is
-    /// what the transport does when the client is cancelled, and the
-    /// container stop kills whatever is left.
-    async fn start_in_container(
-        &self,
-        spawn: &Spawn,
-        overrun: Arc<Overrun>,
-    ) -> Result<impl Transport<RoleClient> + 'static, ServerError> {
-        let ServerIo {
-            stdin,
-            stdout,
-            stderr,
-        } = self
-            .processes
-            .start(&self.workspace_id, spawn)
-            .await
-            .map_err(|error| {
-                ServerError::Start(format!(
-                    "the server {:?} did not start: {error}",
-                    self.server
-                ))
-            })?;
-        self.log.record_stderr(&self.server, stderr);
-        Ok(stdio_transport(&self.server, stdout, stdin, overrun))
-    }
 }
 
 /// The wait before the next start attempt: one second, then two, four
@@ -585,80 +402,6 @@ pub fn backoff(failures: u32) -> Duration {
         .as_secs()
         .saturating_mul(1u64 << failures.saturating_sub(1).min(6));
     Duration::from_secs(seconds).min(BACKOFF_CEILING)
-}
-
-/// The stdio transport of one server, with a cap of
-/// [`MAX_FRAME_BYTES`] on each stdout message. rmcp's own stdio
-/// transport reads a line with no limit, so one line with no newline
-/// could fill the daemon's memory. A line over the cap ends the stream
-/// when it passes the cap, which ends the session, and sets `overrun`.
-fn stdio_transport(
-    server: &str,
-    stdout: Pin<Box<dyn AsyncRead + Send + Unpin>>,
-    stdin: Pin<Box<dyn AsyncWrite + Send>>,
-    overrun: Arc<Overrun>,
-) -> impl Transport<RoleClient> + 'static {
-    let server = server.to_string();
-    let codec = StdoutCodec(JsonRpcMessageCodec::new_with_max_length(MAX_FRAME_BYTES));
-    let messages = FramedRead::new(stdout, codec)
-        .take_while(move |frame| {
-            if let Err(error) = frame {
-                if matches!(error, JsonRpcMessageCodecError::MaxLineLengthExceeded) {
-                    overrun.happened.store(true, Ordering::SeqCst);
-                }
-                tracing::warn!(%error, server, "the plugin server's stdout ends its session");
-            }
-            std::future::ready(frame.is_ok())
-        })
-        .filter_map(|frame| std::future::ready(frame.ok()));
-    let requests = FramedWrite::new(
-        stdin,
-        JsonRpcMessageCodec::<TxJsonRpcMessage<RoleClient>>::default(),
-    );
-    SinkStreamTransport::new(requests, Box::pin(messages))
-}
-
-/// rmcp's JSON-RPC line codec with the frame cap, as the stdout of one
-/// server needs it. rmcp's stdio transport skips a line that is not
-/// JSON-RPC, and so does this codec: a server that prints a banner on
-/// stdout keeps its session. Only a line over the cap and a read error
-/// end the stream.
-struct StdoutCodec(JsonRpcMessageCodec<RxJsonRpcMessage<RoleClient>>);
-
-type StdoutFrame = Result<Option<RxJsonRpcMessage<RoleClient>>, JsonRpcMessageCodecError>;
-
-impl Decoder for StdoutCodec {
-    type Item = RxJsonRpcMessage<RoleClient>;
-    type Error = JsonRpcMessageCodecError;
-
-    fn decode(&mut self, buffer: &mut BytesMut) -> StdoutFrame {
-        skip_unreadable(buffer, |buffer| self.0.decode(buffer))
-    }
-
-    fn decode_eof(&mut self, buffer: &mut BytesMut) -> StdoutFrame {
-        skip_unreadable(buffer, |buffer| self.0.decode_eof(buffer))
-    }
-}
-
-/// Decode until a message, the need for more bytes, or an error that
-/// ends the stream. A line that is not JSON-RPC is skipped. The codec
-/// also answers `None` after it skips a notification that is not MCP,
-/// so a buffer that got shorter and still holds bytes is decoded again.
-/// Each skip makes the buffer shorter, so the loop ends.
-fn skip_unreadable(
-    buffer: &mut BytesMut,
-    mut decode: impl FnMut(&mut BytesMut) -> StdoutFrame,
-) -> StdoutFrame {
-    loop {
-        let held = buffer.len();
-        match decode(buffer) {
-            Err(JsonRpcMessageCodecError::Serde(error)) => {
-                tracing::debug!(%error, "the plugin server wrote a line that is not JSON-RPC");
-            }
-            Ok(None) if buffer.len() < held && !buffer.is_empty() => {}
-            decoded => return decoded,
-        }
-    }
 }
 
 /// A digest of the bound values one server starts with. It carries no

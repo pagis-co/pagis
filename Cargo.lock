@@ -4740,6 +4740,7 @@ dependencies = [
  "pagis-core",
  "pagis-plugin",
  "pagis-plugins",
+ "pagis-rt",
  "pagis-testkit",
  "rmcp",
  "serde_json",
@@ -4825,6 +4826,7 @@ dependencies = [
  "pagis-rt",
  "reqwest 0.12.28",
  "rmcp",
+ "send_wrapper",
  "serde",
  "serde_json",
  "tempfile",
@@ -4833,6 +4835,7 @@ dependencies = [
  "tokio-util",
  "tracing",
  "url",
+ "wasm-bindgen-test",
 ]
 
 [[package]]

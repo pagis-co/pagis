@@ -561,3 +561,21 @@ fn skills_are_in_directory_order_and_all_problems_are_reported() {
         ["apple", "zebra"]
     );
 }
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+fn http_servers_refuse_daemon_paths_in_urls_and_headers() {
+    for transport in ["streamable-http", "sse"] {
+        for placeholder in ["${PLUGIN_ROOT}", "${PLUGIN_DATA}"] {
+            for server in [
+                serde_json::json!({"type": transport, "url": format!("https://example.com/{placeholder}")}),
+                serde_json::json!({"type": transport, "url": "https://example.com/mcp", "headers": {"x-path": placeholder}}),
+            ] {
+                let package = minimal().mcp(serde_json::json!({"weather": server}));
+                let message = refusal(&package);
+                assert!(message.contains(placeholder), "{message}");
+                assert!(message.contains("HTTP server"), "{message}");
+            }
+        }
+    }
+}

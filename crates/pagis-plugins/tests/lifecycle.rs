@@ -2,9 +2,10 @@
 //! (ADR-0017): it waits, it waits longer, and after three failures in a
 //! row it stops trying until the user asks.
 
+use pagis_rt::Instant;
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use pagis_core::{PluginId, WorkspaceId};
@@ -40,11 +41,11 @@ fn supervisor() -> ServerSupervisor {
     ServerSupervisor::new(
         "weather",
         WorkspaceId::generate(),
-        Arc::new(NoComputer),
-        PluginLogs::new(std::env::temp_dir().join("plugin-logs")).log(
-            &WorkspaceId::generate(),
-            &PluginId::from("weather".to_string()),
-        ),
+        PluginId::from("weather".to_string()),
+        Arc::new(pagis_plugins::NativeStdioServers::new(
+            Arc::new(NoComputer),
+            Arc::new(PluginLogs::new(std::env::temp_dir().join("plugin-logs"))),
+        )),
         Arc::new(NoListChange),
     )
 }

@@ -312,12 +312,14 @@ impl Harness {
             grants: Arc::clone(&grants) as _,
             secrets: Arc::clone(&secrets) as _,
             tokens: Arc::clone(&tokens),
-            git: Arc::clone(&git),
             states: Arc::clone(&git) as _,
             manifests: Arc::clone(&manifests) as _,
             bus: Arc::clone(&bus) as _,
-            processes: Arc::clone(&computer) as _,
-            logs: Arc::clone(&logs),
+            stdio: Arc::new(pagis_plugins::NativeStdioServers::new(
+                computer.clone(),
+                logs.clone(),
+            )),
+            http: Arc::new(pagis_plugins::ReqwestMcpHttp::default()),
         }));
         let plugins = Plugins::new(PluginsDeps {
             plugins: Arc::clone(&store) as _,
@@ -363,12 +365,14 @@ impl Harness {
             grants: Arc::clone(&self.grants) as _,
             secrets: Arc::clone(&self.secrets) as _,
             tokens: Arc::clone(&self.tokens),
-            git: Arc::clone(&self.git),
             states: Arc::clone(&self.git) as _,
             manifests: Arc::clone(&self.manifests) as _,
             bus: Arc::clone(&self.bus) as _,
-            processes: Arc::clone(&self.computer) as _,
-            logs: Arc::clone(&self.logs),
+            stdio: Arc::new(pagis_plugins::NativeStdioServers::new(
+                self.computer.clone(),
+                self.logs.clone(),
+            )),
+            http: Arc::new(pagis_plugins::ReqwestMcpHttp::default()),
         }))
     }
 

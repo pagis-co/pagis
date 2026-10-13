@@ -12,13 +12,15 @@
 //! Connections still carry the capabilities the package asked for
 //! (ADR-0017), and that the tool is in the frozen manifest.
 
+use pagis_rt::Instant;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+#[cfg(feature = "native")]
+use std::time::Duration;
 
 use async_trait::async_trait;
 use pagis_broker::{AuthorizedCall, CapabilityManifest, ToolResult, ToolRoute};
+#[cfg(feature = "native")]
 use tokio_util::sync::CancellationToken;
 
 use pagis_core::{
@@ -26,13 +28,11 @@ use pagis_core::{
     PluginBindingValue, PluginId, PluginState, PluginStore, PluginTool, PluginToolStore,
     PluginTools, SecretStore, WorkspaceId, now_ms,
 };
-use pagis_plugin::{
-    McpConfig, McpServer, PluginGitStore, PluginPackage, PluginStates, check_access, validate,
-};
+use pagis_plugin::{McpConfig, McpServer, PluginPackage, PluginStates, check_access, validate};
 
 use crate::freeze::{capability_manifest, freeze_tools};
-use crate::log::PluginLogs;
-use crate::process::{ServerProcesses, container_paths};
+use crate::http::McpHttp;
+use crate::stdio::{StdioServers, container_paths};
 use crate::substitute::{Bound, endpoint_of, spawn_of};
 use crate::supervisor::{Launch, ServerError, ServerSupervisor, ToolListChanged, fingerprint};
 
@@ -104,16 +104,13 @@ pub struct PluginHostDeps {
     pub grants: Arc<dyn GrantStore>,
     pub secrets: Arc<dyn SecretStore>,
     pub tokens: Arc<dyn ConnectionTokens>,
-    pub git: Arc<PluginGitStore>,
     pub states: Arc<dyn PluginStates>,
     pub manifests: Arc<dyn Manifests>,
     pub bus: Arc<dyn EventBus>,
-    /// Where a Plugin's server process runs (ADR-0017): inside the
-    /// tenant's Plugin Computer, and never on the daemon host.
-    pub processes: Arc<dyn ServerProcesses>,
-    /// The Plugin stderr logs, one file for each Workspace and Plugin.
-    /// This host writes and reads the files of its own tenant only.
-    pub logs: Arc<PluginLogs>,
+    /// The stdio sessions and logs supplied by the daemon or Embedder.
+    pub stdio: Arc<dyn StdioServers>,
+    /// The HTTP request transport supplied by the daemon or Embedder.
+    pub http: Arc<dyn McpHttp>,
 }
 
 pub struct PluginHost {
@@ -186,7 +183,7 @@ impl PluginHost {
                 .await
                 .map_err(|error| HostError::Refused(error.to_string()))?;
             let tools = supervisor
-                .list_tools(&client.0)
+                .list_tools(client.0.as_ref())
                 .await
                 .map_err(|error| HostError::Refused(error.to_string()))?;
             supervisor.stop().await;
@@ -315,18 +312,12 @@ impl PluginHost {
         stopped
     }
 
-    /// Where the server output of one Plugin goes in this host's
-    /// Workspace.
-    pub fn log_path(&self, plugin_id: &PluginId) -> PathBuf {
-        self.deps.logs.path(&self.deps.workspace_id, plugin_id)
-    }
-
     /// The end of one Plugin's log in this host's Workspace, at most
     /// `limit` bytes. Only that end is read from the file, and no log of
     /// another Workspace is read (ADR-0023).
     pub async fn read_log(&self, plugin_id: &PluginId, limit: usize) -> String {
         self.deps
-            .logs
+            .stdio
             .tail(&self.deps.workspace_id, plugin_id, limit)
             .await
     }
@@ -417,12 +408,12 @@ impl PluginHost {
             Err(error) => return Err(unavailable(&error.to_string())),
         };
         if started {
-            self.compare_lists(&plugin, &frozen, &supervisor, &client)
+            self.compare_lists(&plugin, &frozen, &supervisor, client.as_ref())
                 .await;
         }
         let timeout = call.call_timeout.unwrap_or(crate::DEFAULT_CALL_TIMEOUT);
         let answer = supervisor
-            .call(&client, tool, call.arguments.clone(), timeout)
+            .call(client.as_ref(), tool, call.arguments.clone(), timeout)
             .await;
         match answer {
             Ok(result) => Ok(tool_result(result)),
@@ -447,7 +438,7 @@ impl PluginHost {
         plugin: &Plugin,
         frozen: &PluginTools,
         supervisor: &ServerSupervisor,
-        client: &crate::supervisor::Client,
+        client: &dyn crate::Session,
     ) {
         let Ok(live) = supervisor.list_tools(client).await else {
             return;
@@ -555,13 +546,16 @@ impl PluginHost {
             catalogs: Arc::clone(&self.deps.catalogs),
             bus: Arc::clone(&self.deps.bus),
         };
-        Arc::new(ServerSupervisor::new(
-            server,
-            self.deps.workspace_id.clone(),
-            Arc::clone(&self.deps.processes),
-            self.deps.logs.log(&self.deps.workspace_id, plugin_id),
-            Arc::new(changed),
-        ))
+        Arc::new(
+            ServerSupervisor::new(
+                server,
+                self.deps.workspace_id.clone(),
+                plugin_id.clone(),
+                Arc::clone(&self.deps.stdio),
+                Arc::new(changed),
+            )
+            .with_http(Arc::clone(&self.deps.http)),
+        )
     }
 
     /// How one declared server is reached, and the mark that says
@@ -572,10 +566,6 @@ impl PluginHost {
         server: &McpServer,
         bound: &Bound,
     ) -> Result<(Launch, String), HostError> {
-        let paths = self
-            .deps
-            .git
-            .paths(&self.deps.org_workspace_id, plugin.id.as_str());
         Ok(match server {
             McpServer::Stdio { .. } => {
                 // A stdio server runs inside the tenant's Plugin
@@ -588,7 +578,7 @@ impl PluginHost {
                 (Launch::Stdio(spawn), mark)
             }
             McpServer::StreamableHttp { .. } | McpServer::Sse { .. } => {
-                let endpoint = endpoint_of(server, &paths, bound)
+                let endpoint = endpoint_of(server, bound)
                     .map_err(|error| HostError::Refused(error.to_string()))?;
                 let mut marked = endpoint.headers.clone();
                 marked.insert("url".to_string(), endpoint.url.clone());
@@ -732,7 +722,7 @@ impl PluginHost {
         {
             tracing::warn!(%error, plugin = %plugin_id, "cannot delete the frozen tool lists");
         }
-        self.deps.logs.remove(plugin_id).await;
+        self.deps.stdio.remove(plugin_id).await;
     }
 }
 
@@ -883,9 +873,10 @@ fn unavailable(message: &str) -> ToolResult {
 
 /// The idle reaper of the daemon: it stops every plugin server that
 /// has been unused for [`crate::IDLE_SHUTDOWN`].
+#[cfg(feature = "native")]
 pub fn spawn_idle_reaper(host: Arc<PluginHost>, every: Duration, cancel: CancellationToken) {
-    tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(every);
+    pagis_rt::spawn(async move {
+        let mut ticker = pagis_rt::interval(every);
         while cancel.run_until_cancelled(ticker.tick()).await.is_some() {
             host.reap_idle(Instant::now()).await;
         }

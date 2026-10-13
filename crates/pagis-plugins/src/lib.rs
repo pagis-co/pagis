@@ -1,28 +1,30 @@
 //! The MCP host of the installed Plugins (ADR-0017).
 //!
-//! One supervised MCP client per declared server of a Plugin runs in
-//! the daemon and serves every Agent of one tenant that holds the
-//! Plugin Grant. The client is in the daemon; the server process is
-//! not: it runs inside that tenant's Plugin Computer, behind
-//! [`process::ServerProcesses`].
-//! The broker is the only caller: nothing here reads a Grant or writes
-//! an audit fact of its own.
+//! One supervised session for each declared server serves every Agent
+//! of a Workspace that holds the Plugin Grant. The broker is the caller.
+//! [`session::Session`] lists tools, calls a tool with a deadline, and
+//! closes a connection. HTTP uses [`McpHttp`]. The daemon supplies stdio
+//! sessions and log tails through [`StdioServers`].
 //!
-//! Four parts stand behind that sentence. [`substitute`] turns the
-//! package's `env`, `headers` and `url` into what one process or one
-//! request carries, and it is where a bound secret enters. [`freeze`]
-//! takes the tool list of an installed state once and never again, so
-//! the tools a Run sees do not move under it. [`supervisor`] owns the
-//! process: when it starts, how long a call may take, how much output
-//! it may write, when it stops, and what happens after it fails.
-//! [`log`] keeps the server's stderr in a log of a fixed size.
+//! [`substitute`] expands Plugin Bindings. [`freeze`] fixes the tool list
+//! of an installed state. [`supervisor`] controls starts, deadlines,
+//! failures and idle shutdown. The `native` feature holds the stdio
+//! client, process streams, logs and idle reaper task. An Embedder can
+//! call [`PluginHosts::reap_idle`] from its own timer.
 
 pub mod freeze;
 pub mod host;
 pub mod hosts;
 pub mod http;
+#[cfg(feature = "native")]
 pub mod log;
+#[cfg(feature = "native")]
+pub mod native;
+#[cfg(feature = "native")]
 pub mod process;
+pub mod runtime;
+pub mod session;
+pub mod stdio;
 pub mod substitute;
 pub mod supervisor;
 
@@ -30,11 +32,20 @@ pub use freeze::{FreezeError, capability_manifest, freeze_tools, qualified_name}
 pub use host::{
     ConnectionTokens, HostError, Manifests, NoConnectionTokens, PluginHost, PluginHostDeps,
 };
-pub use hosts::{PluginHosts, PluginHostsDeps, spawn_idle_reaper};
+#[cfg(feature = "native")]
+pub use hosts::spawn_idle_reaper;
+pub use hosts::{PluginHosts, PluginHostsDeps};
 pub use http::{HttpBody, McpHttp, ReqwestMcpHttp};
+#[cfg(feature = "native")]
 pub use log::{LOG_FULL_MARKER, MAX_LOG_BYTES, PluginLog, PluginLogs, tail_of};
-pub use process::{
-    CONTAINER_PLUGIN_DATA, CONTAINER_PLUGIN_ROOT, ServerIo, ServerProcesses, container_paths,
+#[cfg(feature = "native")]
+pub use native::NativeStdioServers;
+#[cfg(feature = "native")]
+pub use process::{ServerIo, ServerProcesses};
+pub use runtime::PluginToolRuntime;
+pub use session::{Session, SessionError};
+pub use stdio::{
+    CONTAINER_PLUGIN_DATA, CONTAINER_PLUGIN_ROOT, NoStdioServers, StdioServers, container_paths,
 };
 pub use substitute::{
     Bound, CONTAINER_ENV, Endpoint, Spawn, SubstitutionError, endpoint_of, spawn_of,

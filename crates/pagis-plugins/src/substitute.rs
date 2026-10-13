@@ -53,6 +53,8 @@ pub enum SubstitutionError {
     BadHeaderName(String),
     #[error("the header {0:?} carries a value a request cannot hold")]
     BadHeaderValue(String),
+    #[error("{0} is a daemon path and has no meaning for an HTTP server")]
+    HttpPath(String),
 }
 
 /// The bound value of every config field, by field name. A secret and
@@ -74,6 +76,14 @@ impl Bound {
     /// refusal, not an empty value: a server that starts with half a
     /// credential fails in a way nobody can read.
     pub fn expand(&self, text: &str, paths: &PluginPaths) -> Result<String, SubstitutionError> {
+        self.expand_with_paths(text, Some(paths))
+    }
+
+    fn expand_with_paths(
+        &self,
+        text: &str,
+        paths: Option<&PluginPaths>,
+    ) -> Result<String, SubstitutionError> {
         let mut out = String::with_capacity(text.len());
         let mut rest = text;
         while let Some(start) = rest.find("${") {
@@ -85,8 +95,16 @@ impl Bound {
             };
             let name = &after[..end];
             match name {
-                PLUGIN_ROOT => out.push_str(&paths.root.display().to_string()),
-                PLUGIN_DATA => out.push_str(&paths.data.display().to_string()),
+                PLUGIN_ROOT | PLUGIN_DATA => {
+                    let paths =
+                        paths.ok_or_else(|| SubstitutionError::HttpPath(format!("${{{name}}}")))?;
+                    let path = if name == PLUGIN_ROOT {
+                        &paths.root
+                    } else {
+                        &paths.data
+                    };
+                    out.push_str(&path.display().to_string());
+                }
                 _ => match name.strip_prefix("config.") {
                     Some(field) => match self.get(field) {
                         Some(value) => out.push_str(value),
@@ -171,13 +189,8 @@ pub fn spawn_of(
 }
 
 /// The address and headers of one HTTP server. A `sse` server takes
-/// the same path: the specification deprecates the transport, and
-/// `rmcp` speaks to it through the same client.
-pub fn endpoint_of(
-    server: &McpServer,
-    paths: &PluginPaths,
-    bound: &Bound,
-) -> Result<Endpoint, SubstitutionError> {
+/// the same path through the streamable HTTP client.
+pub fn endpoint_of(server: &McpServer, bound: &Bound) -> Result<Endpoint, SubstitutionError> {
     let (url, headers) = match server {
         McpServer::StreamableHttp { url, headers } | McpServer::Sse { url, headers } => {
             (url, headers)
@@ -191,9 +204,9 @@ pub fn endpoint_of(
     };
     let mut expanded = BTreeMap::new();
     for (name, value) in headers {
-        expanded.insert(name.clone(), bound.expand(value, paths)?);
+        expanded.insert(name.clone(), bound.expand_with_paths(value, None)?);
     }
-    let url = bound.expand(url, paths)?;
+    let url = bound.expand_with_paths(url, None)?;
     check_address(&url)?;
     Ok(Endpoint {
         url,

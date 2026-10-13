@@ -1,9 +1,10 @@
 //! The Plugin Supervisor over an HTTP router with no listener.
 
+use pagis_rt::Instant;
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use axum::body::Body;
@@ -11,19 +12,11 @@ use futures::StreamExt;
 use http::{Method, Request, Response};
 use pagis_core::{PluginId, PluginTool, WorkspaceId};
 use pagis_plugins::{
-    Endpoint, HttpBody, Launch, MAX_FRAME_BYTES, McpHttp, PluginLogs, ServerError, ServerIo,
-    ServerProcesses, ServerSupervisor, Spawn, ToolListChanged,
+    Endpoint, HttpBody, Launch, MAX_FRAME_BYTES, McpHttp, NoStdioServers, ServerError,
+    ServerSupervisor, ToolListChanged,
 };
 use serde_json::{Value, json};
 use tower::ServiceExt;
-
-struct NoProcesses;
-#[async_trait]
-impl ServerProcesses for NoProcesses {
-    async fn start(&self, _: &WorkspaceId, _: &Spawn) -> Result<ServerIo, String> {
-        panic!("HTTP does not start a process")
-    }
-}
 
 #[derive(Default)]
 struct Changed(AtomicUsize);
@@ -140,9 +133,8 @@ impl Harness {
         let supervisor = ServerSupervisor::new(
             "fixture",
             workspace.clone(),
-            Arc::new(NoProcesses),
-            PluginLogs::new(directory.path().to_path_buf())
-                .log(&workspace, &PluginId::from("fixture".to_string())),
+            PluginId::from("fixture".to_string()),
+            Arc::new(NoStdioServers),
             changed.clone(),
         )
         .with_http(http.clone());
@@ -154,7 +146,7 @@ impl Harness {
         }
     }
 
-    async fn client(&self) -> Arc<pagis_plugins::supervisor::Client> {
+    async fn client(&self) -> Arc<dyn pagis_plugins::Session> {
         let launch = Launch::Http(Endpoint {
             url: "http://127.0.0.1/mcp".to_string(),
             headers: BTreeMap::from([(
@@ -174,7 +166,11 @@ impl Harness {
 async fn freeze_gets_the_tools_and_stop_deletes_the_session() {
     let harness = Harness::new();
     let client = harness.client().await;
-    let tools = harness.supervisor.list_tools(&client).await.unwrap();
+    let tools = harness
+        .supervisor
+        .list_tools(client.as_ref())
+        .await
+        .unwrap();
     let frozen = freeze(&tools);
     assert!(frozen.iter().any(|tool| tool.name == "echo"));
     assert!(frozen.iter().all(|tool| tool.server == "fixture"));
@@ -214,7 +210,7 @@ async fn a_call_gets_the_sse_answer() {
     let result = harness
         .supervisor
         .call(
-            &client,
+            client.as_ref(),
             "echo",
             json!({"text":"in memory"}),
             Duration::from_secs(1),
@@ -231,7 +227,7 @@ async fn a_deadline_sends_cancellation_and_answers_unknown() {
     let result = harness
         .supervisor
         .call(
-            &client,
+            client.as_ref(),
             "sleep",
             json!({"seconds":60}),
             Duration::from_millis(20),
@@ -258,7 +254,7 @@ async fn an_expired_session_initializes_again_before_the_call() {
     let result = harness
         .supervisor
         .call(
-            &client,
+            client.as_ref(),
             "echo",
             json!({"text":"new session"}),
             Duration::from_secs(1),
@@ -281,10 +277,21 @@ async fn an_expired_session_initializes_again_before_the_call() {
 async fn a_call_answer_marks_the_tool_list_changed() {
     let harness = Harness::new();
     let client = harness.client().await;
-    let frozen = freeze(&harness.supervisor.list_tools(&client).await.unwrap());
+    let frozen = freeze(
+        &harness
+            .supervisor
+            .list_tools(client.as_ref())
+            .await
+            .unwrap(),
+    );
     harness
         .supervisor
-        .call(&client, "drop_tool", json!({}), Duration::from_secs(1))
+        .call(
+            client.as_ref(),
+            "drop_tool",
+            json!({}),
+            Duration::from_secs(1),
+        )
         .await
         .unwrap();
     assert_eq!(harness.changed.0.load(Ordering::SeqCst), 1);
@@ -292,7 +299,7 @@ async fn a_call_answer_marks_the_tool_list_changed() {
     assert!(
         !harness
             .supervisor
-            .list_tools(&client)
+            .list_tools(client.as_ref())
             .await
             .unwrap()
             .iter()
@@ -307,7 +314,7 @@ async fn an_answer_over_the_cap_ends_the_session() {
     let result = harness
         .supervisor
         .call(
-            &client,
+            client.as_ref(),
             "blob",
             json!({"size":MAX_FRAME_BYTES + 1}),
             Duration::from_secs(2),
@@ -335,7 +342,11 @@ async fn json_answers_and_tool_list_pages_are_read() {
     let client = harness.client().await;
     queue(&harness, "application/json; charset=utf-8", r#"{"jsonrpc":"2.0","id":CALL_ID,"result":{"tools":[{"name":"first","inputSchema":{"type":"object"}}],"nextCursor":"next"}}"#.to_string());
     queue(&harness, "application/json", r#"{"jsonrpc":"2.0","id":CALL_ID,"result":{"tools":[{"name":"second","inputSchema":{"type":"object"}}]}}"#.to_string());
-    let tools = harness.supervisor.list_tools(&client).await.unwrap();
+    let tools = harness
+        .supervisor
+        .list_tools(client.as_ref())
+        .await
+        .unwrap();
     assert_eq!(
         tools
             .iter()
@@ -355,7 +366,7 @@ async fn json_answers_and_tool_list_pages_are_read() {
     );
     let result = harness
         .supervisor
-        .call(&client, "echo", json!({}), Duration::from_secs(1))
+        .call(client.as_ref(), "echo", json!({}), Duration::from_secs(1))
         .await
         .unwrap();
     assert_eq!(result.content[0].as_text().unwrap().text, "JSON");
@@ -381,7 +392,7 @@ async fn ping_is_answered_and_every_other_server_request_is_refused() {
     queue(&harness, "text/event-stream", events);
     harness
         .supervisor
-        .call(&client, "echo", json!({}), Duration::from_secs(1))
+        .call(client.as_ref(), "echo", json!({}), Duration::from_secs(1))
         .await
         .unwrap();
     let messages = harness.http.messages();
@@ -408,7 +419,7 @@ async fn a_json_body_over_the_cap_ends_the_session() {
     );
     let result = harness
         .supervisor
-        .call(&client, "echo", json!({}), Duration::from_secs(1))
+        .call(client.as_ref(), "echo", json!({}), Duration::from_secs(1))
         .await;
     assert!(
         matches!(result, Err(ServerError::Overrun { .. })),
@@ -427,7 +438,7 @@ async fn an_unterminated_sse_event_over_the_cap_ends_the_session() {
     );
     let result = harness
         .supervisor
-        .call(&client, "echo", json!({}), Duration::from_secs(1))
+        .call(client.as_ref(), "echo", json!({}), Duration::from_secs(1))
         .await;
     assert!(
         matches!(result, Err(ServerError::Overrun { .. })),
@@ -453,7 +464,7 @@ async fn an_output_overrun_ends_every_pending_call_of_the_session() {
     let harness = Harness::new();
     let client = harness.client().await;
     let waiting = harness.supervisor.call(
-        &client,
+        client.as_ref(),
         "sleep",
         json!({"seconds":60}),
         Duration::from_secs(10),
@@ -463,7 +474,7 @@ async fn an_output_overrun_ends_every_pending_call_of_the_session() {
         harness
             .supervisor
             .call(
-                &client,
+                client.as_ref(),
                 "blob",
                 json!({"size":MAX_FRAME_BYTES + 1}),
                 Duration::from_secs(2),
@@ -494,7 +505,7 @@ async fn a_pending_handshake_does_not_delay_another_calls_deadline() {
     harness.http.expire.store(true, Ordering::SeqCst);
     harness.http.stall_initialize.store(true, Ordering::SeqCst);
     let restarting = harness.supervisor.call(
-        &client,
+        client.as_ref(),
         "echo",
         json!({"text":"waiting"}),
         Duration::from_secs(60),
@@ -504,7 +515,7 @@ async fn a_pending_handshake_does_not_delay_another_calls_deadline() {
         let result = harness
             .supervisor
             .call(
-                &client,
+                client.as_ref(),
                 "echo",
                 json!({"text":"deadline"}),
                 Duration::from_millis(20),

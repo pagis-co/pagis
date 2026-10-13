@@ -32,16 +32,7 @@ impl From<git2::Error> for GitStoreError {
     }
 }
 
-/// The three directories of one Plugin.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PluginPaths {
-    /// The bare repository of every installed state.
-    pub repository: PathBuf,
-    /// The checkout of the installed state: `PLUGIN_ROOT`.
-    pub root: PathBuf,
-    /// The writable directory of the Plugin: `PLUGIN_DATA`.
-    pub data: PathBuf,
-}
+use crate::states::PluginPaths;
 
 /// The repositories and checkouts of every Plugin.
 pub struct PluginGitStore {

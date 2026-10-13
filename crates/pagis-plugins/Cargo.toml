@@ -6,6 +6,10 @@ license.workspace = true
 publish.workspace = true
 autotests = false
 
+[features]
+default = ["native"]
+native = ["pagis-plugin/native", "rmcp/client", "rmcp/transport-async-rw", "tokio/fs", "tokio/io-util", "tokio/rt", "tokio-util/codec"]
+
 [dependencies]
 async-trait.workspace = true
 futures.workspace = true
@@ -16,20 +20,17 @@ pagis-rt.workspace = true
 reqwest = { workspace = true, features = ["stream"] }
 pagis-broker.workspace = true
 pagis-core.workspace = true
-pagis-plugin = { workspace = true, features = ["native"] }
-rmcp = { workspace = true, features = [
-    "client",
-    "transport-async-rw",
-] }
+pagis-plugin.workspace = true
+rmcp.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["fs", "io-util", "rt"] }
-tokio-util = { workspace = true, features = ["codec"] }
+tokio.workspace = true
+tokio-util.workspace = true
 tracing.workspace = true
 url.workspace = true
 
-[dev-dependencies]
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 pagis-core.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
@@ -38,3 +39,14 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 [[test]]
 name = "main"
 path = "tests/main.rs"
+required-features = ["native"]
+
+[[test]]
+name = "wasm"
+path = "tests/wasm.rs"
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "0.3"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+send_wrapper = { version = "0.6", features = ["futures"] }
