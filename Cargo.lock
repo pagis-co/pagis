@@ -4927,6 +4927,7 @@ dependencies = [
  "pagis-core",
  "pagis-google",
  "pagis-mail",
+ "pagis-mcp-fixture",
  "pagis-needs-you",
  "pagis-plugin",
  "pagis-plugins",

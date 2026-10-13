@@ -6,6 +6,10 @@ mod support {
     pub mod agents;
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "support/plugins_http.rs"]
+mod http_memory;
+
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;

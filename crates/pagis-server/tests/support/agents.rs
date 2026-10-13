@@ -1,7 +1,7 @@
 //! The stores and services an Embedder gives to the routers.
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use pagis_agent::{
     AgentDeps, AgentLoopConfig, AgentSystem, CoreToolRuntime, ProgressHub, StreamHub,
@@ -74,7 +74,7 @@ impl Embedder {
         .await
     }
 
-    async fn with_services(
+    pub async fn with_services(
         brain: Arc<dyn pagis_agent::Brain>,
         executor: Arc<dyn ToolExecutor>,
         gate: Arc<dyn pagis_agent::ModelCallGate>,
@@ -132,6 +132,11 @@ impl Embedder {
             context_messages: config.context_messages,
             presence: presence.clone(),
         }));
+        let executor = Arc::new(RouteExecutor {
+            core: runtime.clone(),
+            external: executor,
+            plugins: OnceLock::new(),
+        });
         let broker = Arc::new(Broker::new(BrokerDeps {
             run_journal: stores.run_journal.clone(),
             forget: stores.forget.clone(),
@@ -143,10 +148,7 @@ impl Embedder {
             runs: stores.runs.clone(),
             conversation_evidence: stores.conversation_evidence.clone(),
             bus: bus.clone(),
-            executor: Arc::new(RouteExecutor {
-                core: runtime.clone(),
-                external: executor,
-            }),
+            executor: executor.clone(),
             phone_numbers: stores.phone_numbers.clone(),
             mailboxes: stores.agent_mailboxes.clone(),
             hosts: stores.hosts.clone(),
@@ -265,6 +267,12 @@ impl Embedder {
             stdio,
             http,
         });
+        assert!(
+            executor
+                .plugins
+                .set(pagis_plugins::PluginToolRuntime::new(plugin_hosts.clone()))
+                .is_ok()
+        );
         let plugins = Arc::new(pagis_plugin::Plugins::new(pagis_plugin::PluginsDeps {
             plugins: stores.plugins.clone(),
             connections: stores.connections.clone(),
@@ -484,10 +492,13 @@ impl pagis_needs_you::NotificationSender for UnusedServices {
     }
 }
 
-/// Core tools use the real runtime; outside calls use the test service.
+/// Core and Plugin tools use their runtimes. Other calls use the test service.
 struct RouteExecutor {
     core: Arc<CoreToolRuntime>,
     external: Arc<dyn ToolExecutor>,
+    // PluginHosts reads the Broker's manifests, so the runtime is set
+    // after the Broker exists.
+    plugins: OnceLock<pagis_plugins::PluginToolRuntime>,
 }
 
 #[async_trait::async_trait]
@@ -496,6 +507,13 @@ impl ToolExecutor for RouteExecutor {
         match call.route {
             pagis_broker::ToolRoute::Core { .. } | pagis_broker::ToolRoute::Ui { .. } => {
                 self.core.execute(call).await
+            }
+            pagis_broker::ToolRoute::Plugin { .. } => {
+                self.plugins
+                    .get()
+                    .expect("the Embedder has a Plugin runtime")
+                    .execute(call)
+                    .await
             }
             _ => self.external.execute(call).await,
         }
