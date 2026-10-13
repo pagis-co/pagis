@@ -1,4 +1,10 @@
 //! The Needs-You Queue and the Notification rules of one Workspace.
+//!
+//! An Embedder runs [`NotificationRule`] with its own time and timer.
+//! At the end of a hold it reads [`Notifications::queued`] and gives
+//! the result to [`NotificationRule::on_hold_end`]. For [`Action::Send`]
+//! it calls [`Notifications::notify`]. [`run_notifications`] uses the
+//! same methods with a timer in memory.
 
 mod loops;
 mod needs_you;

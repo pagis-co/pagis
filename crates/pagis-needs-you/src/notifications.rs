@@ -346,7 +346,7 @@ impl Notifications {
 
 /// An item as the Needs-You Queue holds it, with the count of the
 /// queue: the payload of `needs_you.added`, and the answer of
-/// [`Notifier::queued`].
+/// [`Notifications::queued`].
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct QueuedItem {
     pub item: NeedsYouItem,
@@ -379,6 +379,34 @@ pub(crate) trait Notifier: Send + Sync + 'static {
 
 impl Notifier for Notifications {
     async fn queued(&self, workspace_id: &WorkspaceId, item_id: &str) -> Option<QueuedItem> {
+        Notifications::queued(self, workspace_id, item_id).await
+    }
+
+    /// The send runs in a task of its own, so a held send waits for
+    /// its retry while the loop reads the next event.
+    async fn notify(
+        self: &Arc<Self>,
+        workspace_id: &WorkspaceId,
+        item: &NeedsYouItem,
+        count: usize,
+        cancel: &CancellationToken,
+    ) {
+        let notifications = Arc::clone(self);
+        let workspace_id = workspace_id.clone();
+        let item = item.clone();
+        let cancel = cancel.clone();
+        pagis_rt::spawn(async move {
+            Notifications::notify(&notifications, &workspace_id, &item, count, &cancel).await;
+        });
+    }
+}
+
+impl Notifications {
+    /// Read `item_id` as the Needs-You Queue of `workspace_id` holds it
+    /// now, with the current count. Returns `None` when the item left
+    /// the queue or the queue cannot be read. An Embedder calls this
+    /// at the end of a hold before it calls [`crate::NotificationRule::on_hold_end`].
+    pub async fn queued(&self, workspace_id: &WorkspaceId, item_id: &str) -> Option<QueuedItem> {
         match self
             .needs_you
             .derive(workspace_id, self.clock.now_ms())
@@ -399,9 +427,16 @@ impl Notifier for Notifications {
         }
     }
 
-    /// Each Push Subscription gets its Web Push in a task of its own.
-    async fn notify(
-        self: &Arc<Self>,
+    /// Send the Notification of `item` to each Push Subscription of
+    /// `workspace_id`. `count` is the current count of the Needs-You Queue.
+    /// The sends run together, and the method returns when each send and
+    /// its retry end, so an Embedder whose process can stop keeps it open
+    /// until then. A delivery keeps the send time, a gone endpoint is
+    /// deleted, and a `429` gets one retry after at most 300 seconds.
+    /// `cancel` stops each send and its retry. An Embedder calls this for
+    /// [`crate::Action::Send`].
+    pub async fn notify(
+        &self,
         workspace_id: &WorkspaceId,
         item: &NeedsYouItem,
         count: usize,
@@ -421,20 +456,14 @@ impl Notifier for Notifications {
             Some(agent_id) => self.agent_name(workspace_id, agent_id).await,
             None => None,
         };
-        let plaintext: Arc<[u8]> =
-            payload(item, agent_name.as_deref(), count, &self.public_origin).into();
+        let plaintext = payload(item, agent_name.as_deref(), count, &self.public_origin);
         let options = options(item);
-        for row in rows {
-            let notifications = Arc::clone(self);
-            let plaintext = Arc::clone(&plaintext);
-            let options = options.clone();
-            let cancel = cancel.clone();
-            pagis_rt::spawn(async move {
-                cancel
-                    .run_until_cancelled(notifications.deliver(&row, &plaintext, options))
-                    .await;
-            });
-        }
+        futures::future::join_all(
+            rows.iter().map(|row| {
+                cancel.run_until_cancelled(self.deliver(row, &plaintext, options.clone()))
+            }),
+        )
+        .await;
     }
 }
 
