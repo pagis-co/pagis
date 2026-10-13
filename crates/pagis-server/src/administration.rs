@@ -1172,6 +1172,29 @@ async fn require_administrator(request: Request, next: Next) -> Result<Response,
 /// router refuses a write from such a page.
 pub fn router(state: Arc<AppState>) -> Router {
     let mut guarded = Router::new()
+        // Which Plugins the Org holds, and what each one is bound to
+        // (ADR-0017). A Person grants an installed Plugin to their own
+        // Agent on the product port; installing one is the Org's.
+        .route(
+            "/api/v1/plugins",
+            get(crate::plugins::list_plugins).post(crate::plugins::install_plugin),
+        )
+        .route(
+            "/api/v1/plugins/{plugin_id}",
+            get(crate::plugins::get_plugin).delete(crate::plugins::uninstall_plugin),
+        )
+        .route(
+            "/api/v1/plugins/{plugin_id}/update",
+            post(crate::plugins::update_plugin),
+        )
+        .route(
+            "/api/v1/plugins/{plugin_id}/bindings/{field}",
+            put(crate::plugins::bind_plugin_field),
+        )
+        .route(
+            "/api/v1/plugins/{plugin_id}/start",
+            post(crate::plugins::start_plugin),
+        )
         .route("/api/v1/administration/sections", get(get_sections))
         .route(
             "/api/v1/administration/people",

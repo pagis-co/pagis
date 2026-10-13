@@ -36,7 +36,7 @@ processes, Docker or git. The Native Parts are:
 - Computers (ADR-0014).
 - Calls (ADR-0020).
 - Hosts and Coding Sessions (ADR-0015, ADR-0033).
-- Plugins and Software (ADR-0017, ADR-0016).
+- Software, including the Software List and Widgets (ADR-0016).
 - Connections (ADR-0012).
 - Remote Access (ADR-0028).
 - The System tab with Analytics (ADR-0024, ADR-0026).
@@ -53,6 +53,22 @@ There is one feature because no Embedder chooses between Native Parts.
 The issue that makes a Native Part portable also removes it from
 `native`. A part does not come back. Its routes and services then build
 without the feature on every target.
+
+### Plugin routes are portable
+
+`AppState` holds `Plugins` and `PluginHosts` in every build. The Embedder
+supplies `PackageSource` and `PluginStates` to `Plugins`, and the same
+`PluginStates`, `McpHttp` and `StdioServers` to `PluginHosts`. These
+services hold the supplied seams. The daemon supplies git states, a git
+source, HTTP requests and native stdio servers. An Embedder without
+stdio uses `NoStdioServers`.
+
+The Plugin list, detail, install, update, Binding, Grant, start, uninstall
+and log routes belong to the portable routers. Their route rows have no
+Native Part. The Administration Port keeps its Administrator guard for
+Plugin writes. The Org owns the installs, and a Person reads their own
+Workspace's log and grants a Plugin to their own Agents (ADR-0017).
+Software and Widgets keep the Native Part named `Software`.
 
 ### An absent Native Part answers 501
 
@@ -100,11 +116,12 @@ answer.
   parts and give the defined answer for an absent Native Part.
 
 `pagis-server` builds without `native` on `wasm32-unknown-unknown`.
-The Agent and conversation route tests build `AppState` over the same
-fake stores and services, then send requests through Tower with no
+The Agent, conversation and Plugin route tests build `AppState` over
+the same fake stores and services, then send requests through Tower with no
 listener. They cover Channels, messages, Threads, Runs, Approvals,
-the Needs-You Queue, memory and spoken messages. Each read checks the
-Workspace of the Session. The test binaries run under Node and on
+the Needs-You Queue, memory, spoken messages and the Plugin lifecycle.
+Person-scoped reads check the Workspace of the Session. Plugin lists
+read the Org's Workspace. The test binaries run under Node and on
 native targets.
 
 `pagis-server::fake` holds the in-memory pair of `MessageSocket`s.

@@ -86,7 +86,7 @@ pub async fn widget_page(
 ) -> Result<Response, ApiError> {
     #[cfg(not(feature = "native"))]
     {
-        Err(ApiError::not_available("Plugins"))
+        Err(ApiError::not_available("Software"))
     }
     #[cfg(feature = "native")]
     {
@@ -177,7 +177,7 @@ pub async fn widget_sandbox(
 ) -> Response {
     #[cfg(not(feature = "native"))]
     {
-        ApiError::not_available("Plugins").into_response()
+        ApiError::not_available("Software").into_response()
     }
     #[cfg(feature = "native")]
     {
@@ -243,7 +243,7 @@ pub async fn widget_view(
 ) -> Result<Json<WidgetViewDto>, ApiError> {
     #[cfg(not(feature = "native"))]
     {
-        Err(ApiError::not_available("Plugins"))
+        Err(ApiError::not_available("Software"))
     }
     #[cfg(feature = "native")]
     {
@@ -358,7 +358,7 @@ pub async fn widget_rpc(
 ) -> Result<Json<JsonRpcResponse>, ApiError> {
     #[cfg(not(feature = "native"))]
     {
-        Err(ApiError::not_available("Plugins"))
+        Err(ApiError::not_available("Software"))
     }
     #[cfg(feature = "native")]
     {

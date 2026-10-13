@@ -212,6 +212,27 @@ disables default features, and native consumers turn on `native`. The
 gate builds the portable crate alone with `--no-default-features`, so
 feature unification cannot add native services.
 
+### Plugin routes use the services of the Embedder
+
+`pagis-server` depends on `pagis-plugin` and `pagis-plugins` in every
+build. Its `native` feature enables their `native` features. `AppState`
+holds `Plugins` and `PluginHosts`; their dependencies retain the
+`PackageSource`, `PluginStates`, `McpHttp` and `StdioServers` that the
+Embedder supplies. The routes need no native service of their own.
+
+The portable product router serves the Org's Plugin list and detail,
+the Grant for an Agent in the Person's Workspace, and that Workspace's
+log. The portable administration router serves the list, detail,
+install, update, Binding, start and uninstall behind its Administrator
+guard. An upload reads a tar from an Artifact in the Administrator's
+Workspace. A source install uses `PackageSource`; a refused source
+answers `422`. Plugin route rows have no Native Part, and the OpenAPI
+contract is the same in every build (ADR-0038).
+
+The shared route tests run with fake stores, a fixed `PackageSource`,
+in-memory `PluginStates` and supplied HTTP and log services on native
+targets and on `wasm32-unknown-unknown` under Node.
+
 ### Plugin skills are loaded, not copied into memory
 
 - Nothing of a Plugin enters a memory repository. The system prompt lists

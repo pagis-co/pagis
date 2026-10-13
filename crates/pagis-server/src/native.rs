@@ -2,8 +2,8 @@
 
 use crate::{AppState, RemoteAccessSwitch, RestartSwitch, ScreenRelay, SystemConfigFile};
 use crate::{
-    calls, coding_sessions, connections, grants, harnesses, hosts, phone_numbers, plugins,
-    session_socket, software, voice, widgets, ws,
+    calls, coding_sessions, connections, grants, harnesses, hosts, phone_numbers, session_socket,
+    software, voice, widgets, ws,
 };
 
 pub(crate) mod byte_socket;
@@ -61,15 +61,6 @@ pub struct NativeState {
     /// Version and the bytes of one file of it. A Widget page reads
     /// through it.
     pub versions: Arc<dyn pagis_software::VersionSource>,
-    /// The installed Plugins (ADR-0017). The Administration Interface writes
-    /// them: installing one decides which code runs on this computer.
-    pub plugins: Arc<pagis_plugin::Plugins>,
-    /// The MCP hosts of those Plugins (ADR-0017), one per
-    /// tenant. A handler resolves the host of the signed-in person's
-    /// Workspace: the desk starts a failed Plugin again in that person's
-    /// own Plugin Computer and reads that Computer's server log.
-    pub plugin_hosts: Arc<pagis_plugins::PluginHosts>,
-
     /// Why this daemon sends no analytics whatever the System Setting
     /// says (ADR-0026), or `None` for a release build that can send.
     pub analytics_blocked: Option<pagis_analytics::Blocked>,
@@ -168,13 +159,6 @@ pub(crate) fn product_routes() -> Router<Arc<AppState>> {
             "/api/v1/settings/phone-numbers/{phone_number_id}/release",
             post(phone_numbers::release_phone_number),
         )
-        .route("/api/v1/plugins", get(plugins::list_plugins))
-        .route("/api/v1/plugins/{plugin_id}", get(plugins::get_plugin))
-        .route(
-            "/api/v1/plugins/{plugin_id}/grants",
-            post(plugins::grant_plugin),
-        )
-        .route("/api/v1/plugins/{plugin_id}/log", get(plugins::plugin_log))
         .route(
             "/api/v1/widgets/{package}/{version}/{widget}",
             get(widgets::widget_page),
@@ -256,29 +240,6 @@ pub(crate) fn administration_routes(
         .route(
             "/api/v1/administration/computer-image/pull",
             post(computers::pull_computer_image),
-        )
-        // Which Plugins the Org holds, and what each one is bound to
-        // (ADR-0017). A Person grants an installed Plugin to their own
-        // Agent on the product port; installing one is the Org's.
-        .route(
-            "/api/v1/plugins",
-            get(plugins::list_plugins).post(plugins::install_plugin),
-        )
-        .route(
-            "/api/v1/plugins/{plugin_id}",
-            get(plugins::get_plugin).delete(plugins::uninstall_plugin),
-        )
-        .route(
-            "/api/v1/plugins/{plugin_id}/update",
-            post(plugins::update_plugin),
-        )
-        .route(
-            "/api/v1/plugins/{plugin_id}/bindings/{field}",
-            put(plugins::bind_plugin_field),
-        )
-        .route(
-            "/api/v1/plugins/{plugin_id}/start",
-            post(plugins::start_plugin),
         );
     if sections.contains(crate::AdministrationSection::Providers) {
         router = router

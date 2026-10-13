@@ -178,7 +178,7 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
             xtask::WasmCrate {
                 package: "pagis-server",
                 args: &["--no-default-features"],
-                tests: &["agents_wasm", "conversation_wasm"]
+                tests: &["agents_wasm", "conversation_wasm", "plugins_wasm"]
             },
             xtask::WasmCrate {
                 package: "pagis-plugin",
@@ -194,7 +194,7 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
     );
     let root = workspace_root();
     let cmds = wasm32_commands(&root);
-    assert_eq!(cmds.len(), 20);
+    assert_eq!(cmds.len(), 21);
     assert_eq!(
         cargo_arguments(&cmds[0]),
         [
@@ -265,6 +265,19 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
         ]
     );
     assert_eq!(
+        cargo_arguments(&cmds[18]),
+        [
+            "test",
+            "-p",
+            "pagis-server",
+            "--target",
+            "wasm32-unknown-unknown",
+            "--test",
+            "plugins_wasm",
+            "--no-default-features"
+        ]
+    );
+    assert_eq!(
         cargo_arguments(&cmds[2]),
         [
             "clippy",
@@ -279,7 +292,7 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
         ]
     );
     assert_eq!(
-        cargo_arguments(&cmds[18]),
+        cargo_arguments(&cmds[19]),
         [
             "test",
             "-p",

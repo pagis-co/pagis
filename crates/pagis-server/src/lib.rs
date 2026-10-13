@@ -147,6 +147,17 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub struct AppState {
     #[cfg(feature = "native")]
     pub native: NativeState,
+    /// The installed Plugins (ADR-0017), with the PackageSource and
+    /// PluginStates supplied by the Embedder. The Administration Interface
+    /// writes them: an install decides which code can run.
+    pub plugins: Arc<pagis_plugin::Plugins>,
+    /// The MCP hosts of those Plugins (ADR-0017), one per
+    /// tenant. A handler resolves the host of the signed-in person's
+    /// Workspace: the desk starts a failed Plugin again in that person's
+    /// own Plugin Computer and reads that Computer's server log. The
+    /// Embedder supplies PluginStates, McpHttp and StdioServers.
+    pub plugin_hosts: Arc<pagis_plugins::PluginHosts>,
+
     pub bus: Arc<dyn EventBus>,
     pub channels: Arc<dyn ChannelStore>,
     pub participants: Arc<dyn ParticipantStore>,
@@ -399,6 +410,13 @@ fn product_router(state: Arc<AppState>) -> Router {
     let public_origin = state.public_origin.clone();
 
     let authed = Router::new()
+        .route("/api/v1/plugins", get(plugins::list_plugins))
+        .route("/api/v1/plugins/{plugin_id}", get(plugins::get_plugin))
+        .route(
+            "/api/v1/plugins/{plugin_id}/grants",
+            post(plugins::grant_plugin),
+        )
+        .route("/api/v1/plugins/{plugin_id}/log", get(plugins::plugin_log))
         .route(
             "/api/v1/knowledge/forget",
             get(forget::list).post(forget::confirm),
