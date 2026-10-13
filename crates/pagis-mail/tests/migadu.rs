@@ -42,7 +42,7 @@ async fn create_makes_the_mailbox_with_the_password_the_daemon_chose() {
         .create(
             &account(),
             "ava",
-            &MailboxPassword::new("generated-secret"),
+            Some(&MailboxPassword::new("generated-secret")),
             20,
         )
         .await
@@ -68,7 +68,7 @@ async fn a_taken_address_is_a_conflict() {
 
     let host = MigaduHost::with_base_url(server.uri());
     let refused = host
-        .create(&account(), "ava", &MailboxPassword::new("secret"), 20)
+        .create(&account(), "ava", Some(&MailboxPassword::new("secret")), 20)
         .await
         .unwrap_err();
 
@@ -86,7 +86,7 @@ async fn a_refused_key_is_unauthorized() {
 
     let host = MigaduHost::with_base_url(server.uri());
     let refused = host
-        .create(&account(), "ava", &MailboxPassword::new("secret"), 20)
+        .create(&account(), "ava", Some(&MailboxPassword::new("secret")), 20)
         .await
         .unwrap_err();
 
@@ -106,7 +106,7 @@ async fn an_account_at_its_plan_limit_reports_the_cap() {
 
     let host = MigaduHost::with_base_url(server.uri());
     let refused = host
-        .create(&account(), "ava", &MailboxPassword::new("secret"), 20)
+        .create(&account(), "ava", Some(&MailboxPassword::new("secret")), 20)
         .await
         .unwrap_err();
 
@@ -256,7 +256,7 @@ async fn the_api_key_stays_out_of_the_request_body() {
         .await;
 
     let host = MigaduHost::with_base_url(server.uri());
-    host.create(&account(), "ava", &MailboxPassword::new("secret"), 20)
+    host.create(&account(), "ava", Some(&MailboxPassword::new("secret")), 20)
         .await
         .unwrap();
 

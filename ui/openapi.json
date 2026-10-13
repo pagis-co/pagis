@@ -15915,7 +15915,7 @@
           "domain",
           "suggested_local_part",
           "default_outgoing_cap",
-          "mints_password",
+          "password",
           "deletes_mailbox"
         ],
         "properties": {
@@ -15938,9 +15938,9 @@
           "domain": {
             "type": "string"
           },
-          "mints_password": {
-            "type": "boolean",
-            "description": "Whether the host mints the mailbox password. Where it does not,\nthe user types the password of an inbox made at the host."
+          "password": {
+            "$ref": "#/components/schemas/MailboxPasswordDto",
+            "description": "The host mints it, the Person types it, or the mailbox has none."
           },
           "suggested_local_part": {
             "type": "string",
@@ -15988,11 +15988,21 @@
           }
         }
       },
+      "MailboxPasswordDto": {
+        "type": "string",
+        "description": "How an Agent Mailbox gets its password.",
+        "enum": [
+          "minted",
+          "typed",
+          "none"
+        ]
+      },
       "MailboxProviderDto": {
         "type": "object",
         "description": "What one Mailbox Provider holds and what it can do\n(ADR-0019). A capability that is absent is shown as absent, so the\npage says what the user must do by hand.",
         "required": [
           "domain",
+          "password",
           "idle",
           "outgoing_cap",
           "delete_mailbox",
@@ -16028,6 +16038,10 @@
           "outgoing_cap": {
             "type": "boolean",
             "description": "The host caps the mailbox's own sends. The daemon enforces the\nOutgoing Cap for every host either way."
+          },
+          "password": {
+            "$ref": "#/components/schemas/MailboxPasswordDto",
+            "description": "How the mailbox gets its password."
           },
           "reset_password": {
             "type": "boolean",

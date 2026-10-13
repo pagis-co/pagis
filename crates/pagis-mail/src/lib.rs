@@ -98,8 +98,8 @@ pub use protocol::{
 };
 pub use provider::{
     ACCOUNT_KEY, CAPABILITIES_KEY, DOMAIN_KEY, IMAP_HOST_KEY, IMAP_PORT_KEY, MIGADU_IMAP,
-    MIGADU_SMTP, MailboxCapabilities, MailboxProvider, SMTP_HOST_KEY, SMTP_PORT_KEY, authserv_ids,
-    mailbox_provider,
+    MIGADU_SMTP, MailboxCapabilities, MailboxPasswordKind, MailboxProvider, SMTP_HOST_KEY,
+    SMTP_PORT_KEY, authserv_ids, mailbox_provider,
 };
 pub use sender::{SenderEvidence, SenderVerification, verify_sender};
 pub use standing::{

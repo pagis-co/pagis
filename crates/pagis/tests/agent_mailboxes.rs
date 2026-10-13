@@ -240,7 +240,7 @@ async fn an_agent_with_no_mailbox_is_offered_a_name_on_each_provider() {
     assert_eq!(offers[0]["domain"], "example.com");
     assert_eq!(offers[0]["suggested_local_part"], "ada.lovelace");
     assert_eq!(offers[0]["default_outgoing_cap"], 20);
-    assert_eq!(offers[0]["mints_password"], true);
+    assert_eq!(offers[0]["password"], "minted");
     assert_eq!(offers[0]["deletes_mailbox"], true);
 }
 

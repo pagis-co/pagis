@@ -154,6 +154,13 @@ fn an_embedder_names_a_provider_without_endpoints() {
     assert_eq!(read.domain, "example.com");
     assert_eq!(read.imap, None);
     assert_eq!(read.smtp, None);
+    assert_eq!(read.password(), pagis_mail::MailboxPasswordKind::None);
+    let mut without_reset = read.clone();
+    without_reset.capabilities.reset_password = false;
+    assert_eq!(
+        without_reset.password(),
+        pagis_mail::MailboxPasswordKind::None
+    );
     assert_eq!(
         mailbox_provider(&connection("embedder-mail", read.config())),
         Some(read)

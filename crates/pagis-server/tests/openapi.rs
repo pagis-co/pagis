@@ -125,3 +125,20 @@ fn person_role_contract_has_two_roles_and_the_conflict_response() {
         serde_json::json!(["administrator", "member"])
     );
 }
+
+#[test]
+fn mailbox_offers_name_password_as_a_string_enum() {
+    let document = serde_json::to_value(pagis_server::ApiDoc::openapi()).unwrap();
+    let schemas = &document["components"]["schemas"];
+    let properties = &schemas["MailboxOfferDto"]["properties"];
+    assert!(properties.get("mints_password").is_none());
+    assert_eq!(
+        properties["password"]["$ref"],
+        "#/components/schemas/MailboxPasswordDto"
+    );
+    assert_eq!(schemas["MailboxPasswordDto"]["type"], "string");
+    assert_eq!(
+        schemas["MailboxPasswordDto"]["enum"],
+        serde_json::json!(["minted", "typed", "none"])
+    );
+}

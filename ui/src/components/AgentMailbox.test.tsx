@@ -37,6 +37,7 @@ const migadu = {
     outgoing_cap: true,
     delete_mailbox: true,
     reset_password: true,
+    password: 'minted',
   },
 }
 
@@ -53,6 +54,7 @@ const manual = {
     outgoing_cap: false,
     delete_mailbox: false,
     reset_password: false,
+    password: 'typed',
   },
 }
 
@@ -62,7 +64,7 @@ const offer = {
   domain: 'example.com',
   suggested_local_part: 'ada',
   default_outgoing_cap: 20,
-  mints_password: true,
+  password: 'minted',
   deletes_mailbox: true,
 }
 
@@ -155,6 +157,47 @@ function mount(api: ReturnType<typeof stubApi>) {
 }
 
 describe('AgentMailbox', () => {
+  it('makes a mailbox with no password without a password field', async () => {
+    const api = stubApi({ offers: [{ ...offer, password: 'none' }] })
+    mount(api)
+    fireEvent.click(await screen.findByText('Provision a mailbox'))
+    expect(screen.queryByLabelText('Mailbox password')).toBeNull()
+    const make = screen.getByLabelText('Make the mailbox for Ada')
+    expect(make.hasAttribute('disabled')).toBe(false)
+    fireEvent.click(make)
+    await waitFor(() => {
+      expect(api.POST).toHaveBeenCalledWith(
+        '/api/v1/agents/{agent_id}/mailbox',
+        expect.objectContaining({
+          body: expect.objectContaining({ password: undefined }),
+        }),
+      )
+    })
+  })
+
+  it('shows no reset action for a mailbox with no password', async () => {
+    mount(
+      stubApi({
+        mailbox: { ...activeMailbox, state: 'unavailable' },
+        offers: [{ ...offer, password: 'none' }],
+        connections: [{
+          ...migadu,
+          mail: {
+            ...migadu.mail,
+            imap_host: null,
+            imap_port: null,
+            smtp_host: null,
+            smtp_port: null,
+            password: 'none',
+          },
+        }],
+      }),
+    )
+    expect(await screen.findByText('ada@example.com')).toBeTruthy()
+    expect(screen.queryByText('Reset password')).toBeNull()
+    expect(screen.queryByLabelText('New mailbox password')).toBeNull()
+  })
+
   it('shows the address, the state and the cap with the day count', async () => {
     mount(stubApi({ mailbox: activeMailbox }))
 
@@ -371,7 +414,7 @@ describe('AgentMailbox', () => {
           ...offer,
           connection_id: 'cx2',
           display_name: 'Mail host',
-          mints_password: false,
+          password: 'typed',
           deletes_mailbox: false,
         },
       ],
