@@ -804,7 +804,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     // The Standing Mail Rule needs the Trigger module, which reads the
     // declarations the broker holds and is therefore built later
     // (ADR-0019).
-    let standing_mail_rule = Arc::new(crate::mail_events::DeferredStandingRule::default());
+    let standing_mail_rule = Arc::new(pagis_mail::DeferredStandingRule::default());
     // The same pair for calls (ADR-0020): the number desk writes the
     // Standing Call Rule when a line becomes an Agent's, and a settled
     // call hands its envelope to the Trigger module. Both wait for the
@@ -1365,7 +1365,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         Arc::clone(&knowledge_worker) as Arc<dyn pagis_core::knowledge::CatalogueProvider>;
     // The mailbox desk can now make a Standing Mail Rule, and one task
     // per `active` mailbox watches its INBOX (ADR-0019).
-    standing_mail_rule.set(Arc::new(crate::mail_events::StandingMailRules::new(
+    standing_mail_rule.set(Arc::new(pagis_mail::StandingMailRules::new(
         Arc::clone(&trigger),
         Arc::clone(&channels) as _,
     )));
@@ -1402,7 +1402,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
             desk: Arc::clone(&mailbox_desk),
             sent: Arc::clone(&sent_mail) as _,
             trust: Arc::clone(&sender_trust) as _,
-            ingest: Arc::new(crate::mail_events::TriggerIngest(Arc::clone(&trigger))),
+            ingest: Arc::new(pagis_mail::TriggerIngest(Arc::clone(&trigger))),
             idle_turn: pagis_mail::MAX_IDLE_TURN,
         },
     ));

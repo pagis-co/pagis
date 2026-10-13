@@ -16,7 +16,7 @@ serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 
-[dev-dependencies]
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { workspace = true, features = ["rt"] }
 async-trait.workspace = true
 pagis-audit.workspace = true
@@ -26,3 +26,10 @@ sqlx.workspace = true
 [[test]]
 name = "main"
 path = "tests/main.rs"
+
+[[test]]
+name = "wasm"
+path = "tests/wasm.rs"
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "0.3"

@@ -34,6 +34,10 @@
 //! Authentication-Results header of an inbound mail. A sender's tier
 //! holds only on the aligned DMARC pass it shows (ADR-0019).
 //!
+//! [`StandingMailRules`] and [`TriggerIngest`] fill the provisioning
+//! and collection seams with the Trigger module. [`DeferredStandingRule`]
+//! holds the rule maker until the Trigger module exists.
+//!
 //! [`MailBlocks`] mints the `mail` block of an inbound mail that woke
 //! the Agent and of a mail it sent (ADR-0019).
 
@@ -62,6 +66,7 @@ mod sender;
 mod standing;
 mod tools;
 mod transport;
+mod trigger;
 
 pub use address::{
     LocalPartError, MAX_LOCAL_PART, RESERVED_LOCAL_PARTS, address_domain, mailbox_address,
@@ -114,6 +119,7 @@ pub use transport::{
     MailSession, MailTransport, MailboxCredential, Message, MessageSummary, OutgoingMessage,
     SentMessage, TransportError, TransportErrorCode,
 };
+pub use trigger::{DeferredStandingRule, StandingMailRules, TriggerIngest};
 
 /// The provider of a Connection whose mailboxes the daemon makes
 /// through the Migadu API (ADR-0019).

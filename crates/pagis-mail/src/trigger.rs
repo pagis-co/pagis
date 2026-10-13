@@ -1,24 +1,23 @@
 //! Where the mail crate meets the Trigger module (ADR-0019).
 //!
-//! The mail crate stops at two seams: it asks for the Standing Mail
-//! Rule when it provisions a mailbox, and it hands each collected pass
-//! to `ingest`. Both are filled here, because the Trigger module reads
-//! the declarations the broker holds and is therefore built after the
-//! mailbox desk.
+//! The mailbox desk asks for a Standing Mail Rule at provisioning. The
+//! collector hands each batch to `ingest`. These adapters fill both
+//! seams for the daemon and for an Embedder. The deferred slot lets
+//! the desk exist before the Trigger module reads the broker catalog.
 
 use std::sync::Arc;
 
-use async_trait::async_trait;
-use pagis_core::{AgentMailbox, ChannelStore, CreatorKind, IngestBatch, now_ms};
-use pagis_mail::{
+use crate::{
     IngestError, MAIL_MESSAGE_RECEIVED, MailIngest, OWN_MAILBOX, STANDING_MAIL_INSTRUCTION,
     STANDING_MAIL_RULE_NAME, StandingMailRule, StandingRuleError,
 };
+use async_trait::async_trait;
+use pagis_core::{AgentMailbox, ChannelStore, CreatorKind, IngestBatch, now_ms};
 use pagis_trigger::{NewSubscription, Trigger};
 
 /// One Standing Mail Rule slot, filled once the Trigger module exists.
-/// The desk provisions no mailbox before the daemon has finished
-/// starting, so an empty slot is a fault and reads as one.
+/// A caller fills the slot before it provisions a mailbox. An empty
+/// slot returns an error.
 #[derive(Default)]
 pub struct DeferredStandingRule {
     inner: std::sync::OnceLock<Arc<dyn StandingMailRule>>,

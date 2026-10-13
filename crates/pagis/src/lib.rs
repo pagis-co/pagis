@@ -14,7 +14,6 @@ pub mod connections;
 pub mod keypad;
 pub mod knowledge;
 pub mod logging;
-pub mod mail_events;
 mod package;
 mod page_signals;
 mod pair;
