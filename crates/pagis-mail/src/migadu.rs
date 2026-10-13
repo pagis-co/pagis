@@ -101,9 +101,10 @@ impl MailboxHost for MigaduHost {
         &self,
         account: &HostAccount,
         local_part: &str,
-        password: &MailboxPassword,
+        password: Option<&MailboxPassword>,
         _outgoing_cap: u32,
     ) -> Result<HostedMailbox, HostError> {
+        let password = password.ok_or_else(|| HostError::new(HostErrorCode::Refused))?;
         let request = self
             .http
             .post(self.mailboxes_url(account))

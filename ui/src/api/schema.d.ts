@@ -5039,11 +5039,8 @@ export interface components {
             deletes_mailbox: boolean;
             display_name: string;
             domain: string;
-            /**
-             * @description Whether the host mints the mailbox password. Where it does not,
-             *     the user types the password of an inbox made at the host.
-             */
-            mints_password: boolean;
+            /** @description The host mints it, the Person types it, or the mailbox has none. */
+            password: components["schemas"]["MailboxPasswordDto"];
             /**
              * @description The local part the form fills in, with the ledger collision
              *     suffix on it when the plain name is taken. Empty when the
@@ -5063,6 +5060,11 @@ export interface components {
             /** @description The Mailbox Providers that are `connected` now. */
             offers: components["schemas"]["MailboxOfferDto"][];
         };
+        /**
+         * @description How an Agent Mailbox gets its password.
+         * @enum {string}
+         */
+        MailboxPasswordDto: "minted" | "typed" | "none";
         /**
          * @description What one Mailbox Provider holds and what it can do
          *     (ADR-0019). A capability that is absent is shown as absent, so the
@@ -5086,6 +5088,8 @@ export interface components {
              *     Outgoing Cap for every host either way.
              */
             outgoing_cap: boolean;
+            /** @description How the mailbox gets its password. */
+            password: components["schemas"]["MailboxPasswordDto"];
             /**
              * @description The daemon mints a new mailbox password. Without it the user
              *     pastes one.

@@ -49,6 +49,10 @@ impl World {
     /// A Workspace with a Migadu and a manual Mailbox Provider, three
     /// Agents, and a proof that gives up at once so no test waits.
     async fn new(pool: SqlitePool) -> Self {
+        Self::with_endpoints(pool, true).await
+    }
+
+    async fn with_endpoints(pool: SqlitePool, endpoints: bool) -> Self {
         let workspaces = SqliteWorkspaceStore::new(pool.clone());
         let person =
             pagis_storage_sqlite::seed_org_and_administrator(&pool, "Org", pagis_core::now_ms())
@@ -77,13 +81,19 @@ impl World {
         let connections = Arc::new(SqliteConnectionStore::new(pool.clone()));
         let secrets = Arc::new(MemorySecretStore::default());
         let host = Arc::new(FakeMailboxHost::default());
-        let migadu = mail_connection(
+        let mut migadu = mail_connection(
             &workspace.id,
             MIGADU_PROVIDER,
             MIGADU_ALIAS,
             "example.com",
             MailboxCapabilities::of(host.capabilities(), true),
         );
+        if !endpoints {
+            migadu.provider = "embedder-mail".into();
+            for key in ["imap_host", "imap_port", "smtp_host", "smtp_port"] {
+                migadu.config.as_object_mut().unwrap().remove(key);
+            }
+        }
         connections.create(&migadu).await.unwrap();
         secrets
             .set(&host_api_key_secret_name(MIGADU_ALIAS), "migadu-key")
@@ -661,6 +671,10 @@ async fn the_suggestion_steps_around_the_ledger(pool: SqlitePool) {
         .iter()
         .find(|offer| offer.connection.id == world.migadu_id)
         .unwrap();
+    assert_eq!(
+        migadu.settings.password(),
+        pagis_mail::MailboxPasswordKind::Minted
+    );
     assert_eq!(migadu.suggested_local_part, "ada.lovelace");
 
     world
@@ -678,6 +692,10 @@ async fn the_suggestion_steps_around_the_ledger(pool: SqlitePool) {
         .iter()
         .find(|offer| offer.connection.id == world.manual_id)
         .unwrap();
+    assert_eq!(
+        manual.settings.password(),
+        pagis_mail::MailboxPasswordKind::Typed
+    );
     assert_eq!(manual.suggested_local_part, "ada.lovelace");
 }
 
@@ -963,5 +981,71 @@ async fn the_desk_opens_an_imap_mailbox_with_its_cursor(pool: SqlitePool) {
     assert_eq!(
         mailbox.message(&id).await.unwrap_err().0,
         TransportErrorCode::StaleId
+    );
+}
+
+#[sqlx::test(migrations = "./../pagis-storage-sqlite/migrations")]
+async fn a_mailbox_without_endpoints_has_no_password(pool: SqlitePool) {
+    let world = World::with_endpoints(pool, false).await;
+    let mailbox = world
+        .desk
+        .provision(&world.workspace_id, &world.agent_id, world.hosted("ada"))
+        .await
+        .unwrap();
+    assert_eq!(mailbox.state, AgentMailboxState::Active);
+    assert_eq!(world.host.addresses(), ["ada@example.com"]);
+    assert_eq!(world.host.password_of(&mailbox.address), None);
+    assert_eq!(
+        world
+            .secrets
+            .get(&mailbox_password_secret_name(
+                &world.workspace_id,
+                &mailbox.address
+            ))
+            .unwrap(),
+        None
+    );
+    assert!(world.transport.logins().is_empty());
+}
+
+#[sqlx::test(migrations = "./../pagis-storage-sqlite/migrations")]
+async fn a_mailbox_without_endpoints_refuses_password_reset(pool: SqlitePool) {
+    let world = World::with_endpoints(pool, false).await;
+    let mailbox = world
+        .desk
+        .provision(&world.workspace_id, &world.agent_id, world.hosted("ada"))
+        .await
+        .unwrap();
+    let calls = world.host.calls();
+    for pasted in [None, Some("typed-secret".into())] {
+        let error = world
+            .desk
+            .reset_password(&world.workspace_id, &mailbox.id, pasted)
+            .await
+            .unwrap_err();
+        let MailboxError::Host(error) = error else {
+            panic!("expected a HostError")
+        };
+        assert_eq!(error.code(), pagis_mail::HostErrorCode::Refused);
+        assert_eq!(error.message(), Some("this mailbox has no login"));
+    }
+    assert_eq!(world.host.calls(), calls);
+    assert_eq!(
+        world
+            .desk
+            .for_agent(&world.workspace_id, &world.agent_id)
+            .await
+            .unwrap(),
+        Some(mailbox.clone())
+    );
+    assert_eq!(
+        world
+            .secrets
+            .get(&mailbox_password_secret_name(
+                &world.workspace_id,
+                &mailbox.address
+            ))
+            .unwrap(),
+        None
     );
 }

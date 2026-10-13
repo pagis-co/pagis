@@ -14,6 +14,8 @@ diffy.workspace = true
 futures.workspace = true
 hkdf.workspace = true
 hmac.workspace = true
+image.workspace = true
+pagis-rt.workspace = true
 regex.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -28,6 +30,9 @@ web-time.workspace = true
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }
 serde-saphyr.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom_02 = { package = "getrandom", version = "0.2", features = ["js"] }

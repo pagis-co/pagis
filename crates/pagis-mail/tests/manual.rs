@@ -21,7 +21,7 @@ async fn create_records_the_address_and_the_password_the_user_typed() {
     let host = ManualHost::new();
 
     let made = host
-        .create(&account(), "ava", &MailboxPassword::new("typed"), 20)
+        .create(&account(), "ava", Some(&MailboxPassword::new("typed")), 20)
         .await
         .unwrap();
 
@@ -35,7 +35,7 @@ async fn create_without_a_password_is_refused() {
     let host = ManualHost::new();
 
     let refused = host
-        .create(&account(), "ava", &MailboxPassword::new(""), 20)
+        .create(&account(), "ava", Some(&MailboxPassword::new("")), 20)
         .await
         .unwrap_err();
 

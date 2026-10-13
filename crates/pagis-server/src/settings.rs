@@ -236,6 +236,8 @@ pub struct ConnectionDto {
 pub struct MailboxProviderDto {
     /// The domain the mailboxes live on, e.g. `example.com`.
     pub domain: String,
+    /// How the mailbox gets its password.
+    pub password: crate::mailboxes::MailboxPasswordDto,
     pub imap_host: Option<String>,
     pub imap_port: Option<u16>,
     pub smtp_host: Option<String>,
@@ -257,6 +259,7 @@ pub struct MailboxProviderDto {
 impl From<pagis_mail::MailboxProvider> for MailboxProviderDto {
     fn from(provider: pagis_mail::MailboxProvider) -> Self {
         Self {
+            password: provider.password().into(),
             domain: provider.domain,
             imap_host: provider.imap.as_ref().map(|endpoint| endpoint.host.clone()),
             imap_port: provider.imap.map(|endpoint| endpoint.port),

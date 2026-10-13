@@ -133,7 +133,7 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
             xtask::WasmCrate {
                 package: "pagis-core",
                 args: &[],
-                tests: &["memory_rules", "wasm"]
+                tests: &["memory_rules", "wasm", "computer_frame"]
             },
             xtask::WasmCrate {
                 package: "llm-router",
@@ -189,7 +189,7 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
     );
     let root = workspace_root();
     let cmds = wasm32_commands(&root);
-    assert_eq!(cmds.len(), 17);
+    assert_eq!(cmds.len(), 18);
     assert_eq!(
         cargo_arguments(&cmds[0]),
         [
@@ -234,7 +234,7 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
         ]
     );
     assert_eq!(
-        cargo_arguments(&cmds[14]),
+        cargo_arguments(&cmds[15]),
         [
             "test",
             "-p",
@@ -247,7 +247,7 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
         ]
     );
     assert_eq!(
-        cargo_arguments(&cmds[15]),
+        cargo_arguments(&cmds[16]),
         [
             "test",
             "-p",
@@ -274,7 +274,7 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
         ]
     );
     assert_eq!(
-        cargo_arguments(&cmds[16]),
+        cargo_arguments(&cmds[17]),
         [
             "test",
             "-p",
@@ -289,6 +289,7 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
     let expected = [
         ("pagis-core", "memory_rules"),
         ("pagis-core", "wasm"),
+        ("pagis-core", "computer_frame"),
         ("llm-router", "rt"),
         ("llm-router", "realtime_host"),
         ("pagis-broker", "rules_wasm"),
@@ -299,7 +300,7 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
         ("pagis-voice", "router_host"),
         ("pagis-mail", "rules"),
     ];
-    for (cmd, (package, binary)) in cmds[3..14].iter().zip(expected) {
+    for (cmd, (package, binary)) in cmds[3..15].iter().zip(expected) {
         assert_eq!(
             cargo_arguments(cmd),
             [

@@ -35,8 +35,9 @@ providers hold both endpoints. An Embedder names its provider and supplies
 `MailboxHost` for mailbox creation and deletion, and `Mailboxes` for reads
 and sends. The desk reads the settings from the Connection without a closed
 list of provider names. A mailbox with no endpoints becomes active after the
-host creates it. It has no IMAP login proof. Password reset also returns it
-to active without an IMAP login.
+host creates it. It has no login, no password and no IMAP login proof. The
+desk stores no password secret for it. Password reset returns a `HostError`
+with the message `this mailbox has no login`.
 
 A host failure can carry a message for the Person. `HostError` bounds this
 untrusted text to 512 UTF-8 bytes at a character boundary. A blank message is
@@ -46,8 +47,15 @@ and `Debug` show the code only, so host messages do not enter log lines.
 
 An API Connection is connected once its key lists the domain's
 mailboxes; a manual one is connected at creation, and each mailbox proves
-itself at its first IMAP login. On create the daemon generates the password,
-sends it to the host, stores it and never shows it. The first login after a
+itself at its first IMAP login. The Mailbox Provider offer names one password
+path: `minted`, `typed` or `none`. The provider settings select `none` when
+both IMAP and SMTP endpoints are absent. With endpoints, the password reset
+capability selects `minted`; without that capability, the Person types the
+password. The offer, creation and reset use this same decision.
+
+For a minted password, the daemon generates it, sends it to the host,
+stores it and never shows it. For a typed password, the Person supplies the
+password of the mailbox they make at the manual host. The first login after a
 create retries with backoff for about three minutes, because hosts propagate
 slowly.
 
@@ -241,8 +249,10 @@ user's alias.
 
 The Agent's page has a mailbox card: the address, the state and reason, the
 Outgoing Cap with today's count, the standing rule with pause and edit, the
-allow rules with remove, a password reset when unavailable, and a delete behind
-a typed-address confirmation. It never shows the password or lists mail.
+allow rules with remove, a password reset when unavailable and the mailbox
+has a login, and a delete behind a typed-address confirmation. A mailbox with
+no password has no password field and no reset action. The card never shows
+a stored password or lists mail.
 
 ## Consequences
 

@@ -151,7 +151,7 @@ it('says what the mailbox lacks when Create meets an unfinished one', async () =
         domain: 'pagis.example',
         suggested_local_part: 'pebble',
         default_outgoing_cap: 50,
-        mints_password: false,
+        password: 'typed',
         deletes_mailbox: false,
       },
     ],

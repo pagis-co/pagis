@@ -239,7 +239,7 @@ pub trait MailboxHost: Send + Sync {
     /// what a mailbox may do.
     fn capabilities(&self) -> HostCapabilities;
 
-    /// Make one mailbox with the password the daemon generated.
+    /// Make one mailbox. A mailbox with no login has no password.
     /// `outgoing_cap` is the messages a day the mailbox may send; a
     /// host that declares `outgoing_cap` false ignores it, and the
     /// daemon still enforces it on every send.
@@ -247,7 +247,7 @@ pub trait MailboxHost: Send + Sync {
         &self,
         account: &HostAccount,
         local_part: &str,
-        password: &MailboxPassword,
+        password: Option<&MailboxPassword>,
         outgoing_cap: u32,
     ) -> Result<HostedMailbox, HostError>;
 

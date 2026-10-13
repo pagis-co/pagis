@@ -23,12 +23,6 @@ use crate::{
 /// Publish pull progress at most every this many percent.
 const PROGRESS_STEP: u8 = 5;
 
-/// The shortest wait before a screenshot after an input.
-const SETTLE_MIN: Duration = Duration::from_millis(300);
-/// The time between two frames that must be equal for a settled screen.
-const SETTLE_POLL: Duration = Duration::from_millis(200);
-/// The longest wait for a screen that keeps changing.
-const SETTLE_MAX: Duration = Duration::from_secs(3);
 /// The uid a shell command and a Coding Harness run as. It owns
 /// `/data/agent`, and it is not root: `pagis-apt` is the one way to root.
 pub const SHELL_USER: &str = "agent";
@@ -1071,30 +1065,11 @@ impl ComputerManager {
         Ok(png)
     }
 
-    /// One frame after the screen stops changing. A page reacts to an
-    /// input over several frames, and a screenshot in the middle of
-    /// that shows a state that is gone. Anthropic's reference loop waits
-    /// a fixed two seconds after each action; this waits at least
-    /// [`SETTLE_MIN`], then until two frames [`SETTLE_POLL`] apart match
-    /// ([`crate::frame::frames_match`]), and at most [`SETTLE_MAX`] on a
-    /// screen that keeps moving. A loading page keeps moving: the tab
-    /// spinner turns until the load ends.
+    /// Capture the screen with the shared settled-frame rule.
     pub async fn settled_frame(&self, agent_id: &AgentId) -> Result<Vec<u8>, ComputerError> {
         let started = tokio::time::Instant::now();
-        let deadline = started + SETTLE_MAX;
-        tokio::time::sleep(SETTLE_MIN).await;
-        let mut frame = self.live_frame(agent_id).await?;
-        let mut settled = false;
-        while tokio::time::Instant::now() < deadline {
-            tokio::time::sleep(SETTLE_POLL).await;
-            let next = self.live_frame(agent_id).await?;
-            let matched = crate::frame::frames_match(&frame, &next);
-            frame = next;
-            if matched {
-                settled = true;
-                break;
-            }
-        }
+        let (frame, settled) =
+            pagis_core::computer::settled_frame(|| self.live_frame(agent_id)).await?;
         tracing::info!(
             %agent_id,
             settle_ms = started.elapsed().as_millis() as u64,
