@@ -865,35 +865,38 @@ impl MailboxDesk {
         }
     }
 
-    /// The host account of one Connection. A manual host has no API
-    /// key at all; every other host reads one from the secret store.
+    /// Read the host API key only when the host needs one.
     fn host_account(
         &self,
         connection: &Connection,
         settings: &MailboxProvider,
     ) -> Result<HostAccount, MailboxError> {
-        if connection.provider == MANUAL_PROVIDER {
-            return Ok(HostAccount::manual(&settings.domain));
-        }
-        match self
-            .secrets
-            .get(&host_api_key_secret_name(&connection.alias))
-        {
-            Ok(Some(api_key)) => Ok(HostAccount::new(
-                &settings.domain,
-                settings.account.clone().unwrap_or_default(),
-                api_key,
-            )),
-            Ok(None) => Err(MailboxError::ProviderUnavailable(
-                Connection::UNAVAILABLE.to_string(),
-            )),
-            Err(error) => {
-                tracing::error!(%error, "reading the mail host API key failed");
-                Err(MailboxError::ProviderUnavailable(
-                    Connection::UNAVAILABLE.to_string(),
-                ))
+        let api_key = if self.host_of(connection).capabilities().api_key {
+            match self
+                .secrets
+                .get(&host_api_key_secret_name(&connection.alias))
+            {
+                Ok(Some(api_key)) => Some(api_key),
+                Ok(None) => {
+                    return Err(MailboxError::ProviderUnavailable(
+                        Connection::UNAVAILABLE.to_string(),
+                    ));
+                }
+                Err(error) => {
+                    tracing::error!(%error, "reading the mail host API key failed");
+                    return Err(MailboxError::ProviderUnavailable(
+                        Connection::UNAVAILABLE.to_string(),
+                    ));
+                }
             }
-        }
+        } else {
+            None
+        };
+        Ok(HostAccount::new(
+            &settings.domain,
+            settings.account.clone().unwrap_or_default(),
+            api_key,
+        ))
     }
 
     fn outgoing_cap(&self, asked: Option<u32>) -> Result<u32, MailboxError> {

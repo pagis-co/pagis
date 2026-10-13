@@ -868,9 +868,10 @@ sees it (ADR-0013, ADR-0018).
 ### Installation Connection
 A Connection that the Org owns: the carrier and the mail domain. An
 Administrator sets it up on the Administration Port, it lives in the Org's
-Workspace, and its key is an installation secret. The connection list of
-every Person shows it, flagged as the installation's. The Agent Phone
-Numbers and Agent Mailboxes on it stay per Workspace (ADR-0012, ADR-0023).
+Workspace, and its key, when required, is an installation secret. The
+connection list of every Person shows it, flagged as the installation's.
+The Agent Phone Numbers and Agent Mailboxes on it stay per Workspace
+(ADR-0012, ADR-0023).
 _Avoid_: shared connection, global connection, org connection
 
 ### Installation Key
@@ -1360,9 +1361,11 @@ The Installation Connection through which Agent Mailboxes exist: one
 account at a mail host that owns a domain, or a manual host where the
 Person makes each mailbox. An Embedder names its provider and can supply
 mail reads and sends through `Mailboxes` with no IMAP or SMTP endpoints.
-The Connection holds the domain and capabilities. Migadu and manual
-providers hold both endpoints. A host refusal can carry a message for the
-Person, bounded to 512 UTF-8 bytes. Logs hold the code only (ADR-0019).
+The Connection holds the domain and capabilities. The host declares
+whether it needs an API key. A host that needs no key reads no host secret.
+Migadu and manual providers hold both endpoints. A host refusal can carry
+a message for the Person, bounded to 512 UTF-8 bytes. Logs hold the code
+only (ADR-0019).
 
 ### Messaging Readiness
 Whether the carrier delivers a text from an Agent Phone Number: `unknown`,

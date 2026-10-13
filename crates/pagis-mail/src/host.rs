@@ -1,5 +1,5 @@
 //! The mailbox seam (ADR-0019): create, delete, reset and list the
-//! mailboxes of one domain. It uses the host API key, and it never
+//! mailboxes of one domain. It uses a host API key when required and never
 //! reads or sends mail. The mail seam, [`crate::MailTransport`], is the
 //! other half and uses the mailbox's own password instead, so the API
 //! key stays out of the mail path.
@@ -8,8 +8,8 @@ use async_trait::async_trait;
 use std::fmt;
 
 /// One mail account at one host: the domain the mailboxes live on, and
-/// the credential that administers it. A manual host has no API
-/// credential and uses [`HostAccount::manual`].
+/// the credential that administers it. A host that needs no API key
+/// holds no key.
 ///
 /// The key has no accessor that prints it and no `Debug` that shows it,
 /// so a key cannot reach a log line by accident.
@@ -17,7 +17,7 @@ use std::fmt;
 pub struct HostAccount {
     domain: String,
     account: String,
-    api_key: String,
+    api_key: Option<String>,
 }
 
 impl HostAccount {
@@ -26,22 +26,12 @@ impl HostAccount {
     pub fn new(
         domain: impl Into<String>,
         account: impl Into<String>,
-        api_key: impl Into<String>,
+        api_key: Option<String>,
     ) -> Self {
         Self {
             domain: domain.into(),
             account: account.into(),
-            api_key: api_key.into(),
-        }
-    }
-
-    /// A domain with no host API. The manual host ignores the
-    /// credential, because the user does the work at the host.
-    pub fn manual(domain: impl Into<String>) -> Self {
-        Self {
-            domain: domain.into(),
-            account: String::new(),
-            api_key: String::new(),
+            api_key,
         }
     }
 
@@ -56,8 +46,8 @@ impl HostAccount {
     }
 
     /// The one reader. Only a host client calls it.
-    pub fn expose_api_key(&self) -> &str {
-        &self.api_key
+    pub fn expose_api_key(&self) -> Option<&str> {
+        self.api_key.as_deref()
     }
 }
 
@@ -98,6 +88,8 @@ impl std::fmt::Debug for MailboxPassword {
 /// Connection page instead of hiding it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HostCapabilities {
+    /// Whether the host needs an API key to manage its mailboxes.
+    pub api_key: bool,
     /// Whether the host applies the Outgoing Cap to the mailbox itself.
     /// The daemon enforces the cap for every host either way.
     pub outgoing_cap: bool,
@@ -230,8 +222,8 @@ impl fmt::Debug for HostError {
 /// (ADR-0019).
 ///
 /// One implementation serves every Connection of its provider, so the
-/// account travels with each call: the API key comes from the secret
-/// store under the Connection alias, and the domain comes from the
+/// account travels with each call: a required API key comes from the
+/// secret store under the Connection alias, and the domain comes from the
 /// Connection.
 #[async_trait]
 pub trait MailboxHost: Send + Sync {

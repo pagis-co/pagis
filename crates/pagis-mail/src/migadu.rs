@@ -61,7 +61,7 @@ impl MigaduHost {
         request: reqwest::RequestBuilder,
         account: &HostAccount,
     ) -> reqwest::RequestBuilder {
-        request.basic_auth(account.account(), Some(account.expose_api_key()))
+        request.basic_auth(account.account(), account.expose_api_key())
     }
 }
 
@@ -88,6 +88,7 @@ impl From<MailboxDto> for HostedMailbox {
 impl MailboxHost for MigaduHost {
     fn capabilities(&self) -> HostCapabilities {
         HostCapabilities {
+            api_key: true,
             // Migadu caps sends per account and per plan, and its
             // per-mailbox limits are absent on the small plans.
             // The daemon enforces the Outgoing Cap.

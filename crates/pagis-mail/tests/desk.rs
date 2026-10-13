@@ -3,7 +3,7 @@
 //! transport that answer from memory. `#[sqlx::test]` gives each test a
 //! fresh database with the migrations applied.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use pagis_audit::AuditEventBus;
@@ -28,11 +28,37 @@ use sqlx::SqlitePool;
 const MIGADU_ALIAS: &str = "mail";
 const MANUAL_ALIAS: &str = "own-host";
 
+/// Record each secret read, including reads of a name with no value.
+#[derive(Default)]
+struct RecordingSecrets {
+    values: MemorySecretStore,
+    reads: Mutex<Vec<String>>,
+}
+
+impl SecretStore for RecordingSecrets {
+    fn get(&self, name: &str) -> Result<Option<String>, pagis_core::SecretError> {
+        self.reads.lock().unwrap().push(name.to_string());
+        self.values.get(name)
+    }
+
+    fn set(&self, name: &str, value: &str) -> Result<(), pagis_core::SecretError> {
+        self.values.set(name, value)
+    }
+
+    fn get_or_insert(&self, name: &str, value: &str) -> Result<String, pagis_core::SecretError> {
+        self.values.get_or_insert(name, value)
+    }
+
+    fn delete(&self, name: &str) -> Result<(), pagis_core::SecretError> {
+        self.values.delete(name)
+    }
+}
+
 /// The desk, its records and the two seams behind it.
 struct World {
     desk: Arc<MailboxDesk>,
     mailboxes: Arc<SqliteAgentMailboxStore>,
-    secrets: Arc<MemorySecretStore>,
+    secrets: Arc<RecordingSecrets>,
     events: Arc<SqliteEventLog>,
     host: Arc<FakeMailboxHost>,
     transport: Arc<FakeMailTransport>,
@@ -53,6 +79,10 @@ impl World {
     }
 
     async fn with_endpoints(pool: SqlitePool, endpoints: bool) -> Self {
+        Self::with_host(pool, endpoints, FakeMailboxHost::default()).await
+    }
+
+    async fn with_host(pool: SqlitePool, endpoints: bool, host: FakeMailboxHost) -> Self {
         let workspaces = SqliteWorkspaceStore::new(pool.clone());
         let person =
             pagis_storage_sqlite::seed_org_and_administrator(&pool, "Org", pagis_core::now_ms())
@@ -79,8 +109,8 @@ impl World {
             seed_agent(&agents, &workspace.id, "Alan Turing", AgentStatus::Archived).await;
 
         let connections = Arc::new(SqliteConnectionStore::new(pool.clone()));
-        let secrets = Arc::new(MemorySecretStore::default());
-        let host = Arc::new(FakeMailboxHost::default());
+        let secrets = Arc::new(RecordingSecrets::default());
+        let host = Arc::new(host);
         let mut migadu = mail_connection(
             &workspace.id,
             MIGADU_PROVIDER,
@@ -95,9 +125,11 @@ impl World {
             }
         }
         connections.create(&migadu).await.unwrap();
-        secrets
-            .set(&host_api_key_secret_name(MIGADU_ALIAS), "migadu-key")
-            .unwrap();
+        if host.capabilities().api_key {
+            secrets
+                .set(&host_api_key_secret_name(MIGADU_ALIAS), "migadu-key")
+                .unwrap();
+        }
         let manual = mail_connection(
             &workspace.id,
             MANUAL_PROVIDER,
@@ -105,6 +137,7 @@ impl World {
             "example.org",
             MailboxCapabilities::of(
                 HostCapabilities {
+                    api_key: false,
                     outgoing_cap: false,
                     delete_mailbox: false,
                     reset_password: false,
@@ -1048,4 +1081,119 @@ async fn a_mailbox_without_endpoints_refuses_password_reset(pool: SqlitePool) {
             .unwrap(),
         None
     );
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_host_without_a_key_provisions_lists_and_deletes_with_no_secret_read(pool: SqlitePool) {
+    let host = FakeMailboxHost::with_capabilities(HostCapabilities {
+        api_key: false,
+        outgoing_cap: true,
+        delete_mailbox: true,
+        reset_password: true,
+    });
+    let world = World::with_host(pool, false, host).await;
+    world
+        .secrets
+        .delete(&host_api_key_secret_name(MIGADU_ALIAS))
+        .unwrap();
+
+    let mailbox = world
+        .desk
+        .provision(&world.workspace_id, &world.agent_id, world.hosted("ada"))
+        .await
+        .expect("a host with no key creates the mailbox");
+    assert_eq!(mailbox.state, AgentMailboxState::Active);
+    assert_eq!(
+        world.desk.list(&world.workspace_id).await.unwrap(),
+        vec![mailbox.clone()]
+    );
+    let found = world
+        .host
+        .list(&pagis_mail::HostAccount::new("example.com", "", None))
+        .await
+        .unwrap();
+    assert_eq!(found[0].address, mailbox.address);
+    let refused = world
+        .desk
+        .reset_password(&world.workspace_id, &mailbox.id, None)
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(refused, MailboxError::Host(error) if error.message() == Some("this mailbox has no login"))
+    );
+    world
+        .desk
+        .delete(&world.workspace_id, &mailbox.id, &mailbox.address)
+        .await
+        .unwrap();
+    assert!(world.host.addresses().is_empty());
+    assert!(world.secrets.reads.lock().unwrap().is_empty());
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_host_without_a_key_can_reset_a_mailbox_with_a_login(pool: SqlitePool) {
+    let host = FakeMailboxHost::with_capabilities(HostCapabilities {
+        api_key: false,
+        outgoing_cap: true,
+        delete_mailbox: true,
+        reset_password: true,
+    });
+    let world = World::with_host(pool, true, host).await;
+    world
+        .secrets
+        .delete(&host_api_key_secret_name(MIGADU_ALIAS))
+        .unwrap();
+    let mailbox = world.provision_active(&world.agent_id, "ada").await;
+    let previous = world.host.password_of(&mailbox.address).unwrap();
+    let reset = world
+        .desk
+        .reset_password(&world.workspace_id, &mailbox.id, None)
+        .await
+        .unwrap();
+    let active = world.settled(&reset).await;
+    assert_eq!(active.state, AgentMailboxState::Active);
+    assert_eq!(active.cursor, mailbox.cursor);
+    assert_ne!(world.host.password_of(&mailbox.address).unwrap(), previous);
+    assert!(
+        world
+            .host
+            .calls()
+            .contains(&HostCall::ResetPassword(mailbox.address.clone()))
+    );
+    world
+        .desk
+        .delete(&world.workspace_id, &mailbox.id, &mailbox.address)
+        .await
+        .unwrap();
+    assert!(world.host.addresses().is_empty());
+    assert!(
+        world
+            .secrets
+            .reads
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|name| name != &host_api_key_secret_name(MIGADU_ALIAS))
+    );
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_host_that_needs_a_key_is_unavailable_without_its_secret(pool: SqlitePool) {
+    let world = World::new(pool).await;
+    world
+        .secrets
+        .delete(&host_api_key_secret_name(MIGADU_ALIAS))
+        .unwrap();
+    let result = world
+        .desk
+        .provision(&world.workspace_id, &world.agent_id, world.hosted("ada"))
+        .await;
+    assert!(
+        matches!(result, Err(MailboxError::ProviderUnavailable(status)) if status == Connection::UNAVAILABLE)
+    );
+    assert_eq!(
+        *world.secrets.reads.lock().unwrap(),
+        vec![host_api_key_secret_name(MIGADU_ALIAS)]
+    );
+    assert!(world.host.calls().is_empty());
 }

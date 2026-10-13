@@ -97,6 +97,7 @@ fn the_record_holds_only_what_the_desk_may_read() {
 fn the_capability_set_is_the_two_seams_together() {
     let capabilities = MailboxCapabilities::of(
         HostCapabilities {
+            api_key: true,
             outgoing_cap: true,
             delete_mailbox: false,
             reset_password: false,

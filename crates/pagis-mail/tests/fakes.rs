@@ -13,7 +13,7 @@ use pagis_mail::{
 };
 
 fn account() -> HostAccount {
-    HostAccount::new("example.com", "owner@example.com", "key")
+    HostAccount::new("example.com", "owner@example.com", Some("key".into()))
 }
 
 fn credential() -> MailboxCredential {
@@ -119,6 +119,7 @@ async fn the_fake_host_deletes_resets_and_lists() {
 #[tokio::test]
 async fn a_fake_host_without_delete_tells_the_user_to_delete() {
     let host = FakeMailboxHost::with_capabilities(HostCapabilities {
+        api_key: true,
         outgoing_cap: false,
         delete_mailbox: false,
         reset_password: false,

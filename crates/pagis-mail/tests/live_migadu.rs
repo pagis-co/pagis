@@ -28,7 +28,7 @@ fn live_account() -> Option<HostAccount> {
     Some(HostAccount::new(
         variable("PAGIS_LIVE_MIGADU_DOMAIN").expect("PAGIS_LIVE_MIGADU_DOMAIN"),
         variable("PAGIS_LIVE_MIGADU_ACCOUNT").expect("PAGIS_LIVE_MIGADU_ACCOUNT"),
-        variable("PAGIS_LIVE_MIGADU_API_KEY").expect("PAGIS_LIVE_MIGADU_API_KEY"),
+        Some(variable("PAGIS_LIVE_MIGADU_API_KEY").expect("PAGIS_LIVE_MIGADU_API_KEY")),
     ))
 }
 
@@ -48,6 +48,7 @@ async fn a_live_migadu_account_makes_lists_resets_and_deletes_one_mailbox() {
     assert_eq!(
         host.capabilities(),
         HostCapabilities {
+            api_key: true,
             outgoing_cap: true,
             delete_mailbox: true,
             reset_password: true,

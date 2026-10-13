@@ -21,8 +21,9 @@ endpoint.
 `pagis-mail` holds both.
 
 - **`MailboxHost`** creates and deletes a mailbox on the Connection's domain
-  with the host API key, an installation secret. There is an API host, and a
-  manual host whose create records the address and password the user typed and
+  with the host API key when the host needs one. The key is an installation
+  secret. There is an API host, and a manual host whose create records the
+  address and password the user typed and
   whose delete forgets the record and tells the user to delete the mailbox at
   the host.
 - **`MailTransport`** reads over IMAP, waits with IDLE and sends over SMTP with
@@ -45,9 +46,19 @@ absent. The mailbox routes use the message when present and the fixed text of
 the code otherwise. The status and error body shape stay the same. `Display`
 and `Debug` show the code only, so host messages do not enter log lines.
 
-An API Connection is connected once its key lists the domain's
-mailboxes; a manual one is connected at creation, and each mailbox proves
-itself at its first IMAP login. The Mailbox Provider offer names one password
+`HostCapabilities.api_key` declares whether the host needs an API key.
+Migadu declares `true`. The manual host declares `false`, and an Embedder
+host can also declare `false`. The capability, not the provider name,
+decides whether Pagis asks for, proves, stores or reads a host API key.
+`HostAccount` holds `Some(key)` for a host that needs a key and `None` for a
+host that needs no key. A host with no key reads no host secret and works
+with an empty secret store. A missing key makes a host that needs one
+unavailable.
+
+A Connection that needs a key is connected once its key lists the domain's
+mailboxes. A Connection that needs no key is connected at creation and
+reconnects without a key proof. Each mailbox with a login proves itself at
+its first IMAP login. The Mailbox Provider offer names one password
 path: `minted`, `typed` or `none`. The provider settings select `none` when
 both IMAP and SMTP endpoints are absent. With endpoints, the password reset
 capability selects `minted`; without that capability, the Person types the

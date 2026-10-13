@@ -7,7 +7,11 @@ use wiremock::matchers::{body_json, header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 fn account() -> HostAccount {
-    HostAccount::new("example.com", "owner@example.com", "migadu-key")
+    HostAccount::new(
+        "example.com",
+        "owner@example.com",
+        Some("migadu-key".into()),
+    )
 }
 
 /// HTTP Basic with the account email address and the API key.
