@@ -30,19 +30,27 @@ async fn onboarding_status_without_computers_holds_docker_null() {
     };
     workspaces.create(&workspace).await.unwrap();
     let state = OnboardingState {
+        local_installation: false,
         workspaces: workspaces.clone(),
         onboarding: Arc::new(SqliteOnboardingStore::new(pool)),
         keys: Arc::new(ProviderKeys::with_env(
-            |_| None,
+            |name| (name == "OPENAI_API_KEY").then(|| "sk-installation".into()),
             Default::default(),
             Arc::new(MemorySecretStore::default()),
         )),
     };
-    let router = Router::new()
-        .route("/api/v1/settings/onboarding", get(onboarding_status))
-        .with_state(state);
     for completed in [false, true] {
-        for role in [UserRole::Administrator, UserRole::Member] {
+        for (local_installation, role) in [
+            (false, UserRole::Administrator),
+            (false, UserRole::Member),
+            (true, UserRole::Administrator),
+            (true, UserRole::Member),
+        ] {
+            let mut offered = state.clone();
+            offered.local_installation = local_installation;
+            let router = Router::new()
+                .route("/api/v1/settings/onboarding", get(onboarding_status))
+                .with_state(offered);
             if completed {
                 workspaces.set_onboarded(&workspace.id, 2).await.unwrap();
             }
@@ -67,11 +75,28 @@ async fn onboarding_status_without_computers_holds_docker_null() {
             assert_eq!(body["docker_endpoint"], serde_json::Value::Null);
             assert_eq!(body["completed"], completed);
             assert_eq!(body["checks"], serde_json::json!([]));
-            if role == UserRole::Member {
-                assert_eq!(body["providers"], serde_json::json!([]));
-            } else {
-                assert!(!body["providers"].as_array().unwrap().is_empty());
-            }
+            assert_eq!(
+                body["steps"],
+                serde_json::json!(["welcome", "model", "profile"])
+            );
+            let can_set_keys = local_installation && role == UserRole::Administrator;
+            assert_eq!(body["can_set_provider_keys"], can_set_keys);
+            assert!(!body["providers"].as_array().unwrap().is_empty());
+            let provider = body["providers"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|provider| provider["provider"] == "openai")
+                .unwrap();
+            assert_eq!(provider["configured"], true);
+            assert_eq!(
+                provider["source"],
+                if can_set_keys {
+                    serde_json::json!("env")
+                } else {
+                    serde_json::Value::Null
+                }
+            );
         }
     }
 }

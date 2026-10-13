@@ -284,17 +284,19 @@ async fn a_member_reaches_none_of_the_installations_provider_keys() {
         assert_eq!(body["error"]["code"], "forbidden");
     }
 
-    // Their onboarding read names no provider key either, so the wizard
-    // never shows them the installation's keys.
+    // The status names the available providers without a key entry control.
     let onboarding: serde_json::Value = get_with(&daemon, &cookie, "/api/v1/settings/onboarding")
         .await
         .json()
         .await
         .unwrap();
-    assert_eq!(
-        onboarding["providers"].as_array().expect("providers").len(),
-        0,
-        "{onboarding}"
+    assert_eq!(onboarding["can_set_provider_keys"], false);
+    assert!(
+        onboarding["providers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|provider| provider["source"].is_null())
     );
 
     // The administrator still reads and writes them.
@@ -597,45 +599,147 @@ async fn one_address_is_one_account() {
     assert_eq!(roster(&daemon).await.len(), 2);
 }
 
-/// An account an administrator creates lands in the product, not in the
-/// local first-run wizard.
-///
-/// The wizard asks which model the installation thinks on, and the
-/// administrator answered that for everybody before the account
-/// existed. So the Workspace is onboarded when it is made: the person's
-/// own onboarding read says `completed`, and nothing asks them to
-/// complete onboarding.
+/// A new Person opens the steps the server offers and stores their answers.
 #[tokio::test]
-async fn a_created_account_is_onboarded_already() {
-    let daemon = TestDaemon::start().await;
+async fn a_created_person_opens_and_completes_the_wizard() {
+    let daemon = TestDaemon::start_with(pagis_testkit::TestDaemonOptions {
+        keys: pagis_testkit::test_provider_keys(vec![("OPENAI_API_KEY", "sk-test")]),
+        ..Default::default()
+    })
+    .await;
     let person = create_account(&daemon, "grace@example.com").await;
     let cookie = sign_in(&daemon, "grace@example.com", PASSWORD)
         .await
-        .expect("the created person signs in");
-
-    let onboarding: serde_json::Value = client()
-        .get(format!("{}/api/v1/settings/onboarding", daemon.base_url))
-        .header("cookie", &cookie)
-        .send()
+        .unwrap();
+    let onboarding: serde_json::Value = get_with(&daemon, &cookie, "/api/v1/settings/onboarding")
         .await
-        .unwrap()
         .json()
         .await
         .unwrap();
-
-    assert_eq!(onboarding["completed"], true, "{onboarding}");
-
-    // And the record itself says so, so nothing derives it per request.
+    assert_eq!(onboarding["completed"], false);
+    assert_eq!(
+        onboarding["steps"],
+        serde_json::json!(["welcome", "model", "profile", "computer"])
+    );
+    assert_eq!(onboarding["can_set_provider_keys"], false);
+    let user_id = pagis_core::UserId::from(person["id"].as_str().unwrap().to_string());
     let workspace = daemon
         .stores()
         .workspaces
-        .for_user(&pagis_core::UserId::from(
-            person["id"].as_str().expect("the person's id").to_string(),
-        ))
+        .for_user(&user_id)
         .await
-        .expect("read the workspace")
-        .expect("the created person owns a workspace");
-    assert!(workspace.onboarded_at.is_some());
+        .unwrap()
+        .unwrap();
+    assert!(workspace.onboarded_at.is_none());
+    for (path, body) in [
+        (
+            "/api/v1/settings/onboarding/default-model",
+            serde_json::json!({"candidate": "openai/gpt-6-sol"}),
+        ),
+        (
+            "/api/v1/workspace/timezone",
+            serde_json::json!({"timezone": "Asia/Tokyo"}),
+        ),
+    ] {
+        let response = client()
+            .put(format!("{}{path}", daemon.base_url))
+            .header("cookie", &cookie)
+            .json(&body)
+            .send()
+            .await
+            .unwrap();
+        assert!(
+            response.status().is_success(),
+            "{path}: {}",
+            response.text().await.unwrap()
+        );
+    }
+    let response = client()
+        .post(format!(
+            "{}/api/v1/settings/onboarding/complete",
+            daemon.base_url
+        ))
+        .header("cookie", &cookie)
+        .json(&serde_json::json!({"user_name": "Grace Hopper"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    assert_eq!(
+        daemon
+            .stores()
+            .users
+            .get(&user_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .name
+            .as_deref(),
+        Some("Grace Hopper")
+    );
+    let saved = daemon
+        .stores()
+        .workspaces
+        .get(&workspace.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(saved.timezone, "Asia/Tokyo");
+    assert!(saved.onboarded_at.is_some());
+    assert_eq!(
+        daemon
+            .stores()
+            .model_aliases
+            .get_by_alias(&workspace.id, "default")
+            .await
+            .unwrap()
+            .unwrap()
+            .candidates,
+        vec!["openai/gpt-6-sol"]
+    );
+    let status: serde_json::Value = get_with(&daemon, &cookie, "/api/v1/settings/onboarding")
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(status["completed"], true);
+}
+
+/// A Server offers model choice without installation setup, for either role.
+#[tokio::test]
+async fn a_server_person_gets_the_wizard_without_key_entry() {
+    let Some(daemon) = TestDaemon::start_on_postgres_with(pagis_testkit::TestDaemonOptions {
+        installation: pagis::Installation::Server,
+        public_origin: "https://pagis.example.com".into(),
+        keys: pagis_testkit::test_provider_keys(vec![("OPENAI_API_KEY", "sk-test")]),
+        ..Default::default()
+    })
+    .await
+    else {
+        return;
+    };
+    create_account(&daemon, "grace@example.com").await;
+    let cookie = sign_in(&daemon, "grace@example.com", PASSWORD)
+        .await
+        .unwrap();
+    for cookie in [&cookie, daemon.cookie()] {
+        let status: serde_json::Value = get_with(&daemon, cookie, "/api/v1/settings/onboarding")
+            .await
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(status["can_set_provider_keys"], false);
+        assert_eq!(
+            status["steps"],
+            serde_json::json!(["welcome", "model", "profile", "computer"])
+        );
+    }
+    let status: serde_json::Value = get_with(&daemon, &cookie, "/api/v1/settings/onboarding")
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(status["completed"], false);
 }
 
 /// The administrator a server's own first run makes is onboarded too:

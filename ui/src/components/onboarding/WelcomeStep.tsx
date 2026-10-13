@@ -1,12 +1,12 @@
-// Step one: what a sprite is, in three lines and three
-// pictures, and the sprite the workspace already has. Nothing here is
-// recorded; it is the one page that explains the product.
+// Welcome introduces sprites and names the Chief of Staff.
 
+import { useState } from 'react'
 import { History, Monitor, NotebookText } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
-import type { AgentDto } from '../../api/client'
-import { Avatar, Button } from '../../primitives'
+import type { AgentDto, ApiClient } from '../../api/client'
+import { errorMessage, useUpdateAgent } from '../../queries'
+import { Avatar, Button, Input } from '../../primitives'
 
 import { StepLayout } from './StepLayout'
 
@@ -35,16 +35,43 @@ const CAPABILITIES: Capability[] = [
 ]
 
 export function WelcomeStep({
+  api,
   sprite,
   onContinue,
 }: {
+  api: ApiClient
   sprite: AgentDto | undefined
   onContinue: () => void
 }) {
+  const [name, setName] = useState<string | null>(null)
+  const update = useUpdateAgent(api)
+  const spriteName = name ?? sprite?.name ?? ''
+  const next = async () => {
+    if (sprite !== undefined && spriteName.trim() !== sprite.name) {
+      try {
+        await update.mutateAsync({
+          agentId: sprite.id,
+          name: spriteName.trim(),
+          job: sprite.job,
+          description: sprite.description,
+          personality: sprite.personality,
+          voice: sprite.voice ?? null,
+          standing_brief: sprite.standing_brief ?? null,
+        })
+      } catch {
+        return
+      }
+    }
+    onContinue()
+  }
   return (
     <StepLayout
       action={
-        <Button variant="primary" onClick={onContinue}>
+        <Button
+          variant="primary"
+          disabled={update.isPending || sprite === undefined || !spriteName.trim()}
+          onClick={() => void next()}
+        >
           Continue
         </Button>
       }
@@ -79,12 +106,24 @@ export function WelcomeStep({
             size="lg"
           />
           <div>
-            <p className="onboarding-sprite-name">{sprite.name}</p>
+            <label className="onboarding-field">
+              Sprite name
+              <Input
+                aria-label="Sprite name"
+                value={spriteName}
+                onChange={(event) => setName(event.target.value)}
+              />
+            </label>
             <p className="onboarding-sprite-line">
-              Your first and main sprite. Rename it whenever you like.
+              Your first and main sprite, the Chief of Staff. Rename it whenever you like.
             </p>
           </div>
         </div>
+      )}
+      {update.isError && (
+        <p className="onboarding-error" role="alert">
+          {errorMessage(update.error, 'Cannot save the sprite name.')}
+        </p>
       )}
     </StepLayout>
   )

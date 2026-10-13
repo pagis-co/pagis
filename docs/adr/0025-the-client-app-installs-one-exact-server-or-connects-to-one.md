@@ -259,13 +259,17 @@ client start the server again.
 
 ### Local onboarding
 
-The Product App opens the local onboarding: welcome, providers, computer. It
-sets the provider keys, the default model and the Docker endpoint through
+The Product App opens Onboarding: Welcome, Model, Profile, Computer. The server
+names the steps it offers, and omits Computer when it has no Computers. It
+records the Person's name and the Workspace timezone in Profile. The browser
+timezone is the default. Welcome introduces the Chief of Staff and takes a
+new name for it. On a Local Installation, an Administrator sets the provider
+keys, the default model and the Docker endpoint through
 onboarding routes on the product port that answer `409` once onboarding is
 finished (ADR-0024). The daemon records the progress, so a reload or restart
 opens on the first unanswered step.
 
-The providers step takes a key for each provider the person has, in one form.
+The Model step takes a key for each provider the person has, in one form.
 Each provider says what its key does in Pagis: thinking, spoken replies,
 dictation, calls. A
 summary says what the keys cover and names the key that each missing part
