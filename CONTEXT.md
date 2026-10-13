@@ -965,7 +965,9 @@ An installed package of Skills and MCP servers in the agent-plugins.org
 format. An Administrator installs it for the Org from git or an upload;
 each installed state is a commit. Each Workspace uses it with its own
 Grants and runs its stdio servers in its own Plugin Computer. An HTTP or
-SSE server of a Plugin is an outbound request of the daemon. A Plugin
+SSE server of a Plugin uses `McpHttp`, supplied by the daemon or an
+Embedder. The Supervisor and hosts build on `wasm32-unknown-unknown`.
+Only the stdio sessions, processes and logs need `native`. A Plugin
 consumes Connections and secrets through Plugin Bindings and never exposes
 one (ADR-0017).
 

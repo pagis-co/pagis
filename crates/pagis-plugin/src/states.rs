@@ -73,3 +73,14 @@ impl DiffSummary {
         Self { files }
     }
 }
+
+/// The three directories of one Plugin.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PluginPaths {
+    /// The bare repository of every installed state.
+    pub repository: std::path::PathBuf,
+    /// The checkout of the installed state: `PLUGIN_ROOT`.
+    pub root: std::path::PathBuf,
+    /// The writable directory of the Plugin: `PLUGIN_DATA`.
+    pub data: std::path::PathBuf,
+}

@@ -150,7 +150,7 @@ impl ToolExecutor for RoutingExecutor {
         if crate::software_tools::SoftwareToolRuntime::owns(&call.route) {
             return self.software.execute(call).await;
         }
-        if crate::plugin_tools::PluginToolRuntime::owns(&call.route) {
+        if pagis_plugins::PluginToolRuntime::owns(&call.route) {
             return self.plugins.execute(call).await;
         }
         if pagis_mail::MailToolRuntime::owns(&call.route) {

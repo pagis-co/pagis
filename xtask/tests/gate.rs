@@ -185,11 +185,16 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
                 args: &["--no-default-features"],
                 tests: &["wasm"]
             },
+            xtask::WasmCrate {
+                package: "pagis-plugins",
+                args: &["--no-default-features"],
+                tests: &["wasm"]
+            },
         ]
     );
     let root = workspace_root();
     let cmds = wasm32_commands(&root);
-    assert_eq!(cmds.len(), 18);
+    assert_eq!(cmds.len(), 20);
     assert_eq!(
         cargo_arguments(&cmds[0]),
         [
@@ -234,7 +239,7 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
         ]
     );
     assert_eq!(
-        cargo_arguments(&cmds[15]),
+        cargo_arguments(&cmds[16]),
         [
             "test",
             "-p",
@@ -247,7 +252,7 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
         ]
     );
     assert_eq!(
-        cargo_arguments(&cmds[16]),
+        cargo_arguments(&cmds[17]),
         [
             "test",
             "-p",
@@ -274,7 +279,7 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
         ]
     );
     assert_eq!(
-        cargo_arguments(&cmds[17]),
+        cargo_arguments(&cmds[18]),
         [
             "test",
             "-p",
@@ -300,7 +305,7 @@ fn wasm32_runs_target_clippy_and_each_node_test() {
         ("pagis-voice", "router_host"),
         ("pagis-mail", "rules"),
     ];
-    for (cmd, (package, binary)) in cmds[3..15].iter().zip(expected) {
+    for (cmd, (package, binary)) in cmds[4..16].iter().zip(expected) {
         assert_eq!(
             cargo_arguments(cmd),
             [
@@ -2368,4 +2373,20 @@ fn wasm32_builds_and_tests_the_plugin_without_native() {
     )
     .unwrap();
     assert!(step_names(&lanes).contains(&"wasm32"));
+}
+
+#[test]
+fn wasm32_builds_and_tests_plugins_without_native() {
+    let commands = wasm32_commands(&workspace_root());
+    for subcommand in ["clippy", "test"] {
+        let args = commands
+            .iter()
+            .map(cargo_arguments)
+            .find(|args| args[0] == subcommand && args.iter().any(|arg| arg == "pagis-plugins"))
+            .expect("the wasm32 gate includes pagis-plugins");
+        assert!(args.iter().any(|arg| arg == "--no-default-features"));
+        if subcommand == "test" {
+            assert!(args.windows(2).any(|args| args == ["--test", "wasm"]));
+        }
+    }
 }

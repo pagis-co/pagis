@@ -1,41 +1,14 @@
 //! The Plugin tools (ADR-0017).
 //!
 //! The MCP host answers every `ToolRoute::Plugin` call, and this file
-//! is the two seams the daemon fills in for it: the executor the
-//! broker dispatches through, and the Connection tokens a bound
-//! Connection hands to a server.
+//! supplies the process streams and the Connection tokens a bound
+//! Connection gives to a server.
 
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use pagis_broker::{AuthorizedCall, ToolExecutor, ToolResult, ToolRoute};
 use pagis_core::{Connection, SecretStore};
-use pagis_plugins::{ConnectionTokens, PluginHosts};
-
-/// The MCP hosts as the broker's executor. One host serves one tenant,
-/// and the call names the tenant, so the dispatch resolves the
-/// host it belongs to and never another person's.
-pub struct PluginToolRuntime {
-    hosts: Arc<PluginHosts>,
-}
-
-impl PluginToolRuntime {
-    pub fn new(hosts: Arc<PluginHosts>) -> Self {
-        Self { hosts }
-    }
-
-    /// The routes this runtime answers.
-    pub fn owns(route: &ToolRoute) -> bool {
-        matches!(route, ToolRoute::Plugin { .. })
-    }
-}
-
-#[async_trait]
-impl ToolExecutor for PluginToolRuntime {
-    async fn execute(&self, call: AuthorizedCall) -> ToolResult {
-        self.hosts.get(&call.workspace_id).dispatch(&call).await
-    }
-}
+use pagis_plugins::ConnectionTokens;
 
 /// The token a bound Connection gives a plugin server (ADR-0017).
 ///

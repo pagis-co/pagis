@@ -1142,25 +1142,27 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         tokens: Arc::new(crate::plugin_tools::WorkspaceConnectionTokens {
             secrets: Arc::clone(&options.secrets),
         }),
-        git: Arc::clone(&plugin_git),
         states: Arc::clone(&plugin_git) as _,
         // A Plugin's server process runs inside the tenant's Plugin
         // Computer and never on the daemon host (ADR-0017).
-        processes: Arc::new(crate::plugin_tools::ComputerServerProcesses::new(
-            Arc::clone(&computers),
-            Arc::clone(&plugin_store) as _,
-            Arc::clone(&plugin_git),
-            org_workspace_id.clone(),
+        stdio: Arc::new(pagis_plugins::NativeStdioServers::new(
+            Arc::new(crate::plugin_tools::ComputerServerProcesses::new(
+                Arc::clone(&computers),
+                Arc::clone(&plugin_store) as _,
+                Arc::clone(&plugin_git),
+                org_workspace_id.clone(),
+            )),
+            Arc::new(pagis_plugins::PluginLogs::new(
+                crate::boot::plugin_logs_directory(&booted.home),
+            )),
         )),
+        http: Arc::new(pagis_plugins::ReqwestMcpHttp::default()),
         manifests: Arc::clone(&broker) as _,
         bus: Arc::clone(&bus),
-        logs: Arc::new(pagis_plugins::PluginLogs::new(
-            crate::boot::plugin_logs_directory(&booted.home),
-        )),
     });
-    plugin_tools.set(Arc::new(crate::plugin_tools::PluginToolRuntime::new(
-        Arc::clone(&plugin_hosts),
-    )));
+    plugin_tools.set(Arc::new(pagis_plugins::PluginToolRuntime::new(Arc::clone(
+        &plugin_hosts,
+    ))));
     let plugins = Arc::new(pagis_plugin::Plugins::new(pagis_plugin::PluginsDeps {
         plugins: Arc::clone(&plugin_store) as _,
         connections: Arc::clone(&connections) as _,

@@ -11,21 +11,24 @@
 //! Computer, so each tenant needs one. This module holds them, makes one
 //! on first use, and is the seam the install path writes through.
 
+use pagis_rt::Instant;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+#[cfg(feature = "native")]
+use std::time::Duration;
 
 use async_trait::async_trait;
 use pagis_core::{
     ConnectionStore, EventBus, GrantStore, Plugin, PluginBinding, PluginId, PluginStore,
     PluginToolStore, SecretStore, WorkspaceId, WorkspaceStore,
 };
-use pagis_plugin::{PluginGitStore, PluginPackage, PluginServers, PluginStates};
+use pagis_plugin::{PluginPackage, PluginServers, PluginStates};
+#[cfg(feature = "native")]
 use tokio_util::sync::CancellationToken;
 
 use crate::host::{ConnectionTokens, Manifests, PluginHost, PluginHostDeps};
-use crate::log::PluginLogs;
-use crate::process::ServerProcesses;
+use crate::http::McpHttp;
+use crate::stdio::StdioServers;
 
 /// What every tenant's host is built from. Everything here takes the
 /// tenant as an argument or is the installation's, so one of each serves
@@ -42,14 +45,13 @@ pub struct PluginHostsDeps {
     pub grants: Arc<dyn GrantStore>,
     pub secrets: Arc<dyn SecretStore>,
     pub tokens: Arc<dyn ConnectionTokens>,
-    pub git: Arc<PluginGitStore>,
     pub states: Arc<dyn PluginStates>,
     pub manifests: Arc<dyn Manifests>,
     pub bus: Arc<dyn EventBus>,
-    pub processes: Arc<dyn ServerProcesses>,
-    /// The Plugin stderr logs, one file for each Workspace and Plugin.
-    /// Each tenant's host writes and reads its own files.
-    pub logs: Arc<PluginLogs>,
+    /// The stdio sessions and logs supplied by the daemon or Embedder.
+    pub stdio: Arc<dyn StdioServers>,
+    /// The HTTP request transport supplied by the daemon or Embedder.
+    pub http: Arc<dyn McpHttp>,
 }
 
 /// The MCP hosts of the daemon, one per tenant.
@@ -81,12 +83,11 @@ impl PluginHosts {
             grants: Arc::clone(&self.deps.grants),
             secrets: Arc::clone(&self.deps.secrets),
             tokens: Arc::clone(&self.deps.tokens),
-            git: Arc::clone(&self.deps.git),
             states: Arc::clone(&self.deps.states),
             manifests: Arc::clone(&self.deps.manifests),
             bus: Arc::clone(&self.deps.bus),
-            processes: Arc::clone(&self.deps.processes),
-            logs: Arc::clone(&self.deps.logs),
+            stdio: Arc::clone(&self.deps.stdio),
+            http: Arc::clone(&self.deps.http),
         }));
         hosts.insert(workspace_id.clone(), Arc::clone(&host));
         host
@@ -127,7 +128,7 @@ impl PluginHosts {
     }
 
     /// Stop the idle servers of every tenant.
-    async fn reap_idle(&self, now: Instant) {
+    pub async fn reap_idle(&self, now: Instant) {
         let hosts: Vec<Arc<PluginHost>> = self
             .hosts
             .lock()
@@ -182,9 +183,10 @@ impl PluginServers for PluginHosts {
 }
 
 /// Stop the idle plugin servers of every tenant on a timer (ADR-0017).
+#[cfg(feature = "native")]
 pub fn spawn_idle_reaper(hosts: Arc<PluginHosts>, every: Duration, cancel: CancellationToken) {
-    tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(every);
+    pagis_rt::spawn(async move {
+        let mut ticker = pagis_rt::interval(every);
         while cancel.run_until_cancelled(ticker.tick()).await.is_some() {
             hosts.reap_idle(Instant::now()).await;
         }

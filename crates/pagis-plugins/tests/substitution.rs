@@ -111,7 +111,7 @@ fn a_header_carries_the_bound_secret_and_the_address_carries_a_value() {
         )]),
     };
 
-    let endpoint = endpoint_of(&server, &paths(), &bound("tenant", "acme")).expect("the endpoint");
+    let endpoint = endpoint_of(&server, &bound("tenant", "acme")).expect("the endpoint");
 
     assert_eq!(endpoint.url, "https://api.example.com/acme/mcp");
     assert_eq!(endpoint.headers["Authorization"], "Bearer acme");
@@ -124,7 +124,7 @@ fn plain_http_to_a_remote_host_is_refused_at_the_start() {
         headers: BTreeMap::new(),
     };
 
-    let refused = endpoint_of(&remote, &paths(), &bound("host", "api.example.com"));
+    let refused = endpoint_of(&remote, &bound("host", "api.example.com"));
 
     assert_eq!(
         refused.err(),
@@ -137,7 +137,7 @@ fn plain_http_to_a_remote_host_is_refused_at_the_start() {
         url: "http://${config.host}/mcp".to_string(),
         headers: BTreeMap::new(),
     };
-    assert!(endpoint_of(&local, &paths(), &bound("host", "127.0.0.1:8931")).is_ok());
+    assert!(endpoint_of(&local, &bound("host", "127.0.0.1:8931")).is_ok());
 }
 
 /// The documents state that an HTTP or SSE server reaches every HTTPS
@@ -167,7 +167,7 @@ fn https_to_a_private_or_link_local_address_is_allowed_at_the_start() {
 
     for server in &servers {
         for host in hosts {
-            match endpoint_of(server, &paths(), &bound("host", host)) {
+            match endpoint_of(server, &bound("host", host)) {
                 Ok(endpoint) => assert_eq!(endpoint.url, format!("https://{host}/mcp")),
                 Err(error) => panic!("https to {host} was refused: {error}"),
             }

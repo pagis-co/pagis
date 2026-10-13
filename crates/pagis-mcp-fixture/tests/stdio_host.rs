@@ -5,7 +5,8 @@
 
 use crate::support;
 
-use std::time::{Duration, Instant};
+use pagis_rt::Instant;
+use std::time::Duration;
 
 use pagis_core::{Plugin, PluginState, PluginStore, WorkspaceId};
 use support::{Harness, api_key, stdio_plugin};

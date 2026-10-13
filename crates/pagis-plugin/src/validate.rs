@@ -253,9 +253,11 @@ fn check_servers(
                 }
             }
             McpServer::StreamableHttp { url, headers } | McpServer::Sse { url, headers } => {
+                check_http_paths(&format!("server {name:?} url"), url, problems);
                 check_url(name, url, problems);
                 check_references(&format!("server {name:?} url"), url, pagis, false, problems);
                 for (key, value) in headers {
+                    check_http_paths(&format!("server {name:?} header {key:?}"), value, problems);
                     check_references(
                         &format!("server {name:?} header {key:?}"),
                         value,
@@ -458,5 +460,16 @@ fn check_size(root: &PackageFiles, problems: &mut Vec<String>) {
         problems.push(format!(
             "the plugin is {total} bytes; the limit is {MAX_PACKAGE_BYTES}"
         ));
+    }
+}
+
+/// HTTP servers cannot use paths of the daemon.
+fn check_http_paths(place: &str, text: &str, problems: &mut Vec<String>) {
+    for placeholder in PATH_PLACEHOLDERS {
+        if text.contains(placeholder) {
+            problems.push(format!(
+                "{place} carries {placeholder}, a daemon path with no meaning for an HTTP server"
+            ));
+        }
     }
 }

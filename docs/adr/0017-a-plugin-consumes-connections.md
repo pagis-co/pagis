@@ -85,7 +85,10 @@ An HTTP or SSE server is an outbound request of the daemon.
 
 - **Host.** One supervised client for each Plugin in a Workspace serves every
   Agent with the Plugin Grant, and the broker is the only caller. There is one
-  supervisor for each (Workspace, plugin id, server name). Sampling,
+  supervisor for each (Workspace, plugin id, server name). The Supervisor
+  uses one `Session` interface: list tools, call a tool with a deadline,
+  check whether the session is closed, and close it. `PluginToolRuntime`
+  in `pagis-plugins` supplies the broker's executor. Sampling,
   elicitation, resources and prompts are refused or ignored.
 - **HTTP.** The streamable HTTP client uses `rmcp::model` messages and
   `eventsource-stream` over `McpHttp`. An Embedder supplies one request
@@ -97,7 +100,20 @@ An HTTP or SSE server is an outbound request of the daemon.
   shows in the list at the next start. It answers `ping` and refuses every
   other server request. A stop sends DELETE for the session. HTTP answer
   bodies and SSE events have the same 4 MiB cap as stdio frames. The HTTP
-  client uses `pagis-rt` for deadlines and starts no tasks.
+  client uses `pagis-rt` for deadlines and starts no tasks. HTTP URLs and
+  headers refuse `${PLUGIN_ROOT}` and `${PLUGIN_DATA}` at install: these
+  paths have no meaning for an HTTP server.
+- **Portability.** The Supervisor and hosts use `pagis-rt` for time and
+  timeouts. `pagis-plugins` builds without `native` on
+  `wasm32-unknown-unknown`. `StdioServers` connects a stdio session and
+  reads the tail of its Plugin's log. The daemon supplies
+  `NativeStdioServers`, which holds the processes, logs, rmcp stdio client
+  and frame cap. `NoStdioServers` refuses a stdio freeze with a clear
+  message. The default `native` feature holds these native parts and
+  `pagis-plugin/native`. The workspace disables default features, and the
+  daemon enables `native`. The idle reaper task stays native;
+  `PluginHosts::reap_idle(now)` is public for an Embedder's own timer.
+  Installed files come through `PluginStates`.
 - **Names.** A tool is `<plugin>__<tool>`. Two servers of one plugin that
   declare the same tool fail install. Plugin names follow the Software name
   rules and may not collide with an installed namespace.
