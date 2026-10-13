@@ -4,5 +4,6 @@
 mod support;
 
 mod http_host;
+mod http_memory;
 mod output_limits;
 mod stdio_host;

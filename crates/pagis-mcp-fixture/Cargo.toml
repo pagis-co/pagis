@@ -9,6 +9,7 @@ autotests = false
 [dependencies]
 axum = { workspace = true, features = ["tokio", "http1"] }
 http.workspace = true
+futures.workspace = true
 rmcp = { workspace = true, features = [
     "server",
     "transport-io",
@@ -18,6 +19,7 @@ serde_json.workspace = true
 tokio = { workspace = true, features = ["io-std", "io-util", "macros", "net", "rt-multi-thread"] }
 
 [dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
 async-trait.workspace = true
 pagis-broker.workspace = true
 pagis-core.workspace = true
@@ -27,7 +29,6 @@ pagis-testkit.workspace = true
 serde_json.workspace = true
 tar.workspace = true
 tempfile.workspace = true
-futures.workspace = true
 tokio = { workspace = true, features = ["macros", "process", "rt-multi-thread"] }
 
 [[test]]
