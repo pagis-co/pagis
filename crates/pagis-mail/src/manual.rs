@@ -45,10 +45,10 @@ impl MailboxHost for ManualHost {
         &self,
         account: &HostAccount,
         local_part: &str,
-        password: &MailboxPassword,
+        password: Option<&MailboxPassword>,
         _outgoing_cap: u32,
     ) -> Result<HostedMailbox, HostError> {
-        if local_part.is_empty() || password.expose().is_empty() {
+        if local_part.is_empty() || password.is_none_or(|password| password.expose().is_empty()) {
             return Err(HostError::new(HostErrorCode::Refused));
         }
         Ok(HostedMailbox::new(local_part, account.domain()))

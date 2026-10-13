@@ -63,6 +63,25 @@ pub fn mailbox_dto(mailbox: AgentMailbox) -> MailboxDto {
     }
 }
 
+/// How an Agent Mailbox gets its password.
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum MailboxPasswordDto {
+    Minted,
+    Typed,
+    None,
+}
+
+impl From<pagis_mail::MailboxPasswordKind> for MailboxPasswordDto {
+    fn from(password: pagis_mail::MailboxPasswordKind) -> Self {
+        match password {
+            pagis_mail::MailboxPasswordKind::Minted => Self::Minted,
+            pagis_mail::MailboxPasswordKind::Typed => Self::Typed,
+            pagis_mail::MailboxPasswordKind::None => Self::None,
+        }
+    }
+}
+
 /// One Mailbox Provider the form can offer, and the name this Agent
 /// would take on it (ADR-0019).
 #[derive(Debug, Serialize, ToSchema)]
@@ -77,9 +96,8 @@ pub struct MailboxOfferDto {
     /// The messages a day a new mailbox gets unless the user says
     /// otherwise.
     pub default_outgoing_cap: u32,
-    /// Whether the host mints the mailbox password. Where it does not,
-    /// the user types the password of an inbox made at the host.
-    pub mints_password: bool,
+    /// The host mints it, the Person types it, or the mailbox has none.
+    pub password: MailboxPasswordDto,
     /// Whether the host deletes the mailbox. Where it does not, the
     /// user deletes it at the host afterwards.
     pub deletes_mailbox: bool,
@@ -420,10 +438,10 @@ fn offer_dto(offer: MailboxOffer) -> MailboxOfferDto {
     MailboxOfferDto {
         connection_id: offer.connection.id.to_string(),
         display_name: offer.connection.display_name,
+        password: offer.settings.password().into(),
         domain: offer.settings.domain,
         suggested_local_part: offer.suggested_local_part,
         default_outgoing_cap: pagis_mail::DEFAULT_OUTGOING_CAP,
-        mints_password: offer.settings.capabilities.reset_password,
         deletes_mailbox: offer.settings.capabilities.delete_mailbox,
     }
 }

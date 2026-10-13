@@ -24,6 +24,7 @@ import type {
   ConnectionDto,
   SubscriptionDto,
 } from '../api/client'
+import type { components } from '../api/schema'
 import { Button, Input, Select, Textarea } from '../primitives'
 import {
   errorMessage,
@@ -45,17 +46,7 @@ import './settings.css'
 
 /** One Mailbox Provider the form can offer, and the free name this
  *  Agent would take on it. */
-export interface MailboxOffer {
-  connection_id: string
-  display_name: string
-  domain: string
-  suggested_local_part: string
-  default_outgoing_cap: number
-  /** The host mints the mailbox password. Where it does not, the user
-   *  makes the inbox at the host and pastes its password. */
-  mints_password: boolean
-  deletes_mailbox: boolean
-}
+export type MailboxOffer = components['schemas']['MailboxOfferDto']
 
 /** What the two forms hold while the user types. The cap and the
  *  password are strings, because an empty field is not a number. */
@@ -279,7 +270,7 @@ export function offerOf(
 }
 
 /** The request body of a draft. An empty cap takes the host's default,
- *  and a password only travels where the host mints none. */
+ *  and a password only travels when the Person types it. */
 export function mailboxBody(
   draft: MailboxDraft,
   offer: MailboxOffer,
@@ -289,7 +280,7 @@ export function mailboxBody(
     connection_id: draft.connectionId,
     local_part: draft.localPart.trim(),
     outgoing_cap: Number.isNaN(cap) ? undefined : cap,
-    password: offer.mints_password ? undefined : draft.password,
+    password: offer.password === 'typed' ? draft.password : undefined,
   }
 }
 
@@ -300,7 +291,7 @@ export function draftIsReady(
   offer: MailboxOffer | undefined,
 ): boolean {
   if (offer === undefined || draft.localPart.trim() === '') return false
-  return offer.mints_password || draft.password !== ''
+  return offer.password !== 'typed' || draft.password !== ''
 }
 
 /** The mailbox fields: the provider, the name beside the domain with
@@ -373,7 +364,7 @@ export function MailboxFields({
         }
       />
 
-      {offer !== undefined && !offer.mints_password && (
+      {offer !== undefined && offer.password === 'typed' && (
         <>
           <p className="settings-hint">
             This mail host has no API. Make the inbox at the host first,
@@ -593,14 +584,16 @@ export function AgentMailbox({
   const [deleting, setDeleting] = useState(false)
 
   const mailbox = page.data?.mailbox ?? null
-  const offers = (page.data?.offers ?? []) as MailboxOffer[]
+  const offers = page.data?.offers ?? []
   const provider: ConnectionDto | undefined = (connections.data ?? []).find(
     (connection) => connection.id === mailbox?.connection_id,
   )
-  // The host's own capabilities decide what the card offers: a host
-  // that mints no password takes a pasted one, and a host that deletes
-  // no mailbox leaves the inbox behind (ADR-0019).
-  const mintsPassword = provider?.mail?.reset_password ?? true
+  // The provider names the password path. A mailbox with no login
+  // has no password reset (ADR-0019).
+  const password =
+    offerOf(offers, mailbox?.connection_id ?? '')?.password ?? provider?.mail?.password
+  const canResetPassword = password !== undefined && password !== 'none'
+  const mintsPassword = password === 'minted'
   const deletesAtHost = provider?.mail?.delete_mailbox ?? true
 
   return (
@@ -660,7 +653,7 @@ export function AgentMailbox({
             </p>
           )}
           <div className="settings-row-actions">
-            {mailbox.state === 'unavailable' && !resetting && (
+            {mailbox.state === 'unavailable' && canResetPassword && !resetting && (
               <Button onClick={() => setResetting(true)}>Reset password</Button>
             )}
             {!deleting && (
@@ -673,7 +666,7 @@ export function AgentMailbox({
               </Button>
             )}
           </div>
-          {resetting && (
+          {resetting && canResetPassword && (
             <ResetPassword
               api={api}
               agent={agent}

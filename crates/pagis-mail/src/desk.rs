@@ -28,7 +28,7 @@ use crate::address::{
 };
 use crate::host::{Deletion, HostAccount, HostError, HostErrorCode, MailboxHost, MailboxPassword};
 use crate::manual::ManualHost;
-use crate::provider::{MailboxProvider, authserv_ids, mailbox_provider};
+use crate::provider::{MailboxPasswordKind, MailboxProvider, authserv_ids, mailbox_provider};
 use crate::standing::{StandingMailRule, StandingRuleError};
 use crate::transport::{INBOX, MailSession, MailTransport, MailboxCredential, TransportError};
 use crate::{
@@ -109,7 +109,8 @@ pub struct NewMailbox {
     /// The most messages a day; `None` takes the default.
     pub outgoing_cap: Option<u32>,
     /// The password of an inbox the user made at a manual host. A host
-    /// with an API mints its own, and refuses a pasted one.
+    /// that mints it refuses a pasted one. A mailbox with no login
+    /// has no password.
     pub password: Option<String>,
 }
 
@@ -141,7 +142,7 @@ struct CheckedMailbox {
     local_part: String,
     address: String,
     outgoing_cap: u32,
-    password: MailboxPassword,
+    password: Option<MailboxPassword>,
 }
 
 /// Everything the desk needs. Every collaborator is a seam, so a test
@@ -306,7 +307,7 @@ impl MailboxDesk {
         let host = self.host_of(&connection);
         let account = self.host_account(&connection, &settings)?;
         if let Err(error) = host
-            .create(&account, &local_part, &password, outgoing_cap)
+            .create(&account, &local_part, password.as_ref(), outgoing_cap)
             .await
         {
             // The host made no mailbox, so the address stays free.
@@ -315,13 +316,14 @@ impl MailboxDesk {
                 .await?;
             return Err(MailboxError::Host(error));
         }
-        if self
-            .secrets
-            .set(
-                &mailbox_password_secret_name(&mailbox.workspace_id, &address),
-                password.expose(),
-            )
-            .is_err()
+        if let Some(password) = &password
+            && self
+                .secrets
+                .set(
+                    &mailbox_password_secret_name(&mailbox.workspace_id, &address),
+                    password.expose(),
+                )
+                .is_err()
         {
             // A mailbox whose password Pagis cannot keep is no
             // mailbox: undo the host create and free the address.
@@ -451,29 +453,38 @@ impl MailboxDesk {
     ) -> Result<AgentMailbox, MailboxError> {
         let mailbox = self.live_mailbox(workspace_id, id).await?;
         let (connection, settings) = self.provider_of(&mailbox.connection_id).await?;
-        let account = self.host_account(&connection, &settings)?;
-        let password = match settings.capabilities.reset_password {
-            true => {
+        let password = match settings.password() {
+            MailboxPasswordKind::Minted => {
                 if pasted.is_some() {
                     return Err(MailboxError::Validation(
                         "this mail host mints the mailbox password itself".to_string(),
                     ));
                 }
                 let password = MailboxPassword::new(generate_password());
+                let account = self.host_account(&connection, &settings)?;
                 self.host_of(&connection)
                     .reset_password(&account, &mailbox.address, &password)
                     .await?;
                 password
             }
-            false => match pasted.filter(|password| !password.trim().is_empty()) {
-                Some(password) => MailboxPassword::new(password),
-                None => {
-                    return Err(MailboxError::Validation(
-                        "this mail host has no API, so the new mailbox password is required"
-                            .to_string(),
-                    ));
+            MailboxPasswordKind::Typed => {
+                match pasted.filter(|password| !password.trim().is_empty()) {
+                    Some(password) => MailboxPassword::new(password),
+                    None => {
+                        return Err(MailboxError::Validation(
+                            "this mail host has no API, so the new mailbox password is required"
+                                .to_string(),
+                        ));
+                    }
                 }
-            },
+            }
+            MailboxPasswordKind::None => {
+                return Err(HostError::with_message(
+                    HostErrorCode::Refused,
+                    "this mailbox has no login",
+                )
+                .into());
+            }
         };
         self.secrets
             .set(
@@ -492,9 +503,6 @@ impl MailboxDesk {
         let provisioning = self.read(workspace_id, id).await?;
         self.audit("agent_mailbox.password_reset", &provisioning)
             .await?;
-        if settings.imap.is_none() {
-            return self.prove_login(workspace_id, id).await;
-        }
         self.spawn_proof(&provisioning);
         Ok(provisioning)
     }
@@ -707,22 +715,27 @@ impl MailboxDesk {
             )));
         }
         let outgoing_cap = self.outgoing_cap(request.outgoing_cap)?;
-        let manual = connection.provider == MANUAL_PROVIDER;
-        let password = match (manual, request.password.as_deref()) {
-            // The user made the inbox at the host, so only the user
-            // knows its password.
-            (true, Some(password)) if !password.trim().is_empty() => MailboxPassword::new(password),
-            (true, _) => {
+        let password = match (settings.password(), request.password.as_deref()) {
+            (MailboxPasswordKind::None, None) => None,
+            (MailboxPasswordKind::None, Some(_)) => {
+                return Err(MailboxError::Validation(
+                    "this mailbox has no login".to_string(),
+                ));
+            }
+            (MailboxPasswordKind::Typed, Some(password)) if !password.trim().is_empty() => {
+                Some(MailboxPassword::new(password))
+            }
+            (MailboxPasswordKind::Typed, _) => {
                 return Err(MailboxError::Validation(
                     "this mail host has no API, so the mailbox password is required".to_string(),
                 ));
             }
-            (false, Some(_)) => {
+            (MailboxPasswordKind::Minted, Some(_)) => {
                 return Err(MailboxError::Validation(
                     "this mail host mints the mailbox password itself".to_string(),
                 ));
             }
-            (false, None) => MailboxPassword::new(generate_password()),
+            (MailboxPasswordKind::Minted, None) => Some(MailboxPassword::new(generate_password())),
         };
         Ok(CheckedMailbox {
             connection,

@@ -29,4 +29,13 @@ message. Log lines contain only the error code.
 A product that embeds Pagis can name its own Mailbox Provider. Its
 Connection holds the domain and the capabilities, and it can have no IMAP or
 SMTP endpoint. The embedding product then creates, reads and sends the mail
-itself. The Agent Mailbox becomes active when the host creates it.
+itself. The Agent Mailbox becomes active when the host creates it. With no
+IMAP and no SMTP endpoint, the mailbox has no login and no password. Pagis
+stores no password secret. The form shows no password field and no reset
+action. A password reset request is refused with the message `this mailbox
+has no login`.
+
+The Mailbox Provider offer names how the mailbox gets its password in one
+field: `password` is `minted`, `typed` or `none`. Migadu uses `minted` and the
+manual provider uses `typed`. A provider with no endpoints uses `none`,
+regardless of its password reset capability.

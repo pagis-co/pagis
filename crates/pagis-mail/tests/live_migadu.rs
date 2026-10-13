@@ -59,7 +59,10 @@ async fn a_live_migadu_account_makes_lists_resets_and_deletes_one_mailbox() {
         .create(
             &account,
             &local_part,
-            &MailboxPassword::new(format!("Pagis-live-{}-Aa1!", pagis_core::now_ms())),
+            Some(&MailboxPassword::new(format!(
+                "Pagis-live-{}-Aa1!",
+                pagis_core::now_ms()
+            ))),
             20,
         )
         .await

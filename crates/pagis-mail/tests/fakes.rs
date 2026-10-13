@@ -30,7 +30,7 @@ async fn the_fake_host_holds_a_domain_in_memory() {
     let host = FakeMailboxHost::default();
 
     let made = host
-        .create(&account(), "ava", &MailboxPassword::new("secret"), 20)
+        .create(&account(), "ava", Some(&MailboxPassword::new("secret")), 20)
         .await
         .unwrap();
 
@@ -52,12 +52,12 @@ async fn the_fake_host_holds_a_domain_in_memory() {
 #[tokio::test]
 async fn the_fake_host_refuses_an_address_it_holds() {
     let host = FakeMailboxHost::default();
-    host.create(&account(), "ava", &MailboxPassword::new("secret"), 20)
+    host.create(&account(), "ava", Some(&MailboxPassword::new("secret")), 20)
         .await
         .unwrap();
 
     let refused = host
-        .create(&account(), "ava", &MailboxPassword::new("other"), 20)
+        .create(&account(), "ava", Some(&MailboxPassword::new("other")), 20)
         .await
         .unwrap_err();
 
@@ -81,10 +81,10 @@ async fn the_fake_host_fails_with_the_scripted_code() {
 #[tokio::test]
 async fn the_fake_host_deletes_resets_and_lists() {
     let host = FakeMailboxHost::default();
-    host.create(&account(), "ava", &MailboxPassword::new("secret"), 20)
+    host.create(&account(), "ava", Some(&MailboxPassword::new("secret")), 20)
         .await
         .unwrap();
-    host.create(&account(), "ben", &MailboxPassword::new("secret"), 20)
+    host.create(&account(), "ben", Some(&MailboxPassword::new("secret")), 20)
         .await
         .unwrap();
 
@@ -123,7 +123,7 @@ async fn a_fake_host_without_delete_tells_the_user_to_delete() {
         delete_mailbox: false,
         reset_password: false,
     });
-    host.create(&account(), "ava", &MailboxPassword::new("secret"), 20)
+    host.create(&account(), "ava", Some(&MailboxPassword::new("secret")), 20)
         .await
         .unwrap();
 

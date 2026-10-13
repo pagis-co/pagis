@@ -64,7 +64,7 @@ pub struct MailboxCapabilities {
     /// mailbox at the host and Pagis forgets its record.
     pub delete_mailbox: bool,
     /// The daemon mints a new mailbox password through the host API.
-    /// Without it the user pastes the new password.
+    /// With a login and without it, the Person pastes the new password.
     pub reset_password: bool,
 }
 
@@ -78,6 +78,14 @@ impl MailboxCapabilities {
             reset_password: host.reset_password,
         }
     }
+}
+
+/// How an Agent Mailbox gets its password.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MailboxPasswordKind {
+    Minted,
+    Typed,
+    None,
 }
 
 /// The mail settings of one Mailbox Provider Connection.
@@ -95,6 +103,18 @@ pub struct MailboxProvider {
 }
 
 impl MailboxProvider {
+    /// A mailbox with neither endpoint has no login and no password.
+    /// With endpoints, the host mints it or the Person types it.
+    pub fn password(&self) -> MailboxPasswordKind {
+        if self.imap.is_none() && self.smtp.is_none() {
+            MailboxPasswordKind::None
+        } else if self.capabilities.reset_password {
+            MailboxPasswordKind::Minted
+        } else {
+            MailboxPasswordKind::Typed
+        }
+    }
+
     /// The `config` document the Connection record carries. It holds
     /// no secret, so it is safe to read back to the desk.
     pub fn config(&self) -> serde_json::Value {

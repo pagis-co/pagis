@@ -438,6 +438,7 @@ describe('Connections mailbox providers', () => {
     outgoing_cap: true,
     delete_mailbox: true,
     reset_password: true,
+    password: 'minted',
   }
 
   const migadu = connected({
@@ -465,6 +466,7 @@ describe('Connections mailbox providers', () => {
       outgoing_cap: false,
       delete_mailbox: false,
       reset_password: false,
+      password: 'typed',
     },
   } as Partial<ConnectionDto>)
 

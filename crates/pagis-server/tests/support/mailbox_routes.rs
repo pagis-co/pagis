@@ -69,7 +69,8 @@ async fn provider(embedder: &Embedder) -> ConnectionId {
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-async fn a_provider_without_endpoints_provisions_lists_resets_and_deletes_through_the_routes() {
+async fn a_provider_without_endpoints_provisions_lists_refuses_reset_and_deletes_through_the_routes()
+ {
     let embedder = Embedder::new().await;
     let connection = provider(&embedder).await;
     let agent = embedder.agent(&embedder.workspace, "Ada").await;
@@ -77,6 +78,8 @@ async fn a_provider_without_endpoints_provisions_lists_resets_and_deletes_throug
     let (status, body) = response(&embedder, "GET", &path, Value::Null).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["offers"][0]["connection_id"], connection.as_str());
+    assert_eq!(body["offers"][0]["password"], "none");
+    assert!(body["offers"][0].get("mints_password").is_none());
     let (status, body) = response(
         &embedder,
         "POST",
@@ -100,8 +103,8 @@ async fn a_provider_without_endpoints_provisions_lists_resets_and_deletes_throug
         json!({}),
     )
     .await;
-    assert_eq!(status, StatusCode::OK, "{body}");
-    assert_eq!(body["state"], "active");
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert_eq!(body["error"]["message"], "this mailbox has no login");
     let (status, body) = response(
         &embedder,
         "DELETE",

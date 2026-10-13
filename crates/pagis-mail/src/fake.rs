@@ -50,7 +50,7 @@ pub enum HostCall {
 pub struct FakeMailboxHost {
     capabilities: HostCapabilities,
     /// Address to password, as the host holds it.
-    mailboxes: Mutex<HashMap<String, String>>,
+    mailboxes: Mutex<HashMap<String, Option<String>>>,
     calls: Mutex<Vec<HostCall>>,
     fail_with: Mutex<Option<HostError>>,
 }
@@ -96,7 +96,12 @@ impl FakeMailboxHost {
 
     /// The password the host holds for one address.
     pub fn password_of(&self, address: &str) -> Option<String> {
-        self.mailboxes.lock().unwrap().get(address).cloned()
+        self.mailboxes
+            .lock()
+            .unwrap()
+            .get(address)
+            .cloned()
+            .flatten()
     }
 
     pub fn calls(&self) -> Vec<HostCall> {
@@ -125,7 +130,7 @@ impl MailboxHost for FakeMailboxHost {
         &self,
         account: &HostAccount,
         local_part: &str,
-        password: &MailboxPassword,
+        password: Option<&MailboxPassword>,
         outgoing_cap: u32,
     ) -> Result<HostedMailbox, HostError> {
         self.record(HostCall::Create {
@@ -138,7 +143,10 @@ impl MailboxHost for FakeMailboxHost {
         if mailboxes.contains_key(&mailbox.address) {
             return Err(HostError::new(HostErrorCode::AddressTaken));
         }
-        mailboxes.insert(mailbox.address.clone(), password.expose().to_string());
+        mailboxes.insert(
+            mailbox.address.clone(),
+            password.map(|password| password.expose().to_string()),
+        );
         Ok(mailbox)
     }
 
@@ -166,7 +174,7 @@ impl MailboxHost for FakeMailboxHost {
         let mut mailboxes = self.mailboxes.lock().unwrap();
         match mailboxes.get_mut(address) {
             Some(held) => {
-                *held = password.expose().to_string();
+                *held = Some(password.expose().to_string());
                 Ok(())
             }
             None => Err(HostError::new(HostErrorCode::MailboxUnknown)),
