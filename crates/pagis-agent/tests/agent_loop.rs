@@ -2008,6 +2008,383 @@ async fn next_terminal(events: &mut pagis_core::EventStream) -> Event {
     }
 }
 
+#[derive(Default)]
+struct RecordingGate {
+    bounds: std::sync::Mutex<Vec<(pagis_core::Run, pagis_agent::ModelCallBound)>>,
+    outcomes: std::sync::Mutex<
+        Vec<(
+            pagis_core::Run,
+            Result<pagis_agent::TurnEnd, pagis_agent::BrainError>,
+        )>,
+    >,
+    stop_after: Option<usize>,
+}
+
+#[async_trait::async_trait]
+impl pagis_agent::ModelCallGate for RecordingGate {
+    async fn before_call(
+        &self,
+        run: &pagis_core::Run,
+        bound: &pagis_agent::ModelCallBound,
+    ) -> Result<(), pagis_agent::GateStop> {
+        let mut bounds = self.bounds.lock().unwrap();
+        bounds.push((run.clone(), bound.clone()));
+        if self.stop_after.is_some_and(|limit| bounds.len() > limit) {
+            return Err(pagis_agent::GateStop {
+                note: "The test stops this Run.".into(),
+                failure_kind: pagis_core::FailureKind::AccessChanged,
+            });
+        }
+        Ok(())
+    }
+
+    async fn after_call(
+        &self,
+        run: &pagis_core::Run,
+        outcome: Result<&pagis_agent::TurnEnd, &pagis_agent::BrainError>,
+    ) {
+        self.outcomes
+            .lock()
+            .unwrap()
+            .push((run.clone(), outcome.cloned().map_err(Clone::clone)));
+    }
+}
+
+async fn boot_with_recording_gate(
+    pool: SqlitePool,
+    gate: Arc<RecordingGate>,
+    brain: Option<Arc<dyn pagis_agent::Brain>>,
+) -> Loop {
+    boot_as(
+        pool,
+        AgentLoopConfig::default(),
+        |messages| messages as Arc<dyn MessageStore>,
+        false,
+        brain,
+        Some(gate),
+        false,
+    )
+    .await
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn the_model_call_gate_gets_the_recorded_bound_and_cost_and_no_outcome_for_a_stop(
+    pool: SqlitePool,
+) {
+    let gate = Arc::new(RecordingGate {
+        stop_after: Some(1),
+        ..Default::default()
+    });
+    let harness = boot_with_recording_gate(pool, gate.clone(), None).await;
+    harness.brain.push(
+        Script::tool_call(
+            &["I will check."],
+            "conversation_search",
+            serde_json::json!({"query": "hi"}),
+        )
+        .costing(0.0123),
+    );
+    let mut events = harness
+        .bus
+        .subscribe(EventScope::Installation, Some(0))
+        .await;
+
+    harness.send("hi").await;
+
+    let requested = next_event(&mut events, "model.requested").await;
+    let completed = next_event(&mut events, "model.completed").await;
+    let terminal = next_terminal(&mut events).await;
+    assert_eq!(terminal.payload["failure_kind"], "access_changed");
+    assert_eq!(harness.brain.requests().len(), 1);
+    let bounds = gate.bounds.lock().unwrap();
+    assert_eq!(bounds.len(), 2);
+    let (run, bound) = &bounds[0];
+    assert_eq!(Some(&run.id), requested.run_id.as_ref());
+    assert_eq!(run.workspace_id, harness.workspace.id);
+    assert_eq!(
+        serde_json::json!(bound.model_candidates),
+        requested.payload["model_candidates"]
+    );
+    assert_eq!(
+        serde_json::json!(bound.input_tokens),
+        requested.payload["estimated_input_tokens"]
+    );
+    assert_eq!(
+        serde_json::json!(bound.output_limit),
+        requested.payload["max_output_tokens"]
+    );
+    assert_eq!(
+        Some(bound.output_limit),
+        harness.brain.requests()[0].max_output_tokens
+    );
+    let outcomes = gate.outcomes.lock().unwrap();
+    assert_eq!(outcomes.len(), 1);
+    assert_eq!(outcomes[0].0.id, run.id);
+    let end = outcomes[0].1.as_ref().unwrap();
+    assert_eq!(serde_json::json!(end.usage), completed.payload["usage"]);
+    assert_eq!(end.estimated_cost_usd, Some(0.0123));
+    assert_eq!(
+        serde_json::json!(end.estimated_cost_usd),
+        completed.payload["estimated_final_attempt_cost_usd"]
+    );
+}
+
+async fn assert_gate_failure(
+    pool: SqlitePool,
+    script: Option<Script>,
+    brain: Option<Arc<dyn pagis_agent::Brain>>,
+    message: &str,
+    status: Option<u16>,
+) {
+    let gate = Arc::new(RecordingGate::default());
+    let harness = boot_with_recording_gate(pool, gate.clone(), brain).await;
+    if let Some(script) = script {
+        harness.brain.push(script);
+    }
+    let mut events = harness
+        .bus
+        .subscribe(EventScope::Installation, Some(0))
+        .await;
+    harness.send("hi").await;
+    let completed = next_event(&mut events, "model.completed").await;
+    let terminal = next_terminal(&mut events).await;
+    assert_eq!(terminal.payload["to"], "failed");
+    assert_eq!(completed.payload["error"], message);
+    assert_eq!(gate.bounds.lock().unwrap().len(), 1);
+    let outcomes = gate.outcomes.lock().unwrap();
+    assert_eq!(outcomes.len(), 1);
+    assert_eq!(Some(&outcomes[0].0.id), completed.run_id.as_ref());
+    let error = outcomes[0].1.as_ref().unwrap_err();
+    assert_eq!(error.message, message);
+    assert_eq!(error.provider_status(), status);
+    if status.is_some() {
+        assert_eq!(
+            error.provider_body(),
+            Some(&serde_json::json!({"error": "refused"}))
+        );
+    }
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn the_model_call_gate_gets_one_outcome_for_a_start_failure(pool: SqlitePool) {
+    assert_gate_failure(pool, None, None, "scripted brain has no script", None).await;
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn the_model_call_gate_gets_one_outcome_for_a_stream_failure(pool: SqlitePool) {
+    assert_gate_failure(
+        pool,
+        Some(Script::fail_after(&["working"], "stream failed")),
+        None,
+        "stream failed",
+        None,
+    )
+    .await;
+}
+
+struct PendingBrain {
+    entered: tokio::sync::Notify,
+    timeout: bool,
+}
+
+#[async_trait::async_trait]
+impl pagis_agent::Brain for PendingBrain {
+    async fn turn(
+        &self,
+        _: pagis_agent::TurnRequest,
+    ) -> Result<pagis_agent::TurnStream, pagis_agent::BrainError> {
+        self.entered.notify_one();
+        if self.timeout {
+            pagis_rt::timeout(Duration::from_millis(1), futures::future::pending::<()>())
+                .await
+                .map_err(|_| pagis_agent::BrainError::new("model call timed out"))?;
+        }
+        futures::future::pending().await
+    }
+}
+
+struct RefusingBrain;
+
+#[async_trait::async_trait]
+impl pagis_agent::Brain for RefusingBrain {
+    async fn turn(
+        &self,
+        _: pagis_agent::TurnRequest,
+    ) -> Result<pagis_agent::TurnStream, pagis_agent::BrainError> {
+        Err(pagis_agent::BrainError::provider(
+            "provider refused",
+            402,
+            Some(serde_json::json!({"error": "refused"})),
+        ))
+    }
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn the_model_call_gate_gets_the_provider_failure(pool: SqlitePool) {
+    assert_gate_failure(
+        pool,
+        None,
+        Some(Arc::new(RefusingBrain)),
+        "provider refused",
+        Some(402),
+    )
+    .await;
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn the_model_call_gate_gets_one_outcome_for_a_timeout(pool: SqlitePool) {
+    let brain = Arc::new(PendingBrain {
+        entered: tokio::sync::Notify::new(),
+        timeout: true,
+    });
+    assert_gate_failure(pool, None, Some(brain), "model call timed out", None).await;
+}
+
+async fn assert_gate_cancellation(pool: SqlitePool, during_start: bool) {
+    let gate = Arc::new(RecordingGate::default());
+    let pending = Arc::new(PendingBrain {
+        entered: tokio::sync::Notify::new(),
+        timeout: false,
+    });
+    let brain = during_start.then(|| pending.clone() as Arc<dyn pagis_agent::Brain>);
+    let harness = boot_with_recording_gate(pool, gate.clone(), brain).await;
+    harness.brain.push(Script::hang(&["working"]));
+    let mut events = harness
+        .bus
+        .subscribe(EventScope::Installation, Some(0))
+        .await;
+    harness.send("hi").await;
+    let created = next_event(&mut events, "run.created").await;
+    let run_id = created.run_id.unwrap();
+    if during_start {
+        tokio::time::timeout(Duration::from_secs(5), pending.entered.notified())
+            .await
+            .unwrap();
+    } else {
+        wait_for("model request", || {
+            let brain = harness.brain.clone();
+            async move { brain.requests().len() == 1 }
+        })
+        .await;
+    }
+    assert_eq!(
+        harness.system.cancel(&harness.workspace.id, &run_id).await,
+        CancelOutcome::Canceling
+    );
+    let terminal = next_terminal(&mut events).await;
+    assert_eq!(terminal.payload["to"], "canceled");
+    assert_eq!(gate.bounds.lock().unwrap().len(), 1);
+    let outcomes = gate.outcomes.lock().unwrap();
+    assert_eq!(outcomes.len(), 1);
+    assert_eq!(outcomes[0].0.id, run_id);
+    assert_eq!(
+        outcomes[0].1.as_ref().unwrap_err().message,
+        "model call canceled"
+    );
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn the_model_call_gate_gets_one_outcome_for_cancellation_during_start(pool: SqlitePool) {
+    assert_gate_cancellation(pool, true).await;
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn the_model_call_gate_gets_one_outcome_for_cancellation_during_stream(pool: SqlitePool) {
+    assert_gate_cancellation(pool, false).await;
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn the_model_call_gate_keeps_unknown_usage_and_cost_unknown(pool: SqlitePool) {
+    let gate = Arc::new(RecordingGate::default());
+    let harness = boot_with_recording_gate(pool, gate.clone(), None).await;
+    harness
+        .brain
+        .push(Script::reply_with_accounting(&["Done."], 2, None));
+    let mut events = harness
+        .bus
+        .subscribe(EventScope::Installation, Some(0))
+        .await;
+    harness.send("hi").await;
+    next_terminal(&mut events).await;
+    assert_eq!(gate.bounds.lock().unwrap().len(), 1);
+    let outcomes = gate.outcomes.lock().unwrap();
+    assert_eq!(outcomes.len(), 1);
+    let end = outcomes[0].1.as_ref().unwrap();
+    assert!(end.usage.is_none());
+    assert!(end.estimated_cost_usd.is_none());
+}
+
+struct EmptyBrain;
+
+#[async_trait::async_trait]
+impl pagis_agent::Brain for EmptyBrain {
+    async fn turn(
+        &self,
+        _: pagis_agent::TurnRequest,
+    ) -> Result<pagis_agent::TurnStream, pagis_agent::BrainError> {
+        Ok(futures::stream::empty().boxed())
+    }
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn the_model_call_gate_gets_one_outcome_when_the_stream_ends_without_metadata(
+    pool: SqlitePool,
+) {
+    let gate = Arc::new(RecordingGate::default());
+    let harness = boot_with_recording_gate(pool, gate.clone(), Some(Arc::new(EmptyBrain))).await;
+    let mut events = harness
+        .bus
+        .subscribe(EventScope::Installation, Some(0))
+        .await;
+    harness.send("hi").await;
+    next_terminal(&mut events).await;
+    assert_eq!(gate.bounds.lock().unwrap().len(), 1);
+    let outcomes = gate.outcomes.lock().unwrap();
+    assert_eq!(outcomes.len(), 1);
+    let end = outcomes[0].1.as_ref().unwrap();
+    assert!(end.usage.is_none());
+    assert!(end.estimated_cost_usd.is_none());
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn the_model_call_gate_gets_the_bound_and_failure_of_a_reflection_call(pool: SqlitePool) {
+    let gate = Arc::new(RecordingGate::default());
+    let harness = boot_with_recording_gate(pool, gate.clone(), None).await;
+    harness
+        .brain
+        .push(Script::fail_after(&[], "reflection failed"));
+    let mut arrival = fixture::queued_run(&harness.workspace.id, &harness.agent.id, &harness.dm.id);
+    arrival.channel_id = None;
+    arrival.trigger_kind = TriggerKind::Arrival;
+    arrival.trigger_ref = None;
+    harness.runs.create(&arrival).await.unwrap();
+    let mut events = harness
+        .bus
+        .subscribe(EventScope::Installation, Some(0))
+        .await;
+    harness.system.enqueue_proactive(arrival.clone());
+    let requested = next_event(&mut events, "model.requested").await;
+    next_terminal(&mut events).await;
+    let bounds = gate.bounds.lock().unwrap();
+    assert_eq!(bounds.len(), 1);
+    assert_eq!(bounds[0].0.id, arrival.id);
+    assert_eq!(
+        serde_json::json!(bounds[0].1.input_tokens),
+        requested.payload["estimated_input_tokens"]
+    );
+    assert_eq!(
+        serde_json::json!(bounds[0].1.output_limit),
+        requested.payload["max_output_tokens"]
+    );
+    let outcomes = gate.outcomes.lock().unwrap();
+    assert_eq!(outcomes.len(), 1);
+    assert_eq!(outcomes[0].0.id, arrival.id);
+    assert_eq!(
+        outcomes[0].1.as_ref().unwrap_err().message,
+        "reflection failed"
+    );
+}
+
 /// A different host refuses the second call with its own note and failure kind.
 #[derive(Default)]
 struct HostGate {
@@ -2019,10 +2396,10 @@ impl pagis_agent::ModelCallGate for HostGate {
     async fn before_call(
         &self,
         run: &pagis_core::Run,
-        candidates: &[String],
+        bound: &pagis_agent::ModelCallBound,
     ) -> Result<(), pagis_agent::GateStop> {
         let mut calls = self.calls.lock().unwrap();
-        calls.push((run.clone(), candidates.to_vec()));
+        calls.push((run.clone(), bound.model_candidates.clone()));
         if calls.len() > 1 {
             Err(pagis_agent::GateStop {
                 note: "The host stopped this Run because access changed.".into(),

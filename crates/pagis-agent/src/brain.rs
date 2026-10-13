@@ -202,7 +202,7 @@ pub struct TurnRequest {
     pub allow_tool_calls: bool,
     /// The longest answer the provider may write, in tokens. A Run sets
     /// it to the output reserve of the route when the model call starts
-    /// (`ModelCall::start`). `None` takes the provider's own default.
+    /// (`ModelCall::prepare`). `None` takes the provider's own default.
     pub max_output_tokens: Option<u32>,
     /// A provider-native JSON Schema contract for the final text, when this
     /// turn feeds a typed daemon workflow instead of a conversation.

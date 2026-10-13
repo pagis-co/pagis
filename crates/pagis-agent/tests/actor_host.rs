@@ -218,7 +218,11 @@ impl pagis_agent::Brain for ActorHost {
 
 #[async_trait::async_trait]
 impl pagis_agent::ModelCallGate for ActorHost {
-    async fn before_call(&self, run: &Run, _: &[String]) -> Result<(), pagis_agent::GateStop> {
+    async fn before_call(
+        &self,
+        run: &Run,
+        _: &pagis_agent::ModelCallBound,
+    ) -> Result<(), pagis_agent::GateStop> {
         assert_eq!(run.workspace_id, self.agent.workspace_id);
         let index = if run.id.as_str() == "first" {
             0

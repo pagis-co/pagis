@@ -131,7 +131,7 @@ pub struct SpendCapGate {
 
 #[async_trait]
 impl ModelCallGate for SpendCapGate {
-    async fn before_call(&self, run: &Run, model_candidates: &[String]) -> Result<(), GateStop> {
+    async fn before_call(&self, run: &Run, bound: &crate::ModelCallBound) -> Result<(), GateStop> {
         let reads = CapReads {
             workspaces: self.workspaces.as_ref(),
             users: self.users.as_ref(),
@@ -139,7 +139,7 @@ impl ModelCallGate for SpendCapGate {
             models: self.models.as_ref(),
             clock: self.clock.as_ref(),
         };
-        match cap_stop(reads, &run.workspace_id, model_candidates).await {
+        match cap_stop(reads, &run.workspace_id, &bound.model_candidates).await {
             Some(stop) => Err(GateStop {
                 note: stop.note(),
                 failure_kind: FailureKind::SpendCapReached,

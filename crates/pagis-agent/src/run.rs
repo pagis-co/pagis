@@ -3170,7 +3170,7 @@ fn request_budget_error(request: &TurnRequest, models: &ModelCatalog) -> Option<
     }
 }
 
-/// Check the host's gate and the request budget, then start the model call.
+/// Prepare the request, check its budget and the Embedder's gate, then call the model.
 async fn call_model<'a>(
     deps: &'a AgentDeps,
     run: &'a Run,
@@ -3179,18 +3179,21 @@ async fn call_model<'a>(
     request: TurnRequest,
     cancel: &CancellationToken,
 ) -> Result<(ModelCall<'a>, TurnStream), TurnError> {
-    tokio::select! {
-        result = deps.gate.before_call(run, &request.model_candidates) => result.map_err(TurnError::Gate)?,
-        _ = cancel.cancelled() => return Err(TurnError::Canceled),
-    }
-    let call = ModelCall::start(deps, run, phase, phase_request, request)
+    let mut call = ModelCall::prepare(deps, run, phase, phase_request, request)
         .await
         .map_err(TurnError::Brain)?;
     if let Some(error) = request_budget_error(call.request(), &deps.models) {
+        call.start().await;
         call.finish(Outcome::Rejected, Some(0), None, Some(&error))
             .await;
         return Err(TurnError::Brain(error));
     }
+    let bound = call.bound();
+    tokio::select! {
+        result = deps.gate.before_call(run, &bound) => result.map_err(TurnError::Gate)?,
+        _ = cancel.cancelled() => return Err(TurnError::Canceled),
+    }
+    call.start().await;
     let stream = match tokio::select! {
         started = deps.brain.turn(call.request().clone()) => started,
         _ = cancel.cancelled() => {

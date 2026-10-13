@@ -77,7 +77,11 @@ impl Brain for Model {
 
 #[async_trait::async_trait]
 impl ModelCallGate for Model {
-    async fn before_call(&self, _: &Run, _: &[String]) -> Result<(), pagis_agent::GateStop> {
+    async fn before_call(
+        &self,
+        _: &Run,
+        _: &pagis_agent::ModelCallBound,
+    ) -> Result<(), pagis_agent::GateStop> {
         Ok(())
     }
 }
