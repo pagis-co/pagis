@@ -89,29 +89,39 @@ pub struct ConfiguredLink {
 /// Where a browser reaches the Administration Interface (ADR-0024).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
 pub struct AdministrationAddress {
-    /// The origin of the administration port, such as
-    /// `http://127.0.0.1:4401`.
+    /// The Public Origin with a page path prefix, or the Administration
+    /// Port origin with no prefix, such as `http://127.0.0.1:4401`.
     pub origin: String,
-    /// True where the port binds loopback. Only the machine that runs
-    /// the daemon reaches it then, and an administrator on another
-    /// machine reaches it through an SSH tunnel to the same port.
+    /// The page path prefix. Empty serves the page at the origin root.
+    pub path_prefix: String,
+    /// True for a direct address whose port binds loopback. A proxy
+    /// address needs no SSH tunnel to the Administration Port.
     pub loopback: bool,
 }
 
 impl AdministrationAddress {
-    /// The address of the listener that binds `addr`. A wildcard bind
-    /// has no one address, so the origin names loopback, which reaches
-    /// it from the machine itself.
-    pub fn of(addr: std::net::SocketAddr) -> Self {
+    /// A prefix names a proxy page under the Public Origin. With no
+    /// prefix, use the listener address. A wildcard bind names loopback.
+    pub fn of(addr: std::net::SocketAddr, public_origin: &str, path_prefix: &str) -> Self {
         let host = if addr.ip().is_unspecified() {
             std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)
         } else {
             addr.ip()
         };
         AdministrationAddress {
-            origin: format!("http://{}", std::net::SocketAddr::new(host, addr.port())),
-            loopback: addr.ip().is_loopback(),
+            origin: if path_prefix.is_empty() {
+                format!("http://{}", std::net::SocketAddr::new(host, addr.port()))
+            } else {
+                public_origin.to_string()
+            },
+            path_prefix: path_prefix.to_string(),
+            loopback: path_prefix.is_empty() && addr.ip().is_loopback(),
         }
+    }
+
+    /// The full address of the Administration Interface, with no final slash.
+    pub fn url(&self) -> String {
+        format!("{}{}", self.origin, self.path_prefix)
     }
 }
 
@@ -146,28 +156,59 @@ mod tests {
 
     #[test]
     fn a_loopback_listener_is_reached_at_loopback() {
-        let address = AdministrationAddress::of("127.0.0.1:4401".parse().unwrap());
+        let address = AdministrationAddress::of(
+            "127.0.0.1:4401".parse().unwrap(),
+            "https://pagis.example.net",
+            "",
+        );
         assert_eq!(address.origin, "http://127.0.0.1:4401");
         assert!(address.loopback);
+        assert_eq!(address.path_prefix, "");
+        assert_eq!(address.url(), "http://127.0.0.1:4401");
     }
 
     #[test]
     fn a_private_listener_is_reached_at_its_own_address() {
-        let address = AdministrationAddress::of("10.0.0.5:9443".parse().unwrap());
+        let address = AdministrationAddress::of(
+            "10.0.0.5:9443".parse().unwrap(),
+            "https://pagis.example.net",
+            "",
+        );
         assert_eq!(address.origin, "http://10.0.0.5:9443");
         assert!(!address.loopback);
     }
 
     #[test]
     fn a_wildcard_listener_names_loopback() {
-        let address = AdministrationAddress::of("0.0.0.0:4401".parse().unwrap());
+        let address = AdministrationAddress::of(
+            "0.0.0.0:4401".parse().unwrap(),
+            "https://pagis.example.net",
+            "",
+        );
         assert_eq!(address.origin, "http://127.0.0.1:4401");
         assert!(!address.loopback);
     }
 
     #[test]
+    fn a_prefixed_address_names_the_public_origin_and_needs_no_tunnel() {
+        let address = AdministrationAddress::of(
+            "127.0.0.1:4401".parse().unwrap(),
+            "https://pagis.example.net",
+            "/team/admin",
+        );
+        assert_eq!(address.origin, "https://pagis.example.net");
+        assert_eq!(address.path_prefix, "/team/admin");
+        assert_eq!(address.url(), "https://pagis.example.net/team/admin");
+        assert!(!address.loopback);
+    }
+
+    #[test]
     fn only_an_administrator_learns_the_address() {
-        let address = AdministrationAddress::of("127.0.0.1:4401".parse().unwrap());
+        let address = AdministrationAddress::of(
+            "127.0.0.1:4401".parse().unwrap(),
+            "https://pagis.example.net",
+            "",
+        );
         let mut person = User::new(
             pagis_core::OrgId::from("o".to_string()),
             UserRole::Administrator,

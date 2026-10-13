@@ -61,7 +61,7 @@ const ADMINISTRATOR = {
   name: 'Ada',
   email: null,
   role: 'administrator',
-  administration: { origin: 'http://127.0.0.1:4401', loopback: true },
+  administration: { origin: 'http://127.0.0.1:4401', path_prefix: '', loopback: true },
 }
 
 const TRUST_LIST = {
@@ -330,6 +330,18 @@ describe('Administration section', () => {
     }
   })
 
+  it('links to the full address under the prefix', async () => {
+    const api = stubApi()
+    const read = api.GET.getMockImplementation()!
+    api.GET.mockImplementation(async (path: string) => path === '/api/v1/user'
+      ? { data: { ...ADMINISTRATOR, administration: { origin: 'https://pagis.example.net', path_prefix: '/admin', loopback: false } } }
+      : read(path))
+    mount(api, 'administration')
+    const link = await screen.findByRole('link', { name: 'Open the Administration Interface' })
+    expect(link.getAttribute('href')).toBe('https://pagis.example.net/admin/')
+    expect(screen.getByText('https://pagis.example.net/admin')).toBeTruthy()
+  })
+
   it('names no tunnel where the port binds a private address', async () => {
     const api = stubApi()
     const read = api.GET.getMockImplementation()!
@@ -338,7 +350,7 @@ describe('Administration section', () => {
         ? {
             data: {
               ...ADMINISTRATOR,
-              administration: { origin: 'http://10.0.0.5:4401', loopback: false },
+              administration: { origin: 'http://10.0.0.5:4401', path_prefix: '', loopback: false },
             },
           }
         : read(path),

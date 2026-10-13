@@ -27,14 +27,38 @@ Then open `http://127.0.0.1:4401/` and sign in with an address and a
 password.
 
 To reach it from an Administrator's own network, name that interface in
-`[administration] bind` and firewall the port to that network. Do not put
-the Administration Port behind the public name of the product port: the
-reason for the second listener is that the internet does not reach it. The
-daemon terminates no TLS on this port either, so a deployment that exposes
-it puts a proxy in front of it.
+`[administration] bind` and firewall the port to that network. The daemon
+terminates no TLS on this port, so a deployment that exposes it puts a
+proxy in front of it. The proxy controls who can reach the Administration Port.
 
 A daemon whose Administration Port is taken names the port and the setting
 that moves it. `pagis --port` moves the product port alone.
+
+## A page path prefix
+
+A proxy can serve the Administration Interface under the Public Origin.
+Name the path in `config.toml`:
+
+```toml
+[administration]
+path_prefix = "/admin"
+```
+
+The Product App link then opens `<public_origin>/admin/`. The Administration
+Interface reads section paths such as `/admin/sessions` and keeps navigation
+under `/admin`. With no prefix, it uses the Administration Port origin and
+paths such as `/sessions`.
+
+The prefix starts with `/`, has no final slash, and has nonempty segments.
+Each segment contains letters, digits, `-`, `.`, `_` or `~`. A segment cannot
+be `.` or `..`. An invalid prefix stops the start and the error names the
+setting.
+
+The proxy sends the page paths without removing the prefix, and sends the
+administration API routes to the Administration Port. API paths stay at `/api/v1/...`; they do not take the
+prefix. Built assets load from `/assets/...`, which both ports serve.
+The proxy applies the same access controls to the administration API as to
+the page.
 
 ## The offered sections
 
@@ -121,8 +145,8 @@ close that gap, and both write the same rows:
   setup there. Server Setup makes the first Administrator on the
   Administration Port only: `POST /api/v1/setup` takes the address, the
   password and the keys and signs the new Administrator in, and it answers
-  on no other port. A person who reaches the public name cannot make the
-  first Administrator. `GET /api/v1/setup` names the model providers the
+  on no other port. Only a person who can reach the Administration Port
+  can make the first Administrator. `GET /api/v1/setup` names the model providers the
   installation takes a key for. The product port answers it too, because its
   sign-in page names the Administration Port from it. The routes answer only
   while the installation holds no Client Credential and no Administrator

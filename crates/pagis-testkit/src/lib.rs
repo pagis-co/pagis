@@ -537,7 +537,11 @@ impl TestDaemon {
                 port_override: None,
                 supervised: options.supervised,
                 public_origin: public_origin.clone(),
-                administration: pagis_server::AdministrationAddress::of(administration_addr),
+                administration: pagis_server::AdministrationAddress::of(
+                    administration_addr,
+                    &public_origin,
+                    &booted.config.administration.path_prefix,
+                ),
                 proxy: match options.trusted_proxy {
                     Some(address) => pagis_server::TrustedProxy::at(address),
                     None => pagis_server::TrustedProxy::none(),

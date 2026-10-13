@@ -16,10 +16,12 @@ Hosts, the provider setup, the System Settings and the restart. A hidden
 section has no routes, and the Administration Interface shows no control
 for it: without Hosts, the Sessions section shows no Hosts list. A server
 without the Native Parts does not offer Hosts.
-The Product App carries one link to it, and the Client App opens it from
-its menu (ADR-0024). The operator can name up to three links in
-`[administration] links` of the configuration. The navigation shows each
-link, and each link opens in the same tab.
+The configuration can name a page path prefix under the Public Origin.
+The API routes keep their root paths. The Product App carries one link to
+the full address, and the Client App opens it from its menu (ADR-0024).
+The operator can name up to three links in `[administration] links` of
+the configuration. The navigation shows each link, and each link opens in
+the same tab.
 _Avoid_: admin panel, console, dashboard
 
 ### Administration Port

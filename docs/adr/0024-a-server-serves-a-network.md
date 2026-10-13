@@ -46,7 +46,8 @@ origin it does not serve, on socket upgrades and unsafe methods: it allows
 match, and a request with neither header goes on to the Session check. The
 product port serves the Public Origin, and on a local installation also its
 loopback origin, where the Client App and the Sign-In Link open the Product
-App. The Administration Port serves its own origin.
+App. The Administration Port serves its own origin, or the Public Origin when
+the configuration names a page path prefix.
 
 ### A local installation serves other machines through Remote Access
 
@@ -153,6 +154,18 @@ its reason: `/api/v1/user`, `/api/v1/sessions`, `/api/v1/sessions/current`,
 `GET /api/v1/plugins/{plugin_id}`. The Product App shows an Administrator one
 link to the Administration Interface, with the SSH tunnel command where the
 port binds loopback.
+
+The operator can name `[administration] path_prefix`, such as `/admin`,
+for a proxy that serves the Administration Interface under the Public Origin.
+An empty prefix uses the Administration Port origin and root page paths.
+A nonempty prefix starts with `/`, has no final slash, and has nonempty
+segments made of letters, digits, `-`, `.`, `_` or `~`. A segment cannot
+be `.` or `..`. The Server gives the prefix to the page in the signed-in
+Person's Administration Address. The address holds the origin and prefix.
+Section paths stay under that prefix, including browser history and links
+from the Product App. Built assets use absolute root paths. API routes keep
+their root paths; the proxy routes the administration API to the
+Administration Port. The proxy owns access to that port.
 
 Local onboarding has two product-port routes,
 `PUT /api/v1/settings/onboarding/providers/{provider}/key` and
@@ -283,7 +296,7 @@ one-way (ADR-0025).
 
 - A network deployment is a bind address, a reverse proxy and three settings.
 - A deployment that exposes the Administration Port puts a proxy in front of
-  it; the supported way in is a tunnel to loopback.
+  it and controls access there. Direct loopback access uses an SSH tunnel.
 - Every store trait has two implementations kept in step by one suite, with
   the same module layout and file names in both storage crates, so a reviewer
   diffs a file against its sibling and sees only the SQL dialect.

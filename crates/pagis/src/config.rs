@@ -200,6 +200,8 @@ pub struct Administration {
     pub hide: Vec<pagis_server::AdministrationSection>,
     /// The links in the Administration Interface navigation.
     pub links: Vec<pagis_server::ConfiguredLink>,
+    /// The page path under the Public Origin. Empty uses this listener's origin.
+    pub path_prefix: String,
 }
 
 impl Default for Administration {
@@ -209,12 +211,29 @@ impl Default for Administration {
             bind: DEFAULT_ADMINISTRATION_BIND.to_string(),
             hide: Vec::new(),
             links: Vec::new(),
+            path_prefix: String::new(),
         }
     }
 }
 
 impl Administration {
     fn validate(&self) -> anyhow::Result<()> {
+        let prefix = &self.path_prefix;
+        anyhow::ensure!(
+            prefix.is_empty()
+                || (prefix.starts_with('/')
+                    && prefix[1..].split('/').all(|part| {
+                        !part.is_empty()
+                            && part != "."
+                            && part != ".."
+                            && part
+                                .bytes()
+                                .all(|byte| byte.is_ascii_alphanumeric() || b"-._~".contains(&byte))
+                    })),
+            "administration.path_prefix must be empty or an absolute path with nonempty segments, \
+             no trailing slash, and only letters, digits, '-', '.', '_' or '~'; \
+             '.' and '..' segments are not allowed"
+        );
         validate_links("administration", &self.links)
     }
 
@@ -1732,6 +1751,66 @@ mod tests {
             serde_json::to_value(Config::read_file(&path).unwrap()).unwrap()["product_app"]["links"],
             links
         );
+    }
+
+    #[test]
+    fn administration_path_prefix_defaults_to_empty_and_keeps_valid_paths() {
+        let home = tempfile::tempdir().unwrap();
+        let path = home.path().join("config.toml");
+        for prefix in ["", "/admin", "/team/admin"] {
+            std::fs::write(
+                &path,
+                format!("[administration]\npath_prefix = {prefix:?}\n"),
+            )
+            .unwrap();
+            let config = Config::read_file(&path).unwrap();
+            assert_eq!(
+                serde_json::to_value(&config).unwrap()["administration"]["path_prefix"],
+                prefix
+            );
+            config.save(&path).unwrap();
+            assert_eq!(
+                serde_json::to_value(Config::read_file(&path).unwrap()).unwrap()["administration"]
+                    ["path_prefix"],
+                prefix
+            );
+        }
+        std::fs::write(&path, "[administration]\n").unwrap();
+        assert_eq!(
+            serde_json::to_value(Config::read_file(&path).unwrap()).unwrap()["administration"]["path_prefix"],
+            ""
+        );
+    }
+
+    #[test]
+    fn administration_path_prefix_refuses_invalid_paths() {
+        let home = tempfile::tempdir().unwrap();
+        let path = home.path().join("config.toml");
+        for prefix in [
+            "admin",
+            "/",
+            "/admin/",
+            "//admin",
+            "/admin//nested",
+            "/admin/..",
+            "/./admin",
+            "/admin?x",
+            "/admin#x",
+            "/admin%2fother",
+            "/admin\\other",
+            "/admin space",
+        ] {
+            std::fs::write(
+                &path,
+                format!("[administration]\npath_prefix = {prefix:?}\n"),
+            )
+            .unwrap();
+            let error = Config::read_file(&path).unwrap_err().to_string();
+            assert!(
+                error.contains("administration.path_prefix"),
+                "{prefix}: {error}"
+            );
+        }
     }
 
     #[test]

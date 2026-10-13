@@ -37,7 +37,7 @@ export function AdministratorSetsUp({
       {address !== null && (
         <>
           {' '}
-          <a href={`${address.origin}/providers`} target="_blank" rel="noreferrer">
+          <a href={`${address.origin}${address.path_prefix}/providers`} target="_blank" rel="noreferrer">
             Open the Administration Interface
           </a>
         </>

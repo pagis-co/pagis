@@ -11282,16 +11282,21 @@
         "description": "Where a browser reaches the Administration Interface (ADR-0024).",
         "required": [
           "origin",
+          "path_prefix",
           "loopback"
         ],
         "properties": {
           "loopback": {
             "type": "boolean",
-            "description": "True where the port binds loopback. Only the machine that runs\nthe daemon reaches it then, and an administrator on another\nmachine reaches it through an SSH tunnel to the same port."
+            "description": "True for a direct address whose port binds loopback. A proxy\naddress needs no SSH tunnel to the Administration Port."
           },
           "origin": {
             "type": "string",
-            "description": "The origin of the administration port, such as\n`http://127.0.0.1:4401`."
+            "description": "The Public Origin with a page path prefix, or the Administration\nPort origin with no prefix, such as `http://127.0.0.1:4401`."
+          },
+          "path_prefix": {
+            "type": "string",
+            "description": "The page path prefix. Empty serves the page at the origin root."
           }
         }
       },
@@ -20220,7 +20225,7 @@
         "properties": {
           "administration_origin": {
             "type": "string",
-            "description": "The origin of the Administration Port, where the first\nAdministrator is made. It binds loopback by default, so a person\non another machine reaches it through an SSH tunnel."
+            "description": "The address of the Administration Interface, where the first\nAdministrator is made. It binds loopback by default, so a person\non another machine reaches it through an SSH tunnel."
           },
           "configured_providers": {
             "type": "array",

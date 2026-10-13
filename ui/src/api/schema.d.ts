@@ -3270,16 +3270,17 @@ export interface components {
         /** @description Where a browser reaches the Administration Interface (ADR-0024). */
         AdministrationAddress: {
             /**
-             * @description True where the port binds loopback. Only the machine that runs
-             *     the daemon reaches it then, and an administrator on another
-             *     machine reaches it through an SSH tunnel to the same port.
+             * @description True for a direct address whose port binds loopback. A proxy
+             *     address needs no SSH tunnel to the Administration Port.
              */
             loopback: boolean;
             /**
-             * @description The origin of the administration port, such as
-             *     `http://127.0.0.1:4401`.
+             * @description The Public Origin with a page path prefix, or the Administration
+             *     Port origin with no prefix, such as `http://127.0.0.1:4401`.
              */
             origin: string;
+            /** @description The page path prefix. Empty serves the page at the origin root. */
+            path_prefix: string;
         };
         /**
          * @description One machine of one Person, for the read that says which clients can
@@ -6681,7 +6682,7 @@ export interface components {
         /** @description What the first-run flow still needs. */
         SetupStateDto: {
             /**
-             * @description The origin of the Administration Port, where the first
+             * @description The address of the Administration Interface, where the first
              *     Administrator is made. It binds loopback by default, so a person
              *     on another machine reaches it through an SSH tunnel.
              */

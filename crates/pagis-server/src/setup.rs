@@ -66,7 +66,7 @@ const MIN_PASSWORD_LEN: usize = 12;
 /// What the first-run flow still needs.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct SetupStateDto {
-    /// The origin of the Administration Port, where the first
+    /// The address of the Administration Interface, where the first
     /// Administrator is made. It binds loopback by default, so a person
     /// on another machine reaches it through an SSH tunnel.
     pub administration_origin: String,
@@ -181,7 +181,7 @@ pub async fn get_setup(
         }
     }
     Ok(Json(SetupStateDto {
-        administration_origin: state.administration.origin.clone(),
+        administration_origin: state.administration.url(),
         providers: pagis_core::PROVIDERS
             .iter()
             .map(|provider| provider.id().to_string())

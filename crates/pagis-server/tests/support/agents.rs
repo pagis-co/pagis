@@ -276,6 +276,8 @@ impl Embedder {
             remote_access: false,
             administration: pagis_server::AdministrationAddress::of(
                 "127.0.0.1:4401".parse().unwrap(),
+                "http://127.0.0.1:4400",
+                "",
             ),
             product_app_links: Vec::new(),
             administration_sections: Default::default(),
