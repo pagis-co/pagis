@@ -4346,7 +4346,7 @@ dependencies = [
 
 [[package]]
 name = "pagis"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4425,7 +4425,7 @@ dependencies = [
 
 [[package]]
 name = "pagis-agent"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -4461,7 +4461,7 @@ dependencies = [
 
 [[package]]
 name = "pagis-analytics"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4478,7 +4478,7 @@ dependencies = [
 
 [[package]]
 name = "pagis-audit"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -4494,7 +4494,7 @@ dependencies = [
 
 [[package]]
 name = "pagis-broker"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "futures",
@@ -4521,7 +4521,7 @@ dependencies = [
 
 [[package]]
 name = "pagis-coding"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "agent-client-protocol",
  "async-trait",
@@ -4545,7 +4545,7 @@ dependencies = [
 
 [[package]]
 name = "pagis-computer"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -4584,7 +4584,7 @@ dependencies = [
 
 [[package]]
 name = "pagis-connect"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -4601,7 +4601,7 @@ dependencies = [
 
 [[package]]
 name = "pagis-core"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "chacha20poly1305",
@@ -4632,7 +4632,7 @@ dependencies = [
 
 [[package]]
 name = "pagis-evaluation"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -4653,7 +4653,7 @@ dependencies = [
 
 [[package]]
 name = "pagis-google"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -4676,7 +4676,7 @@ dependencies = [
 
 [[package]]
 name = "pagis-knowledge"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "pagis-core",
@@ -4691,7 +4691,7 @@ dependencies = [
 
 [[package]]
 name = "pagis-mail"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -4728,7 +4728,7 @@ dependencies = [
 
 [[package]]
 name = "pagis-mcp-fixture"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -4748,7 +4748,7 @@ dependencies = [
 
 [[package]]
 name = "pagis-memory-git"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "git2",
@@ -4763,7 +4763,7 @@ dependencies = [
 
 [[package]]
 name = "pagis-needs-you"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -4785,7 +4785,7 @@ dependencies = [
 
 [[package]]
 name = "pagis-plugin"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "futures",
@@ -4808,7 +4808,7 @@ dependencies = [
 
 [[package]]
 name = "pagis-plugins"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "futures",
@@ -4830,7 +4830,7 @@ dependencies = [
 
 [[package]]
 name = "pagis-push"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "base64 0.22.1",
  "getrandom 0.2.17",
@@ -4879,7 +4879,7 @@ dependencies = [
 
 [[package]]
 name = "pagis-rt"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "futures",
  "gloo-timers",
@@ -4893,7 +4893,7 @@ dependencies = [
 
 [[package]]
 name = "pagis-server"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -4949,7 +4949,7 @@ dependencies = [
 
 [[package]]
 name = "pagis-software"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -4976,7 +4976,7 @@ dependencies = [
 
 [[package]]
 name = "pagis-storage-postgres"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -4992,7 +4992,7 @@ dependencies = [
 
 [[package]]
 name = "pagis-storage-sqlite"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -5010,7 +5010,7 @@ dependencies = [
 
 [[package]]
 name = "pagis-telephony"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "audio-codec-algorithms",
@@ -5048,7 +5048,7 @@ dependencies = [
 
 [[package]]
 name = "pagis-testkit"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -5095,7 +5095,7 @@ dependencies = [
 
 [[package]]
 name = "pagis-trigger"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -5113,7 +5113,7 @@ dependencies = [
 
 [[package]]
 name = "pagis-vault"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "argon2",
  "async-trait",
@@ -5140,11 +5140,11 @@ dependencies = [
 
 [[package]]
 name = "pagis-versions"
-version = "0.3.0"
+version = "0.4.0"
 
 [[package]]
 name = "pagis-voice"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -8741,7 +8741,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "hex",
