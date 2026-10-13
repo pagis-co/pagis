@@ -38,12 +38,12 @@ users can enter the directory, Pagis sets it to mode 700 at start and logs
 the change. Pagis does not start when a group or another user can read
 `client-credential`: remove the file, and the next start writes a new one.
 
-The daemon bind-mounts files from the State Directory into each Computer.
-When Docker runs in a VM (Docker Desktop, Colima), the VM must share the
-directory. Colima and Docker Desktop share your home directory, and they
-do not share `/tmp`. A Computer that gets an empty file from a directory
-that the VM does not share fails to wake, and the failure names the
-directory.
+The daemon bind-mounts the Plugin checkouts from the State Directory into
+each Computer. When Docker runs in a VM (Docker Desktop, Colima), the VM
+must share the directory. Colima and Docker Desktop share your home
+directory, and they do not share `/tmp`. When the VM does not share the
+directory, each Computer gets an empty directory in place of each Plugin
+checkout, and the Agents do not see the Skills of the Plugins.
 
 ### Ports and settings
 
