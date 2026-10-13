@@ -28,7 +28,12 @@ pub mod pending_evidence;
 pub mod push_subscription;
 pub mod reflection_filter;
 pub mod run_title;
+pub mod schedule;
 pub use run_title::{RunTitleSource, UNAVAILABLE_RUN_TITLE, run_title};
+pub use schedule::{
+    ScheduleTimeError, cron_window, interval_window, missed_count, next_after,
+    next_cron_occurrence, schedule_window,
+};
 pub mod seal;
 pub mod secrets;
 pub mod skill;

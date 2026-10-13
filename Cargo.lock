@@ -4980,8 +4980,6 @@ version = "0.3.0"
 dependencies = [
  "async-trait",
  "chrono",
- "chrono-tz",
- "croner",
  "hex",
  "pagis-core",
  "pagis-testkit",
@@ -4998,8 +4996,6 @@ version = "0.3.0"
 dependencies = [
  "async-trait",
  "chrono",
- "chrono-tz",
- "croner",
  "hex",
  "pagis-core",
  "pagis-google",
@@ -5104,7 +5100,6 @@ dependencies = [
  "async-trait",
  "chrono",
  "chrono-tz",
- "croner",
  "jsonschema",
  "pagis-audit",
  "pagis-core",

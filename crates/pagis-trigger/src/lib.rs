@@ -8,7 +8,6 @@
 pub mod subscriptions;
 
 use std::collections::HashMap;
-use std::str::FromStr;
 use std::sync::Arc;
 
 use chrono::{LocalResult, NaiveDateTime, TimeZone};
@@ -19,8 +18,8 @@ use pagis_core::{
     EventSubscriptionState, EventSubscriptionStore, ForgetKeys, Grant, GrantStore, IncomingEvent,
     IncomingEventId, IngestBatch, IngestOutcome, MessageId, MessageStore, NewEvent, PAGIS_PROVIDER,
     Schedule, ScheduleId, ScheduleKind, ScheduleOccurrence, ScheduleOccurrenceId, ScheduleRevision,
-    ScheduleState, ScheduleStore, SourceBatch, StoreError, TriggerStore, Wakeup, WakeupClaim,
-    WakeupId, WorkspaceId,
+    ScheduleState, ScheduleStore, ScheduleTimeError, SourceBatch, StoreError, TriggerStore, Wakeup,
+    WakeupClaim, WakeupId, WorkspaceId, interval_window, next_after, next_cron_occurrence,
 };
 
 pub use pagis_core::ArrivalRun;
@@ -1713,69 +1712,12 @@ fn validate_filter(
     }
 }
 
-/// The first firing of a five-field cron expression after `now`, in
-/// its own timezone. The seed reads it to give the Report Schedule its
-/// first time (ADR-0022), and `resolve_timing` reads it for every
-/// Schedule a user or an Agent creates.
-pub fn next_cron_occurrence(
-    expression: &str,
-    timezone: &str,
-    now: i64,
-) -> Result<i64, TriggerError> {
-    if expression.split_whitespace().count() != 5 {
-        return Err(TriggerError::InvalidCron);
-    }
-    let zone = timezone
-        .parse::<chrono_tz::Tz>()
-        .map_err(|_| TriggerError::InvalidTimezone(timezone.to_string()))?;
-    let cron = croner::Cron::from_str(expression).map_err(|_| TriggerError::InvalidCron)?;
-    let now = chrono::DateTime::from_timestamp_millis(now)
-        .ok_or(TriggerError::InvalidCron)?
-        .with_timezone(&zone);
-    Ok(cron
-        .find_next_occurrence(&now, false)
-        .map_err(|_| TriggerError::InvalidCron)?
-        .timestamp_millis())
-}
-
-fn next_after(schedule: &Schedule, after: i64) -> Result<Option<i64>, TriggerError> {
-    match schedule.kind {
-        ScheduleKind::OneShot => {
-            Ok((schedule.scheduled_at > after).then_some(schedule.scheduled_at))
-        }
-        ScheduleKind::Interval => {
-            let anchor = schedule
-                .anchor_at
-                .ok_or_else(|| StoreError::Corrupt("interval anchor is missing".to_string()))?;
-            let interval_ms = schedule
-                .interval_ms
-                .ok_or_else(|| StoreError::Corrupt("interval cadence is missing".to_string()))?;
-            if after < anchor {
-                Ok(Some(anchor))
-            } else {
-                Ok(Some(
-                    anchor + ((after - anchor) / interval_ms + 1) * interval_ms,
-                ))
-            }
-        }
-        ScheduleKind::Cron => {
-            let expression = schedule
-                .cron_expression
-                .as_deref()
-                .ok_or_else(|| StoreError::Corrupt("cron expression is missing".to_string()))?;
-            let cron = croner::Cron::from_str(expression).map_err(|_| TriggerError::InvalidCron)?;
-            let timezone = schedule
-                .timezone
-                .parse::<chrono_tz::Tz>()
-                .map_err(|_| TriggerError::InvalidTimezone(schedule.timezone.clone()))?;
-            let after = chrono::DateTime::from_timestamp_millis(after)
-                .ok_or(TriggerError::InvalidCron)?
-                .with_timezone(&timezone);
-            Ok(Some(
-                cron.find_next_occurrence(&after, false)
-                    .map_err(|_| TriggerError::InvalidCron)?
-                    .timestamp_millis(),
-            ))
+impl From<ScheduleTimeError> for TriggerError {
+    fn from(error: ScheduleTimeError) -> Self {
+        match error {
+            ScheduleTimeError::InvalidCron(_) | ScheduleTimeError::OutOfRange => Self::InvalidCron,
+            ScheduleTimeError::InvalidTimezone(timezone) => Self::InvalidTimezone(timezone),
+            error => Self::Store(error.into()),
         }
     }
 }
@@ -1835,11 +1777,7 @@ fn resolve_timing(timing: ScheduleTiming, now: i64) -> Result<ResolvedTiming, Tr
             if every_ms < 60_000 {
                 return Err(TriggerError::IntervalTooShort);
             }
-            let scheduled_at = if now < anchor {
-                anchor
-            } else {
-                anchor + ((now - anchor) / every_ms + 1) * every_ms
-            };
+            let (_, scheduled_at) = interval_window(anchor, every_ms, now)?;
             Ok(ResolvedTiming {
                 kind: ScheduleKind::Interval,
                 cron_expression: None,

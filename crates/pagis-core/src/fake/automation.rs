@@ -1,5 +1,4 @@
 use super::*;
-use std::str::FromStr;
 
 #[async_trait::async_trait]
 impl ScheduleStore for FakeScheduleStore {
@@ -336,9 +335,10 @@ impl TriggerStore for FakeTriggerStore {
         };
         let windows: Vec<_> = schedules
             .iter()
-            .map(|schedule| schedule_window(schedule, now))
+            .map(|schedule| crate::schedule_window(schedule, now).map_err(StoreError::from))
             .collect::<Result<_, _>>()?;
         for (schedule, (scheduled_at, next)) in schedules.into_iter().zip(windows) {
+            let scheduled_at = scheduled_at.expect("due Schedule has a due time");
             if schedule.creator == CreatorKind::Agent
                 && schedule.approved_revision != Some(schedule.revision)
             {
@@ -1035,40 +1035,4 @@ fn schedule_wakeup(data: &mut Data, s: &Schedule, due: i64, now: i64) -> Wakeup 
     data.wakeups
         .put(&s.workspace_id, wakeup.id.clone(), wakeup.clone());
     wakeup
-}
-fn schedule_window(s: &Schedule, now: i64) -> Result<(i64, Option<i64>), StoreError> {
-    match (s.kind, s.anchor_at, s.interval_ms) {
-        (ScheduleKind::Interval, Some(anchor), Some(interval)) if interval > 0 => {
-            let due = anchor + (now.saturating_sub(anchor) / interval) * interval;
-            Ok((due, Some(due + interval)))
-        }
-        (ScheduleKind::Cron, _, _) => cron_window(s, now),
-        (ScheduleKind::OneShot, _, _) => Ok((s.next_due_at.unwrap_or(s.scheduled_at), None)),
-        _ => Err(StoreError::Corrupt("Schedule cadence is invalid".into())),
-    }
-}
-fn cron_window(
-    schedule: &crate::Schedule,
-    now: i64,
-) -> Result<(i64, Option<i64>), crate::StoreError> {
-    let expression = schedule
-        .cron_expression
-        .as_deref()
-        .ok_or_else(|| crate::StoreError::Corrupt("cron expression is missing".to_string()))?;
-    let cron = croner::Cron::from_str(expression)
-        .map_err(|error| crate::StoreError::Corrupt(format!("cron expression: {error}")))?;
-    let timezone = schedule
-        .timezone
-        .parse::<chrono_tz::Tz>()
-        .map_err(|error| crate::StoreError::Corrupt(format!("cron timezone: {error}")))?;
-    let now = chrono::DateTime::from_timestamp_millis(now)
-        .ok_or_else(|| crate::StoreError::Corrupt("cron time is out of range".to_string()))?
-        .with_timezone(&timezone);
-    let latest = cron
-        .find_previous_occurrence(&now, true)
-        .map_err(|error| crate::StoreError::Corrupt(format!("cron occurrence: {error}")))?;
-    let next = cron
-        .find_next_occurrence(&latest, false)
-        .map_err(|error| crate::StoreError::Corrupt(format!("cron occurrence: {error}")))?;
-    Ok((latest.timestamp_millis(), Some(next.timestamp_millis())))
 }
