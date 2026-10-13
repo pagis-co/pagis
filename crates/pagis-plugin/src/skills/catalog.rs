@@ -11,9 +11,9 @@ use pagis_core::{
 use rust_embed::RustEmbed;
 
 use super::{SKILL_FILE, description, read_skills, split_frontmatter};
+use crate::PluginStates;
 use crate::git::PluginGitStore;
 use crate::manifest::SKILLS_DIR;
-use crate::package::PackageFiles;
 
 /// The first-party Skills, from the same directory the Computer image
 /// copies to `/opt/pagis/skills/`.
@@ -37,11 +37,11 @@ pub struct SkillCatalogDeps {
     pub plugins: Arc<dyn PluginStore>,
     pub grants: Arc<dyn GrantStore>,
     pub git: Arc<PluginGitStore>,
+    pub states: Arc<dyn PluginStates>,
 }
 
 /// The Skills of every Workspace, by tenant and Agent
-/// (ADR-0017). It answers from the installed checkouts, so an update changes
-/// what it says as soon as the checkout changes.
+/// (ADR-0017). It reads the installed state id of each Plugin.
 pub struct SkillCatalog {
     deps: SkillCatalogDeps,
 }
@@ -95,8 +95,13 @@ impl SkillCatalog {
 impl Skills for SkillCatalog {
     async fn list(&self, workspace_id: &WorkspaceId, agent_id: &AgentId) -> Vec<Skill> {
         let mut skills = first_party_skills();
-        for (plugin, root) in self.granted(workspace_id, agent_id).await {
-            if let Ok(files) = PackageFiles::from_directory(&root) {
+        for (plugin, _) in self.granted(workspace_id, agent_id).await {
+            if let Ok(files) = self
+                .deps
+                .states
+                .read(workspace_id, plugin.id.as_str(), &plugin.installed_commit)
+                .await
+            {
                 skills.extend(read_skills(&plugin.name, &files).skills);
             }
         }
@@ -116,12 +121,24 @@ impl Skills for SkillCatalog {
         if plugin == FIRST_PARTY_SKILLS {
             return first_party_body(skill);
         }
-        let (_, root) = self
+        let (held, _) = self
             .granted(workspace_id, agent_id)
             .await
             .into_iter()
             .find(|(held, _)| held.name == plugin)?;
-        std::fs::read_to_string(root.join(SKILLS_DIR).join(skill).join(SKILL_FILE)).ok()
+        let files = self
+            .deps
+            .states
+            .read(workspace_id, held.id.as_str(), &held.installed_commit)
+            .await
+            .ok()?;
+        String::from_utf8(
+            files
+                .get(PathBuf::from(SKILLS_DIR).join(skill).join(SKILL_FILE))?
+                .bytes
+                .clone(),
+        )
+        .ok()
     }
 
     async fn mounts(&self, workspace_id: &WorkspaceId, agent_id: &AgentId) -> Vec<SkillMount> {

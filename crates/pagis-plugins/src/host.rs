@@ -27,7 +27,7 @@ use pagis_core::{
     PluginTools, SecretStore, WorkspaceId, now_ms,
 };
 use pagis_plugin::{
-    McpConfig, McpServer, PackageFiles, PluginGitStore, PluginPackage, check_access, validate,
+    McpConfig, McpServer, PluginGitStore, PluginPackage, PluginStates, check_access, validate,
 };
 
 use crate::freeze::{capability_manifest, freeze_tools};
@@ -105,6 +105,7 @@ pub struct PluginHostDeps {
     pub secrets: Arc<dyn SecretStore>,
     pub tokens: Arc<dyn ConnectionTokens>,
     pub git: Arc<PluginGitStore>,
+    pub states: Arc<dyn PluginStates>,
     pub manifests: Arc<dyn Manifests>,
     pub bus: Arc<dyn EventBus>,
     /// Where a Plugin's server process runs (ADR-0017): inside the
@@ -147,7 +148,7 @@ impl PluginHost {
             let Some(frozen) = self.catalog(&plugin).await? else {
                 continue;
             };
-            let package = match self.package(&plugin) {
+            let package = match self.package(&plugin).await {
                 Ok(package) => package,
                 Err(error) => {
                     tracing::warn!(plugin = %plugin.name, %error, "the plugin package is not readable");
@@ -233,7 +234,7 @@ impl PluginHost {
     /// the user reaches this (ADR-0017).
     pub async fn start(&self, plugin_id: &PluginId) -> Result<(), HostError> {
         let plugin = self.plugin(plugin_id).await?;
-        let package = self.package(&plugin)?;
+        let package = self.package(&plugin).await?;
         let bindings = self.bindings(plugin_id).await?;
         let bound = self.bound(&plugin, &bindings).await?;
         for (name, server) in servers_of(&package) {
@@ -388,6 +389,7 @@ impl PluginHost {
         }
         let package = self
             .package(&plugin)
+            .await
             .map_err(|error| unavailable(&error.to_string()))?;
         let declared = servers_of(&package)
             .into_iter()
@@ -648,8 +650,8 @@ impl PluginHost {
             .map_err(|error| HostError::Storage(error.to_string()))
     }
 
-    /// The package of the installed state, read once per commit.
-    fn package(&self, plugin: &Plugin) -> Result<Arc<PluginPackage>, HostError> {
+    /// The package of the installed state, read once per state id.
+    async fn package(&self, plugin: &Plugin) -> Result<Arc<PluginPackage>, HostError> {
         if let Some((commit, package)) = self
             .packages
             .lock()
@@ -659,11 +661,15 @@ impl PluginHost {
         {
             return Ok(Arc::clone(package));
         }
-        let paths = self
+        let files = self
             .deps
-            .git
-            .paths(&self.deps.org_workspace_id, plugin.id.as_str());
-        let files = PackageFiles::from_directory(&paths.root)
+            .states
+            .read(
+                &self.deps.org_workspace_id,
+                plugin.id.as_str(),
+                &plugin.installed_commit,
+            )
+            .await
             .map_err(|error| HostError::Storage(error.to_string()))?;
         let package =
             Arc::new(validate(&files).map_err(|error| HostError::Refused(error.to_string()))?);

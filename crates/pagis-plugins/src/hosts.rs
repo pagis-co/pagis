@@ -20,7 +20,7 @@ use pagis_core::{
     ConnectionStore, EventBus, GrantStore, Plugin, PluginBinding, PluginId, PluginStore,
     PluginToolStore, SecretStore, WorkspaceId, WorkspaceStore,
 };
-use pagis_plugin::{PluginGitStore, PluginPackage, PluginServers};
+use pagis_plugin::{PluginGitStore, PluginPackage, PluginServers, PluginStates};
 use tokio_util::sync::CancellationToken;
 
 use crate::host::{ConnectionTokens, Manifests, PluginHost, PluginHostDeps};
@@ -43,6 +43,7 @@ pub struct PluginHostsDeps {
     pub secrets: Arc<dyn SecretStore>,
     pub tokens: Arc<dyn ConnectionTokens>,
     pub git: Arc<PluginGitStore>,
+    pub states: Arc<dyn PluginStates>,
     pub manifests: Arc<dyn Manifests>,
     pub bus: Arc<dyn EventBus>,
     pub processes: Arc<dyn ServerProcesses>,
@@ -81,6 +82,7 @@ impl PluginHosts {
             secrets: Arc::clone(&self.deps.secrets),
             tokens: Arc::clone(&self.deps.tokens),
             git: Arc::clone(&self.deps.git),
+            states: Arc::clone(&self.deps.states),
             manifests: Arc::clone(&self.deps.manifests),
             bus: Arc::clone(&self.deps.bus),
             processes: Arc::clone(&self.deps.processes),

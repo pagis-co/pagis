@@ -14,16 +14,14 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use crate::{PackageFiles, PluginStates};
+use async_trait::async_trait;
 use git2::{Oid, Repository, Signature};
-use pagis_core::WorkspaceId;
+use pagis_core::{StoreError, WorkspaceId};
 
 /// Why the daemon could not write or read an installed state.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum GitStoreError {
-    /// The tree of this install equals the installed state, so there
-    /// is nothing to update to.
-    #[error("the plugin is unchanged")]
-    NoChange,
     #[error("{0}")]
     Storage(String),
 }
@@ -43,35 +41,6 @@ pub struct PluginPaths {
     pub root: PathBuf,
     /// The writable directory of the Plugin: `PLUGIN_DATA`.
     pub data: PathBuf,
-}
-
-/// How one file changed between two installed states.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ChangeStatus {
-    Added,
-    Modified,
-    Deleted,
-}
-
-/// One file an update changes.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct ChangedFile {
-    pub path: String,
-    pub status: ChangeStatus,
-}
-
-/// What an update changes, as the desk shows it before the user
-/// accepts (ADR-0017).
-#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct DiffSummary {
-    pub files: Vec<ChangedFile>,
-}
-
-impl DiffSummary {
-    pub fn is_empty(&self) -> bool {
-        self.files.is_empty()
-    }
 }
 
 /// The repositories and checkouts of every Plugin.
@@ -95,27 +64,8 @@ impl PluginGitStore {
         }
     }
 
-    /// Commit the tree at `tree` as the next installed state and check
-    /// it out as `PLUGIN_ROOT`. The commit id comes back. A tree equal
-    /// to the installed state is [`GitStoreError::NoChange`], so an
-    /// update that changed nothing writes nothing.
-    pub async fn install_state(
-        &self,
-        workspace_id: &WorkspaceId,
-        plugin: &str,
-        tree: &Path,
-        message: &str,
-    ) -> Result<String, GitStoreError> {
-        let paths = self.paths(workspace_id, plugin);
-        let tree = tree.to_path_buf();
-        let message = message.to_string();
-        tokio::task::spawn_blocking(move || install_state(&paths, &tree, &message))
-            .await
-            .map_err(|error| GitStoreError::Storage(error.to_string()))?
-    }
-
     /// Give the checkout of one Plugin the modes that every uid reads,
-    /// as [`install_state`](Self::install_state) gives them. The daemon
+    /// as a state write gives them. The daemon
     /// does this at start, because a restore gives every file the
     /// owner's bits alone. A Plugin with no checkout is no error.
     pub async fn make_checkout_readable(
@@ -131,31 +81,50 @@ impl PluginGitStore {
         .await
         .map_err(|error| GitStoreError::Storage(error.to_string()))?
     }
+}
 
-    /// What changed between two installed states.
-    pub async fn diff(
+#[async_trait]
+impl PluginStates for PluginGitStore {
+    async fn write(
         &self,
         workspace_id: &WorkspaceId,
         plugin: &str,
-        base: &str,
-        head: &str,
-    ) -> Result<DiffSummary, GitStoreError> {
+        files: &PackageFiles,
+        message: &str,
+    ) -> Result<String, StoreError> {
         let paths = self.paths(workspace_id, plugin);
-        let base = base.to_string();
-        let head = head.to_string();
-        tokio::task::spawn_blocking(move || diff(&paths.repository, &base, &head))
+        let files = files.clone();
+        let message = message.to_string();
+        tokio::task::spawn_blocking(move || install_state(&paths, &files, &message))
             .await
-            .map_err(|error| GitStoreError::Storage(error.to_string()))?
+            .map_err(|error| StoreError::Database(Box::new(error)))?
+            .map_err(|error| StoreError::Database(Box::new(error)))
+    }
+
+    async fn read(
+        &self,
+        workspace_id: &WorkspaceId,
+        plugin: &str,
+        state: &str,
+    ) -> Result<PackageFiles, StoreError> {
+        let paths = self.paths(workspace_id, plugin);
+        let state = state.to_string();
+        tokio::task::spawn_blocking(move || {
+            let repository = Repository::open_bare(paths.repository)?;
+            let tree = repository.find_commit(Oid::from_str(&state)?)?.tree()?;
+            let mut files = PackageFiles::default();
+            read_tree(&repository, &tree, Path::new(""), &mut files)?;
+            Ok::<_, GitStoreError>(files)
+        })
+        .await
+        .map_err(|error| StoreError::Database(Box::new(error)))?
+        .map_err(|error| StoreError::Database(Box::new(error)))
     }
 
     /// Delete every trace of one Plugin: the repository, the checkout
     /// and the data directory (ADR-0017). The records are the caller's
     /// to delete.
-    pub async fn remove(
-        &self,
-        workspace_id: &WorkspaceId,
-        plugin: &str,
-    ) -> Result<(), GitStoreError> {
+    async fn remove(&self, workspace_id: &WorkspaceId, plugin: &str) -> Result<(), StoreError> {
         let paths = self.paths(workspace_id, plugin);
         tokio::task::spawn_blocking(move || {
             for directory in [&paths.repository, &paths.root, &paths.data] {
@@ -164,26 +133,25 @@ impl PluginGitStore {
                         .map_err(|error| GitStoreError::Storage(error.to_string()))?;
                 }
             }
-            Ok(())
+            Ok::<_, GitStoreError>(())
         })
         .await
-        .map_err(|error| GitStoreError::Storage(error.to_string()))?
+        .map_err(|error| StoreError::Database(Box::new(error)))?
+        .map_err(|error| StoreError::Database(Box::new(error)))
     }
 }
 
-fn install_state(paths: &PluginPaths, tree: &Path, message: &str) -> Result<String, GitStoreError> {
+fn install_state(
+    paths: &PluginPaths,
+    files: &PackageFiles,
+    message: &str,
+) -> Result<String, GitStoreError> {
     let repository = open_or_init(&paths.repository)?;
-    let tree_id = write_directory_tree(&repository, tree)?;
+    let tree_id = write_package_tree(&repository, files)?;
     let parent = match repository.head() {
         Ok(head) => Some(head.peel_to_commit()?),
         Err(_) => None,
     };
-    if let Some(parent) = &parent
-        && parent.tree_id() == tree_id
-    {
-        return Err(GitStoreError::NoChange);
-    }
-
     // The daemon is the only writer, so the author line names it and
     // never a remote identity.
     let signature = Signature::now("Pagis", "daemon@pagis.local")?;
@@ -267,30 +235,33 @@ fn make_readable(_root: &Path) -> Result<(), GitStoreError> {
     Ok(())
 }
 
-fn diff(repository: &Path, base: &str, head: &str) -> Result<DiffSummary, GitStoreError> {
-    let repository = Repository::open_bare(repository)
-        .map_err(|error| GitStoreError::Storage(format!("no such plugin: {error}")))?;
-    let base = repository.find_commit(Oid::from_str(base)?)?.tree()?;
-    let head = repository.find_commit(Oid::from_str(head)?)?.tree()?;
-    let diff = repository.diff_tree_to_tree(Some(&base), Some(&head), None)?;
-    let files = diff
-        .deltas()
-        .filter_map(|delta| {
-            let status = match delta.status() {
-                git2::Delta::Added | git2::Delta::Copied => ChangeStatus::Added,
-                git2::Delta::Deleted => ChangeStatus::Deleted,
-                _ => ChangeStatus::Modified,
-            };
-            let path = delta
-                .new_file()
-                .path()
-                .or_else(|| delta.old_file().path())?
-                .display()
-                .to_string();
-            Some(ChangedFile { path, status })
-        })
-        .collect();
-    Ok(DiffSummary { files })
+fn read_tree(
+    repository: &Repository,
+    tree: &git2::Tree<'_>,
+    root: &Path,
+    files: &mut PackageFiles,
+) -> Result<(), GitStoreError> {
+    for entry in tree {
+        let name = entry.name()?;
+        let path = root.join(name);
+        match entry.kind() {
+            Some(git2::ObjectType::Tree) => {
+                read_tree(repository, &repository.find_tree(entry.id())?, &path, files)?
+            }
+            Some(git2::ObjectType::Blob) if matches!(entry.filemode(), 0o100644 | 0o100755) => {
+                let blob = repository.find_blob(entry.id())?;
+                files
+                    .insert(path, blob.content().to_vec(), entry.filemode() == 0o100755)
+                    .map_err(|error| GitStoreError::Storage(error.to_string()))?;
+            }
+            _ => {
+                return Err(GitStoreError::Storage(
+                    "a state entry is not a package file".into(),
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Open the Plugin's repository, or create it bare on the first
@@ -306,53 +277,28 @@ fn open_or_init(directory: &Path) -> Result<Repository, GitStoreError> {
     }
 }
 
-/// Write every file of a directory as a blob and build the trees
+/// Write every file in memory as a blob and build the trees
 /// bottom-up. A bare repository has no index, so the tree builder is
 /// the only way in.
-fn write_directory_tree(repository: &Repository, source: &Path) -> Result<Oid, GitStoreError> {
+fn write_package_tree(repository: &Repository, files: &PackageFiles) -> Result<Oid, GitStoreError> {
     const FILE_MODE: i32 = 0o100_644;
     const EXECUTABLE_MODE: i32 = 0o100_755;
     const TREE_MODE: i32 = 0o040_000;
 
     let mut blobs: BTreeMap<PathBuf, (Oid, i32)> = BTreeMap::new();
-    let mut directories: Vec<PathBuf> = vec![PathBuf::new()];
-    while let Some(relative) = directories.pop() {
-        let entries = std::fs::read_dir(source.join(&relative)).map_err(|error| {
-            GitStoreError::Storage(format!("cannot read the plugin directory: {error}"))
-        })?;
-        for entry in entries {
-            let entry =
-                entry.map_err(|error| GitStoreError::Storage(format!("cannot read: {error}")))?;
-            let path = relative.join(entry.file_name());
-            // `symlink_metadata` does not follow a link, so a link out
-            // of the plugin is dropped rather than copied in.
-            let metadata = entry.metadata().map_err(|error| {
-                GitStoreError::Storage(format!("cannot read {}: {error}", path.display()))
-            })?;
-            if metadata.is_dir() {
-                directories.push(path);
-                continue;
-            }
-            if !metadata.is_file() {
-                continue;
-            }
-            let data = std::fs::read(entry.path()).map_err(|error| {
-                GitStoreError::Storage(format!("cannot read {}: {error}", path.display()))
-            })?;
-            let executable = is_executable(&metadata);
-            let blob = repository.blob(&data)?;
-            blobs.insert(
-                path,
-                (
-                    blob,
-                    if executable {
-                        EXECUTABLE_MODE
-                    } else {
-                        FILE_MODE
-                    },
-                ),
-            );
-        }
+    for (path, file) in files.iter() {
+        let blob = repository.blob(&file.bytes)?;
+        blobs.insert(
+            path.clone(),
+            (
+                blob,
+                if file.executable {
+                    EXECUTABLE_MODE
+                } else {
+                    FILE_MODE
+                },
+            ),
+        );
     }
 
     let mut children: BTreeMap<PathBuf, Vec<(String, Oid, i32)>> = BTreeMap::new();
@@ -397,15 +343,4 @@ fn write_directory_tree(repository: &Repository, source: &Path) -> Result<Oid, G
         .get(Path::new(""))
         .copied()
         .expect("the root tree is written"))
-}
-
-#[cfg(unix)]
-fn is_executable(metadata: &std::fs::Metadata) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    metadata.permissions().mode() & 0o111 != 0
-}
-
-#[cfg(not(unix))]
-fn is_executable(_metadata: &std::fs::Metadata) -> bool {
-    false
 }

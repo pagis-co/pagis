@@ -2679,8 +2679,8 @@ pub struct SoftwareVersion {
 /// record, never a Connection: it consumes Connections and secrets
 /// through [`PluginBinding`] and exposes neither.
 ///
-/// The files of every installed state live in the Plugin's own bare
-/// repository, and `installed_commit` is the state that runs now.
+/// `installed_commit` is the id of the state that runs now. The daemon
+/// keeps each state as a commit in the Plugin's own bare repository.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Plugin {
     pub id: crate::PluginId,
@@ -2689,7 +2689,7 @@ pub struct Plugin {
     /// unique in the Workspace and collides with no other namespace.
     pub name: String,
     pub source: PluginSource,
-    /// The commit of the installed state in the Plugin's repository.
+    /// The installed state id; a commit in the daemon's Plugin repository.
     pub installed_commit: String,
     /// The Capability Manifest version this state produced: `v1`, `v2`
     /// and so on. An update mints the next one, and a Run that started
