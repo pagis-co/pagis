@@ -6,17 +6,17 @@ import { Check } from 'lucide-react'
 
 import { cx } from '../../primitives'
 
-import { STEPS, type StepId, stepIndex } from './steps'
+import { STEP_LABELS, type StepId } from './steps'
 
-export function Stepper({ current, hasComputers }: { current: StepId; hasComputers: boolean }) {
-  const at = stepIndex(current)
+export function Stepper({ current, steps }: { current: StepId; steps: StepId[] }) {
+  const at = steps.indexOf(current)
   return (
     <ol className="onboarding-stepper" aria-label="Setup steps">
-      {STEPS.filter((step) => hasComputers || step.id !== 'computer').map((step, index) => {
+      {steps.map((step, index) => {
         const done = index < at
         return (
           <li
-            key={step.id}
+            key={step}
             className={cx(
               'onboarding-step',
               done && 'onboarding-step-done',
@@ -27,7 +27,7 @@ export function Stepper({ current, hasComputers }: { current: StepId; hasCompute
             <span className="onboarding-step-mark" aria-hidden>
               {done ? <Check size={14} /> : index + 1}
             </span>
-            <span className="onboarding-step-label">{step.label}</span>
+            <span className="onboarding-step-label">{STEP_LABELS[step]}</span>
           </li>
         )
       })}

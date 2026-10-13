@@ -1,4 +1,4 @@
-// First run: welcome, model, computer. The daemon
+// First run: welcome, model, profile, computer. The daemon
 // holds every durable answer, so these tests drive the wizard through
 // a stubbed API and assert what it sends and what it refuses to claim.
 
@@ -11,6 +11,8 @@ import { defaultAppearance } from '../../avatars/catalog'
 import { Onboarding } from './Onboarding'
 
 type Status = {
+  steps: ('welcome' | 'model' | 'profile' | 'computer')[]
+  can_set_provider_keys: boolean
   completed: boolean
   providers: { provider: string; configured: boolean; source: string | null; uses: string[] }[]
   checks: { provider: string; available: number }[]
@@ -27,6 +29,8 @@ type DockerReport = {
 
 function freshStatus(): Status {
   return {
+    steps: ['welcome', 'model', 'profile', 'computer'],
+    can_set_provider_keys: true,
     completed: false,
     providers: [
       { provider: 'anthropic', configured: false, source: null, uses: ['thinking'] },
@@ -65,6 +69,7 @@ const SPRITE = {
   job: 'general assistant',
   description: '',
   personality: '',
+  standing_brief: 'Take a message for the Person.',
   status: 'active',
   avatar: defaultAppearance(),
 }
@@ -80,6 +85,7 @@ interface Options {
 
 function stubApi(options: Options = {}) {
   const status = options.status ?? freshStatus()
+  if (status.docker === null) status.steps = status.steps.filter((step) => step !== 'computer')
   if (status.docker !== null) status.docker = dockerReport(options.dockerEndpoint ?? null)
   const computer = options.computer ?? {
     state: 'off',
@@ -96,6 +102,7 @@ function stubApi(options: Options = {}) {
   }
   const api = {
     GET: vi.fn(async (path: string) => {
+      if (path === '/api/v1/workspace') return { data: { timezone: 'UTC', chief_of_staff_agent_id: 'ag1' } }
       if (path === '/api/v1/agents') return { data: { items: [SPRITE] } }
       if (path === '/api/v1/user')
         return { data: { id: 'u1', name: null, email: null, role: options.role ?? 'administrator' } }
@@ -128,7 +135,9 @@ function stubApi(options: Options = {}) {
       }
       return { data: structuredClone(status) }
     }),
-    PUT: vi.fn(async (_path: string, init?: { params?: { path?: { provider?: string } } }) => {
+    PUT: vi.fn(async (path: string, init?: { params?: { path?: { provider?: string } }; body?: { name?: string; timezone?: string } }) => {
+      if (path === '/api/v1/workspace/timezone') return { data: { timezone: init?.body?.timezone, chief_of_staff_agent_id: 'ag1' }, response: { ok: true } }
+      if (path === '/api/v1/agents/{agent_id}') return { data: { ...SPRITE, name: init?.body?.name }, response: { ok: true } }
       const provider = init?.params?.path?.provider
       if (provider !== undefined) hold(provider)
       return {
@@ -199,6 +208,8 @@ async function reachComputer() {
   await reachModel()
   typeKey('Anthropic', 'sk-test')
   fireEvent.click(screen.getByText('Continue'))
+  await screen.findByRole('heading', { name: 'Your profile' })
+  fireEvent.click(screen.getByText('Continue'))
   await screen.findByRole('heading', { name: 'Set up a computer' })
 }
 
@@ -231,7 +242,7 @@ function actions(footer: HTMLElement) {
 }
 
 describe('the first run page', () => {
-  it('finishes after providers when the server has no Computers', async () => {
+  it('finishes after Profile when the server has no Computers', async () => {
     const status = freshStatus()
     status.docker = null
     const api = stubApi({ status })
@@ -240,12 +251,14 @@ describe('the first run page', () => {
     expect(within(screen.getByRole('list', { name: 'Setup steps' })).queryByText('Computer')).toBeNull()
     typeKey('Anthropic', 'sk-test')
     fireEvent.click(within(frame().footer).getByText('Continue'))
+    await screen.findByRole('heading', { name: 'Your profile' })
+    fireEvent.click(screen.getByText('Continue to Pagis'))
     await waitFor(() => expect(api.POST).toHaveBeenCalledWith('/api/v1/settings/onboarding/complete', { body: { user_name: null } }))
     expect(api.GET).not.toHaveBeenCalledWith('/api/v1/agents/{agent_id}/computer', expect.anything())
     expect(api.POST).not.toHaveBeenCalledWith('/api/v1/agents/{agent_id}/computer/wake', expect.anything())
   })
 
-  it('shows a completion failure on the providers step without Computers', async () => {
+  it('shows a completion failure on Profile without Computers', async () => {
     const status = freshStatus()
     status.docker = null
     const api = stubApi({ status, completeFails: 'the verified model route changed' })
@@ -253,8 +266,10 @@ describe('the first run page', () => {
     await reachModel()
     typeKey('Anthropic', 'sk-test')
     fireEvent.click(within(frame().footer).getByText('Continue'))
+    await screen.findByRole('heading', { name: 'Your profile' })
+    fireEvent.click(screen.getByText('Continue to Pagis'))
     expect(await screen.findByText('the verified model route changed')).toBeTruthy()
-    expect(screen.getByRole('heading', { name: 'Connect your providers' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Your profile' })).toBeTruthy()
     expect(screen.queryByText('Computer', { selector: '.onboarding-step-label' })).toBeNull()
   })
 
@@ -312,7 +327,7 @@ describe('the first run page', () => {
     expect(screen.getByRole('listitem', { current: 'step' }).textContent).toContain('Welcome')
   })
 
-  it('keeps the computer step actions in the footer and goes back to the model step', async () => {
+  it('keeps the computer step actions in the footer and goes back through Profile to Model', async () => {
     mount(stubApi())
     await reachComputer()
 
@@ -325,8 +340,10 @@ describe('the first run page', () => {
 
     fireEvent.click(within(footer).getByText('Back'))
 
+    expect(await screen.findByRole('heading', { name: 'Your profile' })).toBeTruthy()
+    fireEvent.click(screen.getByText('Back'))
     expect(await screen.findByRole('heading', { name: 'Connect your providers' })).toBeTruthy()
-    expect(screen.getByRole('listitem', { current: 'step' }).textContent).toContain('Providers')
+    expect(screen.getByRole('listitem', { current: 'step' }).textContent).toContain('Model')
   })
 
   it('names the computer step action for a reachable Docker', async () => {
@@ -364,7 +381,7 @@ describe('the welcome step', () => {
         (node) => node.textContent,
       ),
     ).toEqual(['Computer', 'Memory', 'Follow-ups'])
-    expect(screen.getByText('Pixie')).toBeTruthy()
+    expect((screen.getByLabelText('Sprite name') as HTMLInputElement).value).toBe('Pixie')
     expect(screen.getByText(/Your first and main sprite/)).toBeTruthy()
     expect(screen.queryByText('Back')).toBeNull()
   })
@@ -411,7 +428,7 @@ describe('the model step', () => {
     expect(continues.disabled).toBe(false)
     fireEvent.click(continues)
 
-    await screen.findByRole('heading', { name: 'Set up a computer' })
+    await screen.findByRole('heading', { name: 'Your profile' })
     for (const [provider, key] of [['anthropic', 'sk-ant'], ['openai', 'sk-openai']]) {
       expect(api.PUT).toHaveBeenCalledWith(
         '/api/v1/settings/onboarding/providers/{provider}/key',
@@ -501,7 +518,7 @@ describe('the model step', () => {
     })
     fireEvent.click(screen.getByText('Continue'))
 
-    await screen.findByRole('heading', { name: 'Set up a computer' })
+    await screen.findByRole('heading', { name: 'Your profile' })
     expect(api.PUT).toHaveBeenCalledWith('/api/v1/settings/onboarding/default-model', {
       body: { candidate: 'anthropic/claude-sonnet-5-5' },
     })
@@ -688,9 +705,18 @@ describe('the computer step', () => {
   })
 
   it('offers a member no endpoint to set', async () => {
-    const api = stubApi({ role: 'member' })
+    const status = freshStatus()
+    status.can_set_provider_keys = false
+    status.providers[0].configured = true
+    const api = stubApi({ status, role: 'member' })
     mount(api)
-    await reachComputer()
+    fireEvent.click(await screen.findByText('Continue'))
+    await screen.findByRole('heading', { name: 'Choose your model' })
+    await screen.findByRole('combobox', { name: 'Model' })
+    fireEvent.click(screen.getByText('Continue'))
+    await screen.findByRole('heading', { name: 'Your profile' })
+    fireEvent.click(screen.getByText('Continue'))
+    await screen.findByRole('heading', { name: 'Set up a computer' })
 
     expect(screen.getByText('No Docker answered yet')).toBeTruthy()
     expect(screen.queryByText('Connection details')).toBeNull()
@@ -737,5 +763,66 @@ describe('the computer step', () => {
       'The local image does not match this Pagis release.',
     )
     expect((screen.getByText('Continue to Pagis') as HTMLButtonElement).disabled).toBe(false)
+  })
+})
+
+
+describe('the Person wizard', () => {
+  it('shows the offered steps, selects an installation model and records the profile', async () => {
+    const status = freshStatus()
+    status.steps = ['welcome', 'model', 'profile']
+    status.docker = null
+    status.can_set_provider_keys = false
+    status.providers[1].configured = true
+    const api = stubApi({ status, role: 'member' })
+    mount(api)
+    await screen.findByRole('heading', { name: 'Welcome to Pagis' })
+    expect(within(screen.getByRole('list', { name: 'Setup steps' })).getAllByRole('listitem').map((item) => item.textContent?.replace(/^\d/, ''))).toEqual(['Welcome', 'Model', 'Profile'])
+    fireEvent.change(screen.getByLabelText('Sprite name'), { target: { value: 'Robin' } })
+    fireEvent.click(screen.getByText('Continue'))
+    await screen.findByRole('heading', { name: 'Choose your model' })
+    expect(api.PUT).toHaveBeenCalledWith('/api/v1/agents/{agent_id}', expect.objectContaining({ body: expect.objectContaining({ name: 'Robin', standing_brief: SPRITE.standing_brief }) }))
+    expect(screen.queryByLabelText(/API key/)).toBeNull()
+    const model = await screen.findByRole('combobox', { name: 'Model' })
+    fireEvent.change(model, { target: { value: 'openai/gpt-6-sol' } })
+    fireEvent.click(screen.getByText('Continue'))
+    await screen.findByRole('heading', { name: 'Your profile' })
+    expect(api.PUT).toHaveBeenCalledWith('/api/v1/settings/onboarding/default-model', { body: { candidate: 'openai/gpt-6-sol' } })
+    expect(screen.getByRole('combobox', { name: 'Timezone' }).textContent).toContain(Intl.DateTimeFormat().resolvedOptions().timeZone)
+    fireEvent.change(screen.getByLabelText('Your name'), { target: { value: 'Ada' } })
+    fireEvent.click(screen.getByText('Continue to Pagis'))
+    await waitFor(() => expect(api.POST).toHaveBeenCalledWith('/api/v1/settings/onboarding/complete', { body: { user_name: 'Ada' } }))
+    expect(api.PUT).toHaveBeenCalledWith('/api/v1/workspace/timezone', { body: { timezone: Intl.DateTimeFormat().resolvedOptions().timeZone } })
+    expect(api.PUT.mock.calls.some(([path]) => path.includes('/providers/'))).toBe(false)
+    expect(api.GET.mock.calls.some(([path]) => path.includes('/computer'))).toBe(false)
+  })
+
+  it('uses only the step list even when Docker is present', async () => {
+    const status = freshStatus()
+    status.steps = ['welcome', 'profile']
+    const api = stubApi({ status })
+    mount(api)
+    fireEvent.click(await screen.findByText('Continue'))
+    await screen.findByRole('heading', { name: 'Your profile' })
+    expect(within(screen.getByRole('list', { name: 'Setup steps' })).getAllByRole('listitem')).toHaveLength(2)
+    expect(screen.getByText('Continue to Pagis')).toBeTruthy()
+  })
+})
+
+
+describe('Profile errors', () => {
+  it('keeps the profile and refuses completion when the timezone write fails', async () => {
+    const status = freshStatus()
+    status.steps = ['welcome', 'profile']
+    const api = stubApi({ status })
+    api.PUT.mockResolvedValueOnce({ error: { error: { message: 'Cannot save timezone' } } } as never)
+    mount(api)
+    fireEvent.click(await screen.findByText('Continue'))
+    await screen.findByRole('heading', { name: 'Your profile' })
+    fireEvent.change(screen.getByLabelText('Your name'), { target: { value: 'Ada' } })
+    fireEvent.click(screen.getByText('Continue to Pagis'))
+    expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'Cannot save timezone')
+    expect(api.POST).not.toHaveBeenCalled()
+    expect((screen.getByLabelText('Your name') as HTMLInputElement).value).toBe('Ada')
   })
 })

@@ -60,6 +60,11 @@ async fn fresh_daemon_reports_onboarding_needed_and_docker_absent() {
     let status = status(&daemon).await;
 
     assert_eq!(status["completed"], false);
+    assert_eq!(
+        status["steps"],
+        serde_json::json!(["welcome", "model", "profile", "computer"])
+    );
+    assert_eq!(status["can_set_provider_keys"], true);
     assert_eq!(status["docker"]["endpoint"], serde_json::Value::Null);
     assert_eq!(status["docker"]["candidates"], serde_json::json!([]));
     assert_eq!(status["docker_endpoint"], serde_json::Value::Null);

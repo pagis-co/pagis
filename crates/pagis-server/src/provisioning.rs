@@ -95,16 +95,11 @@ impl<'a> From<&'a pagis_core::Stores> for WorkspaceSeed<'a> {
 }
 
 /// How a new Workspace starts.
-///
-/// The local first-run wizard asks the person which model the
-/// installation thinks on. On a server the administrator has answered
-/// that for everybody before the account exists, so there is nothing to
-/// ask and nothing to show: a created person lands in the product.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Onboarding {
-    /// Open the wizard. Only the local seed does this.
+    /// Open the steps that the server offers to the Person.
     Wizard,
-    /// Answered already, by the administrator of a server.
+    /// The Workspace has completed Onboarding.
     Done,
 }
 

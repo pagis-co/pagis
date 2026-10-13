@@ -34,8 +34,12 @@ password, reads the roster with each last sign-in and each Person's spend, and
 sets each Spend Cap. A disabled account signs in to nothing and keeps what it
 owns. Disabling and resetting a password both end every Session of that Person
 at once. A new Person gets a seeded Workspace with the Administrator's
-timezone until their first sign-in (ADR-0006), and lands in the Product App,
-not in the local onboarding.
+timezone until their first sign-in (ADR-0006), and opens Onboarding in the
+Product App. The server names the steps: Welcome, Model, Profile, and Computer
+when it has Computers. A Person chooses from the models the installation's
+keys reach, enters their name and timezone, and can rename the Chief of Staff.
+A Person on a Server enters no provider key. Completion marks their Workspace
+as onboarded.
 
 ### A Workspace is one Person's private scope
 

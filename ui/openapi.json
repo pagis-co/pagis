@@ -17208,12 +17208,18 @@
         "type": "object",
         "description": "Everything the onboarding wizard needs in one read.",
         "required": [
+          "steps",
+          "can_set_provider_keys",
           "completed",
           "providers",
           "checks",
           "docker"
         ],
         "properties": {
+          "can_set_provider_keys": {
+            "type": "boolean",
+            "description": "Only an Administrator on a Local Installation enters provider keys."
+          },
           "checks": {
             "type": "array",
             "items": {
@@ -17240,15 +17246,31 @@
               "string",
               "null"
             ],
-            "description": "The Docker endpoint an Administrator typed, or `null` for\ndiscovery. It is `null` for a Member."
+            "description": "The Docker endpoint an Administrator typed on a Local Installation,\nor `null` for discovery. It is `null` for a Member and on a Server."
           },
           "providers": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ProviderKeyDto"
             }
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OnboardingStep"
+            }
           }
         }
+      },
+      "OnboardingStep": {
+        "type": "string",
+        "description": "One step the server offers, in the order the Person sees it.",
+        "enum": [
+          "welcome",
+          "model",
+          "profile",
+          "computer"
+        ]
       },
       "Operator": {
         "type": "string",
