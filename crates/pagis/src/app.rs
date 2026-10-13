@@ -430,6 +430,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
             plugins: Arc::clone(&plugin_store) as _,
             grants: Arc::clone(&grants) as _,
             git: Arc::clone(&plugin_git),
+            states: Arc::clone(&plugin_git) as _,
         },
     ));
     // The exit listener of a Server (ADR-0029). A Local Installation
@@ -1142,6 +1143,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
             secrets: Arc::clone(&options.secrets),
         }),
         git: Arc::clone(&plugin_git),
+        states: Arc::clone(&plugin_git) as _,
         // A Plugin's server process runs inside the tenant's Plugin
         // Computer and never on the daemon host (ADR-0017).
         processes: Arc::new(crate::plugin_tools::ComputerServerProcesses::new(
@@ -1164,7 +1166,8 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         connections: Arc::clone(&connections) as _,
         grants: Arc::clone(&grants) as _,
         secrets: Arc::clone(&options.secrets),
-        git: Arc::clone(&plugin_git),
+        states: Arc::clone(&plugin_git) as _,
+        source: Arc::new(pagis_plugin::GitPackageSource),
         namespaces: Arc::clone(&broker) as _,
         servers: Arc::clone(&plugin_hosts) as _,
         bus: Arc::clone(&bus),

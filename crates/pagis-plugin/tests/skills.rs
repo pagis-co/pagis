@@ -7,7 +7,7 @@ use pagis_core::{
     AgentId, FIRST_PARTY_SKILLS, Grant, GrantId, GrantStore, Plugin, PluginId, PluginSource,
     PluginState, PluginStore, Skills, WorkspaceId, now_ms,
 };
-use pagis_plugin::{PluginGitStore, SkillCatalog, SkillCatalogDeps};
+use pagis_plugin::{PackageFiles, PluginGitStore, PluginStates, SkillCatalog, SkillCatalogDeps};
 use pagis_testkit::{MemoryGrantStore, MemoryPluginStore};
 
 struct Fixture {
@@ -32,6 +32,7 @@ impl Fixture {
             plugins: Arc::clone(&plugins) as _,
             grants: Arc::clone(&grants) as _,
             git: Arc::clone(&git),
+            states: Arc::clone(&git) as _,
         });
         Self {
             agent_id: AgentId::generate(),
@@ -47,7 +48,7 @@ impl Fixture {
     /// Install one Plugin with the Skills named, and write each one's
     /// `SKILL.md` into the checkout the catalogue reads.
     async fn install(&self, name: &str, created_at: i64, skills: &[(&str, &str)]) -> Plugin {
-        let plugin = Plugin {
+        let mut plugin = Plugin {
             id: PluginId::generate(),
             workspace_id: self.workspace_id.clone(),
             name: name.to_string(),
@@ -58,13 +59,22 @@ impl Fixture {
             created_at,
             updated_at: created_at,
         };
-        self.plugins.create(&plugin, &[]).await.expect("installed");
-        let root = self.git.paths(&self.workspace_id, plugin.id.as_str()).root;
+        let mut files = PackageFiles::default();
         for (skill, text) in skills {
-            let directory = root.join("skills").join(skill);
-            std::fs::create_dir_all(&directory).expect("skill directory");
-            std::fs::write(directory.join("SKILL.md"), text).expect("skill file");
+            files
+                .insert(
+                    format!("skills/{skill}/SKILL.md"),
+                    text.as_bytes().to_vec(),
+                    false,
+                )
+                .unwrap();
         }
+        plugin.installed_commit = self
+            .git
+            .write(&self.workspace_id, plugin.id.as_str(), &files, "v1")
+            .await
+            .unwrap();
+        self.plugins.create(&plugin, &[]).await.expect("installed");
         plugin
     }
 

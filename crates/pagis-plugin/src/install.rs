@@ -1,5 +1,5 @@
 //! The install path of a Plugin (ADR-0017): fetch, validate,
-//! bind, commit, and the update and uninstall that follow.
+//! bind, write a state, and the update and uninstall that follow.
 //!
 //! Every act here is the user's. A Plugin is never installed, updated
 //! or removed by an Agent, because installing one is a decision about
@@ -15,10 +15,10 @@ use pagis_core::{
     SecretStore, StoreError, WorkspaceId, now_ms,
 };
 
-use crate::git::{DiffSummary, GitStoreError, PluginGitStore};
 use crate::manifest::{ConfigField, FieldKind, PluginPackage};
 use crate::package::PackageFiles;
-use crate::source::{SourceError, SourceInput, fetch};
+use crate::source::{PackageSource, SourceError, SourceInput};
+use crate::states::{DiffSummary, PluginStates};
 use crate::validate::{ValidationErrors, validate};
 
 /// The namespaces the broker already holds for one tenant. A Plugin
@@ -86,15 +86,6 @@ impl From<StoreError> for PluginError {
     }
 }
 
-impl From<GitStoreError> for PluginError {
-    fn from(error: GitStoreError) -> Self {
-        match error {
-            GitStoreError::NoChange => PluginError::Refused("the plugin is unchanged".to_string()),
-            GitStoreError::Storage(message) => PluginError::Storage(message),
-        }
-    }
-}
-
 /// What the user binds one declared field to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BindingInput {
@@ -130,7 +121,8 @@ pub struct PluginsDeps {
     pub grants: Arc<dyn GrantStore>,
     /// Where a `secret` Binding's value goes (ADR-0013).
     pub secrets: Arc<dyn SecretStore>,
-    pub git: Arc<PluginGitStore>,
+    pub states: Arc<dyn PluginStates>,
+    pub source: Arc<dyn PackageSource>,
     pub namespaces: Arc<dyn Namespaces>,
     pub servers: Arc<dyn PluginServers>,
     pub bus: Arc<dyn EventBus>,
@@ -156,15 +148,8 @@ impl Plugins {
         source: &SourceInput,
         bindings: &[BindingInput],
     ) -> Result<Installed, PluginError> {
-        let scratch =
-            tempfile::tempdir().map_err(|error| PluginError::Storage(error.to_string()))?;
-        let tree = scratch.path().join("plugin");
-        std::fs::create_dir(&tree).map_err(|error| PluginError::Storage(error.to_string()))?;
-        let recorded = fetch(source, &tree).await?;
-        let package = validate(
-            &PackageFiles::from_directory(&tree)
-                .map_err(|error| PluginError::Storage(error.to_string()))?,
-        )?;
+        let (files, recorded) = self.fetch(source).await?;
+        let package = validate(&files)?;
         let name = package.manifest.name.clone();
 
         self.check_name_free(workspace_id, &name).await?;
@@ -172,10 +157,10 @@ impl Plugins {
         let id = PluginId::generate();
         let (bindings, state) = self.resolve(workspace_id, &id, &package, bindings).await?;
 
-        let commit = self
+        let state_id = self
             .deps
-            .git
-            .install_state(workspace_id, id.as_str(), &tree, "v1")
+            .states
+            .write(workspace_id, id.as_str(), &files, "v1")
             .await?;
         let now = now_ms();
         let plugin = Plugin {
@@ -183,7 +168,7 @@ impl Plugins {
             workspace_id: workspace_id.clone(),
             name: name.clone(),
             source: recorded,
-            installed_commit: commit,
+            installed_commit: state_id,
             manifest_version: "v1".to_string(),
             state,
             created_at: now,
@@ -191,9 +176,9 @@ impl Plugins {
         };
         if let Err(error) = self.deps.plugins.create(&plugin, &bindings).await {
             // The name was taken between the check and the write. The
-            // directories are the daemon's alone, so they go with it.
+            // installed states belong to this Plugin, so they go with it.
             self.deps
-                .git
+                .states
                 .remove(workspace_id, plugin.id.as_str())
                 .await
                 .ok();
@@ -247,15 +232,8 @@ impl Plugins {
             }
         };
 
-        let scratch =
-            tempfile::tempdir().map_err(|error| PluginError::Storage(error.to_string()))?;
-        let tree = scratch.path().join("plugin");
-        std::fs::create_dir(&tree).map_err(|error| PluginError::Storage(error.to_string()))?;
-        fetch(&source, &tree).await?;
-        let package = validate(
-            &PackageFiles::from_directory(&tree)
-                .map_err(|error| PluginError::Storage(error.to_string()))?,
-        )?;
+        let (files, _) = self.fetch(&source).await?;
+        let package = validate(&files)?;
         if package.manifest.name != plugin.name {
             return Err(PluginError::Refused(format!(
                 "the update names the plugin {:?}, not {:?}; a renamed plugin is another plugin",
@@ -263,20 +241,22 @@ impl Plugins {
             )));
         }
 
-        // The servers of the old state stop before its files go, so no
-        // running server reads a tree that is no longer installed.
-        self.deps.servers.stop(&plugin.id).await;
-        let previous = plugin.installed_commit.clone();
-        let version = next_manifest_version(&plugin.manifest_version);
-        let commit = self
+        let old = self
             .deps
-            .git
-            .install_state(workspace_id, plugin.id.as_str(), &tree, &version)
+            .states
+            .read(workspace_id, plugin.id.as_str(), &plugin.installed_commit)
             .await?;
-        let changed = self
+        let changed = DiffSummary::between(&old, &files);
+        if changed.is_empty() {
+            return Err(PluginError::Refused("the plugin is unchanged".to_string()));
+        }
+        // Stop the servers before the installed files change.
+        self.deps.servers.stop(&plugin.id).await;
+        let version = next_manifest_version(&plugin.manifest_version);
+        let state_id = self
             .deps
-            .git
-            .diff(workspace_id, plugin.id.as_str(), &previous, &commit)
+            .states
+            .write(workspace_id, plugin.id.as_str(), &files, &version)
             .await?;
 
         let held = self
@@ -297,10 +277,17 @@ impl Plugins {
         let state = self.state_of(workspace_id, &package, &bindings).await?;
         self.deps
             .plugins
-            .set_installed(workspace_id, &plugin.id, &commit, &version, state, now_ms())
+            .set_installed(
+                workspace_id,
+                &plugin.id,
+                &state_id,
+                &version,
+                state,
+                now_ms(),
+            )
             .await?;
         let plugin = Plugin {
-            installed_commit: commit,
+            installed_commit: state_id,
             manifest_version: version,
             state,
             updated_at: now_ms(),
@@ -323,8 +310,8 @@ impl Plugins {
     }
 
     /// Stop the servers, revoke every Grant, forget the secrets and
-    /// delete the repository, the checkout and the data directory. The
-    /// audit rows stand alone and are not touched (ADR-0017).
+    /// remove every installed state. The audit rows stand alone
+    /// and are not touched (ADR-0017).
     pub async fn uninstall(
         &self,
         workspace_id: &WorkspaceId,
@@ -351,7 +338,7 @@ impl Plugins {
             }
         }
         self.deps
-            .git
+            .states
             .remove(workspace_id, plugin.id.as_str())
             .await?;
         self.publish(&plugin, "plugin.uninstalled").await;
@@ -367,7 +354,7 @@ impl Plugins {
         input: &BindingInput,
     ) -> Result<Installed, PluginError> {
         let plugin = self.plugin(workspace_id, id).await?;
-        let package = self.package(workspace_id, &plugin)?;
+        let package = self.package(workspace_id, &plugin).await?;
         let Some(field) = package.pagis.config.get(&input.field) else {
             return Err(PluginError::Refused(format!(
                 "the plugin declares no field {:?}",
@@ -447,7 +434,7 @@ impl Plugins {
         id: &PluginId,
     ) -> Result<Installed, PluginError> {
         let plugin = self.plugin(workspace_id, id).await?;
-        let package = self.package(workspace_id, &plugin)?;
+        let package = self.package(workspace_id, &plugin).await?;
         let bindings = self
             .deps
             .plugins
@@ -466,21 +453,42 @@ impl Plugins {
         Ok(self.deps.plugins.list(workspace_id).await?)
     }
 
-    /// The package of the installed state, read from the checkout.
-    pub fn package(
+    /// The package of the installed state, read by its id.
+    pub async fn package(
         &self,
         workspace_id: &WorkspaceId,
         plugin: &Plugin,
     ) -> Result<PluginPackage, PluginError> {
-        let paths = self.deps.git.paths(workspace_id, plugin.id.as_str());
-        Ok(validate(
-            &PackageFiles::from_directory(&paths.root)
-                .map_err(|error| PluginError::Storage(error.to_string()))?,
-        )?)
+        let files = self
+            .deps
+            .states
+            .read(workspace_id, plugin.id.as_str(), &plugin.installed_commit)
+            .await?;
+        Ok(validate(&files)?)
+    }
+
+    async fn fetch(
+        &self,
+        source: &SourceInput,
+    ) -> Result<(PackageFiles, PluginSource), PluginError> {
+        match source {
+            SourceInput::Git { url, reference } => Ok((
+                self.deps.source.fetch(url, reference.as_deref()).await?,
+                PluginSource::Git {
+                    url: url.clone(),
+                    reference: reference.clone(),
+                },
+            )),
+            SourceInput::Upload { tar } => Ok((
+                PackageFiles::from_tar(tar)
+                    .map_err(|error| SourceError::Refused(error.to_string()))?,
+                PluginSource::Upload,
+            )),
+        }
     }
 
     /// Take back a first install that could not be finished. The
-    /// record, the secrets and the directories go, so a refused
+    /// record, the secrets and the installed states go, so a refused
     /// install leaves nothing behind (ADR-0017).
     async fn rollback(&self, workspace_id: &WorkspaceId, plugin: &Plugin) {
         self.deps.servers.forget(&plugin.id).await;
@@ -502,7 +510,7 @@ impl Plugins {
             .await
             .ok();
         self.deps
-            .git
+            .states
             .remove(workspace_id, plugin.id.as_str())
             .await
             .ok();

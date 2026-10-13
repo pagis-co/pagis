@@ -879,7 +879,14 @@ impl PluginStore for FakePluginStore {
         let mut data = self.0.lock().unwrap();
         let deleted = data.plugins.remove(workspace_id, id).is_some();
         if deleted {
-            revoke_resource(&mut data, workspace_id, "plugin", id.as_str(), revoked_at);
+            for grant in data.grants.0.values_mut() {
+                if grant.resource_kind == Grant::PLUGIN_KIND
+                    && grant.resource_id.as_deref() == Some(id.as_str())
+                    && grant.revoked_at.is_none()
+                {
+                    grant.revoked_at = Some(revoked_at);
+                }
+            }
             data.plugin_bindings
                 .0
                 .retain(|(w, (p, _)), _| w != workspace_id || p != id);

@@ -985,7 +985,10 @@ The files of a Plugin in the agent-plugins.org format: `plugin.json`,
 optional `mcp.json`, and Skills. `PackageFiles` holds each relative path,
 its bytes and its executable flag. A directory exists when a file is under
 it, as in git. Package checks need no disk, process or git access and run
-on native targets and `wasm32-unknown-unknown` (ADR-0017).
+on native targets and `wasm32-unknown-unknown`. An Embedder supplies a
+`PackageSource` for source files and `PluginStates` for installed states.
+`installed_commit` holds the installed state id, which is a commit in the
+daemon's store (ADR-0017).
 
 ### Plugin Tool
 One tool of an installed Plugin's MCP server, named `<plugin>__<tool>`. A

@@ -38,7 +38,7 @@ Plugin Bindings and exposes no Connection or credential path of its own.
   access.
 - A source is a git URL with an optional ref, or an uploaded directory. The
   daemon commits every installed state into a bare repository for each Plugin,
-  and the installed Version is a commit. An update is an explicit
+  and the installed state id is a commit. An update is an explicit
   Administrator act that shows what changed and makes a new Capability
   Manifest version; running Runs keep their snapshot. An uninstall stops the
   servers, revokes the Plugin's Grants in every Workspace, removes the skill
@@ -163,12 +163,38 @@ the Plugin Package is refused, and one shared root directory is removed.
 Validation and Skill parsing need no disk and build and run on
 `wasm32-unknown-unknown`.
 
-The default `native` Cargo feature holds the git source fetch, git store,
-install from the disk, Skill catalog and first-party Skill files. Native
-services read a checkout into `PackageFiles` before validation. The
-workspace dependency disables default features, and native consumers turn
-on `native`. The gate builds the portable crate alone with
-`--no-default-features`, so feature unification cannot add native services.
+### Package sources and installed states are separate seams
+
+`PackageSource::fetch(url, reference)` answers with `PackageFiles`. The
+Embedder supplies the source. The daemon uses `GitPackageSource`, which
+clones with git and checks the URL and reference. An upload uses
+`PackageFiles::from_tar` directly and needs no source.
+
+`PluginStates` writes a state from `PackageFiles` and answers its id,
+reads the files of a named state, and removes every state of a Plugin.
+`installed_commit` holds this id. The daemon's `PluginGitStore` writes
+blobs from memory and keeps each state as a commit in a bare repository.
+Its checkout and data paths are native methods, separate from the seam.
+This uses git's established
+[blob creation from a buffer](https://libgit2.org/docs/reference/main/blob/git_blob_create_from_buffer.html).
+
+`Plugins` validates and binds files in memory. An update compares the old
+and new `PackageFiles`, including executable flags, before it stops
+servers or writes a state. Equal files make no update. The diff holds
+added, modified and deleted paths in path order. The MCP host and Skill
+catalog read installed files through `PluginStates` by `installed_commit`.
+Native checkouts supply the paths that Computers mount.
+
+`Plugins`, install, Namespaces and both seams build without `native`.
+`pagis_plugin::fake` supplies an in-memory `PluginStates` and a fixed
+`PackageSource`. The shared install tests run over these fakes on the
+host and on `wasm32-unknown-unknown` under Node.
+
+The default `native` Cargo feature holds the git source, git store,
+Skill catalog and first-party Skill files. The workspace dependency
+disables default features, and native consumers turn on `native`. The
+gate builds the portable crate alone with `--no-default-features`, so
+feature unification cannot add native services.
 
 ### Plugin skills are loaded, not copied into memory
 

@@ -5,7 +5,7 @@
 use crate::support;
 
 use pagis_core::WorkspaceId;
-use pagis_plugin::{ChangeStatus, GitStoreError, PluginGitStore};
+use pagis_plugin::{ChangeStatus, DiffSummary, PackageFiles, PluginGitStore, PluginStates};
 use support::minimal;
 
 fn store() -> (PluginGitStore, tempfile::TempDir, WorkspaceId) {
@@ -20,7 +20,12 @@ async fn an_install_commits_the_tree_and_checks_it_out() {
     let package = minimal().file("server.js", "// one");
 
     let commit = store
-        .install_state(&workspace, "plug-1", package.root(), "v1")
+        .write(
+            &workspace,
+            "plug-1",
+            &PackageFiles::from_directory(package.root()).unwrap(),
+            "v1",
+        )
         .await
         .expect("the first state");
 
@@ -41,7 +46,12 @@ async fn a_second_state_commits_on_the_first_and_has_a_diff() {
         .file("server.js", "// one")
         .file("old.txt", "gone");
     let base = store
-        .install_state(&workspace, "plug-1", first.root(), "v1")
+        .write(
+            &workspace,
+            "plug-1",
+            &PackageFiles::from_directory(first.root()).unwrap(),
+            "v1",
+        )
         .await
         .expect("the first state");
 
@@ -49,14 +59,25 @@ async fn a_second_state_commits_on_the_first_and_has_a_diff() {
         .file("server.js", "// two")
         .file("README.md", "new");
     let head = store
-        .install_state(&workspace, "plug-1", second.root(), "v2")
+        .write(
+            &workspace,
+            "plug-1",
+            &PackageFiles::from_directory(second.root()).unwrap(),
+            "v2",
+        )
         .await
         .expect("the second state");
 
-    let changed = store
-        .diff(&workspace, "plug-1", &base, &head)
-        .await
-        .expect("the diff");
+    let changed = DiffSummary::between(
+        &store.read(&workspace, "plug-1", &base).await.unwrap(),
+        &store.read(&workspace, "plug-1", &head).await.unwrap(),
+    );
+    let repository =
+        git2::Repository::open_bare(store.paths(&workspace, "plug-1").repository).unwrap();
+    let commit = repository
+        .find_commit(git2::Oid::from_str(&head).unwrap())
+        .unwrap();
+    assert_eq!(commit.parent_id(0).unwrap().to_string(), base);
     let mut summary: Vec<(String, ChangeStatus)> = changed
         .files
         .into_iter()
@@ -78,13 +99,23 @@ async fn a_new_state_replaces_the_checkout() {
     let (store, _home, workspace) = store();
     let first = minimal().file("old.txt", "gone");
     store
-        .install_state(&workspace, "plug-1", first.root(), "v1")
+        .write(
+            &workspace,
+            "plug-1",
+            &PackageFiles::from_directory(first.root()).unwrap(),
+            "v1",
+        )
         .await
         .expect("the first state");
 
     let second = minimal().file("new.txt", "here");
     store
-        .install_state(&workspace, "plug-1", second.root(), "v2")
+        .write(
+            &workspace,
+            "plug-1",
+            &PackageFiles::from_directory(second.root()).unwrap(),
+            "v2",
+        )
         .await
         .expect("the second state");
 
@@ -98,7 +129,12 @@ async fn the_data_directory_survives_an_update() {
     let (store, _home, workspace) = store();
     let package = minimal();
     store
-        .install_state(&workspace, "plug-1", package.root(), "v1")
+        .write(
+            &workspace,
+            "plug-1",
+            &PackageFiles::from_directory(package.root()).unwrap(),
+            "v1",
+        )
         .await
         .expect("the first state");
     let paths = store.paths(&workspace, "plug-1");
@@ -106,7 +142,12 @@ async fn the_data_directory_survives_an_update() {
 
     let second = minimal().file("README.md", "new");
     store
-        .install_state(&workspace, "plug-1", second.root(), "v2")
+        .write(
+            &workspace,
+            "plug-1",
+            &PackageFiles::from_directory(second.root()).unwrap(),
+            "v2",
+        )
         .await
         .expect("the second state");
 
@@ -114,19 +155,26 @@ async fn the_data_directory_survives_an_update() {
 }
 
 #[tokio::test]
-async fn a_state_equal_to_the_installed_one_is_refused() {
+async fn the_store_writes_files_and_the_install_path_checks_for_no_change() {
     let (store, _home, workspace) = store();
-    let package = minimal();
-    store
-        .install_state(&workspace, "plug-1", package.root(), "v1")
+    let files = PackageFiles::from_directory(minimal().root()).unwrap();
+    let first = store
+        .write(&workspace, "plug-1", &files, "v1")
         .await
-        .expect("the first state");
-
-    let again = store
-        .install_state(&workspace, "plug-1", package.root(), "v2")
-        .await;
-
-    assert_eq!(again, Err(GitStoreError::NoChange));
+        .unwrap();
+    let second = store
+        .write(&workspace, "plug-1", &files, "v2")
+        .await
+        .unwrap();
+    assert_ne!(first, second);
+    assert_eq!(
+        store.read(&workspace, "plug-1", &first).await.unwrap(),
+        files
+    );
+    assert_eq!(
+        store.read(&workspace, "plug-1", &second).await.unwrap(),
+        files
+    );
 }
 
 #[tokio::test]
@@ -144,7 +192,12 @@ async fn a_nested_tree_keeps_its_shape_and_its_file_mode() {
     }
 
     store
-        .install_state(&workspace, "plug-1", package.root(), "v1")
+        .write(
+            &workspace,
+            "plug-1",
+            &PackageFiles::from_directory(package.root()).unwrap(),
+            "v1",
+        )
         .await
         .expect("the first state");
 
@@ -166,7 +219,12 @@ async fn a_remove_deletes_every_directory_of_the_plugin() {
     let (store, _home, workspace) = store();
     let package = minimal();
     store
-        .install_state(&workspace, "plug-1", package.root(), "v1")
+        .write(
+            &workspace,
+            "plug-1",
+            &PackageFiles::from_directory(package.root()).unwrap(),
+            "v1",
+        )
         .await
         .expect("the first state");
     let paths = store.paths(&workspace, "plug-1");
@@ -188,7 +246,7 @@ mod checkout_modes {
 
     use rustix::fs::Mode;
 
-    use super::{minimal, store, support};
+    use super::{PackageFiles, PluginStates, minimal, store, support};
 
     /// Every uid reads the checkout, also when the daemon runs under
     /// umask 077.
@@ -200,7 +258,12 @@ mod checkout_modes {
         let installed = {
             let _umask = Umask::set(Mode::RWXG | Mode::RWXO);
             store
-                .install_state(&workspace, "plug-1", package.root(), "v1")
+                .write(
+                    &workspace,
+                    "plug-1",
+                    &PackageFiles::from_directory(package.root()).unwrap(),
+                    "v1",
+                )
                 .await
         };
 
@@ -216,7 +279,12 @@ mod checkout_modes {
         let (store, _home, workspace) = store();
         let package = executable_package();
         store
-            .install_state(&workspace, "plug-1", package.root(), "v1")
+            .write(
+                &workspace,
+                "plug-1",
+                &PackageFiles::from_directory(package.root()).unwrap(),
+                "v1",
+            )
             .await
             .expect("the first state");
         let root = store.paths(&workspace, "plug-1").root;
@@ -309,4 +377,26 @@ mod checkout_modes {
             rustix::process::umask(self.0);
         }
     }
+}
+
+#[tokio::test]
+async fn states_are_read_from_commits_when_the_checkout_changes() {
+    let (store, _home, workspace) = store();
+    let mut files = PackageFiles::default();
+    files.insert("nested/run", b"run".to_vec(), true).unwrap();
+    let id = store
+        .write(&workspace, "plug-1", &files, "v1")
+        .await
+        .unwrap();
+    std::fs::remove_dir_all(store.paths(&workspace, "plug-1").root).unwrap();
+    assert_eq!(store.read(&workspace, "plug-1", &id).await.unwrap(), files);
+    assert!(
+        store
+            .read(&WorkspaceId::generate(), "plug-1", &id)
+            .await
+            .is_err()
+    );
+    assert!(store.read(&workspace, "other", &id).await.is_err());
+    store.remove(&workspace, "plug-1").await.unwrap();
+    assert!(store.read(&workspace, "plug-1", &id).await.is_err());
 }
