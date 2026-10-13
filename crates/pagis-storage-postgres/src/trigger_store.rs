@@ -7,8 +7,6 @@
 //! leaves the cursor where it was, so the next pass reads the same
 //! window again and deduplication absorbs the overlap.
 
-use std::str::FromStr;
-
 use async_trait::async_trait;
 use pagis_core::{
     ArrivalRun, CodingSessionId, ConnectionId, DueBatch, EventMatcher, EventSource,
@@ -260,19 +258,8 @@ impl TriggerStore for PostgresTriggerStore {
         let mut wakeups = Vec::new();
         for schedule in schedules {
             let previous_due_at = schedule.next_due_at.expect("due Schedule has a next time");
-            let (scheduled_at, next_due_at) =
-                match (schedule.kind, schedule.anchor_at, schedule.interval_ms) {
-                    (pagis_core::ScheduleKind::Interval, Some(anchor), Some(interval_ms)) => {
-                        let scheduled_at =
-                            anchor + (now.saturating_sub(anchor) / interval_ms) * interval_ms;
-                        (scheduled_at, Some(scheduled_at + interval_ms))
-                    }
-                    (pagis_core::ScheduleKind::Cron, _, _) => cron_window(&schedule, now)?,
-                    _ => (
-                        schedule.next_due_at.expect("due Schedule has a next time"),
-                        None,
-                    ),
-                };
+            let (scheduled_at, next_due_at) = pagis_core::schedule_window(&schedule, now)?;
+            let scheduled_at = scheduled_at.expect("due Schedule has a due time");
             let occurrence = ScheduleOccurrence {
                 id: ScheduleOccurrenceId::generate(),
                 workspace_id: schedule.workspace_id.clone(),
@@ -302,7 +289,7 @@ impl TriggerStore for PostgresTriggerStore {
             if inserted == 0 {
                 continue;
             }
-            let missed_count = missed_count(&schedule, previous_due_at, scheduled_at)?;
+            let missed_count = pagis_core::missed_count(&schedule, previous_due_at, scheduled_at)?;
             let pending_row = sqlx::query(&format!(
                 "SELECT {WAKEUP_COLUMNS} FROM wakeups WHERE schedule_id = $1 AND state = 'pending' \
                  ORDER BY id LIMIT 1"
@@ -1081,79 +1068,5 @@ impl TriggerStore for PostgresTriggerStore {
             created,
             combined,
         })
-    }
-}
-
-fn cron_window(
-    schedule: &pagis_core::Schedule,
-    now: i64,
-) -> Result<(i64, Option<i64>), pagis_core::StoreError> {
-    let expression = schedule
-        .cron_expression
-        .as_deref()
-        .ok_or_else(|| pagis_core::StoreError::Corrupt("cron expression is missing".to_string()))?;
-    let cron = croner::Cron::from_str(expression)
-        .map_err(|error| pagis_core::StoreError::Corrupt(format!("cron expression: {error}")))?;
-    let timezone = schedule
-        .timezone
-        .parse::<chrono_tz::Tz>()
-        .map_err(|error| pagis_core::StoreError::Corrupt(format!("cron timezone: {error}")))?;
-    let now = chrono::DateTime::from_timestamp_millis(now)
-        .ok_or_else(|| pagis_core::StoreError::Corrupt("cron time is out of range".to_string()))?
-        .with_timezone(&timezone);
-    let latest = cron
-        .find_previous_occurrence(&now, true)
-        .map_err(|error| pagis_core::StoreError::Corrupt(format!("cron occurrence: {error}")))?;
-    let next = cron
-        .find_next_occurrence(&latest, false)
-        .map_err(|error| pagis_core::StoreError::Corrupt(format!("cron occurrence: {error}")))?;
-    Ok((latest.timestamp_millis(), Some(next.timestamp_millis())))
-}
-
-fn missed_count(
-    schedule: &pagis_core::Schedule,
-    previous_due_at: i64,
-    latest_due_at: i64,
-) -> Result<u32, pagis_core::StoreError> {
-    if latest_due_at <= previous_due_at {
-        return Ok(0);
-    }
-    match (schedule.kind, schedule.interval_ms) {
-        (pagis_core::ScheduleKind::Interval, Some(interval_ms)) => {
-            Ok(u32::try_from((latest_due_at - previous_due_at) / interval_ms).unwrap_or(u32::MAX))
-        }
-        (pagis_core::ScheduleKind::Cron, _) => {
-            let expression = schedule.cron_expression.as_deref().ok_or_else(|| {
-                pagis_core::StoreError::Corrupt("cron expression is missing".to_string())
-            })?;
-            let cron = croner::Cron::from_str(expression).map_err(|error| {
-                pagis_core::StoreError::Corrupt(format!("cron expression: {error}"))
-            })?;
-            let timezone = schedule
-                .timezone
-                .parse::<chrono_tz::Tz>()
-                .map_err(|error| {
-                    pagis_core::StoreError::Corrupt(format!("cron timezone: {error}"))
-                })?;
-            let mut occurrence = chrono::DateTime::from_timestamp_millis(previous_due_at)
-                .ok_or_else(|| {
-                    pagis_core::StoreError::Corrupt("cron time is out of range".to_string())
-                })?
-                .with_timezone(&timezone);
-            let mut count = 0_u32;
-            loop {
-                let next = cron
-                    .find_next_occurrence(&occurrence, false)
-                    .map_err(|error| {
-                        pagis_core::StoreError::Corrupt(format!("cron occurrence: {error}"))
-                    })?;
-                if next.timestamp_millis() >= latest_due_at {
-                    return Ok(count);
-                }
-                count = count.saturating_add(1);
-                occurrence = next;
-            }
-        }
-        _ => Ok(0),
     }
 }

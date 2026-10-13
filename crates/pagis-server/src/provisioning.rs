@@ -298,10 +298,10 @@ impl WorkspaceSeed<'_> {
             return Ok(());
         }
         let now = pagis_core::now_ms();
-        let scheduled_at =
-            pagis_trigger::next_cron_occurrence(REPORT_CRON, &workspace.timezone, now).map_err(
-                |error| StoreError::Corrupt(format!("the Report cadence is unreadable: {error}")),
-            )?;
+        let scheduled_at = pagis_core::next_cron_occurrence(REPORT_CRON, &workspace.timezone, now)
+            .map_err(|error| {
+                StoreError::Corrupt(format!("the Report cadence is unreadable: {error}"))
+            })?;
         let report = Schedule {
             id: ScheduleId::generate(),
             workspace_id: workspace.id.clone(),
