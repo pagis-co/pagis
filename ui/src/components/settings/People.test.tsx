@@ -2,7 +2,7 @@
 // creates, the cap, the reset and the disable switch.
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -121,6 +121,42 @@ describe('People', () => {
     const ada = (screen.getByText('Ada').closest('.people-row')) as HTMLElement
     expect(within(ada).getByText('Administrator')).toBeTruthy()
     expect(await screen.findByText(/\$30.00 spent on model calls this month/)).toBeTruthy()
+  })
+
+  it('changes a Person role and reads the saved roster', async () => {
+    const api = stubApi()
+    let role = 'member'
+    api.GET = vi.fn(async (path: string) => path === '/api/v1/administration/people'
+      ? { data: { items: [ADMINISTRATOR, { ...MEMBER, role }] } }
+      : { data: { from: 0, to: 1, total: total(0), items: [] } })
+    api.PUT = vi.fn(async () => {
+      role = 'administrator'
+      return { data: { ...MEMBER, role } }
+    })
+    mount(api)
+    const control = await screen.findByRole('combobox', { name: 'Role for Grace' })
+    expect(control.textContent).toContain('Member')
+    fireEvent.click(control)
+    fireEvent.click(await screen.findByRole('option', { name: 'Administrator' }))
+    await waitFor(() => expect(api.PUT).toHaveBeenCalledWith(
+      '/api/v1/administration/people/{user_id}/role',
+      { params: { path: { user_id: 'u-grace' } }, body: { role: 'administrator' } },
+    ))
+    await waitFor(() => expect(control.textContent).toContain('Administrator'))
+    expect(screen.getByRole('combobox', { name: 'Role for Ada' })).toBeTruthy()
+  })
+
+  it('shows a refused role change and keeps the saved role', async () => {
+    const api = stubApi()
+    api.PUT = vi.fn(async () => ({ error: { error: {
+      code: 'conflict', message: 'The Org must have at least one enabled Administrator.',
+    } } })) as unknown as typeof api.PUT
+    mount(api)
+    const control = await screen.findByRole('combobox', { name: 'Role for Ada' })
+    fireEvent.click(control)
+    fireEvent.click(await screen.findByRole('option', { name: 'Member' }))
+    expect((await screen.findByRole('alert')).textContent).toContain('enabled Administrator')
+    expect(control.textContent).toContain('Administrator')
   })
 
   it('creates an account from the address, the name and a first password', async () => {

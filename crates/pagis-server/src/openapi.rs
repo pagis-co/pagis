@@ -212,6 +212,7 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         administration::reset_password,
         administration::set_spend_cap,
         administration::set_sign_in,
+        administration::set_role,
         administration::installation_usage,
         administration::my_usage,
         administration::list_sessions,

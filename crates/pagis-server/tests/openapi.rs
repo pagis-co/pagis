@@ -113,3 +113,15 @@ fn connections_contract_keeps_the_settings_and_providers_tags() {
         }
     }
 }
+
+#[test]
+fn person_role_contract_has_two_roles_and_the_conflict_response() {
+    let document = serde_json::to_value(pagis_server::ApiDoc::openapi()).unwrap();
+    let operation = &document["paths"]["/api/v1/administration/people/{user_id}/role"]["put"];
+    assert!(operation.is_object());
+    assert!(operation["responses"]["409"].is_object());
+    assert_eq!(
+        document["components"]["schemas"]["PersonRole"]["enum"],
+        serde_json::json!(["administrator", "member"])
+    );
+}

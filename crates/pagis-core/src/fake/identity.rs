@@ -291,6 +291,35 @@ impl UserStore for FakeUserStore {
         row.updated_at = at;
         Ok(true)
     }
+    async fn set_role(
+        &self,
+        id: &UserId,
+        role: UserRole,
+        at: UnixMillis,
+    ) -> Result<bool, StoreError> {
+        let mut data = self.0.lock().unwrap();
+        let Some(person) = data.users.get(id) else {
+            return Ok(false);
+        };
+        if role == UserRole::Member
+            && person.role == UserRole::Administrator
+            && !person.is_disabled()
+            && !data.users.values().any(|other| {
+                other.org_id == person.org_id
+                    && other.id != person.id
+                    && other.role == UserRole::Administrator
+                    && !other.is_disabled()
+            })
+        {
+            return Err(conflict(
+                "The Org must have at least one enabled Administrator.",
+            ));
+        }
+        let person = data.users.get_mut(id).unwrap();
+        person.role = role;
+        person.updated_at = at;
+        Ok(true)
+    }
     async fn set_monthly_spend_cap(
         &self,
         id: &UserId,

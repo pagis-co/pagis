@@ -690,6 +690,108 @@ pub async fn a_live_session_is_found_by_its_id(backend: &Backend) {
     );
 }
 
+/// A role write keeps an enabled Administrator and changes no other fields.
+pub async fn role_changes_keep_an_enabled_administrator(backend: &Backend) {
+    let stores = backend.stores();
+    let first = seed_org_and_administrator(stores.orgs.as_ref(), stores.users.as_ref(), "Org", 1)
+        .await
+        .unwrap();
+    let users = &stores.users;
+    assert!(matches!(
+        users.set_role(&first.id, UserRole::Member, 2).await,
+        Err(pagis_core::StoreError::Conflict(_))
+    ));
+    let second = User::new(first.org_id.clone(), UserRole::Member, 3);
+    users.create(&second).await.unwrap();
+    assert!(
+        users
+            .set_role(&second.id, UserRole::Administrator, 4)
+            .await
+            .unwrap()
+    );
+    let saved = users.get(&second.id).await.unwrap().unwrap();
+    assert_eq!(
+        saved,
+        User {
+            role: UserRole::Administrator,
+            updated_at: 4,
+            ..second.clone()
+        }
+    );
+    users.set_disabled(&second.id, Some(5), 5).await.unwrap();
+    assert!(matches!(
+        users.set_role(&first.id, UserRole::Member, 6).await,
+        Err(pagis_core::StoreError::Conflict(_))
+    ));
+    assert!(
+        users
+            .set_role(&second.id, UserRole::Member, 7)
+            .await
+            .unwrap()
+    );
+    users.set_disabled(&second.id, None, 8).await.unwrap();
+    users
+        .set_role(&second.id, UserRole::Administrator, 9)
+        .await
+        .unwrap();
+    assert!(
+        users
+            .set_role(&first.id, UserRole::Member, 10)
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        users.get(&first.id).await.unwrap().unwrap().role,
+        UserRole::Member
+    );
+    assert!(
+        users
+            .set_role(&second.id, UserRole::Administrator, 11)
+            .await
+            .unwrap()
+    );
+    assert!(
+        !users
+            .set_role(&pagis_core::UserId::generate(), UserRole::Member, 12)
+            .await
+            .unwrap()
+    );
+}
+
+/// Two concurrent demotions cannot remove both enabled Administrators.
+pub async fn concurrent_role_changes_keep_an_enabled_administrator(backend: &Backend) {
+    let stores = backend.stores();
+    let first = seed_org_and_administrator(stores.orgs.as_ref(), stores.users.as_ref(), "Org", 1)
+        .await
+        .unwrap();
+    let second = User::new(first.org_id.clone(), UserRole::Administrator, 2);
+    stores.users.create(&second).await.unwrap();
+    let (one, two) = tokio::join!(
+        stores.users.set_role(&first.id, UserRole::Member, 3),
+        stores.users.set_role(&second.id, UserRole::Member, 3),
+    );
+    assert_eq!(
+        usize::from(matches!(one, Ok(true))) + usize::from(matches!(two, Ok(true))),
+        1
+    );
+    assert!(matches!(
+        (&one, &two),
+        (Err(pagis_core::StoreError::Conflict(_)), Ok(true))
+            | (Ok(true), Err(pagis_core::StoreError::Conflict(_)))
+    ));
+    assert_eq!(
+        stores
+            .users
+            .list_by_org(&first.org_id)
+            .await
+            .unwrap()
+            .iter()
+            .filter(|person| person.role == UserRole::Administrator && !person.is_disabled())
+            .count(),
+        1
+    );
+}
+
 /// Every body of this module. [`crate::store_suite!`] turns each one
 /// into a SQLite test and a Postgres test.
 #[macro_export]
@@ -697,6 +799,8 @@ macro_rules! store_suite_installation {
     ($emit:path) => {
         $emit!(
             installation,
+            role_changes_keep_an_enabled_administrator,
+            concurrent_role_changes_keep_an_enabled_administrator,
             a_usage_record_sums_per_workspace,
             an_unpriced_call_counts_and_adds_no_cost,
             an_empty_period_totals_to_zero,

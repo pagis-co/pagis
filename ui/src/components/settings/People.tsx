@@ -1,6 +1,6 @@
 // The People section: the roster of the installation, the form
 // that makes an account, and per person an invite, a monthly spend cap,
-// a password reset and a disable switch.
+// a role control, a password reset and a disable switch.
 //
 // An Administrator creates every account: there is no self-signup. The
 // answer holds the person's invite, a Sign-In Link good for seven days
@@ -16,7 +16,7 @@ import type {
   PersonUsageDto,
   SignInLinkDto,
 } from '../../api/client'
-import { Badge, Button, Dialog, Frame, Input, Row, SectionLabel } from '../../primitives'
+import { Badge, Button, Dialog, Frame, Input, Row, SectionLabel, Select } from '../../primitives'
 import {
   errorMessage,
   useCreateAccount,
@@ -27,6 +27,7 @@ import {
   useSetAccountEnabled,
   useSetSignIn,
   useSetSpendCap,
+  useSetPersonRole,
 } from '../../queries'
 import { SignInLinkCard } from './SignInLinkCard'
 
@@ -203,7 +204,7 @@ function SetSignIn({ api, person }: { api: ApiClient; person: PersonDto }) {
   )
 }
 
-/** One person: what they spent this month, their cap, a reset and the
+/** One Person: their role, what they spent this month, their cap, a reset and the
  *  disable switch. */
 function PersonRow({
   api,
@@ -214,6 +215,7 @@ function PersonRow({
   person: PersonDto
   spend: PersonUsageDto | undefined
 }) {
+  const setRole = useSetPersonRole(api)
   const setEnabled = useSetAccountEnabled(api)
   const reset = useResetAccountPassword(api)
   const setCap = useSetSpendCap(api)
@@ -233,7 +235,20 @@ function PersonRow({
       <Row>
         <span className="people-name">{label}</span>
         <span className="people-email">{person.email ?? 'Signs in on this machine'}</span>
-        {person.role === 'administrator' && <Badge tone="working">Administrator</Badge>}
+        <Select
+          label={`Role for ${label}`}
+          value={person.role}
+          disabled={setRole.isPending}
+          items={[
+            { value: 'administrator', label: 'Administrator' },
+            { value: 'member', label: 'Member' },
+          ]}
+          onValueChange={(role) => {
+            if (role === 'administrator' || role === 'member') {
+              setRole.mutate({ userId: person.id, role })
+            }
+          }}
+        />
         {person.disabled && <Badge tone="failed">Disabled</Badge>}
         {spend?.cap_reached && <Badge tone="failed">At their cap</Badge>}
         <span className="people-spend">
@@ -305,10 +320,10 @@ function PersonRow({
         </Button>
       </Row>
       {person.email === null && <SetSignIn api={api} person={person} />}
-      {(setEnabled.isError || reset.isError || setCap.isError || makeInvite.isError) && (
+      {(setRole.isError || setEnabled.isError || reset.isError || setCap.isError || makeInvite.isError) && (
         <span className="settings-error" role="alert">
           {errorMessage(
-            setEnabled.error ?? reset.error ?? setCap.error ?? makeInvite.error,
+            setRole.error ?? setEnabled.error ?? reset.error ?? setCap.error ?? makeInvite.error,
             'That change could not be saved.',
           )}
         </span>
