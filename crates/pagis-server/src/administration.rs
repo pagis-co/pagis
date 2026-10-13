@@ -491,7 +491,7 @@ pub async fn create_account(
         &person.id,
         &name,
         &timezone,
-        crate::provisioning::Onboarding::Done,
+        crate::provisioning::Onboarding::Wizard,
         now,
     )
     .await?;

@@ -1,20 +1,12 @@
-// The route a first run walks: welcome, providers, computer. The shell
-// renders one step at a time and the stepper reads this list, so the
-// order is written once.
+// The server owns the offered order. The Product App supplies the labels.
 
-export type StepId = 'welcome' | 'model' | 'computer'
+import type { components } from '../../api/schema'
 
-export interface Step {
-  id: StepId
-  label: string
-}
+export type StepId = components['schemas']['OnboardingStep']
 
-export const STEPS: Step[] = [
-  { id: 'welcome', label: 'Welcome' },
-  { id: 'model', label: 'Providers' },
-  { id: 'computer', label: 'Computer' },
-]
-
-export function stepIndex(step: StepId): number {
-  return STEPS.findIndex((entry) => entry.id === step)
+export const STEP_LABELS: Record<StepId, string> = {
+  welcome: 'Welcome',
+  model: 'Model',
+  profile: 'Profile',
+  computer: 'Computer',
 }
