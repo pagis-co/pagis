@@ -1547,7 +1547,8 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         product_app_links: booted.config.product_app.links.clone(),
         administration_sections: pagis_server::AdministrationSections::without(
             &booted.config.administration.hide,
-        ),
+        )
+        .with_links(booted.config.administration.links.clone()),
         proxy: options.proxy,
         ring,
         hub,

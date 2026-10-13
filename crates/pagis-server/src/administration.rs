@@ -70,6 +70,7 @@ const RUN_PAGE: u32 = 200;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AdministrationSection {
+    Hosts,
     Providers,
     Settings,
     Restart,
@@ -77,7 +78,10 @@ pub enum AdministrationSection {
 
 /// The optional sections that the Administration Port offers.
 #[derive(Debug, Clone)]
-pub struct AdministrationSections(BTreeSet<AdministrationSection>);
+pub struct AdministrationSections {
+    sections: BTreeSet<AdministrationSection>,
+    links: Vec<crate::ConfiguredLink>,
+}
 
 impl FromRef<Arc<AppState>> for AdministrationSections {
     fn from_ref(state: &Arc<AppState>) -> Self {
@@ -94,8 +98,9 @@ impl Default for AdministrationSections {
 impl AdministrationSections {
     /// Offer all sections except the ones the deployment hides.
     pub fn without(hidden: &[AdministrationSection]) -> Self {
-        Self(
-            [
+        Self {
+            sections: [
+                AdministrationSection::Hosts,
                 AdministrationSection::Providers,
                 AdministrationSection::Settings,
                 AdministrationSection::Restart,
@@ -106,19 +111,27 @@ impl AdministrationSections {
                 cfg!(feature = "native") || *section == AdministrationSection::Providers
             })
             .collect(),
-        )
+            links: Vec::new(),
+        }
+    }
+
+    /// Add the links the Server configuration names for the navigation.
+    pub fn with_links(mut self, links: Vec<crate::ConfiguredLink>) -> Self {
+        self.links = links;
+        self
     }
 
     pub fn contains(&self, section: AdministrationSection) -> bool {
-        self.0.contains(&section)
+        self.sections.contains(&section)
     }
 
     fn offered(&self) -> Vec<&'static str> {
-        use AdministrationSection::{Providers, Restart, Settings};
+        use AdministrationSection::{Hosts, Providers, Restart, Settings};
         [
             ("spend", None),
             ("people", None),
             ("sessions", None),
+            ("hosts", Some(Hosts)),
             ("resources", None),
             ("providers", Some(Providers)),
             ("settings", Some(Settings)),
@@ -137,6 +150,9 @@ impl AdministrationSections {
 pub struct AdministrationSectionsDto {
     /// The offered sections, in navigation order. Restart has no view.
     pub sections: Vec<&'static str>,
+    /// The links the Server configuration names, in navigation order.
+    #[schema(max_items = 3)]
+    pub links: Vec<crate::ConfiguredLink>,
 }
 
 /// The sections this server offers to an Administrator.
@@ -154,6 +170,7 @@ pub async fn get_sections(
 ) -> Json<AdministrationSectionsDto> {
     Json(AdministrationSectionsDto {
         sections: sections.offered(),
+        links: sections.links,
     })
 }
 
@@ -1189,7 +1206,6 @@ pub fn router(state: Arc<AppState>) -> Router {
         )
         .route("/api/v1/administration/usage", get(installation_usage))
         .route("/api/v1/administration/sessions", get(list_sessions))
-        .route("/api/v1/administration/hosts", get(list_hosts))
         .route("/api/v1/administration/health", get(installation_health))
         // Who the page serves. A Member who reaches the port gets `403`
         // from the layer here too, so the page says what is wrong
@@ -1260,6 +1276,12 @@ pub fn router(state: Arc<AppState>) -> Router {
     }
     if state
         .administration_sections
+        .contains(AdministrationSection::Hosts)
+    {
+        guarded = guarded.route("/api/v1/administration/hosts", get(list_hosts));
+    }
+    if state
+        .administration_sections
         .contains(AdministrationSection::Restart)
     {
         guarded = guarded.route("/api/v1/system/restart", post(crate::system::restart));
@@ -1322,3 +1344,7 @@ mod tests {
 #[cfg(all(test, not(feature = "native")))]
 #[path = "administration_portable_tests.rs"]
 mod portable_tests;
+
+#[cfg(test)]
+#[path = "administration_sections_tests.rs"]
+mod sections_tests;

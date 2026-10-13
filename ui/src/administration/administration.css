@@ -35,6 +35,10 @@
   gap: var(--space-1);
 }
 
+.administration-nav-item {
+  text-decoration: none;
+}
+
 .administration-nav-item-active {
   background: var(--hover);
   font-weight: var(--weight-semibold);

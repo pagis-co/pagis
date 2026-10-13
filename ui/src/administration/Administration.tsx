@@ -118,12 +118,21 @@ export function AdministrationShell({
               {entry.label}
             </Button>
           ))}
+          {sections.data.links.map((link, index) => (
+            <a
+              key={index}
+              href={link.url}
+              className="ui-button ui-button-ghost ui-button-md administration-nav-item"
+            >
+              {link.label}
+            </a>
+          ))}
         </nav>
       </header>
       <main className="administration-content">
         {view === 'spend' && <Spend api={api} />}
         {view === 'people' && <People api={api} />}
-        {view === 'sessions' && <Sessions api={api} />}
+        {view === 'sessions' && <Sessions api={api} hostsAvailable={sections.data.sections.includes('hosts')} />}
         {view === 'resources' && <Resources api={api} />}
         {view === 'providers' && <Providers api={api} />}
         {view === 'settings' && (
