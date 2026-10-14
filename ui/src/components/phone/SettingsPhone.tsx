@@ -13,7 +13,7 @@ import {
   useWorkspace,
   useUser,
 } from '../../queries'
-import { SETTINGS_GROUPS } from '../SettingsPanel'
+import { SETTINGS_GROUPS } from '../settings/groups'
 import { OrgSettingsGroup } from '../settings/OrgSettingsGroup'
 import { timezoneName } from '../../timezone'
 import { NavBar } from './TopBar'

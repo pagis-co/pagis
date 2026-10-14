@@ -3,6 +3,7 @@
   "private": true,
   "license": "MIT",
   "exports": {
+    "./shell": "./src/shell.ts",
     "./primitives": "./src/primitives/index.ts",
     "./tokens.css": "./src/tokens.css",
     "./fonts": "./src/fonts.ts"

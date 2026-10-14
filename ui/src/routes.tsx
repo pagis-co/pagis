@@ -40,8 +40,8 @@ import { RunsList } from './components/runs/RunsList'
 import {
   SettingsPanel,
   SettingsShell,
-  isSettingsSection,
 } from './components/SettingsPanel'
+import { isSettingsSection } from './components/settings/groups'
 import { ConnectionPage } from './components/connection/ConnectionPage'
 import { MissingConversation } from './components/MissingConversation'
 import { directMessageChannel } from './components/AskAnAgent'

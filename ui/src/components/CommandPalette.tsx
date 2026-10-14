@@ -9,7 +9,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { ApiClient } from '../api/client'
 import { Button, Dialog, Input } from '../primitives'
 import { useAgentNames, useAgents, useChannels, useRuns } from '../queries'
-import { SETTINGS_SECTIONS } from './SettingsPanel'
+import { SETTINGS_SECTIONS } from './settings/groups'
 
 import './CommandPalette.css'
 

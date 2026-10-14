@@ -10,12 +10,14 @@ export function OrgSettingsGroup({
   administration,
   isAdministrator,
   phone = false,
+  currentUrl,
   currentView,
   onSelectView,
 }: {
   administration?: AdministrationAddress | null
   isAdministrator: boolean
   phone?: boolean
+  currentUrl?: string
   currentView?: AdministrationView
   onSelectView?: (view: AdministrationView) => void
 }) {
@@ -47,7 +49,8 @@ export function OrgSettingsGroup({
       href={item.url}
       variant="ghost"
       shape="nav"
-      className="settings-nav-item"
+      className={cx('settings-nav-item', item.url === currentUrl && 'settings-nav-item-active')}
+      aria-current={item.url === currentUrl ? 'page' : undefined}
     >
       {item.label}
     </ButtonLink>
