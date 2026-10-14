@@ -1,5 +1,6 @@
 
-import { Button, SectionLabel, SettingsNav as Shell, cx } from '../../primitives'
+import { Button, ButtonLink, SectionLabel, SettingsNav as Shell, cx } from '../../primitives'
+import type { AdministrationView } from '../../administration/views'
 import { type SettingsSection, SETTINGS_GROUPS } from '../SettingsPanel'
 
 import { OrgSettingsGroup, type AdministrationAddress } from './OrgSettingsGroup'
@@ -13,12 +14,18 @@ export function SettingsNav({
   onSelectSection,
   isAdministrator,
   administration,
+  publicOrigin,
+  currentView,
+  onSelectView,
 }: {
-  section: SettingsSection
-  onSelectSection: (section: SettingsSection) => void
+  section?: SettingsSection
+  onSelectSection?: (section: SettingsSection) => void
   /** A Member sees no Org group. */
   isAdministrator: boolean
   administration?: AdministrationAddress | null
+  publicOrigin?: string
+  currentView?: AdministrationView
+  onSelectView?: (view: AdministrationView) => void
 }) {
 
   return (
@@ -35,7 +42,8 @@ export function SettingsNav({
         >
           <SectionLabel>{group.label}</SectionLabel>
           {group.sections.map((item) => (
-            <Button
+            publicOrigin ? <ButtonLink key={item.value} variant="ghost" shape="nav" className="settings-nav-item"
+              href={`${publicOrigin}/settings/${item.value}`}>{item.label}</ButtonLink> : <Button
               key={item.value}
               variant="ghost"
               shape="nav"
@@ -44,14 +52,14 @@ export function SettingsNav({
                 item.value === section && 'settings-nav-item-active',
               )}
               aria-current={item.value === section ? 'page' : undefined}
-              onClick={() => onSelectSection(item.value)}
+              onClick={() => onSelectSection?.(item.value)}
             >
               {item.label}
             </Button>
           ))}
         </div>
       ))}
-      <OrgSettingsGroup administration={administration} isAdministrator={isAdministrator} />
+      <OrgSettingsGroup administration={administration} isAdministrator={isAdministrator} currentView={currentView} onSelectView={onSelectView} />
     </Shell>
   )
 }

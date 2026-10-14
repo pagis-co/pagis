@@ -19,7 +19,11 @@ import { SignIn } from '../SignIn'
 import { Plugins } from '../components/Plugins'
 import { People } from '../components/settings/People'
 import { SystemSection } from '../components/settings/SystemSection'
-import { Button, cx } from '../primitives'
+import { ReadingColumn } from '../primitives'
+import { SidebarFrame } from '../components/sidebar/SidebarFrame'
+import { SettingsNav } from '../components/settings/SettingsNav'
+import { NavBar } from '../components/phone/TopBar'
+import { useIsMobile } from '../state/useIsMobile'
 import { errorCode, useAdministrationSections, useSetupState, useSignOut, useUser, useUserName } from '../queries'
 import { Health } from './Health'
 import { Providers } from './Providers'
@@ -57,6 +61,8 @@ export function AdministrationShell({
   const view = views.find((entry) => entry.value === selected)?.value ?? views[0]?.value
   const signOut = useSignOut(api)
   const name = useUserName(api)
+  const user = useUser(api).data
+  const phone = useIsMobile()
 
   useEffect(() => {
     if (view && view !== selected) {
@@ -75,62 +81,49 @@ export function AdministrationShell({
   if (sections.isError) return <p role="alert">The administration sections could not be read.</p>
 
   return (
-    <div className="administration">
-      <header className="administration-header">
-        <div className="administration-header-top">
-          <h1>Administration</h1>
-          <span className="administration-note">{name}</span>
-          <Button
-            variant="ghost"
-            className="administration-row-trailing"
-            disabled={signOut.isPending}
-            onClick={() => signOut.mutate()}
-          >
-            Sign out
-          </Button>
-        </div>
-        <nav aria-label="Administration">
-          {views.map((entry) => (
-            <Button
-              key={entry.value}
-              variant="ghost"
-              className={cx(
-                'administration-nav-item',
-                entry.value === view && 'administration-nav-item-active',
-              )}
-              aria-current={entry.value === view ? 'page' : undefined}
-              onClick={() => {
-                setView(entry.value)
-                window.history.pushState(null, '', `${pathPrefix}/${entry.value}`)
-              }}
-            >
-              {entry.label}
-            </Button>
-          ))}
-          {sections.data.links.map((link, index) => (
-            <a
-              key={index}
-              href={link.url}
-              className="ui-button ui-button-ghost ui-button-md administration-nav-item"
-            >
-              {link.label}
-            </a>
-          ))}
-        </nav>
-      </header>
+    <div className={phone ? 'administration phone-shell' : 'administration'}>
+      {phone ? (
+        <NavBar back={{ label: 'Settings', onBack: () => window.location.assign(`${sections.data.public_origin}/settings`) }} />
+      ) : <>
+        <SidebarFrame
+          userName={name}
+          org={user?.org}
+          links={user?.product_app_links}
+          role={user?.role ?? 'administrator'}
+          notice={user?.notice}
+          currentPlace="settings"
+          publicOrigin={sections.data.public_origin}
+          onSignOut={() => signOut.mutate()}
+          signOutPending={signOut.isPending}
+        />
+        {user?.administration && <SettingsNav
+          isAdministrator
+          // The Person is on this page already, so the group shows no tunnel command.
+          administration={{ ...user.administration, loopback: false, sections: sections.data.sections, links: sections.data.links }}
+          publicOrigin={sections.data.public_origin}
+          currentView={view}
+          onSelectView={(next) => {
+            if (next === view) return
+            setView(next)
+            window.history.pushState(null, '', `${pathPrefix}/${next}`)
+          }}
+        />}
+      </>}
       <main className="administration-content">
-        {view === 'spend' && <Spend api={api} />}
-        {view === 'people' && <People api={api} />}
-        {view === 'sessions' && <Sessions api={api} hostsAvailable={sections.data.sections.includes('hosts')} />}
-        {view === 'resources' && <Resources api={api} />}
-        {view === 'providers' && <Providers api={api} />}
-        {view === 'settings' && (
-          <section className="administration-settings">
-            <SystemSection api={api} restartAvailable={sections.data.sections.includes('restart')} />
-          </section>
-        )}
-        {view === 'plugins' && <Plugins api={api} />}
-        {view === 'health' && <Health api={api} />}
+        <ReadingColumn>
+          {view === 'spend' && <Spend api={api} />}
+          {view === 'people' && <People api={api} />}
+          {view === 'sessions' && <Sessions api={api} hostsAvailable={sections.data.sections.includes('hosts')} />}
+          {view === 'resources' && <Resources api={api} />}
+          {view === 'providers' && <Providers api={api} />}
+          {view === 'settings' && (
+            <section className="administration-settings">
+              <SystemSection api={api} restartAvailable={sections.data.sections.includes('restart')} />
+            </section>
+          )}
+          {view === 'plugins' && <Plugins api={api} />}
+          {view === 'health' && <Health api={api} />}
+        </ReadingColumn>
       </main>
     </div>
   )

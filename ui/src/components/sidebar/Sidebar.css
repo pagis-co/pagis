@@ -200,15 +200,21 @@
   font-weight: var(--weight-regular);
 }
 
-.sidebar > .person-notice {
+.sidebar-notice {
   margin-top: auto;
   padding: var(--space-2);
 }
 
-.sidebar-capture-notice + .person-notice {
+.sidebar-capture-notice + .sidebar-notice {
   margin-top: var(--space-2);
 }
 
-.sidebar > .person-notice + .sidebar-profile {
+.sidebar-notice + .sidebar-profile {
   margin-top: var(--space-2);
+}
+
+.place-icon {
+  width: var(--space-4);
+  height: var(--space-4);
+  flex: none;
 }

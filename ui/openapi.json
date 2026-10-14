@@ -11375,6 +11375,7 @@
       "AdministrationSectionsDto": {
         "type": "object",
         "required": [
+          "public_origin",
           "sections",
           "links"
         ],
@@ -11386,6 +11387,10 @@
             },
             "description": "The links the Server configuration names, in navigation order.",
             "maxItems": 3
+          },
+          "public_origin": {
+            "type": "string",
+            "description": "The origin where the Product App opens."
           },
           "sections": {
             "type": "array",

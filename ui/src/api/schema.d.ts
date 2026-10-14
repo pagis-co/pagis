@@ -3309,6 +3309,8 @@ export interface components {
         AdministrationSectionsDto: {
             /** @description The links the Server configuration names, in navigation order. */
             links: components["schemas"]["ConfiguredLink"][];
+            /** @description The origin where the Product App opens. */
+            public_origin: string;
             /** @description The offered sections, in navigation order. Restart has no view. */
             sections: string[];
         };

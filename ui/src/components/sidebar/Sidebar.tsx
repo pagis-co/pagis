@@ -7,19 +7,11 @@
 // conversation row in a thread, a place elsewhere. On a phone the same
 // column is replaced by the phone layout at 760 px and below.
 
-import { Ellipsis, LogOut, Plus, Search } from 'lucide-react'
+import { Plus } from 'lucide-react'
 import { useState } from 'react'
 
 import type { ApiClient } from '../../api/client'
-import {
-  Button,
-  cx,
-  IconButton,
-  LogoMark,
-  Menu,
-  OwnerAvatar,
-  Sidebar as SidebarShell,
-} from '../../primitives'
+import { IconButton } from '../../primitives'
 import {
   useAgents,
   useChannels,
@@ -28,12 +20,11 @@ import {
   useUserName,
   useWorkspace,
 } from '../../queries'
-import { PersonNotice } from '../PersonNotice'
-import { OrgHead } from '../OrgHead'
+import { SidebarFrame } from './SidebarFrame'
 import { ConversationRow } from './ConversationRow'
 import { conversationRows } from './conversations'
 import { NewGroupForm } from './NewGroupForm'
-import { PLACES, placeForPath, type PlaceId } from './places'
+import { placeForPath, type PlaceId } from './places'
 
 import './Sidebar.css'
 
@@ -74,37 +65,19 @@ export function Sidebar({
   )
 
   return (
-    <SidebarShell className="sidebar">
-      <div className="sidebar-header">
-        <span className="sidebar-brand">
-          <LogoMark />
-          Pagis
-        </span>
-        <IconButton icon={Search} label="Search" variant="ghost" size="sm" onClick={onSearch} />
-      </div>
-
-      {user?.org && <OrgHead org={user.org} role={user.role} />}
-
-      <nav className="sidebar-places" aria-label="Places">
-        {PLACES.map((place) => (
-          <Button
-            key={place.id}
-            variant="ghost"
-            className={cx('place', place.id === currentPlace && 'place-current')}
-            aria-current={place.id === currentPlace ? 'page' : undefined}
-            onClick={() => onSelectPlace(place.id)}
-          >
-            <place.icon size={16} aria-hidden />
-            <span>{place.label}</span>
-            {place.id === 'home' && needsYou > 0 && (
-              <span className="place-count" aria-label={`${needsYou} need you`}>
-                {needsYou}
-              </span>
-            )}
-          </Button>
-        ))}
-      </nav>
-
+    <SidebarFrame
+      userName={userName}
+      org={user?.org}
+      role={user?.role ?? 'member'}
+      links={links}
+      captureDays={captureDays}
+      notice={user?.notice}
+      currentPlace={currentPlace}
+      needsYou={needsYou}
+      onSelectPlace={onSelectPlace}
+      onSearch={onSearch}
+      onSignOut={onSignOut}
+    >
       <nav className="sidebar-conversations" aria-label="Conversations">
         <div className="sidebar-conversations-heading">
           <span>Conversations</span>
@@ -139,39 +112,6 @@ export function Sidebar({
           <p className="sidebar-empty">No conversations yet.</p>
         )}
       </nav>
-
-      {captureDays !== null && (
-        <p className="sidebar-capture-notice" role="note">
-          Pagis keeps a copy of your model requests for {captureDays} days.
-        </p>
-      )}
-
-      <PersonNotice notice={user?.notice} />
-
-      <div className="sidebar-profile">
-        <Button
-          variant="ghost"
-          className="sidebar-profile-open"
-          onClick={() => onSelectPlace('settings')}
-        >
-          <OwnerAvatar name={userName} size="md" />
-          <span>{userName}</span>
-        </Button>
-        {links.length > 0 && (
-          <Menu
-            label="Account menu"
-            trigger={<IconButton icon={Ellipsis} label="Account menu" variant="ghost" size="sm" />}
-            items={links.map((link) => ({ label: link.label, href: link.url }))}
-          />
-        )}
-        <IconButton
-          icon={LogOut}
-          label="Sign out"
-          variant="ghost"
-          size="sm"
-          onClick={onSignOut}
-        />
-      </div>
-    </SidebarShell>
+    </SidebarFrame>
   )
 }

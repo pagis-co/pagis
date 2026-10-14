@@ -1,47 +1,32 @@
-/* The Administration Interface: a header with the views, and one
- * view at a time under it. Every value comes from `tokens.css`, so the
- * page reads as the product does. */
+/* The Administration Interface shares the product navigation shells. */
 
 .administration {
   display: flex;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.administration > .ui-settings-nav {
+  overflow: hidden auto;
+}
+
+.administration-content {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-7) var(--space-10);
+  overflow: hidden auto;
+}
+
+.administration-content > .ui-reading-column {
+  gap: var(--space-4);
+}
+
+.administration.phone-shell {
   flex-direction: column;
-  gap: var(--space-6);
-  max-width: 64rem;
-  margin: 0 auto;
-  padding: var(--space-8) var(--space-6) var(--space-16);
 }
 
-.administration-header {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-}
-
-.administration-header-top {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-3);
-}
-
-.administration-header h1 {
-  margin: 0;
-  font-size: var(--text-lg);
-  font-weight: var(--weight-semibold);
-}
-
-.administration-header nav {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1);
-}
-
-.administration-nav-item {
-  text-decoration: none;
-}
-
-.administration-nav-item-active {
-  background: var(--hover);
-  font-weight: var(--weight-semibold);
+.administration.phone-shell .administration-content {
+  padding: var(--space-4);
 }
 
 .administration-content,
